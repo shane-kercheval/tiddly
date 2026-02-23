@@ -369,27 +369,27 @@ async def handle_list_tools() -> list[types.Tool]:
                 "type": "object",
                 "properties": {
                     "query": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": _t["search_prompts"]["parameters"]["query"],
                     },
                     "tags": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {"type": "string"},
                         "description": _t["search_prompts"]["parameters"]["tags"],
                     },
                     "tag_match": {
-                        "type": "string",
-                        "enum": ["all", "any"],
+                        "type": ["string", "null"],
+                        "enum": ["all", "any", None],
                         "description": _t["search_prompts"]["parameters"]["tag_match"],
                     },
                     "sort_by": {
-                        "type": "string",
-                        "enum": ["created_at", "updated_at", "last_used_at", "title"],
+                        "type": ["string", "null"],
+                        "enum": ["created_at", "updated_at", "last_used_at", "title", None],
                         "description": _t["search_prompts"]["parameters"]["sort_by"],
                     },
                     "sort_order": {
-                        "type": "string",
-                        "enum": ["asc", "desc"],
+                        "type": ["string", "null"],
+                        "enum": ["asc", "desc", None],
                         "description": _t["search_prompts"]["parameters"]["sort_order"],
                     },
                     "limit": {
@@ -404,7 +404,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["search_prompts"]["parameters"]["offset"],
                     },
                     "filter_id": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": _t["search_prompts"]["parameters"]["filter_id"],
                     },
                 },
@@ -479,11 +479,11 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["create_prompt"]["parameters"]["name"],
                     },
                     "title": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": _t["create_prompt"]["parameters"]["title"],
                     },
                     "description": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": _t["create_prompt"]["parameters"]["description"],
                     },
                     "content": {
@@ -491,14 +491,14 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["create_prompt"]["parameters"]["content"],
                     },
                     "arguments": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "description": _t["create_prompt"]["parameters"]["arguments"],
                         "items": _arguments_items_schema(
                             _t["create_prompt"]["parameters"],
                         ),
                     },
                     "tags": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {"type": "string"},
                         "description": _t["create_prompt"]["parameters"]["tags"],
                     },
@@ -526,7 +526,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["edit_prompt_content"]["parameters"]["new_str"],
                     },
                     "arguments": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "description": _t["edit_prompt_content"]["parameters"]["arguments"],
                         "items": _arguments_items_schema(
                             _t["edit_prompt_content"]["parameters"],
@@ -547,35 +547,35 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["update_prompt"]["parameters"]["name"],
                     },
                     "new_name": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["new_name"],
                     },
                     "title": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["title"],
                     },
                     "description": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["description"],
                     },
                     "tags": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {"type": "string"},
                         "description": _t["update_prompt"]["parameters"]["tags"],
                     },
                     "content": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["content"],
                     },
                     "arguments": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "description": _t["update_prompt"]["parameters"]["arguments"],
                         "items": _arguments_items_schema(
                             _t["update_prompt"]["parameters"],
                         ),
                     },
                     "expected_updated_at": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["expected_updated_at"],
                     },
                 },
@@ -628,23 +628,23 @@ async def _handle_search_prompts(  # noqa: PLR0912
     client = get_http_client()
     token = _get_token()
 
-    # Build query params
+    # Build query params (filter out None values from models that send explicit nulls)
     params: dict[str, Any] = {}
-    if "query" in arguments:
+    if arguments.get("query") is not None:
         params["q"] = arguments["query"]
-    if "tags" in arguments:
+    if arguments.get("tags") is not None:
         params["tags"] = arguments["tags"]
-    if "tag_match" in arguments:
+    if arguments.get("tag_match") is not None:
         params["tag_match"] = arguments["tag_match"]
-    if "sort_by" in arguments:
+    if arguments.get("sort_by") is not None:
         params["sort_by"] = arguments["sort_by"]
-    if "sort_order" in arguments:
+    if arguments.get("sort_order") is not None:
         params["sort_order"] = arguments["sort_order"]
-    if "limit" in arguments:
+    if arguments.get("limit") is not None:
         params["limit"] = arguments["limit"]
-    if "offset" in arguments:
+    if arguments.get("offset") is not None:
         params["offset"] = arguments["offset"]
-    if "filter_id" in arguments:
+    if arguments.get("filter_id") is not None:
         params["filter_id"] = arguments["filter_id"]
 
     try:
@@ -787,6 +787,7 @@ async def _handle_get_prompt_content(
         "description": prompt.get("description"),
         "content": prompt.get("content"),
         "arguments": prompt.get("arguments", []),
+        "updated_at": prompt.get("updated_at"),
     }
 
     # Include content_metadata if present (for partial reads)
@@ -847,6 +848,7 @@ async def _handle_get_prompt_metadata(
         "tags": prompt.get("tags", []),
         "prompt_length": prompt.get("content_length"),
         "prompt_preview": prompt.get("content_preview"),
+        "updated_at": prompt.get("updated_at"),
     }
 
     return [
@@ -862,18 +864,18 @@ async def _handle_create_prompt(arguments: dict[str, Any]) -> types.CallToolResu
     client = get_http_client()
     token = _get_token()
 
-    # Build payload for API
+    # Build payload for API (filter out None values from models that send explicit nulls)
     payload: dict[str, Any] = {"name": arguments.get("name", "")}
 
-    if "title" in arguments:
+    if arguments.get("title") is not None:
         payload["title"] = arguments["title"]
-    if "description" in arguments:
+    if arguments.get("description") is not None:
         payload["description"] = arguments["description"]
-    if "content" in arguments:
+    if arguments.get("content") is not None:
         payload["content"] = arguments["content"]
-    if "arguments" in arguments:
+    if arguments.get("arguments") is not None:
         payload["arguments"] = arguments["arguments"]
-    if "tags" in arguments:
+    if arguments.get("tags") is not None:
         payload["tags"] = arguments["tags"]
 
     try:
@@ -954,9 +956,9 @@ async def _handle_edit_prompt_content(
     client = get_http_client()
     token = _get_token()
 
-    # Build payload
+    # Build payload (filter out None values from models that send explicit nulls)
     payload: dict[str, Any] = {"old_str": old_str, "new_str": new_str}
-    if "arguments" in arguments:
+    if arguments.get("arguments") is not None:
         payload["arguments"] = arguments["arguments"]
 
     try:

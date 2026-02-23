@@ -98,7 +98,7 @@ edit_prompt_content:
     new_str: |
       Replacement text. Use empty string to delete the matched text.
     arguments: |
-      The complete list of ALL argument definitions that should exist after the edit. Only include when template variables ({{ var }}) are being added, removed, or renamed. Omit entirely for text-only changes (existing arguments preserved automatically). This list fully replaces the current arguments. Preserve existing argument descriptions exactly — only modify descriptions the user explicitly asks to change.
+      The complete list of ALL argument definitions that should exist after the edit (full replacement). **Omit when template variables are unchanged** — this avoids unnecessary writes, reduces latency and cost, and eliminates the risk of accidentally altering argument names or descriptions. Only provide when variables are added, removed, or renamed, and include ALL argument definitions (not just changed ones).
     arguments_items_name: |
       Argument name (lowercase with underscores)
     arguments_items_description: |
@@ -123,7 +123,7 @@ update_prompt:
     content: |
       New template content (full replacement of entire template). Omit to leave unchanged.
     arguments: |
-      New arguments list. Only include when template variables are added, removed, or renamed. Omit to preserve existing arguments. See server instructions for replacement semantics. Preserve existing argument descriptions exactly — only modify descriptions the user explicitly asks to change.
+      New arguments list (full replacement). **Omit when template variables are unchanged** — this avoids unnecessary writes, reduces latency and cost, and eliminates the risk of accidentally altering argument names or descriptions. Only provide when variables are added, removed, or renamed, and include ALL argument definitions (not just changed ones).
     arguments_items_name: |
       Argument name (lowercase with underscores)
     arguments_items_description: |

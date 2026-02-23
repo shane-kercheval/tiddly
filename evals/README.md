@@ -66,6 +66,8 @@ uv run pytest evals/content_mcp/test_edit_content.py -v
 uv run pytest evals/content_mcp/test_update_item.py -v
 uv run pytest evals/prompt_mcp/test_edit_prompt_content.py -v
 uv run pytest evals/prompt_mcp/test_update_prompt.py -v
+
+uv run pytest evals/prompt_mcp/test_update_prompt.py::test_update_prompt[gpt-4o-mini]
 ```
 
 **NOTE**: Changes to MCP Servers (e.g. instructions/tool-descriptions, code changes to servers) are not hot reloaded; the MCP Servers need to be restarted.

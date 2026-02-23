@@ -309,14 +309,6 @@ Use the tool results above as context for the following instruction.
                 )
             )
 
-            # DEBUG: Print when something goes wrong
-            if tool_error or final_content is None:
-                print(f"\n[DEBUG] prompt_name={unique_name}")
-                print(f"[DEBUG] predicted_tool={predicted_tool}")
-                print(f"[DEBUG] predicted_args={predicted_args}")
-                print(f"[DEBUG] tool_error={tool_error}")
-                print(f"[DEBUG] final_content is None: {final_content is None}")
-
             # Compute the combined argument check:
             # - If expected is None: LLM should NOT have provided arguments
             # - If expected is a list: final argument names should match
