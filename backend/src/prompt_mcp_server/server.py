@@ -369,23 +369,27 @@ async def handle_list_tools() -> list[types.Tool]:
                 "type": "object",
                 "properties": {
                     "query": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "type": ["string", "null"],
                         "description": _t["search_prompts"]["parameters"]["query"],
                     },
                     "tags": {
-                        "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
+                        "type": ["array", "null"],
+                        "items": {"type": "string"},
                         "description": _t["search_prompts"]["parameters"]["tags"],
                     },
                     "tag_match": {
-                        "anyOf": [{"type": "string", "enum": ["all", "any"]}, {"type": "null"}],
+                        "type": ["string", "null"],
+                        "enum": ["all", "any", None],
                         "description": _t["search_prompts"]["parameters"]["tag_match"],
                     },
                     "sort_by": {
-                        "anyOf": [{"type": "string", "enum": ["created_at", "updated_at", "last_used_at", "title"]}, {"type": "null"}],
+                        "type": ["string", "null"],
+                        "enum": ["created_at", "updated_at", "last_used_at", "title", None],
                         "description": _t["search_prompts"]["parameters"]["sort_by"],
                     },
                     "sort_order": {
-                        "anyOf": [{"type": "string", "enum": ["asc", "desc"]}, {"type": "null"}],
+                        "type": ["string", "null"],
+                        "enum": ["asc", "desc", None],
                         "description": _t["search_prompts"]["parameters"]["sort_order"],
                     },
                     "limit": {
@@ -400,7 +404,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["search_prompts"]["parameters"]["offset"],
                     },
                     "filter_id": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "type": ["string", "null"],
                         "description": _t["search_prompts"]["parameters"]["filter_id"],
                     },
                 },
@@ -475,11 +479,11 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["create_prompt"]["parameters"]["name"],
                     },
                     "title": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "type": ["string", "null"],
                         "description": _t["create_prompt"]["parameters"]["title"],
                     },
                     "description": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "type": ["string", "null"],
                         "description": _t["create_prompt"]["parameters"]["description"],
                     },
                     "content": {
@@ -487,11 +491,15 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["create_prompt"]["parameters"]["content"],
                     },
                     "arguments": {
-                        "anyOf": [{"type": "array", "items": _arguments_items_schema(_t["create_prompt"]["parameters"])}, {"type": "null"}],
+                        "type": ["array", "null"],
                         "description": _t["create_prompt"]["parameters"]["arguments"],
+                        "items": _arguments_items_schema(
+                            _t["create_prompt"]["parameters"],
+                        ),
                     },
                     "tags": {
-                        "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
+                        "type": ["array", "null"],
+                        "items": {"type": "string"},
                         "description": _t["create_prompt"]["parameters"]["tags"],
                     },
                 },
@@ -518,8 +526,11 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["edit_prompt_content"]["parameters"]["new_str"],
                     },
                     "arguments": {
-                        "anyOf": [{"type": "array", "items": _arguments_items_schema(_t["edit_prompt_content"]["parameters"])}, {"type": "null"}],
+                        "type": ["array", "null"],
                         "description": _t["edit_prompt_content"]["parameters"]["arguments"],
+                        "items": _arguments_items_schema(
+                            _t["edit_prompt_content"]["parameters"],
+                        ),
                     },
                 },
                 "required": ["name", "old_str", "new_str"],
@@ -536,31 +547,35 @@ async def handle_list_tools() -> list[types.Tool]:
                         "description": _t["update_prompt"]["parameters"]["name"],
                     },
                     "new_name": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["new_name"],
                     },
                     "title": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["title"],
                     },
                     "description": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["description"],
                     },
                     "tags": {
-                        "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
+                        "type": ["array", "null"],
+                        "items": {"type": "string"},
                         "description": _t["update_prompt"]["parameters"]["tags"],
                     },
                     "content": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["content"],
                     },
                     "arguments": {
-                        "anyOf": [{"type": "array", "items": _arguments_items_schema(_t["update_prompt"]["parameters"])}, {"type": "null"}],
+                        "type": ["array", "null"],
                         "description": _t["update_prompt"]["parameters"]["arguments"],
+                        "items": _arguments_items_schema(
+                            _t["update_prompt"]["parameters"],
+                        ),
                     },
                     "expected_updated_at": {
-                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "type": ["string", "null"],
                         "description": _t["update_prompt"]["parameters"]["expected_updated_at"],
                     },
                 },
