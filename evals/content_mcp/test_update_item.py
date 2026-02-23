@@ -212,6 +212,7 @@ Use the tool result above as context for the following instruction.
         "eval_description": EVAL_DESCRIPTION,
     },
 )
+@pytest.mark.timeout(180)
 @pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
 async def test_update_item_notes(
     test_case: TestCase,
