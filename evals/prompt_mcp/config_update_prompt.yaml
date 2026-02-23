@@ -1,20 +1,18 @@
-# Prompt MCP Server Evaluation Configuration
-# Tests the update_prompt tool for full content replacement scenarios
-#
+name: "update_prompt: Full Replacement & Metadata"
+description: |
+  Tests whether the LLM selects update_prompt (not edit_prompt_content) for whole-template rewrites, metadata changes, and tag updates, and correctly handles full replacement semantics for arguments and tags.
+
+  Both tools can modify content, so the LLM must distinguish:
+    - update_prompt for rewriting/restructuring the whole template or updating metadata
+    - edit_prompt_content for changing a specific part
+
+  Each test case pre-fetches get_prompt_content or get_prompt_metadata and includes the result in the LLM prompt alongside a rewrite or metadata instruction. This simulates an agent that has already retrieved the template and now needs to choose the right mutation tool.
+
 # TOOL CONTEXT:
 # update_prompt: Updates metadata (title, description, tags, name) and/or fully replaces template
 #   content. All parameters optional - only provide what you want to change.
 # edit_prompt_content: Edits template content using old_str/new_str replacement with optional
 #   atomic argument updates. Used for targeted text/variable edits.
-#
-# CRITICAL BEHAVIORS TESTED:
-# 1. When variables DON'T change: LLM should NOT provide arguments parameter
-# 2. When variables DO change: LLM MUST provide arguments with ALL variables
-# 3. Arguments is a FULL REPLACEMENT, not a merge
-# 4. When NOT updating tags: LLM should NOT provide tags parameter
-# 5. When updating tags: LLM MUST provide ALL tags (existing + new)
-# 6. Tags is a FULL REPLACEMENT, not a merge
-# 7. LLM should choose update_prompt (not edit_prompt_content) for substantial rewrites
 #
 # EXPECTED_ARGUMENT_NAMES SEMANTICS:
 # - null: LLM should NOT provide arguments parameter (variables unchanged)
@@ -24,14 +22,18 @@
 # - null: LLM should NOT provide tags parameter (tags preserved automatically)
 # - ["tag1", "tag2"]: Final tags should exactly match (LLM must provide ALL tags)
 
-model:
-  provider: "anthropic"  # "anthropic" or "openai"
-  name: "claude-haiku-4-5"
-  temperature: 0.3
+models:
+  - provider: "anthropic"
+    name: "claude-haiku-4-5"
+    temperature: 0.5
+  - provider: "openai"
+    name: "gpt-4o-mini"
+    temperature: 0.5
 
 eval:
   samples: 10
   success_threshold: 0.6
+  max_concurrency: 20
 
 test_cases:
   # Test 1: Rewrite content WITHOUT changing variables
@@ -69,7 +71,7 @@ test_cases:
       final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
       expected_argument_names: null  # LLM should NOT provide arguments
     metadata:
-      description: "Rewrite without changing variables - should NOT provide arguments"
+      description: "Rewrite template without changing variables; agent should omit arguments param"
 
   # Test 2: Rewrite content ADDING a new variable
   # LLM MUST provide arguments with BOTH existing and new variables
@@ -79,6 +81,9 @@ test_cases:
       show_results:
         - "get_prompt_content"
       content: |
+        You are a data analysis assistant. Your goal is to help users
+        understand their data through careful examination and insight.
+
         Please analyze the following data and provide insights.
 
         ## Data to Analyze
@@ -91,14 +96,19 @@ test_cases:
         1. Key trends you observe
         2. Any anomalies or outliers
         3. Actionable recommendations
+        4. Risks or concerns worth flagging
 
-        Format your response with clear sections and bullet points
-        for easy reading.
+        ## Output Guidelines
+
+        - Format your response with clear sections and bullet points
+        - Support claims with specific data points when possible
+        - Prioritize the most impactful findings first
+        - Keep recommendations concrete and actionable
       arguments:
         - name: "data"
           description: "The data to analyze"
           required: true
-      instruction: "Rewrite this prompt to also accept a {{ focus_area }} variable that specifies what aspect to focus on (e.g., 'revenue trends', 'user behavior'). Add a line like 'Focus particularly on {{ focus_area }}' in the task section."
+      instruction: "Restructure this prompt entirely to also accept a {{ focus_area }} variable that specifies what aspect of the data to focus on (e.g., 'revenue trends', 'user behavior'). Weave the focus area throughout the prompt so the analysis is guided by it."
     expected:
       tool_name: "update_prompt"
       final_must_contain:
@@ -107,7 +117,7 @@ test_cases:
       final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
       expected_argument_names: ["data", "focus_area"]  # MUST provide ALL args
     metadata:
-      description: "Add variable - MUST provide arguments with ALL vars (data + focus_area)"
+      description: "Rewrite template while adding a new variable; agent must pass all arguments (existing + new)"
 
   # Test 3: Rewrite content REMOVING variables
   # LLM MUST provide arguments excluding removed variables
@@ -167,7 +177,7 @@ test_cases:
         - "{{ recipient_type }}"
       expected_argument_names: ["key_points", "subject"]  # Only remaining vars
     metadata:
-      description: "Remove variables - MUST provide arguments with only remaining vars"
+      description: "Rewrite template while removing variables; agent must pass only the remaining arguments"
 
   # Test 4: Complete template replacement with all new variables
   # Tests wholesale replacement - new content, new vars, everything different
@@ -236,7 +246,7 @@ test_cases:
         - "{{ context }}"
       expected_argument_names: ["input_text", "output_format"]  # All new args
     metadata:
-      description: "Complete replacement - MUST provide all new arguments"
+      description: "Replace entire template with completely new content and variables; agent must pass only the new arguments"
 
   # Test 5: Rename variables while rewriting
   # LLM must provide arguments with new variable names
@@ -281,7 +291,7 @@ test_cases:
         - "{{ lang }}"
       expected_argument_names: ["source_content", "target_language"]  # Renamed args
     metadata:
-      description: "Rename variables - MUST provide arguments with new names"
+      description: "Rewrite template while renaming variables; agent must pass arguments with the new names"
 
   # Test 6: Metadata-only update (no content change)
   # Tests that LLM uses update_prompt for metadata without changing content
@@ -326,7 +336,7 @@ test_cases:
       expected_argument_names: null  # LLM should NOT provide arguments
       expected_tags: ["code", "development", "review"]  # Instruction asks to add tags
     metadata:
-      description: "Metadata-only update - should NOT provide content or arguments"
+      description: "Update title and tags only; agent should omit content and arguments params"
 
   # Test 7: Add tag to prompt with existing tags
   # Tags are FULL REPLACEMENT - LLM must provide ALL tags (existing + new)
@@ -370,7 +380,7 @@ test_cases:
       expected_argument_names: null  # Variables don't change, should NOT provide arguments
       expected_tags: ["business", "documents", "writing"]  # ALL tags (existing + new)
     metadata:
-      description: "Add tag - tags are FULL REPLACEMENT, must provide ALL tags"
+      description: "Add a tag to existing tags; agent must pass all tags (full replacement, not merge)"
 
   # Test 8: Rewrite content when prompt has tags (but NOT updating tags)
   # LLM should NOT provide tags parameter - existing tags should be preserved
@@ -407,20 +417,26 @@ test_cases:
       expected_argument_names: null  # Variables don't change, should NOT provide arguments
       expected_tags: null  # Should NOT provide tags - existing tags preserved automatically
     metadata:
-      description: "Rewrite content with existing tags - should NOT provide tags parameter"
+      description: "Rewrite content without changing tags; agent should omit tags param to preserve them"
 
 checks:
   # Primary check: Verify correct tool was selected (update_prompt, NOT edit_prompt_content)
   - type: "exact_match"
     arguments:
-      actual: "$.output.value.tool_prediction.tool_name"
+      actual: "$.output.value.tool_predictions[0].tool_name"
       expected: "$.test_case.expected.tool_name"
+    metadata:
+      name: "Correct Tool"
+      description: "LLM selected update_prompt (not edit_prompt_content) for substantial changes"
 
   # Verify final content contains expected text
   - type: "contains"
     arguments:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_contain"
+    metadata:
+      name: "Content Contains Expected"
+      description: "Final template contains the expected text/variables"
 
   # Verify final content does not contain forbidden text (when specified)
   - type: "contains"
@@ -428,6 +444,9 @@ checks:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_not_contain"
       negate: true
+    metadata:
+      name: "Removed Text Gone"
+      description: "Final template no longer contains removed/replaced text"
 
   # Verify argument behavior:
   # - If expected is null: LLM should NOT have provided arguments
@@ -436,6 +455,9 @@ checks:
     arguments:
       actual: "$.output.value.expected_argument_names_check"
       expected: true
+    metadata:
+      name: "Arguments Correct"
+      description: "Arguments handled correctly (preserved when unchanged, updated when modified)"
 
   # Verify tags behavior (when expected_tags specified):
   # Tags are FULL REPLACEMENT - final tags should exactly match expected_tags
@@ -443,3 +465,24 @@ checks:
     arguments:
       actual: "$.output.value.tags_check"
       expected: true
+    metadata:
+      name: "Tags Correct"
+      description: "Tags handled correctly (preserved when unchanged, full replacement when updated)"
+
+  # Single tool call check
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.prediction_count"
+      expected: 1
+    metadata:
+      name: "Single Tool Call"
+      description: "Agent made exactly one tool call"
+
+  # Argument descriptions preserved
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.argument_descriptions"
+      expected: true
+    metadata:
+      name: "Descriptions Preserved"
+      description: "Unchanged argument descriptions match the original exactly"

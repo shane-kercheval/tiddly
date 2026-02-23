@@ -1,25 +1,27 @@
-# Content MCP Server Evaluation Configuration
-# Tests the edit_content tool's ability to make precise text replacements
-#
+name: "edit_content: Surgical Text Fixes"
+description: |
+  Tests the edit_content tool for precise old_str/new_str text replacements.
+  Given a note with a typo and the full item + search results, the LLM should
+  choose edit_content (not update_item) to make a surgical fix.
+
 # TOOL CONTEXT:
 # edit_content: Replaces exact text in the content field via old_str/new_str substitution.
 #   old_str must match exactly one location. Only edits the content body (not title/description/tags).
 # update_item: Updates metadata and/or fully replaces content. Used for metadata changes or
 #   complete rewrites.
-#
-# WHAT THIS EVAL TESTS:
-# Given a note with a typo and the full item + search results, the LLM should use edit_content
-# (not update_item) to make a surgical fix. The eval provides get_item and search_in_content
-# results so the LLM has full context before deciding which tool to use.
 
-model:
-  provider: "anthropic"  # "anthropic" or "openai"
-  name: "claude-haiku-4-5"
-  temperature: 0.3
+models:
+  - provider: "anthropic"
+    name: "claude-haiku-4-5"
+    temperature: 0.5
+  - provider: "openai"
+    name: "gpt-4o-mini"
+    temperature: 0.5
 
 eval:
   samples: 10
   success_threshold: 0.6
+  max_concurrency: 20
 
 test_cases:
   # Test 1: Fix typo that is a prefix of another word
@@ -38,7 +40,7 @@ test_cases:
       final_must_contain: "This document needs"
       final_must_not_contain: "documentmentation"
     metadata:
-      description: "Fix 'documnt' -> 'document' without corrupting 'documentation'"
+      description: "Fix spelling error that is a prefix of another word; old_str must be precise to avoid corrupting nearby text"
 
   # Test 2: Fix typo in a code block
   # The LLM must understand markdown context and fix the typo in code
@@ -63,7 +65,7 @@ test_cases:
       final_must_contain: "client = APIClient("
       final_must_not_contain: "Clinet"
     metadata:
-      description: "Fix 'APIClinet' -> 'APIClient' in code block"
+      description: "Fix spelling error inside a Python code block"
 
   # Test 3: Fix broken markdown link
   # The LLM must fix a malformed link without breaking surrounding text
@@ -83,7 +85,7 @@ test_cases:
       final_must_contain: "https://example.com/start"
       final_must_not_contain: "htps"
     metadata:
-      description: "Fix 'htps' -> 'https' in markdown link"
+      description: "Fix broken URL protocol inside a markdown link"
 
   # Test 4: Fix typo in markdown table
   # The LLM must fix the typo without breaking table structure
@@ -107,7 +109,7 @@ test_cases:
       final_must_contain: "| Status"
       final_must_not_contain: "Stauts"
     metadata:
-      description: "Fix 'Stauts' -> 'Status' in table header without breaking table"
+      description: "Fix spelling error in a markdown table header; ensure table structure is preserved"
 
   # Test 5: Fix typo in YAML frontmatter
   # The LLM must fix the typo while preserving YAML structure
@@ -131,7 +133,7 @@ test_cases:
       final_must_contain: "title: Project Notes"
       final_must_not_contain: "Ntoes"
     metadata:
-      description: "Fix 'Ntoes' -> 'Notes' in YAML frontmatter"
+      description: "Fix spelling error inside YAML frontmatter; ensure YAML structure is preserved"
 
   # Test 6: Fix typo in nested list
   # The LLM must navigate nested structure and fix only the typo
@@ -156,7 +158,7 @@ test_cases:
       final_must_contain: "Configure environment"
       final_must_not_contain: "environemnt"
     metadata:
-      description: "Fix 'environemnt' -> 'environment' in nested list"
+      description: "Fix spelling error inside a nested numbered list"
 
   # Test 7: Fix typo in embedded JSON
   # The LLM must fix JSON key without breaking JSON syntax
@@ -184,7 +186,7 @@ test_cases:
       final_must_contain: '"endpoint"'
       final_must_not_contain: "enpoint"
     metadata:
-      description: "Fix 'enpoint' -> 'endpoint' in JSON code block"
+      description: "Fix spelling error in a JSON key inside a code block"
 
   # Test 8: Fix typo in indented blockquote
   # Tests handling of indented/nested markdown structures
@@ -209,29 +211,60 @@ test_cases:
       final_must_contain: "requires authentication"
       final_must_not_contain: "requries"
     metadata:
-      description: "Fix 'requries' -> 'requires' in blockquote"
+      description: "Fix spelling error inside a markdown blockquote"
 
 checks:
   # Verify correct tool was selected
   - type: "exact_match"
     arguments:
-      actual: "$.output.value.tool_prediction.tool_name"
+      actual: "$.output.value.tool_predictions[0].tool_name"
       expected: "$.test_case.expected.tool_name"
+    metadata:
+      name: "Correct Tool"
+      description: "LLM selected the expected tool"
 
   # Verify old_str contains the typo
   - type: "contains"
     arguments:
-      text: "$.output.value.tool_prediction.arguments.old_str"
+      text: "$.output.value.tool_predictions[0].arguments.old_str"
       phrases: "$.test_case.expected.old_str_contains"
+    metadata:
+      name: "old_str Has Typo"
+      description: "The old_str argument contains the text to be replaced"
 
   # Verify new_str contains the fix
   - type: "contains"
     arguments:
-      text: "$.output.value.tool_prediction.arguments.new_str"
+      text: "$.output.value.tool_predictions[0].arguments.new_str"
       phrases: "$.test_case.expected.new_str_contains"
+    metadata:
+      name: "new_str Has Fix"
+      description: "The new_str argument contains the corrected text"
 
   # Verify final content contains the fix
   - type: "contains"
     arguments:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_contain"
+    metadata:
+      name: "Content Fixed"
+      description: "Final content contains the expected correction"
+
+  # Verify final content does not contain the typo
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_not_contain"
+      negate: true
+    metadata:
+      name: "Typo Removed"
+      description: "Final content no longer contains the original typo"
+
+  # Single tool call check
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.prediction_count"
+      expected: 1
+    metadata:
+      name: "Single Tool Call"
+      description: "Agent made exactly one tool call"

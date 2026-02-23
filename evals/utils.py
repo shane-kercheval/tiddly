@@ -6,15 +6,9 @@ from typing import Any
 
 import httpx
 import yaml
-from flex_evals import TestCase, get_check_class
-from flex_evals.checks.base import BaseCheck
+from flex_evals import Check, TestCase
 from sik_llms import RegisteredClients, create_client, user_message
 from sik_llms.mcp_manager import MCPClientManager
-
-# Concurrency limit for MCP connections. Tuned to avoid overwhelming npx mcp-remote
-# processes which spawn subprocesses for each connection. Too high causes timeouts
-# and connection failures; too low slows down parallel test execution.
-MCP_CONCURRENCY_LIMIT = 20
 
 # Default configuration
 PAT_TOKEN = "bm_devtoken"
@@ -63,9 +57,12 @@ def load_yaml_config(config_path: Path) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def create_checks_from_config(check_specs: list[dict[str, Any]]) -> list[BaseCheck]:
+def create_checks_from_config(check_specs: list[dict[str, Any]]) -> list[Check]:
     """
     Convert YAML check specifications to Check objects.
+
+    Returns Check dataclass objects (not BaseCheck instances) to preserve metadata.
+    The flex_evals engine handles conversion internally.
 
     Example YAML format:
         checks:
@@ -73,12 +70,17 @@ def create_checks_from_config(check_specs: list[dict[str, Any]]) -> list[BaseChe
             arguments:
               text: "$.output.value.final_content"
               phrases: "$.test_case.expected.must_contain"
+            metadata:
+              name: "Content contains fix"
+              description: "Verify the fix was applied"
     """
     checks = []
     for spec in check_specs:
-        check_class = get_check_class(spec["type"])
-        check = check_class(**spec["arguments"])
-        checks.append(check)
+        checks.append(Check(
+            type=spec["type"],
+            arguments=spec["arguments"],
+            metadata=spec.get("metadata"),
+        ))
     return checks
 
 
@@ -159,7 +161,7 @@ _PROVIDER_MAP = {
 }
 
 
-async def get_tool_prediction(
+async def get_tool_predictions(
     prompt: str,
     tools: list,
     model_name: str,
@@ -167,10 +169,10 @@ async def get_tool_prediction(
     temperature: float = 0,
 ) -> dict[str, Any]:
     """
-    Get the LLM's tool prediction for a given prompt.
+    Get the LLM's tool predictions for a given prompt.
 
     Returns:
-        dict with 'tool_name' and 'arguments' keys
+        Dict with 'predictions' (list of tool calls) and 'usage' (token/cost data).
     """
     client_type = _PROVIDER_MAP.get(provider)
     if client_type is None:
@@ -182,17 +184,70 @@ async def get_tool_prediction(
         tools=tools,
     )
     response = await client.run_async(messages=[user_message(prompt)])
+    return {
+        "predictions": [
+            {"tool_name": p.name, "arguments": p.arguments or {}}
+            for p in response.tool_predictions
+        ],
+        "usage": {
+            "input_tokens": response.input_tokens,
+            "output_tokens": response.output_tokens,
+            "input_cost": response.input_cost,
+            "output_cost": response.output_cost,
+            "total_cost": response.total_cost,
+            "duration_seconds": response.duration_seconds,
+        },
+    }
 
-    try:
-        if response.tool_prediction:
-            return {
-                "tool_name": response.tool_prediction.name,
-                "arguments": response.tool_prediction.arguments or {},
-            }
-    except ValueError:
-        # Multiple tool calls returned — treat as a failed prediction
-        return {"tool_name": None, "arguments": {}}
-    return {"tool_name": None, "arguments": {}}
+
+def check_argument_descriptions_preserved(
+    prediction: dict[str, Any] | None,
+    input_arguments: list[dict[str, Any]],
+    expected_argument_names: list[str] | None,
+) -> bool:
+    """
+    Check that unchanged argument descriptions are preserved exactly in the prediction.
+
+    "Unchanged" args are names present in both the input and expected lists. For each,
+    we verify the prediction's description matches the original exactly.
+
+    Args:
+        prediction: The LLM's tool prediction dict.
+        input_arguments: The original argument definitions from the test case input.
+        expected_argument_names: Expected argument names after the edit.
+
+    Returns:
+        True if all unchanged argument descriptions match the originals, or if
+        there are no unchanged args to check.
+    """
+    if not expected_argument_names:
+        return True
+
+    input_names = {arg['name'] for arg in input_arguments if 'name' in arg}
+    unchanged_names = input_names & set(expected_argument_names)
+    if not unchanged_names or prediction is None:
+        return not unchanged_names
+
+    pred_args = prediction.get('arguments', {}).get('arguments')
+    if not pred_args:
+        # LLM omitted arguments parameter — server preserves descriptions automatically
+        return True
+
+    input_desc = {
+        arg['name']: arg.get('description', '')
+        for arg in input_arguments
+        if 'name' in arg
+    }
+    pred_desc = {
+        arg['name']: arg.get('description', '')
+        for arg in pred_args
+        if isinstance(arg, dict) and 'name' in arg
+    }
+
+    return all(
+        name in pred_desc and pred_desc[name] == input_desc.get(name, '')
+        for name in unchanged_names
+    )
 
 
 async def delete_note_via_api(note_id: str) -> None:

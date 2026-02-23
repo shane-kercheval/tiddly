@@ -1,30 +1,31 @@
-# Content MCP Server Evaluation Configuration
-# Tests the update_item tool for full content replacement and tags behavior
-#
+name: "update_item: Full Content Replacement & Tags"
+description: |
+  Tests the update_item tool for full content replacement and tags behavior.
+  The LLM should choose update_item (not edit_content) for substantial rewrites.
+  Verifies correct tags handling: full replacement semantics, not merge.
+
 # TOOL CONTEXT:
 # update_item: Updates metadata (title, description, tags, url) and/or fully replaces content.
 #   All parameters optional - only provide what you want to change.
 # edit_content: Replaces exact text in the content field via old_str/new_str substitution.
 #   Used for surgical text edits (typos, small changes).
 #
-# CRITICAL BEHAVIORS TESTED:
-# 1. LLM should choose update_item (not edit_content) for substantial rewrites
-# 2. When NOT updating tags: LLM should NOT provide tags parameter
-# 3. When updating tags: LLM MUST provide ALL tags (existing + new)
-# 4. Tags is a FULL REPLACEMENT, not a merge
-#
 # EXPECTED_TAGS SEMANTICS:
 # - null: LLM should NOT provide tags parameter (tags preserved automatically)
 # - ["tag1", "tag2"]: Final tags should exactly match (LLM must provide ALL tags)
 
-model:
-  provider: "anthropic"  # "anthropic" or "openai"
-  name: "claude-haiku-4-5"
-  temperature: 0.3
+models:
+  - provider: "anthropic"
+    name: "claude-haiku-4-5"
+    temperature: 0.5
+  - provider: "openai"
+    name: "gpt-4o-mini"
+    temperature: 0.5
 
 eval:
   samples: 10
   success_threshold: 0.6
+  max_concurrency: 20
 
 test_cases:
   # Test 1: Convert meeting notes to executive summary
@@ -72,7 +73,7 @@ test_cases:
       final_must_contain: ["Q3", "budget", "$200,000"]
       final_must_not_contain: "- [ ]"
     metadata:
-      description: "Major restructuring from bullet points to prose - must use update_item"
+      description: "Restructure bullet-point notes into flowing prose; agent must choose update_item over edit_content"
 
   # Test 2: Restructure API docs into table format
   # Converting free-form text to structured table
@@ -111,8 +112,9 @@ test_cases:
     expected:
       tool_name: "update_item"
       final_must_contain: ["|", "Method", "Endpoint", "GET", "POST", "DELETE"]
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
     metadata:
-      description: "Convert prose docs to table format - structural change requires update_item"
+      description: "Convert prose documentation into a structured table; agent must choose update_item over edit_content"
 
   # Test 3: Rewrite technical notes as beginner-friendly guide
   # Complete tone/audience change requiring full rewrite
@@ -140,10 +142,10 @@ test_cases:
       instruction: "Rewrite this as a beginner-friendly guide explaining what Redis caching is and why we use it. Avoid jargon - explain concepts simply. Write in a friendly, educational tone."
     expected:
       tool_name: "update_item"
-      final_must_contain: ["Redis", "cache"]
+      final_must_contain: ["Redis", "cach"]
       final_must_not_contain: ["TTL-based expiry", "write-through", "msgpack"]
     metadata:
-      description: "Complete tone change from technical to beginner - requires update_item"
+      description: "Rewrite technical content for a beginner audience; agent must choose update_item over edit_content"
 
   # Test 4: Consolidate scattered notes into organized document
   # Reorganizing chaotic content into structured format
@@ -177,8 +179,9 @@ test_cases:
     expected:
       tool_name: "update_item"
       final_must_contain: ["Bug Fix", "Feature Request", "Dark mode"]
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
     metadata:
-      description: "Reorganize chaotic notes into structured document - requires update_item"
+      description: "Reorganize scattered notes into structured sections; agent must choose update_item over edit_content"
 
   # Test 5: Add tag to note with existing tags
   # Tags are FULL REPLACEMENT - LLM must provide ALL tags (existing + new)
@@ -197,9 +200,10 @@ test_cases:
     expected:
       tool_name: "update_item"
       final_must_contain: ["Project Ideas", "CLI tool"]
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
       expected_tags: ["backlog", "ideas", "projects"]
     metadata:
-      description: "Add tag - tags are FULL REPLACEMENT, must provide ALL tags"
+      description: "Add a tag to existing tags; agent must pass all tags (full replacement, not merge)"
 
   # Test 6: Rewrite content when note has tags (but NOT updating tags)
   # LLM should NOT provide tags parameter - existing tags should be preserved
@@ -217,22 +221,41 @@ test_cases:
     expected:
       tool_name: "update_item"
       final_must_contain: ["John", "Sarah"]
+      final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
       expected_tags: null  # Should NOT provide tags - existing tags preserved
     metadata:
-      description: "Rewrite content with existing tags - should NOT provide tags parameter"
+      description: "Rewrite content without changing tags; agent should omit tags param to preserve them"
 
 checks:
   # Primary check: Verify correct tool was selected (update_item, NOT edit_content)
   - type: "exact_match"
     arguments:
-      actual: "$.output.value.tool_prediction.tool_name"
+      actual: "$.output.value.tool_predictions[0].tool_name"
       expected: "$.test_case.expected.tool_name"
+    metadata:
+      name: "Correct Tool"
+      description: "LLM selected update_item (not edit_content) for substantial changes"
 
   # Verify final content contains expected text
   - type: "contains"
     arguments:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_contain"
+      case_sensitive: false
+    metadata:
+      name: "Content Updated"
+      description: "Final content contains the expected text after rewrite"
+
+  # Verify final content does not contain forbidden text
+  - type: "contains"
+    arguments:
+      text: "$.output.value.final_content"
+      phrases: "$.test_case.expected.final_must_not_contain"
+      negate: true
+      case_sensitive: false
+    metadata:
+      name: "Removed Text Gone"
+      description: "Final content no longer contains removed/replaced text"
 
   # Verify tags behavior:
   # - If expected is null: LLM should NOT have provided tags
@@ -241,3 +264,15 @@ checks:
     arguments:
       actual: "$.output.value.tags_check"
       expected: true
+    metadata:
+      name: "Tags Correct"
+      description: "Tags handled correctly (preserved when unchanged, full replacement when updated)"
+
+  # Single tool call check
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.prediction_count"
+      expected: 1
+    metadata:
+      name: "Single Tool Call"
+      description: "Agent made exactly one tool call"

@@ -13,33 +13,32 @@ The eval provides both get_item and search_in_content results so the LLM has ful
 context before deciding which tool to use.
 """
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any
+import pytest
 from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
-    MCP_CONCURRENCY_LIMIT,
     call_tool_with_retry,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_note_via_api,
     get_content_mcp_config,
-    get_tool_prediction,
+    get_tool_predictions,
     load_yaml_config,
 )
-
-_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_edit_content.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 # Extract configuration values
-MODEL_CONFIG = CONFIG["model"]
+MODELS = CONFIG["models"]
 EVAL_CONFIG = CONFIG["eval"]
+EVAL_NAME = CONFIG.get("name", "")
+EVAL_DESCRIPTION = CONFIG.get("description", "")
 TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 CHECKS = create_checks_from_config(CONFIG["checks"])
 
@@ -69,7 +68,7 @@ async def _run_edit_content_eval(
     config = get_content_mcp_config()
 
     # Acquire semaphore to limit concurrent MCP connections
-    async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+    async with MCPClientManager(config) as mcp_manager:
         print(".", end="", flush=True)
         tools = mcp_manager.get_tools()
         # Create the note (with retry for transient failures)
@@ -108,33 +107,40 @@ async def _run_edit_content_eval(
             search_response = json.dumps(search_result.structuredContent, indent=2)
 
             # Build prompt with full context
-            prompt = f"""`get_item` tool result:
+            prompt = f"""
+`get_item` tool result:
+
 ```json
 {item_data}
 ```
 
 `search_in_content` tool result for "{search_query}":
+
 ```json
 {search_response}
 ```
 
-Fix the issue found above."""
+Use the tool results above as context for the following instruction.
 
-            # Get tool prediction
-            prediction = await get_tool_prediction(
+**Instruction:** Fix the spelling error "{search_query}" found by the search above."""
+
+            # Get tool predictions (expect exactly one)
+            result = await get_tool_predictions(
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
                 provider=provider,
                 temperature=temperature,
             )
+            predictions = result["predictions"]
 
-            # Execute the tool if it's edit_content
+            # Execute the tool if it's a single edit_content prediction
             tool_result = None
             final_content = None
             edit_error = None
+            prediction = predictions[0] if len(predictions) == 1 else None
 
-            if prediction["tool_name"] == "edit_content":
+            if prediction and prediction["tool_name"] == "edit_content":
                 try:
                     edit_result = await call_tool_with_retry(
                         mcp_manager,
@@ -163,10 +169,12 @@ Fix the issue found above."""
             return {
                 "content_id": content_id,
                 "prompt": prompt,
-                "tool_prediction": prediction,
+                "tool_predictions": predictions,
+                "prediction_count": len(predictions),
                 "tool_result": tool_result,
                 "final_content": final_content,
                 "edit_error": edit_error,
+                "usage": result["usage"],
             }
 
         finally:
@@ -179,8 +187,19 @@ Fix the issue found above."""
     checks=CHECKS,
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
+    max_concurrency=EVAL_CONFIG.get("max_concurrency"),
+    output_dir=Path(__file__).parent / "results",
+    metadata={
+        "eval_name": EVAL_NAME,
+        "eval_description": EVAL_DESCRIPTION,
+    },
 )
-async def test_edit_content_notes(test_case: TestCase) -> dict[str, Any]:
+@pytest.mark.timeout(180)
+@pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
+async def test_edit_content_notes(
+    test_case: TestCase,
+    model_config: dict[str, Any],
+) -> dict[str, Any]:
     """
     Test that the LLM correctly uses edit_content to fix issues in notes.
 
@@ -199,10 +218,14 @@ async def test_edit_content_notes(test_case: TestCase) -> dict[str, Any]:
     - new_str contains the fix
     - Final content contains the fix
     """
-    return await _run_edit_content_eval(
+    result = await _run_edit_content_eval(
         content=test_case.input["content"],
         search_query=test_case.input["search_query"],
-        model_name=MODEL_CONFIG["name"],
-        provider=MODEL_CONFIG["provider"],
-        temperature=MODEL_CONFIG["temperature"],
+        model_name=model_config["name"],
+        provider=model_config["provider"],
+        temperature=model_config["temperature"],
     )
+    result["model_name"] = model_config["name"]
+    result["model_provider"] = model_config["provider"]
+    result["temperature"] = model_config["temperature"]
+    return result

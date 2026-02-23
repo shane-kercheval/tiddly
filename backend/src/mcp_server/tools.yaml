@@ -72,7 +72,7 @@ search_in_content:
 
 update_item:
   description: |
-    Update metadata (title, description, tags, url) and/or fully replace content. All parameters optional - only provide what you want to change. For targeted text edits (typos, inserting/removing paragraphs), use edit_content instead.
+    Rewrite, restructure, or fully replace an item's content, and/or update metadata (title, description, tags, url). Use whenever the instruction asks to rewrite, reorganize, simplify, or restructure the whole content. Use edit_content when editing a specific section. All parameters optional — only provide what you want to change.
   parameters:
     id: |
       The item ID (UUID). Use search_items if you need to discover item IDs.
@@ -83,7 +83,7 @@ update_item:
     description: |
       New description. Omit to leave unchanged.
     tags: |
-      New tags (replaces all existing tags). Omit to leave unchanged.
+      New tags list (FULL REPLACEMENT of all existing tags — include existing tags you want to keep). Do NOT provide this parameter unless you are intentionally changing tags — omitting it preserves existing tags automatically.
     url: |
       New URL (bookmarks only). Omit to leave unchanged.
     content: |

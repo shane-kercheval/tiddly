@@ -1,27 +1,25 @@
-# Prompt MCP Server Evaluation Configuration
-# Tests the edit_prompt_content tool's ability to make targeted edits with argument changes
-#
-# TOOL CONTEXT:
-# edit_prompt_content: Edits template content using old_str/new_str replacement, optionally
-#   updating arguments atomically. old_str must match exactly one location. When the edit changes
-#   template variables ({{ var }}), the arguments parameter must include ALL argument definitions
-#   (full replacement). Omit arguments for text-only changes.
-# update_prompt: Updates metadata (title, description, tags, name) and/or fully replaces template
-#   content. Used for metadata changes or complete rewrites.
-#
-# WHAT THIS EVAL TESTS:
-# Given a prompt template and an instruction to make a targeted change (add/remove/rename a
-# variable, fix a typo), the LLM should use edit_prompt_content (not update_prompt) and
-# correctly coordinate the content edit with the arguments list.
+name: "edit_prompt_content: Targeted Template Edits"
+description: |
+  Tests whether the LLM selects edit_prompt_content (not update_prompt) for targeted template edits and correctly coordinates the content change with the arguments list.
+  
+  Both tools can modify content, so the LLM must distinguish:
+    - edit_prompt_content for changing a specific part
+    - update_prompt for rewriting the whole template.
 
-model:
-  provider: "anthropic"  # "anthropic" or "openai"
-  name: "claude-haiku-4-5"
-  temperature: 0.3
+  Each test case pre-fetches get_prompt_content and includes the result in the LLM prompt alongside an edit instruction. This simulates an agent that has already retrieved the template and now needs to choose the right mutation tool.
+
+models:
+  - provider: "anthropic"
+    name: "claude-haiku-4-5"
+    temperature: 0.5
+  - provider: "openai"
+    name: "gpt-4o-mini"
+    temperature: 0.5
 
 eval:
   samples: 10
   success_threshold: 0.6
+  max_concurrency: 20
 
 test_cases:
   # Test 1: Remove a variable from template
@@ -49,7 +47,7 @@ test_cases:
       final_must_not_contain: "{{ language }}"
       expected_argument_names: ["code"]
     metadata:
-      description: "Remove {{ language }} variable - must update arguments to exclude it"
+      description: "Remove a variable from template; agent must pass only the remaining arguments"
 
   # Test 2: Add a new variable to template
   # LLM must add the variable to content AND include it in arguments list
@@ -73,7 +71,7 @@ test_cases:
       final_must_not_contain: "Keep the summary concise"
       expected_argument_names: ["article_text", "max_words"]
     metadata:
-      description: "Add {{ max_words }} variable - must add to arguments list"
+      description: "Add a new variable to template; agent must include it alongside existing args in arguments list"
 
   # Test 3: Rename a variable
   # LLM must update the variable name in both content AND arguments
@@ -98,7 +96,7 @@ test_cases:
       final_must_not_contain: "{{ text }}"
       expected_argument_names: ["source_text", "target_lang"]
     metadata:
-      description: "Rename {{ text }} to {{ source_text }} - must update arguments"
+      description: "Rename a variable; agent must update the variable name in both template and arguments list"
 
   # Test 4: Simple content edit (no argument change)
   # LLM should NOT need to provide arguments (they remain unchanged)
@@ -122,7 +120,7 @@ test_cases:
       final_must_not_contain: "Anaylze"
       expected_argument_names: []
     metadata:
-      description: "Fix typo without changing arguments"
+      description: "Fix a spelling error; agent should omit arguments param since no variables changed"
 
   # Test 5: Add variable with description
   # LLM must provide a sensible description for the new argument
@@ -148,7 +146,7 @@ test_cases:
       final_must_not_contain: "__PLACEHOLDER_NO_EXCLUSION__"
       expected_argument_names: ["recipient_name", "tone", "topic"]
     metadata:
-      description: "Add {{ recipient_name }} with proper argument definition"
+      description: "Add a variable to a template with multiple existing args; agent must pass all args in arguments list"
 
   # Test 6: Remove one of multiple variables
   # Tests that LLM correctly preserves other arguments while removing one
@@ -176,20 +174,26 @@ test_cases:
       final_must_not_contain: "{{ audience }}"
       expected_argument_names: ["format", "topic"]
     metadata:
-      description: "Remove {{ audience }} while preserving {{ format }} and {{ topic }}"
+      description: "Remove one variable from a multi-variable template; agent must pass only the remaining arguments"
 
 checks:
   # Verify correct tool was selected
   - type: "exact_match"
     arguments:
-      actual: "$.output.value.tool_prediction.tool_name"
+      actual: "$.output.value.tool_predictions[0].tool_name"
       expected: "$.test_case.expected.tool_name"
+    metadata:
+      name: "Correct Tool"
+      description: "LLM selected edit_prompt_content (not update_prompt) for targeted edits"
 
   # Verify final content contains expected text
   - type: "contains"
     arguments:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_contain"
+    metadata:
+      name: "Content Contains Expected"
+      description: "Final template contains the expected text/variables"
 
   # Verify final content does not contain forbidden text
   - type: "contains"
@@ -197,9 +201,33 @@ checks:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_not_contain"
       negate: true
+    metadata:
+      name: "Removed Text Gone"
+      description: "Final template no longer contains removed/replaced text"
 
   # Verify argument names match expected (sorted lists for order-independent comparison)
   - type: "equals"
     arguments:
       actual: "$.output.value.argument_names"
       expected: "$.test_case.expected.expected_argument_names"
+    metadata:
+      name: "Arguments Correct"
+      description: "Argument definitions match expected (added/removed/renamed correctly)"
+
+  # Single tool call check
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.prediction_count"
+      expected: 1
+    metadata:
+      name: "Single Tool Call"
+      description: "Agent made exactly one tool call"
+
+  # Argument descriptions preserved
+  - type: "equals"
+    arguments:
+      actual: "$.output.value.argument_descriptions"
+      expected: true
+    metadata:
+      name: "Descriptions Preserved"
+      description: "Unchanged argument descriptions match the original exactly"

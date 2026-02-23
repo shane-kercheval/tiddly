@@ -11,27 +11,24 @@ These tests verify that an LLM correctly uses update_item for:
    - When updating tags: LLM MUST provide ALL tags (full replacement, not merge)
 """
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 
 from evals.utils import (
-    MCP_CONCURRENCY_LIMIT,
     call_tool_with_retry,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_note_via_api,
     get_content_mcp_config,
-    get_tool_prediction,
+    get_tool_predictions,
     load_yaml_config,
 )
-
-_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 
 # Load configuration at module level
@@ -39,8 +36,10 @@ CONFIG_PATH = Path(__file__).parent / "config_update_item.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 # Extract configuration values
-MODEL_CONFIG = CONFIG["model"]
+MODELS = CONFIG["models"]
 EVAL_CONFIG = CONFIG["eval"]
+EVAL_NAME = CONFIG.get("name", "")
+EVAL_DESCRIPTION = CONFIG.get("description", "")
 TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 CHECKS = create_checks_from_config(CONFIG["checks"])
 
@@ -87,7 +86,7 @@ async def _run_update_item_eval(
     note_id = None
 
     try:
-        async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+        async with MCPClientManager(config) as mcp_manager:
             print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 
@@ -116,32 +115,35 @@ async def _run_update_item_eval(
 
             # Build prompt - show the full get_item result (includes tags)
             assert note_data is not None, "get_item returned no data"
-            prompt = f"""I need to make changes to this note.
-
+            prompt = f"""
 `get_item` tool result:
 ```json
 {json.dumps(note_data, indent=2)}
 ```
 
+Use the tool result above as context for the following instruction.
+
 **Instruction:** {instruction}"""
-            # Get tool prediction
-            prediction = await get_tool_prediction(
+            # Get tool predictions (expect exactly one)
+            result = await get_tool_predictions(
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
                 provider=provider,
                 temperature=temperature,
             )
+            predictions = result["predictions"]
 
-            # Execute the predicted tool
+            # Execute the predicted tool (only if single prediction)
             tool_result = None
             final_content = None
             final_tags: list[str] = []
             tool_error = None
+            prediction = predictions[0] if len(predictions) == 1 else None
 
-            predicted_tool = prediction["tool_name"]
-            predicted_args = prediction.get("arguments", {})
-            tags_provided = _check_tags_provided(prediction)
+            predicted_tool = prediction["tool_name"] if prediction else None
+            predicted_args = prediction.get("arguments", {}) if prediction else {}
+            tags_provided = _check_tags_provided(prediction) if prediction else False
 
             if predicted_tool in ("update_item", "edit_content"):
                 try:
@@ -168,11 +170,11 @@ async def _run_update_item_eval(
                 except Exception as e:
                     tool_error = str(e)
 
-            # Compute tags check (mirrors update_prompt pattern):
-            # - If expected is None: LLM should NOT have provided tags
+            # Compute tags check:
+            # - If expected is None: tags should be unchanged (either omitted or same values)
             # - If expected is a list: final tags should match
             if expected_tags is None:
-                tags_check = not tags_provided
+                tags_check = not tags_provided or sorted(final_tags) == sorted(original_tags)
             else:
                 tags_check = sorted(final_tags) == sorted(expected_tags)
 
@@ -181,13 +183,15 @@ async def _run_update_item_eval(
                 "original_content": content,
                 "original_tags": original_tags,
                 "prompt": prompt,
-                "tool_prediction": prediction,
+                "tool_predictions": predictions,
+                "prediction_count": len(predictions),
                 "tags_provided": tags_provided,
                 "tool_result": tool_result,
                 "final_content": final_content,
                 "final_tags": final_tags,
                 "tags_check": tags_check,
                 "tool_error": tool_error,
+                "usage": result["usage"],
             }
 
     finally:
@@ -201,8 +205,19 @@ async def _run_update_item_eval(
     checks=CHECKS,
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
+    max_concurrency=EVAL_CONFIG.get("max_concurrency"),
+    output_dir=Path(__file__).parent / "results",
+    metadata={
+        "eval_name": EVAL_NAME,
+        "eval_description": EVAL_DESCRIPTION,
+    },
 )
-async def test_update_item_notes(test_case: TestCase) -> dict[str, Any]:
+@pytest.mark.timeout(180)
+@pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
+async def test_update_item_notes(
+    test_case: TestCase,
+    model_config: dict[str, Any],
+) -> dict[str, Any]:
     """
     Test that the LLM correctly uses update_item.
 
@@ -213,12 +228,16 @@ async def test_update_item_notes(test_case: TestCase) -> dict[str, Any]:
       - If expected_tags is null: LLM should NOT have provided tags
       - If expected_tags is a list: final tags should match
     """
-    return await _run_update_item_eval(
+    result = await _run_update_item_eval(
         content=test_case.input["content"],
         instruction=test_case.input["instruction"],
-        model_name=MODEL_CONFIG["name"],
-        provider=MODEL_CONFIG["provider"],
-        temperature=MODEL_CONFIG["temperature"],
+        model_name=model_config["name"],
+        provider=model_config["provider"],
+        temperature=model_config["temperature"],
         tags=test_case.input.get("tags"),
         expected_tags=test_case.expected.get("expected_tags"),
     )
+    result["model_name"] = model_config["name"]
+    result["model_provider"] = model_config["provider"]
+    result["temperature"] = model_config["temperature"]
+    return result

@@ -222,7 +222,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "coverage", specifier = ">=7.13.4" },
-    { name = "flex-evals", specifier = ">=0.3.22" },
+    { name = "flex-evals", specifier = ">=0.3.27" },
     { name = "pip", specifier = ">=26.0.1" },
     { name = "pip-audit", specifier = ">=2.10.0" },
     { name = "py-spy", specifier = ">=0.4.1" },
@@ -232,7 +232,7 @@ dev = [
     { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "respx", specifier = ">=0.22.0" },
     { name = "ruff", specifier = ">=0.15.2" },
-    { name = "sik-llms", specifier = ">=0.3.29" },
+    { name = "sik-llms", specifier = ">=0.3.33" },
     { name = "testcontainers", specifier = ">=4.14.1" },
 ]
 
@@ -646,7 +646,7 @@ wheels = [
 
 [[package]]
 name = "flex-evals"
-version = "0.3.22"
+version = "0.3.27"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jsonpath-ng" },
@@ -658,9 +658,9 @@ dependencies = [
     { name = "requests" },
     { name = "ruamel-yaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/da/68/e2a429051484220844987100dcc4eb2ac288a81759375bd351c674884ded/flex_evals-0.3.22.tar.gz", hash = "sha256:0a9e4e1535b26bc5cbb98dc63e4b279fc88d900781ae0feae7b47ac1bf38c012", size = 399767, upload-time = "2026-01-21T04:34:57.301Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/0f/6df948bf82566c7eb72bdc85842b070fbce52ed4eb8f3b59703cf2adfe92/flex_evals-0.3.27.tar.gz", hash = "sha256:4441b095ac4cc18b0433b662b387442096b96a01c0241bb445e20f0e7a7299f9", size = 408615, upload-time = "2026-02-23T06:03:27.229Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/93/48/284f397d067b4cab6ef871042443053cbf449ccc43f240876451df5f8938/flex_evals-0.3.22-py3-none-any.whl", hash = "sha256:ab6eb3acf21477b61137f289df2b3902b5b48cfee4b6e14adcecf4ccd63647b7", size = 70118, upload-time = "2026-01-21T04:34:55.724Z" },
+    { url = "https://files.pythonhosted.org/packages/99/67/c919aa1f8ae205e308c8a55cd3c21b7e5576753758d0dab9f6501a00bfa5/flex_evals-0.3.27-py3-none-any.whl", hash = "sha256:87f09b9d691a66da406d81c5f52811a737c644fc9e030a072049448e596250aa", size = 71646, upload-time = "2026-02-23T06:03:25.926Z" },
 ]
 
 [[package]]
@@ -1843,7 +1843,7 @@ wheels = [
 
 [[package]]
 name = "sik-llms"
-version = "0.3.29"
+version = "0.3.33"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anthropic" },
@@ -1854,9 +1854,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "tiktoken" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5b/eb/9d74efdc4145b3ce079ba591f3de28583bcb1292566d71bacf6e089e6efc/sik_llms-0.3.29.tar.gz", hash = "sha256:6c3f757579fb6b6b2013d3cd4e7b338f15c4dc6e0fb6c3eeead98fbd75a6d3f9", size = 166516, upload-time = "2026-02-15T21:39:28.343Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a0/e7/fc5f2d9db79116f09440ddabce5c9c77837a102c3f6e53b8626833842953/sik_llms-0.3.33.tar.gz", hash = "sha256:1aae51e26bed47d6e4bfaeb2ed87ad91305c69ba8f604a4874459721eea3c509", size = 167969, upload-time = "2026-02-23T04:26:50.276Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/94/02789b1a4a49698b2b338871e97433ddb17c64d79d354f335609c35e607c/sik_llms-0.3.29-py3-none-any.whl", hash = "sha256:14518de5ba0062e9bdc95ea8a560a15b46a29b4a931fd759067eac7d438c652f", size = 44356, upload-time = "2026-02-15T21:39:26.855Z" },
+    { url = "https://files.pythonhosted.org/packages/11/eb/c70ff64fd7930c60dd48462e4ffd7fbdd4037b5d10db6cff74efe1fdde2c/sik_llms-0.3.33-py3-none-any.whl", hash = "sha256:806de12ed9e158d5b5c354bd7831bdcca055486836efd828f3319989c0552271", size = 44730, upload-time = "2026-02-23T04:26:49.03Z" },
 ]
 
 [[package]]

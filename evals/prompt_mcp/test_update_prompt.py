@@ -21,36 +21,36 @@ The tests also verify the LLM chooses update_prompt (not edit_prompt_content)
 for substantial template rewrites.
 """
 
-import asyncio
 import json
 import uuid
 from pathlib import Path
 from typing import Any
 
+import pytest
 from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 
 from evals.utils import (
-    MCP_CONCURRENCY_LIMIT,
     call_tool_with_retry,
+    check_argument_descriptions_preserved,
     create_checks_from_config,
     create_test_cases_from_config,
     delete_prompt_via_api,
     get_prompt_mcp_config,
-    get_tool_prediction,
+    get_tool_predictions,
     load_yaml_config,
 )
-
-_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_update_prompt.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 # Extract configuration values
-MODEL_CONFIG = CONFIG["model"]
+MODELS = CONFIG["models"]
 EVAL_CONFIG = CONFIG["eval"]
+EVAL_NAME = CONFIG.get("name", "")
+EVAL_DESCRIPTION = CONFIG.get("description", "")
 TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 CHECKS = create_checks_from_config(CONFIG["checks"])
 
@@ -166,7 +166,7 @@ async def _execute_and_verify(
         return None, str(e), None, [], []
 
 
-async def _run_update_prompt_eval(  # noqa: PLR0915
+async def _run_update_prompt_eval(
     prompt_name: str,
     content: str,
     arguments: list[dict[str, Any]],
@@ -221,7 +221,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
     prompt_id = None
 
     try:
-        async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+        async with MCPClientManager(config) as mcp_manager:
             print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 
@@ -258,7 +258,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 )
                 prompt_data = json.loads(get_template_result.content[0].text)
                 tool_results_text.append(
-                    f"`get_prompt_content` tool result:\n```json\n"
+                    f"`get_prompt_content` tool result:\n\n```json\n"
                     f"{json.dumps(prompt_data, indent=2)}\n```",
                 )
 
@@ -270,33 +270,36 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 )
                 metadata = json.loads(get_metadata_result.content[0].text)
                 tool_results_text.append(
-                    f"`get_prompt_metadata` tool result:\n```json\n"
+                    f"`get_prompt_metadata` tool result:\n\n```json\n"
                     f"{json.dumps(metadata, indent=2)}\n```",
                 )
 
             # Build prompt - show the tool result(s) and ask for changes
             tool_results_section = "\n\n".join(tool_results_text)
-            llm_prompt = f"""I need to make changes to this prompt.
-
+            llm_prompt = f"""
 {tool_results_section}
+
+Use the tool results above as context for the following instruction.
 
 **Instruction:** {instruction}"""
 
-            # Get tool prediction
-            prediction = await get_tool_prediction(
+            # Get tool predictions (expect exactly one)
+            result = await get_tool_predictions(
                 prompt=llm_prompt,
                 tools=tools,
                 model_name=model_name,
                 provider=provider,
                 temperature=temperature,
             )
+            predictions = result["predictions"]
+            prediction = predictions[0] if len(predictions) == 1 else None
 
             # Extract prediction metadata
-            predicted_args = prediction.get("arguments", {})
-            arguments_provided = _check_arguments_provided(prediction)
-            tags_provided = _check_tags_provided(prediction)
-            predicted_argument_names = _get_args_from_llm_call(prediction)
-            predicted_tool = prediction["tool_name"]
+            predicted_args = prediction.get("arguments", {}) if prediction else {}
+            arguments_provided = _check_arguments_provided(prediction) if prediction else False
+            tags_provided = _check_tags_provided(prediction) if prediction else False
+            predicted_argument_names = _get_args_from_llm_call(prediction) if prediction else None
+            predicted_tool = prediction["tool_name"] if prediction else None
 
             # Execute the predicted tool and fetch final state
             tool_result, tool_error, final_content, final_argument_names, final_tags = (
@@ -304,14 +307,6 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                     mcp_manager, predicted_tool, predicted_args, unique_name,
                 )
             )
-
-            # DEBUG: Print when something goes wrong
-            if tool_error or final_content is None:
-                print(f"\n[DEBUG] prompt_name={unique_name}")
-                print(f"[DEBUG] predicted_tool={predicted_tool}")
-                print(f"[DEBUG] predicted_args={predicted_args}")
-                print(f"[DEBUG] tool_error={tool_error}")
-                print(f"[DEBUG] final_content is None: {final_content is None}")
 
             # Compute the combined argument check:
             # - If expected is None: LLM should NOT have provided arguments
@@ -323,11 +318,14 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                     sorted(final_argument_names) == sorted(expected_argument_names)
                 )
 
-            # Compute tags check (mirrors arguments check pattern):
-            # - If expected is None: LLM should NOT have provided tags
+            # Compute tags check:
+            # - If expected is None: tags should be unchanged (either omitted or same values)
             # - If expected is a list: final tags should match
             if expected_tags is None:
-                tags_check = not tags_provided
+                tags_check = (
+                    not tags_provided
+                    or sorted(final_tags) == sorted(tags or [])
+                )
             else:
                 tags_check = sorted(final_tags) == sorted(expected_tags)
 
@@ -339,7 +337,8 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 "original_tags": tags,
                 "prompt_data": prompt_data,
                 "llm_prompt": llm_prompt,
-                "tool_prediction": prediction,
+                "tool_predictions": predictions,
+                "prediction_count": len(predictions),
                 "arguments_provided": arguments_provided,
                 "tags_provided": tags_provided,
                 "predicted_argument_names": predicted_argument_names,
@@ -349,7 +348,11 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
                 "final_argument_names": final_argument_names,
                 "final_tags": final_tags,
                 "expected_argument_names_check": expected_argument_names_check,
+                "argument_descriptions": check_argument_descriptions_preserved(
+                    prediction, arguments, expected_argument_names,
+                ),
                 "tags_check": tags_check,
+                "usage": result["usage"],
             }
 
     finally:
@@ -363,8 +366,19 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
     checks=CHECKS,
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
+    max_concurrency=EVAL_CONFIG.get("max_concurrency"),
+    output_dir=Path(__file__).parent / "results",
+    metadata={
+        "eval_name": EVAL_NAME,
+        "eval_description": EVAL_DESCRIPTION,
+    },
 )
-async def test_update_prompt(test_case: TestCase) -> dict[str, Any]:
+@pytest.mark.timeout(180)
+@pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
+async def test_update_prompt(
+    test_case: TestCase,
+    model_config: dict[str, Any],
+) -> dict[str, Any]:
     """
     Test that the LLM correctly uses update_prompt for full content replacement.
 
@@ -387,16 +401,20 @@ async def test_update_prompt(test_case: TestCase) -> dict[str, Any]:
     - Tags behavior is correct (if expected_tags provided):
       - Tags are full replacement, so LLM must provide ALL tags
     """
-    return await _run_update_prompt_eval(
+    result = await _run_update_prompt_eval(
         prompt_name=test_case.input["prompt_name"],
         content=test_case.input["content"],
         arguments=test_case.input["arguments"],
         instruction=test_case.input["instruction"],
         expected_argument_names=test_case.expected.get("expected_argument_names"),
-        model_name=MODEL_CONFIG["name"],
-        provider=MODEL_CONFIG["provider"],
-        temperature=MODEL_CONFIG["temperature"],
+        model_name=model_config["name"],
+        provider=model_config["provider"],
+        temperature=model_config["temperature"],
         show_results=test_case.input["show_results"],
         tags=test_case.input.get("tags"),
         expected_tags=test_case.expected.get("expected_tags"),
     )
+    result["model_name"] = model_config["name"]
+    result["model_provider"] = model_config["provider"]
+    result["temperature"] = model_config["temperature"]
+    return result

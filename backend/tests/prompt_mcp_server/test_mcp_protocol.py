@@ -39,12 +39,11 @@ def test__server__has_instructions() -> None:
     assert server.instructions is not None
     assert len(server.instructions) > 0
     # Verify key content is present
-    assert "prompt template manager" in server.instructions.lower()
+    assert "tiddly" in server.instructions.lower()
+    assert "jinja2" in server.instructions.lower()
     assert "get_prompt_content" in server.instructions
-    assert "create_prompt" in server.instructions
     assert "edit_prompt_content" in server.instructions
     assert "update_prompt" in server.instructions
-    assert "Jinja2" in server.instructions
 
 
 # --- list_prompts tests ---
@@ -418,19 +417,19 @@ async def test__list_tools__returns_all_tools(mcp_client: Client) -> None:
     }
 
     get_content = next(t for t in tools if t.name == "get_prompt_content")
-    assert "template and arguments" in get_content.description
-    assert "viewing or editing" in get_content.description
+    assert "template" in get_content.description.lower()
+    assert "argument" in get_content.description.lower()
 
     create_prompt = next(t for t in tools if t.name == "create_prompt")
     assert "Create a new prompt" in create_prompt.description
 
     edit_prompt = next(t for t in tools if t.name == "edit_prompt_content")
-    assert "Edit template content" in edit_prompt.description
-    assert "old_str/new_str replacement" in edit_prompt.description
+    assert "old_str" in edit_prompt.description
+    assert "new_str" in edit_prompt.description
 
     update_prompt = next(t for t in tools if t.name == "update_prompt")
-    assert "Update metadata" in update_prompt.description
-    assert "metadata" in update_prompt.description or "content" in update_prompt.description
+    assert "metadata" in update_prompt.description
+    assert "content" in update_prompt.description
 
 
 @pytest.mark.asyncio
@@ -507,7 +506,7 @@ async def test__get_prompt_content_tool__includes_all_metadata(
     response_data = json.loads(result.content[0].text)
 
     # Verify all expected fields are present
-    expected_fields = {"id", "name", "title", "description", "content", "arguments"}
+    expected_fields = {"id", "name", "title", "description", "content", "arguments", "updated_at"}
     assert set(response_data.keys()) == expected_fields
 
 
@@ -1886,6 +1885,193 @@ async def test__list_tools__update_prompt_has_schema(mcp_client: Client) -> None
     assert "expected_updated_at" in schema["properties"]
     # Only name is required
     assert schema["required"] == ["name"]
+
+
+# --- Null optional field tests ---
+# Some models (e.g., gpt-4o-mini) send explicit null for optional parameters.
+# These tests verify that null values are accepted by schema validation and
+# stripped from API payloads.
+
+
+@pytest.mark.asyncio
+async def test__update_prompt_tool__null_optional_fields__ignored(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test update_prompt tool ignores null optional fields."""
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440020",
+        "name": "test-prompt",
+        "title": None,
+        "description": None,
+        "content": "new content",
+        "arguments": [],
+        "tags": [],
+        "updated_at": "2024-01-02T00:00:00Z",
+    }
+    mock_api.patch("/prompts/name/test-prompt").mock(
+        return_value=Response(200, json=updated_prompt),
+    )
+
+    result = await mcp_client.call_tool(
+        "update_prompt",
+        {
+            "name": "test-prompt",
+            "content": "new content",
+            "title": None,
+            "description": None,
+            "tags": None,
+            "arguments": None,
+            "expected_updated_at": None,
+        },
+    )
+
+    assert result.structured_content["name"] == "test-prompt"
+
+    # Verify null fields were not sent in the API payload
+    payload = json.loads(mock_api.calls[0].request.content)
+    assert "title" not in payload
+    assert "description" not in payload
+    assert "tags" not in payload
+    assert "arguments" not in payload
+    assert "expected_updated_at" not in payload
+    # content should be present (it was non-null)
+    assert payload["content"] == "new content"
+
+
+@pytest.mark.asyncio
+async def test__create_prompt_tool__null_optional_fields__ignored(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test create_prompt tool ignores null optional fields."""
+    created_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440010",
+        "name": "new-prompt",
+        "title": None,
+        "description": None,
+        "content": "test content",
+        "arguments": [],
+        "tags": [],
+        "updated_at": "2024-01-01T00:00:00Z",
+    }
+    mock_api.post("/prompts/").mock(
+        return_value=Response(201, json=created_prompt),
+    )
+
+    result = await mcp_client.call_tool(
+        "create_prompt",
+        {
+            "name": "new-prompt",
+            "content": "test content",
+            "title": None,
+            "description": None,
+            "tags": None,
+            "arguments": None,
+        },
+    )
+
+    assert result.structured_content["name"] == "new-prompt"
+
+    # Verify null fields were not sent in the API payload
+    payload = json.loads(mock_api.calls[0].request.content)
+    assert "title" not in payload
+    assert "description" not in payload
+    assert "tags" not in payload
+    assert "arguments" not in payload
+    # name and content should be present
+    assert payload["name"] == "new-prompt"
+    assert payload["content"] == "test content"
+
+
+@pytest.mark.asyncio
+async def test__edit_prompt_content_tool__null_arguments__ignored(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test edit_prompt_content tool ignores null arguments field."""
+    updated_prompt = {
+        "id": "550e8400-e29b-41d4-a716-446655440010",
+        "name": "test-prompt",
+        "content": "Hello world!",
+        "arguments": [],
+        "tags": [],
+        "updated_at": "2024-01-01T00:00:00Z",
+    }
+    mock_api.patch("/prompts/name/test-prompt/str-replace").mock(
+        return_value=Response(
+            200,
+            json={
+                "match_type": "exact",
+                "line": 1,
+                "data": updated_prompt,
+            },
+        ),
+    )
+
+    result = await mcp_client.call_tool(
+        "edit_prompt_content",
+        {
+            "name": "test-prompt",
+            "old_str": "Hello wrold",
+            "new_str": "Hello world!",
+            "arguments": None,
+        },
+    )
+
+    assert result.structured_content["name"] == "test-prompt"
+
+    # Verify null arguments were not sent in the API payload
+    payload = json.loads(mock_api.calls[0].request.content)
+    assert "arguments" not in payload
+    assert payload["old_str"] == "Hello wrold"
+    assert payload["new_str"] == "Hello world!"
+
+
+@pytest.mark.asyncio
+async def test__search_prompts__null_optional_fields__ignored(
+    mock_api,
+    mock_auth,  # noqa: ARG001 - needed for side effect
+    mcp_client: Client,
+) -> None:
+    """Test search_prompts tool ignores null optional fields."""
+    response_data = {
+        "items": [],
+        "total": 0,
+        "offset": 0,
+        "limit": 50,
+        "has_more": False,
+    }
+    mock_api.get("/prompts/").mock(
+        return_value=Response(200, json=response_data),
+    )
+
+    result = await mcp_client.call_tool(
+        "search_prompts",
+        {
+            "query": None,
+            "tags": None,
+            "tag_match": None,
+            "sort_by": None,
+            "sort_order": None,
+            "filter_id": None,
+        },
+    )
+
+    data = json.loads(result.content[0].text)
+    assert data["total"] == 0
+
+    # Verify no null params were sent to the API
+    request_url = str(mock_api.calls[0].request.url)
+    assert "q=" not in request_url
+    assert "tags=" not in request_url
+    assert "tag_match=" not in request_url
+    assert "sort_by=" not in request_url
+    assert "sort_order=" not in request_url
+    assert "filter_id=" not in request_url
 
 
 # --- Authentication error tests ---

@@ -15,34 +15,34 @@ The eval uses minimal prompting - just the raw tool output and an instruction.
 This tests whether the tool descriptions are sufficient for correct tool usage.
 """
 
-import asyncio
 import json
 import uuid
 from pathlib import Path
 from typing import Any
+import pytest
 from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
-    MCP_CONCURRENCY_LIMIT,
+    check_argument_descriptions_preserved,
     create_checks_from_config,
     create_prompt_via_api,
     create_test_cases_from_config,
     delete_prompt_via_api,
     get_prompt_mcp_config,
-    get_tool_prediction,
+    get_tool_predictions,
     load_yaml_config,
 )
-
-_MCP_SEMAPHORE = asyncio.Semaphore(MCP_CONCURRENCY_LIMIT)
 
 # Load configuration at module level
 CONFIG_PATH = Path(__file__).parent / "config_edit_prompt_content.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 # Extract configuration values
-MODEL_CONFIG = CONFIG["model"]
+MODELS = CONFIG["models"]
 EVAL_CONFIG = CONFIG["eval"]
+EVAL_NAME = CONFIG.get("name", "")
+EVAL_DESCRIPTION = CONFIG.get("description", "")
 TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 CHECKS = create_checks_from_config(CONFIG["checks"])
 
@@ -65,6 +65,7 @@ async def _run_edit_prompt_content_eval(
     content: str,
     arguments: list[dict[str, Any]],
     instruction: str,
+    expected_argument_names: list[str] | None,
     model_name: str,
     provider: str,
     temperature: float,
@@ -95,7 +96,7 @@ async def _run_edit_prompt_content_eval(
         # Get MCP tools and use get_prompt_content to get the context
         config = get_prompt_mcp_config()
         # Acquire semaphore to limit concurrent MCP connections
-        async with _MCP_SEMAPHORE, MCPClientManager(config) as mcp_manager:
+        async with MCPClientManager(config) as mcp_manager:
             print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 
@@ -112,28 +113,32 @@ async def _run_edit_prompt_content_eval(
             # Build minimal prompt - just the raw tool output and instruction
             # No hand-holding about how to use the tool - the LLM should figure
             # that out from the tool descriptions and server instructions
-            llm_prompt = f"""I want to edit this prompt template.
-
+            llm_prompt = f"""
 `get_prompt_content` tool result:
+
 ```json
 {json.dumps(prompt_data, indent=2)}
 ```
 
+Use the tool result above as context for the following instruction.
+
 **Instruction:** {instruction}"""
 
-            # Get tool prediction
-            prediction = await get_tool_prediction(
+            # Get tool predictions (expect exactly one)
+            result = await get_tool_predictions(
                 prompt=llm_prompt,
                 tools=tools,
                 model_name=model_name,
                 provider=provider,
                 temperature=temperature,
             )
+            predictions = result["predictions"]
+            prediction = predictions[0] if len(predictions) == 1 else None
 
             # Compute final content by applying the edit
             original_content = content
-            old_str = prediction.get("arguments", {}).get("old_str", "")
-            new_str = prediction.get("arguments", {}).get("new_str", "")
+            old_str = prediction.get("arguments", {}).get("old_str", "") if prediction else ""
+            new_str = prediction.get("arguments", {}).get("new_str", "") if prediction else ""
             if old_str and old_str in original_content:
                 final_content = original_content.replace(old_str, new_str)
             else:
@@ -141,16 +146,21 @@ async def _run_edit_prompt_content_eval(
                 final_content = original_content
 
             # Extract argument names (sorted for order-independent comparison)
-            argument_names = _extract_argument_names(prediction)
+            argument_names = _extract_argument_names(prediction) if prediction else []
 
             return {
                 "prompt_id": prompt_id,
                 "prompt_name": unique_name,
                 "prompt_data": prompt_data,
                 "llm_prompt": llm_prompt,
-                "tool_prediction": prediction,
+                "tool_predictions": predictions,
+                "prediction_count": len(predictions),
                 "final_content": final_content,
                 "argument_names": argument_names,
+                "argument_descriptions": check_argument_descriptions_preserved(
+                    prediction, arguments, expected_argument_names,
+                ),
+                "usage": result["usage"],
             }
 
     finally:
@@ -163,8 +173,19 @@ async def _run_edit_prompt_content_eval(
     checks=CHECKS,
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
+    max_concurrency=EVAL_CONFIG.get("max_concurrency"),
+    output_dir=Path(__file__).parent / "results",
+    metadata={
+        "eval_name": EVAL_NAME,
+        "eval_description": EVAL_DESCRIPTION,
+    },
 )
-async def test_edit_prompt_content(test_case: TestCase) -> dict[str, Any]:
+@pytest.mark.timeout(180)
+@pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
+async def test_edit_prompt_content(
+    test_case: TestCase,
+    model_config: dict[str, Any],
+) -> dict[str, Any]:
     """
     Test that the LLM correctly uses edit_prompt_content to modify prompts.
 
@@ -181,12 +202,17 @@ async def test_edit_prompt_content(test_case: TestCase) -> dict[str, Any]:
     - Final content does not contain forbidden text (variables removed)
     - Argument names exactly match expected (sorted list comparison)
     """
-    return await _run_edit_prompt_content_eval(
+    result = await _run_edit_prompt_content_eval(
         prompt_name=test_case.input["prompt_name"],
         content=test_case.input["content"],
         arguments=test_case.input["arguments"],
         instruction=test_case.input["instruction"],
-        model_name=MODEL_CONFIG["name"],
-        provider=MODEL_CONFIG["provider"],
-        temperature=MODEL_CONFIG["temperature"],
+        expected_argument_names=test_case.expected.get("expected_argument_names"),
+        model_name=model_config["name"],
+        provider=model_config["provider"],
+        temperature=model_config["temperature"],
     )
+    result["model_name"] = model_config["name"]
+    result["model_provider"] = model_config["provider"]
+    result["temperature"] = model_config["temperature"]
+    return result
