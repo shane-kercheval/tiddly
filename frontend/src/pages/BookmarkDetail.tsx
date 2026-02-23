@@ -30,7 +30,7 @@ import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
-import { getApiErrorMessage, getDomain } from '../utils'
+import { getApiErrorMessage, getDomain, isEffectivelyArchived } from '../utils'
 
 type BookmarkViewState = 'active' | 'archived' | 'deleted'
 
@@ -39,7 +39,7 @@ type BookmarkViewState = 'active' | 'archived' | 'deleted'
  */
 function getBookmarkViewState(bookmark: BookmarkType): BookmarkViewState {
   if (bookmark.deleted_at) return 'deleted'
-  if (bookmark.archived_at) return 'archived'
+  if (isEffectivelyArchived(bookmark.archived_at)) return 'archived'
   return 'active'
 }
 

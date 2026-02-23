@@ -32,6 +32,7 @@ import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
+import { isEffectivelyArchived } from '../utils'
 
 type NoteViewState = 'active' | 'archived' | 'deleted'
 
@@ -40,7 +41,7 @@ type NoteViewState = 'active' | 'archived' | 'deleted'
  */
 function getNoteViewState(note: NoteType): NoteViewState {
   if (note.deleted_at) return 'deleted'
-  if (note.archived_at) return 'archived'
+  if (isEffectivelyArchived(note.archived_at)) return 'archived'
   return 'active'
 }
 

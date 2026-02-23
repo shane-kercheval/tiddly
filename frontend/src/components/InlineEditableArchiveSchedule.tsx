@@ -125,10 +125,27 @@ export function InlineEditableArchiveSchedule({
   // View mode display text
   const displayText = value ? `Auto-archive: ${formatScheduleDisplay(value)}` : 'Auto-archive: None'
 
-  if (isEditing) {
-    return (
-      <div ref={containerRef} className="relative inline-block">
-        <div className="flex flex-col gap-2 p-2 bg-white border border-gray-200 rounded-lg shadow-sm min-w-[200px]">
+  return (
+    <div ref={containerRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={handleViewClick}
+        disabled={disabled}
+        className={`
+          inline-flex items-center gap-1 text-xs text-gray-500
+          hover:text-gray-700 hover:bg-gray-100 rounded px-1.5 py-0.5
+          transition-colors
+          ${disabled ? 'cursor-not-allowed opacity-60' : ''}
+        `}
+      >
+        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+        <span>{displayText}</span>
+      </button>
+
+      {isEditing && (
+        <div className="absolute top-full left-0 z-50 mt-1 flex flex-col gap-2 p-2 bg-white border border-gray-200 rounded-lg shadow-sm min-w-[200px]">
           <select
             value={preset}
             onChange={(e) => handlePresetChange(e.target.value as ArchivePreset)}
@@ -170,26 +187,7 @@ export function InlineEditableArchiveSchedule({
             Done
           </button>
         </div>
-      </div>
-    )
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleViewClick}
-      disabled={disabled}
-      className={`
-        inline-flex items-center gap-1 text-xs text-gray-500
-        hover:text-gray-700 hover:bg-gray-100 rounded px-1.5 py-0.5
-        transition-colors
-        ${disabled ? 'cursor-not-allowed opacity-60' : ''}
-      `}
-    >
-      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-      <span>{displayText}</span>
-    </button>
+      )}
+    </div>
   )
 }

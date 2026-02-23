@@ -9,6 +9,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { getLinkedItem } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { ContentType, ContentListItem, RelationshipInputPayload, RelationshipWithContent } from '../types'
+import { isEffectivelyArchived } from '../utils'
 
 interface UseRelationshipStateParams<S extends { relationships: RelationshipInputPayload[] }> {
   contentType: ContentType
@@ -100,7 +101,7 @@ export function useRelationshipState<S extends { relationships: RelationshipInpu
       url: item.url,
       promptName: item.name,
       deleted: !!item.deleted_at,
-      archived: !!item.archived_at,
+      archived: isEffectivelyArchived(item.archived_at),
       description: null,
     })
     setCurrent((prev: S) => ({

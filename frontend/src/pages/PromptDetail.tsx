@@ -31,6 +31,7 @@ import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
+import { isEffectivelyArchived } from '../utils'
 
 type PromptViewState = 'active' | 'archived' | 'deleted'
 
@@ -39,7 +40,7 @@ type PromptViewState = 'active' | 'archived' | 'deleted'
  */
 function getPromptViewState(prompt: PromptType): PromptViewState {
   if (prompt.deleted_at) return 'deleted'
-  if (prompt.archived_at) return 'archived'
+  if (isEffectivelyArchived(prompt.archived_at)) return 'archived'
   return 'active'
 }
 

@@ -8,7 +8,7 @@
 import type { ReactNode } from 'react'
 import { useContentCardContext } from './ContentCardContext'
 import { CloseIcon, ArchiveIcon } from '../icons'
-import { formatShortDate } from '../../utils'
+import { formatShortDate, isEffectivelyArchived } from '../../utils'
 import { Tooltip } from '../ui'
 
 interface ContentCardScheduledArchiveProps {
@@ -24,10 +24,10 @@ export function ContentCardScheduledArchive({
 }: ContentCardScheduledArchiveProps): ReactNode {
   const { view } = useContentCardContext()
 
-  // Only show in active view when archived_at is in the future
+  // Only show in active view when archived_at is in the future (scheduled but not yet effective)
   const hasScheduledArchive = view === 'active' &&
-    archivedAt &&
-    new Date(archivedAt) > new Date()
+    !!archivedAt &&
+    !isEffectivelyArchived(archivedAt)
 
   if (!hasScheduledArchive) return null
 
