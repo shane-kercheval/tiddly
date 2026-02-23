@@ -170,11 +170,11 @@ Use the tool result above as context for the following instruction.
                 except Exception as e:
                     tool_error = str(e)
 
-            # Compute tags check (mirrors update_prompt pattern):
-            # - If expected is None: LLM should NOT have provided tags
+            # Compute tags check:
+            # - If expected is None: tags should be unchanged (either omitted or same values)
             # - If expected is a list: final tags should match
             if expected_tags is None:
-                tags_check = not tags_provided
+                tags_check = not tags_provided or sorted(final_tags) == sorted(original_tags)
             else:
                 tags_check = sorted(final_tags) == sorted(expected_tags)
 

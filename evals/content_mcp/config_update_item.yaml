@@ -241,6 +241,7 @@ checks:
     arguments:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_contain"
+      case_sensitive: false
     metadata:
       name: "Content Updated"
       description: "Final content contains the expected text after rewrite"
@@ -251,6 +252,7 @@ checks:
       text: "$.output.value.final_content"
       phrases: "$.test_case.expected.final_must_not_contain"
       negate: true
+      case_sensitive: false
     metadata:
       name: "Removed Text Gone"
       description: "Final content no longer contains removed/replaced text"

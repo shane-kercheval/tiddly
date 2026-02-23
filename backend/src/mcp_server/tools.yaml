@@ -83,7 +83,7 @@ update_item:
     description: |
       New description. Omit to leave unchanged.
     tags: |
-      New tags list (FULL REPLACEMENT of all existing tags — include existing tags you want to keep). Omit to preserve existing tags.
+      New tags list (FULL REPLACEMENT of all existing tags — include existing tags you want to keep). Do NOT provide this parameter unless you are intentionally changing tags — omitting it preserves existing tags automatically.
     url: |
       New URL (bookmarks only). Omit to leave unchanged.
     content: |

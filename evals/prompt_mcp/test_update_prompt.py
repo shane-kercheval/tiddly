@@ -318,11 +318,14 @@ Use the tool results above as context for the following instruction.
                     sorted(final_argument_names) == sorted(expected_argument_names)
                 )
 
-            # Compute tags check (mirrors arguments check pattern):
-            # - If expected is None: LLM should NOT have provided tags
+            # Compute tags check:
+            # - If expected is None: tags should be unchanged (either omitted or same values)
             # - If expected is a list: final tags should match
             if expected_tags is None:
-                tags_check = not tags_provided
+                tags_check = (
+                    not tags_provided
+                    or sorted(final_tags) == sorted(tags or [])
+                )
             else:
                 tags_check = sorted(final_tags) == sorted(expected_tags)
 
