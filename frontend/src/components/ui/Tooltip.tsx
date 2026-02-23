@@ -29,6 +29,10 @@ interface Position {
   left: number
 }
 
+// Check if primary pointing device supports hover (false on phones/tablets with touch)
+const canHover = (): boolean =>
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(hover: hover)').matches
+
 export function Tooltip({ content, children, compact = false, position = 'bottom', delay = 0, className = '' }: TooltipProps): ReactNode {
   const [isVisible, setIsVisible] = useState(false)
   const [pos, setPos] = useState<Position>({ top: 0, left: 0 })
@@ -37,6 +41,7 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
   const timeoutRef = useRef<number | null>(null)
 
   const showTooltip = useCallback((): void => {
+    if (!canHover()) return
     // Clear any pending hide
     if (timeoutRef.current) {
       window.clearTimeout(timeoutRef.current)
