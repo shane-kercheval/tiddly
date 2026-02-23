@@ -21,6 +21,7 @@ models:
 eval:
   samples: 10
   success_threshold: 0.6
+  max_concurrency: 20
 
 test_cases:
   # Test 1: Fix typo that is a prefix of another word

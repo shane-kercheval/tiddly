@@ -26,7 +26,6 @@ from evals.utils import (
     create_test_cases_from_config,
     delete_note_via_api,
     get_content_mcp_config,
-    get_mcp_semaphore,
     get_tool_predictions,
     load_yaml_config,
 )
@@ -69,7 +68,7 @@ async def _run_edit_content_eval(
     config = get_content_mcp_config()
 
     # Acquire semaphore to limit concurrent MCP connections
-    async with get_mcp_semaphore(), MCPClientManager(config) as mcp_manager:
+    async with MCPClientManager(config) as mcp_manager:
         print(".", end="", flush=True)
         tools = mcp_manager.get_tools()
         # Create the note (with retry for transient failures)
@@ -188,6 +187,7 @@ Use the tool results above as context for the following instruction.
     checks=CHECKS,
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
+    max_concurrency=EVAL_CONFIG.get("max_concurrency"),
     output_dir=Path(__file__).parent / "results",
     metadata={
         "eval_name": EVAL_NAME,

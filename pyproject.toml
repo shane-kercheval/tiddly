@@ -43,7 +43,7 @@ dev = [
     "testcontainers>=4.14.1",
     "respx>=0.22.0",
     "sik-llms>=0.3.33",
-    "flex-evals>=0.3.26",
+    "flex-evals>=0.3.27",
     "py-spy>=0.4.1",
     "pyinstrument>=5.1.2",
 ]

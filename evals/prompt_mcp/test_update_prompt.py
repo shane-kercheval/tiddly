@@ -37,7 +37,6 @@ from evals.utils import (
     create_checks_from_config,
     create_test_cases_from_config,
     delete_prompt_via_api,
-    get_mcp_semaphore,
     get_prompt_mcp_config,
     get_tool_predictions,
     load_yaml_config,
@@ -167,7 +166,7 @@ async def _execute_and_verify(
         return None, str(e), None, [], []
 
 
-async def _run_update_prompt_eval(  # noqa: PLR0915
+async def _run_update_prompt_eval(
     prompt_name: str,
     content: str,
     arguments: list[dict[str, Any]],
@@ -222,7 +221,7 @@ async def _run_update_prompt_eval(  # noqa: PLR0915
     prompt_id = None
 
     try:
-        async with get_mcp_semaphore(), MCPClientManager(config) as mcp_manager:
+        async with MCPClientManager(config) as mcp_manager:
             print(".", end="", flush=True)
             tools = mcp_manager.get_tools()
 
@@ -364,6 +363,7 @@ Use the tool results above as context for the following instruction.
     checks=CHECKS,
     samples=EVAL_CONFIG["samples"],
     success_threshold=EVAL_CONFIG["success_threshold"],
+    max_concurrency=EVAL_CONFIG.get("max_concurrency"),
     output_dir=Path(__file__).parent / "results",
     metadata={
         "eval_name": EVAL_NAME,
