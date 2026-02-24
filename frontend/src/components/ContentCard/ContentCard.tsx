@@ -19,7 +19,7 @@ import { ContentCardFooter } from './ContentCardFooter'
 import { ContentCardTags } from './ContentCardTags'
 import { ContentCardDateDisplay } from './ContentCardDateDisplay'
 import { ContentCardActions } from './ContentCardActions'
-import { ContentCardScheduledArchive } from './ContentCardScheduledArchive'
+import { ContentCardArchiveStatus } from './ContentCardArchiveStatus'
 import { AddTagAction, ArchiveAction, RestoreAction, DeleteAction } from './actions'
 
 interface ContentCardProps {
@@ -73,7 +73,7 @@ export const ContentCard = Object.assign(ContentCardBase, {
   Tags: ContentCardTags,
   DateDisplay: ContentCardDateDisplay,
   Actions: ContentCardActions,
-  ScheduledArchive: ContentCardScheduledArchive,
+  ArchiveStatus: ContentCardArchiveStatus,
   AddTagAction,
   ArchiveAction,
   RestoreAction,

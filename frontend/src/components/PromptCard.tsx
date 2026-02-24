@@ -31,6 +31,8 @@ interface PromptCardProps {
   onTagAdd?: (prompt: PromptListItem, tag: string) => void
   tagSuggestions?: TagCount[]
   onCancelScheduledArchive?: (prompt: PromptListItem) => void
+  /** When true, show an amber archived indicator badge for effectively archived items */
+  showArchivedIndicator?: boolean
 }
 
 export function PromptCard({
@@ -49,6 +51,7 @@ export function PromptCard({
   onTagAdd,
   tagSuggestions,
   onCancelScheduledArchive,
+  showArchivedIndicator,
 }: PromptCardProps): ReactNode {
   const hasActions = !!(onDelete || onArchive || onUnarchive || onRestore || onTagAdd || onCancelScheduledArchive)
   // Display title if present, otherwise use name
@@ -164,10 +167,11 @@ export function PromptCard({
                   deletedAt={prompt.deleted_at}
                   showLabel
                 />
-                {onCancelScheduledArchive && (
-                  <ContentCard.ScheduledArchive
+                {(onCancelScheduledArchive || showArchivedIndicator) && (
+                  <ContentCard.ArchiveStatus
                     archivedAt={prompt.archived_at}
-                    onCancel={() => onCancelScheduledArchive(prompt)}
+                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(prompt) : undefined}
+                    showArchivedIndicator={showArchivedIndicator}
                   />
                 )}
               </div>
@@ -195,10 +199,11 @@ export function PromptCard({
             </div>
 
             {/* Right: Scheduled archive + Date */}
-            {onCancelScheduledArchive && (
-              <ContentCard.ScheduledArchive
+            {(onCancelScheduledArchive || showArchivedIndicator) && (
+              <ContentCard.ArchiveStatus
                 archivedAt={prompt.archived_at}
-                onCancel={() => onCancelScheduledArchive(prompt)}
+                onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(prompt) : undefined}
+                showArchivedIndicator={showArchivedIndicator}
               />
             )}
             {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}

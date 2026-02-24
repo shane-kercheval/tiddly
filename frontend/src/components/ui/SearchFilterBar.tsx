@@ -6,7 +6,8 @@
  */
 import type { ReactNode, RefObject, ChangeEvent } from 'react'
 import { TagFilterInput } from '../TagFilterInput'
-import { SearchIcon } from '../icons'
+import { SearchIcon, ArrowPathIcon } from '../icons'
+import { Tooltip } from './Tooltip'
 import { SORT_LABELS, type SortByOption } from '../../constants/sortOptions'
 import type { TagCount } from '../../types'
 
@@ -35,6 +36,10 @@ interface SearchFilterBarProps {
   singleDirectionOptions?: ReadonlySet<SortByOption>
   /** Optional left slot (e.g., for add button) */
   leftSlot?: ReactNode
+  /** Whether any filters are in a non-default state */
+  hasNonDefaultFilters?: boolean
+  /** Called when the reset button is clicked */
+  onReset?: () => void
 }
 
 /**
@@ -59,6 +64,8 @@ export function SearchFilterBar({
   availableSortOptions,
   singleDirectionOptions,
   leftSlot,
+  hasNonDefaultFilters = false,
+  onReset,
 }: SearchFilterBarProps): ReactNode {
   return (
     <div className="flex flex-col gap-1.5 md:flex-row md:flex-nowrap md:items-center md:gap-2">
@@ -105,6 +112,23 @@ export function SearchFilterBar({
             )
           ))}
         </select>
+        {onReset && (
+          <Tooltip content="Reset filters" compact position="left" delay={500}>
+            <button
+              type="button"
+              onClick={onReset}
+              disabled={!hasNonDefaultFilters}
+              className={`p-1 rounded transition-colors ${
+                hasNonDefaultFilters
+                  ? 'text-gray-400 hover:text-gray-600'
+                  : 'text-gray-200 cursor-default'
+              }`}
+              aria-label="Reset filters"
+            >
+              <ArrowPathIcon className="h-3.5 w-3.5" />
+            </button>
+          </Tooltip>
+        )}
       </div>
     </div>
   )

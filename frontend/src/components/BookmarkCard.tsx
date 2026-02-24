@@ -49,6 +49,8 @@ interface BookmarkCardProps {
   tagSuggestions?: TagCount[]
   onLinkClick?: (bookmark: BookmarkListItem) => void
   onCancelScheduledArchive?: (bookmark: BookmarkListItem) => void
+  /** When true, show an amber archived indicator badge for effectively archived items */
+  showArchivedIndicator?: boolean
 }
 
 export function BookmarkCard({
@@ -69,6 +71,7 @@ export function BookmarkCard({
   tagSuggestions,
   onLinkClick,
   onCancelScheduledArchive,
+  showArchivedIndicator,
 }: BookmarkCardProps): ReactNode {
   const hasActions = !!(onDelete || onArchive || onUnarchive || onRestore || onEdit || onTagAdd || onCancelScheduledArchive)
   const hasTitle = !!bookmark.title
@@ -283,10 +286,11 @@ export function BookmarkCard({
                   deletedAt={bookmark.deleted_at}
                   showLabel
                 />
-                {onCancelScheduledArchive && (
-                  <ContentCard.ScheduledArchive
+                {(onCancelScheduledArchive || showArchivedIndicator) && (
+                  <ContentCard.ArchiveStatus
                     archivedAt={bookmark.archived_at}
-                    onCancel={() => onCancelScheduledArchive(bookmark)}
+                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(bookmark) : undefined}
+                    showArchivedIndicator={showArchivedIndicator}
                   />
                 )}
               </div>
@@ -327,10 +331,11 @@ export function BookmarkCard({
             </div>
 
             {/* Right: Scheduled archive + Date */}
-            {onCancelScheduledArchive && (
-              <ContentCard.ScheduledArchive
+            {(onCancelScheduledArchive || showArchivedIndicator) && (
+              <ContentCard.ArchiveStatus
                 archivedAt={bookmark.archived_at}
-                onCancel={() => onCancelScheduledArchive(bookmark)}
+                onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(bookmark) : undefined}
+                showArchivedIndicator={showArchivedIndicator}
               />
             )}
             {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
