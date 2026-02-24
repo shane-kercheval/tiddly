@@ -9,21 +9,22 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
-import type { PromptListResponse, PromptSearchParams } from '../types'
+import { normalizeViewKey } from '../types'
+import type { PromptListResponse, PromptSearchParams, ViewOption } from '../types'
 
 /**
  * Query key factory for consistent cache keys.
  *
  * Key Structure (view segment BEFORE params for prefix matching):
  * - ['prompts', 'list', 'active', params]  - active view queries
+ * - ['prompts', 'list', 'active+archived', params] - combined view queries
  * - ['prompts', 'list', 'archived', params] - archived view queries
  * - ['prompts', 'list', 'deleted', params] - deleted view queries
  * - ['prompts', 'list', 'custom', params] - custom list queries (have filter_id)
  *
  * Invalidation Keys (prefix matching):
  * - promptKeys.view('active')  → ['prompts', 'list', 'active'] - all active queries
- * - promptKeys.view('archived') → ['prompts', 'list', 'archived'] - all archived queries
- * - promptKeys.view('deleted') → ['prompts', 'list', 'deleted'] - all deleted queries
+ * - promptKeys.view(['active', 'archived']) → ['prompts', 'list', 'active+archived']
  * - promptKeys.customLists()   → ['prompts', 'list', 'custom'] - all custom list queries
  * - promptKeys.lists()         → ['prompts', 'list'] - ALL list queries
  */
@@ -31,9 +32,9 @@ export const promptKeys = {
   all: ['prompts'] as const,
   lists: () => [...promptKeys.all, 'list'] as const,
 
-  /** Invalidation key for a specific view type (active/archived/deleted) */
-  view: (view: 'active' | 'archived' | 'deleted') =>
-    [...promptKeys.lists(), view] as const,
+  /** Invalidation key for a specific view type or combination */
+  view: (view: ViewOption | ViewOption[]) =>
+    [...promptKeys.lists(), normalizeViewKey(view)] as const,
 
   /** Invalidation key for all custom list queries */
   customLists: () => [...promptKeys.lists(), 'custom'] as const,
@@ -77,7 +78,8 @@ function buildQueryString(params: PromptSearchParams): string {
     queryParams.set('limit', String(params.limit))
   }
   if (params.view) {
-    queryParams.set('view', params.view)
+    const views = Array.isArray(params.view) ? params.view : [params.view]
+    views.forEach((v) => queryParams.append('view', v))
   }
   if (params.filter_id !== undefined) {
     queryParams.set('filter_id', String(params.filter_id))

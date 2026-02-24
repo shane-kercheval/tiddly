@@ -9,21 +9,22 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
-import type { NoteListResponse, NoteSearchParams } from '../types'
+import { normalizeViewKey } from '../types'
+import type { NoteListResponse, NoteSearchParams, ViewOption } from '../types'
 
 /**
  * Query key factory for consistent cache keys.
  *
  * Key Structure (view segment BEFORE params for prefix matching):
  * - ['notes', 'list', 'active', params]  - active view queries
+ * - ['notes', 'list', 'active+archived', params] - combined view queries
  * - ['notes', 'list', 'archived', params] - archived view queries
  * - ['notes', 'list', 'deleted', params] - deleted view queries
  * - ['notes', 'list', 'custom', params] - custom list queries (have filter_id)
  *
  * Invalidation Keys (prefix matching):
  * - noteKeys.view('active')  → ['notes', 'list', 'active'] - all active queries
- * - noteKeys.view('archived') → ['notes', 'list', 'archived'] - all archived queries
- * - noteKeys.view('deleted') → ['notes', 'list', 'deleted'] - all deleted queries
+ * - noteKeys.view(['active', 'archived']) → ['notes', 'list', 'active+archived']
  * - noteKeys.customLists()   → ['notes', 'list', 'custom'] - all custom list queries
  * - noteKeys.lists()         → ['notes', 'list'] - ALL list queries
  */
@@ -31,9 +32,9 @@ export const noteKeys = {
   all: ['notes'] as const,
   lists: () => [...noteKeys.all, 'list'] as const,
 
-  /** Invalidation key for a specific view type (active/archived/deleted) */
-  view: (view: 'active' | 'archived' | 'deleted') =>
-    [...noteKeys.lists(), view] as const,
+  /** Invalidation key for a specific view type or combination */
+  view: (view: ViewOption | ViewOption[]) =>
+    [...noteKeys.lists(), normalizeViewKey(view)] as const,
 
   /** Invalidation key for all custom list queries */
   customLists: () => [...noteKeys.lists(), 'custom'] as const,
@@ -77,7 +78,8 @@ function buildQueryString(params: NoteSearchParams): string {
     queryParams.set('limit', String(params.limit))
   }
   if (params.view) {
-    queryParams.set('view', params.view)
+    const views = Array.isArray(params.view) ? params.view : [params.view]
+    views.forEach((v) => queryParams.append('view', v))
   }
   if (params.filter_id !== undefined) {
     queryParams.set('filter_id', String(params.filter_id))

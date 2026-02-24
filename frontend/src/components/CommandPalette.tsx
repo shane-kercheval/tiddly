@@ -32,6 +32,7 @@ import {
   SelectedTagsDisplay,
   PaginationControls,
   ContentTypeFilterChips,
+  ViewFilterChips,
 } from './ui'
 import {
   SearchIcon,
@@ -202,6 +203,9 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   const selectedContentTypes = getSelectedTypes('search', ALL_CONTENT_TYPES)
   const isBookmarksOnly = selectedContentTypes.length === 1 && selectedContentTypes[0] === 'bookmark'
 
+  // View state filter (Active/Archived)
+  const [selectedViews, setSelectedViews] = useState<('active' | 'archived')[]>(['active', 'archived'])
+
   const { tags: tagSuggestions } = useTagsStore()
 
   // Sidebar data for command list
@@ -228,10 +232,10 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
       sort_order: effectiveSortOrder,
       offset,
       limit: pageSize,
-      view: 'active' as const,
+      view: selectedViews,
       content_types: selectedContentTypes,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, effectiveSortBy, effectiveSortOrder, offset, pageSize, selectedContentTypes]
+    [debouncedSearchQuery, selectedTags, tagMatch, effectiveSortBy, effectiveSortOrder, offset, pageSize, selectedViews, selectedContentTypes]
   )
 
   const hasSearchCriteria = !!debouncedSearchQuery || selectedTags.length > 0
@@ -501,6 +505,14 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     [toggleType]
   )
 
+  const handleViewToggle = useCallback((view: 'active' | 'archived') => {
+    setSelectedViews(prev => {
+      if (prev.includes(view) && prev.length === 1) return prev
+      return prev.includes(view) ? prev.filter(v => v !== view) : [...prev, view]
+    })
+    setOffset(0)
+  }, [])
+
   // Result click handlers (navigate and close)
   const handleViewBookmark = useCallback(
     (bookmark: BookmarkListItem) => navigateAndClose(`/app/bookmarks/${bookmark.id}`),
@@ -609,11 +621,17 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                 availableSortOptions={SEARCH_SORT_OPTIONS}
                 singleDirectionOptions={SINGLE_DIRECTION_OPTIONS}
               />
-              <ContentTypeFilterChips
-                selectedTypes={selectedContentTypes}
-                availableTypes={ALL_CONTENT_TYPES}
-                onChange={handleContentTypeToggle}
-              />
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <ContentTypeFilterChips
+                  selectedTypes={selectedContentTypes}
+                  availableTypes={ALL_CONTENT_TYPES}
+                  onChange={handleContentTypeToggle}
+                />
+                <ViewFilterChips
+                  selectedViews={selectedViews}
+                  onChange={handleViewToggle}
+                />
+              </div>
               <SelectedTagsDisplay
                 selectedTags={selectedTags}
                 tagMatch={tagMatch}
@@ -653,43 +671,50 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                 <div className="pb-2 px-3 [&_.card]:rounded-none">
                   <div>
                     {items.map((item) => {
+                      const isArchived = item.archived_at !== null
+                      const itemView = isArchived ? 'archived' as const : 'active' as const
+                      const wrapperClass = isArchived ? 'border-l-4 border-amber-400' : ''
+
                       if (item.type === 'bookmark') {
                         return (
-                          <BookmarkCard
-                            key={`bookmark-${item.id}`}
-                            bookmark={toBookmarkListItem(item)}
-                            view="active"
-                            sortBy={displaySortBy}
-                            showDate={showDates}
-                            showContentTypeIcon={!isBookmarksOnly}
-                            onClick={handleViewBookmark}
-                            onTagClick={handleTagClick}
-                          />
+                          <div key={`bookmark-${item.id}`} className={wrapperClass}>
+                            <BookmarkCard
+                              bookmark={toBookmarkListItem(item)}
+                              view={itemView}
+                              sortBy={displaySortBy}
+                              showDate={showDates}
+                              showContentTypeIcon={!isBookmarksOnly}
+                              onClick={handleViewBookmark}
+                              onTagClick={handleTagClick}
+                            />
+                          </div>
                         )
                       }
                       if (item.type === 'prompt') {
                         return (
-                          <PromptCard
-                            key={`prompt-${item.id}`}
-                            prompt={toPromptListItem(item)}
-                            view="active"
-                            sortBy={displaySortBy}
-                            showDate={showDates}
-                            onClick={handleViewPrompt}
-                            onTagClick={handleTagClick}
-                          />
+                          <div key={`prompt-${item.id}`} className={wrapperClass}>
+                            <PromptCard
+                              prompt={toPromptListItem(item)}
+                              view={itemView}
+                              sortBy={displaySortBy}
+                              showDate={showDates}
+                              onClick={handleViewPrompt}
+                              onTagClick={handleTagClick}
+                            />
+                          </div>
                         )
                       }
                       return (
-                        <NoteCard
-                          key={`note-${item.id}`}
-                          note={toNoteListItem(item)}
-                          view="active"
-                          sortBy={displaySortBy}
-                          showDate={showDates}
-                          onClick={handleViewNote}
-                          onTagClick={handleTagClick}
-                        />
+                        <div key={`note-${item.id}`} className={wrapperClass}>
+                          <NoteCard
+                            note={toNoteListItem(item)}
+                            view={itemView}
+                            sortBy={displaySortBy}
+                            showDate={showDates}
+                            onClick={handleViewNote}
+                            onTagClick={handleTagClick}
+                          />
+                        </div>
                       )
                     })}
                   </div>

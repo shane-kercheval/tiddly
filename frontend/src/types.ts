@@ -148,7 +148,7 @@ export interface NoteSearchParams {
   sort_order?: 'asc' | 'desc'
   offset?: number
   limit?: number
-  view?: 'active' | 'archived' | 'deleted'
+  view?: ViewOption | ViewOption[]
   filter_id?: string
 }
 
@@ -185,7 +185,7 @@ export interface BookmarkSearchParams {
   sort_order?: 'asc' | 'desc'
   offset?: number
   limit?: number
-  view?: 'active' | 'archived' | 'deleted'
+  view?: ViewOption | ViewOption[]
   filter_id?: string
 }
 
@@ -239,7 +239,7 @@ export interface ContentSearchParams {
   sort_order?: 'asc' | 'desc'
   offset?: number
   limit?: number
-  view?: 'active' | 'archived' | 'deleted'
+  view?: ViewOption | ViewOption[]
   filter_id?: string
   content_types?: ContentType[]
 }
@@ -250,6 +250,16 @@ export interface ContentSearchParams {
 
 /** Valid content types for filters */
 export type ContentType = 'bookmark' | 'note' | 'prompt'
+
+/** Valid view options for list/search endpoints */
+export type ViewOption = 'active' | 'archived' | 'deleted'
+
+/** Normalize view to a stable sorted key segment (e.g. 'active+archived') */
+export function normalizeViewKey(view?: ViewOption | ViewOption[]): string {
+  if (!view) return 'active'
+  if (Array.isArray(view)) return [...view].sort().join('+')
+  return view
+}
 
 /** A group of tags combined with AND logic */
 export interface FilterGroup {
@@ -472,7 +482,7 @@ export interface PromptSearchParams {
   sort_order?: 'asc' | 'desc'
   offset?: number
   limit?: number
-  view?: 'active' | 'archived' | 'deleted'
+  view?: ViewOption | ViewOption[]
   filter_id?: string
 }
 

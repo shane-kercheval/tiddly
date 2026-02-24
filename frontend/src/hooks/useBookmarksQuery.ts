@@ -9,21 +9,22 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
-import type { BookmarkListResponse, BookmarkSearchParams } from '../types'
+import { normalizeViewKey } from '../types'
+import type { BookmarkListResponse, BookmarkSearchParams, ViewOption } from '../types'
 
 /**
  * Query key factory for consistent cache keys.
  *
  * Key Structure (view segment BEFORE params for prefix matching):
  * - ['bookmarks', 'list', 'active', params]  - active view queries
+ * - ['bookmarks', 'list', 'active+archived', params] - combined view queries
  * - ['bookmarks', 'list', 'archived', params] - archived view queries
  * - ['bookmarks', 'list', 'deleted', params] - deleted view queries
  * - ['bookmarks', 'list', 'custom', params] - custom list queries (have filter_id)
  *
  * Invalidation Keys (prefix matching):
  * - bookmarkKeys.view('active')  → ['bookmarks', 'list', 'active'] - all active queries
- * - bookmarkKeys.view('archived') → ['bookmarks', 'list', 'archived'] - all archived queries
- * - bookmarkKeys.view('deleted') → ['bookmarks', 'list', 'deleted'] - all deleted queries
+ * - bookmarkKeys.view(['active', 'archived']) → ['bookmarks', 'list', 'active+archived']
  * - bookmarkKeys.customLists()   → ['bookmarks', 'list', 'custom'] - all custom list queries
  * - bookmarkKeys.lists()         → ['bookmarks', 'list'] - ALL list queries
  */
@@ -31,9 +32,9 @@ export const bookmarkKeys = {
   all: ['bookmarks'] as const,
   lists: () => [...bookmarkKeys.all, 'list'] as const,
 
-  /** Invalidation key for a specific view type (active/archived/deleted) */
-  view: (view: 'active' | 'archived' | 'deleted') =>
-    [...bookmarkKeys.lists(), view] as const,
+  /** Invalidation key for a specific view type or combination */
+  view: (view: ViewOption | ViewOption[]) =>
+    [...bookmarkKeys.lists(), normalizeViewKey(view)] as const,
 
   /** Invalidation key for all custom list queries */
   customLists: () => [...bookmarkKeys.lists(), 'custom'] as const,
@@ -77,7 +78,8 @@ function buildQueryString(params: BookmarkSearchParams): string {
     queryParams.set('limit', String(params.limit))
   }
   if (params.view) {
-    queryParams.set('view', params.view)
+    const views = Array.isArray(params.view) ? params.view : [params.view]
+    views.forEach((v) => queryParams.append('view', v))
   }
   if (params.filter_id !== undefined) {
     queryParams.set('filter_id', String(params.filter_id))

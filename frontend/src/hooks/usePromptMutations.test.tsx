@@ -99,7 +99,7 @@ describe('useCreatePrompt', () => {
     })
   })
 
-  it('should invalidate active view and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPost.mockResolvedValueOnce({ data: { id: 1 } })
@@ -112,14 +112,8 @@ describe('useCreatePrompt', () => {
       await result.current.mutateAsync({ name: 'test-prompt' })
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    // Should NOT invalidate archived or deleted
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: promptKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: promptKeys.view('deleted') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on success', async () => {
@@ -186,7 +180,7 @@ describe('useUpdatePrompt', () => {
     expect(mockPatch).toHaveBeenCalledWith('/prompts/1', { title: 'Updated Title' })
   })
 
-  it('should invalidate active, archived, and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPatch.mockResolvedValueOnce({ data: { id: 1 } })
@@ -199,14 +193,8 @@ describe('useUpdatePrompt', () => {
       await result.current.mutateAsync({ id: '1', data: { title: 'New' } })
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('archived') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
-    // Should NOT invalidate deleted
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: promptKeys.view('deleted') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags when tags are included in update', async () => {
@@ -341,7 +329,7 @@ describe('useDeletePrompt', () => {
     expect(mockDelete).toHaveBeenCalledWith('/prompts/1')
   })
 
-  it('should invalidate active, archived, deleted, and custom lists on soft delete', async () => {
+  it('should invalidate all lists on soft delete', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockDelete.mockResolvedValueOnce({})
@@ -354,13 +342,8 @@ describe('useDeletePrompt', () => {
       await result.current.mutateAsync({ id: '1' })
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('archived') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('deleted') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should permanently delete a prompt when permanent=true', async () => {
@@ -378,7 +361,7 @@ describe('useDeletePrompt', () => {
     expect(mockDelete).toHaveBeenCalledWith('/prompts/1?permanent=true')
   })
 
-  it('should only invalidate deleted view on permanent delete', async () => {
+  it('should invalidate all lists on permanent delete', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockDelete.mockResolvedValueOnce({})
@@ -391,14 +374,8 @@ describe('useDeletePrompt', () => {
       await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('deleted') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
-    // Should NOT invalidate active, archived, or custom lists
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: promptKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: promptKeys.customLists() })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on soft delete', async () => {
@@ -460,7 +437,7 @@ describe('useRestorePrompt', () => {
     expect(mockPost).toHaveBeenCalledWith('/prompts/1/restore')
   })
 
-  it('should invalidate active, deleted, and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPost.mockResolvedValueOnce({ data: { id: 1 } })
@@ -473,14 +450,8 @@ describe('useRestorePrompt', () => {
       await result.current.mutateAsync('1')
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('deleted') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
-    // Should NOT invalidate archived
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: promptKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on success', async () => {
@@ -527,7 +498,7 @@ describe('useArchivePrompt', () => {
     expect(mockPost).toHaveBeenCalledWith('/prompts/1/archive')
   })
 
-  it('should invalidate active, archived, and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPost.mockResolvedValueOnce({ data: { id: 1 } })
@@ -540,14 +511,8 @@ describe('useArchivePrompt', () => {
       await result.current.mutateAsync('1')
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('archived') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
-    // Should NOT invalidate deleted
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: promptKeys.view('deleted') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on success', async () => {
@@ -594,7 +559,7 @@ describe('useUnarchivePrompt', () => {
     expect(mockPost).toHaveBeenCalledWith('/prompts/1/unarchive')
   })
 
-  it('should invalidate active, archived, and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPost.mockResolvedValueOnce({ data: { id: 1 } })
@@ -607,14 +572,8 @@ describe('useUnarchivePrompt', () => {
       await result.current.mutateAsync('1')
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.view('archived') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
-    // Should NOT invalidate deleted
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: promptKeys.view('deleted') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: promptKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on success', async () => {

@@ -91,6 +91,26 @@ describe('useBookmarksQuery', () => {
       expect(calledUrl).toContain('view=active')
     })
 
+    it('should build multi-value view query string', async () => {
+      mockGet.mockResolvedValueOnce({ data: { items: [], total: 0 } })
+
+      const { result } = renderHook(
+        () =>
+          useBookmarksQuery({
+            view: ['active', 'archived'],
+          }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true)
+      })
+
+      const calledUrl = mockGet.mock.calls[0][0] as string
+      expect(calledUrl).toContain('view=active')
+      expect(calledUrl).toContain('view=archived')
+    })
+
     it('should include filter_id in query string', async () => {
       mockGet.mockResolvedValueOnce({ data: { items: [], total: 0 } })
 
@@ -232,6 +252,34 @@ describe('bookmarkKeys', () => {
 
       // These should be different at position 2
       expect(activeViewKey[2]).not.toBe(archivedListKey[2])
+    })
+  })
+
+  describe('multi-value view keys', () => {
+    it('should produce stable sorted key for array view', () => {
+      const key1 = bookmarkKeys.view(['active', 'archived'])
+      const key2 = bookmarkKeys.view(['archived', 'active'])
+
+      expect(key1).toEqual(['bookmarks', 'list', 'active+archived'])
+      expect(key2).toEqual(['bookmarks', 'list', 'active+archived'])
+    })
+
+    it('should include sorted view segment in list key for array view', () => {
+      const params = { view: ['archived', 'active'] as const, q: 'test' }
+      const key = bookmarkKeys.list(params)
+
+      expect(key[2]).toBe('active+archived')
+    })
+
+    it('should produce single-value key for single string view', () => {
+      expect(bookmarkKeys.view('active')).toEqual(['bookmarks', 'list', 'active'])
+    })
+
+    it('lists() should be prefix of multi-value view list key', () => {
+      const listsKey = bookmarkKeys.lists()
+      const listKey = bookmarkKeys.list({ view: ['active', 'archived'], q: 'test' })
+
+      expect(listKey.slice(0, listsKey.length)).toEqual(listsKey)
     })
   })
 })
