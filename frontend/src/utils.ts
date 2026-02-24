@@ -366,6 +366,14 @@ export function addMonthsWithClamp(baseDate: Date, monthsToAdd: number): Date {
 }
 
 /**
+ * Check if an entity is effectively archived (archived_at is set and in the past).
+ * A future archived_at means the archive is scheduled but not yet effective.
+ */
+export function isEffectivelyArchived(archivedAt: string | null | undefined): boolean {
+  return !!archivedAt && new Date(archivedAt) <= new Date()
+}
+
+/**
  * Calculates the target date for an archive preset.
  * All dates are set to 8:00 AM local time.
  *

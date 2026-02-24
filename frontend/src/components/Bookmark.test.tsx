@@ -372,6 +372,75 @@ createContentComponentTests({
       // The fetch metadata button should be visible
       expect(screen.getByLabelText(/fetch metadata/i)).toBeInTheDocument()
     })
+
+    it('test__manual_fetch__error_response_preserves_existing_fields', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnFetchMetadata.mockResolvedValue({
+        title: null,
+        description: null,
+        content: null,
+        error: 'Connection timed out',
+      })
+
+      renderWithRouter(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onFetchMetadata={mockOnFetchMetadata}
+        />
+      )
+
+      // Verify existing values are rendered
+      expect(screen.getByDisplayValue('Test Bookmark')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('Test description')).toBeInTheDocument()
+      expect(screen.getByTestId('content-editor-text')).toHaveValue(mockBookmark.content)
+
+      // Click fetch metadata button
+      const fetchButton = screen.getByLabelText(/fetch metadata/i)
+      await user.click(fetchButton)
+
+      // Wait for the fetch to complete (warning icon appears)
+      await waitFor(() => {
+        expect(mockOnFetchMetadata).toHaveBeenCalled()
+      })
+
+      // Existing values should be preserved despite error response
+      expect(screen.getByDisplayValue('Test Bookmark')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('Test description')).toBeInTheDocument()
+      expect(screen.getByTestId('content-editor-text')).toHaveValue(mockBookmark.content)
+    })
+
+    it('test__manual_fetch__successful_response_overwrites_fields', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      mockOnFetchMetadata.mockResolvedValue({
+        title: 'Fetched Title',
+        description: 'Fetched description',
+        content: '# Fetched content',
+        error: null,
+      })
+
+      renderWithRouter(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onFetchMetadata={mockOnFetchMetadata}
+        />
+      )
+
+      // Click fetch metadata button
+      const fetchButton = screen.getByLabelText(/fetch metadata/i)
+      await user.click(fetchButton)
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Fetched Title')).toBeInTheDocument()
+      })
+      expect(screen.getByDisplayValue('Fetched description')).toBeInTheDocument()
+      expect(screen.getByTestId('content-editor-text')).toHaveValue('# Fetched content')
+    })
   })
 
   describe('archive scheduling', () => {
