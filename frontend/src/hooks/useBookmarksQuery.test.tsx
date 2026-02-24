@@ -6,6 +6,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useBookmarksQuery, bookmarkKeys } from './useBookmarksQuery'
+import type { BookmarkSearchParams } from '../types'
 import { api } from '../services/api'
 
 vi.mock('../services/api', () => ({
@@ -265,7 +266,7 @@ describe('bookmarkKeys', () => {
     })
 
     it('should include sorted view segment in list key for array view', () => {
-      const params = { view: ['archived', 'active'] as const, q: 'test' }
+      const params: BookmarkSearchParams = { view: ['archived', 'active'], q: 'test' }
       const key = bookmarkKeys.list(params)
 
       expect(key[2]).toBe('active+archived')
