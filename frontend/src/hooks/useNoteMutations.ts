@@ -8,15 +8,9 @@
  * - Tag store refresh when tags might change
  *
  * Cache Invalidation Strategy:
- * | Mutation          | Invalidates                                    |
- * |-------------------|------------------------------------------------|
- * | Create note       | active, custom lists                           |
- * | Update note       | active, archived, custom lists                 |
- * | Delete (soft)     | active, archived, deleted, custom lists        |
- * | Delete (permanent)| deleted only                                   |
- * | Archive           | active, archived, custom lists                 |
- * | Unarchive         | active, archived, custom lists                 |
- * | Restore           | active, deleted, custom lists                  |
+ * All mutations invalidate at the lists() level (e.g. noteKeys.lists(),
+ * contentKeys.lists()) which covers all view combinations including multi-value
+ * views like active+archived. This is simpler and always correct.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
@@ -171,10 +165,6 @@ function optimisticallyUpdateNote(
 
 /**
  * Hook for creating a new note.
- *
- * New notes are always active, so invalidates:
- * - Active view queries
- * - Custom list queries (new note's tags may match list filters)
  */
 export function useCreateNote() {
   const queryClient = useQueryClient()
@@ -186,9 +176,8 @@ export function useCreateNote() {
       return response.data
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: noteKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
@@ -226,11 +215,8 @@ export function useUpdateNote() {
     },
     onSettled: (_, __, { data }) => {
       // Always refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
-      queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: noteKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       // Only refresh tags if tags were modified (reduces flicker on save)
       if ('tags' in data) {
@@ -243,15 +229,7 @@ export function useUpdateNote() {
 /**
  * Hook for deleting a note (soft or permanent).
  *
- * Soft delete: moves from active/archived to deleted
- * - Optimistically removes from UI immediately
- * - Rolls back on error
- * - Invalidates active, archived, deleted, and custom list queries
- *
- * Permanent delete: removes from trash only
- * - Optimistically removes from UI immediately
- * - Rolls back on error
- * - Invalidates deleted view queries only
+ * Optimistically removes from UI immediately, rolls back on error.
  */
 export function useDeleteNote() {
   const queryClient = useQueryClient()
@@ -274,20 +252,10 @@ export function useDeleteNote() {
       // Rollback on error
       rollbackOptimisticUpdate(queryClient, context)
     },
-    onSettled: (_, __, { permanent }) => {
+    onSettled: () => {
       // Always refetch to ensure consistency
-      if (permanent) {
-        queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
-        queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
-      } else {
-        queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
-        queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
-        queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
-        queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
-        queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-        queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
-        queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
-      }
+      queryClient.invalidateQueries({ queryKey: noteKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
@@ -297,10 +265,7 @@ export function useDeleteNote() {
 /**
  * Hook for restoring a deleted note.
  *
- * Moves note from deleted back to active:
- * - Optimistically removes from deleted view immediately
- * - Rolls back on error
- * - Invalidates active, deleted, and custom list queries
+ * Optimistically removes from deleted view immediately, rolls back on error.
  */
 export function useRestoreNote() {
   const queryClient = useQueryClient()
@@ -325,11 +290,8 @@ export function useRestoreNote() {
     },
     onSettled: () => {
       // Always refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: noteKeys.view('deleted') })
-      queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
+      queryClient.invalidateQueries({ queryKey: noteKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
@@ -339,10 +301,7 @@ export function useRestoreNote() {
 /**
  * Hook for archiving a note.
  *
- * Moves note from active to archived:
- * - Optimistically removes from active view immediately
- * - Rolls back on error
- * - Invalidates active, archived, and custom list queries
+ * Optimistically removes from active view immediately, rolls back on error.
  */
 export function useArchiveNote() {
   const queryClient = useQueryClient()
@@ -367,11 +326,8 @@ export function useArchiveNote() {
     },
     onSettled: () => {
       // Always refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
-      queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: noteKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
@@ -381,10 +337,7 @@ export function useArchiveNote() {
 /**
  * Hook for unarchiving a note.
  *
- * Moves note from archived back to active:
- * - Optimistically removes from archived view immediately
- * - Rolls back on error
- * - Invalidates active, archived, and custom list queries
+ * Optimistically removes from archived view immediately, rolls back on error.
  */
 export function useUnarchiveNote() {
   const queryClient = useQueryClient()
@@ -409,11 +362,8 @@ export function useUnarchiveNote() {
     },
     onSettled: () => {
       // Always refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: noteKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: noteKeys.view('archived') })
-      queryClient.invalidateQueries({ queryKey: noteKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: noteKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },

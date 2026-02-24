@@ -6,29 +6,30 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../services/api'
-import type { ContentListResponse, ContentSearchParams } from '../types'
+import { normalizeViewKey } from '../types'
+import type { ContentListResponse, ContentSearchParams, ViewOption } from '../types'
 
 /**
  * Query key factory for consistent cache keys.
  *
  * Key Structure (view segment BEFORE params for prefix matching):
  * - ['content', 'list', 'active', params]  - active view queries
+ * - ['content', 'list', 'active+archived', params] - combined view queries
  * - ['content', 'list', 'archived', params] - archived view queries
  * - ['content', 'list', 'deleted', params] - deleted view queries
  *
  * Invalidation Keys (prefix matching):
- * - contentKeys.view('active')  → ['content', 'list', 'active'] - all active queries
- * - contentKeys.view('archived') → ['content', 'list', 'archived'] - all archived queries
- * - contentKeys.view('deleted') → ['content', 'list', 'deleted'] - all deleted queries
- * - contentKeys.lists()         → ['content', 'list'] - ALL list queries
+ * - contentKeys.view('active')          → ['content', 'list', 'active'] - all active queries
+ * - contentKeys.view(['active', 'archived']) → ['content', 'list', 'active+archived']
+ * - contentKeys.lists()                 → ['content', 'list'] - ALL list queries
  */
 export const contentKeys = {
   all: ['content'] as const,
   lists: () => [...contentKeys.all, 'list'] as const,
 
-  /** Invalidation key for a specific view type (active/archived/deleted) */
-  view: (view: 'active' | 'archived' | 'deleted') =>
-    [...contentKeys.lists(), view] as const,
+  /** Invalidation key for a specific view type or combination */
+  view: (view: ViewOption | ViewOption[]) =>
+    [...contentKeys.lists(), normalizeViewKey(view)] as const,
 
   /** Query key for fetching - includes view segment for granular invalidation */
   list: (params: ContentSearchParams) => {
@@ -64,7 +65,8 @@ function buildQueryString(params: ContentSearchParams): string {
     queryParams.set('limit', String(params.limit))
   }
   if (params.view) {
-    queryParams.set('view', params.view)
+    const views = Array.isArray(params.view) ? params.view : [params.view]
+    views.forEach((v) => queryParams.append('view', v))
   }
   if (params.filter_id !== undefined) {
     queryParams.set('filter_id', String(params.filter_id))

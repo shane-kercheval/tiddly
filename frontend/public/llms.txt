@@ -46,8 +46,8 @@ Prompts are Jinja2 templates that can be rendered with arguments. The primary us
 
 - **Full-text search**: Combines PostgreSQL full-text search (stemmed, ranked) with substring matching (ILIKE) in a single query. Matches against title, description, tags, URL (bookmarks), and content body. Items matching both methods rank highest. Supports operators: `"exact phrase"`, `-exclude`, and `OR`.
 - **In-content search**: Search within a single item's content using literal string matching (case-insensitive by default, supports multiline queries). Returns matching lines with line numbers and surrounding context.
-- **Filtering options**: Filter by content type (bookmark, note, prompt), tags (with AND/OR operator), sort by created date, updated date, title, or last used date.
-- **Unified search**: Search across all content types simultaneously via the `/content/` endpoint or the command palette.
+- **Filtering options**: Filter by content type (bookmark, note, prompt), tags (with AND/OR operator), view state (active, archived, or both), sort by created date, updated date, title, or last used date.
+- **Unified search**: Search across all content types simultaneously via the `/content/` endpoint or the command palette. The `view` parameter accepts multiple values (e.g. `?view=active&view=archived`) to search across view states. When searching both active and archived with relevance sorting, archived items receive a relevance penalty so active content ranks higher.
 
 ## Content Versioning and History
 
@@ -64,7 +64,7 @@ Every content change is tracked:
 Items have three states:
 
 1. **Active**: Normal state, visible in default views.
-2. **Archived**: Hidden from default views but preserved. Archived items don't appear in searches by default and do not count toward tag counts. Can be unarchived at any time.
+2. **Archived**: Hidden from default views but preserved. Archived items can be included in searches by selecting the Archived view filter. They do not count toward tag counts. Can be unarchived at any time.
 3. **Deleted (Trash)**: Soft-deleted, visible in trash. Can be restored. Items in trash will be automatically permanently deleted after 30 days (not yet deployed).
 
 ## AI Integration via MCP Servers

@@ -8,15 +8,9 @@
  * - Tag store refresh when tags might change
  *
  * Cache Invalidation Strategy:
- * | Mutation          | Invalidates                                    |
- * |-------------------|------------------------------------------------|
- * | Create bookmark   | active, custom lists                           |
- * | Update bookmark   | active, archived, custom lists                 |
- * | Delete (soft)     | active, deleted, custom lists                  |
- * | Delete (permanent)| deleted only                                   |
- * | Archive           | active, archived, custom lists                 |
- * | Unarchive         | active, archived, custom lists                 |
- * | Restore           | active, deleted, custom lists                  |
+ * All mutations invalidate at the lists() level (e.g. bookmarkKeys.lists(),
+ * contentKeys.lists()) which covers all view combinations including multi-value
+ * views like active+archived. This is simpler and always correct.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
@@ -173,10 +167,6 @@ function optimisticallyUpdateBookmark(
 
 /**
  * Hook for creating a new bookmark.
- *
- * New bookmarks are always active, so invalidates:
- * - Active view queries
- * - Custom list queries (new bookmark's tags may match list filters)
  */
 export function useCreateBookmark() {
   const queryClient = useQueryClient()
@@ -188,9 +178,8 @@ export function useCreateBookmark() {
       return response.data
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
+      queryClient.invalidateQueries({ queryKey: bookmarkKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
@@ -200,10 +189,7 @@ export function useCreateBookmark() {
 /**
  * Hook for updating an existing bookmark.
  *
- * Updates can affect active or archived bookmarks:
- * - Optimistically updates item in cache immediately
- * - Rolls back on error
- * - Invalidates active, archived, and custom list queries
+ * Optimistically updates item in cache immediately, rolls back on error.
  */
 export function useUpdateBookmark() {
   const queryClient = useQueryClient()
@@ -228,11 +214,8 @@ export function useUpdateBookmark() {
     },
     onSettled: (_, __, { data }) => {
       // Always refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: bookmarkKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       // Only refresh tags if tags were modified (reduces flicker on save)
       if ('tags' in data) {
@@ -245,15 +228,7 @@ export function useUpdateBookmark() {
 /**
  * Hook for deleting a bookmark (soft or permanent).
  *
- * Soft delete: moves from active to deleted
- * - Optimistically removes from UI immediately
- * - Rolls back on error
- * - Invalidates active, deleted, and custom list queries
- *
- * Permanent delete: removes from trash only
- * - Optimistically removes from UI immediately
- * - Rolls back on error
- * - Invalidates deleted view queries only
+ * Optimistically removes from UI immediately, rolls back on error.
  */
 export function useDeleteBookmark() {
   const queryClient = useQueryClient()
@@ -276,18 +251,10 @@ export function useDeleteBookmark() {
       // Rollback on error
       rollbackOptimisticUpdate(queryClient, context)
     },
-    onSettled: (_, __, { permanent }) => {
+    onSettled: () => {
       // Always refetch to ensure consistency
-      if (permanent) {
-        queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('deleted') })
-        queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
-      } else {
-        queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
-        queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('deleted') })
-        queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
-        queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-        queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
-      }
+      queryClient.invalidateQueries({ queryKey: bookmarkKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
@@ -297,10 +264,7 @@ export function useDeleteBookmark() {
 /**
  * Hook for restoring a deleted bookmark.
  *
- * Moves bookmark from deleted back to active:
- * - Optimistically removes from deleted view immediately
- * - Rolls back on error
- * - Invalidates active, deleted, and custom list queries
+ * Optimistically removes from deleted view immediately, rolls back on error.
  */
 export function useRestoreBookmark() {
   const queryClient = useQueryClient()
@@ -325,11 +289,8 @@ export function useRestoreBookmark() {
     },
     onSettled: () => {
       // Always refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('deleted') })
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('deleted') })
+      queryClient.invalidateQueries({ queryKey: bookmarkKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
@@ -339,10 +300,7 @@ export function useRestoreBookmark() {
 /**
  * Hook for archiving a bookmark.
  *
- * Moves bookmark from active to archived:
- * - Optimistically removes from active view immediately
- * - Rolls back on error
- * - Invalidates active, archived, and custom list queries
+ * Optimistically removes from active view immediately, rolls back on error.
  */
 export function useArchiveBookmark() {
   const queryClient = useQueryClient()
@@ -367,11 +325,8 @@ export function useArchiveBookmark() {
     },
     onSettled: () => {
       // Always refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: bookmarkKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },
@@ -381,10 +336,7 @@ export function useArchiveBookmark() {
 /**
  * Hook for unarchiving a bookmark.
  *
- * Moves bookmark from archived back to active:
- * - Optimistically removes from archived view immediately
- * - Rolls back on error
- * - Invalidates active, archived, and custom list queries
+ * Optimistically removes from archived view immediately, rolls back on error.
  */
 export function useUnarchiveBookmark() {
   const queryClient = useQueryClient()
@@ -409,11 +361,8 @@ export function useUnarchiveBookmark() {
     },
     onSettled: () => {
       // Always refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.view('archived') })
-      queryClient.invalidateQueries({ queryKey: bookmarkKeys.customLists() })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('active') })
-      queryClient.invalidateQueries({ queryKey: contentKeys.view('archived') })
+      queryClient.invalidateQueries({ queryKey: bookmarkKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contentKeys.lists() })
       queryClient.invalidateQueries({ queryKey: historyKeys.all })
       fetchTags()
     },

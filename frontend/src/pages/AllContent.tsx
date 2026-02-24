@@ -147,7 +147,7 @@ export function AllContent(): ReactNode {
   usePageTitle(pageTitle)
 
   // Content type filter - builtin views always, filters only when multiple types exist
-  const { getSelectedTypes, toggleType } = useContentTypeFilterStore()
+  const { getSelectedTypes, toggleType, clearTypes } = useContentTypeFilterStore()
   const availableContentTypes = useMemo(() => {
     if (currentFilterId === undefined) return ALL_CONTENT_TYPES
     const filterTypes = currentFilter?.content_types
@@ -174,7 +174,7 @@ export function AllContent(): ReactNode {
       : undefined,
     [currentFilter]
   )
-  const { sortBy, sortOrder, setSort, availableSortOptions } = useEffectiveSort(
+  const { sortBy, sortOrder, setSort, isOverridden: isSortOverridden, clearOverride: clearSortOverride, availableSortOptions } = useEffectiveSort(
     viewKey,
     currentView,
     filterDefault
@@ -801,6 +801,22 @@ export function AllContent(): ReactNode {
     [toggleType, contentTypeFilterKey, availableContentTypes, updateParams]
   )
 
+  // Reset filters
+  const hasNonDefaultFilters = useMemo(() => {
+    const hasContentTypeOverride = selectedContentTypes !== undefined
+      && selectedContentTypes.length < availableContentTypes.length
+    const hasTagFilters = selectedTags.length > 0
+    const hasSearchQuery = searchQuery.length > 0
+    return hasContentTypeOverride || hasTagFilters || isSortOverridden || hasSearchQuery
+  }, [selectedContentTypes, availableContentTypes, selectedTags, isSortOverridden, searchQuery])
+
+  const handleResetFilters = useCallback(() => {
+    clearTypes(contentTypeFilterKey)
+    clearTagFilters(tagFilterViewKey)
+    clearSortOverride()
+    updateParams({ q: '', offset: 0 })
+  }, [clearTypes, contentTypeFilterKey, clearTagFilters, tagFilterViewKey, clearSortOverride, updateParams])
+
   // Show quick-add menu for active view (All, or any custom list)
   const showQuickAdd = currentView === 'active'
 
@@ -833,6 +849,8 @@ export function AllContent(): ReactNode {
               />
             ) : undefined
           }
+          hasNonDefaultFilters={hasNonDefaultFilters}
+          onReset={handleResetFilters}
         />
         {/* Content type filter chips */}
         {selectedContentTypes && (

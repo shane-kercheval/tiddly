@@ -471,4 +471,11 @@ body {
   .hover\:bg-brand-bookmark-light:hover { background-color: rgba(107, 159, 212, 0.1); }
   .hover\:bg-brand-note-light:hover { background-color: rgba(133, 196, 139, 0.1); }
   .hover\:bg-brand-prompt-light:hover { background-color: rgba(226, 166, 107, 0.1); }
+
+  .scrollbar-none {
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
 }

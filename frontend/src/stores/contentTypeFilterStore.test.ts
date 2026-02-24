@@ -237,6 +237,33 @@ describe('useContentTypeFilterStore', () => {
     })
   })
 
+  describe('clearTypes', () => {
+    it('removes the view key so getSelectedTypes returns all types', () => {
+      useContentTypeFilterStore.setState({
+        selectedTypes: { search: ['bookmark'] },
+      })
+      const { clearTypes, getSelectedTypes } = useContentTypeFilterStore.getState()
+      clearTypes('search')
+      expect(getSelectedTypes('search')).toEqual(ALL_CONTENT_TYPES)
+    })
+
+    it('does not affect other view keys', () => {
+      useContentTypeFilterStore.setState({
+        selectedTypes: { search: ['bookmark'], all: ['note'] },
+      })
+      const { clearTypes, getSelectedTypes } = useContentTypeFilterStore.getState()
+      clearTypes('search')
+      expect(getSelectedTypes('search')).toEqual(ALL_CONTENT_TYPES)
+      expect(getSelectedTypes('all')).toEqual(['note'])
+    })
+
+    it('handles clearing non-existent key gracefully', () => {
+      const { clearTypes } = useContentTypeFilterStore.getState()
+      clearTypes('nonexistent')
+      expect(useContentTypeFilterStore.getState().selectedTypes).toEqual({})
+    })
+  })
+
   describe('migration', () => {
     it('migrates v1 state to v2 by adding prompt to existing selections', () => {
       // Simulate v1 persisted state (no prompt type)

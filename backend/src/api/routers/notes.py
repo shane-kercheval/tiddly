@@ -12,7 +12,7 @@ from api.dependencies import (
     get_current_limits,
     get_current_user,
 )
-from api.helpers import check_optimistic_lock, resolve_filter_and_sorting
+from api.helpers import check_optimistic_lock, resolve_filter_and_sorting, validate_view
 from core.auth import get_request_context
 from core.http_cache import check_not_modified, format_http_date
 from core.tier_limits import TierLimits
@@ -46,7 +46,7 @@ from services.content_search_service import search_in_content
 from services.exceptions import InvalidStateError
 from services.relationship_service import embed_relationships
 from services.history_service import history_service
-from schemas.content import ContentListItem
+from schemas.content import ContentListItem, ViewOption
 from services.content_service import search_all_content
 from services.note_service import NoteService
 from models.content_history import ActionType, EntityType
@@ -112,9 +112,9 @@ async def list_notes(
     ),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
-    view: Literal["active", "archived", "deleted"] = Query(
-        default="active",
-        description="Which notes to show: active (default), archived, or deleted",
+    view: list[ViewOption] = Query(
+        default=["active"],
+        description="Views to include. Pass multiple, e.g. view=active&view=archived",
     ),
     filter_id: UUID | None = Query(default=None, description="Filter by content filter ID"),
     current_user: User = Depends(get_current_user),
@@ -134,6 +134,8 @@ async def list_notes(
     - **view**: Which notes to show - 'active' (not deleted/archived), 'archived', or 'deleted'
     - **filter_id**: Filter by content filter (can be combined with tags for additional filtering)
     """
+    view_set = validate_view(view)
+
     resolved = await resolve_filter_and_sorting(
         db, current_user.id, filter_id, sort_by, sort_order, query=q,
     )
@@ -149,7 +151,7 @@ async def list_notes(
             sort_order=resolved.sort_order,
             offset=offset,
             limit=limit,
-            view=view,
+            view=view_set,
             filter_expression=resolved.filter_expression,
             content_types=["note"],
         )

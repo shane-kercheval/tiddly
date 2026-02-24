@@ -14,7 +14,8 @@ import { useNavigate } from 'react-router-dom'
 import { useContentQuery } from '../hooks/useContentQuery'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useTagFilterStore } from '../stores/tagFilterStore'
-import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
+import { useUIPreferencesStore, DEFAULT_VIEW_FILTERS } from '../stores/uiPreferencesStore'
+import type { ViewFilter } from '../stores/uiPreferencesStore'
 import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from '../stores/contentTypeFilterStore'
 import { useTagsStore } from '../stores/tagsStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -32,6 +33,7 @@ import {
   SelectedTagsDisplay,
   PaginationControls,
   ContentTypeFilterChips,
+  ViewFilterChips,
 } from './ui'
 import {
   SearchIcon,
@@ -45,6 +47,7 @@ import {
   HelpIcon,
   AdjustmentsIcon,
 } from './icons'
+import { isEffectivelyArchived } from '../utils'
 import { getFilterRoute, getBuiltinRoute } from './sidebar/routes'
 import { getFilterIcon, getBuiltinIcon } from './sidebar/sidebarDndUtils'
 import type {
@@ -181,9 +184,13 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   // Search state (local, not URL-based since this is a modal)
   const [searchQuery, setSearchQuery] = useState('')
   const [offset, setOffset] = useState(0)
-  const [userSortOverride, setUserSortOverride] = useState<{ sortBy: SortByOption; sortOrder: 'asc' | 'desc' } | undefined>(undefined)
 
-  const { pageSize, setPageSize } = useUIPreferencesStore()
+  const {
+    pageSize, setPageSize,
+    getSortOverride, setSortOverride, clearSortOverride,
+    getViewFilters, toggleViewFilter, clearViewFilters,
+  } = useUIPreferencesStore()
+  const userSortOverride = getSortOverride(PALETTE_VIEW_KEY)
 
   // Tag filters (isolated to palette-search view)
   const {
@@ -198,9 +205,12 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   const tagMatch = getTagMatch(PALETTE_VIEW_KEY)
 
   // Content type filter
-  const { getSelectedTypes, toggleType } = useContentTypeFilterStore()
+  const { getSelectedTypes, toggleType, clearTypes } = useContentTypeFilterStore()
   const selectedContentTypes = getSelectedTypes('search', ALL_CONTENT_TYPES)
   const isBookmarksOnly = selectedContentTypes.length === 1 && selectedContentTypes[0] === 'bookmark'
+
+  // View state filter (Active/Archived) — persisted in store
+  const selectedViews = getViewFilters(PALETTE_VIEW_KEY)
 
   const { tags: tagSuggestions } = useTagsStore()
 
@@ -228,10 +238,10 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
       sort_order: effectiveSortOrder,
       offset,
       limit: pageSize,
-      view: 'active' as const,
+      view: selectedViews,
       content_types: selectedContentTypes,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, effectiveSortBy, effectiveSortOrder, offset, pageSize, selectedContentTypes]
+    [debouncedSearchQuery, selectedTags, tagMatch, effectiveSortBy, effectiveSortOrder, offset, pageSize, selectedViews, selectedContentTypes]
   )
 
   const hasSearchCriteria = !!debouncedSearchQuery || selectedTags.length > 0
@@ -428,12 +438,8 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   // Search handlers
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = e.target.value
-      setSearchQuery(value)
+      setSearchQuery(e.target.value)
       setOffset(0)
-      if (!value) {
-        setUserSortOverride(undefined)
-      }
     },
     []
   )
@@ -473,12 +479,12 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
       const value = e.target.value
       const [newSortBy, newSortOrder] = value.split('-') as [SortByOption, 'asc' | 'desc']
       if (newSortBy === 'relevance') {
-        setUserSortOverride(undefined)
+        clearSortOverride(PALETTE_VIEW_KEY)
       } else {
-        setUserSortOverride({ sortBy: newSortBy, sortOrder: newSortOrder })
+        setSortOverride(PALETTE_VIEW_KEY, newSortBy, newSortOrder)
       }
     },
-    []
+    [clearSortOverride, setSortOverride]
   )
 
   const handlePageChange = useCallback((newOffset: number) => {
@@ -500,6 +506,28 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     },
     [toggleType]
   )
+
+  const handleViewToggle = useCallback((viewFilter: ViewFilter) => {
+    toggleViewFilter(PALETTE_VIEW_KEY, viewFilter)
+    setOffset(0)
+  }, [toggleViewFilter])
+
+  // Reset filters
+  const hasNonDefaultFilters = useMemo(() => {
+    const hasContentTypeOverride = selectedContentTypes.length !== ALL_CONTENT_TYPES.length
+    const hasViewOverride = selectedViews.length !== DEFAULT_VIEW_FILTERS.length
+    const hasTagFilters = selectedTags.length > 0
+    const hasSortOverride = userSortOverride !== undefined
+    return hasContentTypeOverride || hasViewOverride || hasTagFilters || hasSortOverride
+  }, [selectedContentTypes, selectedViews, selectedTags, userSortOverride])
+
+  const handleResetFilters = useCallback(() => {
+    clearTypes('search')
+    clearViewFilters(PALETTE_VIEW_KEY)
+    clearTagFilters(PALETTE_VIEW_KEY)
+    clearSortOverride(PALETTE_VIEW_KEY)
+    setOffset(0)
+  }, [clearTypes, clearViewFilters, clearTagFilters, clearSortOverride])
 
   // Result click handlers (navigate and close)
   const handleViewBookmark = useCallback(
@@ -608,12 +636,20 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                 onSortChange={handleSortChange}
                 availableSortOptions={SEARCH_SORT_OPTIONS}
                 singleDirectionOptions={SINGLE_DIRECTION_OPTIONS}
+                hasNonDefaultFilters={hasNonDefaultFilters}
+                onReset={handleResetFilters}
               />
-              <ContentTypeFilterChips
-                selectedTypes={selectedContentTypes}
-                availableTypes={ALL_CONTENT_TYPES}
-                onChange={handleContentTypeToggle}
-              />
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <ContentTypeFilterChips
+                  selectedTypes={selectedContentTypes}
+                  availableTypes={ALL_CONTENT_TYPES}
+                  onChange={handleContentTypeToggle}
+                />
+                <ViewFilterChips
+                  selectedViews={selectedViews}
+                  onChange={handleViewToggle}
+                />
+              </div>
               <SelectedTagsDisplay
                 selectedTags={selectedTags}
                 tagMatch={tagMatch}
@@ -653,15 +689,19 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                 <div className="pb-2 px-3 [&_.card]:rounded-none">
                   <div>
                     {items.map((item) => {
+                      const isArchived = isEffectivelyArchived(item.archived_at)
+                      const itemView = isArchived ? 'archived' as const : 'active' as const
+
                       if (item.type === 'bookmark') {
                         return (
                           <BookmarkCard
                             key={`bookmark-${item.id}`}
                             bookmark={toBookmarkListItem(item)}
-                            view="active"
+                            view={itemView}
                             sortBy={displaySortBy}
                             showDate={showDates}
                             showContentTypeIcon={!isBookmarksOnly}
+                            showArchivedIndicator={isArchived}
                             onClick={handleViewBookmark}
                             onTagClick={handleTagClick}
                           />
@@ -672,9 +712,10 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                           <PromptCard
                             key={`prompt-${item.id}`}
                             prompt={toPromptListItem(item)}
-                            view="active"
+                            view={itemView}
                             sortBy={displaySortBy}
                             showDate={showDates}
+                            showArchivedIndicator={isArchived}
                             onClick={handleViewPrompt}
                             onTagClick={handleTagClick}
                           />
@@ -684,9 +725,10 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                         <NoteCard
                           key={`note-${item.id}`}
                           note={toNoteListItem(item)}
-                          view="active"
+                          view={itemView}
                           sortBy={displaySortBy}
                           showDate={showDates}
+                          showArchivedIndicator={isArchived}
                           onClick={handleViewNote}
                           onTagClick={handleTagClick}
                         />

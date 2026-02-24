@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 from uuid import UUID
 
-from sqlalchemy import Column, Table, exists, func, select
+from sqlalchemy import Column, Table, and_, exists, func, or_, select
 from sqlalchemy.sql import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
@@ -18,6 +18,7 @@ from core.request_context import RequestContext
 from core.tier_limits import TierLimits
 from models.content_history import ActionType, EntityType
 from models.tag import Tag
+from schemas.content import ViewOption
 from schemas.validators import validate_and_normalize_tags
 from services import relationship_service
 from services.exceptions import InvalidStateError
@@ -690,21 +691,21 @@ class BaseEntityService[T: TaggableEntity](ABC):
     def _apply_view_filter(
         self,
         query: Select[tuple[T]],
-        view: Literal["active", "archived", "deleted"],
+        view: set[ViewOption],
     ) -> Select[tuple[T]]:
         """Apply view filter (active/archived/deleted) to query."""
-        if view == "active":
-            return query.where(
-                self.model.deleted_at.is_(None),
-                ~self.model.is_archived,
-            )
-        if view == "archived":
-            return query.where(
-                self.model.deleted_at.is_(None),
-                self.model.is_archived,
-            )
-        # deleted
-        return query.where(self.model.deleted_at.is_not(None))
+        if not view:
+            raise ValueError("view must contain at least one option")
+        view_conditions = []
+        if "active" in view:
+            view_conditions.append(and_(self.model.deleted_at.is_(None), ~self.model.is_archived))
+        if "archived" in view:
+            view_conditions.append(and_(self.model.deleted_at.is_(None), self.model.is_archived))
+        if "deleted" in view:
+            view_conditions.append(self.model.deleted_at.is_not(None))
+        if view_conditions:
+            query = query.where(or_(*view_conditions))
+        return query
 
     def _apply_tag_filter(
         self,

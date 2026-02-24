@@ -156,6 +156,62 @@ async def test__list_all_content__view_deleted_returns_all_deleted(
     assert types == {'bookmark', 'note'}
 
 
+async def test__list_all_content__multi_view_active_archived(
+    client: AsyncClient,
+) -> None:
+    """Test multi-value view=active&view=archived returns both, excludes deleted."""
+    await client.post('/bookmarks/', json={'url': 'https://a.com', 'title': 'Active BM'})
+    note_resp = await client.post('/notes/', json={'title': 'Archived Note'})
+    note_id = note_resp.json()['id']
+    await client.post(f'/notes/{note_id}/archive')
+
+    del_resp = await client.post('/notes/', json={'title': 'Deleted Note'})
+    del_id = del_resp.json()['id']
+    await client.delete(f'/notes/{del_id}')
+
+    response = await client.get('/content/?view=active&view=archived')
+    data = response.json()
+
+    assert data['total'] == 2
+    titles = {item['title'] for item in data['items']}
+    assert titles == {'Active BM', 'Archived Note'}
+
+
+async def test__list_all_content__multi_view_relevance_ranking(
+    client: AsyncClient,
+) -> None:
+    """Active items rank above archived with same content when view=active&view=archived."""
+    await client.post('/bookmarks/', json={'url': 'https://a.com', 'title': 'Ranking Test Query'})
+    arch_resp = await client.post(
+        '/bookmarks/', json={'url': 'https://b.com', 'title': 'Ranking Test Query'},
+    )
+    arch_id = arch_resp.json()['id']
+    await client.post(f'/bookmarks/{arch_id}/archive')
+
+    response = await client.get(
+        '/content/?q=Ranking+Test+Query&view=active&view=archived&sort_by=relevance',
+    )
+    data = response.json()
+
+    assert data['total'] == 2
+    # Active should rank first
+    assert data['items'][0]['archived_at'] is None
+    assert data['items'][1]['archived_at'] is not None
+
+
+async def test__list_all_content__single_view_still_works(
+    client: AsyncClient,
+) -> None:
+    """Single view=active still works (backward compatible)."""
+    await client.post('/bookmarks/', json={'url': 'https://a.com', 'title': 'Single View'})
+
+    response = await client.get('/content/?view=active')
+    data = response.json()
+
+    assert data['total'] == 1
+    assert data['items'][0]['title'] == 'Single View'
+
+
 async def test__list_all_content__text_search_finds_across_types(
     client: AsyncClient,
 ) -> None:
