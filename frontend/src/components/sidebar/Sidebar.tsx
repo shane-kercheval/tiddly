@@ -608,7 +608,7 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <nav className="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2 pt-1">
+        <nav className={`flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2 pt-1${isCollapsed ? ' scrollbar-none' : ''}`}>
           <SortableContext items={rootItemIds} strategy={verticalListSortingStrategy}>
             {sidebar?.items.map(renderItem)}
           </SortableContext>
