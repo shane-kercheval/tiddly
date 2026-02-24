@@ -148,7 +148,7 @@ Update the CommandPalette search to use multi-value view with a chip UI for togg
 **Scope:** The multi-value view UI is intentionally CommandPalette-only. The main list pages (`/bookmarks`, `/notes`, `/prompts`, `/all`) use sidebar navigation to switch between Active/Archived/Deleted views and don't need multi-select. The backend supports multi-value on all endpoints for API consumers, but the frontend only surfaces it in the search dialog.
 
 After this milestone:
-- The `/` search dialog defaults to searching both active and archived content
+- The `/` search dialog defaults to searching active content, with a chip to opt in to including archived
 - View state filter chips (Active, Archived) appear in the search UI, following the same `FilterChip` pattern as the content type chips
 - At least one view chip must remain selected (same guard as content type chips)
 - Archived items in search results show a visual indicator
@@ -255,7 +255,7 @@ Place the view chips on the same row as the content type chips, separated visual
 State management — local to CommandPalette (same as other search state):
 
 ```tsx
-const [selectedViews, setSelectedViews] = useState<('active' | 'archived')[]>(['active', 'archived'])
+const [selectedViews, setSelectedViews] = useState<('active' | 'archived')[]>(['active'])
 
 const handleViewToggle = useCallback((view: 'active' | 'archived') => {
   setSelectedViews(prev => {
@@ -283,7 +283,7 @@ The cards in CommandPalette currently receive `view="active"` as a prop (line ~6
 
 **Frontend tests:**
 
-- Verify CommandPalette defaults to `view: ['active', 'archived']` in search params
+- Verify CommandPalette defaults to `view: ['active']` in search params
 - Verify `buildQueryString` produces `view=active&view=archived` for array values and `view=active` for single values (test across all four query hooks)
 - Verify query key factories produce stable sorted keys (e.g. `['active', 'archived']` and `['archived', 'active']` produce the same key segment `'active+archived'`)
 - Verify toggling view chips updates search params correctly

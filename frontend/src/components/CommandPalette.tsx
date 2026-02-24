@@ -204,7 +204,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   const isBookmarksOnly = selectedContentTypes.length === 1 && selectedContentTypes[0] === 'bookmark'
 
   // View state filter (Active/Archived)
-  const [selectedViews, setSelectedViews] = useState<('active' | 'archived')[]>(['active', 'archived'])
+  const [selectedViews, setSelectedViews] = useState<('active' | 'archived')[]>(['active'])
 
   const { tags: tagSuggestions } = useTagsStore()
 
