@@ -46,6 +46,7 @@ import {
   HelpIcon,
   AdjustmentsIcon,
 } from './icons'
+import { isEffectivelyArchived } from '../utils'
 import { getFilterRoute, getBuiltinRoute } from './sidebar/routes'
 import { getFilterIcon, getBuiltinIcon } from './sidebar/sidebarDndUtils'
 import type {
@@ -204,7 +205,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   const isBookmarksOnly = selectedContentTypes.length === 1 && selectedContentTypes[0] === 'bookmark'
 
   // View state filter (Active/Archived)
-  const [selectedViews, setSelectedViews] = useState<('active' | 'archived')[]>(['active'])
+  const [selectedViews, setSelectedViews] = useState<('active' | 'archived')[]>(['active', 'archived'])
 
   const { tags: tagSuggestions } = useTagsStore()
 
@@ -671,7 +672,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                 <div className="pb-2 px-3 [&_.card]:rounded-none">
                   <div>
                     {items.map((item) => {
-                      const isArchived = item.archived_at !== null
+                      const isArchived = isEffectivelyArchived(item.archived_at)
                       const itemView = isArchived ? 'archived' as const : 'active' as const
                       const wrapperClass = isArchived ? 'border-l-4 border-amber-400' : ''
 
