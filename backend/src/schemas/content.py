@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from schemas.validators import normalize_preview
 
+ViewOption = Literal["active", "archived", "deleted"]
+
 
 class ContentListItem(BaseModel):
     """

@@ -26,6 +26,9 @@ interface ContentTypeFilterState {
 
   /** Set content types for a view directly */
   setTypes: (view: string, types: ContentType[], availableTypes?: ContentType[]) => void
+
+  /** Clear types for a view, reverting to default (all types) */
+  clearTypes: (view: string) => void
 }
 
 export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
@@ -79,6 +82,14 @@ export const useContentTypeFilterStore = create<ContentTypeFilterState>()(
             [view]: validTypes,
           },
         }))
+      },
+
+      clearTypes: (view: string): void => {
+        set((state) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { [view]: _removed, ...rest } = state.selectedTypes
+          return { selectedTypes: rest }
+        })
       },
     }),
     {

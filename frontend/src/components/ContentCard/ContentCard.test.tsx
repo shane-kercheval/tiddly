@@ -12,7 +12,7 @@ import {
   ContentCardTags,
   ContentCardDateDisplay,
   ContentCardActions,
-  ContentCardScheduledArchive,
+  ContentCardArchiveStatus,
   AddTagAction,
   ArchiveAction,
   RestoreAction,
@@ -168,8 +168,8 @@ describe('ContentCard', () => {
       expect(ContentCard.Actions).toBe(ContentCardActions)
     })
 
-    it('should have ScheduledArchive attached as static property', () => {
-      expect(ContentCard.ScheduledArchive).toBe(ContentCardScheduledArchive)
+    it('should have ArchiveStatus attached as static property', () => {
+      expect(ContentCard.ArchiveStatus).toBe(ContentCardArchiveStatus)
     })
 
     it('should have AddTagAction attached as static property', () => {
@@ -529,7 +529,7 @@ describe('DeleteAction', () => {
   })
 })
 
-describe('ContentCardScheduledArchive', () => {
+describe('ContentCardArchiveStatus', () => {
   // Helper to get a future date
   const getFutureDate = (): string => {
     const date = new Date()
@@ -544,10 +544,69 @@ describe('ContentCardScheduledArchive', () => {
     return date.toISOString()
   }
 
+  describe('archived indicator (showArchivedIndicator)', () => {
+    it('should render amber badge when showArchivedIndicator=true and archivedAt is in the past', () => {
+      const { container } = render(
+        <ContentCard view="archived">
+          <ContentCardArchiveStatus archivedAt={getPastDate()} showArchivedIndicator />
+        </ContentCard>
+      )
+
+      const wrapper = container.querySelector('.text-amber-500')
+      expect(wrapper).toBeInTheDocument()
+    })
+
+    it('should not render when showArchivedIndicator=false (default) even if archivedAt is past', () => {
+      const { container } = render(
+        <ContentCard view="archived">
+          <ContentCardArchiveStatus archivedAt={getPastDate()} />
+        </ContentCard>
+      )
+
+      const wrapper = container.querySelector('.text-amber-500')
+      expect(wrapper).not.toBeInTheDocument()
+    })
+
+    it('should not render archived badge when archivedAt is in the future (scheduled takes precedence)', () => {
+      const { container } = render(
+        <ContentCard view="active">
+          <ContentCardArchiveStatus archivedAt={getFutureDate()} showArchivedIndicator />
+        </ContentCard>
+      )
+
+      // Should render the scheduled (gray) indicator, not the archived (amber) one
+      const amberWrapper = container.querySelector('.text-amber-500')
+      expect(amberWrapper).not.toBeInTheDocument()
+      const grayWrapper = container.querySelector('.text-gray-400')
+      expect(grayWrapper).toBeInTheDocument()
+    })
+
+    it('should not render archived badge when archivedAt is null', () => {
+      const { container } = render(
+        <ContentCard view="archived">
+          <ContentCardArchiveStatus archivedAt={null} showArchivedIndicator />
+        </ContentCard>
+      )
+
+      const wrapper = container.querySelector('.text-amber-500')
+      expect(wrapper).not.toBeInTheDocument()
+    })
+
+    it('should not show cancel button in archived indicator mode', () => {
+      render(
+        <ContentCard view="archived">
+          <ContentCardArchiveStatus archivedAt={getPastDate()} showArchivedIndicator onCancel={vi.fn()} />
+        </ContentCard>
+      )
+
+      expect(screen.queryByRole('button', { name: 'Cancel scheduled archive' })).not.toBeInTheDocument()
+    })
+  })
+
   it('should render when archivedAt is in the future and view is active', () => {
     const { container } = render(
       <ContentCard view="active">
-        <ContentCardScheduledArchive archivedAt={getFutureDate()} />
+        <ContentCardArchiveStatus archivedAt={getFutureDate()} />
       </ContentCard>
     )
 
@@ -559,7 +618,7 @@ describe('ContentCardScheduledArchive', () => {
   it('should not render when archivedAt is null', () => {
     const { container } = render(
       <ContentCard view="active">
-        <ContentCardScheduledArchive archivedAt={null} />
+        <ContentCardArchiveStatus archivedAt={null} />
       </ContentCard>
     )
 
@@ -571,7 +630,7 @@ describe('ContentCardScheduledArchive', () => {
   it('should not render when archivedAt is in the past', () => {
     const { container } = render(
       <ContentCard view="active">
-        <ContentCardScheduledArchive archivedAt={getPastDate()} />
+        <ContentCardArchiveStatus archivedAt={getPastDate()} />
       </ContentCard>
     )
 
@@ -583,7 +642,7 @@ describe('ContentCardScheduledArchive', () => {
   it('should not render in archived view', () => {
     const { container } = render(
       <ContentCard view="archived">
-        <ContentCardScheduledArchive archivedAt={getFutureDate()} />
+        <ContentCardArchiveStatus archivedAt={getFutureDate()} />
       </ContentCard>
     )
 
@@ -595,7 +654,7 @@ describe('ContentCardScheduledArchive', () => {
   it('should not render in deleted view', () => {
     const { container } = render(
       <ContentCard view="deleted">
-        <ContentCardScheduledArchive archivedAt={getFutureDate()} />
+        <ContentCardArchiveStatus archivedAt={getFutureDate()} />
       </ContentCard>
     )
 
@@ -607,7 +666,7 @@ describe('ContentCardScheduledArchive', () => {
   it('should show cancel button when onCancel is provided', () => {
     render(
       <ContentCard view="active">
-        <ContentCardScheduledArchive archivedAt={getFutureDate()} onCancel={vi.fn()} />
+        <ContentCardArchiveStatus archivedAt={getFutureDate()} onCancel={vi.fn()} />
       </ContentCard>
     )
 
@@ -617,7 +676,7 @@ describe('ContentCardScheduledArchive', () => {
   it('should not show cancel button when onCancel is not provided', () => {
     render(
       <ContentCard view="active">
-        <ContentCardScheduledArchive archivedAt={getFutureDate()} />
+        <ContentCardArchiveStatus archivedAt={getFutureDate()} />
       </ContentCard>
     )
 
@@ -630,7 +689,7 @@ describe('ContentCardScheduledArchive', () => {
 
     render(
       <ContentCard view="active">
-        <ContentCardScheduledArchive archivedAt={getFutureDate()} onCancel={onCancel} />
+        <ContentCardArchiveStatus archivedAt={getFutureDate()} onCancel={onCancel} />
       </ContentCard>
     )
 
@@ -642,7 +701,7 @@ describe('ContentCardScheduledArchive', () => {
   it('should have muted gray styling', () => {
     const { container } = render(
       <ContentCard view="active">
-        <ContentCardScheduledArchive archivedAt={getFutureDate()} />
+        <ContentCardArchiveStatus archivedAt={getFutureDate()} />
       </ContentCard>
     )
 

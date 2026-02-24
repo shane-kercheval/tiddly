@@ -31,6 +31,8 @@ interface NoteCardProps {
   onTagAdd?: (note: NoteListItem, tag: string) => void
   tagSuggestions?: TagCount[]
   onCancelScheduledArchive?: (note: NoteListItem) => void
+  /** When true, show an amber archived indicator badge for effectively archived items */
+  showArchivedIndicator?: boolean
 }
 
 export function NoteCard({
@@ -49,6 +51,7 @@ export function NoteCard({
   onTagAdd,
   tagSuggestions,
   onCancelScheduledArchive,
+  showArchivedIndicator,
 }: NoteCardProps): ReactNode {
   const hasActions = !!(onDelete || onArchive || onUnarchive || onRestore || onTagAdd || onCancelScheduledArchive)
   const previewText = note.description || note.content_preview || ''
@@ -158,10 +161,11 @@ export function NoteCard({
                   deletedAt={note.deleted_at}
                   showLabel
                 />
-                {onCancelScheduledArchive && (
-                  <ContentCard.ScheduledArchive
+                {(onCancelScheduledArchive || showArchivedIndicator) && (
+                  <ContentCard.ArchiveStatus
                     archivedAt={note.archived_at}
-                    onCancel={() => onCancelScheduledArchive(note)}
+                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(note) : undefined}
+                    showArchivedIndicator={showArchivedIndicator}
                   />
                 )}
               </div>
@@ -192,10 +196,11 @@ export function NoteCard({
             </div>
 
             {/* Right: Scheduled archive + Date */}
-            {onCancelScheduledArchive && (
-              <ContentCard.ScheduledArchive
+            {(onCancelScheduledArchive || showArchivedIndicator) && (
+              <ContentCard.ArchiveStatus
                 archivedAt={note.archived_at}
-                onCancel={() => onCancelScheduledArchive(note)}
+                onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(note) : undefined}
+                showArchivedIndicator={showArchivedIndicator}
               />
             )}
             {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}

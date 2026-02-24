@@ -15,6 +15,7 @@ from core.tier_limits import TierLimits
 from models.content_history import ActionType, EntityType
 from models.prompt import Prompt
 from models.tag import prompt_tags
+from schemas.content import ViewOption
 from schemas.prompt import PromptCreate, PromptUpdate
 from services import relationship_service
 from services.base_entity_service import CONTENT_PREVIEW_LENGTH, BaseEntityService
@@ -457,7 +458,7 @@ class PromptService(BaseEntityService[Prompt]):
         user_id: UUID,
         tags: list[str] | None = None,
         tag_match: Literal["all", "any"] = "all",
-        view: Literal["active", "archived", "deleted"] = "active",
+        view: ViewOption = "active",
         offset: int = 0,
         limit: int = 100,
     ) -> tuple[list[Prompt], int]:
@@ -473,7 +474,7 @@ class PromptService(BaseEntityService[Prompt]):
             user_id: User ID to scope prompts.
             tags: Filter by tags (normalized to lowercase).
             tag_match: "all" (AND) or "any" (OR) for tag matching.
-            view: "active", "archived", or "deleted".
+            view: Single view option ("active", "archived", or "deleted").
             offset: Pagination offset.
             limit: Pagination limit.
 
@@ -486,7 +487,7 @@ class PromptService(BaseEntityService[Prompt]):
             .where(Prompt.user_id == user_id)
         )
 
-        base_query = self._apply_view_filter(base_query, view)
+        base_query = self._apply_view_filter(base_query, {view})
 
         if tags:
             base_query = self._apply_tag_filter(base_query, user_id, tags, tag_match)

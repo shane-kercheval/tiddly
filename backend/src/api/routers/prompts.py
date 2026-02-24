@@ -25,6 +25,7 @@ from api.helpers import (
     check_optimistic_lock,
     check_optimistic_lock_by_name,
     resolve_filter_and_sorting,
+    validate_view,
 )
 from core.auth import get_request_context
 from core.http_cache import check_not_modified, format_http_date
@@ -51,7 +52,7 @@ from schemas.prompt import (
     PromptResponse,
     PromptUpdate,
 )
-from schemas.content import ContentListItem
+from schemas.content import ContentListItem, ViewOption
 from services.content_edit_service import (
     MultipleMatchesError,
     NoMatchError,
@@ -291,9 +292,9 @@ async def list_prompts(
     ),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
-    view: Literal["active", "archived", "deleted"] = Query(
-        default="active",
-        description="Which prompts to show: active (default), archived, or deleted",
+    view: list[ViewOption] = Query(
+        default=["active"],
+        description="Views to include. Pass multiple, e.g. view=active&view=archived",
     ),
     filter_id: UUID | None = Query(default=None, description="Filter by content filter ID"),
     current_user: User = Depends(get_current_user),
@@ -310,9 +311,11 @@ async def list_prompts(
     - **sort_by**: Sort field. Defaults to relevance when searching.
       Takes precedence over filter_id's default.
     - **sort_order**: Sort direction. Takes precedence over filter_id's default.
-    - **view**: Which prompts to show - 'active' (not deleted/archived), 'archived', or 'deleted'
+    - **view**: Views to include - 'active' (default), 'archived', 'deleted'. Supports multiple.
     - **filter_id**: Filter by content filter (can be combined with tags for additional filtering)
     """
+    view_set = validate_view(view)
+
     resolved = await resolve_filter_and_sorting(
         db, current_user.id, filter_id, sort_by, sort_order, query=q,
     )
@@ -328,7 +331,7 @@ async def list_prompts(
             sort_order=resolved.sort_order,
             offset=offset,
             limit=limit,
-            view=view,
+            view=view_set,
             filter_expression=resolved.filter_expression,
             content_types=["prompt"],
         )
@@ -599,7 +602,7 @@ async def export_skills(
         default="all",
         description="Tag matching mode: 'all' (AND) or 'any' (OR)",
     ),
-    view: Literal["active", "archived", "deleted"] = Query(
+    view: ViewOption = Query(
         default="active",
         description="View filter",
     ),

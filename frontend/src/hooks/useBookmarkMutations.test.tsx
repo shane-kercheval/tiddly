@@ -89,7 +89,7 @@ describe('useCreateBookmark', () => {
     })
   })
 
-  it('should invalidate active view and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPost.mockResolvedValueOnce({ data: { id: 1 } })
@@ -102,14 +102,8 @@ describe('useCreateBookmark', () => {
       await result.current.mutateAsync({ url: 'https://example.com' })
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    // Should NOT invalidate archived or deleted
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on success', async () => {
@@ -172,7 +166,7 @@ describe('useUpdateBookmark', () => {
     expect(mockPatch).toHaveBeenCalledWith('/bookmarks/1', { title: 'Updated Title' })
   })
 
-  it('should invalidate active, archived, and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPatch.mockResolvedValueOnce({ data: { id: 1 } })
@@ -185,14 +179,8 @@ describe('useUpdateBookmark', () => {
       await result.current.mutateAsync({ id: '1', data: { title: 'New' } })
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
-    // Should NOT invalidate deleted
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags when tags are included in update', async () => {
@@ -478,7 +466,7 @@ describe('useDeleteBookmark', () => {
     expect(cachedData.total).toBe(20) // Total unchanged (item wasn't in this page)
   })
 
-  it('should invalidate active, deleted, and custom lists on soft delete', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockDelete.mockResolvedValueOnce({})
@@ -491,14 +479,8 @@ describe('useDeleteBookmark', () => {
       await result.current.mutateAsync({ id: '1' })
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
-    // Should NOT invalidate archived
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should permanently delete a bookmark when permanent=true', async () => {
@@ -516,7 +498,7 @@ describe('useDeleteBookmark', () => {
     expect(mockDelete).toHaveBeenCalledWith('/bookmarks/1?permanent=true')
   })
 
-  it('should only invalidate deleted view on permanent delete', async () => {
+  it('should invalidate all lists on permanent delete', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockDelete.mockResolvedValueOnce({})
@@ -529,14 +511,8 @@ describe('useDeleteBookmark', () => {
       await result.current.mutateAsync({ id: '1', permanent: true })
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
-    // Should NOT invalidate active, archived, or custom lists
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on soft delete', async () => {
@@ -598,7 +574,7 @@ describe('useRestoreBookmark', () => {
     expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/restore')
   })
 
-  it('should invalidate active, deleted, and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPost.mockResolvedValueOnce({ data: { id: 1 } })
@@ -611,14 +587,8 @@ describe('useRestoreBookmark', () => {
       await result.current.mutateAsync('1')
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
-    // Should NOT invalidate archived
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on success', async () => {
@@ -665,7 +635,7 @@ describe('useArchiveBookmark', () => {
     expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/archive')
   })
 
-  it('should invalidate active, archived, and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPost.mockResolvedValueOnce({ data: { id: 1 } })
@@ -678,14 +648,8 @@ describe('useArchiveBookmark', () => {
       await result.current.mutateAsync('1')
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
-    // Should NOT invalidate deleted
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on success', async () => {
@@ -732,7 +696,7 @@ describe('useUnarchiveBookmark', () => {
     expect(mockPost).toHaveBeenCalledWith('/bookmarks/1/unarchive')
   })
 
-  it('should invalidate active, archived, and custom lists on success', async () => {
+  it('should invalidate all lists on success', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     mockPost.mockResolvedValueOnce({ data: { id: 1 } })
@@ -745,14 +709,8 @@ describe('useUnarchiveBookmark', () => {
       await result.current.mutateAsync('1')
     })
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('archived') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.customLists() })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('active') })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.view('archived') })
-    // Should NOT invalidate deleted
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: bookmarkKeys.view('deleted') })
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: contentKeys.view('deleted') })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: bookmarkKeys.lists() })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: contentKeys.lists() })
   })
 
   it('should refresh tags on success', async () => {

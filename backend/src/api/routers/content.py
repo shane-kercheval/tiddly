@@ -11,9 +11,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user
-from api.helpers import resolve_filter_and_sorting
+from api.helpers import resolve_filter_and_sorting, validate_view
 from models.user import User
-from schemas.content import ContentListResponse
+from schemas.content import ContentListResponse, ViewOption
 from services.content_service import search_all_content
 
 router = APIRouter(prefix="/content", tags=["content"])
@@ -43,9 +43,9 @@ async def list_all_content(
     ),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
-    view: Literal["active", "archived", "deleted"] = Query(
-        default="active",
-        description="View: 'active' (not deleted/archived), 'archived', or 'deleted'",
+    view: list[ViewOption] = Query(
+        default=["active"],
+        description="Views to include. Pass multiple, e.g. view=active&view=archived",
     ),
     filter_id: UUID | None = Query(default=None, description="Filter by content filter ID"),
     content_types: list[Literal["bookmark", "note", "prompt"]] | None = Query(
@@ -78,6 +78,8 @@ async def list_all_content(
     - If content_types query param is provided, results are filtered to the intersection
     - sort_by/sort_order take precedence over filter's sort defaults
     """
+    view_set = validate_view(view)
+
     resolved = await resolve_filter_and_sorting(
         db, current_user.id, filter_id, sort_by, sort_order, query=q,
     )
@@ -100,7 +102,7 @@ async def list_all_content(
         sort_order=resolved.sort_order,
         offset=offset,
         limit=limit,
-        view=view,
+        view=view_set,
         filter_expression=resolved.filter_expression,
         content_types=effective_content_types,
     )

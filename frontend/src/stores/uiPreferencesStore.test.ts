@@ -2,7 +2,7 @@
  * Tests for useUIPreferencesStore.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useUIPreferencesStore } from './uiPreferencesStore'
+import { useUIPreferencesStore, DEFAULT_VIEW_FILTERS } from './uiPreferencesStore'
 
 describe('useUIPreferencesStore', () => {
   beforeEach(() => {
@@ -12,6 +12,7 @@ describe('useUIPreferencesStore', () => {
       bookmarkSortBy: 'last_used_at',
       bookmarkSortOrder: 'desc',
       sortOverrides: {},
+      viewFilters: {},
     })
   })
 
@@ -214,6 +215,81 @@ describe('useUIPreferencesStore', () => {
 
         const override = getSortOverride('all')
         expect(override).toEqual({ sortBy: 'title', sortOrder: 'desc' })
+      })
+    })
+  })
+
+  describe('viewFilters', () => {
+    describe('getViewFilters', () => {
+      it('returns DEFAULT_VIEW_FILTERS when no override is set', () => {
+        const { getViewFilters } = useUIPreferencesStore.getState()
+        expect(getViewFilters('palette-search')).toEqual(DEFAULT_VIEW_FILTERS)
+      })
+
+      it('returns stored filters when set', () => {
+        useUIPreferencesStore.setState({ viewFilters: { 'palette-search': ['active'] } })
+        const { getViewFilters } = useUIPreferencesStore.getState()
+        expect(getViewFilters('palette-search')).toEqual(['active'])
+      })
+
+      it('returns DEFAULT_VIEW_FILTERS for unset key even when other keys exist', () => {
+        useUIPreferencesStore.setState({ viewFilters: { 'other-view': ['archived'] } })
+        const { getViewFilters } = useUIPreferencesStore.getState()
+        expect(getViewFilters('palette-search')).toEqual(DEFAULT_VIEW_FILTERS)
+      })
+    })
+
+    describe('toggleViewFilter', () => {
+      it('removes a filter when it is currently selected', () => {
+        const { toggleViewFilter, getViewFilters } = useUIPreferencesStore.getState()
+        toggleViewFilter('test', 'archived')
+        expect(getViewFilters('test')).toEqual(['active'])
+      })
+
+      it('adds a filter when it is not currently selected', () => {
+        useUIPreferencesStore.setState({ viewFilters: { test: ['active'] } })
+        const { toggleViewFilter, getViewFilters } = useUIPreferencesStore.getState()
+        toggleViewFilter('test', 'archived')
+        expect(getViewFilters('test')).toContain('active')
+        expect(getViewFilters('test')).toContain('archived')
+      })
+
+      it('prevents deselecting the last filter', () => {
+        useUIPreferencesStore.setState({ viewFilters: { test: ['active'] } })
+        const { toggleViewFilter, getViewFilters } = useUIPreferencesStore.getState()
+        toggleViewFilter('test', 'active')
+        expect(getViewFilters('test')).toEqual(['active'])
+      })
+
+      it('does not affect other view keys', () => {
+        useUIPreferencesStore.setState({ viewFilters: { a: ['active', 'archived'], b: ['archived'] } })
+        const { toggleViewFilter, getViewFilters } = useUIPreferencesStore.getState()
+        toggleViewFilter('a', 'archived')
+        expect(getViewFilters('a')).toEqual(['active'])
+        expect(getViewFilters('b')).toEqual(['archived'])
+      })
+    })
+
+    describe('clearViewFilters', () => {
+      it('removes the key so getViewFilters returns default', () => {
+        useUIPreferencesStore.setState({ viewFilters: { test: ['active'] } })
+        const { clearViewFilters, getViewFilters } = useUIPreferencesStore.getState()
+        clearViewFilters('test')
+        expect(getViewFilters('test')).toEqual(DEFAULT_VIEW_FILTERS)
+      })
+
+      it('does not affect other view keys', () => {
+        useUIPreferencesStore.setState({ viewFilters: { a: ['active'], b: ['archived'] } })
+        const { clearViewFilters, getViewFilters } = useUIPreferencesStore.getState()
+        clearViewFilters('a')
+        expect(getViewFilters('a')).toEqual(DEFAULT_VIEW_FILTERS)
+        expect(getViewFilters('b')).toEqual(['archived'])
+      })
+
+      it('handles clearing non-existent key gracefully', () => {
+        const { clearViewFilters } = useUIPreferencesStore.getState()
+        clearViewFilters('nonexistent')
+        expect(useUIPreferencesStore.getState().viewFilters).toEqual({})
       })
     })
   })

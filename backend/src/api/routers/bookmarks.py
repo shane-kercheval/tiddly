@@ -14,12 +14,13 @@ from api.dependencies import (
     get_current_user,
     get_current_user_auth0_only,
 )
-from api.helpers import check_optimistic_lock, resolve_filter_and_sorting
+from api.helpers import check_optimistic_lock, resolve_filter_and_sorting, validate_view
 from core.auth import get_request_context
 from core.http_cache import check_not_modified, format_http_date
 from core.tier_limits import TierLimits
 from models.user import User
 from services.exceptions import FieldLimitExceededError
+from schemas.content import ViewOption
 from schemas.bookmark import (
     BookmarkCreate,
     BookmarkListItem,
@@ -180,7 +181,7 @@ async def list_bookmarks(
     ),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     limit: int = Query(default=50, ge=1, le=100, description="Pagination limit"),
-    view: Literal["active", "archived", "deleted"] = Query(default="active", description="Which bookmarks to show: active (default), archived, or deleted"),  # noqa: E501
+    view: list[ViewOption] = Query(default=["active"], description="Views to include. Pass multiple for combined results, e.g. view=active&view=archived"),  # noqa: E501
     filter_id: UUID | None = Query(default=None, description="Filter by content filter ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -196,9 +197,11 @@ async def list_bookmarks(
     - **sort_by**: Sort field. Defaults to relevance when searching.
       Takes precedence over filter_id's default.
     - **sort_order**: Sort direction. Takes precedence over filter_id's default.
-    - **view**: Which bookmarks to show - 'active' (not deleted/archived), 'archived', or 'deleted'
+    - **view**: Views to include - 'active' (default), 'archived', 'deleted'. Supports multiple.
     - **filter_id**: Filter by content filter (can be combined with tags for additional filtering)
     """
+    view_set = validate_view(view)
+
     resolved = await resolve_filter_and_sorting(
         db, current_user.id, filter_id, sort_by, sort_order, query=q,
     )
@@ -214,7 +217,7 @@ async def list_bookmarks(
             sort_order=resolved.sort_order,
             offset=offset,
             limit=limit,
-            view=view,
+            view=view_set,
             filter_expression=resolved.filter_expression,
             content_types=["bookmark"],
         )
