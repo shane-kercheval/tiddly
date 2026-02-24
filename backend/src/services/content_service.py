@@ -14,7 +14,7 @@ from models.note import Note
 from models.prompt import Prompt
 from models.tag import Tag, bookmark_tags, note_tags, prompt_tags
 from schemas.validators import validate_and_normalize_tags
-from schemas.content import ContentListItem
+from schemas.content import ContentListItem, ViewOption
 from services.base_entity_service import CONTENT_PREVIEW_LENGTH
 from services.utils import build_tag_filter_from_expression, escape_ilike
 
@@ -204,7 +204,7 @@ async def search_all_content(
     sort_order: Literal["asc", "desc"] = "desc",
     offset: int = 0,
     limit: int = 50,
-    view: Literal["active", "archived", "deleted"] = "active",
+    view: set[ViewOption] = frozenset({"active"}),
     filter_expression: dict[str, Any] | None = None,
     content_types: list[str] | None = None,
 ) -> tuple[list[ContentListItem], int]:
@@ -223,9 +223,8 @@ async def search_all_content(
         sort_order: Sort direction.
         offset: Pagination offset.
         limit: Pagination limit.
-        view:
-            Which content to show:
-            - "active": Not deleted and not archived (default).
+        view: Set of views to include. e.g. {"active"}, {"active", "archived"}.
+            - "active": Not deleted and not archived.
             - "archived": Archived but not deleted.
             - "deleted": Soft-deleted (includes deleted+archived).
         filter_expression: Optional filter expression from a content list.
@@ -235,6 +234,9 @@ async def search_all_content(
     Returns:
         Tuple of (list of ContentListItems, total count).
     """
+    if not view:
+        raise ValueError("view must contain at least one option")
+
     # Normalize tags if provided
     normalized_tags = validate_and_normalize_tags(tags) if tags else None
 
@@ -415,7 +417,7 @@ def _build_entity_subquery(
     entity_columns: list[Any],
     sort_title_expr: Any,
     *,
-    view: Literal["active", "archived", "deleted"],
+    view: set[ViewOption],
     query: str | None,
     search_pattern: str | None,
     tsquery: Any | None,
@@ -454,6 +456,13 @@ def _build_entity_subquery(
         search_vector_column=search_vector_column,
         url_column=url_column,
     )
+    # Penalize archived items when mixed with active so active content ranks higher
+    if {"active", "archived"} <= view:
+        archive_weight = case(
+            (model.is_archived, 0.5),
+            else_=1.0,
+        )
+        rank_col = (rank_col * archive_weight).label("search_rank")
     common_columns = [
         literal(type_label).label("type"),
         model.id.label("id"),
@@ -537,7 +546,7 @@ def _apply_entity_filters(
     search_fields: list[tuple[InstrumentedAttribute, float]],
     search_vector_column: InstrumentedAttribute,
     url_column: InstrumentedAttribute | None,
-    view: Literal["active", "archived", "deleted"],
+    view: set[ViewOption],
     query: str | None,
     search_pattern: str | None,
     tsquery: Any | None,
@@ -560,7 +569,7 @@ def _apply_entity_filters(
         search_fields: (field, weight) tuples for ILIKE filter (from *_SEARCH_FIELDS config).
         search_vector_column: The tsvector column for FTS matching.
         url_column: Optional URL column for bookmark URL ILIKE matching.
-        view: Which entities to show (active/archived/deleted).
+        view: Set of views to include (e.g. {"active"}, {"active", "archived"}).
         query: Text search query.
         search_pattern: The escaped ILIKE pattern (e.g., "%auth%").
         tsquery: The SQLAlchemy tsquery expression.
@@ -572,13 +581,16 @@ def _apply_entity_filters(
     Returns:
         Extended filter list.
     """
-    # View filter
-    if view == "active":
-        filters.extend([model.deleted_at.is_(None), ~model.is_archived])
-    elif view == "archived":
-        filters.extend([model.deleted_at.is_(None), model.is_archived])
-    elif view == "deleted":
-        filters.append(model.deleted_at.is_not(None))
+    # View filter — build OR conditions from the set of requested views
+    view_conditions = []
+    if "active" in view:
+        view_conditions.append(and_(model.deleted_at.is_(None), ~model.is_archived))
+    if "archived" in view:
+        view_conditions.append(and_(model.deleted_at.is_(None), model.is_archived))
+    if "deleted" in view:
+        view_conditions.append(model.deleted_at.is_not(None))
+    if view_conditions:
+        filters.append(or_(*view_conditions))
 
     # Combined FTS + ILIKE text search filter
     if query and tsquery is not None and search_pattern is not None:

@@ -5,6 +5,7 @@ Tests the search_all_content function that combines bookmarks, notes, and prompt
 into a unified list with proper pagination and sorting.
 """
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -128,7 +129,7 @@ async def test__search_all_content__view_active_excludes_deleted(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that view='active' excludes deleted content."""
+    """Test that view={'active'} excludes deleted content."""
     # Create content
     bookmark_data = BookmarkCreate(url='https://active.com', title='Active Bookmark')
     active_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
@@ -142,7 +143,7 @@ async def test__search_all_content__view_active_excludes_deleted(
     await db_session.flush()
 
     # Search active
-    items, total = await search_all_content(db_session, test_user.id, view='active')
+    items, total = await search_all_content(db_session, test_user.id, view={'active'})
 
     assert total == 1
     assert items[0].id == active_bookmark.id
@@ -153,7 +154,7 @@ async def test__search_all_content__view_active_excludes_archived(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that view='active' excludes archived content."""
+    """Test that view={'active'} excludes archived content."""
     # Create content
     bookmark_data = BookmarkCreate(url='https://archived.com', title='Archived Bookmark')
     archived_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
@@ -167,7 +168,7 @@ async def test__search_all_content__view_active_excludes_archived(
     await db_session.flush()
 
     # Search active
-    items, total = await search_all_content(db_session, test_user.id, view='active')
+    items, total = await search_all_content(db_session, test_user.id, view={'active'})
 
     assert total == 1
     assert items[0].id == active_note.id
@@ -178,7 +179,7 @@ async def test__search_all_content__view_archived_returns_only_archived(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that view='archived' returns only archived content."""
+    """Test that view={'archived'} returns only archived content."""
     # Create content
     bookmark_data = BookmarkCreate(url='https://archived.com', title='Archived Bookmark')
     archived_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
@@ -196,7 +197,7 @@ async def test__search_all_content__view_archived_returns_only_archived(
     await db_session.flush()
 
     # Search archived
-    items, total = await search_all_content(db_session, test_user.id, view='archived')
+    items, total = await search_all_content(db_session, test_user.id, view={'archived'})
 
     assert total == 2
     types = {item.type for item in items}
@@ -207,7 +208,7 @@ async def test__search_all_content__view_deleted_returns_all_deleted(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that view='deleted' returns all deleted content."""
+    """Test that view={'deleted'} returns all deleted content."""
     # Create content
     bookmark_data = BookmarkCreate(url='https://deleted.com', title='Deleted Bookmark')
     deleted_bookmark = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
@@ -225,11 +226,272 @@ async def test__search_all_content__view_deleted_returns_all_deleted(
     await db_session.flush()
 
     # Search deleted
-    items, total = await search_all_content(db_session, test_user.id, view='deleted')
+    items, total = await search_all_content(db_session, test_user.id, view={'deleted'})
 
     assert total == 2
     types = {item.type for item in items}
     assert types == {'bookmark', 'note'}
+
+
+# =============================================================================
+# Multi-Value View Tests
+# =============================================================================
+
+
+async def test__search_all_content__view_active_archived_returns_both(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that view={'active', 'archived'} returns both, excludes deleted."""
+    bookmark_data = BookmarkCreate(url='https://active.com', title='Active Bookmark')
+    active_bm = await bookmark_service.create(db_session, test_user.id, bookmark_data, DEFAULT_LIMITS)
+
+    note_data = NoteCreate(title='Archived Note')
+    archived_note = await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
+    await db_session.flush()
+    await note_service.archive(db_session, test_user.id, archived_note.id)
+
+    deleted_data = NoteCreate(title='Deleted Note')
+    deleted_note = await note_service.create(db_session, test_user.id, deleted_data, DEFAULT_LIMITS)
+    await db_session.flush()
+    await note_service.delete(db_session, test_user.id, deleted_note.id)
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id, view={'active', 'archived'},
+    )
+
+    assert total == 2
+    ids = {item.id for item in items}
+    assert ids == {active_bm.id, archived_note.id}
+
+
+async def test__search_all_content__view_active_archived_excludes_deleted(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that view={'active', 'archived'} excludes soft-deleted items."""
+    note_data = NoteCreate(title='Active Note')
+    active_note = await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
+
+    deleted_data = BookmarkCreate(url='https://del.com', title='Deleted BM')
+    deleted_bm = await bookmark_service.create(db_session, test_user.id, deleted_data, DEFAULT_LIMITS)
+    await db_session.flush()
+    await bookmark_service.delete(db_session, test_user.id, deleted_bm.id)
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id, view={'active', 'archived'},
+    )
+
+    assert total == 1
+    assert items[0].id == active_note.id
+
+
+async def test__search_all_content__view_active_archived_relevance_penalty(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Active items rank higher than archived with same content when both views included."""
+    # Create two bookmarks with identical titles for equal raw relevance
+    active_data = BookmarkCreate(url='https://a.com', title='Python Tutorial Guide')
+    active_bm = await bookmark_service.create(db_session, test_user.id, active_data, DEFAULT_LIMITS)
+
+    archived_data = BookmarkCreate(url='https://b.com', title='Python Tutorial Guide')
+    archived_bm = await bookmark_service.create(db_session, test_user.id, archived_data, DEFAULT_LIMITS)
+    await db_session.flush()
+    await bookmark_service.archive(db_session, test_user.id, archived_bm.id)
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id,
+        query='Python Tutorial',
+        view={'active', 'archived'},
+        sort_by='relevance',
+    )
+
+    assert total == 2
+    assert items[0].id == active_bm.id
+    assert items[1].id == archived_bm.id
+
+
+async def test__search_all_content__view_active_archived_relevance_penalty_ignores_future_scheduled(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Future-scheduled archive items get no penalty (treated as active)."""
+    now = datetime.now(UTC)
+
+    # Active item
+    active_data = BookmarkCreate(url='https://a.com', title='Unique Test Keyword')
+    active_bm = await bookmark_service.create(db_session, test_user.id, active_data, DEFAULT_LIMITS)
+
+    # Future-scheduled archive (archived_at in the future = still active per is_archived)
+    future_data = BookmarkCreate(
+        url='https://b.com', title='Unique Test Keyword',
+        archived_at=now + timedelta(days=30),
+    )
+    future_bm = await bookmark_service.create(db_session, test_user.id, future_data, DEFAULT_LIMITS)
+
+    # Past-archived item
+    past_data = BookmarkCreate(url='https://c.com', title='Unique Test Keyword')
+    past_bm = await bookmark_service.create(db_session, test_user.id, past_data, DEFAULT_LIMITS)
+    await db_session.flush()
+    await bookmark_service.archive(db_session, test_user.id, past_bm.id)
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id,
+        query='Unique Test Keyword',
+        view={'active', 'archived'},
+        sort_by='relevance',
+    )
+
+    assert total == 3
+    # Active and future-scheduled should rank above past-archived
+    top_two_ids = {items[0].id, items[1].id}
+    assert active_bm.id in top_two_ids
+    assert future_bm.id in top_two_ids
+    assert items[2].id == past_bm.id
+
+
+async def test__search_all_content__view_active_archived_no_penalty_on_non_relevance_sort(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """No penalty applied when sort_by is not relevance."""
+    active_data = BookmarkCreate(url='https://a.com', title='Sort Test')
+    await bookmark_service.create(db_session, test_user.id, active_data, DEFAULT_LIMITS)
+
+    archived_data = BookmarkCreate(url='https://b.com', title='Sort Test')
+    archived_bm = await bookmark_service.create(db_session, test_user.id, archived_data, DEFAULT_LIMITS)
+    await db_session.flush()
+    await bookmark_service.archive(db_session, test_user.id, archived_bm.id)
+    await db_session.flush()
+
+    # Sort by created_at desc — the second bookmark was created later
+    items, total = await search_all_content(
+        db_session, test_user.id,
+        view={'active', 'archived'},
+        sort_by='created_at',
+        sort_order='desc',
+    )
+
+    assert total == 2
+    # Most recently created should be first regardless of archive status
+    assert items[0].id == archived_bm.id
+
+
+async def test__search_all_content__single_view_backward_compatible(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Single-value set behaves identically to old single-value behavior."""
+    note_data = NoteCreate(title='Compatible Note')
+    note = await note_service.create(db_session, test_user.id, note_data, DEFAULT_LIMITS)
+    await db_session.flush()
+
+    items, total = await search_all_content(db_session, test_user.id, view={'active'})
+
+    assert total == 1
+    assert items[0].id == note.id
+
+
+async def test__search_all_content__empty_view_raises_value_error(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Empty view set raises ValueError."""
+    with pytest.raises(ValueError, match="at least one option"):
+        await search_all_content(db_session, test_user.id, view=set())
+
+
+async def test__search_all_content__view_archived_deleted(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test view={'archived', 'deleted'} returns archived and deleted, excludes active."""
+    active_data = NoteCreate(title='Active Note')
+    await note_service.create(db_session, test_user.id, active_data, DEFAULT_LIMITS)
+
+    archived_data = BookmarkCreate(url='https://arch.com', title='Archived BM')
+    archived_bm = await bookmark_service.create(db_session, test_user.id, archived_data, DEFAULT_LIMITS)
+    await db_session.flush()
+    await bookmark_service.archive(db_session, test_user.id, archived_bm.id)
+
+    deleted_data = NoteCreate(title='Deleted Note')
+    deleted_note = await note_service.create(db_session, test_user.id, deleted_data, DEFAULT_LIMITS)
+    await db_session.flush()
+    await note_service.delete(db_session, test_user.id, deleted_note.id)
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id, view={'archived', 'deleted'},
+    )
+
+    assert total == 2
+    ids = {item.id for item in items}
+    assert ids == {archived_bm.id, deleted_note.id}
+
+
+async def test__search_all_content__view_active_archived_with_prompts(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Prompts included correctly in combined active+archived view."""
+    prompt_data = PromptCreate(name='active-prompt', content='Active content')
+    active_prompt = await prompt_service.create(db_session, test_user.id, prompt_data, DEFAULT_LIMITS)
+
+    archived_prompt_data = PromptCreate(name='archived-prompt', content='Archived content')
+    archived_prompt = await prompt_service.create(
+        db_session, test_user.id, archived_prompt_data, DEFAULT_LIMITS,
+    )
+    await db_session.flush()
+    await prompt_service.archive(db_session, test_user.id, archived_prompt.id)
+    await db_session.flush()
+
+    items, total = await search_all_content(
+        db_session, test_user.id,
+        view={'active', 'archived'},
+        content_types=['prompt'],
+    )
+
+    assert total == 2
+    ids = {item.id for item in items}
+    assert ids == {active_prompt.id, archived_prompt.id}
+
+
+async def test__search_all_content__future_scheduled_archive_appears_in_active_view(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Future-scheduled archive appears in active and active+archived, not archived-only."""
+    future_data = BookmarkCreate(
+        url='https://future.com', title='Future Archive',
+        archived_at=datetime.now(UTC) + timedelta(days=30),
+    )
+    future_bm = await bookmark_service.create(db_session, test_user.id, future_data, DEFAULT_LIMITS)
+    await db_session.flush()
+
+    # Should appear in active view (future-scheduled = not yet archived)
+    items_active, total_active = await search_all_content(
+        db_session, test_user.id, view={'active'},
+    )
+    assert total_active == 1
+    assert items_active[0].id == future_bm.id
+
+    # Should appear in active+archived view
+    items_both, total_both = await search_all_content(
+        db_session, test_user.id, view={'active', 'archived'},
+    )
+    assert total_both == 1
+    assert items_both[0].id == future_bm.id
+
+    # Should NOT appear in archived-only view (not yet archived)
+    _items_archived, total_archived = await search_all_content(
+        db_session, test_user.id, view={'archived'},
+    )
+    assert total_archived == 0
 
 
 # =============================================================================
@@ -827,7 +1089,7 @@ async def test__search_all_content__prompt_view_active(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that view='active' works correctly for prompts."""
+    """Test that view={'active'} works correctly for prompts."""
     # Create active, archived, and deleted prompts
     active_prompt = PromptCreate(name='active-prompt', content='Active content')
     await prompt_service.create(db_session, test_user.id, active_prompt, DEFAULT_LIMITS)
@@ -847,7 +1109,7 @@ async def test__search_all_content__prompt_view_active(
 
     # Search active prompts
     items, total = await search_all_content(
-        db_session, test_user.id, view='active', content_types=['prompt'],
+        db_session, test_user.id, view={'active'}, content_types=['prompt'],
     )
 
     assert total == 1
@@ -858,7 +1120,7 @@ async def test__search_all_content__prompt_view_archived(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that view='archived' returns archived prompts."""
+    """Test that view={'archived'} returns archived prompts."""
     active_prompt = PromptCreate(name='active-prompt', content='Active content')
     await prompt_service.create(db_session, test_user.id, active_prompt, DEFAULT_LIMITS)
 
@@ -870,7 +1132,7 @@ async def test__search_all_content__prompt_view_archived(
     await db_session.flush()
 
     items, total = await search_all_content(
-        db_session, test_user.id, view='archived', content_types=['prompt'],
+        db_session, test_user.id, view={'archived'}, content_types=['prompt'],
     )
 
     assert total == 1
@@ -881,7 +1143,7 @@ async def test__search_all_content__prompt_view_deleted(
     db_session: AsyncSession,
     test_user: User,
 ) -> None:
-    """Test that view='deleted' returns deleted prompts."""
+    """Test that view={'deleted'} returns deleted prompts."""
     active_prompt = PromptCreate(name='active-prompt', content='Active content')
     await prompt_service.create(db_session, test_user.id, active_prompt, DEFAULT_LIMITS)
 
@@ -893,7 +1155,7 @@ async def test__search_all_content__prompt_view_deleted(
     await db_session.flush()
 
     items, total = await search_all_content(
-        db_session, test_user.id, view='deleted', content_types=['prompt'],
+        db_session, test_user.id, view={'deleted'}, content_types=['prompt'],
     )
 
     assert total == 1
