@@ -76,7 +76,7 @@ Create a new `chrome-extension/` directory at the repo root.
   "description": "Save bookmarks to Tiddly with one click",
   "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
-    "https://tiddly.me/*"
+    "https://api.tiddly.me/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -97,7 +97,7 @@ Notes:
 - `activeTab` — grants access to the current tab only when the user clicks the extension icon
 - `scripting` — for `chrome.scripting.executeScript` to extract page metadata on demand
 - `storage` — for `chrome.storage.local`
-- `host_permissions` — required for the service worker to make cross-origin `fetch()` calls to the API. Hardcoded to `tiddly.me` only. Chrome will show a permission warning at install ("Can read and change your data on tiddly.me"). For local development, temporarily add `http://localhost:8000/*` to the manifest and change `API_URL` in `background.js`. If self-hosted URL support is needed later, switch to `optional_host_permissions` with `chrome.permissions.request()` at runtime.
+- `host_permissions` — required for the service worker to make cross-origin `fetch()` calls to the API. Hardcoded to `api.tiddly.me` only. Chrome will show a permission warning at install ("Can read and change your data on api.tiddly.me"). For local development, temporarily add `http://localhost:8000/*` to the manifest and change `API_URL` in `background.js`. If self-hosted URL support is needed later, switch to `optional_host_permissions` with `chrome.permissions.request()` at runtime.
 - **MV3 Content Security Policy:** All JavaScript must be in separate `.js` files. No inline `<script>` tags or `onclick`/`onsubmit` attributes in HTML — MV3 enforces a strict CSP that silently blocks inline scripts.
 
 **2. Options page (`options.html` + `options.js`)**
@@ -110,7 +110,7 @@ Simple HTML form — no framework needed:
 - Help link: "Get a token at https://tiddly.me/app/settings/tokens"
 - Client-side validation: PAT must start with `bm_` prefix (prevents confusing 401 from pasting wrong value)
 
-No API URL field — hardcoded to `https://tiddly.me` in `background.js`. For local development, change the `API_URL` constant and add `http://localhost:8000/*` to `host_permissions` in the manifest temporarily.
+No API URL field — hardcoded to `https://api.tiddly.me` in `background.js`. For local development, change the `API_URL` constant and add `http://localhost:8000/*` to `host_permissions` in the manifest temporarily.
 
 Storage schema:
 ```js
@@ -127,7 +127,7 @@ Use `chrome.storage.local` (not `sync`) — no reason to send a PAT through Goog
 Route all API calls through message passing. The service worker's `fetch()` bypasses CORS because `host_permissions` grants access:
 
 ```js
-const API_URL = 'https://tiddly.me';
+const API_URL = 'https://api.tiddly.me';
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'TEST_CONNECTION') {

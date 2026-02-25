@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tiddly Bookmarks</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="popup" class="popup">
+    <!-- Not configured state -->
+    <div id="setup-view" hidden>
+      <p class="setup-message">Set up your connection to start saving bookmarks.</p>
+      <button id="open-options" class="btn-primary">Open Settings</button>
+    </div>
+
+    <!-- Save form (Milestone 2) -->
+    <div id="save-view" hidden>
+      <div id="loading-indicator" class="loading">Loading page data...</div>
+      <form id="save-form" hidden>
+        <div class="field">
+          <label for="url">URL</label>
+          <input type="text" id="url" readonly>
+        </div>
+        <div class="field">
+          <label for="title">Title</label>
+          <input type="text" id="title" maxlength="100">
+        </div>
+        <div class="field">
+          <label for="description">Description</label>
+          <textarea id="description" rows="2" maxlength="1000"></textarea>
+        </div>
+        <div class="field">
+          <label for="tags-input">Tags</label>
+          <input type="text" id="tags-input" placeholder="Add tags...">
+          <div id="tag-chips" class="tag-chips"></div>
+          <div id="tag-suggestions" class="tag-suggestions" hidden></div>
+        </div>
+        <button type="submit" id="save-btn" class="btn-primary btn-full">Save Bookmark</button>
+      </form>
+      <div id="save-status" class="status" hidden></div>
+    </div>
+
+    <!-- Search view (Milestone 3) -->
+    <div id="search-view" hidden>
+      <input type="text" id="search-input" placeholder="Search bookmarks...">
+      <div id="search-results" class="search-results"></div>
+      <button id="load-more" class="btn-secondary btn-full" hidden>Load more</button>
+    </div>
+
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
