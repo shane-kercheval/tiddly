@@ -85,11 +85,14 @@ function showError(el, message) {
   el.hidden = false;
 }
 
+let statusTimerId = null;
+
 function showStatus(el, message, type) {
+  clearTimeout(statusTimerId);
   el.textContent = message;
   el.className = `status ${type}`;
   el.hidden = false;
   if (type === 'success') {
-    setTimeout(() => { el.hidden = true; }, 3000);
+    statusTimerId = setTimeout(() => { el.hidden = true; }, 3000);
   }
 }

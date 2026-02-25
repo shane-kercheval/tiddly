@@ -113,12 +113,13 @@ textarea {
   margin-top: 6px;
 }
 
-.tag-chip {
+button.tag-chip {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
   border-radius: 12px;
   font-size: 12px;
+  font-family: inherit;
   cursor: pointer;
   border: 1px solid #d1d5db;
   background: #f3f4f6;
@@ -172,12 +173,16 @@ textarea {
   margin-top: 4px;
 }
 
-.show-all-link {
+button.show-all-link {
   display: inline-block;
   font-size: 12px;
+  font-family: inherit;
   color: #3b82f6;
   cursor: pointer;
   margin-top: 4px;
+  background: none;
+  border: none;
+  padding: 0;
 }
 
 .show-all-link:hover {

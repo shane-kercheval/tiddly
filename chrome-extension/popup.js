@@ -80,9 +80,7 @@ async function getPageData(tab) {
 async function initSaveForm(tab) {
   const [pageData, tagsResult, storage] = await Promise.all([
     getPageData(tab),
-    new Promise(resolve => {
-      chrome.runtime.sendMessage({ type: 'GET_TAGS' }, resolve);
-    }),
+    chrome.runtime.sendMessage({ type: 'GET_TAGS' }),
     chrome.storage.local.get(['defaultTags', 'lastUsedTags'])
   ]);
 
@@ -95,7 +93,7 @@ async function initSaveForm(tab) {
   const lastUsedTags = storage.lastUsedTags || [];
   [...new Set([...defaultTags, ...lastUsedTags])].forEach(t => selectedTags.add(t));
 
-  if (tagsResult && tagsResult.success) {
+  if (tagsResult?.success && Array.isArray(tagsResult.data?.tags)) {
     allTags = tagsResult.data.tags.map(t => t.name);
   }
 
@@ -146,7 +144,8 @@ function renderTagChips() {
   }
 
   tagsToShow.forEach(tag => {
-    const chip = document.createElement('span');
+    const chip = document.createElement('button');
+    chip.type = 'button';
     chip.className = 'tag-chip' + (selectedTags.has(tag) ? ' selected' : '');
     chip.textContent = tag;
     chip.addEventListener('click', () => {
@@ -164,7 +163,8 @@ function renderTagChips() {
 
   if (!filterText && !showingAllTags && visibleTags.length > INITIAL_CHIPS_COUNT) {
     tagSuggestions.hidden = false;
-    const link = document.createElement('span');
+    const link = document.createElement('button');
+    link.type = 'button';
     link.className = 'show-all-link';
     link.textContent = `Show all (${visibleTags.length})`;
     link.addEventListener('click', () => {
@@ -202,23 +202,23 @@ async function handleSave(e) {
     tags
   };
 
-  chrome.runtime.sendMessage({ type: 'CREATE_BOOKMARK', bookmark }, (response) => {
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'Save Bookmark';
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'CREATE_BOOKMARK', bookmark });
 
-    if (chrome.runtime.lastError) {
-      showSaveStatus("Can't reach extension — try reloading", 'error');
-      return;
-    }
-
-    if (response.success) {
+    if (response?.success) {
       showSaveStatus('Saved!', 'success');
       chrome.storage.local.set({ lastUsedTags: tags });
-      return;
+    } else if (response) {
+      handleSaveError(response);
+    } else {
+      showSaveStatus("Can't reach extension — try reloading", 'error');
     }
-
-    handleSaveError(response);
-  });
+  } catch {
+    showSaveStatus("Can't reach extension — try reloading", 'error');
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save Bookmark';
+  }
 }
 
 function handleSaveError(response) {
@@ -326,98 +326,103 @@ async function initSearchView() {
   });
 }
 
-function loadBookmarks(query, offset, append) {
+async function loadBookmarks(query, offset, append) {
   const requestId = ++searchRequestId;
   loadMoreBtn.hidden = true;
   if (!append) loadMoreBtn.disabled = true;
 
-  chrome.runtime.sendMessage(
-    { type: 'SEARCH_BOOKMARKS', query, offset, limit: 10 },
-    (response) => {
-      // Ignore stale responses (#4)
-      if (requestId !== searchRequestId) return;
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage(
+      { type: 'SEARCH_BOOKMARKS', query, offset, limit: 10 }
+    );
+  } catch {
+    response = null;
+  }
 
-      loadMoreBtn.disabled = false;
+  // Ignore stale responses (#4)
+  if (requestId !== searchRequestId) return;
 
-      if (chrome.runtime.lastError || !response?.success) {
-        if (!append) searchResults.replaceChildren();
-        const msg = document.createElement('p');
-        msg.className = 'empty-state';
-        if (response?.status === 401) {
-          msg.textContent = 'Invalid token — update in settings';
-        } else {
-          msg.textContent = "Can't reach server — check your connection";
-        }
-        searchResults.appendChild(msg);
-        if (append) loadMoreBtn.hidden = false;
-        return;
-      }
+  loadMoreBtn.disabled = false;
 
-      const { items, has_more } = response.data;
-
-      if (!append) {
-        searchResults.replaceChildren();
-      }
-
-      if (items.length === 0 && !append) {
-        const msg = document.createElement('p');
-        msg.className = 'empty-state';
-        msg.textContent = query ? 'No results' : 'No bookmarks yet';
-        searchResults.appendChild(msg);
-        return;
-      }
-
-      items.forEach(item => {
-        const el = document.createElement('div');
-        el.className = 'search-result';
-
-        const title = document.createElement('a');
-        title.className = 'search-result-title';
-        title.textContent = item.title || item.url;
-        title.href = item.url;
-        title.target = '_blank';
-        title.rel = 'noopener noreferrer';
-        title.addEventListener('click', (e) => {
-          e.preventDefault();
-          chrome.tabs.create({ url: item.url });
-        });
-        el.appendChild(title);
-
-        const url = document.createElement('div');
-        url.className = 'search-result-url';
-        url.textContent = item.url;
-        el.appendChild(url);
-
-        const meta = document.createElement('div');
-        meta.className = 'search-result-meta';
-
-        if (item.created_at) {
-          const date = document.createElement('span');
-          date.className = 'search-result-date';
-          date.textContent = formatDate(item.created_at);
-          meta.appendChild(date);
-        }
-
-        if (item.tags && item.tags.length > 0) {
-          item.tags.forEach(t => {
-            const tag = document.createElement('span');
-            tag.className = 'search-result-tag';
-            tag.textContent = t;
-            meta.appendChild(tag);
-          });
-        }
-
-        if (meta.childNodes.length > 0) {
-          el.appendChild(meta);
-        }
-
-        searchResults.appendChild(el);
-      });
-
-      searchOffset = offset + items.length;
-      loadMoreBtn.hidden = !has_more;
+  if (!response?.success) {
+    if (!append) searchResults.replaceChildren();
+    const msg = document.createElement('p');
+    msg.className = 'empty-state';
+    if (response?.status === 401) {
+      msg.textContent = 'Invalid token — update in settings';
+    } else {
+      msg.textContent = "Can't reach server — check your connection";
     }
-  );
+    searchResults.appendChild(msg);
+    if (append) loadMoreBtn.hidden = false;
+    return;
+  }
+
+  const items = response.data?.items ?? [];
+  const has_more = response.data?.has_more ?? false;
+
+  if (!append) {
+    searchResults.replaceChildren();
+  }
+
+  if (items.length === 0 && !append) {
+    const msg = document.createElement('p');
+    msg.className = 'empty-state';
+    msg.textContent = query ? 'No results' : 'No bookmarks yet';
+    searchResults.appendChild(msg);
+    return;
+  }
+
+  items.forEach(item => {
+    const el = document.createElement('div');
+    el.className = 'search-result';
+
+    const title = document.createElement('a');
+    title.className = 'search-result-title';
+    title.textContent = item.title || item.url;
+    title.href = item.url;
+    title.target = '_blank';
+    title.rel = 'noopener noreferrer';
+    title.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: item.url });
+    });
+    el.appendChild(title);
+
+    const url = document.createElement('div');
+    url.className = 'search-result-url';
+    url.textContent = item.url;
+    el.appendChild(url);
+
+    const meta = document.createElement('div');
+    meta.className = 'search-result-meta';
+
+    if (item.created_at) {
+      const date = document.createElement('span');
+      date.className = 'search-result-date';
+      date.textContent = formatDate(item.created_at);
+      meta.appendChild(date);
+    }
+
+    if (item.tags && item.tags.length > 0) {
+      item.tags.forEach(t => {
+        const tag = document.createElement('span');
+        tag.className = 'search-result-tag';
+        tag.textContent = t;
+        meta.appendChild(tag);
+      });
+    }
+
+    if (meta.childNodes.length > 0) {
+      el.appendChild(meta);
+    }
+
+    searchResults.appendChild(el);
+  });
+
+  searchOffset = offset + items.length;
+  loadMoreBtn.hidden = !has_more;
 }
 
 function formatDate(isoString) {
