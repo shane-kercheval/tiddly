@@ -9,7 +9,7 @@
  */
 import { useCallback, useRef, useMemo, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useContentQuery } from '../hooks/useContentQuery'
 import { useContentView } from '../hooks/useContentView'
@@ -86,7 +86,7 @@ import { getFirstGroupTags } from '../utils'
  */
 export function AllContent(): ReactNode {
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   const searchInputRef = useRef<HTMLInputElement>(null)
   const { createReturnState } = useReturnNavigation()
 
@@ -98,10 +98,15 @@ export function AllContent(): ReactNode {
   // from resetting the input value between keystrokes.
   const [searchQuery, setSearchQuery] = useState(urlSearchQuery)
 
-  // Sync URL → local on external navigation (back/forward button)
-  useEffect(() => {
+  // Sync URL → local on view switches (pathname changes like All→Archived→Trash).
+  // Same-pathname URL changes are always our own debounce writes (updateParams uses
+  // replace:true), so ignoring them prevents overwriting characters typed during
+  // the debounce window.
+  const [prevPathname, setPrevPathname] = useState(location.pathname)
+  if (location.pathname !== prevPathname) {
+    setPrevPathname(location.pathname)
     setSearchQuery(urlSearchQuery)
-  }, [urlSearchQuery])
+  }
 
   // Non-cacheable utilities
   const { trackBookmarkUsage } = useBookmarks()
@@ -196,14 +201,6 @@ export function AllContent(): ReactNode {
     const filter = filters.find((f) => f.id === currentFilterId)
     return getFirstGroupTags(filter)
   }, [currentFilterId, filters])
-
-  useEffect(() => {
-    if (searchParams.get('action') === 'add') {
-      const newParams = new URLSearchParams(searchParams)
-      newParams.delete('action')
-      setSearchParams(newParams, { replace: true })
-    }
-  }, [searchParams, setSearchParams])
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
