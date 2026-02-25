@@ -36,8 +36,8 @@ prompt-mcp-server:  ## Start Prompt MCP server (port 8002, requires API on 8000)
 frontend-run:  ## Start frontend dev server
 	cd frontend && npm run dev
 
-frontend-run-vm:  ## Start frontend dev server accessible from host
-	cd frontend && VITE_API_URL=http://$(VM_IP):8000 npm run dev -- --host
+frontend-run-ssh:  ## Start frontend dev server accessible from host
+	cd frontend && npm run dev -- --host 0.0.0.0
 
 frontend-install:  ## Install frontend dependencies
 	cd frontend && npm install
