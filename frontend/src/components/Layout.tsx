@@ -21,10 +21,14 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
  * Includes sidebar with navigation and user controls.
  *
  * Responsibilities:
- * - Fetch shared data (sidebar, filters, tags) once on mount
+ * - Fetch shared data (sidebar, filters, tags) once on mount, gated on consent readiness
  * - Render sidebar and main content area
  * - Handle global keyboard shortcuts
  * - Render command palette overlay
+ *
+ * Depends on AppLayout always rendering Outlet during consent checking so the sidebar
+ * shell mounts immediately. AppLayout owns the consent dialog and error states; this
+ * component gates data fetching and shows ContentAreaSpinner until consent resolves.
  */
 /** Tailwind md breakpoint */
 const MD_BREAKPOINT = 768

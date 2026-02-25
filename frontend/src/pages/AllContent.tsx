@@ -234,13 +234,12 @@ export function AllContent(): ReactNode {
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
 
   // Sync debounced search to URL for bookmarkability + reset pagination.
-  // Skip initial mount to preserve URL state (e.g., ?q=foo&offset=40 from a shared link).
-  const isInitialMount = useRef(true)
+  // Only fires when the change originated from user typing — not on initial mount,
+  // back-navigation, or other URL changes that sync to local state.
+  const userTypedRef = useRef(false)
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false
-      return
-    }
+    if (!userTypedRef.current) return
+    userTypedRef.current = false
     updateParams({ q: debouncedSearchQuery, offset: 0 })
   }, [debouncedSearchQuery, updateParams])
 
@@ -278,6 +277,7 @@ export function AllContent(): ReactNode {
   // Handlers
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
+      userTypedRef.current = true
       setSearchQuery(e.target.value)
     },
     []

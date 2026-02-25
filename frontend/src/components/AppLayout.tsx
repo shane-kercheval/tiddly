@@ -76,10 +76,5 @@ export function AppLayout(): ReactNode {
     return <ConsentDialog />
   }
 
-  // If needsConsent is still null without error, render Outlet (same stable shell pattern)
-  if (needsConsent !== false) {
-    return <Outlet />
-  }
-
   return <Outlet />
 }
