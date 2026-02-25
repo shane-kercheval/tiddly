@@ -10,7 +10,7 @@ import type { NoteListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { CopyContentButton } from './ui'
-import { NoteIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { NoteIcon } from './icons'
 import { ContentCard } from './ContentCard'
 
 interface NoteCardProps {
@@ -235,39 +235,7 @@ export function NoteCard({
           {/* Actions absolutely positioned, appear on hover */}
           {hasActions && (
             <div className="absolute right-0 bottom-0">
-              <ContentCard.Actions
-                overflowItems={[
-                  {
-                    key: 'archive',
-                    label: 'Archive',
-                    icon: <ArchiveIcon className="h-4 w-4" />,
-                    onClick: () => onArchive?.(note),
-                    hidden: !onArchive || view !== 'active',
-                  },
-                  {
-                    key: 'unarchive',
-                    label: 'Restore',
-                    icon: <RestoreIcon className="h-4 w-4" />,
-                    onClick: () => onUnarchive?.(note),
-                    hidden: view !== 'archived' || !onUnarchive,
-                  },
-                  {
-                    key: 'restore',
-                    label: 'Restore',
-                    icon: <RestoreIcon className="h-4 w-4" />,
-                    onClick: () => onRestore?.(note),
-                    hidden: view !== 'deleted' || !onRestore,
-                  },
-                  {
-                    key: 'delete',
-                    label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
-                    icon: <TrashIcon className="h-4 w-4" />,
-                    onClick: () => onDelete?.(note),
-                    danger: true,
-                    hidden: !onDelete,
-                  },
-                ]}
-              >
+              <ContentCard.Actions>
                 {onTagAdd && tagSuggestions && (
                   <ContentCard.AddTagAction
                     existingTags={note.tags}

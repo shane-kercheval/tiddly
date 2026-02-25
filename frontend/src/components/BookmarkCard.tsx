@@ -15,10 +15,6 @@ import {
   BookmarkIcon,
   CopyIcon,
   CheckIcon,
-  EditIcon,
-  ArchiveIcon,
-  RestoreIcon,
-  TrashIcon,
   ExternalLinkIcon,
 } from './icons'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
@@ -409,58 +405,7 @@ export function BookmarkCard({
           {/* Actions absolutely positioned, appear on hover */}
           {hasActions && (
             <div className="absolute right-0 bottom-0">
-              <ContentCard.Actions
-                overflowItems={[
-                  {
-                    key: 'open',
-                    label: 'Open link',
-                    icon: <ExternalLinkIcon className="h-4 w-4" />,
-                    onClick: () => { onLinkClick?.(bookmark); window.open(bookmark.url, '_blank', 'noopener,noreferrer') },
-                  },
-                  {
-                    key: 'edit',
-                    label: 'Edit',
-                    icon: <EditIcon className="h-4 w-4" />,
-                    onClick: () => onEdit?.(bookmark),
-                    hidden: view === 'deleted' || !onEdit,
-                  },
-                  {
-                    key: 'copy',
-                    label: 'Copy URL',
-                    icon: <CopyIcon className="h-4 w-4" />,
-                    onClick: () => { handleCopyUrl() },
-                  },
-                  {
-                    key: 'archive',
-                    label: 'Archive',
-                    icon: <ArchiveIcon className="h-4 w-4" />,
-                    onClick: () => onArchive?.(bookmark),
-                    hidden: !onArchive || view !== 'active',
-                  },
-                  {
-                    key: 'unarchive',
-                    label: 'Restore',
-                    icon: <RestoreIcon className="h-4 w-4" />,
-                    onClick: () => onUnarchive?.(bookmark),
-                    hidden: view !== 'archived' || !onUnarchive,
-                  },
-                  {
-                    key: 'restore',
-                    label: 'Restore',
-                    icon: <RestoreIcon className="h-4 w-4" />,
-                    onClick: () => onRestore?.(bookmark),
-                    hidden: view !== 'deleted' || !onRestore,
-                  },
-                  {
-                    key: 'delete',
-                    label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
-                    icon: <TrashIcon className="h-4 w-4" />,
-                    onClick: () => onDelete?.(bookmark),
-                    danger: true,
-                    hidden: !onDelete,
-                  },
-                ]}
-              >
+              <ContentCard.Actions>
                 {onTagAdd && tagSuggestions && (
                   <ContentCard.AddTagAction
                     existingTags={bookmark.tags}
