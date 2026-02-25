@@ -40,6 +40,8 @@ interface SearchFilterBarProps {
   hasNonDefaultFilters?: boolean
   /** Called when the reset button is clicked */
   onReset?: () => void
+  /** Whether a background refetch is in progress (shows subtle spinner in search input) */
+  isFetching?: boolean
 }
 
 /**
@@ -66,6 +68,7 @@ export function SearchFilterBar({
   leftSlot,
   hasNonDefaultFilters = false,
   onReset,
+  isFetching = false,
 }: SearchFilterBarProps): ReactNode {
   return (
     <div className="flex flex-col gap-1.5 md:flex-row md:flex-nowrap md:items-center md:gap-2">
@@ -84,6 +87,11 @@ export function SearchFilterBar({
             placeholder={searchPlaceholder}
             className="input pl-10"
           />
+          {isFetching && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <div className="spinner-xs" />
+            </div>
+          )}
         </div>
       </div>
       {/* Row 2 on mobile: Tag filter + sort dropdown */}

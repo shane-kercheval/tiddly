@@ -4,7 +4,7 @@
  * Used for the shared views (All, Archived, Trash) that display
  * both bookmarks and notes in a single unified list.
  */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { normalizeViewKey } from '../types'
 import type { ContentListResponse, ContentSearchParams, ViewOption } from '../types'
@@ -124,5 +124,8 @@ export function useContentQuery(
     queryKey: contentKeys.list(params),
     queryFn: () => fetchContent(params),
     enabled,
+    // Keep previous results visible while fetching new data (e.g., during search).
+    // Prevents UI jank: search bar stays mounted, results remain interactive.
+    placeholderData: keepPreviousData,
   })
 }

@@ -49,30 +49,32 @@ export function useContentUrlParams(): UseContentUrlParamsReturn {
   const searchQuery = searchParams.get('q') || ''
   const offset = parseInt(searchParams.get('offset') || '0', 10)
 
-  // Update URL params
+  // Update URL params (functional form avoids stale closure over searchParams)
   const updateParams = useCallback(
     (updates: ContentUrlParamUpdates) => {
-      const newParams = new URLSearchParams(searchParams)
+      setSearchParams((prev) => {
+        const newParams = new URLSearchParams(prev)
 
-      if ('q' in updates) {
-        if (updates.q) {
-          newParams.set('q', updates.q)
-        } else {
-          newParams.delete('q')
+        if ('q' in updates) {
+          if (updates.q) {
+            newParams.set('q', updates.q)
+          } else {
+            newParams.delete('q')
+          }
         }
-      }
 
-      if ('offset' in updates) {
-        if (updates.offset && updates.offset > 0) {
-          newParams.set('offset', String(updates.offset))
-        } else {
-          newParams.delete('offset')
+        if ('offset' in updates) {
+          if (updates.offset && updates.offset > 0) {
+            newParams.set('offset', String(updates.offset))
+          } else {
+            newParams.delete('offset')
+          }
         }
-      }
 
-      setSearchParams(newParams, { replace: true })
+        return newParams
+      }, { replace: true })
     },
-    [searchParams, setSearchParams]
+    [setSearchParams]
   )
 
   return {

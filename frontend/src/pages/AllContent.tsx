@@ -7,7 +7,7 @@
  * - Bookmark add/edit navigation
  * - Note/Prompt navigation with proper return state
  */
-import { useCallback, useRef, useMemo, useEffect } from 'react'
+import { useCallback, useRef, useMemo, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
@@ -52,7 +52,7 @@ import { BookmarkCard } from '../components/BookmarkCard'
 import { NoteCard } from '../components/NoteCard'
 import { PromptCard } from '../components/PromptCard'
 import {
-  LoadingSpinnerPage,
+  ContentAreaSpinner,
   ErrorState,
   EmptyState,
   SearchFilterBar,
@@ -91,7 +91,17 @@ export function AllContent(): ReactNode {
   const { createReturnState } = useReturnNavigation()
 
   // URL params for search and pagination (bookmarkable state)
-  const { searchQuery, offset, updateParams } = useContentUrlParams()
+  const { searchQuery: urlSearchQuery, offset, updateParams } = useContentUrlParams()
+
+  // Local state for the search input - decoupled from URL for lag-free typing.
+  // URL params update only after debounce, preventing React Router re-renders
+  // from resetting the input value between keystrokes.
+  const [searchQuery, setSearchQuery] = useState(urlSearchQuery)
+
+  // Sync URL → local on external navigation (back/forward button)
+  useEffect(() => {
+    setSearchQuery(urlSearchQuery)
+  }, [urlSearchQuery])
 
   // Non-cacheable utilities
   const { trackBookmarkUsage } = useBookmarks()
@@ -223,6 +233,17 @@ export function AllContent(): ReactNode {
   // Debounce search query
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
 
+  // Sync debounced search to URL for bookmarkability + reset pagination.
+  // Skip initial mount to preserve URL state (e.g., ?q=foo&offset=40 from a shared link).
+  const isInitialMount = useRef(true)
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return
+    }
+    updateParams({ q: debouncedSearchQuery, offset: 0 })
+  }, [debouncedSearchQuery, updateParams])
+
   // Build search params
   const currentParams: ContentSearchParams = useMemo(
     () => ({
@@ -244,6 +265,7 @@ export function AllContent(): ReactNode {
   const {
     data: queryData,
     isLoading,
+    isFetching,
     error: queryError,
     refetch,
   } = useContentQuery(currentParams)
@@ -256,9 +278,9 @@ export function AllContent(): ReactNode {
   // Handlers
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      updateParams({ q: e.target.value, offset: 0 })
+      setSearchQuery(e.target.value)
     },
-    [updateParams]
+    []
   )
 
   const handleTagClick = useCallback(
@@ -814,19 +836,16 @@ export function AllContent(): ReactNode {
     clearTypes(contentTypeFilterKey)
     clearTagFilters(tagFilterViewKey)
     clearSortOverride()
+    setSearchQuery('')
     updateParams({ q: '', offset: 0 })
   }, [clearTypes, contentTypeFilterKey, clearTagFilters, tagFilterViewKey, clearSortOverride, updateParams])
 
   // Show quick-add menu for active view (All, or any custom list)
   const showQuickAdd = currentView === 'active'
 
-  if (isLoading) {
-    return <LoadingSpinnerPage label="Loading content..." />
-  }
-
   return (
     <div className="pt-3">
-      {/* Search and filters */}
+      {/* Search and filters - always mounted to preserve focus */}
       <div className="mb-3 md:mb-5 space-y-3">
         <SearchFilterBar
           searchInputRef={searchInputRef}
@@ -851,6 +870,7 @@ export function AllContent(): ReactNode {
           }
           hasNonDefaultFilters={hasNonDefaultFilters}
           onReset={handleResetFilters}
+          isFetching={isFetching && !isLoading}
         />
         {/* Content type filter chips */}
         {selectedContentTypes && (
@@ -869,8 +889,14 @@ export function AllContent(): ReactNode {
         />
       </div>
 
-      {/* Content */}
-      {renderContent()}
+      {/* Content - spinner for initial load, results for all other states */}
+      {isLoading ? (
+        <ContentAreaSpinner label="Loading content..." />
+      ) : (
+        <div aria-busy={isFetching && !isLoading ? true : undefined}>
+          {renderContent()}
+        </div>
+      )}
 
     </div>
   )

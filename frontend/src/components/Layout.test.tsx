@@ -9,6 +9,27 @@ import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { Layout } from './Layout'
+import * as config from '../config'
+
+// Mock the config module
+vi.mock('../config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../config')>()
+  return {
+    ...actual,
+    isDevMode: true,
+  }
+})
+
+// Mock the consent store
+let mockNeedsConsent: boolean | null = false
+vi.mock('../stores/consentStore', () => ({
+  useConsentStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+    const state = {
+      needsConsent: mockNeedsConsent,
+    }
+    return selector ? selector(state) : state
+  },
+}))
 
 // Create mock functions that we can spy on
 const mockFetchSidebar = vi.fn()
@@ -120,6 +141,8 @@ describe('Layout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockActivePanel = null
+    mockNeedsConsent = false
+    vi.mocked(config).isDevMode = true
   })
 
   describe('centralized data fetching', () => {
@@ -163,6 +186,41 @@ describe('Layout', () => {
 
       // Sidebar contains the builtin "All Content" item (appears in both mobile and desktop sidebars)
       expect(screen.getAllByText('All Content').length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  describe('consent-gated fetching', () => {
+    it('should not fetch data when consent is not ready', () => {
+      vi.mocked(config).isDevMode = false
+      mockNeedsConsent = null // consent not yet checked
+
+      renderLayout()
+
+      expect(mockFetchSidebar).not.toHaveBeenCalled()
+      expect(mockFetchFilters).not.toHaveBeenCalled()
+      expect(mockFetchTags).not.toHaveBeenCalled()
+    })
+
+    it('should show ContentAreaSpinner when consent is not ready', () => {
+      vi.mocked(config).isDevMode = false
+      mockNeedsConsent = null
+
+      renderLayout()
+
+      // Sidebar shell renders but content area shows spinner
+      expect(screen.getByText('Loading...')).toBeInTheDocument()
+      expect(screen.queryByTestId('test-page')).not.toBeInTheDocument()
+    })
+
+    it('should fetch data once consent resolves', () => {
+      vi.mocked(config).isDevMode = false
+      mockNeedsConsent = false // consent confirmed
+
+      renderLayout()
+
+      expect(mockFetchSidebar).toHaveBeenCalledTimes(1)
+      expect(mockFetchFilters).toHaveBeenCalledTimes(1)
+      expect(mockFetchTags).toHaveBeenCalledTimes(1)
     })
   })
 

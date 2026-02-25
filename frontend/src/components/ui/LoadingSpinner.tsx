@@ -44,7 +44,7 @@ export function LoadingSpinner({
 /**
  * Page-level centered loading spinner.
  * Uses viewport-relative min-height to self-center without depending on parent flex layout.
- * Works both inside Layout (content area) and pre-Layout (full page).
+ * Use for pre-Layout contexts (ProtectedRoute, LandingPage) where no sidebar exists.
  */
 export function LoadingSpinnerPage({
   size = 'md',
@@ -52,6 +52,22 @@ export function LoadingSpinnerPage({
 }: Omit<LoadingSpinnerProps, 'className'>): ReactNode {
   return (
     <div className="flex items-center justify-center min-h-[calc(100dvh_-_10rem)]">
+      <LoadingSpinner size={size} label={label} />
+    </div>
+  )
+}
+
+/**
+ * Content-area centered loading spinner.
+ * Uses padding-based centering instead of viewport-relative min-height.
+ * Use inside Layout where the sidebar shell should remain visible.
+ */
+export function ContentAreaSpinner({
+  size = 'md',
+  label = 'Loading...',
+}: Omit<LoadingSpinnerProps, 'className'>): ReactNode {
+  return (
+    <div className="flex items-center justify-center py-32">
       <LoadingSpinner size={size} label={label} />
     </div>
   )
