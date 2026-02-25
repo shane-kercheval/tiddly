@@ -1011,7 +1011,7 @@ export function Prompt({
             {/* Row 1: action icons + auto-archive + timestamps */}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
               {/* Add tag button */}
-              <Tooltip content="Add tag" compact>
+              <Tooltip content="Add tag" compact delay={500}>
                 <button
                   type="button"
                   onClick={() => tagInputRef.current?.startAdding()}
@@ -1026,7 +1026,7 @@ export function Prompt({
               </Tooltip>
 
               {/* Add link button */}
-              <Tooltip content="Link content" compact>
+              <Tooltip content="Link content" compact delay={500}>
                 <button
                   type="button"
                   onClick={() => linkedChipsRef.current?.startAdding()}
