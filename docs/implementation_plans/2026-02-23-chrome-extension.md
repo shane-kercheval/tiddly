@@ -130,7 +130,9 @@ Key patterns:
 - **`fetchWithTimeout`**: All fetch calls wrapped with an `AbortController` timeout (15s) to prevent indefinite hangs from unresponsive servers.
 - **Token guard**: `getToken()` throws if no token is stored, returning a clear error immediately instead of sending `Authorization: Bearer undefined` and getting a confusing 401.
 - **`async/await`**: Handlers use async/await (cleaner than `.then()` chains). The message listener dispatches to async handler functions and calls `sendResponse` on resolution/rejection.
+- **Native MV3 promises in popup**: In MV3, `chrome.runtime.sendMessage` returns a native Promise when no callback is passed. The popup uses `await chrome.runtime.sendMessage(...)` directly — no callback wrappers needed. Errors come as rejections (caught by try/catch) rather than `chrome.runtime.lastError`. This eliminates hang risk from unresponsive service workers and keeps the code consistently async/await.
 - **`handleTestConnection`** uses `message.token` (not storage) because the user hasn't saved yet — this is intentional.
+- **Status timer race prevention**: `showStatus()` in options.js tracks and clears the previous `setTimeout` ID before scheduling a new one, preventing a prior success timer from hiding a later error message.
 
 ```js
 const API_URL = 'https://api.tiddly.me';
@@ -253,6 +255,7 @@ Three states (save mode for normal pages, search mode added in Milestone 3):
 - Tags pre-filled from merge of default tags (settings) + last-used tags (storage)
 - Content is captured silently (not shown in the form — it's just for search)
 - `init()` awaits `initSaveForm(tab)` so failures surface to the top-level `.catch()` error handler (prevents blank popup on unexpected errors)
+- **Defensive response handling:** API responses are guarded against unexpected shapes. Tags response validated with `Array.isArray(tagsResult.data?.tags)` before mapping. Search results use `response.data?.items ?? []` and `response.data?.has_more ?? false`. Save response uses `response?.success` (optional chaining) to guard against `undefined` response from MV3 service worker restarts.
 - User optionally edits visible fields, then clicks Save
 - On success: show "Saved!" confirmation, store used tags as `lastUsedTags` in `chrome.storage.local`
 - On 409: show duplicate message (see error handling below)
@@ -267,6 +270,7 @@ On popup open, fetch existing tags via `GET /tags/?content_types=bookmark` (thro
 - **"Show all" link:** Expands to a scrollable area (max-height ~150px) showing all tags.
 - **Filter as you type:** Typing in the text input filters the visible chips to matches. Start typing "read" → chips narrow to `reading_list`, `read-later`, etc.
 - **Click to toggle:** Clicking a chip adds it to (or removes it from) the selected tags.
+- **Accessibility:** Tag chips and "Show all" are rendered as `<button type="button">` elements (not `<span>`) for keyboard focusability, Enter/Space activation, and screen reader semantics. CSS resets default button styles to maintain the chip appearance.
 - **New tags via Enter:** Typing a tag name and pressing Enter commits it as a selected tag (added to `selectedTags`, input cleared). Leftover filter text in the input is ignored on save — only explicitly selected/committed tags are submitted. This prevents accidental garbage tags from partial filter text.
 - **Pre-selected chips:** Default tags from settings + last-used tags from `chrome.storage.local` are pre-selected on open.
 - **Tag fetch failure:** If the tags API call fails, the chip UI is hidden and the text input still works for adding new tags via Enter (graceful degradation).
