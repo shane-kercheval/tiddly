@@ -184,7 +184,7 @@ Check the tab URL before attempting metadata extraction. `chrome.scripting.execu
 
 ```js
 function isRestrictedPage(url) {
-  return /^(chrome|about|chrome-extension|devtools|edge):/.test(url);
+  return !url || /^(chrome|about|chrome-extension|devtools|edge|file|view-source):/.test(url);
 }
 ```
 
@@ -192,25 +192,30 @@ If restricted, show "Can't save this page" in the popup. No script injection, no
 
 **2. Page metadata and content extraction**
 
-Use `chrome.scripting.executeScript` from the popup — no persistent content script:
+Use `chrome.scripting.executeScript` from the popup — no persistent content script. Wrap in try/catch because `executeScript` can fail on pages that pass the restricted-page check but still block script injection (Chrome PDF viewer, Web Store pages, pages with restrictive CSP, etc.). On failure, fall back to URL-only save:
 
 ```js
 const MAX_CONTENT_LENGTH = 100000;
 
-async function getPageData(tabId) {
-  const [result] = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (maxLen) => ({
-      url: window.location.href,
-      title: document.title,
-      description: document.querySelector('meta[name="description"]')?.content
-        || document.querySelector('meta[property="og:description"]')?.content
-        || '',
-      content: document.body.innerText.substring(0, maxLen)
-    }),
-    args: [MAX_CONTENT_LENGTH]
-  });
-  return result.result;
+async function getPageData(tab) {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (maxLen) => ({
+        url: window.location.href,
+        title: document.title,
+        description: document.querySelector('meta[name="description"]')?.content
+          || document.querySelector('meta[property="og:description"]')?.content
+          || '',
+        content: document.body.innerText.substring(0, maxLen)
+      }),
+      args: [MAX_CONTENT_LENGTH]
+    });
+    return result.result;
+  } catch {
+    // executeScript failed — fall back to URL-only data from the tab API
+    return { url: tab.url, title: tab.title || '', description: '', content: '' };
+  }
 }
 ```
 
@@ -229,6 +234,7 @@ Two states:
 **Save form** — default when configured (on non-restricted pages):
 - On popup open: extract metadata + content AND fetch tags in parallel
 - Pre-fill form with URL (read-only), title, description
+- **Security:** Set form values via `element.value = title` and text via `element.textContent`, never `innerHTML` or string concatenation into HTML. Page metadata comes from arbitrary untrusted pages — a malicious page title could contain HTML/JS that executes in the extension context (which has access to `chrome.storage.local`, i.e., the PAT). MV3's CSP blocks inline `<script>` tags but does NOT block injected DOM event handlers in all contexts.
 - Tags pre-filled from merge of default tags (settings) + last-used tags (storage)
 - Content is captured silently (not shown in the form — it's just for search)
 - User optionally edits visible fields, then clicks Save
@@ -314,14 +320,16 @@ if (message.type === 'GET_TAGS') {
 | Status | UI behavior |
 |--------|------------|
 | 201 | "Saved!" confirmation |
+| 400 | Show API error message (e.g. "URL exceeds limit of 2048 characters"). No client-side URL truncation — a truncated URL is a broken URL. This catch-all covers any current or future field validation. |
 | 401 | "Invalid token" + link to open options page |
+| 402 | Show API error message (e.g. "Bookmark limit reached"). The response includes `detail` with the message and `limit` with the current cap. Link to Tiddly web app to manage/delete bookmarks or upgrade. |
 | 409 `ACTIVE_URL_EXISTS` | "Already saved" (no bookmark ID in response, message only) |
 | 409 `ARCHIVED_URL_EXISTS` | "This bookmark is archived" + link to `https://tiddly.me/app/bookmarks/{existing_bookmark_id}` |
 | 429 | "Rate limited — try again in Xs" (use `retryAfter` from response) |
 | 451 | "Accept terms first" + link to Tiddly web app |
 | Network error | "Can't reach server — check your connection" |
 
-**7. Truncate long fields before sending** — title to 100 chars, description to 1000 chars. Prevents 400 errors from the API.
+**7. Truncate long fields before sending** — title to 100 chars, description to 1000 chars. Prevents 400 errors for known fixed limits. URL is NOT truncated (a truncated URL is broken) — the 400 handler above covers URL length validation from the API.
 
 ### Testing Strategy
 
@@ -336,6 +344,12 @@ if (message.type === 'GET_TAGS') {
 - Edit title and tags in form before saving → bookmark has modified values
 - Check content history in web UI → `X-Request-Source: chrome-extension` appears
 - Click on `chrome://` or `about:` page → "Can't save this page" (no form shown)
+- Click on `file://` page → falls back to URL-only save (no crash)
+- Click on `view-source:` page → falls back gracefully
+- Click on Chrome Web Store page → `executeScript` fails, falls back to URL + tab title
+- Save when at bookmark limit → shows quota error with actionable message (402)
+- Save a page with extremely long URL → shows field limit error from API (400)
+- Save a page with HTML/script in its `<title>` → title displayed as plain text, no script execution
 - Title > 100 chars from page → truncated in form, saves successfully
 - Save, close popup, reopen on same URL, save again → 409 "Already saved"
 - Open extension on a heavy page → popup appears immediately with loading state, fields populate shortly after
@@ -372,14 +386,14 @@ The popup now has three modes based on context:
 - **Save mode** — on normal pages → save form (unchanged from Milestone 2)
 - **Search mode** — on restricted/blank pages → search UI (new)
 
-Detection:
+Detection (same function from M2):
 ```js
 function isRestrictedPage(url) {
-  return !url || /^(chrome|about|chrome-extension|devtools|edge):/.test(url);
+  return !url || /^(chrome|about|chrome-extension|devtools|edge|file|view-source):/.test(url);
 }
 ```
 
-This catches `chrome://newtab`, `about:blank`, `chrome://extensions`, etc. — all pages where the extension can't save and where search is more useful.
+This catches `chrome://newtab`, `about:blank`, `chrome://extensions`, `file://` PDFs, `view-source:` pages, etc. — all pages where the extension can't save and where search is more useful. Note that `executeScript` can also fail on non-restricted pages (Chrome PDF viewer, Web Store, etc.) — the try/catch fallback in M2 handles those.
 
 **2. Search UI**
 
@@ -486,7 +500,7 @@ Add a brief section about the Chrome extension: what it does, PAT-based auth, sa
 Full manual test pass covering all items from milestones 1–3, plus:
 
 - Extension on a local PDF file → saves with URL, handles missing title/content gracefully
-- Close popup mid-save, check web UI → bookmark was still created
+- Close popup mid-save, check web UI → bookmark was still created (expect `"Attempting to use a disconnected port object"` console warning — this is benign)
 - Options page help link → opens correct Tiddly tokens page
 - Light mode and dark mode both look correct
 - Save a bookmark with content, then search for a term only in the content → found via search UI
