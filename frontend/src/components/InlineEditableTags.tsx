@@ -206,7 +206,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
                   className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors ${
                     index === highlightedIndex
                       ? 'bg-gray-100 text-gray-900'
-                      : 'text-gray-600 hover:bg-gray-50'
+                      : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
                   <span>{suggestion.name}</span>

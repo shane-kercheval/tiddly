@@ -141,7 +141,7 @@ export function TagFilterInput({
               className={`flex w-full items-center justify-between px-3 py-[5px] text-left text-sm transition-colors ${
                 index === highlightedIndex
                   ? 'bg-gray-100 text-gray-900'
-                  : 'text-gray-600 hover:bg-gray-50'
+                  : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
               <span>{suggestion.name}</span>

@@ -112,7 +112,7 @@ export function OverflowMenu({ items, className = '' }: OverflowMenuProps): Reac
               className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
                 item.danger
                   ? 'text-red-600 hover:bg-red-50'
-                  : 'text-gray-700 hover:bg-gray-50'
+                  : 'text-gray-700 hover:bg-gray-100'
               } ${item.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               role="menuitem"
             >

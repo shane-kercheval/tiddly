@@ -344,7 +344,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                     className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
                       index === highlightedIndex
                         ? 'bg-gray-100 text-gray-900'
-                        : 'text-gray-600 hover:bg-gray-50'
+                        : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
                     <span className={`shrink-0 ${iconColor}`}>
