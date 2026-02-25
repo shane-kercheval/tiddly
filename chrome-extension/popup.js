@@ -20,12 +20,12 @@ async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   if (isRestrictedPage(tab?.url)) {
-    initSearchView();
+    await initSearchView();
     return;
   }
 
   showView('save');
-  initSaveForm(tab);
+  await initSaveForm(tab);
 }
 
 function showView(name) {
@@ -108,6 +108,18 @@ async function initSaveForm(tab) {
     renderTagChips();
   });
 
+  tagsInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const newTag = tagsInput.value.trim().toLowerCase();
+      if (newTag) {
+        selectedTags.add(newTag);
+        tagsInput.value = '';
+        renderTagChips();
+      }
+    }
+  });
+
   saveForm.addEventListener('submit', handleSave);
 }
 
@@ -172,11 +184,7 @@ function renderTagChips() {
 }
 
 function getSelectedTags() {
-  const inputTags = tagsInput.value
-    .split(',')
-    .map(t => t.trim().toLowerCase())
-    .filter(Boolean);
-  return [...new Set([...selectedTags, ...inputTags])];
+  return [...selectedTags];
 }
 
 async function handleSave(e) {
@@ -341,6 +349,7 @@ function loadBookmarks(query, offset, append) {
           msg.textContent = "Can't reach server — check your connection";
         }
         searchResults.appendChild(msg);
+        if (append) loadMoreBtn.hidden = false;
         return;
       }
 

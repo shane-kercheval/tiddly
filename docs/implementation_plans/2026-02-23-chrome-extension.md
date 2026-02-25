@@ -124,25 +124,37 @@ Use `chrome.storage.local` (not `sync`) — no reason to send a PAT through Goog
 
 **3. Background service worker (`background.js`)**
 
-Route all API calls through message passing. The service worker's `fetch()` bypasses CORS because `host_permissions` grants access:
+Route all API calls through message passing. The service worker's `fetch()` bypasses CORS because `host_permissions` grants access.
+
+Key patterns:
+- **`fetchWithTimeout`**: All fetch calls wrapped with an `AbortController` timeout (15s) to prevent indefinite hangs from unresponsive servers.
+- **Token guard**: `getToken()` throws if no token is stored, returning a clear error immediately instead of sending `Authorization: Bearer undefined` and getting a confusing 401.
+- **`async/await`**: Handlers use async/await (cleaner than `.then()` chains). The message listener dispatches to async handler functions and calls `sendResponse` on resolution/rejection.
+- **`handleTestConnection`** uses `message.token` (not storage) because the user hasn't saved yet — this is intentional.
 
 ```js
 const API_URL = 'https://api.tiddly.me';
+const REQUEST_TIMEOUT_MS = 15000;
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'TEST_CONNECTION') {
-    fetch(`${API_URL}/users/me`, {
-      headers: { 'Authorization': `Bearer ${message.token}` }
-    })
-      .then(res => {
-        if (res.ok) return res.json().then(data => ({ success: true, email: data.email }));
-        return { success: false, status: res.status };
-      })
-      .then(sendResponse)
-      .catch(err => sendResponse({ success: false, error: err.message }));
-    return true; // keep channel open for async response
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return res;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') throw new Error('Request timed out');
+    throw err;
   }
-});
+}
+
+async function getToken() {
+  const { token } = await chrome.storage.local.get(['token']);
+  if (!token) throw new Error('Not configured — open extension settings');
+  return token;
+}
 ```
 
 **4. Icons** — Simple placeholder PNGs (16x16, 48x48, 128x128). Can be polished later.
@@ -159,6 +171,7 @@ Manual testing (extension is a thin client — API-side logic is already tested 
 - Save settings, close browser, reopen options → settings persist
 - Enter empty PAT, try to save → validation prevents it
 - Enter PAT without `bm_` prefix → validation error ("Token should start with bm_")
+- Trigger Save validation error, then click Test Connection → prior error clears before test runs
 
 ---
 
@@ -172,7 +185,7 @@ Implement the main popup with a two-click save flow. After this milestone:
 - Tags pre-filled from default tags (settings) merged with last-used tags; existing tags shown as selectable chips
 - Page content (`document.body.innerText`) is captured and saved for search (truncated to 100k chars)
 - User clicks Save to create the bookmark
-- Restricted pages (`chrome://`, `about://`, etc.) show a "Can't save this page" message (search UI comes in Milestone 3)
+- Restricted pages (`chrome://`, `about://`, `data:`, `blob:`, etc.) show search UI (Milestone 3)
 - Error states handled: 401, 409, 429, 451, network errors
 - `X-Request-Source: chrome-extension` header sent for audit trail
 
@@ -184,11 +197,13 @@ Check the tab URL before attempting metadata extraction. `chrome.scripting.execu
 
 ```js
 function isRestrictedPage(url) {
-  return !url || /^(chrome|about|chrome-extension|devtools|edge|file|view-source):/.test(url);
+  return !url || /^(chrome|about|chrome-extension|devtools|edge|data|blob|view-source):/.test(url);
 }
 ```
 
-If restricted, show "Can't save this page" in the popup. No script injection, no save button. (Milestone 3 replaces this with a search UI on restricted/blank pages.)
+Note: `file://` is intentionally excluded — users can save local files as bookmarks (`executeScript` may fail, but the try/catch fallback handles that). `data:` and `blob:` are included because they represent ephemeral content that isn't meaningful to bookmark.
+
+If restricted, show search UI (Milestone 3). No script injection, no save button.
 
 **2. Page metadata and content extraction**
 
@@ -226,7 +241,7 @@ async function getPageData(tab) {
 
 **3. Popup states (`popup.html` + `popup.js`)**
 
-Two states:
+Three states (save mode for normal pages, search mode added in Milestone 3):
 
 **Not configured** — no PAT stored:
 - "Set up your connection" message + button to open options page
@@ -237,6 +252,7 @@ Two states:
 - **Security:** Set form values via `element.value = title` and text via `element.textContent`, never `innerHTML` or string concatenation into HTML. Page metadata comes from arbitrary untrusted pages — a malicious page title could contain HTML/JS that executes in the extension context (which has access to `chrome.storage.local`, i.e., the PAT). MV3's CSP blocks inline `<script>` tags but does NOT block injected DOM event handlers in all contexts.
 - Tags pre-filled from merge of default tags (settings) + last-used tags (storage)
 - Content is captured silently (not shown in the form — it's just for search)
+- `init()` awaits `initSaveForm(tab)` so failures surface to the top-level `.catch()` error handler (prevents blank popup on unexpected errors)
 - User optionally edits visible fields, then clicks Save
 - On success: show "Saved!" confirmation, store used tags as `lastUsedTags` in `chrome.storage.local`
 - On 409: show duplicate message (see error handling below)
@@ -251,9 +267,9 @@ On popup open, fetch existing tags via `GET /tags/?content_types=bookmark` (thro
 - **"Show all" link:** Expands to a scrollable area (max-height ~150px) showing all tags.
 - **Filter as you type:** Typing in the text input filters the visible chips to matches. Start typing "read" → chips narrow to `reading_list`, `read-later`, etc.
 - **Click to toggle:** Clicking a chip adds it to (or removes it from) the selected tags.
-- **New tags:** Typing a tag name that doesn't exist in the chip list is fine — it gets created on save. The text input still accepts free-form comma-separated tags.
+- **New tags via Enter:** Typing a tag name and pressing Enter commits it as a selected tag (added to `selectedTags`, input cleared). Leftover filter text in the input is ignored on save — only explicitly selected/committed tags are submitted. This prevents accidental garbage tags from partial filter text.
 - **Pre-selected chips:** Default tags from settings + last-used tags from `chrome.storage.local` are pre-selected on open.
-- **Tag fetch failure:** If the tags API call fails, the chip UI is hidden and the text input still works (graceful degradation).
+- **Tag fetch failure:** If the tags API call fails, the chip UI is hidden and the text input still works for adding new tags via Enter (graceful degradation).
 
 ```js
 // Storage for last-used tags
@@ -270,27 +286,21 @@ const preSelectedTags = [...new Set([...defaultTags, ...lastUsedTags])];
 Add `CREATE_BOOKMARK` handler in `background.js`:
 
 ```js
-if (message.type === 'CREATE_BOOKMARK') {
-  chrome.storage.local.get(['token']).then(settings => {
-    fetch(`${API_URL}/bookmarks/`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${settings.token}`,
-        'Content-Type': 'application/json',
-        'X-Request-Source': 'chrome-extension'
-      },
-      body: JSON.stringify(message.bookmark)
-    })
-      .then(async res => {
-        if (res.ok) return { success: true, bookmark: await res.json() };
-        const body = await res.json().catch(() => null);
-        const retryAfter = res.headers.get('Retry-After');
-        return { success: false, status: res.status, body, retryAfter };
-      })
-      .then(sendResponse)
-      .catch(err => sendResponse({ success: false, error: err.message }));
+async function handleCreateBookmark(message) {
+  const token = await getToken();
+  const res = await fetchWithTimeout(`${API_URL}/bookmarks/`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-Request-Source': 'chrome-extension'
+    },
+    body: JSON.stringify(message.bookmark)
   });
-  return true;
+  if (res.ok) return { success: true, bookmark: await res.json() };
+  const body = await res.json().catch(() => null);
+  const retryAfter = res.headers.get('Retry-After');
+  return { success: false, status: res.status, body, retryAfter };
 }
 ```
 
@@ -299,19 +309,16 @@ if (message.type === 'CREATE_BOOKMARK') {
 Add `GET_TAGS` handler in `background.js`:
 
 ```js
-if (message.type === 'GET_TAGS') {
-  chrome.storage.local.get(['token']).then(settings => {
-    fetch(`${API_URL}/tags/?content_types=bookmark`, {
-      headers: { 'Authorization': `Bearer ${settings.token}` }
-    })
-      .then(async res => {
-        if (res.ok) return { success: true, data: await res.json() };
-        return { success: false, status: res.status };
-      })
-      .then(sendResponse)
-      .catch(err => sendResponse({ success: false, error: err.message }));
+async function handleGetTags() {
+  const token = await getToken();
+  const res = await fetchWithTimeout(`${API_URL}/tags/?content_types=bookmark`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'X-Request-Source': 'chrome-extension'
+    }
   });
-  return true;
+  if (res.ok) return { success: true, data: await res.json() };
+  return { success: false, status: res.status };
 }
 ```
 
@@ -343,9 +350,10 @@ if (message.type === 'GET_TAGS') {
 - Click when API unreachable → network error message
 - Edit title and tags in form before saving → bookmark has modified values
 - Check content history in web UI → `X-Request-Source: chrome-extension` appears
-- Click on `chrome://` or `about:` page → "Can't save this page" (no form shown)
-- Click on `file://` page → falls back to URL-only save (no crash)
-- Click on `view-source:` page → falls back gracefully
+- Click on `chrome://` or `about:` page → search view shown (Milestone 3)
+- Click on `file://` page → save form shown, falls back to URL-only if `executeScript` fails
+- Click on `data:` or `blob:` URL → search view shown (restricted)
+- Click on `view-source:` page → search view shown (restricted)
 - Click on Chrome Web Store page → `executeScript` fails, falls back to URL + tab title
 - Save when at bookmark limit → shows quota error with actionable message (402)
 - Save a page with extremely long URL → shows field limit error from API (400)
@@ -356,7 +364,8 @@ if (message.type === 'GET_TAGS') {
 - Tag chips appear below input showing most-used tags (top ~8)
 - Click a tag chip → tag added to selected tags; click again → removed
 - Type "read" in tags input → chips filter to matching tags (e.g. `reading_list`)
-- Type a new tag not in chip list → accepted, created on save
+- Type a new tag not in chip list, press Enter → committed as selected tag, created on save
+- Type partial filter text, click Save without pressing Enter → filter text ignored (not submitted as tag)
 - Click "Show all" → scrollable area with all tags
 - Save a bookmark with tags `foo, bar` → reopen on new page → `foo` and `bar` pre-selected (last-used tags)
 - Default tags from settings are always pre-selected
@@ -389,11 +398,11 @@ The popup now has three modes based on context:
 Detection (same function from M2):
 ```js
 function isRestrictedPage(url) {
-  return !url || /^(chrome|about|chrome-extension|devtools|edge|file|view-source):/.test(url);
+  return !url || /^(chrome|about|chrome-extension|devtools|edge|data|blob|view-source):/.test(url);
 }
 ```
 
-This catches `chrome://newtab`, `about:blank`, `chrome://extensions`, `file://` PDFs, `view-source:` pages, etc. — all pages where the extension can't save and where search is more useful. Note that `executeScript` can also fail on non-restricted pages (Chrome PDF viewer, Web Store, etc.) — the try/catch fallback in M2 handles those.
+This catches `chrome://newtab`, `about:blank`, `chrome://extensions`, `data:` URIs, `blob:` URIs, `view-source:` pages, etc. `file://` is intentionally NOT restricted — users can save local files (the save form handles `executeScript` failures gracefully). Note that `executeScript` can also fail on non-restricted pages (Chrome PDF viewer, Web Store, etc.) — the try/catch fallback in M2 handles those.
 
 **2. Search UI**
 
@@ -409,39 +418,39 @@ This catches `chrome://newtab`, `about:blank`, `chrome://extensions`, `file://` 
 Add `SEARCH_BOOKMARKS` message handler:
 
 ```js
-if (message.type === 'SEARCH_BOOKMARKS') {
-  chrome.storage.local.get(['token']).then(settings => {
-    const params = new URLSearchParams({
-      limit: String(message.limit || 10),
-      offset: String(message.offset || 0),
-      sort_order: 'desc'
-    });
-    if (message.query) {
-      params.set('q', message.query);
-      // sort_by defaults to 'relevance' when q is set
-    } else {
-      params.set('sort_by', 'created_at');
-    }
-    fetch(`${API_URL}/bookmarks/?${params}`, {
-      headers: {
-        'Authorization': `Bearer ${settings.token}`,
-        'X-Request-Source': 'chrome-extension'
-      }
-    })
-      .then(async res => {
-        if (res.ok) return { success: true, data: await res.json() };
-        return { success: false, status: res.status };
-      })
-      .then(sendResponse)
-      .catch(err => sendResponse({ success: false, error: err.message }));
+async function handleSearchBookmarks(message) {
+  const token = await getToken();
+  const params = new URLSearchParams({
+    limit: String(message.limit || 10),
+    offset: String(message.offset || 0),
+    sort_order: 'desc'
   });
-  return true;
+  if (message.query) {
+    params.set('q', message.query);
+    // sort_by defaults to 'relevance' when q is set
+  } else {
+    params.set('sort_by', 'created_at');
+  }
+  const res = await fetchWithTimeout(`${API_URL}/bookmarks/?${params}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'X-Request-Source': 'chrome-extension'
+    }
+  });
+  if (res.ok) return { success: true, data: await res.json() };
+  return { success: false, status: res.status };
 }
 ```
 
 **4. Popup sizing**
 
-The search results list needs more vertical space than the save form. Set the popup to a taller default in search mode (~500px) while keeping save mode compact (~350px). CSS can handle this based on which mode is active.
+The search results list needs more vertical space than the save form. Set the popup to a taller min-height in search mode (~400px) while keeping save mode compact (~350px). CSS uses `.popup:has(#search-view:not([hidden]))` to conditionally apply this.
+
+**5. Robustness**
+
+- **Stale response handling**: A monotonic `searchRequestId` counter ensures that debounced search responses arriving out of order are discarded.
+- **Load More recovery**: On append errors, restore the Load More button visibility so the user can retry.
+- **`await initSearchView()`**: The `init()` function awaits `initSearchView()` so failures surface to the top-level `.catch()` error handler.
 
 ### Testing Strategy
 

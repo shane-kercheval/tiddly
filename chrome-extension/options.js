@@ -50,6 +50,7 @@ saveBtn.addEventListener('click', () => {
 
 // Test connection
 testBtn.addEventListener('click', () => {
+  tokenError.hidden = true;
   const token = tokenInput.value.trim();
   if (!token) {
     showError(tokenError, 'Enter a token first');

@@ -49,10 +49,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function getToken() {
   const { token } = await chrome.storage.local.get(['token']);
+  if (!token) throw new Error('Not configured — open extension settings');
   return token;
 }
 
 async function handleTestConnection(message) {
+  // Uses token from message (not storage) because this runs before the user saves
   const token = message.token;
   const res = await fetchWithTimeout(`${API_URL}/users/me`, {
     headers: { 'Authorization': `Bearer ${token}` }
