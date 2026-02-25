@@ -7,7 +7,7 @@ Save bookmarks to [tiddly.me](https://tiddly.me) with one click. Search your boo
 - **One-click save** — click the extension icon on any page to save it as a bookmark with title, description, tags, and page content (for search)
 - **Tag selection** — pre-filled from your defaults and last-used tags, with selectable chips from your existing tags
 - **Search** — on restricted pages (new tab, chrome://, etc.), search your bookmarks instead
-- **PAT authentication** — uses Personal Access Tokens (no OAuth complexity)
+- **PAT authentication** — uses Personal Access Tokens
 
 ## Setup
 

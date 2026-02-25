@@ -329,11 +329,17 @@ textarea {
   white-space: nowrap;
 }
 
-.search-result-tags {
+.search-result-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
+  align-items: center;
+  gap: 4px;
   margin-top: 3px;
+}
+
+.search-result-date {
+  font-size: 10px;
+  color: #9ca3af;
 }
 
 .search-result-tag {

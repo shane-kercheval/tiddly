@@ -3,7 +3,7 @@ const saveView = document.getElementById('save-view');
 const searchView = document.getElementById('search-view');
 
 function isRestrictedPage(url) {
-  return !url || /^(chrome|about|chrome-extension|devtools|edge|file|view-source):/.test(url);
+  return !url || /^(chrome|about|chrome-extension|devtools|edge|data|blob|view-source):/.test(url);
 }
 
 async function init() {
@@ -279,6 +279,7 @@ function showSaveStatus(message, type, link) {
     if (link.href) {
       a.href = link.href;
       a.target = '_blank';
+      a.rel = 'noopener noreferrer';
     }
     if (link.onClick) {
       a.addEventListener('click', link.onClick);
@@ -366,6 +367,7 @@ function loadBookmarks(query, offset, append) {
         title.textContent = item.title || item.url;
         title.href = item.url;
         title.target = '_blank';
+        title.rel = 'noopener noreferrer';
         title.addEventListener('click', (e) => {
           e.preventDefault();
           chrome.tabs.create({ url: item.url });
@@ -377,16 +379,27 @@ function loadBookmarks(query, offset, append) {
         url.textContent = item.url;
         el.appendChild(url);
 
+        const meta = document.createElement('div');
+        meta.className = 'search-result-meta';
+
+        if (item.created_at) {
+          const date = document.createElement('span');
+          date.className = 'search-result-date';
+          date.textContent = formatDate(item.created_at);
+          meta.appendChild(date);
+        }
+
         if (item.tags && item.tags.length > 0) {
-          const tagsEl = document.createElement('div');
-          tagsEl.className = 'search-result-tags';
           item.tags.forEach(t => {
             const tag = document.createElement('span');
             tag.className = 'search-result-tag';
             tag.textContent = t;
-            tagsEl.appendChild(tag);
+            meta.appendChild(tag);
           });
-          el.appendChild(tagsEl);
+        }
+
+        if (meta.childNodes.length > 0) {
+          el.appendChild(meta);
         }
 
         searchResults.appendChild(el);
@@ -398,5 +411,18 @@ function loadBookmarks(query, offset, append) {
   );
 }
 
+function formatDate(isoString) {
+  const d = new Date(isoString);
+  const now = new Date();
+  const month = d.toLocaleString('default', { month: 'short' });
+  const day = d.getDate();
+  if (d.getFullYear() !== now.getFullYear()) {
+    return `${month} ${day}, ${d.getFullYear()}`;
+  }
+  return `${month} ${day}`;
+}
+
 // --- Init ---
-init();
+init().catch(() => {
+  document.getElementById('popup').textContent = 'Something went wrong. Try reopening the extension.';
+});

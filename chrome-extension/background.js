@@ -1,4 +1,21 @@
 const API_URL = 'https://api.tiddly.me';
+const REQUEST_TIMEOUT_MS = 15000;
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return res;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw err;
+  }
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'TEST_CONNECTION') {
@@ -37,7 +54,7 @@ async function getToken() {
 
 async function handleTestConnection(message) {
   const token = message.token;
-  const res = await fetch(`${API_URL}/users/me`, {
+  const res = await fetchWithTimeout(`${API_URL}/users/me`, {
     headers: { 'Authorization': `Bearer ${token}` }
   });
   if (res.ok) {
@@ -49,7 +66,7 @@ async function handleTestConnection(message) {
 
 async function handleCreateBookmark(message) {
   const token = await getToken();
-  const res = await fetch(`${API_URL}/bookmarks/`, {
+  const res = await fetchWithTimeout(`${API_URL}/bookmarks/`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -68,7 +85,7 @@ async function handleCreateBookmark(message) {
 
 async function handleGetTags() {
   const token = await getToken();
-  const res = await fetch(`${API_URL}/tags/?content_types=bookmark`, {
+  const res = await fetchWithTimeout(`${API_URL}/tags/?content_types=bookmark`, {
     headers: {
       'Authorization': `Bearer ${token}`,
       'X-Request-Source': 'chrome-extension'
@@ -92,7 +109,7 @@ async function handleSearchBookmarks(message) {
   } else {
     params.set('sort_by', 'created_at');
   }
-  const res = await fetch(`${API_URL}/bookmarks/?${params}`, {
+  const res = await fetchWithTimeout(`${API_URL}/bookmarks/?${params}`, {
     headers: {
       'Authorization': `Bearer ${token}`,
       'X-Request-Source': 'chrome-extension'

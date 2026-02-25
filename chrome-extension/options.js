@@ -55,6 +55,10 @@ testBtn.addEventListener('click', () => {
     showError(tokenError, 'Enter a token first');
     return;
   }
+  if (!token.startsWith('bm_')) {
+    showError(tokenError, 'Token should start with bm_');
+    return;
+  }
 
   testStatus.hidden = false;
   testStatus.textContent = 'Testing...';
