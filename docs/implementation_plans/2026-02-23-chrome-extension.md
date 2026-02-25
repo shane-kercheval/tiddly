@@ -33,6 +33,9 @@ Build a Chrome extension (Manifest V3) that lets users save the current page as 
   - `offset` / `limit` — pagination (limit max 100)
   - Response: `{ items: [...], total, offset, limit, has_more }`
   - Each item includes: `id`, `url`, `title`, `description`, `tags`, `created_at`, `content_preview` (first 500 chars)
+- `GET /tags/` — List all tags with usage counts (PAT-compatible)
+  - Response: `{ tags: [{ name, content_count, filter_count }] }` sorted by usage
+  - Optional: `content_types=bookmark` to scope to bookmark tags only
 - `GET /users/me` — Lightweight auth check (for "test connection" in settings)
 
 ### Documentation
@@ -73,8 +76,7 @@ Create a new `chrome-extension/` directory at the repo root.
   "description": "Save bookmarks to Tiddly with one click",
   "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
-    "https://tiddly.me/*",
-    "http://localhost:8000/*"
+    "https://tiddly.me/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -95,19 +97,20 @@ Notes:
 - `activeTab` — grants access to the current tab only when the user clicks the extension icon
 - `scripting` — for `chrome.scripting.executeScript` to extract page metadata on demand
 - `storage` — for `chrome.storage.local`
-- `host_permissions` — required for the service worker to make cross-origin `fetch()` calls to the API. Hardcoded to `tiddly.me` (production) and `localhost:8000` (development). Chrome will show a permission warning at install ("Can read and change your data on tiddly.me"). If self-hosted URL support is needed later, switch to `optional_host_permissions` with `chrome.permissions.request()` at runtime.
+- `host_permissions` — required for the service worker to make cross-origin `fetch()` calls to the API. Hardcoded to `tiddly.me` only. Chrome will show a permission warning at install ("Can read and change your data on tiddly.me"). For local development, temporarily add `http://localhost:8000/*` to the manifest and change `API_URL` in `background.js`. If self-hosted URL support is needed later, switch to `optional_host_permissions` with `chrome.permissions.request()` at runtime.
+- **MV3 Content Security Policy:** All JavaScript must be in separate `.js` files. No inline `<script>` tags or `onclick`/`onsubmit` attributes in HTML — MV3 enforces a strict CSP that silently blocks inline scripts.
 
 **2. Options page (`options.html` + `options.js`)**
 
 Simple HTML form — no framework needed:
 - **Personal Access Token** — password input with show/hide toggle
-- **Default Tags** — text input, comma-separated (e.g. `reading_list, chrome`)
+- **Default Tags** — text input, comma-separated (e.g. `reading_list, chrome`). On save, parse by splitting on commas, trim whitespace, lowercase, and filter empty strings before storing as array.
 - **Test Connection** button — calls `GET /users/me` via background service worker, shows green checkmark or red error inline
 - **Save** button — writes to `chrome.storage.local`
 - Help link: "Get a token at https://tiddly.me/app/settings/tokens"
 - Client-side validation: PAT must start with `bm_` prefix (prevents confusing 401 from pasting wrong value)
 
-No API URL field — hardcoded to `https://tiddly.me` (production) with `http://localhost:8000` as a dev fallback. If self-hosted support is needed later, add the field then.
+No API URL field — hardcoded to `https://tiddly.me` in `background.js`. For local development, change the `API_URL` constant and add `http://localhost:8000/*` to `host_permissions` in the manifest temporarily.
 
 Storage schema:
 ```js
@@ -165,7 +168,8 @@ Manual testing (extension is a thin client — API-side logic is already tested 
 
 Implement the main popup with a two-click save flow. After this milestone:
 
-- Clicking the extension icon on a normal page shows a pre-filled form (URL, title, description, default tags)
+- Clicking the extension icon on a normal page shows a pre-filled form (URL, title, description, tags)
+- Tags pre-filled from default tags (settings) merged with last-used tags; existing tags shown as selectable chips
 - Page content (`document.body.innerText`) is captured and saved for search (truncated to 100k chars)
 - User clicks Save to create the bookmark
 - Restricted pages (`chrome://`, `about://`, etc.) show a "Can't save this page" message (search UI comes in Milestone 3)
@@ -213,6 +217,7 @@ async function getPageData(tabId) {
 - `og:description` as fallback — many sites use Open Graph instead of standard meta description
 - `document.body.innerText` captures visible page text for search purposes. Not clean (includes nav, footers, etc.) but sufficient for full-text search. Readability-style extraction is future work.
 - Content is truncated to 100k chars (FREE tier limit) client-side to avoid 400 errors
+- `document.body.innerText` can trigger layout reflow on heavy pages, taking 100ms+. The popup should render immediately with a loading/skeleton state and populate fields when extraction completes — don't block the UI on script injection.
 
 **3. Popup states (`popup.html` + `popup.js`)**
 
@@ -222,13 +227,37 @@ Two states:
 - "Set up your connection" message + button to open options page
 
 **Save form** — default when configured (on non-restricted pages):
-- On popup open: extract metadata + content, pre-fill form with URL (read-only), title, description, default tags
+- On popup open: extract metadata + content AND fetch tags in parallel
+- Pre-fill form with URL (read-only), title, description
+- Tags pre-filled from merge of default tags (settings) + last-used tags (storage)
 - Content is captured silently (not shown in the form — it's just for search)
 - User optionally edits visible fields, then clicks Save
-- On success: show "Saved!" confirmation
+- On success: show "Saved!" confirmation, store used tags as `lastUsedTags` in `chrome.storage.local`
 - On 409: show duplicate message (see error handling below)
 
 Popup should be compact (~350px wide).
+
+**Tag selection UI:**
+
+On popup open, fetch existing tags via `GET /tags/?content_types=bookmark` (through background service worker). Display as selectable chips below the tags text input:
+
+- **Default view:** Show top ~8 tags by `content_count` (most used first). This keeps the popup compact.
+- **"Show all" link:** Expands to a scrollable area (max-height ~150px) showing all tags.
+- **Filter as you type:** Typing in the text input filters the visible chips to matches. Start typing "read" → chips narrow to `reading_list`, `read-later`, etc.
+- **Click to toggle:** Clicking a chip adds it to (or removes it from) the selected tags.
+- **New tags:** Typing a tag name that doesn't exist in the chip list is fine — it gets created on save. The text input still accepts free-form comma-separated tags.
+- **Pre-selected chips:** Default tags from settings + last-used tags from `chrome.storage.local` are pre-selected on open.
+- **Tag fetch failure:** If the tags API call fails, the chip UI is hidden and the text input still works (graceful degradation).
+
+```js
+// Storage for last-used tags
+// On successful save:
+chrome.storage.local.set({ lastUsedTags: bookmark.tags });
+
+// On popup open, merge defaults + last used:
+const { defaultTags = [], lastUsedTags = [] } = await chrome.storage.local.get(['defaultTags', 'lastUsedTags']);
+const preSelectedTags = [...new Set([...defaultTags, ...lastUsedTags])];
+```
 
 **4. API call via background service worker**
 
@@ -259,7 +288,28 @@ if (message.type === 'CREATE_BOOKMARK') {
 }
 ```
 
-**5. Error handling in popup**
+**5. Fetch tags via background service worker**
+
+Add `GET_TAGS` handler in `background.js`:
+
+```js
+if (message.type === 'GET_TAGS') {
+  chrome.storage.local.get(['token']).then(settings => {
+    fetch(`${API_URL}/tags/?content_types=bookmark`, {
+      headers: { 'Authorization': `Bearer ${settings.token}` }
+    })
+      .then(async res => {
+        if (res.ok) return { success: true, data: await res.json() };
+        return { success: false, status: res.status };
+      })
+      .then(sendResponse)
+      .catch(err => sendResponse({ success: false, error: err.message }));
+  });
+  return true;
+}
+```
+
+**6. Error handling in popup**
 
 | Status | UI behavior |
 |--------|------------|
@@ -271,7 +321,7 @@ if (message.type === 'CREATE_BOOKMARK') {
 | 451 | "Accept terms first" + link to Tiddly web app |
 | Network error | "Can't reach server — check your connection" |
 
-**6. Truncate long fields before sending** — title to 100 chars, description to 1000 chars. Prevents 400 errors from the API.
+**7. Truncate long fields before sending** — title to 100 chars, description to 1000 chars. Prevents 400 errors from the API.
 
 ### Testing Strategy
 
@@ -288,6 +338,15 @@ if (message.type === 'CREATE_BOOKMARK') {
 - Click on `chrome://` or `about:` page → "Can't save this page" (no form shown)
 - Title > 100 chars from page → truncated in form, saves successfully
 - Save, close popup, reopen on same URL, save again → 409 "Already saved"
+- Open extension on a heavy page → popup appears immediately with loading state, fields populate shortly after
+- Tag chips appear below input showing most-used tags (top ~8)
+- Click a tag chip → tag added to selected tags; click again → removed
+- Type "read" in tags input → chips filter to matching tags (e.g. `reading_list`)
+- Type a new tag not in chip list → accepted, created on save
+- Click "Show all" → scrollable area with all tags
+- Save a bookmark with tags `foo, bar` → reopen on new page → `foo` and `bar` pre-selected (last-used tags)
+- Default tags from settings are always pre-selected
+- Tags API fails → chip UI hidden, text input still works
 
 ---
 
@@ -324,7 +383,7 @@ This catches `chrome://newtab`, `about:blank`, `chrome://extensions`, etc. — a
 
 **2. Search UI**
 
-- **Search input** — text field at the top, searches on Enter or after a brief debounce (~300ms)
+- **Search input** — text field at the top, searches after a 300ms debounce (no explicit Enter needed — results update as you type)
 - **Results list** — each result shows: title (linked), URL (truncated), tags, and created date
 - **Default view** (no search query) — most recent 10 bookmarks, sorted by `created_at` desc
 - **Pagination** — "Load more" button at the bottom when `has_more` is true. Increment `offset` by `limit` (10) on each click.
@@ -377,7 +436,7 @@ The search results list needs more vertical space than the save form. Set the po
 - Open on `chrome://extensions` → search UI shown
 - Open on normal webpage → save form shown (not search)
 - Search UI loads with recent bookmarks by default (sorted newest first)
-- Type a search query, press Enter → results update to matching bookmarks
+- Type a search query → results update after debounce
 - Search for a term that exists in bookmark content but not title → still found (full-text search)
 - Search with no results → "No results" message
 - Click "Load more" → next page of results appended
@@ -439,7 +498,7 @@ Full manual test pass covering all items from milestones 1–3, plus:
 | Milestone | Component | Scope |
 |-----------|-----------|-------|
 | 1 | Extension scaffold + settings | Manifest with host_permissions, options page, PAT storage, test connection |
-| 2 | Popup UI + save flow | Restricted page detection, metadata + content extraction, pre-filled form, error handling |
+| 2 | Popup UI + save flow | Restricted page detection, metadata + content extraction, pre-filled form, tag selection with chips, error handling |
 | 3 | Search UI | Search bar + recent bookmarks on restricted/blank pages, pagination, open in new tab |
 | 4 | Polish + documentation | Edge cases (PDF, mid-save close), styling, llms.txt, README |
 
@@ -452,6 +511,5 @@ Full manual test pass covering all items from milestones 1–3, plus:
 - Keyboard shortcut for opening the popup
 - Badge/icon showing duplicate status on tab switch
 - Context menus (right-click to save)
-- Tag autocomplete from existing tags
 - Firefox/Safari ports
 - PAT scoping (write-only tokens)
