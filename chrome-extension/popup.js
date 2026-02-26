@@ -212,11 +212,13 @@ async function handleSave(e) {
     tags
   };
 
+  let success = false;
   try {
     const response = await chrome.runtime.sendMessage({ type: 'CREATE_BOOKMARK', bookmark });
 
     if (response?.success) {
-      showSaveStatus('Saved!', 'success');
+      success = true;
+      flashButtonSuccess(saveBtn, 'Save Bookmark');
       chrome.storage.local.set({ lastUsedTags: tags });
     } else if (response) {
       handleSaveError(response);
@@ -226,8 +228,10 @@ async function handleSave(e) {
   } catch {
     showSaveStatus("Can't reach extension — try reloading", 'error');
   } finally {
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'Save Bookmark';
+    if (!success) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Bookmark';
+    }
   }
 }
 
@@ -291,6 +295,19 @@ function handleSaveError(response) {
     response.error || `Unexpected error (${status || 'network'})`,
     'error'
   );
+}
+
+let flashTimerId = null;
+
+function flashButtonSuccess(btn, originalText) {
+  clearTimeout(flashTimerId);
+  btn.textContent = '\u2713 Saved';
+  btn.classList.add('btn-success');
+  btn.disabled = false;
+  flashTimerId = setTimeout(() => {
+    btn.textContent = originalText;
+    btn.classList.remove('btn-success');
+  }, 2000);
 }
 
 // DOM-based status rendering — no innerHTML, structurally safe (#2)

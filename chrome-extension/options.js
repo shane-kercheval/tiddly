@@ -41,7 +41,7 @@ saveBtn.addEventListener('click', () => {
   }
 
   chrome.storage.local.set({ token }).then(() => {
-    showStatus(saveStatus, 'Saved', 'success');
+    flashButtonSuccess(saveBtn, 'Save');
     loadTags();
   });
 });
@@ -97,6 +97,18 @@ function renderTagChips() {
     });
     tagChipsContainer.appendChild(chip);
   });
+}
+
+let flashTimerId = null;
+
+function flashButtonSuccess(btn, originalText) {
+  clearTimeout(flashTimerId);
+  btn.textContent = '\u2713 Saved';
+  btn.classList.add('btn-success');
+  flashTimerId = setTimeout(() => {
+    btn.textContent = originalText;
+    btn.classList.remove('btn-success');
+  }, 2000);
 }
 
 function showError(el, message) {

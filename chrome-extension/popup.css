@@ -280,6 +280,10 @@ button.show-all-link {
   background: #1f2937;
 }
 
+.btn-primary.btn-success {
+  background: #059669;
+}
+
 .btn-primary:disabled {
   background: #d1d5db;
   cursor: not-allowed;
