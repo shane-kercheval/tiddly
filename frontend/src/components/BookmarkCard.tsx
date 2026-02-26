@@ -70,11 +70,13 @@ export function BookmarkCard({
   const displayUrl = bookmark.url.split('?')[0]
   const faviconUrl = getGoogleFaviconUrl(bookmark.url) ?? `https://icons.duckduckgo.com/ip3/${domain}.ico`
 
-  const [faviconError, setFaviconError] = useState(false)
-  const [copySuccess, setCopySuccess] = useState(false)
-  const [linkHovered, setLinkHovered] = useState(false)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const linkTooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const [faviconErrorUrl, setFaviconErrorUrl] = useState<string | null>(null)
+  const faviconError = faviconErrorUrl === faviconUrl
+  const [copySuccess, setCopySuccess] = useState(false)
+  const [linkHovered, setLinkHovered] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -164,7 +166,7 @@ export function BookmarkCard({
               alt=""
               className="absolute inset-0 w-4 h-4 opacity-100 md:group-has-[.link-area:hover]/link:opacity-0 transition-opacity duration-150"
               loading="lazy"
-              onError={() => setFaviconError(true)}
+              onError={() => setFaviconErrorUrl(faviconUrl)}
             />
             <ExternalLinkIcon className="absolute inset-0 w-4 h-4 text-blue-500 opacity-0 md:group-has-[.link-area:hover]/link:opacity-100 transition-opacity duration-150" />
           </>
@@ -333,7 +335,7 @@ export function BookmarkCard({
                   {displayTitle}
                 </a>
               ) : (
-                <Tooltip content="Open URL in new tab" compact show={linkHovered ?? undefined}>
+                <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
                   <a
                     href={bookmark.url}
                     target="_blank"
@@ -378,7 +380,7 @@ export function BookmarkCard({
           {/* Row 2: URL */}
           {hasTitle && (
             <div className="link-area flex pt-0.5">
-              <Tooltip content="Open URL in new tab" compact show={linkHovered ?? undefined}>
+              <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
                 <a
                   href={bookmark.url}
                   target="_blank"
