@@ -14,7 +14,13 @@
     </div>
 
     <!-- Save form (Milestone 2) -->
-    <div id="save-view" hidden>
+    <div id="save-view" hidden style="position:relative">
+      <button type="button" id="save-settings-link" class="settings-link" title="Settings">
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/>
+          <circle cx="12" cy="12" r="3" stroke-width="2"/>
+        </svg>
+      </button>
       <div id="loading-indicator" class="loading">Loading page data...</div>
       <form id="save-form" hidden>
         <div class="field">
@@ -42,7 +48,15 @@
 
     <!-- Search view (Milestone 3) -->
     <div id="search-view" hidden>
-      <input type="text" id="search-input" placeholder="Search bookmarks...">
+      <div class="view-header">
+        <input type="text" id="search-input" placeholder="Search bookmarks..." style="flex:1">
+        <button type="button" id="search-settings-link" class="settings-link" title="Settings">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/>
+            <circle cx="12" cy="12" r="3" stroke-width="2"/>
+          </svg>
+        </button>
+      </div>
       <div id="search-results" class="search-results"></div>
       <button id="load-more" class="btn-secondary btn-full" hidden>Load more</button>
     </div>

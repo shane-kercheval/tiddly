@@ -23,19 +23,15 @@
       <p id="token-error" class="error" hidden></p>
     </div>
 
-    <div class="field">
-      <label for="default-tags">Default Tags</label>
-      <input type="text" id="default-tags" placeholder="reading_list, chrome">
-      <p class="help">Comma-separated. Added to every bookmark you save.</p>
-    </div>
-
-    <div class="actions">
-      <button id="save-btn" class="btn-primary">Save</button>
-      <button id="test-btn" class="btn-secondary">Test Connection</button>
-    </div>
-
+    <button id="save-btn" class="btn-primary">Save</button>
     <div id="save-status" class="status" hidden></div>
-    <div id="test-status" class="status" hidden></div>
+
+    <div id="tags-section" class="field" hidden>
+      <label>Default Tags</label>
+      <p class="help">Selected tags are added to every bookmark you save.</p>
+      <div id="tag-chips" class="tag-chips"></div>
+      <div id="tags-status" class="help" hidden></div>
+    </div>
   </div>
   <script src="options.js"></script>
 </body>

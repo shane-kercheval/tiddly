@@ -1,17 +1,21 @@
 const tokenInput = document.getElementById('token');
 const toggleTokenBtn = document.getElementById('toggle-token');
-const defaultTagsInput = document.getElementById('default-tags');
 const saveBtn = document.getElementById('save-btn');
-const testBtn = document.getElementById('test-btn');
 const tokenError = document.getElementById('token-error');
 const saveStatus = document.getElementById('save-status');
-const testStatus = document.getElementById('test-status');
+const tagsSection = document.getElementById('tags-section');
+const tagChipsContainer = document.getElementById('tag-chips');
+const tagsStatus = document.getElementById('tags-status');
 
-// Load saved settings on open
+let allTags = [];
+let selectedTags = new Set();
+
+// Load saved settings and tags on open
 chrome.storage.local.get(['token', 'defaultTags']).then(({ token, defaultTags }) => {
-  if (token) tokenInput.value = token;
-  if (defaultTags && defaultTags.length > 0) {
-    defaultTagsInput.value = defaultTags.join(', ');
+  if (token) {
+    tokenInput.value = token;
+    if (defaultTags) defaultTags.forEach(t => selectedTags.add(t));
+    loadTags();
   }
 });
 
@@ -22,11 +26,10 @@ toggleTokenBtn.addEventListener('click', () => {
   toggleTokenBtn.textContent = isPassword ? 'Hide' : 'Show';
 });
 
-// Save settings
+// Save token
 saveBtn.addEventListener('click', () => {
   const token = tokenInput.value.trim();
 
-  // Validate token
   tokenError.hidden = true;
   if (!token) {
     showError(tokenError, 'Token is required');
@@ -37,48 +40,63 @@ saveBtn.addEventListener('click', () => {
     return;
   }
 
-  // Parse default tags
-  const defaultTags = defaultTagsInput.value
-    .split(',')
-    .map(t => t.trim().toLowerCase())
-    .filter(Boolean);
-
-  chrome.storage.local.set({ token, defaultTags }).then(() => {
-    showStatus(saveStatus, 'Settings saved', 'success');
+  chrome.storage.local.set({ token }).then(() => {
+    showStatus(saveStatus, 'Saved', 'success');
+    loadTags();
   });
 });
 
-// Test connection
-testBtn.addEventListener('click', () => {
-  tokenError.hidden = true;
-  const token = tokenInput.value.trim();
-  if (!token) {
-    showError(tokenError, 'Enter a token first');
-    return;
-  }
-  if (!token.startsWith('bm_')) {
-    showError(tokenError, 'Token should start with bm_');
-    return;
-  }
+async function loadTags() {
+  tagsSection.hidden = false;
+  tagsStatus.hidden = false;
+  tagsStatus.textContent = 'Loading tags...';
 
-  testStatus.hidden = false;
-  testStatus.textContent = 'Testing...';
-  testStatus.className = 'status';
-
-  chrome.runtime.sendMessage({ type: 'TEST_CONNECTION', token }, (response) => {
-    if (chrome.runtime.lastError) {
-      showStatus(testStatus, 'Extension error — try reloading', 'error');
-      return;
-    }
-    if (response.success) {
-      showStatus(testStatus, `Connected as ${response.email}`, 'success');
-    } else if (response.status === 401) {
-      showStatus(testStatus, 'Invalid token', 'error');
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_TAGS' });
+    if (response?.success && Array.isArray(response.data?.tags)) {
+      allTags = response.data.tags.map(t => t.name);
+      tagsStatus.hidden = true;
+      renderTagChips();
+    } else if (response?.status === 401) {
+      tagsStatus.textContent = 'Invalid token';
+      tagChipsContainer.replaceChildren();
     } else {
-      showStatus(testStatus, `Connection failed (${response.status || response.error})`, 'error');
+      tagsStatus.textContent = 'Could not load tags';
+      tagChipsContainer.replaceChildren();
     }
+  } catch {
+    tagsStatus.textContent = 'Could not connect';
+    tagChipsContainer.replaceChildren();
+  }
+}
+
+function renderTagChips() {
+  tagChipsContainer.replaceChildren();
+
+  // Show all tags, selected first
+  const sorted = [...allTags].sort((a, b) => {
+    const aSelected = selectedTags.has(a) ? 0 : 1;
+    const bSelected = selectedTags.has(b) ? 0 : 1;
+    return aSelected - bSelected;
   });
-});
+
+  sorted.forEach(tag => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'tag-chip' + (selectedTags.has(tag) ? ' selected' : '');
+    chip.textContent = tag;
+    chip.addEventListener('click', () => {
+      if (selectedTags.has(tag)) {
+        selectedTags.delete(tag);
+      } else {
+        selectedTags.add(tag);
+      }
+      renderTagChips();
+      chrome.storage.local.set({ defaultTags: [...selectedTags] });
+    });
+    tagChipsContainer.appendChild(chip);
+  });
+}
 
 function showError(el, message) {
   el.textContent = message;

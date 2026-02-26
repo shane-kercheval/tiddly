@@ -28,7 +28,7 @@ Save bookmarks to [tiddly.me](https://tiddly.me) with one click. Search your boo
 
 1. Right-click the extension icon > **Options** (or click the gear icon)
 2. Paste your PAT
-3. Optionally set default tags (comma-separated, e.g. `reading_list, chrome`)
+3. Optionally set default tags (comma-separated, e.g. `reading-list, chrome`)
 4. Click **Test Connection** to verify
 5. Click **Save**
 

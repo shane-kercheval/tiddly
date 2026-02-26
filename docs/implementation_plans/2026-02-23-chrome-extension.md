@@ -104,7 +104,7 @@ Notes:
 
 Simple HTML form — no framework needed:
 - **Personal Access Token** — password input with show/hide toggle
-- **Default Tags** — text input, comma-separated (e.g. `reading_list, chrome`). On save, parse by splitting on commas, trim whitespace, lowercase, and filter empty strings before storing as array.
+- **Default Tags** — text input, comma-separated (e.g. `reading-list, chrome`). On save, parse by splitting on commas, trim whitespace, lowercase, and filter empty strings before storing as array.
 - **Test Connection** button — calls `GET /users/me` via background service worker, shows green checkmark or red error inline
 - **Save** button — writes to `chrome.storage.local`
 - Help link: "Get a token at https://tiddly.me/app/settings/tokens"
@@ -116,7 +116,7 @@ Storage schema:
 ```js
 {
   "token": "bm_...",
-  "defaultTags": ["reading_list"]
+  "defaultTags": ["reading-list"]
 }
 ```
 
@@ -268,7 +268,7 @@ On popup open, fetch existing tags via `GET /tags/?content_types=bookmark` (thro
 
 - **Default view:** Show top ~8 tags by `content_count` (most used first). This keeps the popup compact.
 - **"Show all" link:** Expands to a scrollable area (max-height ~150px) showing all tags.
-- **Filter as you type:** Typing in the text input filters the visible chips to matches. Start typing "read" → chips narrow to `reading_list`, `read-later`, etc.
+- **Filter as you type:** Typing in the text input filters the visible chips to matches. Start typing "read" → chips narrow to `reading-list`, `read-later`, etc.
 - **Click to toggle:** Clicking a chip adds it to (or removes it from) the selected tags.
 - **Accessibility:** Tag chips and "Show all" are rendered as `<button type="button">` elements (not `<span>`) for keyboard focusability, Enter/Space activation, and screen reader semantics. CSS resets default button styles to maintain the chip appearance.
 - **New tags via Enter:** Typing a tag name and pressing Enter commits it as a selected tag (added to `selectedTags`, input cleared). Leftover filter text in the input is ignored on save — only explicitly selected/committed tags are submitted. This prevents accidental garbage tags from partial filter text.
@@ -367,7 +367,7 @@ async function handleGetTags() {
 - Open extension on a heavy page → popup appears immediately with loading state, fields populate shortly after
 - Tag chips appear below input showing most-used tags (top ~8)
 - Click a tag chip → tag added to selected tags; click again → removed
-- Type "read" in tags input → chips filter to matching tags (e.g. `reading_list`)
+- Type "read" in tags input → chips filter to matching tags (e.g. `reading-list`)
 - Type a new tag not in chip list, press Enter → committed as selected tag, created on save
 - Type partial filter text, click Save without pressing Enter → filter text ignored (not submitted as tag)
 - Click "Show all" → scrollable area with all tags

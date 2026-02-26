@@ -61,7 +61,7 @@ async function handleTestConnection(message) {
   });
   if (res.ok) {
     const data = await res.json();
-    return { success: true, email: data.email };
+    return { success: true };
   }
   return { success: false, status: res.status };
 }
@@ -87,7 +87,7 @@ async function handleCreateBookmark(message) {
 
 async function handleGetTags() {
   const token = await getToken();
-  const res = await fetchWithTimeout(`${API_URL}/tags/?content_types=bookmark`, {
+  const res = await fetchWithTimeout(`${API_URL}/tags/`, {
     headers: {
       'Authorization': `Bearer ${token}`,
       'X-Request-Source': 'chrome-extension'

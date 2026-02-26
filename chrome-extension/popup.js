@@ -34,6 +34,14 @@ function showView(name) {
   searchView.hidden = name !== 'search';
 }
 
+// Settings links
+document.getElementById('save-settings-link')?.addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
+});
+document.getElementById('search-settings-link')?.addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
+});
+
 // --- Save form ---
 
 const MAX_CONTENT_LENGTH = 100000;
@@ -109,7 +117,7 @@ async function initSaveForm(tab) {
   tagsInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const newTag = tagsInput.value.trim().toLowerCase();
+      const newTag = tagsInput.value.trim().toLowerCase().replace(/_/g, '-');
       if (newTag) {
         selectedTags.add(newTag);
         tagsInput.value = '';
@@ -224,8 +232,14 @@ async function handleSave(e) {
 function handleSaveError(response) {
   const { status, body, retryAfter } = response;
 
-  if (status === 400) {
-    showSaveStatus(body?.detail || 'Invalid bookmark data', 'error');
+  if (status === 400 || status === 422) {
+    let message = 'Invalid bookmark data';
+    if (Array.isArray(body?.detail)) {
+      message = body.detail.map(e => e.msg).join('; ');
+    } else if (typeof body?.detail === 'string') {
+      message = body.detail;
+    }
+    showSaveStatus(message, 'error');
     return;
   }
 
@@ -378,6 +392,19 @@ async function loadBookmarks(query, offset, append) {
     const el = document.createElement('div');
     el.className = 'search-result';
 
+    const titleRow = document.createElement('div');
+    titleRow.className = 'search-result-title-row';
+
+    try {
+      const favicon = document.createElement('img');
+      favicon.className = 'search-result-favicon';
+      favicon.width = 16;
+      favicon.height = 16;
+      favicon.src = `https://www.google.com/s2/favicons?domain=${new URL(item.url).hostname}&sz=32`;
+      favicon.alt = '';
+      titleRow.appendChild(favicon);
+    } catch { /* invalid URL, skip favicon */ }
+
     const title = document.createElement('a');
     title.className = 'search-result-title';
     title.textContent = item.title || item.url;
@@ -388,7 +415,8 @@ async function loadBookmarks(query, offset, append) {
       e.preventDefault();
       chrome.tabs.create({ url: item.url });
     });
-    el.appendChild(title);
+    titleRow.appendChild(title);
+    el.appendChild(titleRow);
 
     const url = document.createElement('div');
     url.className = 'search-result-url';
@@ -397,13 +425,6 @@ async function loadBookmarks(query, offset, append) {
 
     const meta = document.createElement('div');
     meta.className = 'search-result-meta';
-
-    if (item.created_at) {
-      const date = document.createElement('span');
-      date.className = 'search-result-date';
-      date.textContent = formatDate(item.created_at);
-      meta.appendChild(date);
-    }
 
     if (item.tags && item.tags.length > 0) {
       item.tags.forEach(t => {
