@@ -10,7 +10,7 @@ import type { PromptListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import { CopyContentButton } from './ui'
-import { PromptIcon, ArchiveIcon, RestoreIcon, TrashIcon } from './icons'
+import { PromptIcon } from './icons'
 import { ContentCard } from './ContentCard'
 
 interface PromptCardProps {
@@ -245,39 +245,7 @@ export function PromptCard({
           {/* Actions absolutely positioned, appear on hover */}
           {hasActions && (
             <div className="absolute right-0 bottom-0">
-              <ContentCard.Actions
-                overflowItems={[
-                  {
-                    key: 'archive',
-                    label: 'Archive',
-                    icon: <ArchiveIcon className="h-4 w-4" />,
-                    onClick: () => onArchive?.(prompt),
-                    hidden: !onArchive || view !== 'active',
-                  },
-                  {
-                    key: 'unarchive',
-                    label: 'Restore',
-                    icon: <RestoreIcon className="h-4 w-4" />,
-                    onClick: () => onUnarchive?.(prompt),
-                    hidden: view !== 'archived' || !onUnarchive,
-                  },
-                  {
-                    key: 'restore',
-                    label: 'Restore',
-                    icon: <RestoreIcon className="h-4 w-4" />,
-                    onClick: () => onRestore?.(prompt),
-                    hidden: view !== 'deleted' || !onRestore,
-                  },
-                  {
-                    key: 'delete',
-                    label: view === 'deleted' ? 'Delete Permanently' : 'Delete',
-                    icon: <TrashIcon className="h-4 w-4" />,
-                    onClick: () => onDelete?.(prompt),
-                    danger: true,
-                    hidden: !onDelete,
-                  },
-                ]}
-              >
+              <ContentCard.Actions>
                 {onTagAdd && tagSuggestions && (
                   <ContentCard.AddTagAction
                     existingTags={prompt.tags}

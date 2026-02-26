@@ -1,4 +1,4 @@
-.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp api-run-bench eval-viewer-install eval-viewer
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp api-run-bench eval-viewer-install eval-viewer test-data test-data-clear
 
 -include .env
 export
@@ -36,8 +36,8 @@ prompt-mcp-server:  ## Start Prompt MCP server (port 8002, requires API on 8000)
 frontend-run:  ## Start frontend dev server
 	cd frontend && npm run dev
 
-frontend-run-vm:  ## Start frontend dev server accessible from host
-	cd frontend && VITE_API_URL=http://$(VM_IP):8000 npm run dev -- --host
+frontend-run-ssh:  ## Start frontend dev server accessible from host
+	cd frontend && npm run dev -- --host 0.0.0.0
 
 frontend-install:  ## Install frontend dependencies
 	cd frontend && npm install
@@ -136,3 +136,12 @@ security: dependency-audit pen_tests  ## Run security checks
 
 open_coverage:  ## Open coverage report in browser
 	open 'htmlcov/index.html'
+
+####
+# Seed Data
+####
+test-data:  ## Populate database with test data
+	PYTHONPATH=$(PYTHONPATH) uv run python backend/scripts/seed_data.py populate --force
+
+test-data-clear:  ## Remove all test data
+	PYTHONPATH=$(PYTHONPATH) uv run python backend/scripts/seed_data.py clear

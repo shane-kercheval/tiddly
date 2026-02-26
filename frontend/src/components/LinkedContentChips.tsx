@@ -277,7 +277,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
 
       {/* Inline search + quick-create widget (shown when in add mode) */}
       {isAdding && !disabled && (
-        <div className="relative inline-flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-md px-1.5 py-0.5 focus-within:border-gray-400 focus-within:ring-1 focus-within:ring-gray-400/20">
+        <div className="relative inline-flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-md px-1.5 py-px focus-within:border-gray-400 focus-within:ring-1 focus-within:ring-gray-400/20">
           <input
             ref={inputRef}
             type="text"
@@ -290,7 +290,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
             aria-controls="linked-content-listbox"
             aria-autocomplete="list"
             aria-activedescendant={highlightedIndex >= 0 ? `linked-content-option-${highlightedIndex}` : undefined}
-            className="min-w-[100px] w-32 text-xs bg-transparent outline-none"
+            className="min-w-[100px] w-32 text-xs text-gray-700 bg-transparent outline-none"
           />
 
           {/* Quick-create buttons — create a new entity pre-linked to this one */}
@@ -301,15 +301,15 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                 const iconColor = CONTENT_TYPE_ICON_COLORS[type]
                 const label = CONTENT_TYPE_LABELS[type]
                 return (
-                  <Tooltip key={type} content={`Create linked ${label}`} compact>
+                  <Tooltip key={type} content={`Create linked ${label}`} compact delay={500}>
                     <button
                       type="button"
                       onClick={() => onQuickCreate(type)}
-                      className="inline-flex items-center gap-px h-5 px-0.5 text-gray-400 rounded transition-colors hover:text-gray-600 hover:bg-gray-200/60"
+                      className="inline-flex items-center gap-px px-0.5 text-gray-400 rounded transition-colors hover:text-gray-600 hover:bg-gray-200/60"
                       aria-label={`Create linked ${label.toLowerCase()}`}
                     >
-                      <PlusIcon className="h-2.5 w-2.5" />
-                      <span className={iconColor}><Icon className="h-3.5 w-3.5" /></span>
+                      <PlusIcon className="h-2 w-2" />
+                      <span className={iconColor}><Icon className="h-3 w-3" /></span>
                     </button>
                   </Tooltip>
                 )
@@ -344,7 +344,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                     className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
                       index === highlightedIndex
                         ? 'bg-gray-100 text-gray-900'
-                        : 'text-gray-600 hover:bg-gray-50'
+                        : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
                     <span className={`shrink-0 ${iconColor}`}>
@@ -361,7 +361,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
 
       {/* Inline add button (only when showAddButton is true and not already adding) */}
       {showAddButton && !isAdding && !disabled && (
-        <Tooltip content="Link content" compact>
+        <Tooltip content="Link content" compact delay={500}>
           <button
             type="button"
             onClick={handleAddClick}

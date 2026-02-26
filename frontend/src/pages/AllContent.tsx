@@ -7,9 +7,9 @@
  * - Bookmark add/edit navigation
  * - Note/Prompt navigation with proper return state
  */
-import { useCallback, useRef, useMemo, useEffect } from 'react'
+import { useCallback, useRef, useMemo, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useContentQuery } from '../hooks/useContentQuery'
 import { useContentView } from '../hooks/useContentView'
@@ -52,7 +52,7 @@ import { BookmarkCard } from '../components/BookmarkCard'
 import { NoteCard } from '../components/NoteCard'
 import { PromptCard } from '../components/PromptCard'
 import {
-  LoadingSpinnerPage,
+  ContentAreaSpinner,
   ErrorState,
   EmptyState,
   SearchFilterBar,
@@ -86,12 +86,27 @@ import { getFirstGroupTags } from '../utils'
  */
 export function AllContent(): ReactNode {
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
   const searchInputRef = useRef<HTMLInputElement>(null)
   const { createReturnState } = useReturnNavigation()
 
   // URL params for search and pagination (bookmarkable state)
-  const { searchQuery, offset, updateParams } = useContentUrlParams()
+  const { searchQuery: urlSearchQuery, offset, updateParams } = useContentUrlParams()
+
+  // Local state for the search input - decoupled from URL for lag-free typing.
+  // URL params update only after debounce, preventing React Router re-renders
+  // from resetting the input value between keystrokes.
+  const [searchQuery, setSearchQuery] = useState(urlSearchQuery)
+
+  // Sync URL → local on view switches (pathname changes like All→Archived→Trash).
+  // Same-pathname URL changes are safe to ignore because updateParams uses
+  // replace:true (no history entries), so they're always our own debounce writes.
+  // This prevents overwriting characters typed during the debounce window.
+  const [prevPathname, setPrevPathname] = useState(location.pathname)
+  if (location.pathname !== prevPathname) {
+    setPrevPathname(location.pathname)
+    setSearchQuery(urlSearchQuery)
+  }
 
   // Non-cacheable utilities
   const { trackBookmarkUsage } = useBookmarks()
@@ -187,14 +202,6 @@ export function AllContent(): ReactNode {
     return getFirstGroupTags(filter)
   }, [currentFilterId, filters])
 
-  useEffect(() => {
-    if (searchParams.get('action') === 'add') {
-      const newParams = new URLSearchParams(searchParams)
-      newParams.delete('action')
-      setSearchParams(newParams, { replace: true })
-    }
-  }, [searchParams, setSearchParams])
-
   // Keyboard shortcuts
   useKeyboardShortcuts({
     onEscape: () => {
@@ -215,18 +222,31 @@ export function AllContent(): ReactNode {
     },
   })
 
-  // Derive hasFilters from search query, tag store, and content type filter
+  // Debounce search query, then apply minimum length to avoid wasteful 1-char API searches.
+  // effectiveSearchQuery is used for API params, URL sync, and filter state derivation.
+  // Raw searchQuery still drives the input field so the user sees what they're typing.
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
+  const effectiveSearchQuery = debouncedSearchQuery.length >= 2 ? debouncedSearchQuery : ''
+
+  // Derive hasFilters from effective search query, tag store, and content type filter
   const hasContentTypeFilter = selectedContentTypes !== undefined
     && selectedContentTypes.length < availableContentTypes.length
-  const hasFilters = searchQuery.length > 0 || selectedTags.length > 0 || hasContentTypeFilter
+  const hasFilters = effectiveSearchQuery.length > 0 || selectedTags.length > 0 || hasContentTypeFilter
 
-  // Debounce search query
-  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
+  // Sync debounced search to URL for bookmarkability + reset pagination.
+  // Only fires when the change originated from user typing — not on initial mount,
+  // back-navigation, or other URL changes that sync to local state.
+  const userTypedRef = useRef(false)
+  useEffect(() => {
+    if (!userTypedRef.current) return
+    userTypedRef.current = false
+    updateParams({ q: effectiveSearchQuery, offset: 0 })
+  }, [effectiveSearchQuery, updateParams])
 
   // Build search params
   const currentParams: ContentSearchParams = useMemo(
     () => ({
-      q: debouncedSearchQuery || undefined,
+      q: effectiveSearchQuery || undefined,
       tags: selectedTags.length > 0 ? selectedTags : undefined,
       tag_match: selectedTags.length > 0 ? tagMatch : undefined,
       sort_by: sortBy,
@@ -237,13 +257,14 @@ export function AllContent(): ReactNode {
       filter_id: currentFilterId,
       content_types: selectedContentTypes,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentFilterId, selectedContentTypes]
+    [effectiveSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentFilterId, selectedContentTypes]
   )
 
   // Fetch content with TanStack Query
   const {
     data: queryData,
     isLoading,
+    isFetching,
     error: queryError,
     refetch,
   } = useContentQuery(currentParams)
@@ -256,9 +277,10 @@ export function AllContent(): ReactNode {
   // Handlers
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      updateParams({ q: e.target.value, offset: 0 })
+      userTypedRef.current = true
+      setSearchQuery(e.target.value)
     },
-    [updateParams]
+    []
   )
 
   const handleTagClick = useCallback(
@@ -806,27 +828,23 @@ export function AllContent(): ReactNode {
     const hasContentTypeOverride = selectedContentTypes !== undefined
       && selectedContentTypes.length < availableContentTypes.length
     const hasTagFilters = selectedTags.length > 0
-    const hasSearchQuery = searchQuery.length > 0
-    return hasContentTypeOverride || hasTagFilters || isSortOverridden || hasSearchQuery
-  }, [selectedContentTypes, availableContentTypes, selectedTags, isSortOverridden, searchQuery])
+    return hasContentTypeOverride || hasTagFilters || isSortOverridden || effectiveSearchQuery.length > 0
+  }, [selectedContentTypes, availableContentTypes, selectedTags, isSortOverridden, effectiveSearchQuery])
 
   const handleResetFilters = useCallback(() => {
     clearTypes(contentTypeFilterKey)
     clearTagFilters(tagFilterViewKey)
     clearSortOverride()
+    setSearchQuery('')
     updateParams({ q: '', offset: 0 })
   }, [clearTypes, contentTypeFilterKey, clearTagFilters, tagFilterViewKey, clearSortOverride, updateParams])
 
   // Show quick-add menu for active view (All, or any custom list)
   const showQuickAdd = currentView === 'active'
 
-  if (isLoading) {
-    return <LoadingSpinnerPage label="Loading content..." />
-  }
-
   return (
     <div className="pt-3">
-      {/* Search and filters */}
+      {/* Search and filters - always mounted to preserve focus */}
       <div className="mb-3 md:mb-5 space-y-3">
         <SearchFilterBar
           searchInputRef={searchInputRef}
@@ -851,6 +869,7 @@ export function AllContent(): ReactNode {
           }
           hasNonDefaultFilters={hasNonDefaultFilters}
           onReset={handleResetFilters}
+          isFetching={isFetching && !isLoading}
         />
         {/* Content type filter chips */}
         {selectedContentTypes && (
@@ -869,8 +888,14 @@ export function AllContent(): ReactNode {
         />
       </div>
 
-      {/* Content */}
-      {renderContent()}
+      {/* Content - spinner for initial load, results for all other states */}
+      {isLoading ? (
+        <ContentAreaSpinner label="Loading content..." />
+      ) : (
+        <div aria-busy={isFetching && !isLoading ? true : undefined}>
+          {renderContent()}
+        </div>
+      )}
 
     </div>
   )

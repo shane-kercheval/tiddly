@@ -184,7 +184,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             onKeyDown={handleKeyDown}
             onFocus={openSuggestions}
             placeholder="Add tag..."
-            className="min-w-[80px] w-24 text-xs px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
+            className="min-w-[80px] w-24 text-xs px-1.5 py-px bg-gray-50 text-gray-700 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
           />
 
           {/* Error message */}
@@ -206,7 +206,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
                   className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors ${
                     index === highlightedIndex
                       ? 'bg-gray-100 text-gray-900'
-                      : 'text-gray-600 hover:bg-gray-50'
+                      : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
                   <span>{suggestion.name}</span>
@@ -220,7 +220,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
 
       {/* Inline add button (only when showAddButton is true and not already adding) */}
       {showAddButton && !isAddingTag && (
-        <Tooltip content="Add tag" compact>
+        <Tooltip content="Add tag" compact delay={500}>
           <button
             type="button"
             onClick={handleAddClick}

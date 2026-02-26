@@ -80,6 +80,8 @@ make migration message="description"  # Create new migration
 - **services/**: API client layer
 - Auth via `@auth0/auth0-react`
 
+**Dev vs production performance:** React StrictMode is enabled in development and intentionally double-renders all components. The Vite dev server also adds HMR overhead. Before investigating or optimizing perceived UI lag (e.g., input delays), test with a production build first: `cd frontend && npm run build && npm run preview`. The dev server is not representative of production performance.
+
 ### Key Patterns
 - All database tables include `user_id` for multi-tenancy
 - Bookmarks, Notes, and Prompts use `BaseEntityService` for consistent CRUD, soft delete, archive, tags, and search

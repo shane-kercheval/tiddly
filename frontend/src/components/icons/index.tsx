@@ -322,13 +322,6 @@ export const HelpIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   </svg>
 )
 
-/** More options icon (three vertical dots) */
-export const MoreIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
-  <svg className={className} fill="currentColor" viewBox="0 0 24 24">
-    <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
-  </svg>
-)
-
 /** Link/chain icon for content relationships */
 export const LinkIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">

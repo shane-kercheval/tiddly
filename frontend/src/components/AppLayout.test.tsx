@@ -125,7 +125,7 @@ describe('AppLayout', () => {
       })
     })
 
-    it('shows loading state while checking consent', () => {
+    it('renders Outlet while checking consent (stable shell pattern)', () => {
       mockUseConsentStore.mockReturnValue({
         ...defaultMockState,
         needsConsent: null,
@@ -134,7 +134,9 @@ describe('AppLayout', () => {
 
       renderAppLayout()
 
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
+      // Outlet renders so Layout can mount with sidebar immediately
+      expect(screen.getByTestId('child-content')).toBeInTheDocument()
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument()
     })
   })
 
@@ -176,6 +178,8 @@ describe('AppLayout', () => {
       renderAppLayout()
 
       expect(screen.queryByTestId('consent-dialog')).not.toBeInTheDocument()
+      // Outlet renders instead (stable shell pattern)
+      expect(screen.getByTestId('child-content')).toBeInTheDocument()
     })
   })
 
@@ -322,8 +326,8 @@ describe('AppLayout', () => {
   })
 
   describe('edge cases', () => {
-    it('shows loading when needsConsent is null and not loading (safety fallback)', () => {
-      // This shouldn't happen normally, but ensures app never renders without consent check
+    it('renders Outlet when needsConsent is null and not loading (safety fallback)', () => {
+      // This shouldn't happen normally, but Layout gates its own fetching on consentReady
       mockUseConsentStore.mockReturnValue({
         ...defaultMockState,
         needsConsent: null,
@@ -333,8 +337,8 @@ describe('AppLayout', () => {
 
       renderAppLayout()
 
-      expect(screen.getByText(/loading/i)).toBeInTheDocument()
-      expect(screen.queryByTestId('child-content')).not.toBeInTheDocument()
+      // Outlet renders so Layout can show sidebar shell with ContentAreaSpinner
+      expect(screen.getByTestId('child-content')).toBeInTheDocument()
     })
   })
 })

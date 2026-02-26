@@ -5,7 +5,7 @@
  * Selecting a tag immediately calls onAdd - no form submission needed.
  * Uses useTagAutocomplete hook for all autocomplete logic.
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent } from 'react'
 import type { TagCount } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
@@ -36,6 +36,7 @@ export function AddTagButton({
   onAdd,
 }: AddTagButtonProps): ReactNode {
   const [isOpen, setIsOpen] = useState(false)
+  const [openUpward, setOpenUpward] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -68,6 +69,13 @@ export function AddTagButton({
     suggestions,
   })
 
+  const closeDropdown = useCallback((): void => {
+    closeSuggestions()
+    clearPending()
+    setOpenUpward(false)
+    setIsOpen(false)
+  }, [closeSuggestions, clearPending])
+
   // Focus input when dropdown opens
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -76,13 +84,21 @@ export function AddTagButton({
     }
   }, [isOpen, openSuggestions])
 
+  // Measure available space and flip dropdown direction if needed
+  useLayoutEffect(() => {
+    if (isOpen && showSuggestions && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - rect.bottom
+      // 220 ≈ max-h-48 (192px) + border + margin + buffer
+      setOpenUpward(spaceBelow < 220)
+    }
+  }, [isOpen, showSuggestions])
+
   // Close on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        closeSuggestions()
-        clearPending()
-        setIsOpen(false)
+        closeDropdown()
       }
     }
 
@@ -90,7 +106,7 @@ export function AddTagButton({
       document.addEventListener('mousedown', handleClickOutside)
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [isOpen, closeSuggestions, clearPending])
+  }, [isOpen, closeDropdown])
 
   const handleButtonClick = (e: React.MouseEvent): void => {
     e.stopPropagation()
@@ -117,9 +133,7 @@ export function AddTagButton({
       }
     } else if (e.key === 'Escape') {
       e.preventDefault()
-      closeSuggestions()
-      clearPending()
-      setIsOpen(false)
+      closeDropdown()
     }
   }
 
@@ -163,14 +177,14 @@ export function AddTagButton({
 
           {/* Error message */}
           {error && (
-            <div className="absolute left-0 top-full mt-1 z-20">
+            <div className={`absolute left-0 md:left-auto md:right-0 z-20 ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
               <p className="text-xs text-red-500 whitespace-nowrap">{error}</p>
             </div>
           )}
 
           {/* Suggestions dropdown */}
           {showSuggestions && filteredSuggestions.length > 0 && (
-            <div className="absolute left-0 top-full mt-1 z-10 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
+            <div className={`absolute left-0 md:left-auto md:right-0 z-10 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
               {filteredSuggestions.map((suggestion, index) => (
                 <button
                   key={suggestion.name}
@@ -180,7 +194,7 @@ export function AddTagButton({
                   className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors ${
                     index === highlightedIndex
                       ? 'bg-gray-100 text-gray-900'
-                      : 'text-gray-600 hover:bg-gray-50'
+                      : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
                   <span>{suggestion.name}</span>

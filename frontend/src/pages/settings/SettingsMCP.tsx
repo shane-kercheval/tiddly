@@ -906,7 +906,7 @@ function SkillsTagSelector({
                   className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition-colors ${
                     isSelected
                       ? 'bg-[#fff7f0] text-[#d97b3d]'
-                      : 'text-gray-600 hover:bg-gray-50'
+                      : 'text-gray-600 hover:bg-gray-100'
                   }`}
                 >
                   <span className="flex items-center gap-2">

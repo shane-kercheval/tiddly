@@ -20,7 +20,7 @@ export function SaveOverlay({ isVisible, label = 'Saving...' }: SaveOverlayProps
   if (!isVisible) return null
 
   const overlay = (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/35">
+    <div className="absolute inset-0 z-50 flex justify-center pt-[20vh] bg-white/35">
       <LoadingSpinner size="lg" label={label} />
     </div>
   )
