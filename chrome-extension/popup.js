@@ -44,7 +44,7 @@ document.getElementById('search-settings-link')?.addEventListener('click', () =>
 
 // --- Save form ---
 
-const MAX_CONTENT_LENGTH = 100000;
+const MAX_CONTENT_LENGTH = 25000;
 const MAX_TITLE_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 1000;
 const INITIAL_CHIPS_COUNT = 8;
