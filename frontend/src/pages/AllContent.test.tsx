@@ -113,13 +113,14 @@ vi.mock('react-router-dom', async () => {
 const mockRefetch = vi.fn()
 let mockContentQueryData: ContentListResponse = createMockResponse([])
 let mockContentQueryLoading = false
+let mockContentQueryFetching = false
 let mockContentQueryError: Error | null = null
 
 vi.mock('../hooks/useContentQuery', () => ({
   useContentQuery: () => ({
     data: mockContentQueryData,
     isLoading: mockContentQueryLoading,
-    isFetching: false,
+    isFetching: mockContentQueryFetching,
     error: mockContentQueryError,
     refetch: mockRefetch,
   }),
@@ -303,6 +304,7 @@ describe('AllContent', () => {
     vi.clearAllMocks()
     mockContentQueryData = createMockResponse([])
     mockContentQueryLoading = false
+    mockContentQueryFetching = false
     mockContentQueryError = null
     mockSelectedTags = []
     mockSelectedContentTypes = ['bookmark', 'note', 'prompt']
@@ -779,11 +781,58 @@ describe('AllContent', () => {
   })
 
   describe('loading state', () => {
-    it('shows loading spinner while content is loading', async () => {
+    it('shows content area spinner while keeping search bar mounted', async () => {
       mockContentQueryLoading = true
+      mockContentQueryFetching = true
       renderAtRoute('/app/content')
 
+      // Search bar stays mounted (stable shell pattern)
+      expect(screen.getByPlaceholderText('Search all content...')).toBeInTheDocument()
+      // Spinner in content area
       expect(screen.getByText('Loading content...')).toBeInTheDocument()
+    })
+
+    it('shows fetching indicator in search bar during refetch', async () => {
+      mockContentQueryLoading = false
+      mockContentQueryFetching = true
+      mockContentQueryData = createMockResponse([mockBookmark])
+      const { container } = renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      // Results remain visible during refetch
+      expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      // Spinner appears inside search input
+      expect(container.querySelector('.spinner-xs')).toBeInTheDocument()
+    })
+
+    it('sets aria-busy on content area during refetch', async () => {
+      mockContentQueryLoading = false
+      mockContentQueryFetching = true
+      mockContentQueryData = createMockResponse([mockBookmark])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const contentArea = screen.getAllByText('Test Bookmark')[0].closest('[aria-busy]')
+      expect(contentArea).toHaveAttribute('aria-busy', 'true')
+    })
+
+    it('does not set aria-busy when not fetching', async () => {
+      mockContentQueryLoading = false
+      mockContentQueryFetching = false
+      mockContentQueryData = createMockResponse([mockBookmark])
+      const { container } = renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      expect(container.querySelector('[aria-busy]')).not.toBeInTheDocument()
     })
   })
 

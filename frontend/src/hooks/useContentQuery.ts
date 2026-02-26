@@ -4,7 +4,7 @@
  * Used for the shared views (All, Archived, Trash) that display
  * both bookmarks and notes in a single unified list.
  */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { api } from '../services/api'
 import { normalizeViewKey } from '../types'
 import type { ContentListResponse, ContentSearchParams, ViewOption } from '../types'
@@ -81,10 +81,10 @@ function buildQueryString(params: ContentSearchParams): string {
 /**
  * Fetch content from API.
  */
-async function fetchContent(params: ContentSearchParams): Promise<ContentListResponse> {
+async function fetchContent(params: ContentSearchParams, signal?: AbortSignal): Promise<ContentListResponse> {
   const queryString = buildQueryString(params)
   const url = queryString ? `/content/?${queryString}` : '/content/'
-  const response = await api.get<ContentListResponse>(url)
+  const response = await api.get<ContentListResponse>(url, { signal })
   return response.data
 }
 
@@ -122,7 +122,10 @@ export function useContentQuery(
 
   return useQuery({
     queryKey: contentKeys.list(params),
-    queryFn: () => fetchContent(params),
+    queryFn: ({ signal }) => fetchContent(params, signal),
     enabled,
+    // Keep previous results visible while fetching new data (e.g., during search).
+    // Prevents UI jank: search bar stays mounted, results remain interactive.
+    placeholderData: keepPreviousData,
   })
 }

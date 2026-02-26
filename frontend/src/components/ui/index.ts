@@ -1,7 +1,7 @@
 /**
  * Reusable UI component exports.
  */
-export { LoadingSpinner, LoadingSpinnerPage } from './LoadingSpinner'
+export { LoadingSpinner, LoadingSpinnerPage, ContentAreaSpinner } from './LoadingSpinner'
 export { Modal } from './Modal'
 export { EmptyState } from './EmptyState'
 export { ErrorState } from './ErrorState'

@@ -231,7 +231,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   // Search params
   const currentParams: ContentSearchParams = useMemo(
     () => ({
-      q: debouncedSearchQuery || undefined,
+      q: debouncedSearchQuery.length >= 2 ? debouncedSearchQuery : undefined,
       tags: selectedTags.length > 0 ? selectedTags : undefined,
       tag_match: selectedTags.length > 0 ? tagMatch : undefined,
       sort_by: effectiveSortBy,
@@ -244,7 +244,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     [debouncedSearchQuery, selectedTags, tagMatch, effectiveSortBy, effectiveSortOrder, offset, pageSize, selectedViews, selectedContentTypes]
   )
 
-  const hasSearchCriteria = !!debouncedSearchQuery || selectedTags.length > 0
+  const hasSearchCriteria = debouncedSearchQuery.length >= 2 || selectedTags.length > 0
   const {
     data: queryData,
     isLoading,

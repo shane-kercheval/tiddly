@@ -25,7 +25,7 @@ import { ContentEditor } from './ContentEditor'
 import { TableOfContentsSidebar } from './TableOfContentsSidebar'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
-import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip, LoadingSpinnerPage } from './ui'
+import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip, ContentAreaSpinner } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
 import { PreviewPromptModal } from './PreviewPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon } from './icons'
@@ -821,7 +821,7 @@ export function Prompt({
 
   // Loading guard: don't render form until limits are available
   if (isLoadingLimits || !limits) {
-    return <LoadingSpinnerPage label="Loading prompt..." />
+    return <ContentAreaSpinner label="Loading prompt..." />
   }
 
   return (

@@ -12,7 +12,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Bookmark as BookmarkComponent } from '../components/Bookmark'
 import { HistorySidebar } from '../components/HistorySidebar'
-import { LoadingSpinnerPage, ErrorState } from '../components/ui'
+import { ContentAreaSpinner, ErrorState } from '../components/ui'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
 import { useLinkedNavigation } from '../hooks/useLinkedNavigation'
@@ -290,7 +290,7 @@ export function BookmarkDetail(): ReactNode {
   }, [bookmarkId, fetchBookmark])
 
   if (isLoading) {
-    return <LoadingSpinnerPage label="Loading bookmark..." />
+    return <ContentAreaSpinner label="Loading bookmark..." />
   }
 
   if (error) {

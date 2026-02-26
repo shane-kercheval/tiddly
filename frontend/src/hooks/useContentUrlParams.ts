@@ -7,7 +7,7 @@
  * Note: Tag filters are managed by useTagFilterStore for persistence.
  * Sort preferences are managed by useEffectiveSort for per-view persistence.
  */
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 export interface ContentUrlParams {
@@ -49,30 +49,43 @@ export function useContentUrlParams(): UseContentUrlParamsReturn {
   const searchQuery = searchParams.get('q') || ''
   const offset = parseInt(searchParams.get('offset') || '0', 10)
 
-  // Update URL params
+  // React Router's setSearchParams changes reference on every URL change,
+  // which would make updateParams unstable and trigger dependent effects.
+  // Use a ref so updateParams has a stable identity.
+  const setSearchParamsRef = useRef(setSearchParams)
+  useEffect(() => {
+    setSearchParamsRef.current = setSearchParams
+  }, [setSearchParams])
+
+  // Update URL params (stable callback via ref)
   const updateParams = useCallback(
     (updates: ContentUrlParamUpdates) => {
-      const newParams = new URLSearchParams(searchParams)
+      setSearchParamsRef.current((prev) => {
+        const newParams = new URLSearchParams(prev)
 
-      if ('q' in updates) {
-        if (updates.q) {
-          newParams.set('q', updates.q)
-        } else {
-          newParams.delete('q')
+        if ('q' in updates) {
+          if (updates.q) {
+            newParams.set('q', updates.q)
+          } else {
+            newParams.delete('q')
+          }
         }
-      }
 
-      if ('offset' in updates) {
-        if (updates.offset && updates.offset > 0) {
-          newParams.set('offset', String(updates.offset))
-        } else {
-          newParams.delete('offset')
+        if ('offset' in updates) {
+          if (updates.offset && updates.offset > 0) {
+            newParams.set('offset', String(updates.offset))
+          } else {
+            newParams.delete('offset')
+          }
         }
-      }
 
-      setSearchParams(newParams, { replace: true })
+        return newParams
+      // replace:true avoids creating history entries, so browser back/forward
+      // never produces same-pathname URL changes. AllContent's pathname-based
+      // sync relies on this.
+      }, { replace: true })
     },
-    [searchParams, setSearchParams]
+    []
   )
 
   return {

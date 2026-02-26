@@ -12,7 +12,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Prompt as PromptComponent, SaveError } from '../components/Prompt'
 import { HistorySidebar } from '../components/HistorySidebar'
-import { LoadingSpinnerPage, ErrorState } from '../components/ui'
+import { ContentAreaSpinner, ErrorState } from '../components/ui'
 import { usePrompts } from '../hooks/usePrompts'
 import { useReturnNavigation } from '../hooks/useReturnNavigation'
 import { useLinkedNavigation } from '../hooks/useLinkedNavigation'
@@ -293,7 +293,7 @@ export function PromptDetail(): ReactNode {
 
   // Render loading state
   if (isLoading) {
-    return <LoadingSpinnerPage label="Loading prompt..." />
+    return <ContentAreaSpinner label="Loading prompt..." />
   }
 
   // Render error state
