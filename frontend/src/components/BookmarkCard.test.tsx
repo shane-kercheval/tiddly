@@ -31,49 +31,28 @@ describe('BookmarkCard', () => {
     vi.clearAllMocks()
   })
 
-  describe('showContentTypeIcon prop', () => {
-    it('test__BookmarkCard__shows_bookmark_icon_by_default', () => {
+  describe('favicon icon column', () => {
+    it('test__BookmarkCard__shows_favicon_in_icon_column', () => {
       const { container } = render(<BookmarkCard bookmark={mockBookmark} onDelete={vi.fn()} />)
 
-      // BookmarkIcon should be rendered (it's in a span with the blue color class)
-      const bookmarkIconSpan = container.querySelector('.text-brand-bookmark')
-      expect(bookmarkIconSpan).toBeInTheDocument()
-
-      // There should be multiple favicon images (mobile + desktop layouts)
+      // Favicon image should be rendered in the icon column
       const faviconImages = container.querySelectorAll('img')
       expect(faviconImages.length).toBeGreaterThan(0)
     })
 
-    it('test__BookmarkCard__shows_bookmark_icon_when_showContentTypeIcon_true', () => {
-      const { container } = render(
-        <BookmarkCard
-          bookmark={mockBookmark}
-          onDelete={vi.fn()}
-          showContentTypeIcon={true}
-        />
-      )
+    it('test__BookmarkCard__shows_bookmark_icon_on_favicon_error', () => {
+      const { container } = render(<BookmarkCard bookmark={mockBookmark} onDelete={vi.fn()} />)
 
-      // BookmarkIcon should be rendered
+      // Trigger error on all favicon images
+      const faviconImages = container.querySelectorAll('img')
+      faviconImages.forEach((img) => fireEvent.error(img))
+
+      // BookmarkIcon fallback should now be rendered (with brand color class)
       const bookmarkIconSpan = container.querySelector('.text-brand-bookmark')
       expect(bookmarkIconSpan).toBeInTheDocument()
-    })
 
-    it('test__BookmarkCard__hides_bookmark_icon_when_showContentTypeIcon_false', () => {
-      const { container } = render(
-        <BookmarkCard
-          bookmark={mockBookmark}
-          onDelete={vi.fn()}
-          showContentTypeIcon={false}
-        />
-      )
-
-      // BookmarkIcon should NOT be rendered
-      const bookmarkIconSpan = container.querySelector('.text-brand-bookmark')
-      expect(bookmarkIconSpan).not.toBeInTheDocument()
-
-      // Favicon should still be visible (now in left position)
-      const faviconImages = container.querySelectorAll('img')
-      expect(faviconImages.length).toBeGreaterThan(0)
+      // No more img elements since all replaced by BookmarkIcon
+      expect(container.querySelectorAll('img').length).toBe(0)
     })
   })
 
