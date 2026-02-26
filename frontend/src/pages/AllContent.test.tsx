@@ -13,7 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, Link } from 'react-router-dom'
 import { AllContent } from './AllContent'
 import type { ContentListItem, ContentListResponse } from '../types'
 
@@ -294,6 +294,20 @@ function renderAtRoute(route: string): ReturnType<typeof render> {
         <Route path="/app/content/trash" element={<AllContent />} />
         <Route path="/app/content/filters/:filterId" element={<AllContent />} />
         <Route path="/app/notes/:id" element={<div data-testid="note-detail">Note Detail</div>} />
+      </Routes>
+    </MemoryRouter>
+  )
+}
+
+// Like renderAtRoute but uses a wildcard route so AllContent stays mounted
+// across route changes (no unmount/remount), testing real view-switch behavior.
+// Navigation links are rendered outside AllContent so we can trigger route changes.
+function renderWithNav(route: string, navTargets: { to: string; label: string }[]): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter initialEntries={[route]}>
+      {navTargets.map(t => <Link key={t.label} to={t.to}>{t.label}</Link>)}
+      <Routes>
+        <Route path="/app/content/*" element={<AllContent />} />
       </Routes>
     </MemoryRouter>
   )
@@ -1106,6 +1120,38 @@ describe('AllContent', () => {
         id: '5',
         data: { tags: ['prompt'] },
       })
+    })
+  })
+
+  describe('view switching', () => {
+    it('shows loading spinner instead of stale content when switching views', async () => {
+      const user = userEvent.setup()
+
+      // Start on "All" view with loaded content
+      mockContentQueryData = createMockResponse([mockBookmark])
+      mockContentQueryFetching = false
+      mockContentQueryLoading = false
+
+      renderWithNav('/app/content', [
+        { to: '/app/content/archived', label: 'Go Archived' },
+      ])
+
+      // Verify initial content is visible
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      // Simulate view switch: set fetching before navigating so the next render
+      // sees isFetching=true with a changed view, triggering isViewSwitching.
+      mockContentQueryFetching = true
+
+      await user.click(screen.getByText('Go Archived'))
+
+      // Should show spinner (not stale "All" content)
+      await waitFor(() => {
+        expect(screen.getByText('Loading content...')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Test Bookmark')).not.toBeInTheDocument()
     })
   })
 })

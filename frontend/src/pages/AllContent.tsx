@@ -266,6 +266,27 @@ export function AllContent(): ReactNode {
     refetch,
   } = useContentQuery(currentParams)
 
+  // View switches (All → Archived, sidebar filter changes) and search refinements
+  // are intentionally handled differently during fetches:
+  //
+  // - Search/sort/tag/pagination: keepPreviousData shows stale results with a subtle
+  //   spinner. This feels smooth because the old results are contextually similar.
+  // - View/filter switches: stale data is from an entirely different view, so showing
+  //   it is confusing. We show a full-page spinner instead.
+  //
+  // settledView tracks the last view identity for which data fully loaded. It updates
+  // during render (React's "adjusting state when props change" pattern) only when
+  // isFetching is false — i.e., data has arrived for the current view. During a switch,
+  // viewChanged stays true until new data loads. For search within the same view,
+  // currentView and currentFilterId don't change so viewChanged remains false and
+  // keepPreviousData behavior is preserved.
+  const [settledView, setSettledView] = useState({ view: currentView, filterId: currentFilterId })
+  const viewChanged = settledView.view !== currentView || settledView.filterId !== currentFilterId
+  if (!isFetching && viewChanged) {
+    setSettledView({ view: currentView, filterId: currentFilterId })
+  }
+  const isViewSwitching = viewChanged && isFetching
+
   // Extract data from query result
   const items = queryData?.items ?? []
   const total = queryData?.total ?? 0
@@ -865,7 +886,7 @@ export function AllContent(): ReactNode {
           }
           hasNonDefaultFilters={hasNonDefaultFilters}
           onReset={handleResetFilters}
-          isFetching={isFetching && !isLoading}
+          isFetching={isFetching && !isLoading && !isViewSwitching}
         />
         {/* Content type filter chips */}
         {selectedContentTypes && (
@@ -885,7 +906,7 @@ export function AllContent(): ReactNode {
       </div>
 
       {/* Content - spinner for initial load, results for all other states */}
-      {isLoading ? (
+      {isLoading || isViewSwitching ? (
         <ContentAreaSpinner label="Loading content..." />
       ) : (
         <div aria-busy={isFetching && !isLoading ? true : undefined}>
