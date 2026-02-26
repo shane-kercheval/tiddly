@@ -187,6 +187,14 @@ Note: Codex does not support MCP Prompts directly. To use saved prompts, ask Cod
 
 **Gemini CLI** — Not yet supported. Integration instructions coming soon.
 
+### Chrome Extension
+
+The Tiddly Bookmarks Chrome extension lets you save the current page as a bookmark with one click. It uses Personal Access Tokens (PATs) for authentication.
+
+- **Save flow:** Click the extension icon on any page to see a pre-filled form (URL, title, description, tags). Page content is captured automatically for full-text search. Tags are pre-selected from your defaults and last-used tags, with selectable chips from your existing tags.
+- **Search:** On restricted pages (new tab, chrome://, etc.), the extension shows a search interface with your recent bookmarks and full-text search.
+- **Setup:** Install from the Chrome Web Store, then open the extension options and enter a Personal Access Token (create one in Settings > Personal Access Tokens on tiddly.me). Optionally configure default tags that will be pre-selected on every save.
+
 ### Programmatic API Access
 
 The full REST API is available at `https://api.tiddly.me`. Authenticate with a PAT via `Authorization: Bearer bm_...` header. PATs support all read and write operations except sensitive endpoints (URL metadata scraping, token management, account settings).

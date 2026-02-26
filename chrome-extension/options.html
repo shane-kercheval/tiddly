@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tiddly Bookmarks — Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Tiddly Bookmarks Settings</h1>
+
+    <div class="field">
+      <label for="token">Personal Access Token</label>
+      <div class="token-input-wrapper">
+        <input type="password" id="token" placeholder="bm_..." autocomplete="off">
+        <button type="button" id="toggle-token" class="toggle-btn" title="Show/hide token">Show</button>
+      </div>
+      <p class="help">
+        <a href="https://tiddly.me/app/settings/tokens" target="_blank" rel="noopener">
+          Get a token at tiddly.me
+        </a>
+      </p>
+      <p id="token-error" class="error" hidden></p>
+    </div>
+
+    <button id="save-btn" class="btn-primary">Save</button>
+    <div id="save-status" class="status" hidden></div>
+
+    <div id="tags-section" class="field" hidden>
+      <label>Default Tags</label>
+      <p class="help">Selected tags are added to every bookmark you save.</p>
+      <div id="tag-chips" class="tag-chips"></div>
+      <div id="tags-status" class="help" hidden></div>
+    </div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
