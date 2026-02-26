@@ -22,6 +22,8 @@ interface TooltipProps {
   delay?: number
   /** Additional classes for the trigger wrapper */
   className?: string
+  /** Externally control visibility. true = force show, false = force hide, undefined = use internal hover state. */
+  show?: boolean
 }
 
 interface Position {
@@ -33,7 +35,7 @@ interface Position {
 const canHover = (): boolean =>
   typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(hover: hover)').matches
 
-export function Tooltip({ content, children, compact = false, position = 'bottom', delay = 0, className = '' }: TooltipProps): ReactNode {
+export function Tooltip({ content, children, compact = false, position = 'bottom', delay = 0, className = '', show }: TooltipProps): ReactNode {
   const [isVisible, setIsVisible] = useState(false)
   const [pos, setPos] = useState<Position>({ top: 0, left: 0 })
   const triggerRef = useRef<HTMLDivElement>(null)
@@ -97,8 +99,24 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
     }
   }, [])
 
+  // External show prop: recalculate position when forced visible
+  useEffect(() => {
+    if (show && triggerRef.current && canHover()) {
+      const rect = triggerRef.current.getBoundingClientRect()
+      if (position === 'left') {
+        setPos({ top: rect.top + rect.height / 2, left: rect.left - 4 })
+      } else if (position === 'right') {
+        setPos({ top: rect.top + rect.height / 2, left: rect.right + 4 })
+      } else {
+        setPos({ top: rect.bottom + 4, left: rect.left + rect.width / 2 })
+      }
+    }
+  }, [show, position])
+
   // When no content provided, render children directly without wrapper or tooltip behavior
   if (content == null) return <>{children}</>
+
+  const visible = show ?? isVisible
 
   const sizeClasses = compact
     ? 'px-2 py-1 whitespace-nowrap'
@@ -116,7 +134,7 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
       >
         {children}
       </div>
-      {isVisible &&
+      {visible &&
         createPortal(
           <div
             ref={tooltipRef}

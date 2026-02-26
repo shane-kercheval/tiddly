@@ -207,7 +207,6 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   // Content type filter
   const { getSelectedTypes, toggleType, clearTypes } = useContentTypeFilterStore()
   const selectedContentTypes = getSelectedTypes('search', ALL_CONTENT_TYPES)
-  const isBookmarksOnly = selectedContentTypes.length === 1 && selectedContentTypes[0] === 'bookmark'
 
   // View state filter (Active/Archived) — persisted in store
   const selectedViews = getViewFilters(PALETTE_VIEW_KEY)
@@ -700,7 +699,6 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                             view={itemView}
                             sortBy={displaySortBy}
                             showDate={showDates}
-                            showContentTypeIcon={!isBookmarksOnly}
                             showArchivedIndicator={isArchived}
                             onClick={handleViewBookmark}
                             onTagClick={handleTagClick}

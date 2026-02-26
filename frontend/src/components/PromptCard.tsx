@@ -223,9 +223,7 @@ export function PromptCard({
 
           {/* Row 2: Name (if different from title) */}
           {showName && (
-            <div className="mt-0.5">
-              <span className="text-xs text-gray-400 font-mono truncate">{prompt.name}</span>
-            </div>
+            <p className="text-xs text-gray-400 font-mono truncate mt-0.5">{prompt.name}</p>
           )}
 
           {/* Row 3: Description */}

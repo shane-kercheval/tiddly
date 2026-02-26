@@ -5,7 +5,7 @@
  * - Mobile: Vertical stacking with always-visible actions
  * - Desktop: Horizontal compact layout with hover-revealed actions
  */
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import type { BookmarkListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
@@ -24,12 +24,6 @@ interface BookmarkCardProps {
   bookmark: BookmarkListItem
   view?: 'active' | 'archived' | 'deleted'
   sortBy?: SortByOption
-  /**
-   * Whether to show the bookmark content type icon on the left.
-   * When true (default): shows BookmarkIcon in icon column
-   * When false: shows favicon in icon column (used in bookmarks-only views)
-   */
-  showContentTypeIcon?: boolean
   /** Whether to show dates on the card. Defaults to true. */
   showDate?: boolean
   /** Generic card click handler (does not imply action availability). */
@@ -53,7 +47,6 @@ export function BookmarkCard({
   bookmark,
   view = 'active',
   sortBy = 'created_at',
-  showContentTypeIcon = true,
   showDate = true,
   onClick,
   onEdit,
@@ -76,18 +69,46 @@ export function BookmarkCard({
   // URL without query parameters for cleaner display
   const displayUrl = bookmark.url.split('?')[0]
   const faviconUrl = getGoogleFaviconUrl(bookmark.url) ?? `https://icons.duckduckgo.com/ip3/${domain}.ico`
-  const defaultFavicon = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239CA3AF" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`
 
-  const [copySuccess, setCopySuccess] = useState(false)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const linkTooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const [faviconErrorUrl, setFaviconErrorUrl] = useState<string | null>(null)
+  const faviconError = faviconErrorUrl === faviconUrl
+  const [copySuccess, setCopySuccess] = useState(false)
+  const [linkHovered, setLinkHovered] = useState(false)
 
   useEffect(() => {
     return () => {
-      if (copyTimeoutRef.current) {
-        clearTimeout(copyTimeoutRef.current)
-      }
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
+      if (linkTooltipTimeoutRef.current) clearTimeout(linkTooltipTimeoutRef.current)
     }
   }, [])
+
+  // Show/hide link tooltip with small delay on hide to prevent flicker between elements
+  const showLinkTooltip = useCallback((): void => {
+    if (linkTooltipTimeoutRef.current) {
+      clearTimeout(linkTooltipTimeoutRef.current)
+      linkTooltipTimeoutRef.current = null
+    }
+    setLinkHovered(true)
+  }, [])
+  const hideLinkTooltip = useCallback((): void => {
+    linkTooltipTimeoutRef.current = setTimeout(() => setLinkHovered(false), 50)
+  }, [])
+
+  // Event delegation for tooltip on desktop: check if mouse is on/moving to a .link-area element.
+  // mouseout's relatedTarget is the NEXT element, so direct .link-area→.link-area transitions never hide.
+  const handleLinkMouseOver = useCallback((e: React.MouseEvent): void => {
+    if ((e.target as HTMLElement).closest('.link-area')) {
+      showLinkTooltip()
+    }
+  }, [showLinkTooltip])
+  const handleLinkMouseOut = useCallback((e: React.MouseEvent): void => {
+    const related = e.relatedTarget as HTMLElement | null
+    if (related?.closest('.link-area')) return
+    hideLinkTooltip()
+  }, [hideLinkTooltip])
 
   const handleCardClick = (): void => {
     if (onClick) {
@@ -120,38 +141,55 @@ export function BookmarkCard({
 
   return (
     <ContentCard
+      className="group/link"
       view={view}
       onClick={handleCardClick}
       href={`/app/bookmarks/${bookmark.id}`}
     >
-      {/* Column 1: Icon (bookmark icon or favicon based on mode) */}
-      <span className={`w-4 h-4 mt-1 ${showContentTypeIcon ? CONTENT_TYPE_ICON_COLORS.bookmark : ''}`}>
-        {showContentTypeIcon ? (
-          <BookmarkIcon className="w-4 h-4" />
+      {/* Column 1: Favicon with crossfade to ExternalLinkIcon, BookmarkIcon fallback on load error.
+          Crossfade triggers when any .link-area element (favicon, title, URL) is hovered. */}
+      <a
+        href={bookmark.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="link-area relative w-4 h-4 mt-1"
+        onClick={handleUrlClick}
+        onMouseEnter={showLinkTooltip}
+        onMouseLeave={hideLinkTooltip}
+      >
+        {faviconError ? (
+          <BookmarkIcon className={`w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
         ) : (
-          <img
-            src={faviconUrl}
-            alt=""
-            className="w-4 h-4"
-            loading="lazy"
-            onError={(e) => {
-              e.currentTarget.src = defaultFavicon
-            }}
-          />
+          <>
+            <img
+              src={faviconUrl}
+              alt=""
+              className="absolute inset-0 w-4 h-4 opacity-100 md:group-has-[.link-area:hover]/link:opacity-0 transition-opacity duration-150"
+              loading="lazy"
+              onError={() => setFaviconErrorUrl(faviconUrl)}
+            />
+            <ExternalLinkIcon className="absolute inset-0 w-4 h-4 text-blue-500 opacity-0 md:group-has-[.link-area:hover]/link:opacity-100 transition-opacity duration-150" />
+          </>
         )}
-      </span>
+        {/* Invisible bridge covering the grid gap to the right so hover doesn't drop between favicon and title */}
+        <span className="link-area hidden md:block absolute top-0 left-full w-2 h-full" />
+      </a>
 
       {/* Column 2: Content - responsive layout */}
       <div className="min-w-0 flex-1">
         {/* Mobile layout - stacked vertically */}
         <div className="md:hidden flex flex-col gap-1.5">
-          {/* Title row - clickable as link when no title (shows domain) */}
+          {/* Title row */}
           {hasTitle ? (
-            <span
+            <a
+              href={bookmark.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleUrlClick}
               className="text-base font-medium text-gray-900 truncate"
             >
               {displayTitle}
-            </span>
+            </a>
           ) : (
             <Tooltip content="Open URL in new tab" compact>
               <a
@@ -166,7 +204,7 @@ export function BookmarkCard({
             </Tooltip>
           )}
 
-          {/* URL row (if has title) - always show as link on mobile (no hover) */}
+          {/* URL row (if has title) - always show as link on mobile */}
           {hasTitle && (
             <Tooltip content="Open URL in new tab" compact>
               <a
@@ -174,22 +212,9 @@ export function BookmarkCard({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={handleUrlClick}
-                className="flex items-center gap-1.5"
+                className="text-[13px] text-blue-500 underline truncate block"
               >
-                {showContentTypeIcon && (
-                  <img
-                    src={faviconUrl}
-                    alt=""
-                    className="w-4 h-4 shrink-0"
-                    loading="lazy"
-                    onError={(e) => {
-                      e.currentTarget.src = defaultFavicon
-                    }}
-                  />
-                )}
-                <span className="text-[13px] text-blue-500 underline truncate">
-                  {displayUrl}
-                </span>
+                {displayUrl}
               </a>
             </Tooltip>
           )}
@@ -295,25 +320,28 @@ export function BookmarkCard({
         </div>
 
         {/* Desktop layout - horizontal with hover actions */}
-        <div className="hidden md:block relative">
-          {/* Row 1: Title + favicon + tags + date */}
+        <div className="hidden md:block relative" onMouseOver={handleLinkMouseOver} onMouseOut={handleLinkMouseOut}>
+          {/* Row 1: Title + tags + date */}
           <div className="flex items-baseline gap-2">
-            {/* Left: Title and tags - title is clickable as link when no title (shows domain) */}
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
               {hasTitle ? (
-                <span
-                  className="text-base font-medium text-gray-900 truncate"
+                <a
+                  href={bookmark.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handleUrlClick}
+                  className="link-area text-base font-medium text-gray-900 truncate group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
                 >
                   {displayTitle}
-                </span>
+                </a>
               ) : (
-                <Tooltip content="Open URL in new tab" compact>
+                <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
                   <a
                     href={bookmark.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={handleUrlClick}
-                    className="text-base font-medium text-gray-900 truncate hover:text-blue-600 hover:underline transition-colors"
+                    className="link-area text-base font-medium text-gray-900 truncate group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
                   >
                     {displayTitle}
                   </a>
@@ -349,40 +377,18 @@ export function BookmarkCard({
             )}
           </div>
 
-          {/* Row 2: URL line with favicon/external-link icon swap on hover */}
+          {/* Row 2: URL */}
           {hasTitle && (
-            <div className="flex items-center gap-2 mt-0.5">
-              <Tooltip content="Open URL in new tab" compact>
+            <div className="link-area flex pt-0.5">
+              <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
                 <a
                   href={bookmark.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={handleUrlClick}
-                  className="group/url flex items-center gap-1.5 min-w-0 flex-1"
+                  className="link-area text-[13px] text-gray-400 truncate block group-has-[.link-area:hover]/link:text-blue-500 transition-colors duration-150"
                 >
-                  {/* Icon container with crossfade transition */}
-                  {showContentTypeIcon && (
-                    <span className="relative w-4 h-4 shrink-0">
-                      {/* Favicon - visible by default, fades out on hover */}
-                      <img
-                        src={faviconUrl}
-                        alt=""
-                        className="absolute inset-0 w-4 h-4 opacity-100 group-hover/url:opacity-0 transition-opacity duration-150"
-                        loading="lazy"
-                        onError={(e) => {
-                          e.currentTarget.src = defaultFavicon
-                        }}
-                      />
-                      {/* External link icon - hidden by default, fades in on hover */}
-                      <ExternalLinkIcon className="absolute inset-0 w-4 h-4 text-blue-500 opacity-0 group-hover/url:opacity-100 transition-opacity duration-150" />
-                    </span>
-                  )}
-                  {/* URL text - plain by default, styled as link on hover */}
-                  <span
-                    className="text-[13px] text-gray-400 truncate group-hover/url:text-blue-500 group-hover/url:underline transition-colors duration-150"
-                  >
-                    {displayUrl}
-                  </span>
+                  {displayUrl}
                 </a>
               </Tooltip>
             </div>
