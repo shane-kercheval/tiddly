@@ -133,9 +133,12 @@ export function BookmarkCard({
     >
       {/* Column 1: Favicon with crossfade to ExternalLinkIcon, BookmarkIcon fallback on load error.
           Crossfade triggers when any .link-area element (favicon, title, URL) is hovered. */}
-      <span
+      <a
+        href={bookmark.url}
+        target="_blank"
+        rel="noopener noreferrer"
         className="link-area relative w-4 h-4 mt-1"
-        onClick={(e) => { e.stopPropagation(); handleUrlClick(e); window.open(bookmark.url, '_blank', 'noopener,noreferrer') }}
+        onClick={handleUrlClick}
         onMouseEnter={showLinkTooltip}
         onMouseLeave={hideLinkTooltip}
       >
@@ -153,7 +156,7 @@ export function BookmarkCard({
             <ExternalLinkIcon className="absolute inset-0 w-4 h-4 text-blue-500 opacity-0 md:group-has-[.link-area:hover]/link:opacity-100 transition-opacity duration-150" />
           </>
         )}
-      </span>
+      </a>
 
       {/* Column 2: Content - responsive layout */}
       <div className="min-w-0 flex-1">

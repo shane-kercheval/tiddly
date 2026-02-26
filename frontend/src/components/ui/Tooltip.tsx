@@ -22,7 +22,7 @@ interface TooltipProps {
   delay?: number
   /** Additional classes for the trigger wrapper */
   className?: string
-  /** Externally control visibility. true = force show, undefined = use internal hover state. */
+  /** Externally control visibility. true = force show, false = force hide, undefined = use internal hover state. */
   show?: boolean
 }
 
@@ -116,7 +116,7 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
   // When no content provided, render children directly without wrapper or tooltip behavior
   if (content == null) return <>{children}</>
 
-  const visible = show || isVisible
+  const visible = show ?? isVisible
 
   const sizeClasses = compact
     ? 'px-2 py-1 whitespace-nowrap'
