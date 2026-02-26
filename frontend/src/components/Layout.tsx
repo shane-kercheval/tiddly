@@ -132,7 +132,7 @@ export function Layout(): ReactNode {
         className="flex-1 flex flex-col min-w-0 relative overflow-x-hidden transition-[margin] duration-200"
         style={{ marginRight: `${getRightSidebarMargin()}px` }}
       >
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
           <div className={`flex flex-col min-h-0 px-4 pb-4 md:px-5 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>
             {consentReady ? <Outlet /> : <ContentAreaSpinner />}
           </div>

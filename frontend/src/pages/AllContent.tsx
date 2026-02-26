@@ -222,13 +222,16 @@ export function AllContent(): ReactNode {
     },
   })
 
-  // Derive hasFilters from search query, tag store, and content type filter
+  // Debounce search query, then apply minimum length to avoid wasteful 1-char API searches.
+  // effectiveSearchQuery is used for API params, URL sync, and filter state derivation.
+  // Raw searchQuery still drives the input field so the user sees what they're typing.
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
+  const effectiveSearchQuery = debouncedSearchQuery.length >= 2 ? debouncedSearchQuery : ''
+
+  // Derive hasFilters from effective search query, tag store, and content type filter
   const hasContentTypeFilter = selectedContentTypes !== undefined
     && selectedContentTypes.length < availableContentTypes.length
-  const hasFilters = searchQuery.length > 0 || selectedTags.length > 0 || hasContentTypeFilter
-
-  // Debounce search query
-  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
+  const hasFilters = effectiveSearchQuery.length > 0 || selectedTags.length > 0 || hasContentTypeFilter
 
   // Sync debounced search to URL for bookmarkability + reset pagination.
   // Only fires when the change originated from user typing — not on initial mount,
@@ -237,13 +240,13 @@ export function AllContent(): ReactNode {
   useEffect(() => {
     if (!userTypedRef.current) return
     userTypedRef.current = false
-    updateParams({ q: debouncedSearchQuery, offset: 0 })
-  }, [debouncedSearchQuery, updateParams])
+    updateParams({ q: effectiveSearchQuery, offset: 0 })
+  }, [effectiveSearchQuery, updateParams])
 
   // Build search params
   const currentParams: ContentSearchParams = useMemo(
     () => ({
-      q: debouncedSearchQuery || undefined,
+      q: effectiveSearchQuery || undefined,
       tags: selectedTags.length > 0 ? selectedTags : undefined,
       tag_match: selectedTags.length > 0 ? tagMatch : undefined,
       sort_by: sortBy,
@@ -254,7 +257,7 @@ export function AllContent(): ReactNode {
       filter_id: currentFilterId,
       content_types: selectedContentTypes,
     }),
-    [debouncedSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentFilterId, selectedContentTypes]
+    [effectiveSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentFilterId, selectedContentTypes]
   )
 
   // Fetch content with TanStack Query
@@ -825,9 +828,8 @@ export function AllContent(): ReactNode {
     const hasContentTypeOverride = selectedContentTypes !== undefined
       && selectedContentTypes.length < availableContentTypes.length
     const hasTagFilters = selectedTags.length > 0
-    const hasSearchQuery = searchQuery.length > 0
-    return hasContentTypeOverride || hasTagFilters || isSortOverridden || hasSearchQuery
-  }, [selectedContentTypes, availableContentTypes, selectedTags, isSortOverridden, searchQuery])
+    return hasContentTypeOverride || hasTagFilters || isSortOverridden || effectiveSearchQuery.length > 0
+  }, [selectedContentTypes, availableContentTypes, selectedTags, isSortOverridden, effectiveSearchQuery])
 
   const handleResetFilters = useCallback(() => {
     clearTypes(contentTypeFilterKey)

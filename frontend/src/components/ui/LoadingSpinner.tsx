@@ -58,16 +58,16 @@ export function LoadingSpinnerPage({
 }
 
 /**
- * Content-area centered loading spinner.
- * Uses padding-based centering instead of viewport-relative min-height.
+ * Content-area loading spinner.
+ * Uses viewport-relative top padding for consistent vertical position.
  * Use inside Layout where the sidebar shell should remain visible.
  */
 export function ContentAreaSpinner({
-  size = 'md',
+  size = 'lg',
   label = 'Loading...',
 }: Omit<LoadingSpinnerProps, 'className'>): ReactNode {
   return (
-    <div className="flex items-center justify-center py-32">
+    <div className="absolute inset-x-0 top-[20vh] flex justify-center">
       <LoadingSpinner size={size} label={label} />
     </div>
   )

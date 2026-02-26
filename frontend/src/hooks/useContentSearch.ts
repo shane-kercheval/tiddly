@@ -62,7 +62,7 @@ export function useContentSearch({
 
   const { data, isFetching } = useContentQuery(
     { q: debouncedQuery, limit: 20, view: 'active' },
-    { enabled: enabled && debouncedQuery.length >= 1 },
+    { enabled: enabled && debouncedQuery.length >= 2 },
   )
 
   const rawItems = data?.items
