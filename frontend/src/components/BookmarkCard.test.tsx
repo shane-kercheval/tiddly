@@ -256,10 +256,11 @@ describe('BookmarkCard', () => {
   })
 
   describe('card click behavior', () => {
-    it('calls onEdit when card is clicked (not on URL)', () => {
+    it('calls onEdit when card background is clicked', async () => {
       const onEdit = vi.fn()
+      const user = userEvent.setup()
 
-      render(
+      const { container } = render(
         <BookmarkCard
           bookmark={mockBookmark}
           onDelete={vi.fn()}
@@ -267,9 +268,9 @@ describe('BookmarkCard', () => {
         />
       )
 
-      // Click on the title (multiple exist for mobile/desktop)
-      const titles = screen.getAllByText('Example Article')
-      fireEvent.click(titles[0])
+      // Click on the card itself (not on a link/button)
+      const card = container.querySelector('.card')
+      await user.click(card!)
 
       expect(onEdit).toHaveBeenCalledWith(mockBookmark)
     })

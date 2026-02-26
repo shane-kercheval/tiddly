@@ -161,7 +161,15 @@ export function BookmarkCard({
         <div className="md:hidden flex flex-col gap-1.5">
           {/* Title row */}
           {hasTitle ? (
-            <span className="text-base font-medium text-gray-900 truncate">{displayTitle}</span>
+            <a
+              href={bookmark.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleUrlClick}
+              className="text-base font-medium text-gray-900 truncate"
+            >
+              {displayTitle}
+            </a>
           ) : (
             <Tooltip content="Open URL in new tab" compact>
               <a
