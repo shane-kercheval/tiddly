@@ -1585,6 +1585,14 @@ async def clear() -> None:
 
 def main() -> None:
     """CLI entry point."""
+    settings = get_settings()
+    if not settings.dev_mode:
+        print(
+            "ERROR: Seed script requires VITE_DEV_MODE=true.\n"
+            "This script modifies data directly and must only run against a local dev database."
+        )
+        raise SystemExit(1)
+
     parser = argparse.ArgumentParser(description='Seed the dev database with test data.')
     subparsers = parser.add_subparsers(dest='command', required=True)
 

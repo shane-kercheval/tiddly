@@ -99,9 +99,9 @@ export function AllContent(): ReactNode {
   const [searchQuery, setSearchQuery] = useState(urlSearchQuery)
 
   // Sync URL → local on view switches (pathname changes like All→Archived→Trash).
-  // Same-pathname URL changes are always our own debounce writes (updateParams uses
-  // replace:true), so ignoring them prevents overwriting characters typed during
-  // the debounce window.
+  // Same-pathname URL changes are safe to ignore because updateParams uses
+  // replace:true (no history entries), so they're always our own debounce writes.
+  // This prevents overwriting characters typed during the debounce window.
   const [prevPathname, setPrevPathname] = useState(location.pathname)
   if (location.pathname !== prevPathname) {
     setPrevPathname(location.pathname)

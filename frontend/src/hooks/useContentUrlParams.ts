@@ -80,6 +80,9 @@ export function useContentUrlParams(): UseContentUrlParamsReturn {
         }
 
         return newParams
+      // replace:true avoids creating history entries, so browser back/forward
+      // never produces same-pathname URL changes. AllContent's pathname-based
+      // sync relies on this.
       }, { replace: true })
     },
     []
