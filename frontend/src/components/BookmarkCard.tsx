@@ -95,6 +95,19 @@ export function BookmarkCard({
     linkTooltipTimeoutRef.current = setTimeout(() => setLinkHovered(false), 50)
   }, [])
 
+  // Event delegation for tooltip on desktop: check if mouse is on/moving to a .link-area element.
+  // mouseout's relatedTarget is the NEXT element, so direct .link-area→.link-area transitions never hide.
+  const handleLinkMouseOver = useCallback((e: React.MouseEvent): void => {
+    if ((e.target as HTMLElement).closest('.link-area')) {
+      showLinkTooltip()
+    }
+  }, [showLinkTooltip])
+  const handleLinkMouseOut = useCallback((e: React.MouseEvent): void => {
+    const related = e.relatedTarget as HTMLElement | null
+    if (related?.closest('.link-area')) return
+    hideLinkTooltip()
+  }, [hideLinkTooltip])
+
   const handleCardClick = (): void => {
     if (onClick) {
       onClick(bookmark)
@@ -156,6 +169,8 @@ export function BookmarkCard({
             <ExternalLinkIcon className="absolute inset-0 w-4 h-4 text-blue-500 opacity-0 md:group-has-[.link-area:hover]/link:opacity-100 transition-opacity duration-150" />
           </>
         )}
+        {/* Invisible bridge covering the grid gap to the right so hover doesn't drop between favicon and title */}
+        <span className="link-area hidden md:block absolute top-0 left-full w-2 h-full" />
       </a>
 
       {/* Column 2: Content - responsive layout */}
@@ -303,7 +318,7 @@ export function BookmarkCard({
         </div>
 
         {/* Desktop layout - horizontal with hover actions */}
-        <div className="hidden md:block relative">
+        <div className="hidden md:block relative" onMouseOver={handleLinkMouseOver} onMouseOut={handleLinkMouseOut}>
           {/* Row 1: Title + tags + date */}
           <div className="flex items-baseline gap-2">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
@@ -313,21 +328,17 @@ export function BookmarkCard({
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={handleUrlClick}
-                  onMouseEnter={showLinkTooltip}
-                  onMouseLeave={hideLinkTooltip}
                   className="link-area text-base font-medium text-gray-900 truncate group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
                 >
                   {displayTitle}
                 </a>
               ) : (
-                <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
+                <Tooltip content="Open URL in new tab" compact show={linkHovered ?? undefined}>
                   <a
                     href={bookmark.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={handleUrlClick}
-                    onMouseEnter={showLinkTooltip}
-                    onMouseLeave={hideLinkTooltip}
                     className="link-area text-base font-medium text-gray-900 truncate group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
                   >
                     {displayTitle}
@@ -366,15 +377,13 @@ export function BookmarkCard({
 
           {/* Row 2: URL */}
           {hasTitle && (
-            <div className="mt-0.5">
-              <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
+            <div className="link-area flex pt-0.5">
+              <Tooltip content="Open URL in new tab" compact show={linkHovered ?? undefined}>
                 <a
                   href={bookmark.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={handleUrlClick}
-                  onMouseEnter={showLinkTooltip}
-                  onMouseLeave={hideLinkTooltip}
                   className="link-area text-[13px] text-gray-400 truncate block group-has-[.link-area:hover]/link:text-blue-500 transition-colors duration-150"
                 >
                   {displayUrl}
