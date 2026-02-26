@@ -58,7 +58,8 @@ async function loadTags() {
       tagsStatus.hidden = true;
       renderTagChips();
     } else if (response?.status === 401) {
-      tagsStatus.textContent = 'Invalid token';
+      showStatus(saveStatus, 'Token saved but appears invalid', 'error');
+      tagsStatus.hidden = true;
       tagChipsContainer.replaceChildren();
     } else {
       tagsStatus.textContent = 'Could not load tags';

@@ -18,13 +18,6 @@ async function fetchWithTimeout(url, options = {}) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'TEST_CONNECTION') {
-    handleTestConnection(message).then(sendResponse).catch(err =>
-      sendResponse({ success: false, error: err.message })
-    );
-    return true;
-  }
-
   if (message.type === 'CREATE_BOOKMARK') {
     handleCreateBookmark(message).then(sendResponse).catch(err =>
       sendResponse({ success: false, error: err.message })
@@ -51,19 +44,6 @@ async function getToken() {
   const { token } = await chrome.storage.local.get(['token']);
   if (!token) throw new Error('Not configured — open extension settings');
   return token;
-}
-
-async function handleTestConnection(message) {
-  // Uses token from message (not storage) because this runs before the user saves
-  const token = message.token;
-  const res = await fetchWithTimeout(`${API_URL}/users/me`, {
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  if (res.ok) {
-    const data = await res.json();
-    return { success: true };
-  }
-  return { success: false, status: res.status };
 }
 
 async function handleCreateBookmark(message) {

@@ -36,10 +36,18 @@ body {
   margin-bottom: 0;
 }
 
+#save-view {
+  position: relative;
+}
+
 #save-view > .settings-link {
   position: absolute;
   top: -12px;
   right: -8px;
+}
+
+#search-input {
+  flex: 1;
 }
 
 .settings-link {

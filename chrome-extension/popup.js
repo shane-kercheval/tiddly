@@ -140,13 +140,15 @@ function renderTagChips() {
   }
 
   // Always include selected tags in the visible set, even when collapsed (#7)
+  // Include custom tags (not in allTags) so they remain visible and removable
+  const customSelected = [...selectedTags].filter(t => !allTags.includes(t));
   let tagsToShow;
   if (showingAllTags || filterText) {
-    tagsToShow = visibleTags;
+    tagsToShow = [...visibleTags, ...customSelected.filter(t => !filterText || t.includes(filterText))];
   } else {
     const topTags = visibleTags.slice(0, INITIAL_CHIPS_COUNT);
     const selectedNotInTop = [...selectedTags].filter(
-      t => allTags.includes(t) && !topTags.includes(t)
+      t => !topTags.includes(t)
     );
     tagsToShow = [...topTags, ...selectedNotInTop];
   }
@@ -395,15 +397,14 @@ async function loadBookmarks(query, offset, append) {
     const titleRow = document.createElement('div');
     titleRow.className = 'search-result-title-row';
 
-    try {
-      const favicon = document.createElement('img');
-      favicon.className = 'search-result-favicon';
-      favicon.width = 16;
-      favicon.height = 16;
-      favicon.src = `https://www.google.com/s2/favicons?domain=${new URL(item.url).hostname}&sz=32`;
-      favicon.alt = '';
-      titleRow.appendChild(favicon);
-    } catch { /* invalid URL, skip favicon */ }
+    const favicon = document.createElement('img');
+    favicon.className = 'search-result-favicon';
+    favicon.width = 16;
+    favicon.height = 16;
+    favicon.src = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(item.url)}&size=32`;
+    favicon.alt = '';
+    favicon.onerror = () => favicon.remove();
+    titleRow.appendChild(favicon);
 
     const title = document.createElement('a');
     title.className = 'search-result-title';
@@ -444,17 +445,6 @@ async function loadBookmarks(query, offset, append) {
 
   searchOffset = offset + items.length;
   loadMoreBtn.hidden = !has_more;
-}
-
-function formatDate(isoString) {
-  const d = new Date(isoString);
-  const now = new Date();
-  const month = d.toLocaleString('default', { month: 'short' });
-  const day = d.getDate();
-  if (d.getFullYear() !== now.getFullYear()) {
-    return `${month} ${day}, ${d.getFullYear()}`;
-  }
-  return `${month} ${day}`;
 }
 
 // --- Init ---
