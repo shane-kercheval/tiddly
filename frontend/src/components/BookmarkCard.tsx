@@ -379,7 +379,7 @@ export function BookmarkCard({
 
           {/* Row 2: URL */}
           {hasTitle && (
-            <div className="flex pt-0.5">
+            <div className="link-area flex pt-0.5 w-fit">
               <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
                 <a
                   href={bookmark.url}
