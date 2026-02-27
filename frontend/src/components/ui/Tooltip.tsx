@@ -113,6 +113,14 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
     }
   }, [show, position])
 
+  // Dismiss tooltip on scroll (any scrollable container, not just window)
+  useEffect(() => {
+    if (!isVisible) return
+    const hide = (): void => setIsVisible(false)
+    window.addEventListener('scroll', hide, { capture: true, passive: true })
+    return () => window.removeEventListener('scroll', hide, { capture: true })
+  }, [isVisible])
+
   // When no content provided, render children directly without wrapper or tooltip behavior
   if (content == null) return <>{children}</>
 

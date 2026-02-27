@@ -31,7 +31,7 @@ export function Tag({
   onRemove,
 }: TagProps): ReactNode {
   const tagContent = (
-    <span className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors">
+    <span className="badge-secondary hover:bg-gray-200 hover:border-gray-300 transition-colors">
       {tag}
     </span>
   )
@@ -45,7 +45,7 @@ export function Tag({
               e.stopPropagation()
               onClick()
             }}
-            className="badge-secondary hover:bg-gray-100 hover:border-gray-300 transition-colors"
+            className="badge-secondary hover:bg-gray-200 hover:border-gray-300 transition-colors"
           >
             {tag}
           </button>

@@ -554,20 +554,20 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
         <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200">
           {/* Hidden on mobile - drag-drop doesn't work well on touch */}
           <button
-            onClick={handleNewCollection}
-            className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-            aria-label="New Collection"
-          >
-            <PlusIcon className="h-3 w-3" />
-            <span>Collection</span>
-          </button>
-          <button
             onClick={handleNewFilter}
             className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
             aria-label="New Filter"
           >
             <PlusIcon className="h-3 w-3" />
             <span>Filter</span>
+          </button>
+          <button
+            onClick={handleNewCollection}
+            className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            aria-label="New Collection"
+          >
+            <PlusIcon className="h-3 w-3" />
+            <span>Collection</span>
           </button>
           <div className="flex-1" />
           <Tooltip content="New Bookmark" compact>
@@ -632,7 +632,8 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
               >
                 <SearchIcon className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                <span className="flex-1 truncate min-w-0 text-left">Command Palette (⌘⇧P)</span>
+                <span className="flex-1 truncate min-w-0 text-left">Command Palette</span>
+                <kbd className="text-[11px] text-gray-400 font-sans">⌘⇧P</kbd>
               </button>
             )}
 
