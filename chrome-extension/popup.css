@@ -84,12 +84,74 @@ body {
   color: #6b7280;
 }
 
+/* Spinner */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #111827;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+@media (prefers-color-scheme: dark) {
+  .spinner {
+    border-color: #4a4a5e;
+    border-top-color: #e0e0e0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Loading */
 .loading {
-  flex: 1;
-  color: #9ca3af;
   text-align: center;
   padding: 20px 0;
+}
+
+#loading-indicator {
+  min-height: 343px; /* approximate save form height to prevent layout shift */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#loading-indicator[hidden] {
+  display: none;
+}
+
+#search-loading {
+  min-height: 300px; /* center spinner in 400px popup (minus header/padding) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#search-loading[hidden] {
+  display: none;
 }
 
 /* Form fields */

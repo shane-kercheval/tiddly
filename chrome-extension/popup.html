@@ -21,7 +21,10 @@
           <circle cx="12" cy="12" r="3" stroke-width="2"/>
         </svg>
       </button>
-      <div id="loading-indicator" class="loading">Loading page data...</div>
+      <div id="loading-indicator" class="loading" role="status" aria-label="Loading">
+        <div class="spinner"></div>
+        <span class="sr-only">Loading</span>
+      </div>
       <form id="save-form" hidden>
         <div class="field">
           <label for="url">URL</label>
@@ -56,6 +59,10 @@
             <circle cx="12" cy="12" r="3" stroke-width="2"/>
           </svg>
         </button>
+      </div>
+      <div id="search-loading" class="loading" role="status" aria-label="Loading" hidden>
+        <div class="spinner"></div>
+        <span class="sr-only">Loading</span>
       </div>
       <div id="search-results" class="search-results"></div>
       <button id="load-more" class="btn-secondary btn-full" hidden>Load more</button>

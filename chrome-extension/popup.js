@@ -336,6 +336,7 @@ function showSaveStatus(message, type, link) {
 
 const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
+const searchLoading = document.getElementById('search-loading');
 const loadMoreBtn = document.getElementById('load-more');
 
 let searchOffset = 0;
@@ -362,7 +363,11 @@ async function initSearchView() {
 async function loadBookmarks(query, offset, append) {
   const requestId = ++searchRequestId;
   loadMoreBtn.hidden = true;
-  if (!append) loadMoreBtn.disabled = true;
+  if (!append) {
+    loadMoreBtn.disabled = true;
+    searchLoading.hidden = false;
+    searchResults.replaceChildren();
+  }
 
   let response;
   try {
@@ -376,10 +381,10 @@ async function loadBookmarks(query, offset, append) {
   // Ignore stale responses (#4)
   if (requestId !== searchRequestId) return;
 
+  searchLoading.hidden = true;
   loadMoreBtn.disabled = false;
 
   if (!response?.success) {
-    if (!append) searchResults.replaceChildren();
     const msg = document.createElement('p');
     msg.className = 'empty-state';
     if (response?.status === 401) {
@@ -394,10 +399,6 @@ async function loadBookmarks(query, offset, append) {
 
   const items = response.data?.items ?? [];
   const has_more = response.data?.has_more ?? false;
-
-  if (!append) {
-    searchResults.replaceChildren();
-  }
 
   if (items.length === 0 && !append) {
     const msg = document.createElement('p');
