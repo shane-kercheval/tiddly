@@ -37,6 +37,7 @@ const canHover = (): boolean =>
 
 export function Tooltip({ content, children, compact = false, position = 'bottom', delay = 0, className = '', show }: TooltipProps): ReactNode {
   const [isVisible, setIsVisible] = useState(false)
+  const [scrollDismissed, setScrollDismissed] = useState(false)
   const [pos, setPos] = useState<Position>({ top: 0, left: 0 })
   const triggerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -44,6 +45,7 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
 
   const showTooltip = useCallback((): void => {
     if (!canHover()) return
+    setScrollDismissed(false)
     // Clear any pending hide
     if (timeoutRef.current) {
       window.clearTimeout(timeoutRef.current)
@@ -113,10 +115,22 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
     }
   }, [show, position])
 
+  // Dismiss tooltip on scroll (any scrollable container, not just window).
+  // Handles both internal (isVisible) and external (show prop) visibility.
+  useEffect(() => {
+    if (!isVisible && !show) return
+    const hide = (): void => {
+      setIsVisible(false)
+      setScrollDismissed(true)
+    }
+    window.addEventListener('scroll', hide, { capture: true, passive: true })
+    return () => window.removeEventListener('scroll', hide, { capture: true })
+  }, [isVisible, show])
+
   // When no content provided, render children directly without wrapper or tooltip behavior
   if (content == null) return <>{children}</>
 
-  const visible = show ?? isVisible
+  const visible = (show ?? isVisible) && !scrollDismissed
 
   const sizeClasses = compact
     ? 'px-2 py-1 whitespace-nowrap'

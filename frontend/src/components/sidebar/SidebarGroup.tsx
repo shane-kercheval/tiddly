@@ -85,7 +85,7 @@ export function SidebarGroup({
     }
   }
 
-  const baseClassName = `flex w-full items-center gap-2 rounded-lg px-3 h-[30px] text-sm font-medium text-gray-700 ${
+  const baseClassName = `flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm font-medium text-gray-700 ${
     isCollapsed ? 'justify-center' : ''
   }`
 
@@ -177,7 +177,7 @@ export function SidebarGroup({
       </div>
 
       {isExpanded && (
-        <div className="ml-4 mt-0.5 space-y-0.5 border-l border-gray-200 pl-2">
+        <div className="ml-4 mt-0.5 space-y-0.5 border-l border-gray-100 pl-2">
           {children}
         </div>
       )}

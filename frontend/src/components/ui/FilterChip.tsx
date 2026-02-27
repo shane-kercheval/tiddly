@@ -31,7 +31,7 @@ export function FilterChip({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
         selected
           ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
           : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'

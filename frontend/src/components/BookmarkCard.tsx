@@ -152,23 +152,23 @@ export function BookmarkCard({
         href={bookmark.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="link-area relative w-4 h-4 mt-1"
+        className="link-area relative w-[18px] h-[18px] mt-[3px]"
         onClick={handleUrlClick}
         onMouseEnter={showLinkTooltip}
         onMouseLeave={hideLinkTooltip}
       >
         {faviconError ? (
-          <BookmarkIcon className={`w-4 h-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
+          <BookmarkIcon className={`w-[18px] h-[18px] ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
         ) : (
           <>
             <img
               src={faviconUrl}
               alt=""
-              className="absolute inset-0 w-4 h-4 opacity-100 md:group-has-[.link-area:hover]/link:opacity-0 transition-opacity duration-150"
+              className="absolute inset-0 w-[18px] h-[18px] opacity-100 md:group-has-[.link-area:hover]/link:opacity-0 transition-opacity duration-150"
               loading="lazy"
               onError={() => setFaviconErrorUrl(faviconUrl)}
             />
-            <ExternalLinkIcon className="absolute inset-0 w-4 h-4 text-blue-500 opacity-0 md:group-has-[.link-area:hover]/link:opacity-100 transition-opacity duration-150" />
+            <ExternalLinkIcon className="absolute inset-0 w-[18px] h-[18px] text-blue-500 opacity-0 md:group-has-[.link-area:hover]/link:opacity-100 transition-opacity duration-150" />
           </>
         )}
         {/* Invisible bridge covering the grid gap to the right so hover doesn't drop between favicon and title */}
@@ -379,7 +379,7 @@ export function BookmarkCard({
 
           {/* Row 2: URL */}
           {hasTitle && (
-            <div className="link-area flex pt-0.5">
+            <div className="link-area flex pt-0.5 w-fit">
               <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
                 <a
                   href={bookmark.url}

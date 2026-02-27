@@ -72,8 +72,8 @@ export function NoteCard({
       href={noteHref}
     >
       {/* Column 1: Icon */}
-      <span className={`w-4 h-4 mt-1 ${CONTENT_TYPE_ICON_COLORS.note}`}>
-        <NoteIcon className="w-4 h-4" />
+      <span className={`w-[18px] h-[18px] mt-[3px] ${CONTENT_TYPE_ICON_COLORS.note}`}>
+        <NoteIcon className="w-[18px] h-[18px]" />
       </span>
 
       {/* Column 2: Content - responsive layout */}

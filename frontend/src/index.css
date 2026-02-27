@@ -103,7 +103,7 @@ body {
   }
 
   .badge-secondary {
-    @apply inline-flex items-baseline rounded-md bg-gray-50 px-1.5 py-px text-xs font-normal text-gray-600 border border-gray-200;
+    @apply inline-flex items-baseline rounded-md bg-gray-100 px-1.5 py-px text-xs font-normal text-gray-600 border border-gray-200;
   }
 
   /* Chip styles - for filter/tag selections in modals */
@@ -137,7 +137,7 @@ body {
   /* Mobile: no negative margins to prevent horizontal overflow */
   /* Desktop: negative margins for edge-to-edge hover effect */
   .card {
-    @apply py-[10px] px-3 rounded-xl transition-all relative;
+    @apply py-3 px-3 rounded-xl transition-all relative;
   }
 
   @media (min-width: 768px) {
