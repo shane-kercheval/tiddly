@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -10 64 94" fill="none">
+  <!-- Tiddly Icon — Bookmark + Fold + Sparkles -->
+  <!-- Brand Colors: Blue #6b9fd4 · Green #85c48b · Orange #e2a66b · Dark #1f2937 -->
+
+  <!-- Body fill -->
+  <path d="M6 6C6 2.69 8.69 0 12 0H28V-2L60 28V76L32 60L6 76V6Z" fill="white"/>
+
+  <!-- Fold -->
+  <path d="M28 -2L60 28H44C35.16 28 28 20.84 28 12V-2Z" fill="#cbd5e1"/>
+
+  <!-- Outline -->
+  <path d="M28 0H12C8.69 0 6 2.69 6 6V76L32 60L58 76V28" stroke="#1f2937" stroke-width="4" stroke-linejoin="round" stroke-linecap="butt" fill="none"/>
+
+  <!-- Orange sparkle (large) -->
+  <path d="M52 -7C53.44 -0.44 53.44 -0.44 60 1C53.44 2.44 53.44 2.44 52 9C50.56 2.44 50.56 2.44 44 1C50.56 -0.44 50.56 -0.44 52 -7Z" fill="#e2a66b"/>
+
+  <!-- Green sparkle (small) -->
+  <path d="M40 -2C40.9 2.1 40.9 2.1 45 3C40.9 3.9 40.9 3.9 40 8C39.1 3.9 39.1 3.9 35 3C39.1 2.1 39.1 2.1 40 -2Z" fill="#85c48b"/>
+
+  <!-- Blue sparkle (small) -->
+  <path d="M54 10C54.9 14.1 54.9 14.1 59 15C54.9 15.9 54.9 15.9 54 20C53.1 15.9 53.1 15.9 49 15C53.1 14.1 53.1 14.1 54 10Z" fill="#6b9fd4"/>
+</svg>

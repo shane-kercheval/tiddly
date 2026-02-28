@@ -24,9 +24,11 @@ const productItems: DropdownItem[] = [
 export function PublicHeader({
   onLogin,
   onSignup,
+  fullWidth = false,
 }: {
   onLogin?: () => void
   onSignup?: () => void
+  fullWidth?: boolean
 }): ReactNode {
   const { isAuthenticated } = useAuthStatus()
   const location = useLocation()
@@ -64,8 +66,8 @@ export function PublicHeader({
     }`
 
   return (
-    <header className="w-full border-b border-gray-100">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4 sm:px-8 lg:px-12">
+    <header className="w-full">
+      <div className={`flex items-center justify-between border-b border-gray-100 px-6 py-4 sm:px-8 lg:px-12 ${fullWidth ? '' : 'mx-auto max-w-5xl'}`}>
         {/* Left: Logo + Nav */}
         <div className="flex items-center gap-8">
           <Link to="/" className="flex items-center gap-2" aria-label="Home">

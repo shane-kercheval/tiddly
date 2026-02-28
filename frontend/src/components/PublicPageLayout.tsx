@@ -11,7 +11,7 @@ export function PublicPageLayout(): ReactNode {
   return (
     <div className="flex min-h-screen flex-col bg-white">
       <PublicHeader />
-      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 sm:px-8 lg:px-12">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 sm:px-8 lg:px-12">
         <Outlet />
       </main>
       <Footer />

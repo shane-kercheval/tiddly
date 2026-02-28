@@ -22,9 +22,10 @@ function LandingContent({
       <PublicHeader onLogin={onLogin} onSignup={onSignup} />
 
       {/* Hero Section */}
-      <div className="mx-auto max-w-6xl px-6 pb-24 pt-12 sm:px-8 lg:px-12">
+      <div className="mx-auto max-w-5xl px-6 pb-24 pt-12 sm:px-8 lg:px-12">
         <div className="text-center">
           <div className="mb-8 flex items-center justify-center gap-4">
+            <img src="/tiddly-logo.svg" alt="" className="h-16 w-16 sm:h-20 sm:w-20" />
             <h1 className="text-6xl font-bold tracking-tight text-gray-900 sm:text-7xl">
               Tiddly
             </h1>

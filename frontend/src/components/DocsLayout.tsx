@@ -98,7 +98,7 @@ export function DocsLayout(): ReactNode {
 
   return (
     <div className="flex min-h-screen flex-col bg-white">
-      <PublicHeader />
+      <PublicHeader fullWidth />
 
       <div className="flex w-full flex-1">
         {/* Mobile menu button */}
