@@ -28,7 +28,6 @@ import { useTabNavigation } from '../../hooks/useTabNavigation'
 import { useCollectionOperations } from '../../hooks/useCollectionOperations'
 import { useFilterOperations } from '../../hooks/useFilterOperations'
 import { getFirstGroupTags } from '../../utils'
-import { SidebarGroup } from './SidebarGroup'
 import { SidebarNavItem } from './SidebarNavItem'
 import { SidebarUserSection } from './SidebarUserSection'
 import { SortableNavItem } from './SortableSidebarItem'
@@ -44,7 +43,6 @@ import { getFilterRoute } from './routes'
 import { FilterModal } from '../FilterModal'
 import { CollectionModal } from '../CollectionModal'
 import {
-  SettingsIcon,
   MenuIcon,
   CollapseIcon,
   PlusIcon,
@@ -58,6 +56,7 @@ import {
   HistoryIcon,
   HelpIcon,
   SearchIcon,
+  IconWithBadge,
 } from '../icons'
 import { Tooltip } from '../ui'
 import type {
@@ -115,7 +114,7 @@ interface SidebarContentProps {
 function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarContentProps): ReactNode {
   const navigate = useNavigate()
   const location = useLocation()
-  const { expandedSections, toggleSection, toggleCollapse, isGroupCollapsed, toggleGroup } =
+  const { toggleCollapse, isGroupCollapsed, toggleGroup } =
     useSidebarStore()
   const sidebar = useSettingsStore((state) => state.sidebar)
   const updateSidebar = useSettingsStore((state) => state.updateSidebar)
@@ -152,8 +151,6 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
 
   // Drag state
   const [activeId, setActiveId] = useState<string | null>(null)
-
-  const isSettingsExpanded = expandedSections.includes('settings')
 
   // Quick-add handlers
   const handleQuickAddBookmark = (): void => {
@@ -549,57 +546,6 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
 
   return (
     <div className="flex h-full flex-col">
-      {/* Quick-add bar: Collection/Filter on left, Bookmark/Note/Prompt on right */}
-      {!isCollapsed && (
-        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200">
-          {/* Hidden on mobile - drag-drop doesn't work well on touch */}
-          <button
-            onClick={handleNewFilter}
-            className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-            aria-label="New Filter"
-          >
-            <PlusIcon className="h-3 w-3" />
-            <span>Filter</span>
-          </button>
-          <button
-            onClick={handleNewCollection}
-            className="hidden md:flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-            aria-label="New Collection"
-          >
-            <PlusIcon className="h-3 w-3" />
-            <span>Collection</span>
-          </button>
-          <div className="flex-1" />
-          <Tooltip content="New Bookmark" compact>
-            <button
-              onClick={handleQuickAddBookmark}
-              className="p-1.5 rounded-md text-brand-bookmark hover:bg-brand-bookmark-light hover:text-brand-bookmark transition-colors"
-              aria-label="New Bookmark"
-            >
-              <BookmarkIcon className="h-4 w-4" />
-            </button>
-          </Tooltip>
-          <Tooltip content="New Note" compact>
-            <button
-              onClick={handleQuickAddNote}
-              className="p-1.5 rounded-md text-brand-note hover:bg-brand-note-light hover:text-brand-note transition-colors"
-              aria-label="New Note"
-            >
-              <NoteIcon className="h-4 w-4" />
-            </button>
-          </Tooltip>
-          <Tooltip content="New Prompt" compact>
-            <button
-              onClick={handleQuickAddPrompt}
-              className="p-1.5 rounded-md text-brand-prompt hover:bg-brand-prompt-light hover:text-brand-prompt transition-colors"
-              aria-label="New Prompt"
-            >
-              <PromptIcon className="h-4 w-4" />
-            </button>
-          </Tooltip>
-        </div>
-      )}
-
       {/* Navigation Items with Drag-and-Drop */}
       <DndContext
         sensors={sensors}
@@ -609,144 +555,197 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
         onDragEnd={handleDragEnd}
       >
         <nav className={`flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2 pt-1${isCollapsed ? ' scrollbar-none' : ''}`}>
-          <SortableContext items={rootItemIds} strategy={verticalListSortingStrategy}>
-            {sidebar?.items.map(renderItem)}
-          </SortableContext>
+          {/* Actions Section */}
+          <div className="space-y-0.5 pb-2 border-b border-gray-200 mb-2">
+            {/* New Note */}
+            <div className="relative w-full min-w-0 overflow-hidden">
+              {isCollapsed ? (
+                <Tooltip content="New Note" compact position="right" className="w-full">
+                  <button
+                    onClick={handleQuickAddNote}
+                    className="flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm text-brand-note transition-colors hover:bg-gray-100 focus:outline-none"
+                    aria-label="New Note"
+                  >
+                    <IconWithBadge>
+                      <NoteIcon className="h-[18px] w-[18px]" />
+                    </IconWithBadge>
+                  </button>
+                </Tooltip>
+              ) : (
+                <button
+                  onClick={handleQuickAddNote}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
+                  aria-label="New Note"
+                >
+                  <span className="flex-shrink-0 text-brand-note">
+                    <IconWithBadge>
+                      <NoteIcon className="h-[18px] w-[18px]" />
+                    </IconWithBadge>
+                  </span>
+                  <span className="flex-1 truncate min-w-0 text-left">New Note</span>
+                </button>
+              )}
+            </div>
 
-          {/* Command Palette + Settings Section (not draggable) */}
-          <div className="mt-4 border-t border-gray-200 pt-4">
-            {/* Command Palette nav item */}
+            {/* New Bookmark */}
+            <div className="relative w-full min-w-0 overflow-hidden">
+              {isCollapsed ? (
+                <Tooltip content="New Bookmark" compact position="right" className="w-full">
+                  <button
+                    onClick={handleQuickAddBookmark}
+                    className="flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm text-brand-bookmark transition-colors hover:bg-gray-100 focus:outline-none"
+                    aria-label="New Bookmark"
+                  >
+                    <IconWithBadge>
+                      <BookmarkIcon className="h-[18px] w-[18px]" />
+                    </IconWithBadge>
+                  </button>
+                </Tooltip>
+              ) : (
+                <button
+                  onClick={handleQuickAddBookmark}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
+                  aria-label="New Bookmark"
+                >
+                  <span className="flex-shrink-0 text-brand-bookmark">
+                    <IconWithBadge>
+                      <BookmarkIcon className="h-[18px] w-[18px]" />
+                    </IconWithBadge>
+                  </span>
+                  <span className="flex-1 truncate min-w-0 text-left">New Bookmark</span>
+                </button>
+              )}
+            </div>
+
+            {/* New Prompt */}
+            <div className="relative w-full min-w-0 overflow-hidden">
+              {isCollapsed ? (
+                <Tooltip content="New Prompt" compact position="right" className="w-full">
+                  <button
+                    onClick={handleQuickAddPrompt}
+                    className="flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm text-brand-prompt transition-colors hover:bg-gray-100 focus:outline-none"
+                    aria-label="New Prompt"
+                  >
+                    <IconWithBadge>
+                      <PromptIcon className="h-[18px] w-[18px]" />
+                    </IconWithBadge>
+                  </button>
+                </Tooltip>
+              ) : (
+                <button
+                  onClick={handleQuickAddPrompt}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
+                  aria-label="New Prompt"
+                >
+                  <span className="flex-shrink-0 text-brand-prompt">
+                    <IconWithBadge>
+                      <PromptIcon className="h-[18px] w-[18px]" />
+                    </IconWithBadge>
+                  </span>
+                  <span className="flex-1 truncate min-w-0 text-left">New Prompt</span>
+                </button>
+              )}
+            </div>
+
+            {/* Command Palette */}
             {isCollapsed ? (
               <Tooltip content="Command Palette (⌘⇧P)" compact position="right" className="w-full">
                 <button
                   onClick={onOpenPalette}
-                  className="flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
+                  className="flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
                 >
-                  <SearchIcon className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                  <SearchIcon className="h-[18px] w-[18px] text-gray-500 flex-shrink-0" />
                   <span className="sr-only">Command Palette (⌘⇧P)</span>
                 </button>
               </Tooltip>
             ) : (
               <button
                 onClick={onOpenPalette}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
+                className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
               >
-                <SearchIcon className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                <SearchIcon className="h-[18px] w-[18px] text-gray-500 flex-shrink-0" />
                 <span className="flex-1 truncate min-w-0 text-left">Command Palette</span>
                 <kbd className="text-[11px] text-gray-400 font-sans">⌘⇧P</kbd>
               </button>
             )}
+          </div>
 
-            {isCollapsed ? (
-              /* When collapsed, show settings items flattened with their icons and tooltips */
-              <div className="space-y-0.5">
-                <Tooltip content="General" compact position="right" className="w-full">
-                  <SidebarNavItem
-                    to="/app/settings/general"
-                    label="General"
-                    isCollapsed={isCollapsed}
-                    onClick={onNavClick}
-                    icon={<AdjustmentsIcon className="h-4 w-4 text-gray-500" />}
-                  />
-                </Tooltip>
-                <Tooltip content="Tags" compact position="right" className="w-full">
-                  <SidebarNavItem
-                    to="/app/settings/tags"
-                    label="Tags"
-                    isCollapsed={isCollapsed}
-                    onClick={onNavClick}
-                    icon={<TagIcon className="h-4 w-4 text-gray-500" />}
-                  />
-                </Tooltip>
-                <Tooltip content="Personal Access Tokens" compact position="right" className="w-full">
-                  <SidebarNavItem
-                    to="/app/settings/tokens"
-                    label="Personal Access Tokens"
-                    isCollapsed={isCollapsed}
-                    onClick={onNavClick}
-                    icon={<KeyIcon className="h-4 w-4 text-gray-500" />}
-                  />
-                </Tooltip>
-                <Tooltip content="AI Integration" compact position="right" className="w-full">
-                  <SidebarNavItem
-                    to="/app/settings/mcp"
-                    label="AI Integration"
-                    isCollapsed={isCollapsed}
-                    onClick={onNavClick}
-                    icon={<SparklesIcon className="h-4 w-4 text-gray-500" />}
-                  />
-                </Tooltip>
-                <Tooltip content="Version History" compact position="right" className="w-full">
-                  <SidebarNavItem
-                    to="/app/settings/history"
-                    label="Version History"
-                    isCollapsed={isCollapsed}
-                    onClick={onNavClick}
-                    icon={<HistoryIcon className="h-4 w-4 text-gray-500" />}
-                  />
-                </Tooltip>
-                <Tooltip content="FAQ" compact position="right" className="w-full">
-                  <SidebarNavItem
-                    to="/app/settings/faq"
-                    label="FAQ"
-                    isCollapsed={isCollapsed}
-                    onClick={onNavClick}
-                    icon={<HelpIcon className="h-4 w-4 text-gray-500" />}
-                  />
-                </Tooltip>
-              </div>
-            ) : (
-              <SidebarGroup
-                name="Settings"
-                icon={<SettingsIcon className="h-5 w-5" />}
-                isCollapsed={isCollapsed}
-                isGroupCollapsed={!isSettingsExpanded}
-                onToggle={() => toggleSection('settings')}
+          {/* Filters and Collections (drag-and-drop) */}
+          <SortableContext items={rootItemIds} strategy={verticalListSortingStrategy}>
+            {sidebar?.items.map(renderItem)}
+          </SortableContext>
+
+          {/* +Filter / +Collection buttons — hidden on mobile */}
+          {!isCollapsed && (
+            <div className="hidden md:flex items-center gap-1 px-1 pt-1">
+              <button
+                onClick={handleNewFilter}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                aria-label="New Filter"
               >
-                <SidebarNavItem
-                  to="/app/settings/general"
-                  label="General"
-                  isCollapsed={isCollapsed}
-                  onClick={onNavClick}
-                  icon={<AdjustmentsIcon className="h-4 w-4 text-gray-500" />}
-                />
-                <SidebarNavItem
-                  to="/app/settings/tags"
-                  label="Tags"
-                  isCollapsed={isCollapsed}
-                  onClick={onNavClick}
-                  icon={<TagIcon className="h-4 w-4 text-gray-500" />}
-                />
-                <SidebarNavItem
-                  to="/app/settings/tokens"
-                  label="Personal Access Tokens"
-                  isCollapsed={isCollapsed}
-                  onClick={onNavClick}
-                  icon={<KeyIcon className="h-4 w-4 text-gray-500" />}
-                />
-                <SidebarNavItem
-                  to="/app/settings/mcp"
-                  label="AI Integration"
-                  isCollapsed={isCollapsed}
-                  onClick={onNavClick}
-                  icon={<SparklesIcon className="h-4 w-4 text-gray-500" />}
-                />
-                <SidebarNavItem
-                  to="/app/settings/history"
-                  label="Version History"
-                  isCollapsed={isCollapsed}
-                  onClick={onNavClick}
-                  icon={<HistoryIcon className="h-4 w-4 text-gray-500" />}
-                />
-                <SidebarNavItem
-                  to="/app/settings/faq"
-                  label="FAQ"
-                  isCollapsed={isCollapsed}
-                  onClick={onNavClick}
-                  icon={<HelpIcon className="h-4 w-4 text-gray-500" />}
-                />
-              </SidebarGroup>
+                <PlusIcon className="h-3.5 w-3.5" />
+                <span>Filter</span>
+              </button>
+              <button
+                onClick={handleNewCollection}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                aria-label="New Collection"
+              >
+                <PlusIcon className="h-3.5 w-3.5" />
+                <span>Collection</span>
+              </button>
+            </div>
+          )}
+
+          {/* Settings Section (not draggable) */}
+          <div className="mt-4 border-t border-gray-200 pt-3">
+            {!isCollapsed && (
+              <div className="px-3 pt-1 pb-2 text-xs font-medium text-gray-400 uppercase tracking-wider">Settings</div>
             )}
+            <div className="space-y-0.5">
+              <SidebarNavItem
+                to="/app/settings/general"
+                label="General"
+                isCollapsed={isCollapsed}
+                onClick={onNavClick}
+                icon={<AdjustmentsIcon className="h-[18px] w-[18px] text-gray-500" />}
+              />
+              <SidebarNavItem
+                to="/app/settings/tags"
+                label="Tags"
+                isCollapsed={isCollapsed}
+                onClick={onNavClick}
+                icon={<TagIcon className="h-[18px] w-[18px] text-gray-500" />}
+              />
+              <SidebarNavItem
+                to="/app/settings/tokens"
+                label="Personal Access Tokens"
+                isCollapsed={isCollapsed}
+                onClick={onNavClick}
+                icon={<KeyIcon className="h-[18px] w-[18px] text-gray-500" />}
+              />
+              <SidebarNavItem
+                to="/app/settings/mcp"
+                label="AI Integration"
+                isCollapsed={isCollapsed}
+                onClick={onNavClick}
+                icon={<SparklesIcon className="h-[18px] w-[18px] text-gray-500" />}
+              />
+              <SidebarNavItem
+                to="/app/settings/history"
+                label="Version History"
+                isCollapsed={isCollapsed}
+                onClick={onNavClick}
+                icon={<HistoryIcon className="h-[18px] w-[18px] text-gray-500" />}
+              />
+              <SidebarNavItem
+                to="/app/settings/faq"
+                label="FAQ"
+                isCollapsed={isCollapsed}
+                onClick={onNavClick}
+                icon={<HelpIcon className="h-[18px] w-[18px] text-gray-500" />}
+              />
+            </div>
           </div>
         </nav>
 

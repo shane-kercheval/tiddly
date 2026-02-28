@@ -175,7 +175,7 @@ export function SortableCollectionItem({
           <div className="flex-1 min-w-0 overflow-hidden">
             <SidebarGroup
               name={item.name}
-              icon={<GroupIcon className="h-5 w-5 text-gray-500" />}
+              icon={<GroupIcon className="h-[18px] w-[18px] text-gray-500" />}
               isCollapsed={isCollapsed}
               isGroupCollapsed={isGroupCollapsed}
               onToggle={onToggleGroup}

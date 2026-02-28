@@ -40,6 +40,7 @@ import {
   BookmarkIcon,
   NoteIcon,
   PromptIcon,
+  IconWithBadge,
   TagIcon,
   KeyIcon,
   SparklesIcon,
@@ -331,19 +332,19 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     cmds.push({
       id: 'new-note',
       label: 'New Note',
-      icon: <NoteIcon className="h-4 w-4" />,
+      icon: <IconWithBadge className="text-brand-note"><NoteIcon className="h-4 w-4" /></IconWithBadge>,
       action: () => navigateAndClose('/app/notes/new'),
     })
     cmds.push({
       id: 'new-bookmark',
       label: 'New Bookmark',
-      icon: <BookmarkIcon className="h-4 w-4" />,
+      icon: <IconWithBadge className="text-brand-bookmark"><BookmarkIcon className="h-4 w-4" /></IconWithBadge>,
       action: () => navigateAndClose('/app/bookmarks/new'),
     })
     cmds.push({
       id: 'new-prompt',
       label: 'New Prompt',
-      icon: <PromptIcon className="h-4 w-4" />,
+      icon: <IconWithBadge className="text-brand-prompt"><PromptIcon className="h-4 w-4" /></IconWithBadge>,
       action: () => navigateAndClose('/app/prompts/new'),
     })
 
