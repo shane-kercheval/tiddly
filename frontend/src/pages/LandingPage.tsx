@@ -3,8 +3,8 @@ import { Navigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
 import { usePageTitle } from '../hooks/usePageTitle'
-import { BookmarkIcon } from '../components/icons'
 import { Footer } from '../components/Footer'
+import { PublicHeader } from '../components/PublicHeader'
 import { LoadingSpinnerPage } from '../components/ui'
 
 /**
@@ -19,24 +19,7 @@ function LandingContent({
 }): ReactNode {
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 sm:px-8 lg:px-12">
-        <BookmarkIcon className="h-8 w-8 text-gray-900" />
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onLogin}
-            className="rounded-lg px-5 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
-          >
-            Log In
-          </button>
-          <button
-            onClick={onSignup}
-            className="rounded-lg bg-gray-900 px-5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
-          >
-            Sign Up
-          </button>
-        </div>
-      </header>
+      <PublicHeader onLogin={onLogin} onSignup={onSignup} />
 
       {/* Hero Section */}
       <div className="mx-auto max-w-6xl px-6 pb-24 pt-12 sm:px-8 lg:px-12">

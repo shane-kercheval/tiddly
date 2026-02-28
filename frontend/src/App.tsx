@@ -5,6 +5,8 @@ import { AuthProvider } from './components/AuthProvider'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppLayout } from './components/AppLayout'
 import { Layout } from './components/Layout'
+import { DocsLayout } from './components/DocsLayout'
+import { PublicPageLayout } from './components/PublicPageLayout'
 import { LandingPage } from './pages/LandingPage'
 import { PrivacyPolicy } from './pages/PrivacyPolicy'
 import { TermsOfService } from './pages/TermsOfService'
@@ -18,6 +20,24 @@ import { SettingsMCP } from './pages/settings/SettingsMCP'
 import { SettingsTags } from './pages/settings/SettingsTags'
 import { SettingsFAQ } from './pages/settings/SettingsFAQ'
 import { SettingsVersionHistory } from './pages/settings/SettingsVersionHistory'
+import { DocsOverview } from './pages/docs/DocsOverview'
+import { DocsGettingStarted } from './pages/docs/DocsGettingStarted'
+import { DocsAIHub } from './pages/docs/DocsAIHub'
+import { DocsClaudeDesktop } from './pages/docs/DocsClaudeDesktop'
+import { DocsClaudeCode } from './pages/docs/DocsClaudeCode'
+import { DocsCodex } from './pages/docs/DocsCodex'
+import { DocsAIChatGPT } from './pages/docs/DocsAIChatGPT'
+import { DocsAIGeminiCLI } from './pages/docs/DocsAIGeminiCLI'
+import { DocsAIMCPTools } from './pages/docs/DocsAIMCPTools'
+import { DocsExtensionsHub } from './pages/docs/DocsExtensionsHub'
+import { DocsExtensionsChrome } from './pages/docs/DocsExtensionsChrome'
+import { DocsExtensionsSafari } from './pages/docs/DocsExtensionsSafari'
+import { DocsAPI } from './pages/docs/DocsAPI'
+import { DocsAPIEndpoint } from './pages/docs/DocsAPIEndpoint'
+import { DocsFAQ } from './pages/docs/DocsFAQ'
+import { Changelog } from './pages/changelog/Changelog'
+import { Roadmap } from './pages/roadmap/Roadmap'
+import { Pricing } from './pages/Pricing'
 
 /**
  * Root layout component that wraps the entire app with providers.
@@ -43,6 +63,38 @@ const router = createBrowserRouter([
       { path: '/', element: <LandingPage /> },
       { path: '/privacy', element: <PrivacyPolicy /> },
       { path: '/terms', element: <TermsOfService /> },
+
+      // Public docs routes
+      {
+        element: <DocsLayout />,
+        children: [
+          { path: '/docs', element: <DocsOverview /> },
+          { path: '/docs/getting-started', element: <DocsGettingStarted /> },
+          { path: '/docs/ai', element: <DocsAIHub /> },
+          { path: '/docs/ai/claude-desktop', element: <DocsClaudeDesktop /> },
+          { path: '/docs/ai/claude-code', element: <DocsClaudeCode /> },
+          { path: '/docs/ai/codex', element: <DocsCodex /> },
+          { path: '/docs/ai/chatgpt', element: <DocsAIChatGPT /> },
+          { path: '/docs/ai/gemini-cli', element: <DocsAIGeminiCLI /> },
+          { path: '/docs/ai/mcp-tools', element: <DocsAIMCPTools /> },
+          { path: '/docs/extensions', element: <DocsExtensionsHub /> },
+          { path: '/docs/extensions/chrome', element: <DocsExtensionsChrome /> },
+          { path: '/docs/extensions/safari', element: <DocsExtensionsSafari /> },
+          { path: '/docs/api', element: <DocsAPI /> },
+          { path: '/docs/api/:endpoint', element: <DocsAPIEndpoint /> },
+          { path: '/docs/faq', element: <DocsFAQ /> },
+        ],
+      },
+
+      // Top-level public routes with shared header/footer
+      {
+        element: <PublicPageLayout />,
+        children: [
+          { path: '/changelog', element: <Changelog /> },
+          { path: '/roadmap', element: <Roadmap /> },
+          { path: '/pricing', element: <Pricing /> },
+        ],
+      },
 
       // Protected app routes - requires auth + consent
       {
@@ -101,6 +153,9 @@ const router = createBrowserRouter([
  *   - / : Landing page
  *   - /privacy : Privacy Policy
  *   - /terms : Terms of Service
+ *   - /docs/* : Documentation pages
+ *   - /changelog : Changelog
+ *   - /roadmap : Roadmap
  *
  * - App routes (authentication + consent required):
  *   - /app : Redirects to /app/content
