@@ -7,6 +7,19 @@ import { usePageTitle } from '../hooks/usePageTitle'
 import { Footer } from '../components/Footer'
 import { PublicHeader } from '../components/PublicHeader'
 import { LoadingSpinnerPage } from '../components/ui'
+import {
+  BookmarkIcon,
+  EditIcon,
+  ExternalLinkIcon,
+  HistoryIcon,
+  KeyIcon,
+  LinkIcon,
+  ListIcon,
+  PromptIcon,
+  SearchIcon,
+  SparklesIcon,
+  TagIcon,
+} from '../components/icons'
 
 function FAQItem({
   question,
@@ -51,6 +64,39 @@ function FAQItem({
   )
 }
 
+function FeatureCard({
+  icon,
+  title,
+  description,
+  iconBg = 'bg-gray-100',
+  comingSoon = false,
+}: {
+  icon: ReactNode
+  title: string
+  description: string
+  iconBg?: string
+  comingSoon?: boolean
+}): ReactNode {
+  return (
+    <div className="flex gap-4">
+      <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
+        <div className="h-5 w-5 text-gray-600">{icon}</div>
+      </div>
+      <div>
+        <h3 className="mb-1 text-lg font-semibold text-gray-900">
+          {title}
+          {comingSoon && (
+            <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-400">
+              Coming soon
+            </span>
+          )}
+        </h3>
+        <p className="text-[15px] leading-relaxed text-gray-600">{description}</p>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Landing page content shown to unauthenticated users.
  */
@@ -78,7 +124,7 @@ function LandingContent({
             </span>
           </div>
           <p className="mx-auto mb-8 max-w-3xl text-xl leading-relaxed text-gray-500 sm:text-2xl">
-            A simple, AI-integrated personal knowledge base.
+            Organize your knowledge. Connect it to your AI.
           </p>
           <button
             onClick={onSignup}
@@ -87,94 +133,132 @@ function LandingContent({
             Get Started
           </button>
         </div>
+      </div>
 
-        {/* Content Types */}
-        <div className="mx-auto mt-10 max-w-3xl">
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-base">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-gray-900">Notes</span>
-              <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
-                Available
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-gray-900">Prompts</span>
-              <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
-                Available
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-gray-900">Bookmarks</span>
-              <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
-                Available
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400">AI Assistant</span>
-              <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-400">
-                Coming soon
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Features */}
-        <div className="mx-auto mt-24 max-w-4xl">
+      {/* Pillar 1: Organize your knowledge */}
+      <div className="mx-auto max-w-5xl px-6 pb-24 sm:px-8 lg:px-12">
+        <div className="mx-auto max-w-4xl">
+          <h2 className="mb-3 text-center text-3xl font-bold text-gray-900">
+            Organize your knowledge
+          </h2>
+          <p className="mx-auto mb-12 max-w-2xl text-center text-lg text-gray-500">
+            Bookmarks, notes, and powerful search — all in one place.
+          </p>
           <div className="grid gap-x-12 gap-y-10 sm:grid-cols-2">
-            <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Markdown editor</h3>
-              <p className="text-gray-600">
-                Write notes with markdown syntax highlighting, formatting toolbar, and keyboard
-                shortcuts. Toggle reading mode to preview rendered markdown.
-              </p>
+            <FeatureCard
+              icon={<BookmarkIcon className="h-5 w-5" />}
+              title="Bookmarks"
+              description="Save any URL and Tiddly auto-extracts the title, description, and page content. One-click saving via the Chrome extension."
+            />
+            <FeatureCard
+              icon={<EditIcon className="h-5 w-5" />}
+              title="Markdown notes"
+              description="Write with syntax highlighting, formatting toolbar, keyboard shortcuts, and reading mode."
+            />
+            <FeatureCard
+              icon={<SearchIcon className="h-5 w-5" />}
+              title="Full-text search"
+              description='Search across all content — quoted phrases, exclusions, and OR operators.'
+            />
+            <FeatureCard
+              icon={<TagIcon className="h-5 w-5" />}
+              title="Tags, filters & collections"
+              description="Organize with tags, save search filters, and group collections in the sidebar."
+            />
+            <FeatureCard
+              icon={<HistoryIcon className="h-5 w-5" />}
+              title="Version history"
+              description="Full edit history for everything. Compare, diff, and restore — even after AI edits."
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Pillar 2: Connect it to your AI */}
+      <div className="bg-gray-50 py-24">
+        <div className="mx-auto max-w-5xl px-6 sm:px-8 lg:px-12">
+          <div className="mx-auto max-w-4xl">
+            <h2 className="mb-3 text-center text-3xl font-bold text-gray-900">
+              Connect it to your AI
+            </h2>
+            <p className="mx-auto mb-12 max-w-2xl text-center text-lg text-gray-500">
+              Prompts, MCP servers, and agent integrations — your AI workflow, centralized.
+            </p>
+            <div className="grid gap-x-12 gap-y-10 sm:grid-cols-2">
+              <FeatureCard
+                icon={<PromptIcon className="h-5 w-5" />}
+                title="Prompt templates"
+                description="Build reusable templates with Jinja2 variables and typed arguments. Version, tag, and search your prompt library."
+                iconBg="bg-white"
+              />
+              <FeatureCard
+                icon={<LinkIcon className="h-5 w-5" />}
+                title="MCP servers"
+                description="Connect your content and prompts to Claude Desktop, Claude Code, Codex, and any MCP-compatible tool."
+                iconBg="bg-white"
+              />
+              <FeatureCard
+                icon={<ExternalLinkIcon className="h-5 w-5" />}
+                title="Agent Skills"
+                description="Export prompts as slash commands for Claude Code and Codex. Write once, use across all your AI tools."
+                iconBg="bg-white"
+              />
+              <FeatureCard
+                icon={<SparklesIcon className="h-5 w-5" />}
+                title="AI content management"
+                description="AI agents search, create, and edit your bookmarks and notes via MCP — manage knowledge with natural language."
+                iconBg="bg-white"
+              />
+              <FeatureCard
+                icon={<SparklesIcon className="h-5 w-5" />}
+                title="AI Assistant"
+                description="Chat with an AI that has full context of your content."
+                iconBg="bg-white"
+                comingSoon
+              />
             </div>
-            <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Content MCP Server</h3>
-              <p className="text-gray-600">
-                Connect AI agents to search and manage your bookmarks and notes. Create content
-                using natural language through Model Context Protocol.
-              </p>
-            </div>
-            <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Prompt library</h3>
-              <p className="text-gray-600">
-                Build your personal prompt library. Create reusable templates with Jinja2 syntax
-                and dynamic arguments. Organize with tags for easy discovery.
-              </p>
-            </div>
-            <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Prompt MCP Server</h3>
-              <p className="text-gray-600">
-                Expose your prompt library to Claude Desktop, Claude Code, or any MCP-compatible
-                AI agent. Your prompts follow you across tools - write once, use everywhere.
-              </p>
-            </div>
-            <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Version history</h3>
-              <p className="text-gray-600">
-                Full edit history for all content. Compare versions, see what changed, and
-                restore with one click. Your work is never lost - even when AI agents make updates.
-              </p>
-            </div>
-            {/* <div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">API access</h3>
-              <p className="text-gray-600">
-                Generate Personal Access Tokens for programmatic access. Search, create, and
-                manage content from scripts or CLI tools.
-              </p>
-            </div> */}
-            <div>
+          </div>
+        </div>
+      </div>
+
+      {/* Shared Foundation */}
+      <div className="mx-auto max-w-5xl px-6 py-24 sm:px-8 lg:px-12">
+        <div className="mx-auto max-w-4xl">
+          <div className="grid gap-12 sm:grid-cols-3">
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+                <ExternalLinkIcon className="h-5 w-5 text-gray-600" />
+              </div>
               <h3 className="mb-2 text-lg font-semibold text-gray-900">Open source</h3>
-              <p className="text-gray-600">
-                Use the hosted version by signing up above, or self-host for full control
-                over your data. Open source with FastAPI backend, React frontend, and PostgreSQL database.
+              <p className="text-[15px] leading-relaxed text-gray-600">
+                Self-host for full control. FastAPI, React, and PostgreSQL.
+              </p>
+            </div>
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+                <KeyIcon className="h-5 w-5 text-gray-600" />
+              </div>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">REST API</h3>
+              <p className="text-[15px] leading-relaxed text-gray-600">
+                Personal Access Tokens for programmatic access to the full API.
+              </p>
+            </div>
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+                <ListIcon className="h-5 w-5 text-gray-600" />
+              </div>
+              <h3 className="mb-2 text-lg font-semibold text-gray-900">Keyboard-first</h3>
+              <p className="text-[15px] leading-relaxed text-gray-600">
+                Command palette, shortcuts, and no-mouse workflows.
               </p>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* FAQ Section */}
-        <div className="mx-auto mt-32 max-w-4xl">
+      {/* FAQ Section */}
+      <div className="mx-auto max-w-5xl px-6 pb-24 sm:px-8 lg:px-12">
+        <div className="mx-auto max-w-4xl">
           <h2 className="mb-8 text-center text-3xl font-bold text-gray-900">
             Frequently Asked Questions
           </h2>
@@ -314,9 +398,11 @@ function LandingContent({
             </FAQItem>
           </div>
         </div>
+      </div>
 
-        {/* Final CTA */}
-        <div className="mt-32 rounded-2xl bg-gray-50 px-8 py-16 text-center">
+      {/* Final CTA */}
+      <div className="mx-auto max-w-5xl px-6 pb-24 sm:px-8 lg:px-12">
+        <div className="rounded-2xl bg-gray-50 px-8 py-16 text-center">
           <h2 className="mb-6 text-3xl font-bold text-gray-900">Start organizing today</h2>
           <p className="mb-10 text-lg text-gray-500">
             Free while in beta. Pricing to be determined.
@@ -328,8 +414,8 @@ function LandingContent({
             Get Started
           </button>
         </div>
-
       </div>
+
       <Footer />
     </div>
   )
