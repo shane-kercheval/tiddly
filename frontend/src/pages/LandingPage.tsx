@@ -158,6 +158,11 @@ function LandingContent({
                 description="Write with syntax highlighting, formatting toolbar, keyboard shortcuts, and reading mode."
               />
               <FeatureCard
+                icon={<HistoryIcon />}
+                title="Version history"
+                description="Full edit history for everything. Compare, diff, and restore — even after AI edits."
+              />
+              <FeatureCard
                 icon={<SearchIcon />}
                 title="Full-text search"
                 description="Search across all content — quoted phrases, exclusions, and OR operators."
@@ -166,11 +171,6 @@ function LandingContent({
                 icon={<TagIcon />}
                 title="Tags, filters & collections"
                 description="Organize with tags, save search filters, and group collections in the sidebar."
-              />
-              <FeatureCard
-                icon={<HistoryIcon />}
-                title="Version history"
-                description="Full edit history for everything. Compare, diff, and restore — even after AI edits."
               />
             </div>
           </div>
