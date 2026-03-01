@@ -246,7 +246,7 @@ function ClaudeCodeMockup({
   )
 }
 
-export function ProductStoryAnimation(): ReactNode {
+export function PromptMCPAnimation(): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
   const isInView = useInView(containerRef, { once: true, margin: '-40px' })
 
@@ -309,8 +309,6 @@ export function ProductStoryAnimation(): ReactNode {
 
       // Type template content character by character
       await animateCount(setContentCharCount, TEMPLATE_TEXT.length, 20, active)
-      if (!active.current) return
-      await delay(500)
       if (!active.current) return
 
       // === TRANSITION ===

@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { Footer } from '../components/Footer'
-import { ProductStoryAnimation } from '../components/ProductStoryAnimation'
+import { PromptMCPAnimation } from '../components/PromptMCPAnimation'
 import { PublicHeader } from '../components/PublicHeader'
 import { LoadingSpinnerPage } from '../components/ui'
 import {
@@ -135,7 +135,7 @@ function LandingContent({
           </button>
         </div>
 
-        <ProductStoryAnimation />
+        <PromptMCPAnimation />
       </div>
 
       {/* Two Pillars Side-by-Side */}
