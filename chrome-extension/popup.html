@@ -9,7 +9,8 @@
   <div id="popup" class="popup">
     <!-- Not configured state -->
     <div id="setup-view" hidden>
-      <p class="setup-message">Set up your connection to start saving bookmarks.</p>
+      <h2 class="setup-heading">Welcome to Tiddly Bookmarks</h2>
+      <p class="setup-message">Connect your account to start saving and searching bookmarks.</p>
       <button id="open-options" class="btn-primary">Open Settings</button>
     </div>
 
@@ -21,9 +22,9 @@
           <circle cx="12" cy="12" r="3" stroke-width="2"/>
         </svg>
       </button>
-      <div id="loading-indicator" class="loading" role="status" aria-label="Loading">
+      <div id="loading-indicator" class="loading" role="status" aria-label="Loading page information">
         <div class="spinner"></div>
-        <span class="sr-only">Loading</span>
+        <span class="loading-label">Loading page information...</span>
       </div>
       <form id="save-form" hidden>
         <div class="field">
@@ -60,12 +61,14 @@
           </svg>
         </button>
       </div>
-      <div id="search-loading" class="loading" role="status" aria-label="Loading" hidden>
+      <div id="search-loading" class="loading" role="status" aria-label="Loading bookmarks" hidden>
         <div class="spinner"></div>
-        <span class="sr-only">Loading</span>
+        <span class="loading-label">Loading bookmarks...</span>
       </div>
-      <div id="search-results" class="search-results"></div>
-      <button id="load-more" class="btn-secondary btn-full" hidden>Load more</button>
+      <div class="search-scroll">
+        <div id="search-results" class="search-results"></div>
+        <button id="load-more" class="btn-secondary btn-full" hidden>Load more</button>
+      </div>
     </div>
 
   </div>
