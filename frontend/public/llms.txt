@@ -193,7 +193,7 @@ The Tiddly Bookmarks Chrome extension lets you save the current page as a bookma
 
 - **Save flow:** Click the extension icon on any page to see a pre-filled form (URL, title, description, tags). Page content is captured automatically for full-text search. Tags are pre-selected from your defaults and last-used tags, with selectable chips from your existing tags.
 - **Search:** On restricted pages (new tab, chrome://, etc.), the extension shows a search interface with your recent bookmarks and full-text search.
-- **Setup:** Install from the Chrome Web Store, then open the extension options and enter a Personal Access Token (create one in Settings > Personal Access Tokens on tiddly.me). Optionally configure default tags that will be pre-selected on every save.
+- **Setup:** Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/npjlfgkihebhandkknldnjlcdmcpomkc), then open the extension options and enter a Personal Access Token (create one in Settings > Personal Access Tokens on tiddly.me). Optionally configure default tags that will be pre-selected on every save.
 
 ### Programmatic API Access
 
