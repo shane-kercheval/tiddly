@@ -40,7 +40,10 @@
           <textarea id="description" rows="2" maxlength="1000"></textarea>
         </div>
         <div class="field">
-          <label for="tags-input">Tags</label>
+          <div class="label-row">
+            <label for="tags-input">Tags</label>
+            <button type="button" id="clear-tags" class="clear-link" hidden>Clear</button>
+          </div>
           <input type="text" id="tags-input" placeholder="Add tags...">
           <div id="tag-chips" class="tag-chips"></div>
           <div id="tag-suggestions" class="tag-suggestions" hidden></div>
