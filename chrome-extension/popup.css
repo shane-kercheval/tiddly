@@ -523,6 +523,10 @@ button.show-all-link {
   text-decoration: none;
   font-size: 13px;
   cursor: pointer;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -566,6 +570,10 @@ button.show-all-link {
     color: #9ca3af;
     border-color: #4a4a5e;
   }
+}
+
+#load-more {
+  margin-top: 8px;
 }
 
 .empty-state {
