@@ -45,29 +45,29 @@ function LandingContent({
         </div>
 
         {/* Content Types */}
-        <div className="mx-auto mt-16 max-w-3xl">
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-lg">
+        <div className="mx-auto mt-10 max-w-3xl">
+          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 text-base">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-900">Notes</span>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+              <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
                 Available
               </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-900">Prompts</span>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+              <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
                 Available
               </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-900">Bookmarks</span>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+              <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-600">
                 Available
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500">AI Assistant</span>
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+              <span className="text-gray-400">AI Assistant</span>
+              <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-400">
                 Coming soon
               </span>
             </div>
@@ -306,9 +306,9 @@ function LandingContent({
         </div>
 
         {/* Final CTA */}
-        <div className="mt-32 text-center">
-          <h2 className="mb-6 text-4xl font-bold text-gray-900">Start organizing today</h2>
-          <p className="mb-10 text-xl text-gray-600">
+        <div className="mt-32 rounded-2xl bg-gray-50 px-8 py-16 text-center">
+          <h2 className="mb-6 text-3xl font-bold text-gray-900">Start organizing today</h2>
+          <p className="mb-10 text-lg text-gray-500">
             Free while in beta. Pricing to be determined.
           </p>
           <button
