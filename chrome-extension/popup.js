@@ -59,10 +59,12 @@ const tagChipsContainer = document.getElementById('tag-chips');
 const tagSuggestions = document.getElementById('tag-suggestions');
 const saveBtn = document.getElementById('save-btn');
 const saveStatus = document.getElementById('save-status');
+const clearTagsBtn = document.getElementById('clear-tags');
 
 let pageContent = '';
 let allTags = [];
 let selectedTags = new Set();
+let defaultTagSet = new Set();
 let showingAllTags = false;
 
 async function getPageData(tab) {
@@ -99,6 +101,7 @@ async function initSaveForm(tab) {
 
   const defaultTags = storage.defaultTags || [];
   const lastUsedTags = storage.lastUsedTags || [];
+  defaultTagSet = new Set(defaultTags);
   [...new Set([...defaultTags, ...lastUsedTags])].forEach(t => selectedTags.add(t));
 
   if (tagsResult?.success && Array.isArray(tagsResult.data?.tags)) {
@@ -111,6 +114,12 @@ async function initSaveForm(tab) {
   saveForm.hidden = false;
 
   tagsInput.addEventListener('input', () => {
+    renderTagChips();
+  });
+
+  clearTagsBtn.addEventListener('click', () => {
+    selectedTags = new Set(defaultTagSet);
+    tagsInput.value = '';
     renderTagChips();
   });
 
@@ -191,6 +200,9 @@ function renderTagChips() {
   } else {
     tagChipsContainer.classList.remove('all-tags');
   }
+
+  const hasNonDefaultSelected = [...selectedTags].some(t => !defaultTagSet.has(t));
+  clearTagsBtn.hidden = !hasNonDefaultSelected;
 }
 
 function getSelectedTags() {
