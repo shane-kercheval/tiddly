@@ -44,7 +44,7 @@ Prompts are Jinja2 templates that can be rendered with arguments. The primary us
 
 ## Search
 
-- **Full-text search**: Combines PostgreSQL full-text search (stemmed, ranked) with substring matching (ILIKE) in a single query. Matches against title, description, tags, URL (bookmarks), and content body. Items matching both methods rank highest. Supports operators: `"exact phrase"`, `-exclude`, and `OR`.
+- **Full-text search**: Combines PostgreSQL full-text search (stemmed, ranked) with substring matching (ILIKE) in a single query. Matches against title, description, content body, and URL (bookmarks). Items matching both methods rank highest. Supports operators: `"exact phrase"`, `-exclude`, and `OR`.
 - **In-content search**: Search within a single item's content using literal string matching (case-insensitive by default, supports multiline queries). Returns matching lines with line numbers and surrounding context.
 - **Filtering options**: Filter by content type (bookmark, note, prompt), tags (with AND/OR operator), view state (active, archived, or both), sort by created date, updated date, title, or last used date.
 - **Unified search**: Search across all content types simultaneously via the `/content/` endpoint or the command palette. The `view` parameter accepts multiple values (e.g. `?view=active&view=archived`) to search across view states. When searching both active and archived with relevance sorting, archived items receive a relevance penalty so active content ranks higher.
