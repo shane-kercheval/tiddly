@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { Navigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
@@ -6,6 +7,49 @@ import { usePageTitle } from '../hooks/usePageTitle'
 import { Footer } from '../components/Footer'
 import { PublicHeader } from '../components/PublicHeader'
 import { LoadingSpinnerPage } from '../components/ui'
+
+function FAQItem({
+  question,
+  defaultOpen = false,
+  id,
+  children,
+}: {
+  question: string
+  defaultOpen?: boolean
+  id?: string
+  children: ReactNode
+}): ReactNode {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
+
+  return (
+    <div id={id} className="border-b border-gray-100 last:border-b-0">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex w-full items-center justify-between py-5 text-left transition-colors hover:text-gray-600"
+      >
+        <h3 className="pr-4 text-lg font-semibold text-gray-900">{question}</h3>
+        <svg
+          className={`h-5 w-5 flex-shrink-0 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      <div
+        className={`overflow-hidden transition-all duration-200 ${
+          isOpen ? 'max-h-[1000px] opacity-100 pb-5' : 'max-h-0 opacity-0'
+        }`}
+      >
+        <div className="space-y-3 text-[15px] leading-relaxed text-gray-500">
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 /**
  * Landing page content shown to unauthenticated users.
@@ -131,16 +175,12 @@ function LandingContent({
 
         {/* FAQ Section */}
         <div className="mx-auto mt-32 max-w-4xl">
-          <h2 className="mb-12 text-center text-4xl font-bold text-gray-900">
+          <h2 className="mb-8 text-center text-3xl font-bold text-gray-900">
             Frequently Asked Questions
           </h2>
-          <div className="space-y-8">
-            {/* FAQ Item */}
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                How is my data stored and secured?
-              </h3>
-              <p className="mb-3 text-gray-600">
+          <div>
+            <FAQItem question="How is my data stored and secured?">
+              <p>
                 Your data is stored in a PostgreSQL database with encryption at rest enabled by
                 default. This protects against physical disk access - if someone stole the
                 storage hardware, they couldn't read the data. We use Auth0 for authentication
@@ -148,12 +188,12 @@ function LandingContent({
                 users. We host on Railway's Pro tier which includes SOC 2 compliance, DDoS protection,
                 automatic daily database backups, and we manually snapshot before major updates.
               </p>
-              <p className="mb-3 text-gray-600">
+              <p>
                 We don't use client-side encryption (end-to-end encryption) because it would
                 prevent full-text search across your content. Search functionality requires the
                 server to be able to read and index your content.
               </p>
-              <p className="mb-3 text-gray-600">
+              <p>
                 <strong>Important:</strong> As with most web applications, the database
                 administrator (me) could technically access your data through normal database
                 queries. Encryption at rest doesn't prevent admin access. I have no intention of
@@ -164,80 +204,62 @@ function LandingContent({
                 </a>
                 .
               </p>
-              <p className="text-gray-600">
+              <p>
                 <strong>Future AI features:</strong> In future versions, we plan to offer
                 optional AI-powered features (summarization, auto-suggestions, enhanced search)
                 that may send your content to third-party AI services (OpenAI, Anthropic). This
                 functionality is not yet implemented and will be completely opt-in and
                 configurable when available.
               </p>
-            </div>
+            </FAQItem>
 
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                Who can access my content?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="Who can access my content?">
+              <p>
                 Your content is private and isolated to your account. We use a multi-tenant
                 database architecture where all content is tied to your user ID. There's no
                 sharing functionality. See the data security question above for important caveats.
               </p>
-            </div>
+            </FAQItem>
 
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                What data do you store?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="What data do you store?">
+              <p>
                 For bookmarks: URL, title, description, and page content (up to 500KB) for
                 full-text search. Content is automatically extracted when you save a bookmark.
                 For notes: title, description, and markdown content (up to 2MB). We track when
                 items were created, updated, and last accessed.
               </p>
-            </div>
+            </FAQItem>
 
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                What happens to deleted items?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="What happens to deleted items?">
+              <p>
                 Deleted items go to Trash where they can be restored. Items in trash are
                 automatically permanently deleted after a retention period (currently 30 days).
                 You can also manually restore or permanently delete items at any time.
               </p>
-            </div>
+            </FAQItem>
 
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                What are Personal Access Tokens (PATs)?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="What are Personal Access Tokens (PATs)?">
+              <p>
                 PATs let you access the API programmatically for automation, CLI tools, or custom
                 integrations. You can generate tokens in the Settings page. Tokens are stored
                 securely (hashed) and prefixed with{' '}
                 <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">bm_</code>. Use them
                 with the Authorization header to access the full REST API.
               </p>
-            </div>
+            </FAQItem>
 
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                What is MCP integration?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="What is MCP integration?">
+              <p>
                 MCP (Model Context Protocol) allows AI agents like Claude to interact with your
                 data. Tiddly provides two MCP servers: the <strong>Content MCP Server</strong> for
                 searching and managing bookmarks and notes, and the <strong>Prompt MCP Server</strong> for
                 listing and rendering your prompt templates. Connect Claude Desktop, Claude Code,
                 or other MCP-compatible tools. Requires a Personal Access Token for authentication.
               </p>
-            </div>
+            </FAQItem>
 
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                What are prompts?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="What are prompts?">
+              <p>
                 Prompts are reusable templates for AI assistants — a new content type for the AI era.
                 They use Jinja2 syntax with variables like{' '}
                 <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">{'{{ topic }}'}</code>{' '}
@@ -247,47 +269,35 @@ function LandingContent({
                 Claude Code and Codex. Prompts are treated as first-class entities with the same
                 versioning, tagging, search, and organization as bookmarks and notes.
               </p>
-            </div>
+            </FAQItem>
 
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                Can I import bookmarks from my browser?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="Can I import bookmarks from my browser?">
+              <p>
                 Not yet. Browser bookmark import is planned. In the meantime, you can paste URLs
                 into tiddly.me and metadata (title, description, page content) is automatically
                 scraped, or use the REST API with a Personal Access Token to create bookmarks
                 programmatically.
               </p>
-            </div>
+            </FAQItem>
 
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                Can I export my data?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="Can I export my data?">
+              <p>
                 Not yet through the UI, but you can use the REST API with a Personal Access Token
                 to export your content programmatically. A built-in export feature is planned.
               </p>
-            </div>
+            </FAQItem>
 
-            <div>
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                Will this always be free?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="Will this always be free?">
+              <p>
                 Tiddly is currently free during beta as we develop features and determine the
                 best pricing model. We're committed to transparency - any pricing changes will be
                 announced well in advance, and existing users may be grandfathered or given ample
                 notice.
               </p>
-            </div>
+            </FAQItem>
 
-            <div id="self-host">
-              <h3 className="mb-3 text-xl font-semibold text-gray-900">
-                Can I self-host Tiddly?
-              </h3>
-              <p className="text-gray-600">
+            <FAQItem question="Can I self-host Tiddly?" id="self-host">
+              <p>
                 Yes! The{' '}
                 <a
                   href="https://github.com/shane-kercheval/tiddly"
@@ -301,7 +311,7 @@ function LandingContent({
                 authentication (or use dev mode to bypass auth). Full deployment instructions are
                 included in the repository. Self-hosting gives you complete control over your data.
               </p>
-            </div>
+            </FAQItem>
           </div>
         </div>
 

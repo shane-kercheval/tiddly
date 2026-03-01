@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useAuthStatus } from '../hooks/useAuthStatus'
@@ -53,6 +53,14 @@ export function PublicHeader({
     setProductOpen(false)
   }, [location.pathname])
 
+  // Show border when scrolled
+  const [scrolled, setScrolled] = useState(false)
+  const handleScroll = useCallback(() => setScrolled(window.scrollY > 10), [])
+  useEffect(() => {
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [handleScroll])
+
   const isActiveLink = (path: string): boolean => {
     if (path === '/docs') return location.pathname.startsWith('/docs')
     return location.pathname === path
@@ -66,8 +74,8 @@ export function PublicHeader({
     }`
 
   return (
-    <header className="w-full">
-      <div className={`flex items-center justify-between border-b border-gray-100 px-6 py-4 sm:px-8 lg:px-12 ${fullWidth ? '' : 'mx-auto max-w-5xl'}`}>
+    <header className={`sticky top-0 z-30 w-full bg-white/80 backdrop-blur-md transition-colors ${scrolled ? 'border-b border-gray-200/60' : 'border-b border-transparent'}`}>
+      <div className={`flex items-center justify-between px-6 py-4 sm:px-8 lg:px-12 ${fullWidth ? '' : 'mx-auto max-w-5xl'}`}>
         {/* Left: Logo + Nav */}
         <div className="flex items-center gap-8">
           <Link to="/" className="flex items-center gap-2" aria-label="Home">
