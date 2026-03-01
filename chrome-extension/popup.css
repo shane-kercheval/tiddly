@@ -24,12 +24,6 @@ body {
   padding: 16px;
 }
 
-.popup:has(#save-view:not([hidden])) {
-  height: 390px;
-  display: flex;
-  flex-direction: column;
-}
-
 .popup:has(#search-view:not([hidden])) {
   height: 500px;
   display: flex;
@@ -168,10 +162,10 @@ body {
 }
 
 #loading-indicator {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 40px 0;
 }
 
 #loading-indicator[hidden] {
@@ -290,6 +284,8 @@ textarea {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 6px;
+  max-height: 150px;
+  overflow-y: auto;
 }
 
 button.tag-chip {
