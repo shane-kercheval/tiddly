@@ -24,6 +24,12 @@ body {
   padding: 16px;
 }
 
+.popup:has(#save-view:not([hidden])) {
+  height: 405px;
+  display: flex;
+  flex-direction: column;
+}
+
 .popup:has(#search-view:not([hidden])) {
   height: 500px;
   display: flex;
@@ -162,7 +168,7 @@ body {
 }
 
 #loading-indicator {
-  min-height: 343px; /* approximate save form height to prevent layout shift */
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -421,6 +427,10 @@ button.show-all-link {
 
 .btn-full {
   width: 100%;
+}
+
+#save-btn {
+  margin-top: 6px;
 }
 
 /* Status messages */
