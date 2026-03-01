@@ -131,34 +131,6 @@ function BrowserMockup({
   )
 }
 
-/** Simplified mini popup that appears as a small dropdown from the extension icon. */
-function MiniExtensionPopup(): ReactNode {
-  return (
-    <div className="w-44 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
-      {/* Title bar */}
-      <div className="flex items-center gap-1.5 border-b border-gray-100 px-2.5 py-1.5">
-        <svg className="h-3 w-3 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M12 2a10 10 0 100 20 10 10 0 000-20z" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <span className="text-[9px] font-medium text-gray-500">Chrome Extension</span>
-      </div>
-      {/* Simplified form placeholders */}
-      <div className="space-y-1.5 p-2.5">
-        <div className="h-1 w-5 rounded bg-gray-200" />
-        <div className="h-3 w-full rounded bg-gray-50" />
-        <div className="h-1 w-4 rounded bg-gray-200" />
-        <div className="h-3 w-full rounded bg-gray-50" />
-        <div className="h-1 w-4 rounded bg-gray-200" />
-        <div className="flex gap-1">
-          <div className="h-2.5 w-7 rounded-full bg-blue-50" />
-          <div className="h-2.5 w-5 rounded-full bg-blue-50" />
-        </div>
-        <div className="mt-1 h-4 w-full rounded bg-gray-800" />
-      </div>
-    </div>
-  )
-}
-
 function ChromeExtensionMockup({
   showForm,
   urlText,
@@ -181,8 +153,8 @@ function ChromeExtensionMockup({
       {/* Title bar */}
       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <svg className="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M12 2a10 10 0 100 20 10 10 0 000-20z" strokeLinecap="round" strokeLinejoin="round" />
+          <svg className="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-4-7 4V5z" />
           </svg>
           <span className="text-xs font-medium text-gray-500">Chrome Extension</span>
         </div>
@@ -336,10 +308,9 @@ export function ChromeExtensionAnimation(): ReactNode {
   const [showPage, setShowPage] = useState(false)
   const [showCursor, setShowCursor] = useState(false)
   const [showClickRing, setShowClickRing] = useState(false)
-  const [showMiniPopup, setShowMiniPopup] = useState(false)
 
-  // Extension state
-  const [showExtension, setShowExtension] = useState(false)
+  // Extension popup state (always mounted, starts invisible)
+  const [popupDone, setPopupDone] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [extUrlText, setExtUrlText] = useState('')
   const [titleText, setTitleText] = useState('')
@@ -353,6 +324,7 @@ export function ChromeExtensionAnimation(): ReactNode {
 
   const leftControls = useAnimation()
   const browserControls = useAnimation()
+  const popupControls = useAnimation()
   const cursorControls = useAnimation()
   const lineControls = useAnimation()
   const tiddlyControls = useAnimation()
@@ -416,31 +388,36 @@ export function ChromeExtensionAnimation(): ReactNode {
       if (!active.current) return
       setShowCursor(false)
 
-      // === MINI POPUP ===
+      // === POPUP APPEARS (MINI SCALE) ===
 
-      // Mini extension popup drops down from icon
-      setShowMiniPopup(true)
-      await delay(900)
-      if (!active.current) return
-
-      // === ZOOM TRANSITION ===
-
-      // Browser scales up toward icon area + fades out; full extension fades in
-      setShowMiniPopup(false)
-      browserControls.start({
-        opacity: 0, scale: 1.08,
-        transition: { duration: 0.4, ease: 'easeIn' },
-      })
-      setShowExtension(true)
-      await delay(450)
-      if (!active.current) return
-      setShowBrowser(false)
-
-      // === EXTENSION PHASE ===
-
-      // Show form with URL pre-filled
+      // Popup is always mounted but invisible — show form and fade in
       setShowForm(true)
       setExtUrlText('docs.python.org/3/tutorial')
+      // Fade in while keeping at mini scale
+      await popupControls.start({
+        opacity: 1, scale: 0.35, right: 8, top: 52,
+        transition: { duration: 0.2, ease: 'easeOut' },
+      })
+      if (!active.current) return
+      await delay(700)
+      if (!active.current) return
+
+      // === SCALE UP (single element, no fade) ===
+
+      // Browser fades out behind; popup scales up smoothly
+      browserControls.start({
+        opacity: 0, scale: 1.08,
+        transition: { duration: 0.5, ease: 'easeIn' },
+      })
+      await popupControls.start({
+        scale: 1, right: 0, top: 0,
+        transition: { duration: 0.5, ease: 'easeOut' },
+      })
+      if (!active.current) return
+      setShowBrowser(false)
+      setPopupDone(true)
+
+      // === EXTENSION PHASE ===
       await delay(200)
       if (!active.current) return
 
@@ -499,7 +476,7 @@ export function ChromeExtensionAnimation(): ReactNode {
     playSequence()
 
     return () => { active.current = false }
-  }, [isInView, leftControls, browserControls, cursorControls, lineControls, tiddlyControls])
+  }, [isInView, leftControls, browserControls, popupControls, cursorControls, lineControls, tiddlyControls])
 
   return (
     <div ref={containerRef}>
@@ -518,7 +495,7 @@ export function ChromeExtensionAnimation(): ReactNode {
                   animate={browserControls}
                   style={{
                     transformOrigin: '90% 15%',
-                    ...(showExtension ? { position: 'absolute' as const, top: 0, left: 0, right: 0, zIndex: 1, pointerEvents: 'none' as const } : {}),
+                    ...(popupDone ? { position: 'absolute' as const, top: 0, left: 0, right: 0, zIndex: 1, pointerEvents: 'none' as const } : {}),
                   }}
                 >
                   <BrowserMockup
@@ -527,38 +504,29 @@ export function ChromeExtensionAnimation(): ReactNode {
                     showPage={showPage}
                     showClickRing={showClickRing}
                   />
-                  {/* Mini popup overlay */}
-                  {showMiniPopup && (
-                    <motion.div
-                      className="absolute z-20"
-                      style={{ right: 8, top: 52 }}
-                      initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      transition={{ duration: 0.2, ease: 'easeOut' }}
-                    >
-                      <MiniExtensionPopup />
-                    </motion.div>
-                  )}
                 </motion.div>
               )}
 
-              {/* Full-size extension popup — fades/scales in */}
-              {showExtension && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.92 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.35, ease: 'easeOut' }}
-                >
-                  <ChromeExtensionMockup
-                    showForm={showForm}
-                    urlText={extUrlText}
-                    titleText={titleText}
-                    showTitleCursor={showTitleCursor}
-                    visibleTags={visibleTags}
-                    buttonState={buttonState}
-                  />
-                </motion.div>
-              )}
+              {/* Extension popup — always mounted, starts invisible at mini scale */}
+              <motion.div
+                style={{
+                  transformOrigin: 'top right',
+                  ...(popupDone
+                    ? {}
+                    : { position: 'absolute' as const, zIndex: 20 }),
+                }}
+                initial={{ scale: 0.35, opacity: 0, right: 8, top: 52 }}
+                animate={popupControls}
+              >
+                <ChromeExtensionMockup
+                  showForm={showForm}
+                  urlText={extUrlText}
+                  titleText={titleText}
+                  showTitleCursor={showTitleCursor}
+                  visibleTags={visibleTags}
+                  buttonState={buttonState}
+                />
+              </motion.div>
 
               {/* Mouse cursor overlay */}
               {showCursor && (
