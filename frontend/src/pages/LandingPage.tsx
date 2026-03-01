@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { Footer } from '../components/Footer'
+import { ProductStoryAnimation } from '../components/ProductStoryAnimation'
 import { PublicHeader } from '../components/PublicHeader'
 import { LoadingSpinnerPage } from '../components/ui'
 import {
@@ -112,7 +113,7 @@ function LandingContent({
       <PublicHeader onLogin={onLogin} onSignup={onSignup} />
 
       {/* Hero Section */}
-      <div className="mx-auto max-w-5xl px-6 pb-14 pt-10 sm:px-8 lg:px-12">
+      <div className="mx-auto max-w-5xl px-6 pb-8 pt-10 sm:px-8 lg:px-12">
         <div className="text-center">
           <div className="mb-4 flex items-center justify-center gap-3">
             <img src="/tiddly-logo.svg" alt="" className="h-11 w-11 sm:h-14 sm:w-14" />
@@ -130,6 +131,8 @@ function LandingContent({
             Get Started
           </button>
         </div>
+
+        <ProductStoryAnimation />
       </div>
 
       {/* Two Pillars Side-by-Side */}
