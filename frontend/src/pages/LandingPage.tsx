@@ -5,6 +5,8 @@ import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { Footer } from '../components/Footer'
+import { ChromeExtensionAnimation } from '../components/ChromeExtensionAnimation'
+import { NoteMCPAnimation } from '../components/NoteMCPAnimation'
 import { PromptMCPAnimation } from '../components/PromptMCPAnimation'
 import { PublicHeader } from '../components/PublicHeader'
 import { LoadingSpinnerPage } from '../components/ui'
@@ -135,7 +137,9 @@ function LandingContent({
           </button>
         </div>
 
+        <ChromeExtensionAnimation />
         <PromptMCPAnimation />
+        <NoteMCPAnimation />
       </div>
 
       {/* Two Pillars Side-by-Side */}
