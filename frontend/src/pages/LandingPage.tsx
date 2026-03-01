@@ -78,12 +78,12 @@ function FeatureCard({
   comingSoon?: boolean
 }): ReactNode {
   return (
-    <div className="flex gap-4">
-      <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
-        <div className="h-5 w-5 text-gray-600">{icon}</div>
-      </div>
-      <div>
-        <h3 className="mb-1 text-lg font-semibold text-gray-900">
+    <div>
+      <div className="mb-1.5 flex items-center gap-2.5">
+        <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-gray-600 ${iconBg} [&>svg]:h-3.5 [&>svg]:w-3.5`}>
+          {icon}
+        </div>
+        <h3 className="text-base font-semibold text-gray-900">
           {title}
           {comingSoon && (
             <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-400">
@@ -91,8 +91,8 @@ function FeatureCard({
             </span>
           )}
         </h3>
-        <p className="text-[15px] leading-relaxed text-gray-600">{description}</p>
       </div>
+      <p className="text-sm leading-relaxed text-gray-600">{description}</p>
     </div>
   )
 }
@@ -112,105 +112,109 @@ function LandingContent({
       <PublicHeader onLogin={onLogin} onSignup={onSignup} />
 
       {/* Hero Section */}
-      <div className="mx-auto max-w-5xl px-6 pb-24 pt-12 sm:px-8 lg:px-12">
+      <div className="mx-auto max-w-5xl px-6 pb-14 pt-10 sm:px-8 lg:px-12">
         <div className="text-center">
-          <div className="mb-6 flex items-center justify-center gap-4">
-            <img src="/tiddly-logo.svg" alt="" className="h-16 w-16 sm:h-20 sm:w-20" />
-            <h1 className="text-5xl font-bold tracking-tight text-gray-900 sm:text-6xl lg:text-7xl">
+          <div className="mb-4 flex items-center justify-center gap-3">
+            <img src="/tiddly-logo.svg" alt="" className="h-11 w-11 sm:h-14 sm:w-14" />
+            <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">
               Tiddly
             </h1>
-            <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-orange-600">
+            <span className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-orange-600">
               Beta
             </span>
           </div>
-          <p className="mx-auto mb-8 max-w-3xl text-xl leading-relaxed text-gray-500 sm:text-2xl">
-            Organize your knowledge. Connect it to your AI.
-          </p>
           <button
             onClick={onSignup}
-            className="rounded-full bg-gray-900 px-10 py-4 text-lg font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+            className="rounded-full bg-gray-900 px-8 py-3 text-base font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
           >
             Get Started
           </button>
         </div>
       </div>
 
-      {/* Pillar 1: Organize your knowledge */}
-      <div className="mx-auto max-w-5xl px-6 pb-24 sm:px-8 lg:px-12">
-        <div className="mx-auto max-w-4xl">
-          <h2 className="mb-3 text-center text-3xl font-bold text-gray-900">
-            Organize your knowledge
-          </h2>
-          <p className="mx-auto mb-12 max-w-2xl text-center text-lg text-gray-500">
-            Bookmarks, notes, and powerful search — all in one place.
-          </p>
-          <div className="grid gap-x-12 gap-y-10 sm:grid-cols-2">
-            <FeatureCard
-              icon={<BookmarkIcon className="h-5 w-5" />}
-              title="Bookmarks"
-              description="Save any URL and Tiddly auto-extracts the title, description, and page content. One-click saving via the Chrome extension."
-            />
-            <FeatureCard
-              icon={<EditIcon className="h-5 w-5" />}
-              title="Markdown notes"
-              description="Write with syntax highlighting, formatting toolbar, keyboard shortcuts, and reading mode."
-            />
-            <FeatureCard
-              icon={<SearchIcon className="h-5 w-5" />}
-              title="Full-text search"
-              description='Search across all content — quoted phrases, exclusions, and OR operators.'
-            />
-            <FeatureCard
-              icon={<TagIcon className="h-5 w-5" />}
-              title="Tags, filters & collections"
-              description="Organize with tags, save search filters, and group collections in the sidebar."
-            />
-            <FeatureCard
-              icon={<HistoryIcon className="h-5 w-5" />}
-              title="Version history"
-              description="Full edit history for everything. Compare, diff, and restore — even after AI edits."
-            />
+      {/* Two Pillars Side-by-Side */}
+      <div className="mx-auto max-w-6xl px-6 pb-24 sm:px-8 lg:px-12">
+        <div className="grid gap-8 lg:grid-cols-2">
+          {/* Pillar 1: Organize your knowledge */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-8 lg:p-10">
+            <h2 className="mb-2 flex items-center gap-2.5 text-2xl font-bold text-gray-900">
+              <svg className="h-7 w-7 flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-4-7 4V5z" stroke="#1f2937" strokeWidth="2" strokeLinejoin="round"/>
+              </svg>
+              Organize your knowledge
+            </h2>
+            <p className="mb-8 text-sm text-gray-500">
+              Bookmarks, notes, and search — all in one place.
+            </p>
+            <div className="space-y-8">
+              <FeatureCard
+                icon={<BookmarkIcon />}
+                title="Bookmarks"
+                description="Save any URL and Tiddly auto-extracts the title, description, and page content. One-click saving via the Chrome extension."
+              />
+              <FeatureCard
+                icon={<EditIcon />}
+                title="Markdown notes"
+                description="Write with syntax highlighting, formatting toolbar, keyboard shortcuts, and reading mode."
+              />
+              <FeatureCard
+                icon={<SearchIcon />}
+                title="Full-text search"
+                description="Search across all content — quoted phrases, exclusions, and OR operators."
+              />
+              <FeatureCard
+                icon={<TagIcon />}
+                title="Tags, filters & collections"
+                description="Organize with tags, save search filters, and group collections in the sidebar."
+              />
+              <FeatureCard
+                icon={<HistoryIcon />}
+                title="Version history"
+                description="Full edit history for everything. Compare, diff, and restore — even after AI edits."
+              />
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Pillar 2: Connect it to your AI */}
-      <div className="bg-gray-50 py-24">
-        <div className="mx-auto max-w-5xl px-6 sm:px-8 lg:px-12">
-          <div className="mx-auto max-w-4xl">
-            <h2 className="mb-3 text-center text-3xl font-bold text-gray-900">
+          {/* Pillar 2: Connect it to your AI */}
+          <div className="rounded-2xl bg-gray-50 p-8 lg:p-10">
+            <h2 className="mb-2 flex items-center gap-2.5 text-2xl font-bold text-gray-900">
+              <svg className="h-7 w-7 flex-shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 1C13.2 5.8 13.2 5.8 18 7C13.2 8.2 13.2 8.2 12 13C10.8 8.2 10.8 8.2 6 7C10.8 5.8 10.8 5.8 12 1Z" fill="#e2a66b"/>
+                <path d="M19 12C19.7 15.1 19.7 15.1 23 16C19.7 16.7 19.7 16.7 19 20C18.3 16.7 18.3 16.7 15 16C18.3 15.1 18.3 15.1 19 12Z" fill="#6b9fd4"/>
+                <path d="M7 15C7.5 17.3 7.5 17.3 10 18C7.5 18.5 7.5 18.5 7 21C6.5 18.5 6.5 18.5 4 18C6.5 17.3 6.5 17.3 7 15Z" fill="#85c48b"/>
+              </svg>
               Connect it to your AI
             </h2>
-            <p className="mx-auto mb-12 max-w-2xl text-center text-lg text-gray-500">
-              Prompts, MCP servers, and agent integrations — your AI workflow, centralized.
+            <p className="mb-8 text-sm text-gray-500">
+              Build prompts, connect MCP servers, and manage content with AI.
             </p>
-            <div className="grid gap-x-12 gap-y-10 sm:grid-cols-2">
+            <div className="space-y-8">
               <FeatureCard
-                icon={<PromptIcon className="h-5 w-5" />}
+                icon={<PromptIcon />}
                 title="Prompt templates"
                 description="Build reusable templates with Jinja2 variables and typed arguments. Version, tag, and search your prompt library."
                 iconBg="bg-white"
               />
               <FeatureCard
-                icon={<LinkIcon className="h-5 w-5" />}
+                icon={<LinkIcon />}
                 title="MCP servers"
                 description="Connect your content and prompts to Claude Desktop, Claude Code, Codex, and any MCP-compatible tool."
                 iconBg="bg-white"
               />
               <FeatureCard
-                icon={<ExternalLinkIcon className="h-5 w-5" />}
+                icon={<ExternalLinkIcon />}
                 title="Agent Skills"
                 description="Export prompts as slash commands for Claude Code and Codex. Write once, use across all your AI tools."
                 iconBg="bg-white"
               />
               <FeatureCard
-                icon={<SparklesIcon className="h-5 w-5" />}
+                icon={<SparklesIcon />}
                 title="AI content management"
                 description="AI agents search, create, and edit your bookmarks and notes via MCP — manage knowledge with natural language."
                 iconBg="bg-white"
               />
               <FeatureCard
-                icon={<SparklesIcon className="h-5 w-5" />}
+                icon={<SparklesIcon />}
                 title="AI Assistant"
                 description="Chat with an AI that has full context of your content."
                 iconBg="bg-white"
@@ -222,33 +226,33 @@ function LandingContent({
       </div>
 
       {/* Shared Foundation */}
-      <div className="mx-auto max-w-5xl px-6 py-24 sm:px-8 lg:px-12">
+      <div className="mx-auto max-w-5xl px-6 pb-24 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-4xl">
           <div className="grid gap-12 sm:grid-cols-3">
             <div className="text-center">
-              <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
                 <ExternalLinkIcon className="h-5 w-5 text-gray-600" />
               </div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Open source</h3>
-              <p className="text-[15px] leading-relaxed text-gray-600">
+              <h3 className="mb-1 text-base font-semibold text-gray-900">Open source</h3>
+              <p className="text-sm leading-relaxed text-gray-600">
                 Self-host for full control. FastAPI, React, and PostgreSQL.
               </p>
             </div>
             <div className="text-center">
-              <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
                 <KeyIcon className="h-5 w-5 text-gray-600" />
               </div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">REST API</h3>
-              <p className="text-[15px] leading-relaxed text-gray-600">
+              <h3 className="mb-1 text-base font-semibold text-gray-900">REST API</h3>
+              <p className="text-sm leading-relaxed text-gray-600">
                 Personal Access Tokens for programmatic access to the full API.
               </p>
             </div>
             <div className="text-center">
-              <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
                 <ListIcon className="h-5 w-5 text-gray-600" />
               </div>
-              <h3 className="mb-2 text-lg font-semibold text-gray-900">Keyboard-first</h3>
-              <p className="text-[15px] leading-relaxed text-gray-600">
+              <h3 className="mb-1 text-base font-semibold text-gray-900">Keyboard-first</h3>
+              <p className="text-sm leading-relaxed text-gray-600">
                 Command palette, shortcuts, and no-mouse workflows.
               </p>
             </div>
