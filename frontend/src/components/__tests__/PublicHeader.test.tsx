@@ -60,7 +60,7 @@ describe('PublicHeader', () => {
     // Click to open
     await user.click(productButton)
 
-    expect(screen.getByRole('link', { name: 'Features' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Features' })).toHaveAttribute('href', '/features')
     expect(screen.getByRole('link', { name: 'Changelog' })).toHaveAttribute('href', '/changelog')
     expect(screen.getByRole('link', { name: 'Roadmap' })).toHaveAttribute('href', '/roadmap')
   })

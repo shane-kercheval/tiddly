@@ -1,16 +1,19 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
+import { highlightJinja } from './JinjaHighlight'
 
 interface CopyableCodeBlockProps {
   code: string
   language?: string
+  /** When true, highlights Jinja2 syntax ({{ }}, {% %}, {# #}) with editor colors. */
+  jinja?: boolean
 }
 
 /**
  * Pre-formatted code block with copy-to-clipboard button.
  * Uses light theme consistent with docs styling.
  */
-export function CopyableCodeBlock({ code }: CopyableCodeBlockProps): ReactNode {
+export function CopyableCodeBlock({ code, jinja }: CopyableCodeBlockProps): ReactNode {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async (): Promise<void> => {
@@ -26,7 +29,7 @@ export function CopyableCodeBlock({ code }: CopyableCodeBlockProps): ReactNode {
   return (
     <div className="relative">
       <pre className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800 whitespace-pre-wrap break-all overflow-x-auto pr-16">
-        <code>{code}</code>
+        <code>{jinja ? highlightJinja(code) : code}</code>
       </pre>
       <button
         onClick={handleCopy}

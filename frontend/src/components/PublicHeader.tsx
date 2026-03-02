@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 import { isDevMode } from '../config'
 import { BookmarkIcon } from './icons'
@@ -12,7 +13,7 @@ interface DropdownItem {
 }
 
 const productItems: DropdownItem[] = [
-  { label: 'Features', path: '/' },
+  { label: 'Features', path: '/features' },
   { label: 'Changelog', path: '/changelog' },
   { label: 'Roadmap', path: '/roadmap' },
 ]
@@ -31,7 +32,11 @@ export function PublicHeader({
   fullWidth?: boolean
 }): ReactNode {
   const { isAuthenticated } = useAuthStatus()
+  const { loginWithRedirect } = useAuth0()
   const location = useLocation()
+
+  const handleLogin = onLogin ?? (() => loginWithRedirect({ authorizationParams: { screen_hint: 'login' } }))
+  const handleSignup = onSignup ?? (() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } }))
   const [productOpen, setProductOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -63,18 +68,19 @@ export function PublicHeader({
 
   const isActiveLink = (path: string): boolean => {
     if (path === '/docs') return location.pathname.startsWith('/docs')
+    if (path === '/features') return location.pathname === '/features'
     return location.pathname === path
   }
 
   const isProductActive = productItems.some((item) => isActiveLink(item.path))
 
   const navLinkClass = (active: boolean): string =>
-    `text-sm font-medium transition-colors ${
-      active ? 'text-gray-900' : 'text-gray-500 hover:text-gray-900'
+    `text-sm font-medium transition-colors border-b-2 pb-0.5 ${
+      active ? 'text-gray-900 border-gray-900' : 'text-gray-500 border-transparent hover:text-gray-900'
     }`
 
   return (
-    <header className={`sticky top-0 z-30 w-full bg-white/80 backdrop-blur-md transition-colors ${scrolled ? 'border-b border-gray-200/60' : 'border-b border-transparent'}`}>
+    <header className={`sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md transition-colors ${scrolled ? 'border-b border-gray-200/60' : 'border-b border-transparent'}`}>
       <div className={`flex items-center justify-between px-6 py-4 sm:px-8 lg:px-12 ${fullWidth ? '' : 'mx-auto max-w-5xl'}`}>
         {/* Left: Logo + Nav */}
         <div className="flex items-center gap-8">
@@ -137,13 +143,13 @@ export function PublicHeader({
           ) : (
             <>
               <button
-                onClick={onLogin}
+                onClick={handleLogin}
                 className="rounded-lg px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
               >
                 Log In
               </button>
               <button
-                onClick={onSignup}
+                onClick={handleSignup}
                 className="rounded-lg bg-gray-900 px-5 py-1.5 text-sm font-medium text-white transition-all hover:bg-gray-700 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
               >
                 Sign Up

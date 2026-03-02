@@ -1136,23 +1136,23 @@ const markdownBaseTheme = EditorView.theme({
 
   // Jinja2 template syntax - delimiters ({{ }}, {% %}, {# #})
   '.cm-md-jinja-delimiter': {
-    color: '#a78bfa !important',
+    color: '#d1955a !important',
   },
 
   // Jinja2 variable content (between {{ }})
   '.cm-md-jinja-variable-content': {
-    backgroundColor: '#f5f3ff',
+    backgroundColor: 'rgba(226, 166, 107, 0.1)',
     mixBlendMode: 'multiply',
-    color: '#7c3aed !important',
+    color: '#b37a3a !important',
     padding: '0.1em 0.1em',
     borderRadius: '2px',
   },
 
   // Jinja2 tag content (between {% %})
   '.cm-md-jinja-tag-content': {
-    backgroundColor: '#faf5ff',
+    backgroundColor: 'rgba(226, 166, 107, 0.08)',
     mixBlendMode: 'multiply',
-    color: '#9333ea !important',
+    color: '#c4843e !important',
     fontStyle: 'italic',
     padding: '0.1em 0.1em',
     borderRadius: '2px',

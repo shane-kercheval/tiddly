@@ -44,6 +44,7 @@ import { DocsFAQ } from './pages/docs/DocsFAQ'
 import { Changelog } from './pages/changelog/Changelog'
 import { Roadmap } from './pages/roadmap/Roadmap'
 import { Pricing } from './pages/Pricing'
+import { FeaturesPage } from './pages/FeaturesPage'
 
 /**
  * Root layout component that wraps the entire app with providers.
@@ -67,6 +68,7 @@ const router = createBrowserRouter([
     children: [
       // Public routes
       { path: '/', element: <LandingPage /> },
+      { path: '/features', element: <FeaturesPage /> },
       { path: '/privacy', element: <PrivacyPolicy /> },
       { path: '/terms', element: <TermsOfService /> },
 
