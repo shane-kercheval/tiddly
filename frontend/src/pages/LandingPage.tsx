@@ -210,7 +210,7 @@ function LandingContent({
               <FeatureCard
                 icon={<ExternalLinkIcon />}
                 title="Agent Skills"
-                description="Export prompts as slash commands for Claude Code and Codex. Write once, use across all your AI tools."
+                description="Export prompts as skills that AI agents auto-invoke or you trigger manually. Works across Claude Code, Codex, and more."
                 iconBg="bg-white"
               />
               <FeatureCard
@@ -359,8 +359,8 @@ function LandingContent({
                 <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">{'{{ topic }}'}</code>{' '}
                 that get filled in when used. For example, you might create a "Code Review" prompt
                 with variables for language, code, and focus area. AI assistants can discover and
-                use your prompts via MCP, or you can export them as Agent Skills for tools like
-                Claude Code and Codex. Prompts are treated as first-class entities with the same
+                use your prompts via MCP, or you can export them as Agent Skills — reusable
+                instruction files that AI agents auto-invoke based on context. Prompts are treated as first-class entities with the same
                 versioning, tagging, search, and organization as bookmarks and notes.
               </p>
             </FAQItem>

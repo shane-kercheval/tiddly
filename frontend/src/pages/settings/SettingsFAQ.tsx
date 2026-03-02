@@ -453,8 +453,8 @@ export function SettingsFAQ(): ReactNode {
                 </a>.
               </p>
               <p>
-                Supported clients: Claude Code (slash commands), Claude Desktop (capabilities),
-                and Codex. Set up skills export in Settings → AI Integration.
+                Supported clients: Claude Code, Claude Desktop, Codex, and any tool supporting
+                the Agent Skills standard. Set up skills export in Settings → AI Integration.
               </p>
             </>
           }

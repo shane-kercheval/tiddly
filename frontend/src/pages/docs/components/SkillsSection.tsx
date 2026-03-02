@@ -99,7 +99,7 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
       <p className="text-gray-600 mb-6">
         Skills are reusable instruction files exported from your prompt templates.
         {client === 'claude-code'
-          ? ' Claude Code can auto-invoke them or you can use them as slash commands.'
+          ? ' Claude Code auto-invokes them when relevant, or you can trigger them with /skill-name.'
           : client === 'codex'
             ? ' Codex auto-selects them based on task context.'
             : ' Claude Desktop invokes them via natural language.'}
