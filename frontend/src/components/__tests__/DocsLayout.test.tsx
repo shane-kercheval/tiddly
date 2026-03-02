@@ -65,8 +65,7 @@ describe('DocsLayout', () => {
     renderDocsLayout('/docs')
 
     const overviewLink = screen.getByRole('link', { name: 'Overview' })
-    expect(overviewLink).toHaveClass('bg-[#fff0e5]')
-    expect(overviewLink).toHaveClass('text-[#d97b3d]')
+    expect(overviewLink).toHaveAttribute('aria-current', 'page')
   })
 
   it('should expand parent when child is active', () => {
@@ -79,9 +78,9 @@ describe('DocsLayout', () => {
     expect(screen.getByRole('link', { name: 'Claude Code' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Claude Desktop' })).toBeInTheDocument()
 
-    // Claude Code should have active styling
+    // Claude Code should be marked as current page
     const claudeCodeLink = screen.getByRole('link', { name: 'Claude Code' })
-    expect(claudeCodeLink).toHaveClass('bg-[#fff0e5]')
+    expect(claudeCodeLink).toHaveAttribute('aria-current', 'page')
   })
 
   it('should not expand parent when no child is active', () => {
@@ -103,16 +102,15 @@ describe('DocsLayout', () => {
     renderDocsLayout('/docs')
 
     const toggleButton = screen.getByLabelText('Toggle docs navigation')
-    const sidebar = toggleButton.closest('div')?.querySelector('aside')
 
-    // Sidebar should be hidden on mobile by default
-    expect(sidebar).toHaveClass('-translate-x-full')
+    // Sidebar toggle should indicate collapsed by default
+    expect(toggleButton).toHaveAttribute('aria-expanded', 'false')
 
     // Click toggle
     fireEvent.click(toggleButton)
 
-    // Sidebar should now be visible
-    expect(sidebar).toHaveClass('translate-x-0')
+    // Sidebar toggle should indicate expanded
+    expect(toggleButton).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('should render content from child route', () => {

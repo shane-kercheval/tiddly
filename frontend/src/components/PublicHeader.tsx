@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import { useAuth0 } from '@auth0/auth0-react'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 import { isDevMode } from '../config'
 import { BookmarkIcon } from './icons'
@@ -32,11 +31,10 @@ export function PublicHeader({
   fullWidth?: boolean
 }): ReactNode {
   const { isAuthenticated } = useAuthStatus()
-  const { loginWithRedirect } = useAuth0()
   const location = useLocation()
 
-  const handleLogin = onLogin ?? (() => loginWithRedirect({ authorizationParams: { screen_hint: 'login' } }))
-  const handleSignup = onSignup ?? (() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } }))
+  const handleLogin = onLogin ?? (() => {})
+  const handleSignup = onSignup ?? (() => {})
   const [productOpen, setProductOpen] = useState(false)
   const [prevPath, setPrevPath] = useState(location.pathname)
   const dropdownRef = useRef<HTMLDivElement>(null)

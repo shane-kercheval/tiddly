@@ -1,12 +1,6 @@
 import type { ReactNode } from 'react'
-import { usePageTitle } from '../../hooks/usePageTitle'
+import { ComingSoonPage } from '../../components/ComingSoonPage'
 
 export function DocsFAQ(): ReactNode {
-  usePageTitle('Docs - FAQ')
-  return (
-    <div>
-      <h1 className="text-3xl font-bold text-gray-900">FAQ</h1>
-      <p className="mt-4 text-gray-600">Coming soon.</p>
-    </div>
-  )
+  return <ComingSoonPage title="FAQ" pageTitle="Docs - FAQ" />
 }

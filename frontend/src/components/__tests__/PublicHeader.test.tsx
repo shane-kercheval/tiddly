@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -94,19 +94,15 @@ describe('PublicHeader', () => {
     expect(screen.queryByText('Sign Up')).not.toBeInTheDocument()
   })
 
-  it('should call onLogin and onSignup callbacks', () => {
-    // With default mock (isAuthenticated: true), auth buttons are hidden.
-    // This test validates the callbacks are wired correctly on the buttons.
-    const onLogin = vi.fn()
-    const onSignup = vi.fn()
-
+  it('should hide login/signup buttons when authenticated', () => {
     render(
       <MemoryRouter>
-        <PublicHeader onLogin={onLogin} onSignup={onSignup} />
+        <PublicHeader />
       </MemoryRouter>
     )
 
-    // Authenticated state shows Open App, so auth callbacks aren't visible
     expect(screen.getByRole('link', { name: 'Open App' })).toBeInTheDocument()
+    expect(screen.queryByText('Log In')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sign Up')).not.toBeInTheDocument()
   })
 })

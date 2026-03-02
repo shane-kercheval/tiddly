@@ -73,6 +73,7 @@ function NavItem({ item, pathname, depth = 0 }: { item: DocNavItem; pathname: st
     <div>
       <Link
         to={item.path}
+        aria-current={isActive ? 'page' : undefined}
         className={`block rounded-md px-3 py-1.5 text-sm transition-colors ${
           depth > 0 ? 'ml-4' : ''
         } ${
@@ -120,6 +121,7 @@ export function DocsLayout(): ReactNode {
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className="fixed bottom-4 right-4 z-40 rounded-full bg-gray-900 p-3 text-white shadow-lg md:hidden"
           aria-label="Toggle docs navigation"
+          aria-expanded={sidebarOpen}
         >
           {sidebarOpen ? (
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -142,7 +144,7 @@ export function DocsLayout(): ReactNode {
 
         {/* Sidebar — extends to left edge */}
         <aside
-          className={`fixed inset-y-0 left-0 z-30 w-64 transform overflow-y-auto bg-white p-6 pt-20 shadow-lg transition-transform md:static md:block md:w-56 md:shrink-0 md:transform-none md:border-r md:border-gray-200 md:shadow-none md:pt-8 md:pl-6 md:pr-6 lg:md:pl-8 ${
+          className={`fixed inset-y-0 left-0 z-30 w-64 transform overflow-y-auto bg-white p-6 pt-20 shadow-lg transition-transform md:static md:block md:w-56 md:shrink-0 md:transform-none md:border-r md:border-gray-200 md:shadow-none md:pt-8 md:pl-6 md:pr-6 lg:pl-8 ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
           }`}
         >

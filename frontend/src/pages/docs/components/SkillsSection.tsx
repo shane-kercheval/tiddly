@@ -35,22 +35,10 @@ function buildSkillsExportUrl(client: SkillsClientType, selectedTags: string[]):
   return `${config.apiUrl}/prompts/export/skills?${params.toString()}`
 }
 
-const CLIENT_LABELS: Record<SkillsClientType, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  'claude-desktop': 'Claude Desktop',
-}
-
-const SKILLS_DIR: Record<SkillsClientType, string> = {
-  'claude-code': '~/.claude/skills/',
-  codex: '~/.codex/skills/',
-  'claude-desktop': '',
-}
-
-const INVOKE_SYNTAX: Record<SkillsClientType, string> = {
-  'claude-code': '/skill-name',
-  codex: '$skill-name',
-  'claude-desktop': '"use my skill-name skill"',
+const CLIENT_CONFIG: Record<SkillsClientType, { label: string; skillsDir: string; invokeSyntax: string }> = {
+  'claude-code': { label: 'Claude Code', skillsDir: '~/.claude/skills/', invokeSyntax: '/skill-name' },
+  codex: { label: 'Codex', skillsDir: '~/.codex/skills/', invokeSyntax: '$skill-name' },
+  'claude-desktop': { label: 'Claude Desktop', skillsDir: '', invokeSyntax: '"use my skill-name skill"' },
 }
 
 /**
@@ -91,7 +79,7 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
   }, [isAuthenticated])
 
   const exportUrl = buildSkillsExportUrl(client, selectedTags)
-  const clientLabel = CLIENT_LABELS[client]
+  const { label: clientLabel, skillsDir, invokeSyntax } = CLIENT_CONFIG[client]
 
   return (
     <div className="mt-12 border-t border-gray-200 pt-8">
@@ -156,7 +144,7 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
           />
         ) : (
           <CopyableCodeBlock
-            code={`mkdir -p ${SKILLS_DIR[client]} && curl -sH "Authorization: Bearer $PROMPTS_TOKEN" "${exportUrl}" | tar -xzf - -C ${SKILLS_DIR[client]}`}
+            code={`mkdir -p ${skillsDir} && curl -sH "Authorization: Bearer $PROMPTS_TOKEN" "${exportUrl}" | tar -xzf - -C ${skillsDir}`}
           />
         )}
         {client === 'claude-desktop' && (
@@ -182,7 +170,7 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
           </>
         ) : (
           <p className="text-gray-600">
-            After syncing, invoke skills with <code className="bg-gray-100 px-1 rounded">{INVOKE_SYNTAX[client]}</code>.
+            After syncing, invoke skills with <code className="bg-gray-100 px-1 rounded">{invokeSyntax}</code>.
             {clientLabel} will also auto-invoke them when relevant to your task.
           </p>
         )}
@@ -193,7 +181,7 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
         <InfoCallout variant="tip" title="Sync Behavior">
           Syncing is <strong>additive</strong>: new skills are added and existing skills are updated,
           but skills are not deleted. To remove a skill, manually delete its folder from{' '}
-          <code className="bg-gray-200 px-1 rounded text-xs">{SKILLS_DIR[client]}</code>.
+          <code className="bg-gray-200 px-1 rounded text-xs">{skillsDir}</code>.
         </InfoCallout>
       )}
     </div>

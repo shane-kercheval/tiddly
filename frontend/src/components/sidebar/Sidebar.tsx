@@ -557,95 +557,9 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
         <nav className={`flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2 pt-1${isCollapsed ? ' scrollbar-none' : ''}`}>
           {/* Actions Section */}
           <div className="space-y-0.5 pb-2 border-b border-gray-200 mb-2">
-            {/* New Note */}
-            <div className="relative w-full min-w-0 overflow-hidden">
-              {isCollapsed ? (
-                <Tooltip content="New Note" compact position="right" className="w-full">
-                  <button
-                    onClick={handleQuickAddNote}
-                    className="flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm text-brand-note transition-colors hover:bg-gray-100 focus:outline-none"
-                    aria-label="New Note"
-                  >
-                    <IconWithBadge>
-                      <NoteIcon className="h-[18px] w-[18px]" />
-                    </IconWithBadge>
-                  </button>
-                </Tooltip>
-              ) : (
-                <button
-                  onClick={handleQuickAddNote}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
-                  aria-label="New Note"
-                >
-                  <span className="flex-shrink-0 text-brand-note">
-                    <IconWithBadge>
-                      <NoteIcon className="h-[18px] w-[18px]" />
-                    </IconWithBadge>
-                  </span>
-                  <span className="flex-1 truncate min-w-0 text-left">New Note</span>
-                </button>
-              )}
-            </div>
-
-            {/* New Bookmark */}
-            <div className="relative w-full min-w-0 overflow-hidden">
-              {isCollapsed ? (
-                <Tooltip content="New Bookmark" compact position="right" className="w-full">
-                  <button
-                    onClick={handleQuickAddBookmark}
-                    className="flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm text-brand-bookmark transition-colors hover:bg-gray-100 focus:outline-none"
-                    aria-label="New Bookmark"
-                  >
-                    <IconWithBadge>
-                      <BookmarkIcon className="h-[18px] w-[18px]" />
-                    </IconWithBadge>
-                  </button>
-                </Tooltip>
-              ) : (
-                <button
-                  onClick={handleQuickAddBookmark}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
-                  aria-label="New Bookmark"
-                >
-                  <span className="flex-shrink-0 text-brand-bookmark">
-                    <IconWithBadge>
-                      <BookmarkIcon className="h-[18px] w-[18px]" />
-                    </IconWithBadge>
-                  </span>
-                  <span className="flex-1 truncate min-w-0 text-left">New Bookmark</span>
-                </button>
-              )}
-            </div>
-
-            {/* New Prompt */}
-            <div className="relative w-full min-w-0 overflow-hidden">
-              {isCollapsed ? (
-                <Tooltip content="New Prompt" compact position="right" className="w-full">
-                  <button
-                    onClick={handleQuickAddPrompt}
-                    className="flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm text-brand-prompt transition-colors hover:bg-gray-100 focus:outline-none"
-                    aria-label="New Prompt"
-                  >
-                    <IconWithBadge>
-                      <PromptIcon className="h-[18px] w-[18px]" />
-                    </IconWithBadge>
-                  </button>
-                </Tooltip>
-              ) : (
-                <button
-                  onClick={handleQuickAddPrompt}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
-                  aria-label="New Prompt"
-                >
-                  <span className="flex-shrink-0 text-brand-prompt">
-                    <IconWithBadge>
-                      <PromptIcon className="h-[18px] w-[18px]" />
-                    </IconWithBadge>
-                  </span>
-                  <span className="flex-1 truncate min-w-0 text-left">New Prompt</span>
-                </button>
-              )}
-            </div>
+            <QuickAddButton label="New Note" icon={<NoteIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-note" onClick={handleQuickAddNote} isCollapsed={isCollapsed} />
+            <QuickAddButton label="New Bookmark" icon={<BookmarkIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-bookmark" onClick={handleQuickAddBookmark} isCollapsed={isCollapsed} />
+            <QuickAddButton label="New Prompt" icon={<PromptIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-prompt" onClick={handleQuickAddPrompt} isCollapsed={isCollapsed} />
 
             {/* Command Palette */}
             {isCollapsed ? (
@@ -791,6 +705,47 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
         onCreate={createCollection}
         onUpdate={updateCollection}
       />
+    </div>
+  )
+}
+
+function QuickAddButton({
+  label,
+  icon,
+  brandColor,
+  onClick,
+  isCollapsed,
+}: {
+  label: string
+  icon: ReactNode
+  brandColor: string
+  onClick: () => void
+  isCollapsed: boolean
+}): ReactNode {
+  return (
+    <div className="relative w-full min-w-0 overflow-hidden">
+      {isCollapsed ? (
+        <Tooltip content={label} compact position="right" className="w-full">
+          <button
+            onClick={onClick}
+            className={`flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm ${brandColor} transition-colors hover:bg-gray-100 focus:outline-none`}
+            aria-label={label}
+          >
+            <IconWithBadge>{icon}</IconWithBadge>
+          </button>
+        </Tooltip>
+      ) : (
+        <button
+          onClick={onClick}
+          className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
+          aria-label={label}
+        >
+          <span className={`flex-shrink-0 ${brandColor}`}>
+            <IconWithBadge>{icon}</IconWithBadge>
+          </span>
+          <span className="flex-1 truncate min-w-0 text-left">{label}</span>
+        </button>
+      )}
     </div>
   )
 }
