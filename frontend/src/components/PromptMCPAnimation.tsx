@@ -434,7 +434,7 @@ export function PromptMCPAnimation({ onComplete }: { onComplete?: () => void } =
           </div>
 
           {/* Connection line — vertical (tablet) */}
-          <div className="relative flex items-center justify-center lg:hidden" style={{ height: '50px' }}>
+          <div className="relative flex flex-col items-center justify-center lg:hidden" style={{ height: '50px' }}>
             <svg width="24" height="50" viewBox="0 0 24 50" className="overflow-visible">
               <motion.line
                 x1="12" y1="0" x2="12" y2="38"
@@ -450,7 +450,7 @@ export function PromptMCPAnimation({ onComplete }: { onComplete?: () => void } =
               />
             </svg>
             <motion.div
-              className="absolute left-full top-1/2 ml-2 -translate-y-1/2 text-[10px] font-medium tracking-wide text-gray-400"
+              className="mt-1 text-[10px] font-medium tracking-wide text-gray-400"
               initial={{ opacity: 0 }}
               animate={lineControls}
             >
