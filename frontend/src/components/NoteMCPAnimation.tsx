@@ -194,7 +194,7 @@ function ClaudeDesktopMockup({
   )
 }
 
-export function NoteMCPAnimation(): ReactNode {
+export function NoteMCPAnimation({ onComplete }: { onComplete?: () => void } = {}): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
   const isInView = useInView(containerRef, { once: true, margin: '-40px' })
 
@@ -304,12 +304,15 @@ export function NoteMCPAnimation(): ReactNode {
       if (!active.current) return
 
       setVisibleMessages(3)
+      await delay(1500)
+      if (!active.current) return
+      onComplete?.()
     }
 
     playSequence()
 
     return () => { active.current = false }
-  }, [isInView, tiddlyControls, readLineControls, updateLineControls, claudeControls])
+  }, [isInView, tiddlyControls, readLineControls, updateLineControls, claudeControls, onComplete])
 
   return (
     <div ref={containerRef}>

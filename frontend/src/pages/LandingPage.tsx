@@ -5,9 +5,7 @@ import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { Footer } from '../components/Footer'
-import { ChromeExtensionAnimation } from '../components/ChromeExtensionAnimation'
-import { NoteMCPAnimation } from '../components/NoteMCPAnimation'
-import { PromptMCPAnimation } from '../components/PromptMCPAnimation'
+import { AnimationCarousel } from '../components/AnimationCarousel'
 import { PublicHeader } from '../components/PublicHeader'
 import { LoadingSpinnerPage } from '../components/ui'
 import {
@@ -137,9 +135,7 @@ function LandingContent({
           </button>
         </div>
 
-        <ChromeExtensionAnimation />
-        <PromptMCPAnimation />
-        <NoteMCPAnimation />
+        <AnimationCarousel />
       </div>
 
       {/* Two Pillars Side-by-Side */}
@@ -385,12 +381,16 @@ function LandingContent({
               </p>
             </FAQItem>
 
-            <FAQItem question="Will this always be free?">
+            <FAQItem question="How much does Tiddly cost?">
               <p>
-                Tiddly is currently free during beta as we develop features and determine the
-                best pricing model. We're committed to transparency - any pricing changes will be
-                announced well in advance, and existing users may be grandfathered or given ample
-                notice.
+                Tiddly has a Free tier with access to every feature. The Pro tier
+                ($5/month or $4/month billed annually) removes capacity limits — unlimited
+                bookmarks, notes, and prompts, more API tokens, and longer version history
+                retention. See the{' '}
+                <a href="/pricing" className="text-blue-600 hover:underline">
+                  pricing page
+                </a>{' '}
+                for full details.
               </p>
             </FAQItem>
 
@@ -419,7 +419,7 @@ function LandingContent({
         <div className="rounded-2xl bg-gray-50 px-8 py-16 text-center">
           <h2 className="mb-6 text-3xl font-bold text-gray-900">Start organizing today</h2>
           <p className="mb-10 text-lg text-gray-500">
-            Free while in beta. Pricing to be determined.
+            Get started with the Free tier. Upgrade to Pro when you need more capacity.
           </p>
           <button
             onClick={onSignup}

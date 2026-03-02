@@ -246,7 +246,7 @@ function ClaudeCodeMockup({
   )
 }
 
-export function PromptMCPAnimation(): ReactNode {
+export function PromptMCPAnimation({ onComplete }: { onComplete?: () => void } = {}): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
   const isInView = useInView(containerRef, { once: true, margin: '-40px' })
 
@@ -372,12 +372,15 @@ export function PromptMCPAnimation(): ReactNode {
       await delay(300)
       if (!active.current) return
       setVisibleIssues(3)
+      await delay(1500)
+      if (!active.current) return
+      onComplete?.()
     }
 
     playSequence()
 
     return () => { active.current = false }
-  }, [isInView, appControls, lineControls, claudeControls])
+  }, [isInView, appControls, lineControls, claudeControls, onComplete])
 
   return (
     <div ref={containerRef}>

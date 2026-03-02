@@ -228,27 +228,36 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 
 ## Platform
 
-- **Status**: Currently in beta. Free to use during beta.
-- **Open source**: The codebase is available at https://github.com/shane-kercheval/tiddly and can be self-hosted.
+- **Pricing**: Free tier with all features included. Pro tier ($5/month or $4/month billed annually) removes capacity limits — unlimited bookmarks, notes, and prompts, more API tokens, and longer version history retention. All features are available on both tiers; Pro only increases capacity.
+- **Open source**: The codebase is available at https://github.com/shane-kercheval/tiddly and can be self-hosted with no tier limits.
 - **Infrastructure**: FastAPI backend, React frontend, PostgreSQL database (encryption at rest), Redis for caching and rate limiting. Hosted on Railway's Pro tier which includes SOC 2 compliance, DDoS protection, automatic daily database backups, and manual snapshots before major updates.
 - **Authentication**: Auth0.
 - **Multi-tenant**: All content is isolated by user ID. There is no sharing functionality.
 - **Privacy**: No client-side/end-to-end encryption (would prevent full-text search). The database administrator could technically access user data. Self-hosting is available for complete privacy.
 - **Data export**: Not yet available through the UI, but the full REST API can be used with a PAT to export content programmatically. A built-in export feature is planned.
-- **Future plans**: Pricing tiers and limits have not been finalized. Any pricing changes will be announced well in advance, and existing users may be grandfathered. Optional AI-powered features (summarization, auto-suggestions, enhanced search) are planned but not yet implemented — these will be completely opt-in.
+- **Future plans**: Optional AI-powered features (summarization, auto-suggestions, enhanced search) are planned but not yet implemented — these will be completely opt-in and may be priced separately.
 
-## Free Tier Limits
+## Tier Limits
 
-- **Items**: 100 bookmarks, 100 notes, 100 prompts.
-- **Content length**: Up to 100,000 characters per item.
+### Free Tier
+- **Items**: 50 bookmarks, 25 notes, 10 prompts.
+- **Content length**: Up to 25,000 characters per item.
 - **URL length**: Up to 2,048 characters.
 - **Tags**: Tag names up to 50 characters.
 - **Titles**: Up to 100 characters.
 - **Descriptions**: Up to 1,000 characters.
 - **Relationships**: Up to 50 per entity.
-- **Version history**: 30-day retention, up to 100 versions per entity.
-- **Personal Access Tokens**: Up to 10 active tokens.
+- **Version history**: 3-day retention, up to 100 versions per entity.
+- **Personal Access Tokens**: Up to 3 active tokens.
 - **Content filters**: Up to 10 filters, 10 sidebar collections.
+
+### Pro Tier ($5/month or $4/month billed annually)
+- **Items**: Unlimited bookmarks, notes, and prompts.
+- **Content length**: Up to 100,000 characters per item.
+- **Version history**: 30-day retention.
+- **Personal Access Tokens**: Up to 25 active tokens.
+- **Rate limits**: Higher than Free tier.
+- All other limits same as Free tier.
 
 ## Use Cases and Examples
 

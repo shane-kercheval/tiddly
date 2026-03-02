@@ -135,14 +135,12 @@ function ChromeExtensionMockup({
   showForm,
   urlText,
   titleText,
-  showTitleCursor,
   visibleTags,
   buttonState,
 }: {
   showForm: boolean
   urlText: string
   titleText: string
-  showTitleCursor: boolean
   visibleTags: number
   buttonState: 'idle' | 'saving' | 'saved'
 }): ReactNode {
@@ -183,7 +181,6 @@ function ChromeExtensionMockup({
               </div>
               <div className="border-b border-gray-200 pb-1.5 text-sm text-gray-800">
                 {titleText || <span className="text-gray-300">page title...</span>}
-                {showTitleCursor && <Cursor />}
               </div>
             </div>
             {/* Tags */}
@@ -297,7 +294,7 @@ function TiddlyBookmarksMockup({
   )
 }
 
-export function ChromeExtensionAnimation(): ReactNode {
+export function ChromeExtensionAnimation({ onComplete }: { onComplete?: () => void } = {}): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
   const isInView = useInView(containerRef, { once: true, margin: '-40px' })
 
@@ -314,7 +311,6 @@ export function ChromeExtensionAnimation(): ReactNode {
   const [showForm, setShowForm] = useState(false)
   const [extUrlText, setExtUrlText] = useState('')
   const [titleText, setTitleText] = useState('')
-  const [showTitleCursor, setShowTitleCursor] = useState(false)
   const [visibleTags, setVisibleTags] = useState(0)
   const [buttonState, setButtonState] = useState<'idle' | 'saving' | 'saved'>('idle')
 
@@ -393,6 +389,7 @@ export function ChromeExtensionAnimation(): ReactNode {
       // Popup is always mounted but invisible — show form and fade in
       setShowForm(true)
       setExtUrlText('docs.python.org/3/tutorial')
+      setTitleText('The Python Tutorial')
       // Fade in while keeping at mini scale
       await popupControls.start({
         opacity: 1, scale: 0.35, right: 8, top: 52,
@@ -418,14 +415,6 @@ export function ChromeExtensionAnimation(): ReactNode {
       setPopupDone(true)
 
       // === EXTENSION PHASE ===
-      await delay(200)
-      if (!active.current) return
-
-      // Type title
-      setShowTitleCursor(true)
-      await typeText(setTitleText, 'The Python Tutorial', 35, active)
-      if (!active.current) return
-      setShowTitleCursor(false)
       await delay(200)
       if (!active.current) return
 
@@ -471,12 +460,15 @@ export function ChromeExtensionAnimation(): ReactNode {
 
       // New bookmark slides in at the top
       setShowNewBookmark(true)
+      await delay(1500)
+      if (!active.current) return
+      onComplete?.()
     }
 
     playSequence()
 
     return () => { active.current = false }
-  }, [isInView, leftControls, browserControls, popupControls, cursorControls, lineControls, tiddlyControls])
+  }, [isInView, leftControls, browserControls, popupControls, cursorControls, lineControls, tiddlyControls, onComplete])
 
   return (
     <div ref={containerRef}>
@@ -522,7 +514,6 @@ export function ChromeExtensionAnimation(): ReactNode {
                   showForm={showForm}
                   urlText={extUrlText}
                   titleText={titleText}
-                  showTitleCursor={showTitleCursor}
                   visibleTags={visibleTags}
                   buttonState={buttonState}
                 />
