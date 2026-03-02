@@ -155,6 +155,7 @@ function TiddlyAppMockup({
 
 function ClaudeCodeMockup({
   commandText,
+  commandConfirmed,
   showCommandCursor,
   showPicker,
   pickerHighlight,
@@ -163,6 +164,7 @@ function ClaudeCodeMockup({
   visibleIssues,
 }: {
   commandText: string
+  commandConfirmed: boolean
   showCommandCursor: boolean
   showPicker: boolean
   pickerHighlight: number
@@ -182,7 +184,11 @@ function ClaudeCodeMockup({
         {/* Command line */}
         <div className="text-gray-700">
           <span className="text-gray-400">$ </span>
-          {commandText}
+          {commandConfirmed ? (
+            <span className="rounded bg-gray-100 px-1 py-0.5 text-green-700">{commandText}</span>
+          ) : (
+            commandText
+          )}
           {showCommandCursor && <Cursor />}
         </div>
 
@@ -259,6 +265,7 @@ export function PromptMCPAnimation({ onComplete }: { onComplete?: () => void } =
 
   // Claude state
   const [claudeCommand, setClaudeCommand] = useState('')
+  const [commandConfirmed, setCommandConfirmed] = useState(false)
   const [showCommandCursor, setShowCommandCursor] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
   const [pickerHighlight, setPickerHighlight] = useState(0)
@@ -353,6 +360,7 @@ export function PromptMCPAnimation({ onComplete }: { onComplete?: () => void } =
       // Select — picker closes, command updates
       setShowPicker(false)
       setClaudeCommand('/code-review')
+      setCommandConfirmed(true)
       await delay(400)
       if (!active.current) return
 
@@ -457,6 +465,7 @@ export function PromptMCPAnimation({ onComplete }: { onComplete?: () => void } =
           >
             <ClaudeCodeMockup
               commandText={claudeCommand}
+              commandConfirmed={commandConfirmed}
               showCommandCursor={showCommandCursor}
               showPicker={showPicker}
               pickerHighlight={pickerHighlight}
