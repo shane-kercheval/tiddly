@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { highlightJinja } from './JinjaHighlight'
+import { highlightJinja } from './jinjaHighlightUtils'
 
 interface CopyableCodeBlockProps {
   code: string

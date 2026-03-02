@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import type { ReactNode } from 'react'
 import { DocsLayout } from '../DocsLayout'
 
 function renderDocsLayout(initialPath: string): void {

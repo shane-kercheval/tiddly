@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion, useAnimation, useInView } from 'motion/react'
-import { Cursor, animateCount, delay, typeText } from './animationUtils'
+import { animateCount, delay, typeText } from './animationUtils'
+import { Cursor } from './AnimationCursor'
 
 const TEMPLATE_TEXT = 'Review this {{ language }} code:\n\n{{ code }}\n\nFocus on bugs, security,\nand readability.'
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { PublicHeader } from './PublicHeader'
@@ -101,11 +101,13 @@ function NavItem({ item, pathname, depth = 0 }: { item: DocNavItem; pathname: st
 export function DocsLayout(): ReactNode {
   const { pathname } = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [prevPath, setPrevPath] = useState(pathname)
 
   // Close mobile sidebar on route change
-  useEffect(() => {
-    setSidebarOpen(false)
-  }, [pathname])
+  if (prevPath !== pathname) {
+    setPrevPath(pathname)
+    if (sidebarOpen) setSidebarOpen(false)
+  }
 
   return (
     <div className="flex min-h-screen flex-col bg-white">

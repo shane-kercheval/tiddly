@@ -38,6 +38,7 @@ export function PublicHeader({
   const handleLogin = onLogin ?? (() => loginWithRedirect({ authorizationParams: { screen_hint: 'login' } }))
   const handleSignup = onSignup ?? (() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } }))
   const [productOpen, setProductOpen] = useState(false)
+  const [prevPath, setPrevPath] = useState(location.pathname)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Close dropdown when clicking outside
@@ -54,9 +55,10 @@ export function PublicHeader({
   }, [productOpen])
 
   // Close dropdown on route change
-  useEffect(() => {
-    setProductOpen(false)
-  }, [location.pathname])
+  if (prevPath !== location.pathname) {
+    setPrevPath(location.pathname)
+    if (productOpen) setProductOpen(false)
+  }
 
   // Show border when scrolled
   const [scrolled, setScrolled] = useState(false)

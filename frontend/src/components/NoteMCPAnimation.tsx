@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion, useAnimation, useInView } from 'motion/react'
-import { Cursor, delay, typeText } from './animationUtils'
+import { delay, typeText } from './animationUtils'
+import { Cursor } from './AnimationCursor'
 
 const ROUGH_NOTE = `- rev grew 18% yoy
 - need to hire 2 engs

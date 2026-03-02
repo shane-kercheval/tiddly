@@ -122,7 +122,7 @@ const comparisonData = [
   {
     category: 'Storage',
     rows: [
-      { feature: 'Characters per item', free: '25,000', pro: '100,000' },
+      { feature: 'Characters per content item', free: '25,000', pro: '100,000' },
     ],
   },
   {
@@ -206,7 +206,7 @@ export function Pricing(): ReactNode {
             <FeatureItem>50 bookmarks</FeatureItem>
             <FeatureItem>25 notes</FeatureItem>
             <FeatureItem>10 prompt templates</FeatureItem>
-            <FeatureItem>25K characters per item</FeatureItem>
+            <FeatureItem>25K characters per content item</FeatureItem>
             <FeatureItem>Full-text search</FeatureItem>
             <FeatureItem>MCP integration</FeatureItem>
             <FeatureItem>Chrome extension</FeatureItem>
@@ -228,7 +228,7 @@ export function Pricing(): ReactNode {
 
           <ul className="mt-8 space-y-4 text-sm text-gray-600">
             <FeatureItem><strong>Unlimited</strong> bookmarks, notes & prompts</FeatureItem>
-            <FeatureItem>100K characters per item</FeatureItem>
+            <FeatureItem>100K characters per content item</FeatureItem>
             <FeatureItem>Everything in Free, plus:</FeatureItem>
             <FeatureItem>25 API tokens</FeatureItem>
             <FeatureItem>30-day version history</FeatureItem>

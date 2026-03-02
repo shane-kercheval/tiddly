@@ -99,7 +99,7 @@ function FeaturesContent({
           Features
         </h1>
         <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
-          Modern content management.
+          Features for modern content management.
         </p>
       </section>
 

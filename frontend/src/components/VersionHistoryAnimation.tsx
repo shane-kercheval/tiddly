@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion, useAnimation, useInView, AnimatePresence } from 'motion/react'
-import { Cursor, delay, typeText } from './animationUtils'
+import { delay, typeText } from './animationUtils'
+import { Cursor } from './AnimationCursor'
 
 const BASE_LINE1 = 'The authentication endpoint uses OAuth 2.0 with refresh tokens.'
 const TYPED_ADDITION = ' Tokens expire after 30 days.'
