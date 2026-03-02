@@ -8,8 +8,14 @@ html, body, #root {
 
 /* Prevent horizontal scroll on mobile */
 html, body {
-  overflow-x: hidden;
   max-width: 100%;
+}
+
+/* Reserve scrollbar space to prevent layout shift, but only show scrollbar when needed */
+html {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 /* Safe area support for notched devices (iPhone X+, etc.) */

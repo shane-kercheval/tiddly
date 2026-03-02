@@ -6,7 +6,7 @@
  */
 import type { ReactNode, RefObject, ChangeEvent } from 'react'
 import { TagFilterInput } from '../TagFilterInput'
-import { SearchIcon, ArrowPathIcon } from '../icons'
+import { SearchIcon, NoSymbolIcon } from '../icons'
 import { Tooltip } from './Tooltip'
 import { SORT_LABELS, type SortByOption } from '../../constants/sortOptions'
 import type { TagCount } from '../../types'
@@ -128,12 +128,12 @@ export function SearchFilterBar({
               disabled={!hasNonDefaultFilters}
               className={`p-1 rounded transition-colors ${
                 hasNonDefaultFilters
-                  ? 'text-gray-400 hover:text-gray-600'
+                  ? 'text-red-400 hover:text-red-600'
                   : 'text-gray-200 cursor-default'
               }`}
               aria-label="Reset filters"
             >
-              <ArrowPathIcon className="h-3.5 w-3.5" />
+              <NoSymbolIcon className="h-[18px] w-[18px]" />
             </button>
           </Tooltip>
         )}

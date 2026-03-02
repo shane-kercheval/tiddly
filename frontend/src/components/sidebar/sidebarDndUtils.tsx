@@ -26,11 +26,11 @@ import { CONTENT_TYPE_ICON_COLORS } from '../../constants/contentTypeStyles'
 export function getBuiltinIcon(key: BuiltinKey): ReactNode {
   switch (key) {
     case 'all':
-      return <ListIcon className="h-4 w-4 text-purple-600" />
+      return <ListIcon className="h-[18px] w-[18px] text-purple-600" />
     case 'archived':
-      return <ArchiveIcon className="h-4 w-4 text-gray-500" />
+      return <ArchiveIcon className="h-[18px] w-[18px] text-gray-500" />
     case 'trash':
-      return <TrashIcon className="h-4 w-4 text-red-500" />
+      return <TrashIcon className="h-[18px] w-[18px] text-red-500" />
   }
 }
 
@@ -49,18 +49,18 @@ export function getFilterIcon(contentTypes: string[]): ReactNode {
   // Single type - show type-specific icon
   if (typeCount === 1) {
     if (hasBookmarks) {
-      return <BookmarkIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
+      return <BookmarkIcon className={`h-[18px] w-[18px] ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
     }
     if (hasNotes) {
-      return <NoteIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.note}`} />
+      return <NoteIcon className={`h-[18px] w-[18px] ${CONTENT_TYPE_ICON_COLORS.note}`} />
     }
     if (hasPrompts) {
-      return <PromptIcon className={`h-4 w-4 ${CONTENT_TYPE_ICON_COLORS.prompt}`} />
+      return <PromptIcon className={`h-[18px] w-[18px] ${CONTENT_TYPE_ICON_COLORS.prompt}`} />
     }
   }
 
   // Multiple types or none - use shared/list icon
-  return <ListIcon className="h-4 w-4 text-purple-500" />
+  return <ListIcon className="h-[18px] w-[18px] text-purple-500" />
 }
 
 /**

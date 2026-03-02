@@ -7,7 +7,7 @@
 import { useState, useRef, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { ContentType } from '../../types'
-import { PlusIcon, BookmarkIcon, NoteIcon, PromptIcon } from '../icons'
+import { PlusIcon, BookmarkIcon, NoteIcon, PromptIcon, IconWithBadge } from '../icons'
 
 interface QuickAddMenuProps {
   /** Called when "New Bookmark" is clicked */
@@ -130,7 +130,9 @@ export function QuickAddMenu({
               className="flex w-full items-center gap-2 px-3 py-[5px] text-sm text-gray-700 hover:bg-gray-100"
               data-testid="quick-add-bookmark"
             >
-              <BookmarkIcon className="h-4 w-4 text-gray-500" />
+              <IconWithBadge className="text-brand-bookmark">
+                <BookmarkIcon className="h-4 w-4" />
+              </IconWithBadge>
               <span>New Bookmark</span>
             </button>
           )}
@@ -141,7 +143,9 @@ export function QuickAddMenu({
               className="flex w-full items-center gap-2 px-3 py-[5px] text-sm text-gray-700 hover:bg-gray-100"
               data-testid="quick-add-note"
             >
-              <NoteIcon className="h-4 w-4 text-gray-500" />
+              <IconWithBadge className="text-brand-note">
+                <NoteIcon className="h-4 w-4" />
+              </IconWithBadge>
               <span>New Note</span>
             </button>
           )}
@@ -152,7 +156,9 @@ export function QuickAddMenu({
               className="flex w-full items-center gap-2 px-3 py-[5px] text-sm text-gray-700 hover:bg-gray-100"
               data-testid="quick-add-prompt"
             >
-              <PromptIcon className="h-4 w-4 text-gray-500" />
+              <IconWithBadge className="text-brand-prompt">
+                <PromptIcon className="h-4 w-4" />
+              </IconWithBadge>
               <span>New Prompt</span>
             </button>
           )}

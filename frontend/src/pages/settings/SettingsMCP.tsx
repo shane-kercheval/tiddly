@@ -993,8 +993,8 @@ function ClaudeCodeSkillsInstructions({ exportUrl }: ClaudeCodeSkillsInstruction
           Step 4: Use Your Skills
         </h3>
         <p className="text-gray-600 mb-2">
-          After syncing, skills are available as <code className="bg-gray-100 px-1 rounded">/skill-name</code> slash commands.
-          Claude will also auto-invoke them when relevant to your task.
+          After syncing, Claude auto-invokes skills when relevant to your task.
+          You can also trigger them manually with <code className="bg-gray-100 px-1 rounded">/skill-name</code>.
         </p>
         <p className="text-sm text-gray-500">
           Tip: Add this command to a cron job or shell alias for regular syncing.
@@ -1435,8 +1435,8 @@ export function SettingsMCP(): ReactNode {
         <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
           <h2 className="text-sm font-semibold text-gray-900 mb-2">What are Skills?</h2>
           <p className="text-sm text-gray-600">
-            Skills are reusable instruction files that AI assistants can auto-invoke based on context
-            or invoke manually via slash commands. Export your prompts as skills and sync them to your AI client.
+            Skills are reusable instruction files that AI agents auto-invoke based on context
+            or that you trigger manually. Export your prompts as skills and sync them to your AI client.
             Skills follow the <a href="https://agentskills.io/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Agent Skills Standard</a>.
           </p>
         </div>
