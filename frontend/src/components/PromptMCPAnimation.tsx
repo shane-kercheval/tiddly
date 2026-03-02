@@ -103,7 +103,7 @@ function TiddlyAppMockup({
   const isTypingContent = contentCharCount > 0 && contentCharCount < TEMPLATE_TEXT.length
 
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:w-80 lg:w-96">
+    <div className="mx-auto w-96 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
       {/* Title bar */}
       <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2.5">
         <div className="flex gap-1.5">
@@ -173,7 +173,7 @@ function ClaudeCodeMockup({
   visibleIssues: number
 }): ReactNode {
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:w-80 lg:w-96">
+    <div className="mx-auto w-96 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
       {/* Title bar */}
       <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2.5">
         <span className="font-mono text-xs text-gray-400">&gt;_</span>
@@ -393,7 +393,7 @@ export function PromptMCPAnimation({ onComplete }: { onComplete?: () => void } =
   return (
     <div ref={containerRef}>
       <div className="mx-auto max-w-4xl px-6 py-6 sm:px-8">
-        <div className="flex flex-col items-center justify-center gap-4 lg:flex-row lg:gap-0">
+        <div className="flex flex-col items-stretch justify-center gap-4 lg:flex-row lg:items-center lg:gap-0">
           {/* Tiddly app */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}

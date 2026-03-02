@@ -56,7 +56,7 @@ function TiddlyNoteMockup({
   showCleanNote: boolean
 }): ReactNode {
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:w-80 lg:w-96">
+    <div className="mx-auto w-96 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
       {/* Title bar */}
       <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2.5">
         <div className="flex gap-1.5">
@@ -135,7 +135,7 @@ function ClaudeDesktopMockup({
   ]
 
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:w-80 lg:w-96">
+    <div className="mx-auto w-96 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
       {/* Title bar */}
       <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2.5">
         <svg className="h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -317,7 +317,7 @@ export function NoteMCPAnimation({ onComplete }: { onComplete?: () => void } = {
   return (
     <div ref={containerRef}>
       <div className="mx-auto max-w-4xl px-6 py-6 sm:px-8">
-        <div className="flex flex-col items-center justify-center gap-4 lg:flex-row lg:gap-0">
+        <div className="flex flex-col items-stretch justify-center gap-2 lg:flex-row lg:items-center lg:gap-0">
           {/* Tiddly note editor */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -380,26 +380,26 @@ export function NoteMCPAnimation({ onComplete }: { onComplete?: () => void } = {
           </div>
 
           {/* Connection lines — vertical (mobile) */}
-          <div className="relative flex flex-col items-center justify-center lg:hidden" style={{ height: '100px' }}>
+          <div className="relative flex flex-col items-center justify-center lg:hidden" style={{ height: '60px' }}>
             <div className="flex items-center gap-3">
               {/* Read arrow (down) */}
               <div className="relative flex flex-col items-center">
-                <svg width="24" height="50" viewBox="0 0 24 50" className="overflow-visible">
+                <svg width="24" height="30" viewBox="0 0 24 30" className="overflow-visible">
                   <motion.line
-                    x1="12" y1="0" x2="12" y2="38"
+                    x1="12" y1="0" x2="12" y2="20"
                     stroke="#d1d5db" strokeWidth="1.5" strokeDasharray="6 4"
                     initial={{ pathLength: 0, opacity: 0 }}
                     animate={readLineControls}
                   />
                   <motion.path
-                    d="M7 34 L12 44 L17 34"
+                    d="M7 17 L12 27 L17 17"
                     fill="none" stroke="#d1d5db" strokeWidth="1.5"
                     initial={{ pathLength: 0, opacity: 0 }}
                     animate={readLineControls}
                   />
                 </svg>
                 <motion.div
-                  className="mt-1 text-[10px] font-medium tracking-wide text-gray-400"
+                  className="mt-0.5 text-[10px] font-medium tracking-wide text-gray-400"
                   initial={{ opacity: 0 }}
                   animate={readLineControls}
                 >
@@ -408,22 +408,22 @@ export function NoteMCPAnimation({ onComplete }: { onComplete?: () => void } = {
               </div>
               {/* Update arrow (up) */}
               <div className="relative flex flex-col items-center">
-                <svg width="24" height="50" viewBox="0 0 24 50" className="overflow-visible">
+                <svg width="24" height="30" viewBox="0 0 24 30" className="overflow-visible">
                   <motion.line
-                    x1="12" y1="50" x2="12" y2="12"
+                    x1="12" y1="30" x2="12" y2="10"
                     stroke="#d1d5db" strokeWidth="1.5" strokeDasharray="6 4"
                     initial={{ pathLength: 0, opacity: 0 }}
                     animate={updateLineControls}
                   />
                   <motion.path
-                    d="M7 16 L12 6 L17 16"
+                    d="M7 13 L12 3 L17 13"
                     fill="none" stroke="#d1d5db" strokeWidth="1.5"
                     initial={{ pathLength: 0, opacity: 0 }}
                     animate={updateLineControls}
                   />
                 </svg>
                 <motion.div
-                  className="mt-1 text-[10px] font-medium tracking-wide text-gray-400"
+                  className="mt-0.5 text-[10px] font-medium tracking-wide text-gray-400"
                   initial={{ opacity: 0 }}
                   animate={updateLineControls}
                 >

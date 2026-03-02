@@ -13,12 +13,12 @@ interface Slide {
 
 const SLIDES: Slide[] = [
   {
-    Component: NoteMCPAnimation,
-    subtitle: 'Claude reads and updates your notes through MCP',
+    Component: PromptMCPAnimation,
+    subtitle: 'Create prompt templates and use them in any AI agent via MCP',
   },
   {
-    Component: PromptMCPAnimation,
-    subtitle: 'Create prompt templates and use them as agent skills via MCP',
+    Component: NoteMCPAnimation,
+    subtitle: 'Claude reads and updates your notes through MCP',
   },
   {
     Component: ChromeExtensionAnimation,
@@ -26,7 +26,7 @@ const SLIDES: Slide[] = [
   },
 ]
 
-export function AnimationCarousel(): ReactNode {
+export function AnimationCarousel({ onSignup }: { onSignup?: () => void }): ReactNode {
   const [activeIndex, setActiveIndex] = useState(0)
 
   const goTo = (index: number): void => {
@@ -40,8 +40,8 @@ export function AnimationCarousel(): ReactNode {
   const ActiveComponent = SLIDES[activeIndex].Component
 
   return (
-    <div className="mt-12">
-      <div className="h-[700px] overflow-hidden lg:h-[350px]">
+    <div className="mt-2 sm:mt-12">
+      <div className="overflow-hidden lg:h-[350px]">
         <AnimatePresence mode="wait">
           <motion.div
             key={`anim-${activeIndex}`}
@@ -64,17 +64,17 @@ export function AnimationCarousel(): ReactNode {
           transition={{ duration: 0.2 }}
           className="mt-2 text-center"
         >
-          <p className="text-base text-gray-500">{SLIDES[activeIndex].subtitle}</p>
+          <p className="text-sm text-gray-500 sm:text-base">{SLIDES[activeIndex].subtitle}</p>
         </motion.div>
       </AnimatePresence>
 
-      <div className="mt-4 flex items-center justify-center gap-3">
+      <div className="mt-3 flex items-center justify-center gap-3 sm:mt-4">
         <button
           onClick={() => goTo(activeIndex - 1)}
-          className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+          className="rounded-full p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 sm:p-2"
           aria-label="Previous slide"
         >
-          <ChevronLeftIcon className="h-5 w-5" />
+          <ChevronLeftIcon className="h-4 w-4 sm:h-5 sm:w-5" />
         </button>
         <div className="flex items-center gap-2">
           {SLIDES.map((_, i) => (
@@ -90,12 +90,23 @@ export function AnimationCarousel(): ReactNode {
         </div>
         <button
           onClick={() => goTo(activeIndex + 1)}
-          className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+          className="rounded-full p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 sm:p-2"
           aria-label="Next slide"
         >
-          <ChevronRightIcon className="h-5 w-5" />
+          <ChevronRightIcon className="h-4 w-4 sm:h-5 sm:w-5" />
         </button>
       </div>
+
+      {onSignup && (
+        <div className="mt-6 text-center sm:hidden">
+          <button
+            onClick={onSignup}
+            className="rounded-full bg-gray-900 px-8 py-3 text-base font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+          >
+            Get Started
+          </button>
+        </div>
+      )}
     </div>
   )
 }

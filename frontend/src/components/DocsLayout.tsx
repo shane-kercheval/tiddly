@@ -14,6 +14,18 @@ const docsNav: DocNavItem[] = [
   { label: 'Overview', path: '/docs' },
   { label: 'Getting Started', path: '/docs/getting-started' },
   {
+    label: 'Features',
+    path: '/docs/features',
+    children: [
+      { label: 'Content Types', path: '/docs/features/content-types' },
+      { label: 'Prompts & Templates', path: '/docs/features/prompts' },
+      { label: 'Tags & Filters', path: '/docs/features/tags-filters' },
+      { label: 'Search', path: '/docs/features/search' },
+      { label: 'Versioning', path: '/docs/features/versioning' },
+      { label: 'Keyboard Shortcuts', path: '/docs/features/shortcuts' },
+    ],
+  },
+  {
     label: 'AI Integration',
     path: '/docs/ai',
     children: [

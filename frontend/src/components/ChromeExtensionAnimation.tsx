@@ -64,7 +64,7 @@ function BrowserMockup({
   showClickRing: boolean
 }): ReactNode {
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:w-80 lg:w-96">
+    <div className="mx-auto w-96 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
       {/* Title bar */}
       <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2">
         <div className="flex gap-1.5">
@@ -147,7 +147,7 @@ function ChromeExtensionMockup({
   const tags = ['python', 'docs']
 
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:w-80 lg:w-96">
+    <div className="mx-auto w-96 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
       {/* Title bar */}
       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
         <div className="flex items-center gap-2">
@@ -239,7 +239,7 @@ function TiddlyBookmarksMockup({
   showNewBookmark: boolean
 }): ReactNode {
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg sm:w-80 lg:w-96">
+    <div className="mx-auto w-96 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
       {/* Title bar */}
       <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2.5">
         <div className="flex gap-1.5">
@@ -473,7 +473,7 @@ export function ChromeExtensionAnimation({ onComplete }: { onComplete?: () => vo
   return (
     <div ref={containerRef}>
       <div className="mx-auto max-w-4xl px-6 py-6 sm:px-8">
-        <div className="flex flex-col items-center justify-center gap-4 lg:flex-row lg:gap-0">
+        <div className="flex flex-col items-stretch justify-center gap-4 lg:flex-row lg:items-center lg:gap-0">
           {/* Left: Browser → mini popup → full Extension */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}

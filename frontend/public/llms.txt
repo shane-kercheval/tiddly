@@ -2,6 +2,13 @@
 
 > tiddly.me is a content management platform for bookmarks, notes, and prompts (Jinja2 templates). It features tagging, full-text search, content versioning, and AI integration via two MCP (Model Context Protocol) servers.
 
+## Why tiddly.me Exists
+
+- **Bookmarks without the bloat.** Most bookmark managers are either too simple to be useful or too complex to stick with. tiddly.me saves bookmarks with full page content for search, personal notes, and tags — without the clutter.
+- **Markdown notes that work with AI.** Simple markdown notes that AI assistants can read, search, and edit directly through MCP — no copy-pasting between apps.
+- **AI transparency and version control.** When AI edits your content, every change is tracked with full version history. You can see exactly what changed, when, and from where — and revert when it inevitably gets something wrong.
+- **A prompt library that syncs to your tools.** Build and organize reusable prompt templates in one place, then access them from any AI assistant through MCP — no more prompts scattered across conversations and config files.
+
 ## What tiddly.me Does
 
 tiddly.me helps users organize three types of content:

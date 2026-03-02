@@ -34,6 +34,13 @@ import { DocsExtensionsChrome } from './pages/docs/DocsExtensionsChrome'
 import { DocsExtensionsSafari } from './pages/docs/DocsExtensionsSafari'
 import { DocsAPI } from './pages/docs/DocsAPI'
 import { DocsAPIEndpoint } from './pages/docs/DocsAPIEndpoint'
+import { DocsFeaturesHub } from './pages/docs/DocsFeaturesHub'
+import { DocsContentTypes } from './pages/docs/DocsContentTypes'
+import { DocsPrompts } from './pages/docs/DocsPrompts'
+import { DocsTagsFilters } from './pages/docs/DocsTagsFilters'
+import { DocsSearch } from './pages/docs/DocsSearch'
+import { DocsVersioning } from './pages/docs/DocsVersioning'
+import { DocsShortcuts } from './pages/docs/DocsShortcuts'
 import { DocsFAQ } from './pages/docs/DocsFAQ'
 import { Changelog } from './pages/changelog/Changelog'
 import { Roadmap } from './pages/roadmap/Roadmap'
@@ -70,6 +77,13 @@ const router = createBrowserRouter([
         children: [
           { path: '/docs', element: <DocsOverview /> },
           { path: '/docs/getting-started', element: <DocsGettingStarted /> },
+          { path: '/docs/features', element: <DocsFeaturesHub /> },
+          { path: '/docs/features/content-types', element: <DocsContentTypes /> },
+          { path: '/docs/features/prompts', element: <DocsPrompts /> },
+          { path: '/docs/features/tags-filters', element: <DocsTagsFilters /> },
+          { path: '/docs/features/search', element: <DocsSearch /> },
+          { path: '/docs/features/versioning', element: <DocsVersioning /> },
+          { path: '/docs/features/shortcuts', element: <DocsShortcuts /> },
           { path: '/docs/ai', element: <DocsAIHub /> },
           { path: '/docs/ai/claude-desktop', element: <DocsClaudeDesktop /> },
           { path: '/docs/ai/claude-code', element: <DocsClaudeCode /> },

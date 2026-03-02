@@ -124,18 +124,18 @@ function LandingContent({
               Beta
             </span>
           </div>
-          <p className="mx-auto mb-8 max-w-3xl text-xl leading-relaxed text-gray-500 sm:text-2xl">
+          <p className="mx-auto mb-4 max-w-3xl text-xl leading-relaxed text-gray-500 sm:mb-8 sm:text-2xl">
             Organize your knowledge. Connect it to your AI.
           </p>
           <button
             onClick={onSignup}
-            className="rounded-full bg-gray-900 px-8 py-3 text-base font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+            className="hidden rounded-full bg-gray-900 px-8 py-3 text-base font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 sm:inline-block"
           >
             Get Started
           </button>
         </div>
 
-        <AnimationCarousel />
+        <AnimationCarousel onSignup={onSignup} />
       </div>
 
       {/* Two Pillars Side-by-Side */}
