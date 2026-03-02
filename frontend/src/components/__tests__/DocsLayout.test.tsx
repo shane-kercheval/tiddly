@@ -11,7 +11,6 @@ function renderDocsLayout(initialPath: string): void {
         element: <DocsLayout />,
         children: [
           { path: '/docs', element: <div>Overview Page</div> },
-          { path: '/docs/getting-started', element: <div>Getting Started Page</div> },
           { path: '/docs/ai', element: <div>AI Hub Page</div> },
           { path: '/docs/ai/claude-code', element: <div>Claude Code Page</div> },
           { path: '/docs/ai/claude-desktop', element: <div>Claude Desktop Page</div> },
@@ -40,7 +39,7 @@ describe('DocsLayout', () => {
 
     // Sidebar nav items
     expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Getting Started' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Features' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'AI Integration' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'FAQ' })).toBeInTheDocument()
 
@@ -56,7 +55,7 @@ describe('DocsLayout', () => {
     renderDocsLayout('/docs')
 
     expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Getting Started' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Features' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'AI Integration' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Extensions' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'API' })).toBeInTheDocument()

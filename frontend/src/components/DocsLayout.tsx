@@ -12,7 +12,6 @@ interface DocNavItem {
 
 const docsNav: DocNavItem[] = [
   { label: 'Overview', path: '/docs' },
-  { label: 'Getting Started', path: '/docs/getting-started' },
   {
     label: 'Features',
     path: '/docs/features',

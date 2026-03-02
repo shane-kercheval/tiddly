@@ -21,7 +21,6 @@ import { SettingsTags } from './pages/settings/SettingsTags'
 import { SettingsFAQ } from './pages/settings/SettingsFAQ'
 import { SettingsVersionHistory } from './pages/settings/SettingsVersionHistory'
 import { DocsOverview } from './pages/docs/DocsOverview'
-import { DocsGettingStarted } from './pages/docs/DocsGettingStarted'
 import { DocsAIHub } from './pages/docs/DocsAIHub'
 import { DocsClaudeDesktop } from './pages/docs/DocsClaudeDesktop'
 import { DocsClaudeCode } from './pages/docs/DocsClaudeCode'
@@ -76,7 +75,6 @@ const router = createBrowserRouter([
         element: <DocsLayout />,
         children: [
           { path: '/docs', element: <DocsOverview /> },
-          { path: '/docs/getting-started', element: <DocsGettingStarted /> },
           { path: '/docs/features', element: <DocsFeaturesHub /> },
           { path: '/docs/features/content-types', element: <DocsContentTypes /> },
           { path: '/docs/features/prompts', element: <DocsPrompts /> },

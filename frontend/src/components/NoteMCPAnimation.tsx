@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion, useAnimation, useInView } from 'motion/react'
+import { Cursor, delay, typeText } from './animationUtils'
 
 const ROUGH_NOTE = `- rev grew 18% yoy
 - need to hire 2 engs
@@ -11,38 +12,6 @@ const CLEAN_NOTE = `- Revenue grew 18% year-over-year
 - Target launch: March 15`
 
 const USER_PROMPT = 'Clean up my meeting notes'
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function typeText(
-  setter: (value: string) => void,
-  text: string,
-  charDelay: number,
-  isMounted: { current: boolean },
-): Promise<void> {
-  return new Promise(resolve => {
-    let i = 0
-    const interval = setInterval(() => {
-      if (!isMounted.current) { clearInterval(interval); resolve(); return }
-      i++
-      setter(text.slice(0, i))
-      if (i >= text.length) { clearInterval(interval); resolve() }
-    }, charDelay)
-  })
-}
-
-function Cursor(): ReactNode {
-  return (
-    <motion.span
-      className="ml-px inline-block w-[1.5px] bg-gray-800"
-      style={{ height: '1em', verticalAlign: 'text-bottom' }}
-      animate={{ opacity: [1, 0] }}
-      transition={{ duration: 0.5, repeat: Infinity, repeatType: 'reverse' }}
-    />
-  )
-}
 
 function TiddlyNoteMockup({
   showContent,
@@ -197,6 +166,8 @@ function ClaudeDesktopMockup({
 export function NoteMCPAnimation({ onComplete }: { onComplete?: () => void } = {}): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
   const isInView = useInView(containerRef, { once: true, margin: '-40px' })
+  const onCompleteRef = useRef(onComplete)
+  useEffect(() => { onCompleteRef.current = onComplete }, [onComplete])
 
   // Tiddly note state
   const [showContent, setShowContent] = useState(false)
@@ -306,13 +277,13 @@ export function NoteMCPAnimation({ onComplete }: { onComplete?: () => void } = {
       setVisibleMessages(3)
       await delay(1500)
       if (!active.current) return
-      onComplete?.()
+      onCompleteRef.current?.()
     }
 
     playSequence()
 
     return () => { active.current = false }
-  }, [isInView, tiddlyControls, readLineControls, updateLineControls, claudeControls, onComplete])
+  }, [isInView, tiddlyControls, readLineControls, updateLineControls, claudeControls])
 
   return (
     <div ref={containerRef}>

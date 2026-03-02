@@ -1,38 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion, useAnimation, useInView } from 'motion/react'
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function typeText(
-  setter: (value: string) => void,
-  text: string,
-  charDelay: number,
-  isMounted: { current: boolean },
-): Promise<void> {
-  return new Promise(resolve => {
-    let i = 0
-    const interval = setInterval(() => {
-      if (!isMounted.current) { clearInterval(interval); resolve(); return }
-      i++
-      setter(text.slice(0, i))
-      if (i >= text.length) { clearInterval(interval); resolve() }
-    }, charDelay)
-  })
-}
-
-function Cursor(): ReactNode {
-  return (
-    <motion.span
-      className="ml-px inline-block w-[1.5px] bg-gray-800"
-      style={{ height: '1em', verticalAlign: 'text-bottom' }}
-      animate={{ opacity: [1, 0] }}
-      transition={{ duration: 0.5, repeat: Infinity, repeatType: 'reverse' }}
-    />
-  )
-}
+import { Cursor, delay, typeText } from './animationUtils'
 
 function MouseCursor(): ReactNode {
   return (
@@ -297,6 +266,8 @@ function TiddlyBookmarksMockup({
 export function ChromeExtensionAnimation({ onComplete }: { onComplete?: () => void } = {}): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
   const isInView = useInView(containerRef, { once: true, margin: '-40px' })
+  const onCompleteRef = useRef(onComplete)
+  useEffect(() => { onCompleteRef.current = onComplete }, [onComplete])
 
   // Browser state
   const [showBrowser, setShowBrowser] = useState(true)
@@ -462,13 +433,13 @@ export function ChromeExtensionAnimation({ onComplete }: { onComplete?: () => vo
       setShowNewBookmark(true)
       await delay(1500)
       if (!active.current) return
-      onComplete?.()
+      onCompleteRef.current?.()
     }
 
     playSequence()
 
     return () => { active.current = false }
-  }, [isInView, leftControls, browserControls, popupControls, cursorControls, lineControls, tiddlyControls, onComplete])
+  }, [isInView, leftControls, browserControls, popupControls, cursorControls, lineControls, tiddlyControls])
 
   return (
     <div ref={containerRef}>

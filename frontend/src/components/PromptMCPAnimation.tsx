@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { motion, useAnimation, useInView } from 'motion/react'
+import { Cursor, animateCount, delay, typeText } from './animationUtils'
 
 const TEMPLATE_TEXT = 'Review this {{ language }} code:\n\n{{ code }}\n\nFocus on bugs, security,\nand readability.'
 
@@ -11,55 +12,6 @@ const RESPONSE_ISSUES = [
   'Use parameterized queries',
   'Add input validation',
 ]
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function typeText(
-  setter: (value: string) => void,
-  text: string,
-  charDelay: number,
-  isMounted: { current: boolean },
-): Promise<void> {
-  return new Promise(resolve => {
-    let i = 0
-    const interval = setInterval(() => {
-      if (!isMounted.current) { clearInterval(interval); resolve(); return }
-      i++
-      setter(text.slice(0, i))
-      if (i >= text.length) { clearInterval(interval); resolve() }
-    }, charDelay)
-  })
-}
-
-function animateCount(
-  setter: (value: number) => void,
-  total: number,
-  stepDelay: number,
-  isMounted: { current: boolean },
-): Promise<void> {
-  return new Promise(resolve => {
-    let i = 0
-    const interval = setInterval(() => {
-      if (!isMounted.current) { clearInterval(interval); resolve(); return }
-      i++
-      setter(i)
-      if (i >= total) { clearInterval(interval); resolve() }
-    }, stepDelay)
-  })
-}
-
-function Cursor(): ReactNode {
-  return (
-    <motion.span
-      className="ml-px inline-block w-[1.5px] bg-gray-800"
-      style={{ height: '1em', verticalAlign: 'text-bottom' }}
-      animate={{ opacity: [1, 0] }}
-      transition={{ duration: 0.5, repeat: Infinity, repeatType: 'reverse' }}
-    />
-  )
-}
 
 function renderTemplateText(text: string): ReactNode {
   const parts = text.split(/(\{\{[^}]+\}\})/g)
@@ -255,6 +207,8 @@ function ClaudeCodeMockup({
 export function PromptMCPAnimation({ onComplete }: { onComplete?: () => void } = {}): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
   const isInView = useInView(containerRef, { once: true, margin: '-40px' })
+  const onCompleteRef = useRef(onComplete)
+  useEffect(() => { onCompleteRef.current = onComplete }, [onComplete])
 
   // Tiddly state
   const [showForm, setShowForm] = useState(false)
@@ -382,13 +336,13 @@ export function PromptMCPAnimation({ onComplete }: { onComplete?: () => void } =
       setVisibleIssues(3)
       await delay(1500)
       if (!active.current) return
-      onComplete?.()
+      onCompleteRef.current?.()
     }
 
     playSequence()
 
     return () => { active.current = false }
-  }, [isInView, appControls, lineControls, claudeControls, onComplete])
+  }, [isInView, appControls, lineControls, claudeControls])
 
   return (
     <div ref={containerRef}>

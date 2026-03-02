@@ -10,11 +10,6 @@ interface SectionCard {
 
 const SECTIONS: SectionCard[] = [
   {
-    name: 'Getting Started',
-    description: 'Create an account, learn the basics, and set up your first bookmarks, notes, and prompts.',
-    path: '/docs/getting-started',
-  },
-  {
     name: 'Features',
     description: 'Content types, search, tags & filters, versioning, keyboard shortcuts, and more.',
     path: '/docs/features',
