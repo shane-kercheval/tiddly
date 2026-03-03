@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -70,6 +71,7 @@ func loginWithPAT(cmd *cobra.Command, token string) error {
 		msg = fmt.Sprintf("Logged in as %s", user.Email)
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), msg)
+	warnIfFileStore(cmd)
 	return nil
 }
 
@@ -109,7 +111,8 @@ func loginWithOAuth(cmd *cobra.Command) error {
 	user, err := client.GetMe()
 	if err != nil {
 		// Handle 451 consent required gracefully
-		if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 451 {
+		var apiErr *api.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == 451 {
 			fmt.Fprintln(cmd.OutOrStdout(), "Logged in successfully.")
 			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: Terms of Service acceptance required.")
 			consentURL := apiErr.ConsentURL
@@ -117,11 +120,13 @@ func loginWithOAuth(cmd *cobra.Command) error {
 				consentURL = "https://tiddly.me/terms"
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "  Visit %s to accept, then retry your command.\n", consentURL)
+			warnIfFileStore(cmd)
 			return nil
 		}
 		// Non-451 errors: credentials stored but warn
 		fmt.Fprintln(cmd.OutOrStdout(), "Logged in successfully.")
 		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Could not verify user info: %v\n", err)
+		warnIfFileStore(cmd)
 		return nil
 	}
 
@@ -130,5 +135,16 @@ func loginWithOAuth(cmd *cobra.Command) error {
 		msg = fmt.Sprintf("Logged in as %s", user.Email)
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), msg)
+	warnIfFileStore(cmd)
 	return nil
+}
+
+// warnIfFileStore prints a warning if credentials are stored in a plaintext file
+// instead of the system keyring.
+func warnIfFileStore(cmd *cobra.Command) {
+	if appDeps != nil && appDeps.FileStoreFallback {
+		fmt.Fprintln(cmd.ErrOrStderr(),
+			"Warning: System keyring unavailable. Credentials stored in plaintext at "+
+				appDeps.ConfigDir+"/credentials")
+	}
 }

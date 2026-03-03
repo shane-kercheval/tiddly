@@ -143,11 +143,12 @@ func TestKeyringAvailable(t *testing.T) {
 
 func TestNewCredentialStore__file_mode(t *testing.T) {
 	dir := t.TempDir()
-	store := NewCredentialStore(KeyringFile, dir)
+	store, fallback := NewCredentialStore(KeyringFile, dir)
 
-	// Should be a fileStore
+	// Should be a fileStore, not a fallback (explicitly requested)
 	_, ok := store.(*fileStore)
 	assert.True(t, ok, "KeyringFile mode should create fileStore")
+	assert.False(t, fallback, "explicit file mode should not report as fallback")
 
 	// Should work
 	err := store.Set("test", "value")

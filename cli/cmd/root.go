@@ -19,11 +19,12 @@ var (
 
 // AppDeps holds the application dependencies, injectable for testing.
 type AppDeps struct {
-	CredStore    auth.CredentialStore
-	TokenManager *auth.TokenManager
-	ConfigDir    string
-	ExecLooker   mcp.ExecLooker
-	CmdRunner    mcp.CommandRunner
+	CredStore       auth.CredentialStore
+	TokenManager    *auth.TokenManager
+	ConfigDir       string
+	ExecLooker      mcp.ExecLooker
+	CmdRunner       mcp.CommandRunner
+	FileStoreFallback bool // true if credentials fell back to plaintext file storage
 }
 
 // appDeps is the global deps instance, set during PersistentPreRunE or by tests.
@@ -72,16 +73,17 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 					keyringMode = auth.KeyringFile
 				}
 
-				store := auth.NewCredentialStore(keyringMode, configDir)
+				store, fileFallback := auth.NewCredentialStore(keyringMode, configDir)
 				df := auth.NewDeviceFlow(auth.DefaultAuth0Config())
 				tm := auth.NewTokenManager(store, df)
 
 				appDeps = &AppDeps{
-					CredStore:    store,
-					TokenManager: tm,
-					ConfigDir:    configDir,
-					ExecLooker:   &realExecLooker{},
-					CmdRunner:    &realCommandRunner{},
+					CredStore:         store,
+					TokenManager:      tm,
+					ConfigDir:         configDir,
+					ExecLooker:        &realExecLooker{},
+					CmdRunner:         &realCommandRunner{},
+					FileStoreFallback: fileFallback,
 				}
 			}
 

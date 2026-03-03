@@ -52,10 +52,9 @@ func detectClaudeDesktop(looker ExecLooker) DetectedTool {
 func detectClaudeCode(looker ExecLooker) DetectedTool {
 	tool := DetectedTool{Name: "claude-code"}
 
-	if path, err := looker.LookPath("claude"); err == nil {
+	if _, err := looker.LookPath("claude"); err == nil {
 		tool.Installed = true
 		tool.Reason = "binary in PATH"
-		_ = path
 	}
 
 	return tool

@@ -89,6 +89,51 @@ func TestLogin__pat_invalid_prefix(t *testing.T) {
 	assert.Contains(t, result.Err.Error(), "must start with 'bm_'")
 }
 
+func TestLogin__pat_warns_on_file_store_fallback(t *testing.T) {
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/users/me").
+		RespondJSON(200, testutil.UserMeResponse("user@example.com"))
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+	SetDeps(&AppDeps{
+		CredStore:         store,
+		TokenManager:      tm,
+		ConfigDir:         "/tmp/test-config",
+		ExecLooker:        testutil.NewMockExecLooker(),
+		CmdRunner:         testutil.NewMockCommandRunner(),
+		FileStoreFallback: true,
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "login", "--token", "bm_test123", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "Logged in as")
+	assert.Contains(t, result.Stderr, "System keyring unavailable")
+	assert.Contains(t, result.Stderr, "plaintext")
+}
+
+func TestLogin__pat_no_warning_when_keyring_available(t *testing.T) {
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/users/me").
+		RespondJSON(200, testutil.UserMeResponse("user@example.com"))
+
+	store := testutil.NewMockCredStore()
+	setupTestDeps(t, store)
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "login", "--token", "bm_test123", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	assert.NotContains(t, result.Stderr, "keyring unavailable")
+}
+
 func TestLogin__pat_api_error(t *testing.T) {
 	mock := testutil.NewMockAPI(t)
 	mock.On("GET", "/users/me").RespondError(401, "invalid token")

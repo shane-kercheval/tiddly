@@ -45,20 +45,21 @@ var ErrNotLoggedIn = errors.New("not logged in. Run 'tiddly login' to authentica
 
 // NewCredentialStore creates a CredentialStore based on the mode and environment.
 // configDir is the directory for file-based fallback storage.
-func NewCredentialStore(mode KeyringMode, configDir string) CredentialStore {
+// Returns the store and true if it fell back to file-based storage (not explicitly requested).
+func NewCredentialStore(mode KeyringMode, configDir string) (CredentialStore, bool) {
 	if mode == KeyringFile {
-		return &fileStore{dir: configDir}
+		return &fileStore{dir: configDir}, false // explicitly requested
 	}
 
 	if mode == KeyringForce || keyringAvailable() {
 		store := &keyringStore{}
 		// Verify keyring works with a timeout
 		if mode == KeyringForce || testKeyringWithTimeout() {
-			return store
+			return store, false
 		}
 	}
 
-	return &fileStore{dir: configDir}
+	return &fileStore{dir: configDir}, true // fallback
 }
 
 // keyringAvailable checks if a desktop session exists (Linux-specific).
