@@ -1,0 +1,182 @@
+package mcp
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestInstallClaudeDesktop__new_config(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	err := InstallClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	assert.Contains(t, servers, "bookmarks_notes")
+	assert.Contains(t, servers, "prompts")
+
+	content := servers["bookmarks_notes"].(map[string]any)
+	assert.Equal(t, "npx", content["command"])
+	args := toStringSlice(content["args"])
+	assert.Contains(t, args[1], "content-mcp.tiddly.me")
+	assert.Contains(t, args[3], "bm_content")
+}
+
+func TestInstallClaudeDesktop__preserves_existing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	// Write existing config with another server
+	existing := map[string]any{
+		"mcpServers": map[string]any{
+			"other-server": map[string]any{
+				"command": "node",
+				"args":    []string{"other.js"},
+			},
+		},
+		"someOtherSetting": true,
+	}
+	writeTestJSON(t, configPath, existing)
+
+	err := InstallClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+
+	// Other server preserved
+	servers := config["mcpServers"].(map[string]any)
+	assert.Contains(t, servers, "other-server")
+	assert.Contains(t, servers, "bookmarks_notes")
+	assert.Contains(t, servers, "prompts")
+
+	// Other settings preserved
+	assert.Equal(t, true, config["someOtherSetting"])
+}
+
+func TestInstallClaudeDesktop__idempotent(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	// Install twice
+	require.NoError(t, InstallClaudeDesktop(configPath, "bm_old", "bm_old"))
+	require.NoError(t, InstallClaudeDesktop(configPath, "bm_new", "bm_new"))
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	content := servers["bookmarks_notes"].(map[string]any)
+	args := toStringSlice(content["args"])
+
+	// Should have the new token
+	assert.Contains(t, args[3], "bm_new")
+}
+
+func TestUninstallClaudeDesktop__removes_tiddly_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	existing := map[string]any{
+		"mcpServers": map[string]any{
+			"bookmarks_notes": map[string]any{"command": "npx"},
+			"prompts":         map[string]any{"command": "npx"},
+			"other-server":    map[string]any{"command": "node"},
+		},
+	}
+	writeTestJSON(t, configPath, existing)
+
+	err := UninstallClaudeDesktop(configPath)
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	assert.NotContains(t, servers, "bookmarks_notes")
+	assert.NotContains(t, servers, "prompts")
+	assert.Contains(t, servers, "other-server")
+}
+
+func TestUninstallClaudeDesktop__missing_file_is_noop(t *testing.T) {
+	err := UninstallClaudeDesktop("/nonexistent/path.json")
+	assert.NoError(t, err)
+}
+
+func TestStatusClaudeDesktop__configured(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			"bookmarks_notes": map[string]any{"command": "npx"},
+			"prompts":         map[string]any{"command": "npx"},
+		},
+	}
+	writeTestJSON(t, configPath, config)
+
+	servers, err := StatusClaudeDesktop(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bookmarks_notes", "prompts"}, servers)
+}
+
+func TestStatusClaudeDesktop__not_configured(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+	writeTestJSON(t, configPath, map[string]any{})
+
+	servers, err := StatusClaudeDesktop(configPath)
+	require.NoError(t, err)
+	assert.Nil(t, servers)
+}
+
+func TestStatusClaudeDesktop__missing_file(t *testing.T) {
+	servers, err := StatusClaudeDesktop("/nonexistent/path.json")
+	require.NoError(t, err)
+	assert.Nil(t, servers)
+}
+
+func TestInstallClaudeDesktop__malformed_json_returns_error(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
+
+	err := InstallClaudeDesktop(configPath, "bm_test", "bm_test")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing")
+}
+
+// Helpers
+
+func readTestJSON(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(data, &result))
+	return result
+}
+
+func writeTestJSON(t *testing.T, path string, data any) {
+	t.Helper()
+	b, err := json.MarshalIndent(data, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+	require.NoError(t, os.WriteFile(path, b, 0644))
+}
+
+func toStringSlice(v any) []string {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, len(arr))
+	for i, item := range arr {
+		result[i], _ = item.(string)
+	}
+	return result
+}

@@ -3,6 +3,7 @@ package cmd
 import (
 	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/shane-kercheval/tiddly/cli/internal/config"
+	"github.com/shane-kercheval/tiddly/cli/internal/mcp"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -21,6 +22,8 @@ type AppDeps struct {
 	CredStore    auth.CredentialStore
 	TokenManager *auth.TokenManager
 	ConfigDir    string
+	ExecLooker   mcp.ExecLooker
+	CmdRunner    mcp.CommandRunner
 }
 
 // appDeps is the global deps instance, set during PersistentPreRunE or by tests.
@@ -77,6 +80,8 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 					CredStore:    store,
 					TokenManager: tm,
 					ConfigDir:    configDir,
+					ExecLooker:   &realExecLooker{},
+					CmdRunner:    &realCommandRunner{},
 				}
 			}
 
@@ -95,6 +100,8 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(newLogoutCmd())
 	rootCmd.AddCommand(newAuthCmd())
+	rootCmd.AddCommand(newStatusCmd())
+	rootCmd.AddCommand(newMCPCmd())
 
 	return rootCmd
 }

@@ -3,9 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/signal"
 	"strings"
-	"syscall"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
 	"github.com/shane-kercheval/tiddly/cli/internal/auth"
@@ -75,7 +75,7 @@ func loginWithPAT(cmd *cobra.Command, token string) error {
 
 func loginWithOAuth(cmd *cobra.Command) error {
 	// Set up context with Ctrl+C cancellation
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	// Shallow copy the DeviceFlow from appDeps to preserve HTTPClient, BaseURL, etc.

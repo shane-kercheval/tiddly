@@ -21,6 +21,8 @@ func setupTestDeps(t *testing.T, store *testutil.MockCredStore) {
 		CredStore:    store,
 		TokenManager: tm,
 		ConfigDir:    "",
+		ExecLooker:   testutil.NewMockExecLooker(),
+		CmdRunner:    testutil.NewMockCommandRunner(),
 	})
 	t.Cleanup(func() {
 		appDeps = nil
