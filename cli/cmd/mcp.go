@@ -178,7 +178,9 @@ func parseServersFlag(value string) ([]string, error) {
 }
 
 func newMCPStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	var scope string
+
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show MCP server configuration status",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -191,7 +193,7 @@ func newMCPStatusCmd() *cobra.Command {
 					continue
 				}
 
-				servers, err := getToolStatus(tool, "user")
+				servers, err := getToolStatus(tool, scope)
 				if err != nil {
 					fmt.Fprintf(w, "%-18s Error: %v\n", tool.Name+":", err)
 					continue
@@ -207,6 +209,10 @@ func newMCPStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&scope, "scope", "user", "Claude Code scope: user (global) or local (project)")
+
+	return cmd
 }
 
 func newMCPUninstallCmd() *cobra.Command {

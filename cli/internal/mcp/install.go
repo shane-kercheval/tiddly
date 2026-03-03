@@ -316,9 +316,9 @@ func printDiff(w io.Writer, path, before, after string) {
 }
 
 // backupIfMalformed tries to parse the config file.
-// If malformed, creates a .bak copy and removes the original so install can start fresh.
+// If malformed, atomically renames the original to .bak so install can start fresh.
 // Returns (true, nil) if backup was created, (false, nil) if file is fine or missing,
-// and (false, err) if the backup write failed.
+// and (false, err) if the rename failed.
 func backupIfMalformed(path string) (bool, error) {
 	if path == "" {
 		return false, nil
@@ -347,11 +347,8 @@ func backupIfMalformed(path string) (bool, error) {
 	}
 
 	backupPath := path + ".bak"
-	if err := os.WriteFile(backupPath, data, 0600); err != nil {
-		return false, fmt.Errorf("creating backup at %s: %w", backupPath, err)
-	}
-	if err := os.Remove(path); err != nil {
-		return false, fmt.Errorf("removing malformed config at %s: %w", path, err)
+	if err := os.Rename(path, backupPath); err != nil {
+		return false, fmt.Errorf("backing up malformed config %s to %s: %w", path, backupPath, err)
 	}
 	return true, nil
 }

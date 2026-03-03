@@ -52,6 +52,9 @@ func detectClaudeDesktop(looker ExecLooker) DetectedTool {
 	tool := DetectedTool{Name: "claude-desktop"}
 
 	configPath := ClaudeDesktopConfigPath()
+	if p, ok := configPathOverrides["claude-desktop"]; ok {
+		configPath = p
+	}
 	configDir := filepath.Dir(configPath)
 
 	if info, err := os.Stat(configDir); err == nil && info.IsDir() {
@@ -72,7 +75,11 @@ func detectClaudeCode(looker ExecLooker) DetectedTool {
 	if _, err := looker.LookPath("claude"); err == nil {
 		tool.Installed = true
 		tool.Reason = "binary in PATH"
-		tool.ConfigPath = ClaudeCodeConfigPath()
+		if p, ok := configPathOverrides["claude-code"]; ok {
+			tool.ConfigPath = p
+		} else {
+			tool.ConfigPath = ClaudeCodeConfigPath()
+		}
 	}
 
 	return tool
@@ -84,10 +91,16 @@ func detectCodex(looker ExecLooker) DetectedTool {
 	if _, err := looker.LookPath("codex"); err == nil {
 		tool.Installed = true
 		tool.Reason = "binary in PATH"
+		if p, ok := configPathOverrides["codex"]; ok {
+			tool.ConfigPath = p
+		}
 		return tool
 	}
 
 	configPath := CodexConfigPath()
+	if p, ok := configPathOverrides["codex"]; ok {
+		configPath = p
+	}
 	configDir := filepath.Dir(configPath)
 	if info, err := os.Stat(configDir); err == nil && info.IsDir() {
 		tool.Installed = true
@@ -96,6 +109,25 @@ func detectCodex(looker ExecLooker) DetectedTool {
 	}
 
 	return tool
+}
+
+// configPathOverrides allows tests to override the default config paths for each tool.
+// Keys are tool names ("claude-desktop", "claude-code", "codex"). Production code never sets this.
+var configPathOverrides map[string]string
+
+// SetConfigPathOverride sets a config path override for a tool during tests.
+// Returns a cleanup function that removes the override.
+func SetConfigPathOverride(tool, path string) func() {
+	if configPathOverrides == nil {
+		configPathOverrides = make(map[string]string)
+	}
+	configPathOverrides[tool] = path
+	return func() {
+		delete(configPathOverrides, tool)
+		if len(configPathOverrides) == 0 {
+			configPathOverrides = nil
+		}
+	}
 }
 
 // ClaudeDesktopConfigPath returns the Claude Desktop config file path for the current OS.

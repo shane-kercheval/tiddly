@@ -198,18 +198,47 @@ func TestMCPUninstall__invalid_tool(t *testing.T) {
 }
 
 func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
-	// TODO: This test reads/writes the real ~/.claude.json — make hermetic with a temp config path.
-	// This test verifies the --delete-tokens flag is accepted
+	// Write a temp config with tiddly MCP servers so uninstall has something to extract/remove.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"bookmarks_notes": {
+				"type": "http",
+				"url": "https://mcp.tiddly.me/content/mcp",
+				"headers": {"Authorization": "Bearer bm_content_token_abc"}
+			},
+			"prompts": {
+				"type": "http",
+				"url": "https://mcp.tiddly.me/prompts/mcp",
+				"headers": {"Authorization": "Bearer bm_promptsx_token_xyz"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	// Override config path so DetectTools returns the temp path instead of ~/.claude.json
+	cleanup := mcp.SetConfigPathOverride("claude-code", configPath)
+	t.Cleanup(cleanup)
+
+	var deletedTokenIDs []string
 	mock := testutil.NewMockAPI(t)
 	mock.On("GET", "/tokens/").
 		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode([]api.TokenInfo{
-				{ID: "tok-1", Name: "tiddly-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_abcdefgh"},
+				{ID: "tok-content", Name: "tiddly-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_content_t"},
+				{ID: "tok-prompts", Name: "tiddly-mcp-claude-code-prompts-d4e5f6", TokenPrefix: "bm_promptsx_"},
 			})
 		})
-	mock.On("DELETE", "/tokens/tok-1").
+	mock.On("DELETE", "/tokens/tok-content").
 		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-content")
+			w.WriteHeader(http.StatusNoContent)
+		})
+	mock.On("DELETE", "/tokens/tok-prompts").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-prompts")
 			w.WriteHeader(http.StatusNoContent)
 		})
 
@@ -233,12 +262,19 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 	})
 
 	cmd := newRootCmd()
-	// The uninstall will work on the real ~/.claude.json which may or may not exist,
-	// but the --delete-tokens flag should be accepted without error.
 	result := testutil.ExecuteCmd(t, cmd, "mcp", "uninstall", "claude-code", "--delete-tokens", "--api-url", mock.URL())
 
-	// Won't error even if config doesn't exist (UninstallClaudeCode handles missing files)
-	_ = result
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "Removed Tiddly MCP servers from claude-code")
+	assert.Len(t, deletedTokenIDs, 2, "should delete both matching tokens")
+	assert.Contains(t, deletedTokenIDs, "tok-content")
+	assert.Contains(t, deletedTokenIDs, "tok-prompts")
+
+	// Verify the config file was modified — tiddly servers removed
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "bookmarks_notes")
+	assert.NotContains(t, string(data), "prompts")
 }
 
 func TestParseServersFlag__valid(t *testing.T) {
