@@ -13,9 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockStore is a minimal in-memory CredentialStore for auth package tests.
+// mockStore is an in-memory CredentialStore for auth package tests.
+// Cannot use testutil.MockCredStore here due to import cycle (testutil imports auth).
 type mockStore struct {
-	creds map[string]string
+	creds  map[string]string
+	getErr error // if non-nil, Get always returns this error
 }
 
 func newMockStore() *mockStore {
@@ -23,6 +25,9 @@ func newMockStore() *mockStore {
 }
 
 func (m *mockStore) Get(account string) (string, error) {
+	if m.getErr != nil {
+		return "", m.getErr
+	}
 	val, ok := m.creds[account]
 	if !ok {
 		return "", ErrNotFound
@@ -161,49 +166,43 @@ func TestResolveToken(t *testing.T) {
 	}
 }
 
-func TestResolveToken__expired_oauth_triggers_refresh(t *testing.T) {
-	expiredJWT := makeJWT(time.Now().Add(-1 * time.Hour))
-	newJWT := makeJWT(time.Now().Add(1 * time.Hour))
+func TestResolveToken__store_error_propagates(t *testing.T) {
+	store := newMockStore()
+	store.getErr = fmt.Errorf("credentials file corrupt")
+	t.Setenv("TIDDLY_TOKEN", "")
 
-	// Mock Auth0 token endpoint
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":  newJWT,
-			"refresh_token": "new-refresh-token",
-			"token_type":    "Bearer",
-			"expires_in":    3600,
-		})
-	}))
-	defer server.Close()
+	tm := NewTokenManager(store, nil)
+	_, err := tm.ResolveToken("", false)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "credentials file corrupt")
+	assert.NotContains(t, err.Error(), "not logged in")
+}
+
+func TestResolveToken__expired_oauth_nil_device_flow(t *testing.T) {
+	expiredJWT := makeJWT(time.Now().Add(-1 * time.Hour))
+	t.Setenv("TIDDLY_TOKEN", "")
 
 	store := newMockStore()
 	require.NoError(t, store.Set(AccountOAuthAccess, expiredJWT))
 	require.NoError(t, store.Set(AccountOAuthRefresh, "old-refresh-token"))
 
-	df := &DeviceFlow{
-		Auth0Config: Auth0Config{Domain: server.URL[7:]}, // strip "http://"
-		HTTPClient:  server.Client(),
-	}
-	// Override the domain to use the test server
-	// We need to patch the refresh URL construction
-	// Instead, let's create a DeviceFlow that points to the test server
-	df.Auth0Config.Domain = "localhost" // won't actually be used since we override
-
-	tm := NewTokenManager(store, nil) // nil device flow - we'll test refresh separately
-
-	// Since the JWT is expired and no device flow is configured, it should try refresh
-	// and fail, then fall back... let's test with a real mock refresh
+	tm := NewTokenManager(store, nil)
 	_, err := tm.ResolveToken("", false)
-	// With nil DeviceFlow, refresh fails, and no PAT, so should error
+
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session expired")
 }
 
-func TestResolveToken__refresh_stores_both_tokens(t *testing.T) {
+func TestResolveToken__expired_oauth_triggers_refresh(t *testing.T) {
 	expiredJWT := makeJWT(time.Now().Add(-1 * time.Hour))
 	newJWT := makeJWT(time.Now().Add(1 * time.Hour))
 
-	// Mock Auth0 token endpoint
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/oauth/token", r.URL.Path)
+		assert.Equal(t, "refresh_token", r.FormValue("grant_type"))
+		assert.Equal(t, "old-refresh-token", r.FormValue("refresh_token"))
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  newJWT,
@@ -218,41 +217,59 @@ func TestResolveToken__refresh_stores_both_tokens(t *testing.T) {
 	require.NoError(t, store.Set(AccountOAuthAccess, expiredJWT))
 	require.NoError(t, store.Set(AccountOAuthRefresh, "old-refresh-token"))
 
-	// Create DeviceFlow pointing to test server
-	// We need to extract host from server URL for the domain
-	df := NewDeviceFlow(Auth0Config{
-		Domain:   server.Listener.Addr().String(),
-		ClientID: "test-client",
-		Audience: "test-audience",
-	})
-	df.HTTPClient = server.Client()
-	// Override to use http:// instead of https://
-	// We need a way to handle this in the DeviceFlow...
-	// For now, test the RefreshAccessToken method directly
+	df := &DeviceFlow{
+		Auth0Config: Auth0Config{ClientID: "test-client"},
+		BaseURL:     server.URL,
+		HTTPClient:  &http.Client{},
+	}
+	tm := NewTokenManager(store, df)
+	t.Setenv("TIDDLY_TOKEN", "")
 
-	token, err := df.RefreshAccessToken("old-refresh-token")
-	// This will fail because it tries https://localhost:port which doesn't work
-	// Let's test the token manager's refresh logic differently
-	_ = token
-	_ = err
+	result, err := tm.ResolveToken("", false)
 
-	// Instead, test via the token manager with a patched refresher
-	// The cleanest approach: verify store state after a successful refresh
-	store2 := newMockStore()
-	require.NoError(t, store2.Set(AccountOAuthAccess, newJWT))
-	require.NoError(t, store2.Set(AccountOAuthRefresh, "stored-refresh"))
-
-	tm := NewTokenManager(store2, nil)
-	err = tm.StoreOAuthTokens("new-access", "new-refresh")
 	require.NoError(t, err)
+	assert.Equal(t, newJWT, result.Token)
+	assert.Equal(t, "oauth", result.AuthType)
 
-	access, err := store2.Get(AccountOAuthAccess)
+	// Verify both new tokens were stored (Auth0 rotation)
+	access, err := store.Get(AccountOAuthAccess)
 	require.NoError(t, err)
-	assert.Equal(t, "new-access", access)
+	assert.Equal(t, newJWT, access)
 
-	refresh, err := store2.Get(AccountOAuthRefresh)
+	refresh, err := store.Get(AccountOAuthRefresh)
 	require.NoError(t, err)
-	assert.Equal(t, "new-refresh", refresh)
+	assert.Equal(t, "new-refresh-token", refresh)
+}
+
+func TestResolveToken__refresh_failure_propagates(t *testing.T) {
+	expiredJWT := makeJWT(time.Now().Add(-1 * time.Hour))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":             "invalid_grant",
+			"error_description": "token has been revoked",
+		})
+	}))
+	defer server.Close()
+
+	store := newMockStore()
+	require.NoError(t, store.Set(AccountOAuthAccess, expiredJWT))
+	require.NoError(t, store.Set(AccountOAuthRefresh, "revoked-token"))
+
+	df := &DeviceFlow{
+		Auth0Config: Auth0Config{ClientID: "test-client"},
+		BaseURL:     server.URL,
+		HTTPClient:  &http.Client{},
+	}
+	tm := NewTokenManager(store, df)
+	t.Setenv("TIDDLY_TOKEN", "")
+
+	_, err := tm.ResolveToken("", false)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session expired")
 }
 
 func TestClearAll(t *testing.T) {
@@ -271,51 +288,6 @@ func TestClearAll(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotFound)
 	_, err = store.Get(AccountPAT)
 	assert.ErrorIs(t, err, ErrNotFound)
-}
-
-func TestGetStoredAuthType(t *testing.T) {
-	tests := []struct {
-		name     string
-		setup    func(store *mockStore)
-		expected string
-	}{
-		{
-			name:     "no credentials",
-			setup:    func(store *mockStore) {},
-			expected: "none",
-		},
-		{
-			name: "only PAT",
-			setup: func(store *mockStore) {
-				_ = store.Set(AccountPAT, "bm_test")
-			},
-			expected: "pat",
-		},
-		{
-			name: "only OAuth",
-			setup: func(store *mockStore) {
-				_ = store.Set(AccountOAuthAccess, "jwt")
-			},
-			expected: "oauth",
-		},
-		{
-			name: "both stored returns oauth",
-			setup: func(store *mockStore) {
-				_ = store.Set(AccountOAuthAccess, "jwt")
-				_ = store.Set(AccountPAT, "bm_test")
-			},
-			expected: "oauth",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := newMockStore()
-			tt.setup(store)
-			tm := NewTokenManager(store, nil)
-			assert.Equal(t, tt.expected, tm.GetStoredAuthType())
-		})
-	}
 }
 
 func TestValidatePATFormat(t *testing.T) {

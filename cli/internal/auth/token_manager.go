@@ -52,27 +52,35 @@ func (tm *TokenManager) ResolveToken(flagToken string, preferOAuth bool) (*Token
 		return &TokenResult{Token: cleaned, AuthType: "env"}, nil
 	}
 
+	type resolver struct {
+		name string
+		fn   func() (*TokenResult, error)
+	}
+
+	var chain []resolver
 	if preferOAuth {
-		// 3. OAuth first when preferred
-		if result, err := tm.resolveOAuth(); err == nil {
-			return result, nil
-		}
-		// 4. Fall back to PAT
-		if result, err := tm.resolvePAT(); err == nil {
-			return result, nil
+		chain = []resolver{
+			{"OAuth", tm.resolveOAuth},
+			{"PAT", tm.resolvePAT},
 		}
 	} else {
-		// 3. PAT first (default)
-		if result, err := tm.resolvePAT(); err == nil {
-			return result, nil
-		}
-		// 4. Fall back to OAuth
-		if result, err := tm.resolveOAuth(); err == nil {
-			return result, nil
+		chain = []resolver{
+			{"PAT", tm.resolvePAT},
+			{"OAuth", tm.resolveOAuth},
 		}
 	}
 
-	return nil, fmt.Errorf("not logged in. Run 'tiddly login' to authenticate")
+	for _, r := range chain {
+		result, err := r.fn()
+		if err == nil {
+			return result, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("%s: %w", r.name, err)
+		}
+	}
+
+	return nil, ErrNotLoggedIn
 }
 
 func (tm *TokenManager) resolvePAT() (*TokenResult, error) {
@@ -158,17 +166,6 @@ func (tm *TokenManager) ClearAll() error {
 		return fmt.Errorf("clearing credentials: %v", errs)
 	}
 	return nil
-}
-
-// GetStoredAuthType returns what type of credentials are stored.
-func (tm *TokenManager) GetStoredAuthType() string {
-	if _, err := tm.Store.Get(AccountOAuthAccess); err == nil {
-		return "oauth"
-	}
-	if _, err := tm.Store.Get(AccountPAT); err == nil {
-		return "pat"
-	}
-	return "none"
 }
 
 // cleanToken trims whitespace and rejects tokens with embedded spaces/newlines.

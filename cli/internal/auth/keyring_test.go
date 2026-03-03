@@ -3,6 +3,7 @@ package auth
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -127,7 +128,7 @@ func TestKeyringAvailable(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Only test on Linux where this logic applies
-			if os.Getenv("GOOS") != "" && os.Getenv("GOOS") != "linux" {
+			if runtime.GOOS != "linux" {
 				t.Skip("keyring availability check is Linux-specific")
 			}
 

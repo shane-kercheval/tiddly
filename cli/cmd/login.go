@@ -78,9 +78,17 @@ func loginWithOAuth(cmd *cobra.Command) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cfg := auth.DefaultAuth0Config()
-	df := auth.NewDeviceFlow(cfg)
-	df.Output = cmd.ErrOrStderr()
+	// Shallow copy the DeviceFlow from appDeps to preserve HTTPClient, BaseURL, etc.
+	// Only override Output for command-specific stderr routing.
+	var df *auth.DeviceFlow
+	if appDeps.TokenManager.DeviceFlow != nil {
+		dfCopy := *appDeps.TokenManager.DeviceFlow
+		dfCopy.Output = cmd.ErrOrStderr()
+		df = &dfCopy
+	} else {
+		df = auth.NewDeviceFlow(auth.DefaultAuth0Config())
+		df.Output = cmd.ErrOrStderr()
+	}
 
 	tokens, err := df.Login(ctx)
 	if err != nil {

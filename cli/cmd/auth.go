@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
+	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/spf13/cobra"
 )
 
@@ -23,23 +25,19 @@ func newAuthStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show current authentication status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			authType := appDeps.TokenManager.GetStoredAuthType()
-
-			if authType == "none" {
-				fmt.Fprintln(cmd.OutOrStdout(), "Not logged in.")
-				fmt.Fprintln(cmd.OutOrStdout(), "Run 'tiddly login' to authenticate.")
-				return nil
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "Auth method: %s\n", authType)
-			fmt.Fprintf(cmd.OutOrStdout(), "API URL: %s\n", apiURL())
-
-			// Try to get user info
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
 			if err != nil {
-				fmt.Fprintf(cmd.OutOrStdout(), "Token: stored but could not resolve (%v)\n", err)
+				if errors.Is(err, auth.ErrNotLoggedIn) {
+					fmt.Fprintln(cmd.OutOrStdout(), "Not logged in.")
+					fmt.Fprintln(cmd.OutOrStdout(), "Run 'tiddly login' to authenticate.")
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "Auth error: %v\n", err)
+				}
 				return nil
 			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Auth method: %s\n", result.AuthType)
+			fmt.Fprintf(cmd.OutOrStdout(), "API URL: %s\n", apiURL())
 
 			client := api.NewClient(apiURL(), result.Token, result.AuthType)
 			user, err := client.GetMe()

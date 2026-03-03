@@ -98,6 +98,17 @@ type DeviceFlow struct {
 	HTTPClient  *http.Client
 	// Output is where user-facing messages are written (defaults to os.Stderr).
 	Output io.Writer
+	// BaseURL overrides the default https://{domain} base for token endpoints.
+	// Used in tests to point at httptest servers.
+	BaseURL string
+}
+
+// tokenBaseURL returns the base URL for Auth0 token endpoints.
+func (d *DeviceFlow) tokenBaseURL() string {
+	if d.BaseURL != "" {
+		return d.BaseURL
+	}
+	return fmt.Sprintf("https://%s", d.Auth0Config.Domain)
 }
 
 // NewDeviceFlow creates a DeviceFlow with default settings.
@@ -140,7 +151,7 @@ func (d *DeviceFlow) Login(ctx context.Context) (*TokenResponse, error) {
 }
 
 func (d *DeviceFlow) requestDeviceCode() (*DeviceCodeResponse, error) {
-	endpoint := fmt.Sprintf("https://%s/oauth/device/code", d.Auth0Config.Domain)
+	endpoint := d.tokenBaseURL() + "/oauth/device/code"
 	data := url.Values{
 		"client_id": {d.Auth0Config.ClientID},
 		"scope":     {"openid profile email offline_access"},
@@ -175,14 +186,15 @@ func (d *DeviceFlow) requestDeviceCode() (*DeviceCodeResponse, error) {
 }
 
 func (d *DeviceFlow) pollForToken(ctx context.Context, code *DeviceCodeResponse) (*TokenResponse, error) {
-	endpoint := fmt.Sprintf("https://%s/oauth/token", d.Auth0Config.Domain)
+	endpoint := d.tokenBaseURL() + "/oauth/token"
 	data := url.Values{
 		"client_id":   {d.Auth0Config.ClientID},
 		"device_code": {code.DeviceCode},
 		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
 	}
 
-	ticker := time.NewTicker(time.Duration(code.Interval) * time.Second)
+	interval := time.Duration(code.Interval) * time.Second
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	expiry := time.After(time.Duration(code.ExpiresIn) * time.Second)
@@ -194,35 +206,40 @@ func (d *DeviceFlow) pollForToken(ctx context.Context, code *DeviceCodeResponse)
 		case <-expiry:
 			return nil, fmt.Errorf("device code expired; please try again")
 		case <-ticker.C:
-			token, done, err := d.tryTokenExchange(endpoint, data)
+			token, done, slowDown, err := d.tryTokenExchange(endpoint, data)
 			if err != nil {
 				return nil, err
 			}
 			if done {
 				return token, nil
 			}
+			if slowDown {
+				// RFC 8628 §3.5: increase interval by 5 seconds on slow_down
+				interval += 5 * time.Second
+				ticker.Reset(interval)
+			}
 		}
 	}
 }
 
-func (d *DeviceFlow) tryTokenExchange(endpoint string, data url.Values) (*TokenResponse, bool, error) {
+func (d *DeviceFlow) tryTokenExchange(endpoint string, data url.Values) (token *TokenResponse, done bool, slowDown bool, err error) {
 	resp, err := d.HTTPClient.PostForm(endpoint, data)
 	if err != nil {
-		return nil, false, fmt.Errorf("token request failed: %w", err)
+		return nil, false, false, fmt.Errorf("token request failed: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, false, fmt.Errorf("reading token response: %w", err)
+		return nil, false, false, fmt.Errorf("reading token response: %w", err)
 	}
 
 	if resp.StatusCode == http.StatusOK {
-		var token TokenResponse
-		if err := json.Unmarshal(body, &token); err != nil {
-			return nil, false, fmt.Errorf("parsing token response: %w", err)
+		var tok TokenResponse
+		if err := json.Unmarshal(body, &tok); err != nil {
+			return nil, false, false, fmt.Errorf("parsing token response: %w", err)
 		}
-		return &token, true, nil
+		return &tok, true, false, nil
 	}
 
 	var errResp struct {
@@ -230,20 +247,20 @@ func (d *DeviceFlow) tryTokenExchange(endpoint string, data url.Values) (*TokenR
 		ErrorDescription string `json:"error_description"`
 	}
 	if json.Unmarshal(body, &errResp) != nil {
-		return nil, false, fmt.Errorf("token exchange failed (%d): %s", resp.StatusCode, string(body))
+		return nil, false, false, fmt.Errorf("token exchange failed (%d): %s", resp.StatusCode, string(body))
 	}
 
 	switch errResp.Error {
 	case "authorization_pending":
-		return nil, false, nil // keep polling
+		return nil, false, false, nil
 	case "slow_down":
-		return nil, false, nil // keep polling (ticker handles interval)
+		return nil, false, true, nil
 	case "expired_token":
-		return nil, false, fmt.Errorf("device code expired; please try again")
+		return nil, false, false, fmt.Errorf("device code expired; please try again")
 	case "access_denied":
-		return nil, false, fmt.Errorf("access denied: %s", errResp.ErrorDescription)
+		return nil, false, false, fmt.Errorf("access denied: %s", errResp.ErrorDescription)
 	default:
-		return nil, false, fmt.Errorf("auth error: %s — %s", errResp.Error, errResp.ErrorDescription)
+		return nil, false, false, fmt.Errorf("auth error: %s — %s", errResp.Error, errResp.ErrorDescription)
 	}
 }
 
@@ -251,7 +268,7 @@ func (d *DeviceFlow) tryTokenExchange(endpoint string, data url.Values) (*TokenR
 // Auth0 with rotation enabled invalidates the old refresh token, so both tokens
 // returned must be stored.
 func (d *DeviceFlow) RefreshAccessToken(refreshToken string) (*TokenResponse, error) {
-	endpoint := fmt.Sprintf("https://%s/oauth/token", d.Auth0Config.Domain)
+	endpoint := d.tokenBaseURL() + "/oauth/token"
 	data := url.Values{
 		"client_id":     {d.Auth0Config.ClientID},
 		"grant_type":    {"refresh_token"},

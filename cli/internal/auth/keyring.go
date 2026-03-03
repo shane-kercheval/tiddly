@@ -40,6 +40,9 @@ const (
 // ErrNotFound is returned when a credential doesn't exist.
 var ErrNotFound = errors.New("credential not found")
 
+// ErrNotLoggedIn is returned when no credentials are available anywhere in the resolution chain.
+var ErrNotLoggedIn = errors.New("not logged in. Run 'tiddly login' to authenticate")
+
 // NewCredentialStore creates a CredentialStore based on the mode and environment.
 // configDir is the directory for file-based fallback storage.
 func NewCredentialStore(mode KeyringMode, configDir string) CredentialStore {

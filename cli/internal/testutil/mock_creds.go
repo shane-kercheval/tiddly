@@ -6,7 +6,8 @@ import (
 
 // MockCredStore is an in-memory CredentialStore for tests.
 type MockCredStore struct {
-	creds map[string]string
+	creds  map[string]string
+	GetErr error // if non-nil, Get always returns this error
 }
 
 // NewMockCredStore creates an empty MockCredStore.
@@ -32,6 +33,9 @@ func CredsWithOAuth(accessToken, refreshToken string) *MockCredStore {
 }
 
 func (m *MockCredStore) Get(account string) (string, error) {
+	if m.GetErr != nil {
+		return "", m.GetErr
+	}
 	val, ok := m.creds[account]
 	if !ok {
 		return "", auth.ErrNotFound
