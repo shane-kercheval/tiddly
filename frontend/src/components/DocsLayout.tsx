@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { ContentAreaSpinner } from './ui'
 import { PublicHeader } from './PublicHeader'
 import { Footer } from './Footer'
 
@@ -159,7 +160,9 @@ export function DocsLayout(): ReactNode {
         <main className="min-w-0 flex-1">
           <div className="px-6 py-8 sm:px-8 lg:px-12">
             <div className="max-w-3xl">
-              <Outlet />
+              <Suspense fallback={<ContentAreaSpinner />}>
+                <Outlet />
+              </Suspense>
             </div>
           </div>
         </main>
