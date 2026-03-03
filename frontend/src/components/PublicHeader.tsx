@@ -13,6 +13,7 @@ interface DropdownItem {
 
 const productItems: DropdownItem[] = [
   { label: 'Features', path: '/features' },
+  { label: 'AI Integration', path: '/ai' },
   { label: 'Roadmap', path: '/roadmap' },
   { label: 'Changelog', path: '/changelog' },
 ]
@@ -108,7 +109,7 @@ export function PublicHeader({
                 </svg>
               </button>
               {productOpen && (
-                <div className="absolute left-0 top-full z-50 mt-2 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                <div className="absolute left-0 top-full z-50 mt-2 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
                   {productItems.map((item) => (
                     <Link
                       key={item.path}

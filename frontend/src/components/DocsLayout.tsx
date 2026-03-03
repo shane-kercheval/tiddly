@@ -111,10 +111,10 @@ export function DocsLayout(): ReactNode {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-white">
+    <div className="flex h-screen flex-col bg-white">
       <PublicHeader fullWidth />
 
-      <div className="flex w-full flex-1">
+      <div className="flex min-h-0 flex-1">
         {/* Mobile menu button */}
         <button
           type="button"
@@ -142,7 +142,7 @@ export function DocsLayout(): ReactNode {
           />
         )}
 
-        {/* Sidebar — extends to left edge */}
+        {/* Sidebar — fixed in place, scrolls independently */}
         <aside
           className={`fixed inset-y-0 left-0 z-30 w-64 transform overflow-y-auto bg-white p-6 pt-20 shadow-lg transition-transform md:static md:block md:w-56 md:shrink-0 md:transform-none md:border-r md:border-gray-200 md:shadow-none md:pt-8 md:pl-6 md:pr-6 lg:pl-8 ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
@@ -155,15 +155,16 @@ export function DocsLayout(): ReactNode {
           </nav>
         </aside>
 
-        {/* Main content */}
-        <main className="min-w-0 flex-1 px-6 py-8 sm:px-8 lg:px-12">
-          <div className="max-w-3xl">
-            <Outlet />
+        {/* Main content — scrolls independently */}
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <div className="px-6 py-8 sm:px-8 lg:px-12">
+            <div className="max-w-3xl">
+              <Outlet />
+            </div>
           </div>
+          <Footer />
         </main>
       </div>
-
-      <Footer />
     </div>
   )
 }

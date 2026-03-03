@@ -138,9 +138,11 @@ export function DocsPrompts(): ReactNode {
         <h2 className="text-xl font-bold text-gray-900 mb-3">Agent Skills</h2>
         <p className="text-gray-600 mb-3">
           Prompts can be exported as <strong>agent skills</strong> — instruction files that AI
-          assistants like Claude Code auto-invoke based on context. Tag a prompt with{' '}
+          assistants can use automatically or on demand. Depending on the client, skills may be
+          auto-invoked based on context, triggered via slash command, or called through natural
+          language. Tag a prompt with{' '}
           <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">skill</code> and sync
-          it to your project to make it available as a slash command.
+          it to your project to get started.
         </p>
         <p className="text-gray-600">
           See the{' '}
