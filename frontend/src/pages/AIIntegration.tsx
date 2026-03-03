@@ -1,70 +1,72 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../hooks/usePageTitle'
-import { CheckIcon } from '../components/icons'
+import { AnthropicIcon, OpenAIIcon, GeminiIcon, CheckIcon } from '../components/icons'
 
 interface AIClient {
   name: string
   maker: string
+  icon: ReactNode
   environment: string
   description: string
-  capabilities: string[]
+  connectionMethods: { mcp: boolean; skills: boolean }
   docsPath: string
   comingSoon?: boolean
   configType?: string
   mcpPrompts?: boolean
-  agentSkills?: boolean
 }
 
 const AI_CLIENTS: AIClient[] = [
   {
     name: 'Claude Desktop',
     maker: 'Anthropic',
+    icon: <AnthropicIcon className="h-6 w-6" />,
     environment: 'Desktop',
     description: 'Search, read, and edit your bookmarks, notes, and prompts directly from chat.',
-    capabilities: ['Bookmarks & notes', 'Prompt templates', 'MCP Prompts', 'Agent Skills'],
+    connectionMethods: { mcp: true, skills: true },
     docsPath: '/docs/ai/claude-desktop',
     configType: 'JSON',
     mcpPrompts: true,
-    agentSkills: true,
   },
   {
     name: 'Claude Code',
     maker: 'Anthropic',
+    icon: <AnthropicIcon className="h-6 w-6" />,
     environment: 'Terminal',
     description: 'CLI-first workflow — search, read, and edit content from your terminal.',
-    capabilities: ['Bookmarks & notes', 'Prompt templates', 'MCP Prompts', 'Agent Skills'],
+    connectionMethods: { mcp: true, skills: true },
     docsPath: '/docs/ai/claude-code',
     configType: 'CLI',
     mcpPrompts: true,
-    agentSkills: true,
   },
   {
     name: 'Codex',
     maker: 'OpenAI',
+    icon: <OpenAIIcon className="h-6 w-6" />,
     environment: 'Terminal',
     description: 'Access your bookmarks, notes, and prompt templates from Codex.',
-    capabilities: ['Bookmarks & notes', 'Prompt templates'],
+    connectionMethods: { mcp: true, skills: true },
     docsPath: '/docs/ai/codex',
     configType: 'TOML',
     mcpPrompts: false,
-    agentSkills: false,
   },
   {
     name: 'ChatGPT',
     maker: 'OpenAI',
+    icon: <OpenAIIcon className="h-6 w-6" />,
     environment: 'Cloud',
     description: 'Requires OAuth authentication, which is coming soon.',
-    capabilities: [],
+    connectionMethods: { mcp: false, skills: false },
     docsPath: '/docs/ai/chatgpt',
     comingSoon: true,
   },
   {
     name: 'Gemini CLI',
     maker: 'Google',
+    icon: <GeminiIcon className="h-6 w-6" />,
     environment: 'Terminal',
     description: 'MCP integration instructions are coming soon.',
-    capabilities: [],
+    connectionMethods: { mcp: false, skills: false },
     docsPath: '/docs/ai/gemini-cli',
     comingSoon: true,
   },
@@ -84,18 +86,6 @@ const comparisonRows = [
     codex: 'TOML',
   },
   {
-    feature: 'Bookmarks & notes',
-    claudeDesktop: true,
-    claudeCode: true,
-    codex: true,
-  },
-  {
-    feature: 'Prompt templates',
-    claudeDesktop: true,
-    claudeCode: true,
-    codex: true,
-  },
-  {
     feature: 'MCP Prompts',
     claudeDesktop: true,
     claudeCode: true,
@@ -105,7 +95,7 @@ const comparisonRows = [
     feature: 'Agent Skills',
     claudeDesktop: true,
     claudeCode: true,
-    codex: false,
+    codex: true,
   },
 ]
 
@@ -114,9 +104,12 @@ function AIClientCard({ client }: { client: AIClient }): ReactNode {
     return (
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-6 opacity-60">
         <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-500">{client.name}</h3>
-            <p className="text-xs text-gray-400">{client.maker}</p>
+          <div className="flex items-center gap-3">
+            <div className="text-gray-400">{client.icon}</div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-500">{client.name}</h3>
+              <p className="text-xs text-gray-400">{client.maker}</p>
+            </div>
           </div>
           <span className="rounded-full bg-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-500">
             Coming soon
@@ -133,25 +126,32 @@ function AIClientCard({ client }: { client: AIClient }): ReactNode {
       className="group rounded-xl border border-gray-200 bg-white p-6 transition-colors hover:border-[#f09040] hover:bg-[#fff7f0]"
     >
       <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 group-hover:text-[#d97b3d]">
-            {client.name}
-          </h3>
-          <p className="text-xs text-gray-400">{client.maker}</p>
+        <div className="flex items-center gap-3">
+          {client.icon}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 group-hover:text-[#d97b3d]">
+              {client.name}
+            </h3>
+            <p className="text-xs text-gray-400">{client.maker}</p>
+          </div>
         </div>
         <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
           {client.environment}
         </span>
       </div>
       <p className="mt-3 text-sm text-gray-600">{client.description}</p>
-      <ul className="mt-3 space-y-1">
-        {client.capabilities.map((cap) => (
-          <li key={cap} className="flex items-start gap-2 text-sm text-gray-500">
-            <CheckIcon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#d97b3d]" />
-            <span>{cap}</span>
-          </li>
-        ))}
-      </ul>
+      <div className="mt-3 flex items-center gap-2">
+        {client.connectionMethods.mcp && (
+          <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-600">
+            MCP
+          </span>
+        )}
+        {client.connectionMethods.skills && (
+          <span className="rounded-full border border-purple-100 bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-600">
+            Skills
+          </span>
+        )}
+      </div>
       <p className="mt-4 text-sm font-medium text-[#d97b3d]">
         Set up &rarr;
       </p>

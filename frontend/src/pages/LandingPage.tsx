@@ -216,7 +216,7 @@ function LandingContent({
               </div>
               <h3 className="mb-1 text-base font-semibold text-gray-900">Keyboard-first</h3>
               <p className="text-sm leading-relaxed text-gray-600">
-                Command palette, shortcuts, and no-mouse workflows.
+                Command palette & shortcuts.
               </p>
             </div>
           </div>

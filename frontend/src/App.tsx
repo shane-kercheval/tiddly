@@ -45,7 +45,6 @@ import { Changelog } from './pages/changelog/Changelog'
 import { Roadmap } from './pages/roadmap/Roadmap'
 import { Pricing } from './pages/Pricing'
 import { FeaturesPage } from './pages/FeaturesPage'
-import { AIIntegration } from './pages/AIIntegration'
 
 /**
  * Root layout component that wraps the entire app with providers.
@@ -108,7 +107,6 @@ const router = createBrowserRouter([
           { path: '/changelog', element: <Changelog /> },
           { path: '/roadmap', element: <Roadmap /> },
           { path: '/pricing', element: <Pricing /> },
-          { path: '/ai', element: <AIIntegration /> },
         ],
       },
 
