@@ -244,7 +244,7 @@ func backupIfMalformed(path string) (bool, error) {
 	}
 
 	backupPath := path + ".bak"
-	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+	if err := os.WriteFile(backupPath, data, 0600); err != nil {
 		return false, fmt.Errorf("creating backup at %s: %w", backupPath, err)
 	}
 	if err := os.Remove(path); err != nil {

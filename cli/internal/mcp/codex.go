@@ -170,7 +170,7 @@ func readCodexConfig(path string) (*codexConfig, error) {
 }
 
 func writeCodexConfig(path string, config *codexConfig) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
@@ -191,5 +191,5 @@ func writeCodexConfig(path string, config *codexConfig) error {
 		return fmt.Errorf("encoding config: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }

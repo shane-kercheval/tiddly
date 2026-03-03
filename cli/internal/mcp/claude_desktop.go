@@ -164,7 +164,7 @@ func readJSONConfig(path string) (map[string]any, error) {
 }
 
 func writeJSONConfig(path string, config map[string]any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
@@ -174,5 +174,5 @@ func writeJSONConfig(path string, config map[string]any) error {
 	}
 	data = append(data, '\n')
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
