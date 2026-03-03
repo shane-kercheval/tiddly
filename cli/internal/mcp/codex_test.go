@@ -10,6 +10,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// PAT extraction tests
+
+func TestExtractCodexPATs__valid_config(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	err := InstallCodex(configPath, "bm_content123", "bm_prompt456")
+	require.NoError(t, err)
+
+	contentPAT, promptPAT := ExtractCodexPATs(configPath)
+	assert.Equal(t, "bm_content123", contentPAT)
+	assert.Equal(t, "bm_prompt456", promptPAT)
+}
+
+func TestExtractCodexPATs__no_tiddly_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("model = \"o3\"\n"), 0644))
+
+	contentPAT, promptPAT := ExtractCodexPATs(configPath)
+	assert.Empty(t, contentPAT)
+	assert.Empty(t, promptPAT)
+}
+
+func TestExtractCodexPATs__missing_file(t *testing.T) {
+	contentPAT, promptPAT := ExtractCodexPATs("/nonexistent/config.toml")
+	assert.Empty(t, contentPAT)
+	assert.Empty(t, promptPAT)
+}
+
+func TestExtractCodexPATs__malformed_file(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("not valid toml [[["), 0644))
+
+	contentPAT, promptPAT := ExtractCodexPATs(configPath)
+	assert.Empty(t, contentPAT)
+	assert.Empty(t, promptPAT)
+}
+
+// Install/Uninstall/Status tests
+
 func TestInstallCodex__new_config(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")

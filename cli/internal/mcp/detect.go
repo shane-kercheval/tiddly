@@ -20,6 +20,23 @@ type DetectedTool struct {
 	HasNpx     bool   // for Claude Desktop: whether npx is available
 }
 
+// ResolvedConfigPath returns the tool's config path, falling back to the default
+// for the tool if ConfigPath is empty.
+func (t DetectedTool) ResolvedConfigPath() string {
+	if t.ConfigPath != "" {
+		return t.ConfigPath
+	}
+	switch t.Name {
+	case "claude-desktop":
+		return ClaudeDesktopConfigPath()
+	case "claude-code":
+		return ClaudeCodeConfigPath()
+	case "codex":
+		return CodexConfigPath()
+	}
+	return ""
+}
+
 // DetectTools finds installed AI tools on the system.
 func DetectTools(looker ExecLooker) []DetectedTool {
 	var tools []DetectedTool
@@ -55,6 +72,7 @@ func detectClaudeCode(looker ExecLooker) DetectedTool {
 	if _, err := looker.LookPath("claude"); err == nil {
 		tool.Installed = true
 		tool.Reason = "binary in PATH"
+		tool.ConfigPath = ClaudeCodeConfigPath()
 	}
 
 	return tool

@@ -21,6 +21,27 @@ type codexMCPServer struct {
 	HTTPHeaders map[string]string `toml:"http_headers,omitempty"`
 }
 
+// ExtractCodexPATs reads the Codex config and extracts the Bearer tokens
+// for the tiddly MCP servers. Returns empty strings on any parse error (best-effort).
+func ExtractCodexPATs(configPath string) (contentPAT, promptPAT string) {
+	config, err := readCodexConfig(configPath)
+	if err != nil {
+		return "", ""
+	}
+
+	if config.MCPServers == nil {
+		return "", ""
+	}
+
+	if server, ok := config.MCPServers[serverNameContent]; ok {
+		contentPAT = extractBearerToken(server.HTTPHeaders["Authorization"])
+	}
+	if server, ok := config.MCPServers[serverNamePrompts]; ok {
+		promptPAT = extractBearerToken(server.HTTPHeaders["Authorization"])
+	}
+	return contentPAT, promptPAT
+}
+
 // buildCodexConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
 func buildCodexConfig(configPath, contentPAT, promptPAT string) (*codexConfig, error) {
 	config, err := readCodexConfig(configPath)

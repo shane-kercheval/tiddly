@@ -80,7 +80,6 @@ func newStatusCmd() *cobra.Command {
 			// --- MCP Servers ---
 			fmt.Fprintln(w, "\nMCP Servers:")
 			tools := mcp.DetectTools(appDeps.ExecLooker)
-			runner := appDeps.CmdRunner
 
 			for _, tool := range tools {
 				if !tool.Installed {
@@ -88,7 +87,7 @@ func newStatusCmd() *cobra.Command {
 					continue
 				}
 
-				servers, err := getToolStatus(tool, runner)
+				servers, err := getToolStatus(tool, "user")
 				if err != nil {
 					fmt.Fprintf(w, "  %-18s Detected, status unknown\n", tool.Name+":")
 					continue
@@ -160,18 +159,14 @@ func printContentCounts(w io.Writer, errW io.Writer, client *api.Client) {
 	}
 }
 
-func getToolStatus(tool mcp.DetectedTool, runner mcp.CommandRunner) ([]string, error) {
+func getToolStatus(tool mcp.DetectedTool, scope string) ([]string, error) {
 	switch tool.Name {
 	case "claude-desktop":
-		return mcp.StatusClaudeDesktop(tool.ConfigPath)
+		return mcp.StatusClaudeDesktop(tool.ResolvedConfigPath())
 	case "claude-code":
-		return mcp.StatusClaudeCode(runner)
+		return mcp.StatusClaudeCode(tool.ResolvedConfigPath(), scope)
 	case "codex":
-		configPath := tool.ConfigPath
-		if configPath == "" {
-			configPath = mcp.CodexConfigPath()
-		}
-		return mcp.StatusCodex(configPath)
+		return mcp.StatusCodex(tool.ResolvedConfigPath())
 	}
 	return nil, nil
 }
@@ -181,18 +176,4 @@ type realExecLooker struct{}
 
 func (r *realExecLooker) LookPath(file string) (string, error) {
 	return exec.LookPath(file)
-}
-
-// realCommandRunner wraps os/exec for production use.
-type realCommandRunner struct{}
-
-func (r *realCommandRunner) Run(name string, args ...string) (string, string, error) {
-	cmd := exec.Command(name, args...)
-	var stdout, stderr []byte
-	var err error
-	stdout, err = cmd.Output()
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		stderr = exitErr.Stderr
-	}
-	return string(stdout), string(stderr), err
 }

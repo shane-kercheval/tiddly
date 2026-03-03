@@ -150,6 +150,82 @@ func TestInstallClaudeDesktop__malformed_json_returns_error(t *testing.T) {
 	assert.Contains(t, err.Error(), "parsing")
 }
 
+// PAT extraction tests
+
+func TestExtractClaudeDesktopPATs__valid_config(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			"bookmarks_notes": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_content123"},
+			},
+			"prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_prompt456"},
+			},
+		},
+	}
+	writeTestJSON(t, configPath, config)
+
+	contentPAT, promptPAT := ExtractClaudeDesktopPATs(configPath)
+	assert.Equal(t, "bm_content123", contentPAT)
+	assert.Equal(t, "bm_prompt456", promptPAT)
+}
+
+func TestExtractClaudeDesktopPATs__no_tiddly_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			"other-server": map[string]any{"command": "node"},
+		},
+	}
+	writeTestJSON(t, configPath, config)
+
+	contentPAT, promptPAT := ExtractClaudeDesktopPATs(configPath)
+	assert.Empty(t, contentPAT)
+	assert.Empty(t, promptPAT)
+}
+
+func TestExtractClaudeDesktopPATs__missing_file(t *testing.T) {
+	contentPAT, promptPAT := ExtractClaudeDesktopPATs("/nonexistent/path.json")
+	assert.Empty(t, contentPAT)
+	assert.Empty(t, promptPAT)
+}
+
+func TestExtractClaudeDesktopPATs__malformed_file(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
+
+	contentPAT, promptPAT := ExtractClaudeDesktopPATs(configPath)
+	assert.Empty(t, contentPAT)
+	assert.Empty(t, promptPAT)
+}
+
+func TestExtractBearerToken(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Bearer bm_test123", "bm_test123"},
+		{"Authorization: Bearer bm_test123", "bm_test123"},
+		{"  Bearer bm_test123  ", "bm_test123"},
+		{"", ""},
+		{"not-bearer", ""},
+		{"Authorization: ", ""},
+	}
+
+	for _, tc := range tests {
+		result := extractBearerToken(tc.input)
+		assert.Equal(t, tc.expected, result, "input: %q", tc.input)
+	}
+}
+
 // Helpers
 
 func readTestJSON(t *testing.T, path string) map[string]any {

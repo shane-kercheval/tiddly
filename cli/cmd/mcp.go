@@ -31,6 +31,7 @@ func newMCPInstallCmd() *cobra.Command {
 		dryRun    bool
 		scope     string
 		expiresIn int
+		servers   string
 	)
 
 	cmd := &cobra.Command{
@@ -38,9 +39,10 @@ func newMCPInstallCmd() *cobra.Command {
 		Short: "Install MCP servers for AI tools",
 		Long: `Install Tiddly MCP servers for AI tools.
 
-  tiddly mcp install              Auto-detect and install for all found tools
-  tiddly mcp install claude-code  Install for a specific tool
-  tiddly mcp install --dry-run    Preview changes without writing`,
+  tiddly mcp install                      Auto-detect and install for all found tools
+  tiddly mcp install claude-code          Install for a specific tool
+  tiddly mcp install --dry-run            Preview changes without writing
+  tiddly mcp install --servers content    Install only the content server`,
 		ValidArgs: validTools,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			validScopes := []string{"user", "local", "project"}
@@ -53,6 +55,12 @@ func newMCPInstallCmd() *cobra.Command {
 			}
 			if !scopeValid {
 				return fmt.Errorf("invalid scope %q. Valid scopes: %s", scope, strings.Join(validScopes, ", "))
+			}
+
+			// Parse and validate --servers flag
+			serverList, err := parseServersFlag(servers)
+			if err != nil {
+				return err
 			}
 
 			// Resolve auth — prefer OAuth for token creation
@@ -108,11 +116,10 @@ func newMCPInstallCmd() *cobra.Command {
 
 			opts := mcp.InstallOpts{
 				Client:    client,
-				Looker:    appDeps.ExecLooker,
-				Runner:    appDeps.CmdRunner,
 				AuthType:  result.AuthType,
 				DryRun:    dryRun,
 				Scope:     scope,
+				Servers:   serverList,
 				ExpiresIn: expires,
 				Output:    cmd.OutOrStdout(),
 				ErrOutput: cmd.ErrOrStderr(),
@@ -128,6 +135,9 @@ func newMCPInstallCmd() *cobra.Command {
 				if len(installResult.TokensCreated) > 0 {
 					fmt.Fprintf(cmd.OutOrStdout(), "Created tokens: %s\n", strings.Join(installResult.TokensCreated, ", "))
 				}
+				if len(installResult.TokensReused) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "Reused tokens: %s\n", strings.Join(installResult.TokensReused, ", "))
+				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Configured: %s\n", strings.Join(installResult.ToolsConfigured, ", "))
 			}
 
@@ -142,8 +152,29 @@ func newMCPInstallCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")
 	cmd.Flags().StringVar(&scope, "scope", "user", "Claude Code scope: user (global) or local (project)")
 	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (0 = no expiration)")
+	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which MCP servers to install: content, prompts, or both")
 
 	return cmd
+}
+
+// parseServersFlag validates and parses the --servers flag value.
+func parseServersFlag(value string) ([]string, error) {
+	parts := strings.Split(value, ",")
+	var result []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if p != "content" && p != "prompts" {
+			return nil, fmt.Errorf("invalid server %q in --servers flag. Valid values: content, prompts", p)
+		}
+		result = append(result, p)
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("--servers flag requires at least one value: content, prompts")
+	}
+	return result, nil
 }
 
 func newMCPStatusCmd() *cobra.Command {
@@ -160,7 +191,7 @@ func newMCPStatusCmd() *cobra.Command {
 					continue
 				}
 
-				servers, err := getToolStatus(tool, appDeps.CmdRunner)
+				servers, err := getToolStatus(tool, "user")
 				if err != nil {
 					fmt.Fprintf(w, "%-18s Error: %v\n", tool.Name+":", err)
 					continue
@@ -179,7 +210,12 @@ func newMCPStatusCmd() *cobra.Command {
 }
 
 func newMCPUninstallCmd() *cobra.Command {
-	return &cobra.Command{
+	var (
+		deleteTokens bool
+		scope        string
+	)
+
+	cmd := &cobra.Command{
 		Use:       "uninstall <tool>",
 		Short:     "Remove MCP server configuration for a tool",
 		Args:      cobra.ExactArgs(1),
@@ -204,37 +240,56 @@ func newMCPUninstallCmd() *cobra.Command {
 				return fmt.Errorf("%s is not installed on this system", toolName)
 			}
 
+			// Extract PATs from config BEFORE removing entries
+			var extractedPATs []string
+			if deleteTokens {
+				contentPAT, promptPAT := mcp.ExtractPATsFromTool(*tool, scope)
+				if contentPAT != "" {
+					extractedPATs = append(extractedPATs, contentPAT)
+				}
+				if promptPAT != "" {
+					extractedPATs = append(extractedPATs, promptPAT)
+				}
+			}
+
+			// Remove config entries
 			switch toolName {
 			case "claude-desktop":
-				if err := mcp.UninstallClaudeDesktop(tool.ConfigPath); err != nil {
+				if err := mcp.UninstallClaudeDesktop(tool.ResolvedConfigPath()); err != nil {
 					return err
 				}
 			case "claude-code":
-				if err := mcp.UninstallClaudeCode(appDeps.CmdRunner); err != nil {
+				if err := mcp.UninstallClaudeCode(tool.ResolvedConfigPath(), scope); err != nil {
 					return err
 				}
 			case "codex":
-				configPath := tool.ConfigPath
-				if configPath == "" {
-					configPath = mcp.CodexConfigPath()
-				}
-				if err := mcp.UninstallCodex(configPath); err != nil {
+				if err := mcp.UninstallCodex(tool.ResolvedConfigPath()); err != nil {
 					return err
 				}
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Removed Tiddly MCP servers from %s.\n", toolName)
 
-			// Check for orphaned tokens
+			// Token cleanup
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, true)
 			if err == nil {
 				client := api.NewClient(apiURL(), result.Token, result.AuthType)
-				orphaned, err := mcp.CheckOrphanedTokens(client)
-				if err == nil && len(orphaned) > 0 {
-					fmt.Fprintf(cmd.ErrOrStderr(),
-						"Warning: PATs created for MCP servers still exist: %s\n", strings.Join(orphaned, ", "))
-					fmt.Fprintln(cmd.ErrOrStderr(),
-						"Run 'tiddly tokens list' to review and 'tiddly tokens delete' to revoke.")
+
+				if deleteTokens && len(extractedPATs) > 0 {
+					deleted, delErr := mcp.DeleteTokensByPrefix(client, extractedPATs)
+					if delErr != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Failed to delete tokens: %v\n", delErr)
+					} else if len(deleted) > 0 {
+						fmt.Fprintf(cmd.OutOrStdout(), "Deleted tokens: %s\n", strings.Join(deleted, ", "))
+					}
+				} else if !deleteTokens {
+					orphaned, orphanErr := mcp.CheckOrphanedTokens(client)
+					if orphanErr == nil && len(orphaned) > 0 {
+						fmt.Fprintf(cmd.ErrOrStderr(),
+							"Warning: PATs created for MCP servers still exist: %s\n", strings.Join(orphaned, ", "))
+						fmt.Fprintln(cmd.ErrOrStderr(),
+							"Run 'tiddly mcp uninstall <tool> --delete-tokens' to revoke, or 'tiddly tokens list' to review.")
+					}
 				}
 			}
 
@@ -245,6 +300,11 @@ func newMCPUninstallCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&deleteTokens, "delete-tokens", false, "Revoke PATs extracted from config during uninstall")
+	cmd.Flags().StringVar(&scope, "scope", "user", "Claude Code scope: user (global) or local (project)")
+
+	return cmd
 }
 
 func isValidTool(name string) bool {

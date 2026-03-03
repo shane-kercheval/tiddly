@@ -67,6 +67,8 @@ cli/
     login.go                  # tiddly login (OAuth + PAT)
     logout.go                 # tiddly logout
     auth.go                   # tiddly auth status
+    status.go                 # tiddly status (overview)
+    mcp.go                    # tiddly mcp install/status/uninstall
   internal/
     api/                      # HTTP client
       client.go               # Auth headers, error handling, 429 retry
@@ -77,12 +79,18 @@ cli/
       token_manager.go        # Token resolution chain, refresh
     config/                   # Configuration
       config.go               # ~/.config/tiddly/config.yaml via Viper
+    mcp/                      # MCP server management
+      detect.go               # AI tool detection (PATH + config dirs)
+      install.go              # Install orchestration, PAT creation, dry-run
+      claude_desktop.go       # Claude Desktop config (JSON, uses npx mcp-remote)
+      claude_code.go          # Claude Code config (JSON, direct HTTP entries)
+      codex.go                # Codex config (TOML)
     output/                   # Output formatting
       formatter.go            # text/json output
     testutil/                 # Shared test infrastructure
       mock_api.go             # httptest server builder
       mock_creds.go           # In-memory credential store
-      mock_exec.go            # Exec/command mocks
+      mock_exec.go            # Mock ExecLooker for PATH detection
       mock_tty.go             # TTY detection mock
       cmd_helper.go           # In-process Cobra command runner
       fixtures.go             # Shared response fixtures
@@ -96,6 +104,84 @@ Tests use dependency injection — no build tags, no real keyring or network cal
 - **Command tests** use `testutil.ExecuteCmd(t, cmd, args...)` to run Cobra commands in-process
 - **Credential tests** use `testutil.NewMockCredStore()` (in-memory)
 - **Table-driven tests** are the standard pattern: one test function with a `[]struct` of cases
+
+## Commands
+
+### `tiddly login`
+
+Authenticates with the Tiddly API and stores credentials locally.
+
+**PAT login** (`tiddly login --token bm_xxx`):
+1. Trims whitespace, validates the `bm_` prefix
+2. Calls `GET /users/me` to verify the token works
+3. Stores the PAT in the system keyring (or file fallback)
+
+**OAuth login** (`tiddly login`):
+1. Initiates Auth0 Device Code flow — prints a URL and code for the user to visit
+2. Polls Auth0 until the user authorizes
+3. Stores the access token and refresh token in the keyring
+4. Calls `GET /users/me` to confirm; handles 451 (consent required) gracefully
+
+**Files written**: Keyring entries under service `tiddly-cli`, or `~/.config/tiddly/credentials` (0600) as fallback.
+
+### `tiddly logout`
+
+Removes all stored credentials (PAT, OAuth access token, OAuth refresh token) from the keyring or file store.
+
+### `tiddly auth status`
+
+Shows the current authentication method (`pat`, `oauth`, `flag`, `env`), API URL, and user email. Does not modify any files. Calls `GET /users/me` to display user info.
+
+### `tiddly status`
+
+Shows a full overview: CLI version, auth status, API health/latency, content counts (bookmarks, notes, prompts fetched in parallel), and MCP server status for each detected AI tool. Read-only — no files modified.
+
+### `tiddly mcp install [tool...]`
+
+Installs Tiddly MCP server entries into AI tool config files so they can access your bookmarks, notes, and prompts.
+
+**Token management** (OAuth users only):
+- Each tool gets its own dedicated PATs — tokens are not shared across tools.
+- Token naming: `tiddly-mcp-{tool}-{server}-{6hex}` (e.g., `tiddly-mcp-claude-code-content-a1b2c3`).
+- **Re-install**: Extracts existing PATs from the tool's config, validates via `GET /users/me`, and reuses if still valid. Creates new tokens only when needed (no more delete-all-and-recreate).
+- `--servers content,prompts` (default: both): Selectively install only the content or prompts server.
+
+PAT users reuse their existing token for both servers (with a warning).
+
+**Tool detection** (`DetectTools`):
+- **claude-desktop**: Checks if the config directory exists (`~/Library/Application Support/Claude/` on macOS, `~/.config/Claude/` on Linux, `%APPDATA%\Claude\` on Windows). Also checks for `npx` in PATH (required for `mcp-remote`).
+- **claude-code**: Checks if `claude` binary is in PATH.
+- **codex**: Checks if `codex` binary is in PATH, or if `~/.codex/` config directory exists.
+
+**Config files written per tool**:
+
+| Tool | Config File | Format | Server Entry Format |
+|------|------------|--------|-------------------|
+| claude-desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) | JSON | `{"command": "npx", "args": ["mcp-remote", "<url>", "--header", "Authorization: Bearer <pat>"]}` |
+| claude-code | `~/.claude.json` | JSON | `{"type": "http", "url": "<url>", "headers": {"Authorization": "Bearer <pat>"}}` |
+| codex | `~/.codex/config.toml` | TOML | `[mcp_servers.<name>]` with `url` and `http_headers` |
+
+Two MCP servers are configured: `bookmarks_notes` (content) and `prompts`.
+
+All config files are written with mode 0600 (owner-only read/write). Directories are created with 0700. Existing config keys/servers are preserved. Malformed config files are backed up to `.bak` before overwriting.
+
+**Claude Code scopes** (`--scope`):
+- `user` (default): writes to top-level `mcpServers` in `~/.claude.json`
+- `local`: writes to `projects[<cwd>].mcpServers` in `~/.claude.json`
+- `project`: writes to `.mcp.json` in the current working directory
+
+**Dry run** (`--dry-run`): Shows before/after diff of each config file without writing. No tokens are created — placeholder values are shown in the diff output. Existing PATs are still validated (read-only).
+
+### `tiddly mcp status`
+
+Shows which AI tools are detected and whether Tiddly MCP servers are configured. Reads config files directly — no API calls, no subprocesses.
+
+### `tiddly mcp uninstall <tool>`
+
+Removes `bookmarks_notes` and `prompts` server entries from the specified tool's config file. Preserves all other config.
+
+- Without `--delete-tokens`: Warns about orphaned PATs (checks via `GET /tokens/` for any `tiddly-mcp-*` tokens).
+- With `--delete-tokens`: Extracts PATs from the tool's config before removing entries, then revokes the matching tokens via the API (matched by `token_prefix`).
 
 ## Auth0 Setup (Required for OAuth)
 
@@ -170,13 +256,3 @@ When a command needs a token, the resolution order is:
 4. Stored OAuth JWT (from keyring/file) — refreshed automatically if expired
 
 Commands that call Auth0-only endpoints (e.g., `tiddly tokens`) use `preferOAuth=true`, which swaps steps 3 and 4.
-
-## Roadmap
-
-See `docs/implementation_plans/2026-03-02-cli.md` for the full plan. Remaining milestones:
-
-- **M2**: `tiddly status` + `tiddly mcp install` (auto-detect tools, create PATs, write configs)
-- **M3**: `tiddly skills sync` (download/extract skills to Claude Code, Codex paths)
-- **M4**: `tiddly export` (streaming JSON export of all content)
-- **M5**: `tiddly tokens list/create/delete` + shell completions
-- **M6**: Polish, llms.txt, GoReleaser, Homebrew, shell installer

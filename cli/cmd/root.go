@@ -19,11 +19,10 @@ var (
 
 // AppDeps holds the application dependencies, injectable for testing.
 type AppDeps struct {
-	CredStore       auth.CredentialStore
-	TokenManager    *auth.TokenManager
-	ConfigDir       string
-	ExecLooker      mcp.ExecLooker
-	CmdRunner       mcp.CommandRunner
+	CredStore         auth.CredentialStore
+	TokenManager      *auth.TokenManager
+	ConfigDir         string
+	ExecLooker        mcp.ExecLooker
 	FileStoreFallback bool // true if credentials fell back to plaintext file storage
 }
 
@@ -82,7 +81,6 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 					TokenManager:      tm,
 					ConfigDir:         configDir,
 					ExecLooker:        &realExecLooker{},
-					CmdRunner:         &realCommandRunner{},
 					FileStoreFallback: fileFallback,
 				}
 			}

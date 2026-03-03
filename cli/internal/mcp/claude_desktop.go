@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -148,6 +149,55 @@ func DryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, afte
 	after = string(afterJSON)
 
 	return before, after, nil
+}
+
+// ExtractClaudeDesktopPATs reads the Claude Desktop config and extracts the Bearer tokens
+// for the tiddly MCP servers. Returns empty strings on any parse error (best-effort).
+func ExtractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) {
+	config, err := readJSONConfig(configPath)
+	if err != nil {
+		return "", ""
+	}
+
+	servers, _ := config["mcpServers"].(map[string]any)
+	if servers == nil {
+		return "", ""
+	}
+
+	contentPAT = extractClaudeDesktopServerPAT(servers, serverNameContent)
+	promptPAT = extractClaudeDesktopServerPAT(servers, serverNamePrompts)
+	return contentPAT, promptPAT
+}
+
+// extractClaudeDesktopServerPAT extracts the Bearer token from a Claude Desktop MCP server entry.
+// The token is in args[3] as "Authorization: Bearer <PAT>".
+func extractClaudeDesktopServerPAT(servers map[string]any, serverName string) string {
+	server, _ := servers[serverName].(map[string]any)
+	if server == nil {
+		return ""
+	}
+	args, _ := server["args"].([]any)
+	if len(args) < 4 {
+		return ""
+	}
+	headerVal, _ := args[3].(string)
+	return extractBearerToken(headerVal)
+}
+
+// extractBearerToken extracts the token from a string like "Bearer <token>" or
+// "Authorization: Bearer <token>". Returns empty string if the format doesn't match.
+func extractBearerToken(s string) string {
+	s = strings.TrimSpace(s)
+	// Handle "Authorization: Bearer <token>"
+	if strings.HasPrefix(s, "Authorization:") {
+		s = strings.TrimPrefix(s, "Authorization:")
+		s = strings.TrimSpace(s)
+	}
+	// Handle "Bearer <token>"
+	if strings.HasPrefix(s, "Bearer ") {
+		return strings.TrimPrefix(s, "Bearer ")
+	}
+	return ""
 }
 
 func readJSONConfig(path string) (map[string]any, error) {

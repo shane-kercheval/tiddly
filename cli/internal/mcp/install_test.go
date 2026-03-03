@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -15,13 +16,126 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunInstall__oauth_creates_pats(t *testing.T) {
+func TestRunInstall__oauth_creates_pats_with_unique_names(t *testing.T) {
+	var createdNames []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/tokens/":
+			var req api.TokenCreateRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			createdNames = append(createdNames, req.Name)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{
+				ID:    "tok-new",
+				Name:  req.Name,
+				Token: "bm_created_" + req.Name,
+			})
+		case r.Method == "GET" && r.URL.Path == "/users/me":
+			// No existing config means no existing PAT → validatePAT won't be called
+			w.WriteHeader(404)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+	}
+
+	result, err := RunInstall(InstallOpts{
+		Client:   client,
+		AuthType: "oauth",
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+	assert.Len(t, createdNames, 2, "should create 2 PATs")
+
+	// Token names should match the pattern tiddly-mcp-{tool}-{server}-{6hex}
+	namePattern := regexp.MustCompile(`^tiddly-mcp-claude-desktop-(content|prompts)-[0-9a-f]{6}$`)
+	for _, name := range createdNames {
+		assert.Regexp(t, namePattern, name)
+	}
+
+	assert.Len(t, result.TokensCreated, 2)
+	assert.Contains(t, result.ToolsConfigured, "claude-desktop")
+}
+
+func TestRunInstall__oauth_reuses_valid_existing_pat(t *testing.T) {
 	var tokenCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == "GET" && r.URL.Path == "/tokens/":
-			_ = json.NewEncoder(w).Encode([]api.TokenInfo{})
+		case r.Method == "GET" && r.URL.Path == "/users/me":
+			// Validate existing PAT — return 200 (valid)
+			_ = json.NewEncoder(w).Encode(api.UserInfo{ID: "user-1", Email: "test@test.com"})
+		case r.Method == "POST" && r.URL.Path == "/tokens/":
+			tokenCalls++
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{
+				ID:    "tok-new",
+				Token: "bm_new_token",
+			})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	// Write existing config with valid PATs
+	existingConfig := map[string]any{
+		"mcpServers": map[string]any{
+			"bookmarks_notes": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_existing_content"},
+			},
+			"prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_existing_prompt"},
+			},
+		},
+	}
+	writeTestJSON(t, configPath, existingConfig)
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+	}
+
+	result, err := RunInstall(InstallOpts{
+		Client:   client,
+		AuthType: "oauth",
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, tokenCalls, "should NOT create new tokens when existing PATs are valid")
+	assert.Len(t, result.TokensReused, 2)
+	assert.Empty(t, result.TokensCreated)
+}
+
+func TestRunInstall__oauth_creates_new_pat_when_existing_invalid(t *testing.T) {
+	var tokenCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/users/me":
+			// Reject the existing PAT (401)
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"detail": "Invalid token"})
 		case r.Method == "POST" && r.URL.Path == "/tokens/":
 			tokenCalls++
 			var req api.TokenCreateRequest
@@ -30,7 +144,7 @@ func TestRunInstall__oauth_creates_pats(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{
 				ID:    "tok-new",
 				Name:  req.Name,
-				Token: "bm_created_" + req.Name,
+				Token: "bm_new_" + req.Name,
 			})
 		default:
 			w.WriteHeader(404)
@@ -40,6 +154,21 @@ func TestRunInstall__oauth_creates_pats(t *testing.T) {
 
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	// Write existing config with invalid PATs
+	existingConfig := map[string]any{
+		"mcpServers": map[string]any{
+			"bookmarks_notes": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_expired_content"},
+			},
+			"prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_expired_prompt"},
+			},
+		},
+	}
+	writeTestJSON(t, configPath, existingConfig)
 
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
 	stdout := &bytes.Buffer{}
@@ -55,68 +184,9 @@ func TestRunInstall__oauth_creates_pats(t *testing.T) {
 	}, tools)
 
 	require.NoError(t, err)
-	assert.Equal(t, 2, tokenCalls, "should create 2 PATs")
-	assert.Contains(t, result.TokensCreated, "tiddly-mcp-content")
-	assert.Contains(t, result.TokensCreated, "tiddly-mcp-prompts")
-	assert.Contains(t, result.ToolsConfigured, "claude-desktop")
-}
-
-func TestRunInstall__oauth_deletes_existing_tokens_before_create(t *testing.T) {
-	var deleteCalls []string
-	var createCalls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == "GET" && r.URL.Path == "/tokens/":
-			// Return existing tokens
-			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
-				{ID: "tok-old-1", Name: "tiddly-mcp-content", TokenPrefix: "bm_old1..."},
-				{ID: "tok-old-2", Name: "tiddly-mcp-prompts", TokenPrefix: "bm_old2..."},
-			})
-		case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/tokens/"):
-			tokenID := strings.TrimPrefix(r.URL.Path, "/tokens/")
-			deleteCalls = append(deleteCalls, tokenID)
-			w.WriteHeader(http.StatusNoContent)
-		case r.Method == "POST" && r.URL.Path == "/tokens/":
-			createCalls++
-			var req api.TokenCreateRequest
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{
-				ID:    "tok-new",
-				Name:  req.Name,
-				Token: "bm_fresh_" + req.Name,
-			})
-		default:
-			w.WriteHeader(404)
-		}
-	}))
-	defer server.Close()
-
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "claude_desktop_config.json")
-
-	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
-	}
-
-	result, err := RunInstall(InstallOpts{
-		Client:   client,
-		AuthType: "oauth",
-		Output:   stdout,
-	}, tools)
-
-	require.NoError(t, err)
-	// Old tokens should have been deleted
-	assert.Contains(t, deleteCalls, "tok-old-1")
-	assert.Contains(t, deleteCalls, "tok-old-2")
-	// New tokens should have been created
-	assert.Equal(t, 2, createCalls)
-	assert.Contains(t, result.TokensCreated, "tiddly-mcp-content")
-	assert.Contains(t, result.TokensCreated, "tiddly-mcp-prompts")
+	assert.Equal(t, 2, tokenCalls, "should create 2 new PATs when existing are invalid")
+	assert.Len(t, result.TokensCreated, 2)
+	assert.Empty(t, result.TokensReused)
 }
 
 func TestRunInstall__pat_reuses_token(t *testing.T) {
@@ -151,7 +221,132 @@ func TestRunInstall__pat_reuses_token(t *testing.T) {
 	assert.Contains(t, args[3], "bm_existing")
 }
 
-func TestRunInstall__dry_run_no_writes(t *testing.T) {
+func TestRunInstall__dry_run_no_token_creation(t *testing.T) {
+	var tokenCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/tokens/":
+			tokenCalls++
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{Token: "bm_new"})
+		case r.Method == "GET" && r.URL.Path == "/users/me":
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+	}
+
+	result, err := RunInstall(InstallOpts{
+		Client:   client,
+		AuthType: "oauth",
+		DryRun:   true,
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, tokenCalls, "dry-run should NOT create tokens")
+	assert.Contains(t, result.ToolsConfigured, "claude-desktop")
+
+	// Output should contain placeholder (JSON-escaped angle brackets)
+	assert.Contains(t, stdout.String(), "new-token-would-be-created")
+
+	// File should NOT exist
+	_, err = os.Stat(configPath)
+	assert.True(t, os.IsNotExist(err), "config file should not be created in dry-run")
+}
+
+func TestRunInstall__dry_run_pat_auth_shows_diff(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-code", Installed: true, ConfigPath: configPath},
+	}
+
+	_, err := RunInstall(InstallOpts{
+		Client:   client,
+		AuthType: "pat",
+		DryRun:   true,
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+	assert.Contains(t, stdout.String(), "bookmarks_notes")
+	assert.Contains(t, stdout.String(), "bm_test")
+
+	// File should NOT exist (dry run)
+	_, statErr := os.Stat(configPath)
+	assert.True(t, os.IsNotExist(statErr), "config file should not be created in dry-run")
+}
+
+func TestRunInstall__servers_content_only(t *testing.T) {
+	var createdNames []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/tokens/":
+			var req api.TokenCreateRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			createdNames = append(createdNames, req.Name)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{
+				ID:    "tok-new",
+				Name:  req.Name,
+				Token: "bm_created_" + req.Name,
+			})
+		case r.Method == "GET" && r.URL.Path == "/users/me":
+			w.WriteHeader(404)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+	}
+
+	result, err := RunInstall(InstallOpts{
+		Client:   client,
+		AuthType: "oauth",
+		Servers:  []string{"content"},
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+	assert.Len(t, createdNames, 1, "should only create 1 PAT")
+	assert.Contains(t, createdNames[0], "content")
+	assert.Len(t, result.TokensCreated, 1)
+
+	// Config should only have content server
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.Contains(t, servers, "bookmarks_notes")
+	assert.NotContains(t, servers, "prompts")
+}
+
+func TestRunInstall__servers_prompts_only(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -165,42 +360,17 @@ func TestRunInstall__dry_run_no_writes(t *testing.T) {
 	result, err := RunInstall(InstallOpts{
 		Client:   client,
 		AuthType: "pat",
-		DryRun:   true,
+		Servers:  []string{"prompts"},
 		Output:   stdout,
 	}, tools)
 
 	require.NoError(t, err)
 	assert.Contains(t, result.ToolsConfigured, "claude-desktop")
 
-	// File should NOT exist
-	_, err = os.Stat(configPath)
-	assert.True(t, os.IsNotExist(err), "config file should not be created in dry-run")
-
-	// Output should contain diff
-	assert.Contains(t, stdout.String(), "bookmarks_notes")
-}
-
-func TestRunInstall__dry_run_claude_code_shows_commands(t *testing.T) {
-	client := api.NewClient("http://unused", "bm_test", "pat")
-	stdout := &bytes.Buffer{}
-	runner := newMockRunner()
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Installed: true},
-	}
-
-	_, err := RunInstall(InstallOpts{
-		Client:   client,
-		Runner:   runner,
-		AuthType: "pat",
-		DryRun:   true,
-		Output:   stdout,
-	}, tools)
-
-	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "claude mcp add")
-	assert.Contains(t, stdout.String(), "bm_test")
-	assert.Empty(t, runner.calls, "should not execute any commands in dry-run")
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.NotContains(t, servers, "bookmarks_notes")
+	assert.Contains(t, servers, "prompts")
 }
 
 func TestRunInstall__skips_uninstalled_tools(t *testing.T) {
@@ -270,8 +440,8 @@ func TestCheckOrphanedTokens__finds_mcp_tokens(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]api.TokenInfo{
-			{ID: "tok-1", Name: "tiddly-mcp-content"},
-			{ID: "tok-2", Name: "tiddly-mcp-prompts"},
+			{ID: "tok-1", Name: "tiddly-mcp-claude-code-content-a1b2c3"},
+			{ID: "tok-2", Name: "tiddly-mcp-claude-code-prompts-d4e5f6"},
 			{ID: "tok-3", Name: "other-token"},
 		})
 	}))
@@ -281,7 +451,9 @@ func TestCheckOrphanedTokens__finds_mcp_tokens(t *testing.T) {
 	orphaned, err := CheckOrphanedTokens(client)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"tiddly-mcp-content", "tiddly-mcp-prompts"}, orphaned)
+	assert.Len(t, orphaned, 2)
+	assert.Contains(t, orphaned[0], "tiddly-mcp-")
+	assert.Contains(t, orphaned[1], "tiddly-mcp-")
 }
 
 func TestCheckOrphanedTokens__no_orphans(t *testing.T) {
@@ -298,4 +470,114 @@ func TestCheckOrphanedTokens__no_orphans(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Nil(t, orphaned)
+}
+
+func TestGenerateTokenName__format(t *testing.T) {
+	name := generateTokenName("claude-code", "content")
+	assert.Regexp(t, `^tiddly-mcp-claude-code-content-[0-9a-f]{6}$`, name)
+}
+
+func TestGenerateTokenName__unique(t *testing.T) {
+	name1 := generateTokenName("claude-code", "content")
+	name2 := generateTokenName("claude-code", "content")
+	assert.NotEqual(t, name1, name2, "names should be unique due to random suffix")
+}
+
+func TestValidatePAT__valid(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(api.UserInfo{ID: "user-1"})
+	}))
+	defer server.Close()
+
+	assert.True(t, validatePAT(server.URL, "bm_valid"))
+}
+
+func TestValidatePAT__consent_needed_still_valid(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(451)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error":       "consent_required",
+			"consent_url": "https://tiddly.me/terms",
+		})
+	}))
+	defer server.Close()
+
+	assert.True(t, validatePAT(server.URL, "bm_consent"))
+}
+
+func TestValidatePAT__invalid(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	assert.False(t, validatePAT(server.URL, "bm_expired"))
+}
+
+func TestDeleteTokensByPrefix__matches_and_deletes(t *testing.T) {
+	var deletedIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/tokens/":
+			// token_prefix is the first 12 chars of the PAT (bm_ + 9 chars)
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-1", Name: "tiddly-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_abcdefghi"},
+				{ID: "tok-2", Name: "tiddly-mcp-claude-code-prompts-d4e5f6", TokenPrefix: "bm_123456789"},
+				{ID: "tok-3", Name: "other-token", TokenPrefix: "bm_xxxxxxxxx"},
+			})
+		case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/tokens/"):
+			tokenID := strings.TrimPrefix(r.URL.Path, "/tokens/")
+			deletedIDs = append(deletedIDs, tokenID)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+
+	// PATs whose first 12 chars match the token_prefix
+	pats := []string{"bm_abcdefghijklmnop", "bm_123456789jklmnop"}
+	deleted, err := DeleteTokensByPrefix(client, pats)
+
+	require.NoError(t, err)
+	assert.Contains(t, deletedIDs, "tok-1")
+	assert.Contains(t, deletedIDs, "tok-2")
+	assert.NotContains(t, deletedIDs, "tok-3")
+	assert.Len(t, deleted, 2)
+}
+
+func TestExtractPATsFromTool__claude_desktop(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			"bookmarks_notes": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_content123"},
+			},
+			"prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_prompt456"},
+			},
+		},
+	}
+	writeTestJSON(t, configPath, config)
+
+	tool := DetectedTool{Name: "claude-desktop", ConfigPath: configPath}
+	contentPAT, promptPAT := ExtractPATsFromTool(tool, "user")
+	assert.Equal(t, "bm_content123", contentPAT)
+	assert.Equal(t, "bm_prompt456", promptPAT)
+}
+
+func TestExtractPATsFromTool__missing_config(t *testing.T) {
+	tool := DetectedTool{Name: "claude-desktop", ConfigPath: "/nonexistent/path.json"}
+	contentPAT, promptPAT := ExtractPATsFromTool(tool, "user")
+	assert.Empty(t, contentPAT)
+	assert.Empty(t, promptPAT)
 }

@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,28 +13,46 @@ import (
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
 )
 
+// dryRunPlaceholder is the token shown in dry-run output when a new token would be created.
+const dryRunPlaceholder = "<new-token-would-be-created>"
+
+// tokenPrefixLen is the number of leading characters the API stores as token_prefix.
+const tokenPrefixLen = 12
+
 // InstallOpts configures the MCP install flow.
 type InstallOpts struct {
 	Client    *api.Client
-	Looker    ExecLooker
-	Runner    CommandRunner
 	AuthType  string // "oauth", "pat", "flag", "env"
 	DryRun    bool
-	Scope     string // claude code scope: "user" (default) or "local"
-	ExpiresIn *int   // PAT expiration in days (nil = no expiration)
+	Scope     string   // claude code scope: "user" (default) or "local"
+	Servers   []string // which servers to install: "content", "prompts" (default: both)
+	ExpiresIn *int     // PAT expiration in days (nil = no expiration)
 	Output    io.Writer
 	ErrOutput io.Writer
+}
+
+// wantServer returns true if the given server name is in the requested servers list.
+func (o InstallOpts) wantServer(name string) bool {
+	if len(o.Servers) == 0 {
+		return true // default: both
+	}
+	for _, s := range o.Servers {
+		if s == name {
+			return true
+		}
+	}
+	return false
 }
 
 // InstallResult captures what was done during install.
 type InstallResult struct {
 	ToolsConfigured []string
 	TokensCreated   []string
+	TokensReused    []string
 	Warnings        []string
 }
 
 // RunInstall orchestrates MCP server installation for the given tools.
-// If tools is empty, installs for all detected tools.
 func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) {
 	if opts.Output == nil {
 		opts.Output = os.Stdout
@@ -43,15 +63,21 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 
 	result := &InstallResult{}
 
-	// Determine PATs to use
-	contentPAT, promptPAT, err := resolvePATs(opts, result)
-	if err != nil {
-		return nil, err
+	isPATAuth := opts.AuthType == "pat" || opts.AuthType == "flag" || opts.AuthType == "env"
+	if isPATAuth {
+		result.Warnings = append(result.Warnings,
+			"Using your current token for MCP servers. Login via 'tiddly login' to auto-create dedicated tokens per server.")
 	}
 
 	for _, tool := range tools {
 		if !tool.Installed {
 			continue
+		}
+
+		// Resolve PATs per-tool
+		contentPAT, promptPAT, err := resolveToolPATs(opts, tool, isPATAuth, result)
+		if err != nil {
+			return nil, fmt.Errorf("resolving tokens for %s: %w", tool.Name, err)
 		}
 
 		if opts.DryRun {
@@ -71,50 +97,124 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 	return result, nil
 }
 
-// resolvePATs determines the PATs to use for MCP server configuration.
-func resolvePATs(opts InstallOpts, result *InstallResult) (contentPAT, promptPAT string, err error) {
-	if opts.AuthType == "pat" || opts.AuthType == "flag" || opts.AuthType == "env" {
-		// Reuse the current token for both servers
-		result.Warnings = append(result.Warnings,
-			"Using your current token for MCP servers. Login via 'tiddly login' to auto-create dedicated tokens per server.")
-		return opts.Client.Token, opts.Client.Token, nil
+// resolveToolPATs determines the content and prompt PATs for a specific tool.
+// For PAT auth: reuses the login token. For OAuth: extracts existing PATs from the
+// tool's config, validates them, and creates new ones only if needed.
+func resolveToolPATs(opts InstallOpts, tool DetectedTool, isPATAuth bool, result *InstallResult) (contentPAT, promptPAT string, err error) {
+	if isPATAuth {
+		pat := opts.Client.Token
+		if opts.wantServer("content") {
+			contentPAT = pat
+		}
+		if opts.wantServer("prompts") {
+			promptPAT = pat
+		}
+		return contentPAT, promptPAT, nil
 	}
 
-	// OAuth: create dedicated PATs
-	// Check for existing tiddly-mcp tokens first
-	existing, err := opts.Client.ListTokens()
-	if err != nil {
-		return "", "", fmt.Errorf("listing existing tokens: %w", err)
-	}
+	// OAuth: try to reuse existing PATs from the tool's config
+	existingContent, existingPrompt := ExtractPATsFromTool(tool, opts.Scope)
 
-	// Delete any existing tiddly-mcp tokens so re-install is idempotent
-	deleteExistingTokens(opts.Client, existing, "tiddly-mcp-content")
-	deleteExistingTokens(opts.Client, existing, "tiddly-mcp-prompts")
-
-	contentResp, err := opts.Client.CreateToken("tiddly-mcp-content", opts.ExpiresIn)
-	if err != nil {
-		return "", "", fmt.Errorf("creating content MCP token: %w", err)
+	if opts.wantServer("content") {
+		contentPAT, err = resolveServerPAT(opts, tool.Name, "content", existingContent, result)
+		if err != nil {
+			return "", "", err
+		}
 	}
-	contentPAT = contentResp.Token
-	result.TokensCreated = append(result.TokensCreated, "tiddly-mcp-content")
-
-	promptResp, err := opts.Client.CreateToken("tiddly-mcp-prompts", opts.ExpiresIn)
-	if err != nil {
-		return "", "", fmt.Errorf("creating prompts MCP token: %w", err)
+	if opts.wantServer("prompts") {
+		promptPAT, err = resolveServerPAT(opts, tool.Name, "prompts", existingPrompt, result)
+		if err != nil {
+			return "", "", err
+		}
 	}
-	promptPAT = promptResp.Token
-	result.TokensCreated = append(result.TokensCreated, "tiddly-mcp-prompts")
 
 	return contentPAT, promptPAT, nil
 }
 
-// deleteExistingTokens removes any tokens with the given name so re-install doesn't accumulate duplicates.
-func deleteExistingTokens(client *api.Client, tokens []api.TokenInfo, name string) {
-	for _, t := range tokens {
-		if t.Name == name {
-			_ = client.DeleteToken(t.ID) // best-effort; creation will fail if this matters
+// resolveServerPAT resolves a single PAT for a specific server.
+// If an existing PAT is found and valid, it's reused. Otherwise a new one is created.
+func resolveServerPAT(opts InstallOpts, toolName, serverType, existingPAT string, result *InstallResult) (string, error) {
+	// Try to reuse existing PAT
+	if existingPAT != "" && validatePAT(opts.Client.BaseURL, existingPAT) {
+		result.TokensReused = append(result.TokensReused,
+			fmt.Sprintf("%s/%s", toolName, serverType))
+		return existingPAT, nil
+	}
+
+	// Dry-run: don't create tokens
+	if opts.DryRun {
+		return dryRunPlaceholder, nil
+	}
+
+	// Create a new PAT
+	name := generateTokenName(toolName, serverType)
+	resp, err := opts.Client.CreateToken(name, opts.ExpiresIn)
+	if err != nil {
+		return "", fmt.Errorf("creating %s MCP token for %s: %w", serverType, toolName, err)
+	}
+	result.TokensCreated = append(result.TokensCreated, name)
+	return resp.Token, nil
+}
+
+// generateTokenName creates a unique token name like "tiddly-mcp-claude-code-content-a1b2c3".
+func generateTokenName(tool, server string) string {
+	b := make([]byte, 3)
+	_, _ = rand.Read(b)
+	suffix := hex.EncodeToString(b)
+	return fmt.Sprintf("tiddly-mcp-%s-%s-%s", tool, server, suffix)
+}
+
+// validatePAT checks whether a PAT is still valid by calling GET /users/me.
+// Returns true if the token works (200) or needs consent (451, still valid).
+func validatePAT(baseURL, pat string) bool {
+	client := api.NewClient(baseURL, pat, "pat")
+	_, err := client.GetMe()
+	if err == nil {
+		return true
+	}
+	// 451 = consent needed but token is still valid
+	if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 451 {
+		return true
+	}
+	return false
+}
+
+// ExtractPATsFromTool dispatches to the appropriate Extract function for the tool.
+func ExtractPATsFromTool(tool DetectedTool, scope string) (contentPAT, promptPAT string) {
+	switch tool.Name {
+	case "claude-desktop":
+		return ExtractClaudeDesktopPATs(tool.ResolvedConfigPath())
+	case "claude-code":
+		return ExtractClaudeCodePATs(tool.ResolvedConfigPath(), scope)
+	case "codex":
+		return ExtractCodexPATs(tool.ResolvedConfigPath())
+	}
+	return "", ""
+}
+
+// DeleteTokensByPrefix finds and deletes tokens that match a PAT's prefix.
+// Used by uninstall --delete-tokens. Returns the names of deleted tokens.
+func DeleteTokensByPrefix(client *api.Client, pats []string) ([]string, error) {
+	tokens, err := client.ListTokens()
+	if err != nil {
+		return nil, fmt.Errorf("listing tokens: %w", err)
+	}
+
+	var deleted []string
+	for _, pat := range pats {
+		if len(pat) < tokenPrefixLen {
+			continue
+		}
+		prefix := pat[:tokenPrefixLen]
+		for _, t := range tokens {
+			if t.TokenPrefix == prefix {
+				if err := client.DeleteToken(t.ID); err == nil {
+					deleted = append(deleted, t.Name)
+				}
+			}
 		}
 	}
+	return deleted, nil
 }
 
 func installTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT string, result *InstallResult) error {
@@ -140,15 +240,23 @@ func installTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT stri
 		result.Warnings = append(result.Warnings, "Restart Claude Desktop to apply changes.")
 
 	case "claude-code":
-		if err := InstallClaudeCode(opts.Runner, contentPAT, promptPAT, opts.Scope); err != nil {
+		configPath := tool.ResolvedConfigPath()
+		backedUp, err := backupIfMalformed(configPath)
+		if err != nil {
 			return err
 		}
+		if backedUp {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", configPath, configPath))
+		}
+		if err := InstallClaudeCode(configPath, contentPAT, promptPAT, opts.Scope); err != nil {
+			return err
+		}
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", configPath))
 
 	case "codex":
-		configPath := tool.ConfigPath
-		if configPath == "" {
-			configPath = CodexConfigPath()
-		}
+		configPath := tool.ResolvedConfigPath()
 		backedUp, err := backupIfMalformed(configPath)
 		if err != nil {
 			return err
@@ -172,10 +280,7 @@ func dryRunTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT strin
 
 	switch tool.Name {
 	case "claude-desktop":
-		configPath := tool.ConfigPath
-		if configPath == "" {
-			configPath = ClaudeDesktopConfigPath()
-		}
+		configPath := tool.ResolvedConfigPath()
 		before, after, err := DryRunClaudeDesktop(configPath, contentPAT, promptPAT)
 		if err != nil {
 			return err
@@ -183,17 +288,15 @@ func dryRunTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT strin
 		printDiff(opts.Output, configPath, before, after)
 
 	case "claude-code":
-		cmds := DryRunClaudeCode(contentPAT, promptPAT, opts.Scope)
-		fmt.Fprintln(opts.Output, "Commands that would be executed:")
-		for _, cmd := range cmds {
-			fmt.Fprintf(opts.Output, "  $ %s\n", cmd)
+		configPath := tool.ResolvedConfigPath()
+		before, after, err := DryRunClaudeCode(configPath, contentPAT, promptPAT, opts.Scope)
+		if err != nil {
+			return err
 		}
+		printDiff(opts.Output, configPath, before, after)
 
 	case "codex":
-		configPath := tool.ConfigPath
-		if configPath == "" {
-			configPath = CodexConfigPath()
-		}
+		configPath := tool.ResolvedConfigPath()
 		before, after, err := DryRunCodex(configPath, contentPAT, promptPAT)
 		if err != nil {
 			return err

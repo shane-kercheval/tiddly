@@ -22,7 +22,6 @@ func setupTestDeps(t *testing.T, store *testutil.MockCredStore) {
 		TokenManager: tm,
 		ConfigDir:    "",
 		ExecLooker:   testutil.NewMockExecLooker(),
-		CmdRunner:    testutil.NewMockCommandRunner(),
 	})
 	t.Cleanup(func() {
 		appDeps = nil
@@ -102,7 +101,6 @@ func TestLogin__pat_warns_on_file_store_fallback(t *testing.T) {
 		TokenManager:      tm,
 		ConfigDir:         "/tmp/test-config",
 		ExecLooker:        testutil.NewMockExecLooker(),
-		CmdRunner:         testutil.NewMockCommandRunner(),
 		FileStoreFallback: true,
 	})
 	t.Cleanup(func() {
