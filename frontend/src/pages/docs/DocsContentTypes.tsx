@@ -28,8 +28,7 @@ export function DocsContentTypes(): ReactNode {
       <h2 className="text-xl font-bold text-gray-900 mb-3">Bookmarks</h2>
       <p className="text-gray-600 mb-4">
         Save URLs with automatically scraped metadata. When you add a URL, Tiddly fetches the
-        page title, description, and full article content so your bookmarks are searchable even
-        if the original page goes offline.
+        page title, description, and full article content so your bookmarks are searchable.
       </p>
       <FieldList>
         <li><strong>URL</strong> — the page address (automatically normalized)</li>

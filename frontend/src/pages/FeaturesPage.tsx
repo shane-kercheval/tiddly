@@ -1,6 +1,7 @@
 import { useAuth0 } from '@auth0/auth0-react'
 import { useCallback, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { isDevMode } from '../config'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { PublicHeader } from '../components/PublicHeader'
@@ -10,6 +11,9 @@ import { NoteMCPAnimation } from '../components/NoteMCPAnimation'
 import { ChromeExtensionAnimation } from '../components/ChromeExtensionAnimation'
 import { VersionHistoryAnimation } from '../components/VersionHistoryAnimation'
 import {
+  AnthropicIcon,
+  OpenAIIcon,
+  GeminiIcon,
   SparklesIcon,
   TagIcon,
   SearchIcon,
@@ -81,6 +85,56 @@ function DevCard({
   )
 }
 
+interface SupportedClient {
+  name: string
+  maker: string
+  icon: ReactNode
+  environment: string
+  docsPath: string
+  comingSoon?: boolean
+}
+
+const SUPPORTED_CLIENTS: SupportedClient[] = [
+  { name: 'Claude Desktop', maker: 'Anthropic', icon: <AnthropicIcon className="h-5 w-5" />, environment: 'Desktop', docsPath: '/docs/ai/claude-desktop' },
+  { name: 'Claude Code', maker: 'Anthropic', icon: <AnthropicIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai/claude-code' },
+  { name: 'Codex', maker: 'OpenAI', icon: <OpenAIIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai/codex' },
+  { name: 'ChatGPT', maker: 'OpenAI', icon: <OpenAIIcon className="h-5 w-5" />, environment: 'Cloud', docsPath: '/docs/ai/chatgpt', comingSoon: true },
+  { name: 'Gemini CLI', maker: 'Google', icon: <GeminiIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai/gemini-cli', comingSoon: true },
+]
+
+function SupportedClientCard({ client }: { client: SupportedClient }): ReactNode {
+  if (client.comingSoon) {
+    return (
+      <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 opacity-50">
+        <div className="text-gray-400">{client.icon}</div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-gray-400">{client.name}</div>
+          <div className="text-xs text-gray-300">{client.maker}</div>
+        </div>
+        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+          Soon
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      to={client.docsPath}
+      className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-[#f09040] hover:bg-[#fff7f0]"
+    >
+      {client.icon}
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-gray-900 group-hover:text-[#d97b3d]">{client.name}</div>
+        <div className="text-xs text-gray-400">{client.maker}</div>
+      </div>
+      <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+        {client.environment}
+      </span>
+    </Link>
+  )
+}
+
 function FeaturesContent({
   onLogin,
   onSignup,
@@ -110,20 +164,8 @@ function FeaturesContent({
           <div className="mb-16 text-center">
             <h2 className="text-3xl font-bold text-gray-900">Connect your knowledge to AI</h2>
             <p className="mt-3 text-gray-600">
-              Two MCP servers let AI assistants discover, use, and manage your content through natural language.
+              MCP servers let AI assistants discover, use, and manage your content through natural language.
             </p>
-          </div>
-
-          {/* Prompt Templates & MCP */}
-          <div className="mb-16">
-            <div className="mb-6 text-center">
-              <h3 className="text-xl font-semibold text-gray-900">Prompt Templates &amp; MCP</h3>
-              <p className="mx-auto mt-2 max-w-2xl text-sm text-gray-600">
-                Build Jinja2 templates with variables and typed arguments. AI agents discover and use them
-                via the Prompt MCP Server. Supported in Claude Desktop, Claude Code, Codex, and any MCP-compatible tool.
-              </p>
-            </div>
-            <ReplayableAnimation Component={PromptMCPAnimation} />
           </div>
 
           {/* AI Content Management */}
@@ -138,18 +180,40 @@ function FeaturesContent({
             <ReplayableAnimation Component={NoteMCPAnimation} />
           </div>
 
-          {/* Additional AI features */}
+          {/* Prompt Templates & MCP */}
+          <div className="mb-16">
+            <div className="mb-6 text-center">
+              <h3 className="text-xl font-semibold text-gray-900">Prompt Templates &amp; MCP</h3>
+              <p className="mx-auto mt-2 max-w-2xl text-sm text-gray-600">
+                Build Jinja2 templates with variables and typed arguments. AI agents discover and use them
+                via the Prompt MCP Server. Supported in Claude Desktop, Claude Code, Codex, and any MCP-compatible tool.
+              </p>
+            </div>
+            <ReplayableAnimation Component={PromptMCPAnimation} />
+          </div>
+
+          {/* Connection methods */}
           <div className="grid gap-4 sm:grid-cols-2">
+            <CompactCard
+              icon={<LinkIcon />}
+              title="MCP"
+              description="AI assistants connect to your content in real-time. Search, read, and edit bookmarks and notes; discover and render prompt templates."
+            />
             <CompactCard
               icon={<SparklesIcon />}
               title="Agent Skills"
-              description="Export prompts as SKILL.md instruction files that AI agents can load and follow."
+              description="Export prompts as portable SKILL.md instruction files that any compatible agent can load and execute locally."
             />
-            <CompactCard
-              icon={<LinkIcon />}
-              title="Two MCP Servers"
-              description="Content Server for bookmarks & notes, Prompt Server for templates — separate concerns, flexible setup."
-            />
+          </div>
+
+          {/* Supported clients */}
+          <div className="mt-12">
+            <h3 className="mb-4 text-center text-xl font-semibold text-gray-900">Supported Clients</h3>
+            <div className="mx-auto grid max-w-2xl gap-3 sm:grid-cols-2">
+              {SUPPORTED_CLIENTS.map((client) => (
+                <SupportedClientCard key={client.name} client={client} />
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -167,86 +231,22 @@ function FeaturesContent({
         </div>
       </section>
 
-      {/* 4. Organization & Search */}
+      {/* 4. Chrome Extension */}
       <section className="bg-gray-50 py-20">
-        <div className="mx-auto max-w-4xl px-6 sm:px-8 lg:px-12">
-          <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold text-gray-900">Find and organize everything</h2>
-          </div>
-
-          <div className="grid gap-12 lg:grid-cols-2">
-            {/* Organization */}
-            <div>
-              <h3 className="mb-4 text-xl font-semibold text-gray-900">Organization</h3>
-              <ul className="space-y-4 text-sm text-gray-600">
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <TagIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Tags</span> — Global across all content types. Rename or delete from one place.
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <ListIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Saved Filters</span> — Boolean tag expressions with AND/OR logic. Save and reuse across sessions.
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <LinkIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Relationships</span> — Cross-link any items to build connections between related content.
-                  </div>
-                </li>
-              </ul>
-            </div>
-
-            {/* Search */}
-            <div>
-              <h3 className="mb-4 text-xl font-semibold text-gray-900">Search</h3>
-              <ul className="space-y-4 text-sm text-gray-600">
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <SearchIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Full-text search</span> — Search across titles, descriptions, tags, and content of all items.
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <EditIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Search operators</span> — Use <code className="rounded bg-white px-1 py-0.5 text-xs">"exact phrase"</code>, <code className="rounded bg-white px-1 py-0.5 text-xs">-exclude</code>, and <code className="rounded bg-white px-1 py-0.5 text-xs">OR</code> to refine results.
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <SearchIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">In-content search</span> — Search within a document with regex support.
-                  </div>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 5. Chrome Extension */}
-      <section className="py-20">
         <div className="mx-auto max-w-5xl px-6 sm:px-8 lg:px-12">
           <div className="mb-6 text-center">
             <h2 className="text-3xl font-bold text-gray-900">Save from anywhere</h2>
             <p className="mt-3 text-gray-600">
-              The Chrome extension lets you save bookmarks without leaving the page.
+              The{' '}
+              <a
+                href="https://chrome.google.com/webstore/detail/npjlfgkihebhandkknldnjlcdmcpomkc"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#d97b3d] hover:underline"
+              >
+                Chrome extension
+              </a>{' '}
+              lets you save bookmarks without leaving the page.
             </p>
           </div>
           <ReplayableAnimation Component={ChromeExtensionAnimation} />
@@ -271,6 +271,79 @@ function FeaturesContent({
         </div>
       </section>
 
+      {/* 5. Organization & Search */}
+      <section className="py-20">
+        <div className="mx-auto max-w-4xl px-6 sm:px-8 lg:px-12">
+          <div className="mb-12 text-center">
+            <h2 className="text-3xl font-bold text-gray-900">Find and organize everything</h2>
+          </div>
+
+          <div className="grid gap-12 lg:grid-cols-2">
+            {/* Organization */}
+            <div>
+              <h3 className="mb-4 text-xl font-semibold text-gray-900">Organization</h3>
+              <ul className="space-y-4 text-sm text-gray-600">
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <TagIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Tags</span> — Global across all content types. Rename or delete from one place.
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <ListIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Saved Filters</span> — Boolean tag expressions with AND/OR logic. Save and reuse across sessions.
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <LinkIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Relationships</span> — Cross-link any items to build connections between related content.
+                  </div>
+                </li>
+              </ul>
+            </div>
+
+            {/* Search */}
+            <div>
+              <h3 className="mb-4 text-xl font-semibold text-gray-900">Search</h3>
+              <ul className="space-y-4 text-sm text-gray-600">
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <SearchIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Full-text search</span> — Search across titles, descriptions, tags, and content of all items.
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <EditIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Search operators</span> — Use <code className="rounded bg-gray-50 px-1 py-0.5 text-xs">"exact phrase"</code>, <code className="rounded bg-gray-50 px-1 py-0.5 text-xs">-exclude</code>, and <code className="rounded bg-gray-50 px-1 py-0.5 text-xs">OR</code> to refine results.
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <SearchIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">In-content search</span> — Search within a document with regex support.
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* 6. Developer & Power User */}
       <section className="bg-gray-50 py-20">
         <div className="mx-auto max-w-6xl px-6 sm:px-8 lg:px-12">
@@ -286,7 +359,7 @@ function FeaturesContent({
             <DevCard
               icon={<ListIcon />}
               title="Keyboard-first"
-              description="Command palette (Cmd+Shift+P), 20+ shortcuts, slash commands in the editor. No-mouse workflows."
+              description="Command palette (Cmd+Shift+P), 20+ shortcuts, slash commands in the editor."
             />
             <DevCard
               icon={<ExternalLinkIcon />}

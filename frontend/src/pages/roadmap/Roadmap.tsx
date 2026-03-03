@@ -1,6 +1,185 @@
 import type { ReactNode } from 'react'
-import { ComingSoonPage } from '../../components/ComingSoonPage'
+import { usePageTitle } from '../../hooks/usePageTitle'
+
+interface RoadmapItem {
+  title: string
+  description: string
+  date?: string // yyyy-mm, shown as tag on Shipped items
+}
+
+interface RoadmapColumn {
+  title: string
+  description: string
+  accentColor: string
+  items: RoadmapItem[]
+}
+
+const ROADMAP: RoadmapColumn[] = [
+  {
+    title: 'Backlog',
+    description: 'Ideas we want to explore.',
+    accentColor: 'border-t-gray-300',
+    items: [
+      {
+        title: 'AI-assisted features',
+        description: 'Tag suggestions, auto-generated descriptions, and smart summaries.',
+      },
+      {
+        title: 'AI chat',
+        description: 'Conversational interface for searching and managing content.',
+      },
+      {
+        title: 'OAuth for MCP',
+        description: 'Connect MCP clients like ChatGPT without personal access tokens.',
+      },
+      {
+        title: 'Data export',
+        description: 'Export all your content in standard formats.',
+      },
+      {
+        title: 'Safari extension',
+        description: 'Save and search bookmarks directly from Safari.',
+      },
+      {
+        title: 'Chrome extension editing',
+        description: 'Edit bookmarks and notes directly from the extension popup.',
+      },
+      {
+        title: 'Image support',
+        description: 'Attach images to bookmarks and notes.',
+      },
+      {
+        title: 'Multi-select actions',
+        description: 'Bulk tag, archive, or delete multiple items at once.',
+      },
+      {
+        title: 'Content encryption',
+        description: 'End-to-end encryption for sensitive content.',
+      },
+      {
+        title: 'Integrations',
+        description: 'Google Docs, Confluence, and other third-party connections.',
+      },
+    ],
+  },
+  {
+    title: 'In Progress',
+    description: 'Actively being built.',
+    accentColor: 'border-t-amber-500',
+    items: [
+      {
+        title: 'Mobile app',
+        description: 'Native mobile experience backed by the existing API.',
+      },
+      {
+        title: 'CLI',
+        description: 'Command-line interface for power users and scripting.',
+      },
+    ],
+  },
+  {
+    title: 'Shipped',
+    description: 'Recently launched.',
+    accentColor: 'border-t-green-500',
+    items: [
+      {
+        title: 'Chrome extension',
+        description: 'Save and search bookmarks from any page.',
+        date: '2026-02',
+      },
+      {
+        title: 'Content versioning',
+        description: 'Full history with diffs and one-click restore.',
+        date: '2026-02',
+      },
+      {
+        title: 'Full-text search',
+        description: 'Search across all content with command palette.',
+        date: '2026-02',
+      },
+      {
+        title: 'Content relationships',
+        description: 'Link related bookmarks, notes, and prompts together.',
+        date: '2026-02',
+      },
+      {
+        title: 'Keyboard shortcuts & command palette',
+        description: 'Slash commands, editor palette, and global shortcuts.',
+        date: '2026-02',
+      },
+      {
+        title: 'Rich markdown editor',
+        description: 'WYSIWYG editing with syntax highlighting and keyboard shortcuts.',
+        date: '2026-01',
+      },
+      {
+        title: 'Filters & Collections',
+        description: 'Saved tag-based views for organizing content.',
+        date: '2026-01',
+      },
+      {
+        title: 'Agent Skills export',
+        description: 'Export prompts for Claude Code, Claude Desktop, and Codex.',
+        date: '2026-01',
+      },
+      {
+        title: 'MCP integration',
+        description: 'AI assistant access to bookmarks, notes, and prompts.',
+        date: '2025-12',
+      },
+      {
+        title: 'First commit',
+        description: 'Bookmarks, notes, prompt templates, tags, and API access.',
+        date: '2025-12',
+      },
+    ],
+  },
+]
+
+function RoadmapColumnCard({ column }: { column: RoadmapColumn }): ReactNode {
+  return (
+    <div className={`rounded-xl border border-gray-200 border-t-4 ${column.accentColor}`}>
+      <div className="p-6">
+        <h2 className="text-lg font-bold text-gray-900">{column.title}</h2>
+        <p className="mt-1 text-sm text-gray-500">{column.description}</p>
+      </div>
+      <div className="space-y-3 px-6 pb-6">
+        {column.items.map((item) => (
+          <div key={item.title} className="rounded-lg bg-gray-50 p-4">
+            <h3 className="text-sm font-semibold text-gray-900">{item.title}</h3>
+            <p className="mt-1 text-sm text-gray-600">{item.description}</p>
+            {item.date && (
+              <span className="mt-2 inline-block rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-500">
+                {item.date}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export function Roadmap(): ReactNode {
-  return <ComingSoonPage title="Roadmap" pageTitle="Roadmap" />
+  usePageTitle('Roadmap')
+
+  return (
+    <div>
+      <div className="pb-12 text-center">
+        <h1 className="text-3xl font-bold text-gray-900">Roadmap</h1>
+        <p className="mt-3 text-gray-500">
+          What we're working on and what's coming next.
+        </p>
+        <p className="mt-1 text-sm text-gray-400">
+          Priorities may shift.
+        </p>
+      </div>
+
+      <div className="grid gap-8 lg:grid-cols-3">
+        {ROADMAP.map((column) => (
+          <RoadmapColumnCard key={column.title} column={column} />
+        ))}
+      </div>
+    </div>
+  )
 }
