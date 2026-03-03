@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
+import { ListIcon, SparklesIcon, ExternalLinkIcon, KeyIcon } from '../../components/icons'
 
 interface SectionCard {
   name: string
   description: string
   path: string
+  icon: ReactNode
 }
 
 const SECTIONS: SectionCard[] = [
@@ -13,21 +15,25 @@ const SECTIONS: SectionCard[] = [
     name: 'Features',
     description: 'Content types, search, tags & filters, versioning, keyboard shortcuts, and more.',
     path: '/docs/features',
+    icon: <ListIcon className="h-5 w-5" />,
   },
   {
     name: 'AI Integration',
     description: 'Connect AI assistants like Claude, ChatGPT, and Codex to your content via MCP.',
     path: '/docs/ai',
+    icon: <SparklesIcon className="h-5 w-5" />,
   },
   {
     name: 'Extensions',
     description: 'Save bookmarks directly from Chrome or Safari with browser extensions.',
     path: '/docs/extensions',
+    icon: <ExternalLinkIcon className="h-5 w-5" />,
   },
   {
     name: 'API',
     description: 'Programmatic access to bookmarks, notes, prompts, tags, and history.',
     path: '/docs/api',
+    icon: <KeyIcon className="h-5 w-5" />,
   },
 ]
 
@@ -50,9 +56,12 @@ export function DocsOverview(): ReactNode {
             className="group rounded-lg border border-gray-200 bg-white p-5 transition-colors hover:border-[#f09040] hover:bg-[#fff7f0]"
           >
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-lg font-semibold text-gray-900 group-hover:text-[#d97b3d]">
-                {section.name}
-              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 group-hover:text-[#d97b3d]">{section.icon}</span>
+                <h3 className="text-lg font-semibold text-gray-900 group-hover:text-[#d97b3d]">
+                  {section.name}
+                </h3>
+              </div>
               <svg className="h-4 w-4 text-gray-400 group-hover:text-[#d97b3d]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>

@@ -167,86 +167,22 @@ function FeaturesContent({
         </div>
       </section>
 
-      {/* 4. Organization & Search */}
+      {/* 4. Chrome Extension */}
       <section className="bg-gray-50 py-20">
-        <div className="mx-auto max-w-4xl px-6 sm:px-8 lg:px-12">
-          <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold text-gray-900">Find and organize everything</h2>
-          </div>
-
-          <div className="grid gap-12 lg:grid-cols-2">
-            {/* Organization */}
-            <div>
-              <h3 className="mb-4 text-xl font-semibold text-gray-900">Organization</h3>
-              <ul className="space-y-4 text-sm text-gray-600">
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <TagIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Tags</span> — Global across all content types. Rename or delete from one place.
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <ListIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Saved Filters</span> — Boolean tag expressions with AND/OR logic. Save and reuse across sessions.
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <LinkIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Relationships</span> — Cross-link any items to build connections between related content.
-                  </div>
-                </li>
-              </ul>
-            </div>
-
-            {/* Search */}
-            <div>
-              <h3 className="mb-4 text-xl font-semibold text-gray-900">Search</h3>
-              <ul className="space-y-4 text-sm text-gray-600">
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <SearchIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Full-text search</span> — Search across titles, descriptions, tags, and content of all items.
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <EditIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">Search operators</span> — Use <code className="rounded bg-white px-1 py-0.5 text-xs">"exact phrase"</code>, <code className="rounded bg-white px-1 py-0.5 text-xs">-exclude</code>, and <code className="rounded bg-white px-1 py-0.5 text-xs">OR</code> to refine results.
-                  </div>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white [&>svg]:h-3.5 [&>svg]:w-3.5">
-                    <SearchIcon />
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-900">In-content search</span> — Search within a document with regex support.
-                  </div>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 5. Chrome Extension */}
-      <section className="py-20">
         <div className="mx-auto max-w-5xl px-6 sm:px-8 lg:px-12">
           <div className="mb-6 text-center">
             <h2 className="text-3xl font-bold text-gray-900">Save from anywhere</h2>
             <p className="mt-3 text-gray-600">
-              The Chrome extension lets you save bookmarks without leaving the page.
+              The{' '}
+              <a
+                href="https://chrome.google.com/webstore/detail/npjlfgkihebhandkknldnjlcdmcpomkc"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#d97b3d] hover:underline"
+              >
+                Chrome extension
+              </a>{' '}
+              lets you save bookmarks without leaving the page.
             </p>
           </div>
           <ReplayableAnimation Component={ChromeExtensionAnimation} />
@@ -268,6 +204,79 @@ function FeaturesContent({
               Works on any page — articles, docs, tools, anything
             </li>
           </ul>
+        </div>
+      </section>
+
+      {/* 5. Organization & Search */}
+      <section className="py-20">
+        <div className="mx-auto max-w-4xl px-6 sm:px-8 lg:px-12">
+          <div className="mb-12 text-center">
+            <h2 className="text-3xl font-bold text-gray-900">Find and organize everything</h2>
+          </div>
+
+          <div className="grid gap-12 lg:grid-cols-2">
+            {/* Organization */}
+            <div>
+              <h3 className="mb-4 text-xl font-semibold text-gray-900">Organization</h3>
+              <ul className="space-y-4 text-sm text-gray-600">
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <TagIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Tags</span> — Global across all content types. Rename or delete from one place.
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <ListIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Saved Filters</span> — Boolean tag expressions with AND/OR logic. Save and reuse across sessions.
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <LinkIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Relationships</span> — Cross-link any items to build connections between related content.
+                  </div>
+                </li>
+              </ul>
+            </div>
+
+            {/* Search */}
+            <div>
+              <h3 className="mb-4 text-xl font-semibold text-gray-900">Search</h3>
+              <ul className="space-y-4 text-sm text-gray-600">
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <SearchIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Full-text search</span> — Search across titles, descriptions, tags, and content of all items.
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <EditIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">Search operators</span> — Use <code className="rounded bg-gray-50 px-1 py-0.5 text-xs">"exact phrase"</code>, <code className="rounded bg-gray-50 px-1 py-0.5 text-xs">-exclude</code>, and <code className="rounded bg-gray-50 px-1 py-0.5 text-xs">OR</code> to refine results.
+                  </div>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gray-50 [&>svg]:h-3.5 [&>svg]:w-3.5">
+                    <SearchIcon />
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-900">In-content search</span> — Search within a document with regex support.
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
       </section>
 

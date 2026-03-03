@@ -13,8 +13,8 @@ interface DropdownItem {
 
 const productItems: DropdownItem[] = [
   { label: 'Features', path: '/features' },
-  { label: 'Changelog', path: '/changelog' },
   { label: 'Roadmap', path: '/roadmap' },
+  { label: 'Changelog', path: '/changelog' },
 ]
 
 /**
