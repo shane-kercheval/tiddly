@@ -212,5 +212,5 @@ func writeCodexConfig(path string, config *codexConfig) error {
 		return fmt.Errorf("encoding config: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0600)
+	return atomicWriteFile(path, data, 0600)
 }

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -21,10 +22,12 @@ const tokenPrefixLen = 12
 
 // InstallOpts configures the MCP install flow.
 type InstallOpts struct {
+	Ctx       context.Context
 	Client    *api.Client
 	AuthType  string // "oauth", "pat", "flag", "env"
 	DryRun    bool
 	Scope     string   // claude code scope: "user" (default) or "local"
+	Cwd       string   // working directory for "local"/"project" scope resolution
 	Servers   []string // which servers to install: "content", "prompts" (default: both)
 	ExpiresIn *int     // PAT expiration in days (nil = no expiration)
 	Output    io.Writer
@@ -59,6 +62,12 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 	}
 	if opts.ErrOutput == nil {
 		opts.ErrOutput = os.Stderr
+	}
+	if opts.Ctx == nil {
+		opts.Ctx = context.Background()
+	}
+	if opts.Cwd == "" {
+		opts.Cwd, _ = os.Getwd()
 	}
 
 	result := &InstallResult{}
@@ -113,7 +122,7 @@ func resolveToolPATs(opts InstallOpts, tool DetectedTool, isPATAuth bool, result
 	}
 
 	// OAuth: try to reuse existing PATs from the tool's config
-	existingContent, existingPrompt := ExtractPATsFromTool(tool, opts.Scope)
+	existingContent, existingPrompt := ExtractPATsFromTool(tool, opts.Scope, opts.Cwd)
 
 	if opts.wantServer("content") {
 		contentPAT, err = resolveServerPAT(opts, tool.Name, "content", existingContent, result)
@@ -135,7 +144,7 @@ func resolveToolPATs(opts InstallOpts, tool DetectedTool, isPATAuth bool, result
 // If an existing PAT is found and valid, it's reused. Otherwise a new one is created.
 func resolveServerPAT(opts InstallOpts, toolName, serverType, existingPAT string, result *InstallResult) (string, error) {
 	// Try to reuse existing PAT
-	if existingPAT != "" && validatePAT(opts.Client.BaseURL, existingPAT) {
+	if existingPAT != "" && validatePAT(opts.Ctx, opts.Client.BaseURL, existingPAT) {
 		result.TokensReused = append(result.TokensReused,
 			fmt.Sprintf("%s/%s", toolName, serverType))
 		return existingPAT, nil
@@ -148,7 +157,7 @@ func resolveServerPAT(opts InstallOpts, toolName, serverType, existingPAT string
 
 	// Create a new PAT
 	name := generateTokenName(toolName, serverType)
-	resp, err := opts.Client.CreateToken(name, opts.ExpiresIn)
+	resp, err := opts.Client.CreateToken(opts.Ctx, name, opts.ExpiresIn)
 	if err != nil {
 		return "", fmt.Errorf("creating %s MCP token for %s: %w", serverType, toolName, err)
 	}
@@ -156,19 +165,22 @@ func resolveServerPAT(opts InstallOpts, toolName, serverType, existingPAT string
 	return resp.Token, nil
 }
 
-// generateTokenName creates a unique token name like "tiddly-mcp-claude-code-content-a1b2c3".
+// tokenNamePrefix is the prefix for all CLI-created MCP tokens.
+const tokenNamePrefix = "cli-mcp-"
+
+// generateTokenName creates a unique token name like "cli-mcp-claude-code-content-a1b2c3".
 func generateTokenName(tool, server string) string {
 	b := make([]byte, 3)
 	_, _ = rand.Read(b)
 	suffix := hex.EncodeToString(b)
-	return fmt.Sprintf("tiddly-mcp-%s-%s-%s", tool, server, suffix)
+	return fmt.Sprintf("%s%s-%s-%s", tokenNamePrefix, tool, server, suffix)
 }
 
 // validatePAT checks whether a PAT is still valid by calling GET /users/me.
 // Returns true if the token works (200) or needs consent (451, still valid).
-func validatePAT(baseURL, pat string) bool {
+func validatePAT(ctx context.Context, baseURL, pat string) bool {
 	client := api.NewClient(baseURL, pat, "pat")
-	_, err := client.GetMe()
+	_, err := client.GetMe(ctx)
 	if err == nil {
 		return true
 	}
@@ -180,12 +192,12 @@ func validatePAT(baseURL, pat string) bool {
 }
 
 // ExtractPATsFromTool dispatches to the appropriate Extract function for the tool.
-func ExtractPATsFromTool(tool DetectedTool, scope string) (contentPAT, promptPAT string) {
+func ExtractPATsFromTool(tool DetectedTool, scope, cwd string) (contentPAT, promptPAT string) {
 	switch tool.Name {
 	case "claude-desktop":
 		return ExtractClaudeDesktopPATs(tool.ResolvedConfigPath())
 	case "claude-code":
-		return ExtractClaudeCodePATs(tool.ResolvedConfigPath(), scope)
+		return ExtractClaudeCodePATs(tool.ResolvedConfigPath(), scope, cwd)
 	case "codex":
 		return ExtractCodexPATs(tool.ResolvedConfigPath())
 	}
@@ -193,9 +205,11 @@ func ExtractPATsFromTool(tool DetectedTool, scope string) (contentPAT, promptPAT
 }
 
 // DeleteTokensByPrefix finds and deletes tokens that match a PAT's prefix.
+// Only deletes tokens whose name starts with tokenNamePrefix ("cli-mcp-") to avoid
+// accidentally deleting user-created tokens that share a token prefix.
 // Used by uninstall --delete-tokens. Returns the names of deleted tokens.
-func DeleteTokensByPrefix(client *api.Client, pats []string) ([]string, error) {
-	tokens, err := client.ListTokens()
+func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string) ([]string, error) {
+	tokens, err := client.ListTokens(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing tokens: %w", err)
 	}
@@ -207,8 +221,8 @@ func DeleteTokensByPrefix(client *api.Client, pats []string) ([]string, error) {
 		}
 		prefix := pat[:tokenPrefixLen]
 		for _, t := range tokens {
-			if t.TokenPrefix == prefix {
-				if err := client.DeleteToken(t.ID); err == nil {
+			if t.TokenPrefix == prefix && strings.HasPrefix(t.Name, tokenNamePrefix) {
+				if err := client.DeleteToken(ctx, t.ID); err == nil {
 					deleted = append(deleted, t.Name)
 				}
 			}
@@ -224,19 +238,20 @@ func installTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT stri
 			result.Warnings = append(result.Warnings,
 				"Claude Desktop requires Node.js for mcp-remote. Install from https://nodejs.org")
 		}
-		backedUp, err := backupIfMalformed(tool.ConfigPath)
+		configPath := tool.ResolvedConfigPath()
+		backedUp, err := backupIfMalformed(configPath)
 		if err != nil {
 			return err
 		}
 		if backedUp {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", tool.ConfigPath, tool.ConfigPath))
+				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", configPath, configPath))
 		}
-		if err := InstallClaudeDesktop(tool.ConfigPath, contentPAT, promptPAT); err != nil {
+		if err := InstallClaudeDesktop(configPath, contentPAT, promptPAT); err != nil {
 			return err
 		}
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", tool.ConfigPath))
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", configPath))
 		result.Warnings = append(result.Warnings, "Restart Claude Desktop to apply changes.")
 
 	case "claude-code":
@@ -249,7 +264,7 @@ func installTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT stri
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", configPath, configPath))
 		}
-		if err := InstallClaudeCode(configPath, contentPAT, promptPAT, opts.Scope); err != nil {
+		if err := InstallClaudeCode(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd); err != nil {
 			return err
 		}
 		result.Warnings = append(result.Warnings,
@@ -289,7 +304,7 @@ func dryRunTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT strin
 
 	case "claude-code":
 		configPath := tool.ResolvedConfigPath()
-		before, after, err := DryRunClaudeCode(configPath, contentPAT, promptPAT, opts.Scope)
+		before, after, err := DryRunClaudeCode(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd)
 		if err != nil {
 			return err
 		}
@@ -311,7 +326,11 @@ func printDiff(w io.Writer, path, before, after string) {
 	fmt.Fprintf(w, "File: %s\n", path)
 	if before == "" || before == "{}" || before == "{}\n" {
 		fmt.Fprintln(w, "(new file)")
+	} else {
+		fmt.Fprintln(w, "Before:")
+		fmt.Fprintln(w, before)
 	}
+	fmt.Fprintln(w, "After:")
 	fmt.Fprintln(w, after)
 }
 
@@ -326,7 +345,10 @@ func backupIfMalformed(path string) (bool, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false, nil // file doesn't exist — nothing to backup
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("reading config %s: %w", path, err)
 	}
 
 	malformed := false
@@ -353,16 +375,16 @@ func backupIfMalformed(path string) (bool, error) {
 	return true, nil
 }
 
-// CheckOrphanedTokens checks for tiddly-mcp-* tokens that may be orphaned after uninstall.
-func CheckOrphanedTokens(client *api.Client) ([]string, error) {
-	tokens, err := client.ListTokens()
+// CheckOrphanedTokens checks for cli-mcp-* tokens that may be orphaned after uninstall.
+func CheckOrphanedTokens(ctx context.Context, client *api.Client) ([]string, error) {
+	tokens, err := client.ListTokens(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var orphaned []string
 	for _, t := range tokens {
-		if strings.HasPrefix(t.Name, "tiddly-mcp-") {
+		if strings.HasPrefix(t.Name, tokenNamePrefix) {
 			orphaned = append(orphaned, t.Name)
 		}
 	}

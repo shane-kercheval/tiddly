@@ -7,11 +7,6 @@ import (
 	"os"
 )
 
-// TTYDetector checks if a file descriptor is a terminal.
-type TTYDetector interface {
-	IsTerminal(fd uintptr) bool
-}
-
 // Format represents an output format.
 type Format string
 

@@ -8,19 +8,19 @@ import (
 
 // ExtractClaudeCodePATs reads the Claude Code config and extracts the Bearer tokens
 // for the tiddly MCP servers. Returns empty strings on any parse error (best-effort).
-func ExtractClaudeCodePATs(configPath, scope string) (contentPAT, promptPAT string) {
+func ExtractClaudeCodePATs(configPath, scope, cwd string) (contentPAT, promptPAT string) {
 	if scope == "" {
 		scope = "user"
 	}
 
-	path := resolveClaudeCodePath(configPath, scope)
+	path := resolveClaudeCodePath(configPath, scope, cwd)
 
 	config, err := readJSONConfig(path)
 	if err != nil {
 		return "", ""
 	}
 
-	servers := getServersForScope(config, scope)
+	servers := getServersForScope(config, scope, cwd)
 	if servers == nil {
 		return "", ""
 	}
@@ -61,9 +61,8 @@ type claudeCodeHTTPEntry struct {
 // getMCPServersMap returns the mcpServers map for the given scope from a ~/.claude.json config.
 // For "user" scope, returns the top-level mcpServers.
 // For "local" scope, returns projects[cwd].mcpServers.
-func getMCPServersMap(config map[string]any, scope string) map[string]any {
+func getMCPServersMap(config map[string]any, scope, cwd string) map[string]any {
 	if scope == "local" {
-		cwd, _ := os.Getwd()
 		projects, _ := config["projects"].(map[string]any)
 		if projects == nil {
 			return nil
@@ -81,18 +80,17 @@ func getMCPServersMap(config map[string]any, scope string) map[string]any {
 }
 
 // getServersForScope returns the mcpServers map for any scope including "project".
-func getServersForScope(config map[string]any, scope string) map[string]any {
+func getServersForScope(config map[string]any, scope, cwd string) map[string]any {
 	if scope == "project" {
 		servers, _ := config["mcpServers"].(map[string]any)
 		return servers
 	}
-	return getMCPServersMap(config, scope)
+	return getMCPServersMap(config, scope, cwd)
 }
 
 // setMCPServersMap writes the mcpServers map back into the config at the correct path.
-func setMCPServersMap(config map[string]any, scope string, servers map[string]any) {
+func setMCPServersMap(config map[string]any, scope, cwd string, servers map[string]any) {
 	if scope == "local" {
-		cwd, _ := os.Getwd()
 		projects, _ := config["projects"].(map[string]any)
 		if projects == nil {
 			projects = make(map[string]any)
@@ -111,9 +109,8 @@ func setMCPServersMap(config map[string]any, scope string, servers map[string]an
 
 // resolveClaudeCodePath returns the config file path for the given scope.
 // "user" and "local" both use ~/.claude.json. "project" uses .mcp.json in cwd.
-func resolveClaudeCodePath(configPath, scope string) string {
+func resolveClaudeCodePath(configPath, scope, cwd string) string {
 	if scope == "project" {
-		cwd, _ := os.Getwd()
 		return filepath.Join(cwd, ".mcp.json")
 	}
 	if configPath != "" {
@@ -144,12 +141,12 @@ func buildClaudeCodeServers(contentPAT, promptPAT string) map[string]any {
 
 // buildClaudeCodeConfig reads the existing config and merges in the tiddly MCP server entries.
 // Used by both InstallClaudeCode and DryRunClaudeCode to avoid duplicating merge logic.
-func buildClaudeCodeConfig(configPath, contentPAT, promptPAT, scope string) (map[string]any, error) {
+func buildClaudeCodeConfig(configPath, contentPAT, promptPAT, scope, cwd string) (map[string]any, error) {
 	if scope == "" {
 		scope = "user"
 	}
 
-	path := resolveClaudeCodePath(configPath, scope)
+	path := resolveClaudeCodePath(configPath, scope, cwd)
 
 	config, err := readJSONConfig(path)
 	if err != nil {
@@ -172,22 +169,22 @@ func buildClaudeCodeConfig(configPath, contentPAT, promptPAT, scope string) (map
 		}
 		config["mcpServers"] = servers
 	} else {
-		existing := getMCPServersMap(config, scope)
+		existing := getMCPServersMap(config, scope, cwd)
 		if existing == nil {
 			existing = make(map[string]any)
 		}
 		for k, v := range newServers {
 			existing[k] = v
 		}
-		setMCPServersMap(config, scope, existing)
+		setMCPServersMap(config, scope, cwd, existing)
 	}
 
 	return config, nil
 }
 
 // InstallClaudeCode writes MCP server entries into the Claude Code config.
-func InstallClaudeCode(configPath, contentPAT, promptPAT, scope string) error {
-	config, err := buildClaudeCodeConfig(configPath, contentPAT, promptPAT, scope)
+func InstallClaudeCode(configPath, contentPAT, promptPAT, scope, cwd string) error {
+	config, err := buildClaudeCodeConfig(configPath, contentPAT, promptPAT, scope, cwd)
 	if err != nil {
 		return err
 	}
@@ -195,17 +192,17 @@ func InstallClaudeCode(configPath, contentPAT, promptPAT, scope string) error {
 	if scope == "" {
 		scope = "user"
 	}
-	path := resolveClaudeCodePath(configPath, scope)
+	path := resolveClaudeCodePath(configPath, scope, cwd)
 	return writeJSONConfig(path, config)
 }
 
 // UninstallClaudeCode removes tiddly MCP server entries from the Claude Code config.
-func UninstallClaudeCode(configPath, scope string) error {
+func UninstallClaudeCode(configPath, scope, cwd string) error {
 	if scope == "" {
 		scope = "user"
 	}
 
-	path := resolveClaudeCodePath(configPath, scope)
+	path := resolveClaudeCodePath(configPath, scope, cwd)
 
 	config, err := readJSONConfig(path)
 	if err != nil {
@@ -226,24 +223,24 @@ func UninstallClaudeCode(configPath, scope string) error {
 		return writeJSONConfig(path, config)
 	}
 
-	existing := getMCPServersMap(config, scope)
+	existing := getMCPServersMap(config, scope, cwd)
 	if existing == nil {
 		return nil
 	}
 	delete(existing, serverNameContent)
 	delete(existing, serverNamePrompts)
-	setMCPServersMap(config, scope, existing)
+	setMCPServersMap(config, scope, cwd, existing)
 
 	return writeJSONConfig(path, config)
 }
 
 // StatusClaudeCode returns tiddly MCP servers configured in Claude Code.
-func StatusClaudeCode(configPath, scope string) ([]string, error) {
+func StatusClaudeCode(configPath, scope, cwd string) ([]string, error) {
 	if scope == "" {
 		scope = "user"
 	}
 
-	path := resolveClaudeCodePath(configPath, scope)
+	path := resolveClaudeCodePath(configPath, scope, cwd)
 
 	config, err := readJSONConfig(path)
 	if err != nil {
@@ -253,7 +250,7 @@ func StatusClaudeCode(configPath, scope string) ([]string, error) {
 		return nil, err
 	}
 
-	servers := getServersForScope(config, scope)
+	servers := getServersForScope(config, scope, cwd)
 
 	var found []string
 	for _, name := range []string{serverNameContent, serverNamePrompts} {
@@ -265,12 +262,12 @@ func StatusClaudeCode(configPath, scope string) ([]string, error) {
 }
 
 // DryRunClaudeCode returns the config that would be written without writing it.
-func DryRunClaudeCode(configPath, contentPAT, promptPAT, scope string) (before, after string, err error) {
+func DryRunClaudeCode(configPath, contentPAT, promptPAT, scope, cwd string) (before, after string, err error) {
 	if scope == "" {
 		scope = "user"
 	}
 
-	path := resolveClaudeCodePath(configPath, scope)
+	path := resolveClaudeCodePath(configPath, scope, cwd)
 
 	// Capture before state
 	existing, readErr := readJSONConfig(path)
@@ -284,7 +281,7 @@ func DryRunClaudeCode(configPath, contentPAT, promptPAT, scope string) (before, 
 	before = string(beforeJSON)
 
 	// Build after state using the shared merge logic
-	afterConfig, err := buildClaudeCodeConfig(configPath, contentPAT, promptPAT, scope)
+	afterConfig, err := buildClaudeCodeConfig(configPath, contentPAT, promptPAT, scope, cwd)
 	if err != nil {
 		return "", "", err
 	}

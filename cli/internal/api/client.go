@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -51,11 +52,11 @@ func (e *APIError) Error() string {
 
 // Do executes an HTTP request with auth headers and error handling.
 // If body is non-nil, it's JSON-encoded. If result is non-nil, response is JSON-decoded into it.
-func (c *Client) Do(method, path string, body any, result any) error {
-	return c.doWithRetry(method, path, body, result, 0)
+func (c *Client) Do(ctx context.Context, method, path string, body any, result any) error {
+	return c.doWithRetry(ctx, method, path, body, result, 0)
 }
 
-func (c *Client) doWithRetry(method, path string, body any, result any, attempt int) error {
+func (c *Client) doWithRetry(ctx context.Context, method, path string, body any, result any, attempt int) error {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -65,7 +66,7 @@ func (c *Client) doWithRetry(method, path string, body any, result any, attempt 
 		bodyReader = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequest(method, c.BaseURL+path, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bodyReader)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
@@ -94,10 +95,10 @@ func (c *Client) doWithRetry(method, path string, body any, result any, attempt 
 		return nil
 	}
 
-	return c.handleError(resp, respBody, method, path, body, result, attempt)
+	return c.handleError(ctx, resp, respBody, method, path, body, result, attempt)
 }
 
-func (c *Client) handleError(resp *http.Response, respBody []byte, method, path string, reqBody any, result any, attempt int) error {
+func (c *Client) handleError(ctx context.Context, resp *http.Response, respBody []byte, method, path string, reqBody any, result any, attempt int) error {
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
 		return &APIError{
@@ -115,7 +116,7 @@ func (c *Client) handleError(resp *http.Response, respBody []byte, method, path 
 		}
 
 	case http.StatusTooManyRequests:
-		return c.handle429(resp, respBody, method, path, reqBody, result, attempt)
+		return c.handle429(ctx, resp, respBody, method, path, reqBody, result, attempt)
 
 	case 451:
 		return c.handle451(respBody)
@@ -160,7 +161,7 @@ func (c *Client) handle402(body []byte) error {
 	return apiErr
 }
 
-func (c *Client) handle429(resp *http.Response, body []byte, method, path string, reqBody any, result any, attempt int) error {
+func (c *Client) handle429(ctx context.Context, resp *http.Response, body []byte, method, path string, reqBody any, result any, attempt int) error {
 	retryAfter := resp.Header.Get("Retry-After")
 	seconds := 1
 	if retryAfter != "" {
@@ -169,12 +170,18 @@ func (c *Client) handle429(resp *http.Response, body []byte, method, path string
 		}
 	}
 
-	if attempt < maxRetries {
+	// Only retry idempotent methods to avoid duplicate side effects (e.g., POST /tokens/)
+	isIdempotent := method == "GET" || method == "HEAD" || method == "PUT" || method == "DELETE"
+	if isIdempotent && attempt < maxRetries {
 		if c.Stderr != nil {
 			fmt.Fprintf(c.Stderr, "Rate limited, retrying in %ds...\n", seconds)
 		}
-		time.Sleep(time.Duration(seconds) * time.Second)
-		return c.doWithRetry(method, path, reqBody, result, attempt+1)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(seconds) * time.Second):
+		}
+		return c.doWithRetry(ctx, method, path, reqBody, result, attempt+1)
 	}
 
 	return &APIError{

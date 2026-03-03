@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestClient__headers_set_correctly(t *testing.T) {
 
 	client := NewClient(mock.URL(), "test-token", "pat")
 	var result map[string]any
-	err := client.Do("GET", "/users/me", nil, &result)
+	err := client.Do(context.Background(), "GET", "/users/me", nil, &result)
 	require.NoError(t, err)
 	assert.Equal(t, "test@example.com", result["email"])
 }
@@ -80,7 +81,7 @@ func TestClient__error_handling(t *testing.T) {
 			mock.On("GET", "/test").RespondJSON(tt.status, tt.body)
 
 			client := NewClient(mock.URL(), "token", "pat")
-			err := client.Do("GET", "/test", nil, nil)
+			err := client.Do(context.Background(), "GET", "/test", nil, nil)
 			require.Error(t, err)
 
 			apiErr, ok := err.(*APIError)
@@ -112,7 +113,7 @@ func TestClient__429_retry_then_success(t *testing.T) {
 	client.Stderr = stderr
 
 	var result map[string]any
-	err := client.Do("GET", "/test", nil, &result)
+	err := client.Do(context.Background(), "GET", "/test", nil, &result)
 	require.NoError(t, err)
 	assert.Equal(t, true, result["ok"])
 	assert.Equal(t, 2, callCount)
@@ -129,7 +130,7 @@ func TestClient__429_gives_up_after_max_retries(t *testing.T) {
 	})
 
 	client := NewClient(mock.URL(), "token", "pat")
-	err := client.Do("GET", "/test", nil, nil)
+	err := client.Do(context.Background(), "GET", "/test", nil, nil)
 	require.Error(t, err)
 
 	apiErr, ok := err.(*APIError)
@@ -151,7 +152,7 @@ func TestClient__429_retry_message_to_stderr(t *testing.T) {
 	client := NewClient(mock.URL(), "token", "pat")
 	client.Stderr = stderr
 
-	_ = client.Do("GET", "/test", nil, nil)
+	_ = client.Do(context.Background(), "GET", "/test", nil, nil)
 	assert.Contains(t, stderr.String(), "Rate limited, retrying")
 }
 
@@ -161,7 +162,7 @@ func TestClient__successful_json_deserialization(t *testing.T) {
 
 	client := NewClient(mock.URL(), "token", "pat")
 	var result HealthResponse
-	err := client.Do("GET", "/health", nil, &result)
+	err := client.Do(context.Background(), "GET", "/health", nil, &result)
 	require.NoError(t, err)
 	assert.Equal(t, "ok", result.Status)
 }
@@ -171,11 +172,52 @@ func TestClient__402_without_structured_body(t *testing.T) {
 	mock.On("GET", "/test").RespondJSON(402, map[string]string{"detail": "payment required"})
 
 	client := NewClient(mock.URL(), "token", "pat")
-	err := client.Do("GET", "/test", nil, nil)
+	err := client.Do(context.Background(), "GET", "/test", nil, nil)
 	require.Error(t, err)
 
 	apiErr, ok := err.(*APIError)
 	require.True(t, ok)
 	assert.Equal(t, 402, apiErr.StatusCode)
 	assert.Contains(t, apiErr.Message, "Quota exceeded")
+}
+
+func TestClient__429_no_retry_for_post(t *testing.T) {
+	mock := testutil.NewMockAPI(t)
+
+	callCount := 0
+	mock.On("POST", "/tokens/").HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(429)
+		w.Write([]byte(`{"detail":"rate limited"}`))
+	})
+
+	client := NewClient(mock.URL(), "token", "pat")
+	err := client.Do(context.Background(), "POST", "/tokens/", map[string]string{"name": "test"}, nil)
+	require.Error(t, err)
+	assert.Equal(t, 1, callCount, "POST should not be retried on 429")
+
+	apiErr, ok := err.(*APIError)
+	require.True(t, ok)
+	assert.Equal(t, 429, apiErr.StatusCode)
+}
+
+func TestClient__429_retry_cancelled_by_context(t *testing.T) {
+	mock := testutil.NewMockAPI(t)
+
+	mock.On("GET", "/test").HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(429)
+		w.Write([]byte(`{"detail":"rate limited"}`))
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel immediately so the retry sleep is interrupted
+	cancel()
+
+	client := NewClient(mock.URL(), "token", "pat")
+	client.Stderr = &bytes.Buffer{}
+	err := client.Do(ctx, "GET", "/test", nil, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
 }

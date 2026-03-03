@@ -12,8 +12,6 @@ var (
 	flagToken   string
 	flagAPIURL  string
 	flagFormat  string
-	flagNoColor bool
-	flagVerbose bool
 	flagKeyring string
 )
 
@@ -92,8 +90,6 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 	rootCmd.PersistentFlags().StringVar(&flagToken, "token", "", "Override auth token")
 	rootCmd.PersistentFlags().StringVar(&flagAPIURL, "api-url", "", "API base URL (default: https://api.tiddly.me)")
 	rootCmd.PersistentFlags().StringVar(&flagFormat, "format", "", "Output format: text, json (default: text)")
-	rootCmd.PersistentFlags().BoolVar(&flagNoColor, "no-color", false, "Disable colored output")
-	rootCmd.PersistentFlags().BoolVar(&flagVerbose, "verbose", false, "Verbose output")
 	rootCmd.PersistentFlags().StringVar(&flagKeyring, "keyring", "auto", "Credential storage: auto, force, file")
 	_ = rootCmd.PersistentFlags().MarkHidden("keyring")
 

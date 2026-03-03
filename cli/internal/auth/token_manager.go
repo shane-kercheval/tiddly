@@ -163,7 +163,7 @@ func (tm *TokenManager) ClearAll() error {
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("clearing credentials: %v", errs)
+		return fmt.Errorf("clearing credentials: %w", errors.Join(errs...))
 	}
 	return nil
 }

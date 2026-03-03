@@ -2,7 +2,6 @@ package testutil
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"testing"
 
@@ -15,15 +14,6 @@ type CmdResult struct {
 	Stderr   string
 	ExitCode int
 	Err      error
-}
-
-// CmdOpts configures command test execution.
-type CmdOpts struct {
-	MockAPI *MockAPI
-	Creds   *MockCredStore
-	Env     map[string]string
-	Stdin   io.Reader
-	IsTTY   bool
 }
 
 // ExecuteCmd runs a cobra.Command with the given args and captures output.

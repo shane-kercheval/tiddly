@@ -1,6 +1,9 @@
 package api
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // ContentListResponse is the paginated response from list endpoints.
 type ContentListResponse struct {
@@ -13,10 +16,10 @@ type ContentListResponse struct {
 
 // GetContentCount returns the total count for a content type (bookmark, note, prompt).
 // Uses limit=1 to minimize data transfer — we only need the total field.
-func (c *Client) GetContentCount(contentType string) (int, error) {
+func (c *Client) GetContentCount(ctx context.Context, contentType string) (int, error) {
 	var resp ContentListResponse
 	path := fmt.Sprintf("/%ss/?limit=1", contentType)
-	if err := c.Do("GET", path, nil, &resp); err != nil {
+	if err := c.Do(ctx, "GET", path, nil, &resp); err != nil {
 		return 0, err
 	}
 	return resp.Total, nil

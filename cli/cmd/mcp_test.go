@@ -227,8 +227,8 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode([]api.TokenInfo{
-				{ID: "tok-content", Name: "tiddly-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_content_t"},
-				{ID: "tok-prompts", Name: "tiddly-mcp-claude-code-prompts-d4e5f6", TokenPrefix: "bm_promptsx_"},
+				{ID: "tok-content", Name: "cli-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_content_t"},
+				{ID: "tok-prompts", Name: "cli-mcp-claude-code-prompts-d4e5f6", TokenPrefix: "bm_promptsx_"},
 			})
 		})
 	mock.On("DELETE", "/tokens/tok-content").

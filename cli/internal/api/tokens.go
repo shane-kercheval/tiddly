@@ -1,6 +1,9 @@
 package api
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // TokenCreateRequest is the body for POST /tokens/.
 type TokenCreateRequest struct {
@@ -28,25 +31,25 @@ type TokenInfo struct {
 }
 
 // CreateToken creates a new PAT. Requires OAuth auth (403 for PATs).
-func (c *Client) CreateToken(name string, expiresInDays *int) (*TokenCreateResponse, error) {
+func (c *Client) CreateToken(ctx context.Context, name string, expiresInDays *int) (*TokenCreateResponse, error) {
 	req := TokenCreateRequest{Name: name, ExpiresInDays: expiresInDays}
 	var resp TokenCreateResponse
-	if err := c.Do("POST", "/tokens/", req, &resp); err != nil {
+	if err := c.Do(ctx, "POST", "/tokens/", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
 // ListTokens returns all PATs for the current user. Requires OAuth auth.
-func (c *Client) ListTokens() ([]TokenInfo, error) {
+func (c *Client) ListTokens(ctx context.Context) ([]TokenInfo, error) {
 	var resp []TokenInfo
-	if err := c.Do("GET", "/tokens/", nil, &resp); err != nil {
+	if err := c.Do(ctx, "GET", "/tokens/", nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp, nil
 }
 
 // DeleteToken revokes a PAT by ID. Requires OAuth auth.
-func (c *Client) DeleteToken(id string) error {
-	return c.Do("DELETE", fmt.Sprintf("/tokens/%s", id), nil, nil)
+func (c *Client) DeleteToken(ctx context.Context, id string) error {
+	return c.Do(ctx, "DELETE", fmt.Sprintf("/tokens/%s", id), nil, nil)
 }

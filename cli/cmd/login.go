@@ -56,7 +56,7 @@ func loginWithPAT(cmd *cobra.Command, token string) error {
 
 	// Verify token works
 	client := api.NewClient(apiURL(), token, "pat")
-	user, err := client.GetMe()
+	user, err := client.GetMe(cmd.Context())
 	if err != nil {
 		return fmt.Errorf("token verification failed: %w", err)
 	}
@@ -108,7 +108,7 @@ func loginWithOAuth(cmd *cobra.Command) error {
 
 	// Verify and show user info
 	client := api.NewClient(apiURL(), tokens.AccessToken, "oauth")
-	user, err := client.GetMe()
+	user, err := client.GetMe(cmd.Context())
 	if err != nil {
 		// Handle 451 consent required gracefully
 		var apiErr *api.APIError

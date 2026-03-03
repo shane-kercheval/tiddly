@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -59,8 +60,8 @@ func TestRunInstall__oauth_creates_pats_with_unique_names(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, createdNames, 2, "should create 2 PATs")
 
-	// Token names should match the pattern tiddly-mcp-{tool}-{server}-{6hex}
-	namePattern := regexp.MustCompile(`^tiddly-mcp-claude-desktop-(content|prompts)-[0-9a-f]{6}$`)
+	// Token names should match the pattern cli-mcp-{tool}-{server}-{6hex}
+	namePattern := regexp.MustCompile(`^cli-mcp-claude-desktop-(content|prompts)-[0-9a-f]{6}$`)
 	for _, name := range createdNames {
 		assert.Regexp(t, namePattern, name)
 	}
@@ -440,20 +441,20 @@ func TestCheckOrphanedTokens__finds_mcp_tokens(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]api.TokenInfo{
-			{ID: "tok-1", Name: "tiddly-mcp-claude-code-content-a1b2c3"},
-			{ID: "tok-2", Name: "tiddly-mcp-claude-code-prompts-d4e5f6"},
+			{ID: "tok-1", Name: "cli-mcp-claude-code-content-a1b2c3"},
+			{ID: "tok-2", Name: "cli-mcp-claude-code-prompts-d4e5f6"},
 			{ID: "tok-3", Name: "other-token"},
 		})
 	}))
 	defer server.Close()
 
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
-	orphaned, err := CheckOrphanedTokens(client)
+	orphaned, err := CheckOrphanedTokens(context.Background(), client)
 
 	require.NoError(t, err)
 	assert.Len(t, orphaned, 2)
-	assert.Contains(t, orphaned[0], "tiddly-mcp-")
-	assert.Contains(t, orphaned[1], "tiddly-mcp-")
+	assert.Contains(t, orphaned[0], "cli-mcp-")
+	assert.Contains(t, orphaned[1], "cli-mcp-")
 }
 
 func TestCheckOrphanedTokens__no_orphans(t *testing.T) {
@@ -466,7 +467,7 @@ func TestCheckOrphanedTokens__no_orphans(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
-	orphaned, err := CheckOrphanedTokens(client)
+	orphaned, err := CheckOrphanedTokens(context.Background(), client)
 
 	require.NoError(t, err)
 	assert.Nil(t, orphaned)
@@ -474,7 +475,7 @@ func TestCheckOrphanedTokens__no_orphans(t *testing.T) {
 
 func TestGenerateTokenName__format(t *testing.T) {
 	name := generateTokenName("claude-code", "content")
-	assert.Regexp(t, `^tiddly-mcp-claude-code-content-[0-9a-f]{6}$`, name)
+	assert.Regexp(t, `^cli-mcp-claude-code-content-[0-9a-f]{6}$`, name)
 }
 
 func TestGenerateTokenName__unique(t *testing.T) {
@@ -490,7 +491,7 @@ func TestValidatePAT__valid(t *testing.T) {
 	}))
 	defer server.Close()
 
-	assert.True(t, validatePAT(server.URL, "bm_valid"))
+	assert.True(t, validatePAT(context.Background(), server.URL, "bm_valid"))
 }
 
 func TestValidatePAT__consent_needed_still_valid(t *testing.T) {
@@ -504,7 +505,7 @@ func TestValidatePAT__consent_needed_still_valid(t *testing.T) {
 	}))
 	defer server.Close()
 
-	assert.True(t, validatePAT(server.URL, "bm_consent"))
+	assert.True(t, validatePAT(context.Background(), server.URL, "bm_consent"))
 }
 
 func TestValidatePAT__invalid(t *testing.T) {
@@ -513,7 +514,7 @@ func TestValidatePAT__invalid(t *testing.T) {
 	}))
 	defer server.Close()
 
-	assert.False(t, validatePAT(server.URL, "bm_expired"))
+	assert.False(t, validatePAT(context.Background(), server.URL, "bm_expired"))
 }
 
 func TestDeleteTokensByPrefix__matches_and_deletes(t *testing.T) {
@@ -524,8 +525,8 @@ func TestDeleteTokensByPrefix__matches_and_deletes(t *testing.T) {
 		case r.Method == "GET" && r.URL.Path == "/tokens/":
 			// token_prefix is the first 12 chars of the PAT (bm_ + 9 chars)
 			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
-				{ID: "tok-1", Name: "tiddly-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_abcdefghi"},
-				{ID: "tok-2", Name: "tiddly-mcp-claude-code-prompts-d4e5f6", TokenPrefix: "bm_123456789"},
+				{ID: "tok-1", Name: "cli-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_abcdefghi"},
+				{ID: "tok-2", Name: "cli-mcp-claude-code-prompts-d4e5f6", TokenPrefix: "bm_123456789"},
 				{ID: "tok-3", Name: "other-token", TokenPrefix: "bm_xxxxxxxxx"},
 			})
 		case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/tokens/"):
@@ -542,7 +543,7 @@ func TestDeleteTokensByPrefix__matches_and_deletes(t *testing.T) {
 
 	// PATs whose first 12 chars match the token_prefix
 	pats := []string{"bm_abcdefghijklmnop", "bm_123456789jklmnop"}
-	deleted, err := DeleteTokensByPrefix(client, pats)
+	deleted, err := DeleteTokensByPrefix(context.Background(), client, pats)
 
 	require.NoError(t, err)
 	assert.Contains(t, deletedIDs, "tok-1")
@@ -570,14 +571,14 @@ func TestExtractPATsFromTool__claude_desktop(t *testing.T) {
 	writeTestJSON(t, configPath, config)
 
 	tool := DetectedTool{Name: "claude-desktop", ConfigPath: configPath}
-	contentPAT, promptPAT := ExtractPATsFromTool(tool, "user")
+	contentPAT, promptPAT := ExtractPATsFromTool(tool, "user", "")
 	assert.Equal(t, "bm_content123", contentPAT)
 	assert.Equal(t, "bm_prompt456", promptPAT)
 }
 
 func TestExtractPATsFromTool__missing_config(t *testing.T) {
 	tool := DetectedTool{Name: "claude-desktop", ConfigPath: "/nonexistent/path.json"}
-	contentPAT, promptPAT := ExtractPATsFromTool(tool, "user")
+	contentPAT, promptPAT := ExtractPATsFromTool(tool, "user", "")
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }

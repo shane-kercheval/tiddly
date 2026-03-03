@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -15,7 +17,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const cliVersion = "0.1.0"
+// cliVersion is set via -ldflags "-X github.com/shane-kercheval/tiddly/cli/cmd.cliVersion=x.y.z" at build time.
+var cliVersion = "0.1.0"
 
 func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
@@ -50,9 +53,10 @@ func newStatusCmd() *cobra.Command {
 				client = api.NewClient(apiURL(), result.Token, result.AuthType)
 			}
 
+			ctx := cmd.Context()
 			if client != nil {
 				start := time.Now()
-				health, err := client.GetHealth()
+				health, err := client.GetHealth(ctx)
 				latency := time.Since(start)
 				if err != nil {
 					fmt.Fprintln(w, "  Status:     Unreachable")
@@ -63,7 +67,7 @@ func newStatusCmd() *cobra.Command {
 					fmt.Fprintf(w, "  Latency:    %dms\n", latency.Milliseconds())
 
 					// User info
-					user, userErr := client.GetMe()
+					user, userErr := client.GetMe(ctx)
 					if userErr == nil && user.Email != "" {
 						fmt.Fprintf(w, "\n  User:       %s\n", user.Email)
 					}
@@ -74,12 +78,13 @@ func newStatusCmd() *cobra.Command {
 
 			// --- Content counts (parallel, only if API is reachable) ---
 			if apiReachable {
-				printContentCounts(w, cmd.ErrOrStderr(), client)
+				printContentCounts(ctx, w, cmd.ErrOrStderr(), client)
 			}
 
 			// --- MCP Servers ---
 			fmt.Fprintln(w, "\nMCP Servers:")
 			tools := mcp.DetectTools(appDeps.ExecLooker)
+			cwd, _ := os.Getwd()
 
 			for _, tool := range tools {
 				if !tool.Installed {
@@ -87,7 +92,7 @@ func newStatusCmd() *cobra.Command {
 					continue
 				}
 
-				servers, err := getToolStatus(tool, "user")
+				servers, err := getToolStatus(tool, "user", cwd)
 				if err != nil {
 					fmt.Fprintf(w, "  %-18s Detected, status unknown\n", tool.Name+":")
 					continue
@@ -110,7 +115,7 @@ func newStatusCmd() *cobra.Command {
 	}
 }
 
-func printContentCounts(w io.Writer, errW io.Writer, client *api.Client) {
+func printContentCounts(ctx context.Context, w io.Writer, errW io.Writer, client *api.Client) {
 	type countResult struct {
 		name  string
 		count int
@@ -125,7 +130,7 @@ func printContentCounts(w io.Writer, errW io.Writer, client *api.Client) {
 		wg.Add(1)
 		go func(contentType string) {
 			defer wg.Done()
-			count, err := client.GetContentCount(contentType)
+			count, err := client.GetContentCount(ctx, contentType)
 			results <- countResult{name: contentType + "s", count: count, err: err}
 		}(ct)
 	}
@@ -159,12 +164,12 @@ func printContentCounts(w io.Writer, errW io.Writer, client *api.Client) {
 	}
 }
 
-func getToolStatus(tool mcp.DetectedTool, scope string) ([]string, error) {
+func getToolStatus(tool mcp.DetectedTool, scope, cwd string) ([]string, error) {
 	switch tool.Name {
 	case "claude-desktop":
 		return mcp.StatusClaudeDesktop(tool.ResolvedConfigPath())
 	case "claude-code":
-		return mcp.StatusClaudeCode(tool.ResolvedConfigPath(), scope)
+		return mcp.StatusClaudeCode(tool.ResolvedConfigPath(), scope, cwd)
 	case "codex":
 		return mcp.StatusCodex(tool.ResolvedConfigPath())
 	}

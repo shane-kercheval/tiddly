@@ -40,7 +40,7 @@ func newAuthStatusCmd() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "API URL: %s\n", apiURL())
 
 			client := api.NewClient(apiURL(), result.Token, result.AuthType)
-			user, err := client.GetMe()
+			user, err := client.GetMe(cmd.Context())
 			if err != nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "User: unknown (API error: %v)\n", err)
 				return nil

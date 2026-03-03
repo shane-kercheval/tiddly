@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
@@ -103,6 +104,15 @@ func newMCPInstallCmd() *cobra.Command {
 				}
 			}
 
+			// Warn if --scope is non-default and a specific non-Claude-Code tool is targeted
+			if scope != "user" && len(args) > 0 {
+				for _, arg := range args {
+					if arg != "claude-code" {
+						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: --scope only applies to claude-code, ignored for %s\n", arg)
+					}
+				}
+			}
+
 			if len(targetTools) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No AI tools detected on this system.")
 				fmt.Fprintln(cmd.OutOrStdout(), "Supported tools: "+strings.Join(validTools, ", "))
@@ -115,6 +125,7 @@ func newMCPInstallCmd() *cobra.Command {
 			}
 
 			opts := mcp.InstallOpts{
+				Ctx:       cmd.Context(),
 				Client:    client,
 				AuthType:  result.AuthType,
 				DryRun:    dryRun,
@@ -186,6 +197,7 @@ func newMCPStatusCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			tools := mcp.DetectTools(appDeps.ExecLooker)
+			cwd, _ := os.Getwd()
 
 			for _, tool := range tools {
 				if !tool.Installed {
@@ -193,7 +205,7 @@ func newMCPStatusCmd() *cobra.Command {
 					continue
 				}
 
-				servers, err := getToolStatus(tool, scope)
+				servers, err := getToolStatus(tool, scope, cwd)
 				if err != nil {
 					fmt.Fprintf(w, "%-18s Error: %v\n", tool.Name+":", err)
 					continue
@@ -246,10 +258,12 @@ func newMCPUninstallCmd() *cobra.Command {
 				return fmt.Errorf("%s is not installed on this system", toolName)
 			}
 
+			cwd, _ := os.Getwd()
+
 			// Extract PATs from config BEFORE removing entries
 			var extractedPATs []string
 			if deleteTokens {
-				contentPAT, promptPAT := mcp.ExtractPATsFromTool(*tool, scope)
+				contentPAT, promptPAT := mcp.ExtractPATsFromTool(*tool, scope, cwd)
 				if contentPAT != "" {
 					extractedPATs = append(extractedPATs, contentPAT)
 				}
@@ -265,7 +279,7 @@ func newMCPUninstallCmd() *cobra.Command {
 					return err
 				}
 			case "claude-code":
-				if err := mcp.UninstallClaudeCode(tool.ResolvedConfigPath(), scope); err != nil {
+				if err := mcp.UninstallClaudeCode(tool.ResolvedConfigPath(), scope, cwd); err != nil {
 					return err
 				}
 			case "codex":
@@ -282,14 +296,14 @@ func newMCPUninstallCmd() *cobra.Command {
 				client := api.NewClient(apiURL(), result.Token, result.AuthType)
 
 				if deleteTokens && len(extractedPATs) > 0 {
-					deleted, delErr := mcp.DeleteTokensByPrefix(client, extractedPATs)
+					deleted, delErr := mcp.DeleteTokensByPrefix(cmd.Context(), client, extractedPATs)
 					if delErr != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Failed to delete tokens: %v\n", delErr)
 					} else if len(deleted) > 0 {
 						fmt.Fprintf(cmd.OutOrStdout(), "Deleted tokens: %s\n", strings.Join(deleted, ", "))
 					}
 				} else if !deleteTokens {
-					orphaned, orphanErr := mcp.CheckOrphanedTokens(client)
+					orphaned, orphanErr := mcp.CheckOrphanedTokens(cmd.Context(), client)
 					if orphanErr == nil && len(orphaned) > 0 {
 						fmt.Fprintf(cmd.ErrOrStderr(),
 							"Warning: PATs created for MCP servers still exist: %s\n", strings.Join(orphaned, ", "))

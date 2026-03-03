@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +33,7 @@ func TestCreateToken(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "oauth-token", "oauth")
-	resp, err := client.CreateToken("test-token", nil)
+	resp, err := client.CreateToken(context.Background(), "test-token", nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "tok-123", resp.ID)
@@ -58,7 +59,7 @@ func TestCreateToken__with_expiration(t *testing.T) {
 
 	client := NewClient(server.URL, "oauth-token", "oauth")
 	days := 90
-	resp, err := client.CreateToken("expiring-token", &days)
+	resp, err := client.CreateToken(context.Background(), "expiring-token", &days)
 
 	require.NoError(t, err)
 	assert.Equal(t, "bm_expiring", resp.Token)
@@ -79,7 +80,7 @@ func TestListTokens(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "oauth-token", "oauth")
-	tokens, err := client.ListTokens()
+	tokens, err := client.ListTokens(context.Background())
 
 	require.NoError(t, err)
 	assert.Len(t, tokens, 2)
@@ -95,7 +96,7 @@ func TestDeleteToken(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "oauth-token", "oauth")
-	err := client.DeleteToken("tok-123")
+	err := client.DeleteToken(context.Background(), "tok-123")
 
 	require.NoError(t, err)
 }
@@ -111,7 +112,7 @@ func TestCreateToken__403_for_pat(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "bm_test", "pat")
-	_, err := client.CreateToken("test", nil)
+	_, err := client.CreateToken(context.Background(), "test", nil)
 
 	require.Error(t, err)
 	apiErr, ok := err.(*APIError)
@@ -137,7 +138,7 @@ func TestGetContentCount(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-token", "pat")
-	count, err := client.GetContentCount("bookmark")
+	count, err := client.GetContentCount(context.Background(), "bookmark")
 
 	require.NoError(t, err)
 	assert.Equal(t, 42, count)

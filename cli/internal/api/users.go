@@ -1,5 +1,7 @@
 package api
 
+import "context"
+
 // UserInfo represents the response from GET /users/me.
 type UserInfo struct {
 	ID      string `json:"id"`
@@ -13,18 +15,18 @@ type HealthResponse struct {
 }
 
 // GetMe returns the current user info.
-func (c *Client) GetMe() (*UserInfo, error) {
+func (c *Client) GetMe(ctx context.Context) (*UserInfo, error) {
 	var user UserInfo
-	if err := c.Do("GET", "/users/me", nil, &user); err != nil {
+	if err := c.Do(ctx, "GET", "/users/me", nil, &user); err != nil {
 		return nil, err
 	}
 	return &user, nil
 }
 
 // GetHealth checks API health.
-func (c *Client) GetHealth() (*HealthResponse, error) {
+func (c *Client) GetHealth(ctx context.Context) (*HealthResponse, error) {
 	var health HealthResponse
-	if err := c.Do("GET", "/health", nil, &health); err != nil {
+	if err := c.Do(ctx, "GET", "/health", nil, &health); err != nil {
 		return nil, err
 	}
 	return &health, nil

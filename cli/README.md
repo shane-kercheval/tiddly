@@ -1,6 +1,6 @@
 # Tiddly CLI
 
-Go CLI tool for managing Tiddly integrations — authentication, MCP server installation, skills sync, data export, and token management.
+Go CLI tool for managing Tiddly integrations — authentication and MCP server installation for AI tools.
 
 ## Prerequisites
 
@@ -71,8 +71,10 @@ cli/
     mcp.go                    # tiddly mcp install/status/uninstall
   internal/
     api/                      # HTTP client
-      client.go               # Auth headers, error handling, 429 retry
+      client.go               # Auth headers, error handling, 429 retry (idempotent methods only)
       users.go                # GET /users/me, /health
+      tokens.go               # POST/GET/DELETE /tokens/
+      content.go              # GET /{content_type}/ (count)
     auth/                     # Authentication
       device_flow.go          # OAuth device code flow
       keyring.go              # Credential storage (keyring + file fallback)
@@ -91,7 +93,6 @@ cli/
       mock_api.go             # httptest server builder
       mock_creds.go           # In-memory credential store
       mock_exec.go            # Mock ExecLooker for PATH detection
-      mock_tty.go             # TTY detection mock
       cmd_helper.go           # In-process Cobra command runner
       fixtures.go             # Shared response fixtures
 ```
@@ -140,13 +141,13 @@ Shows a full overview: CLI version, auth status, API health/latency, content cou
 
 Installs Tiddly MCP server entries into AI tool config files so they can access your bookmarks, notes, and prompts.
 
-**Token management** (OAuth users only):
-- Each tool gets its own dedicated PATs — tokens are not shared across tools.
-- Token naming: `tiddly-mcp-{tool}-{server}-{6hex}` (e.g., `tiddly-mcp-claude-code-content-a1b2c3`).
-- **Re-install**: Extracts existing PATs from the tool's config, validates via `GET /users/me`, and reuses if still valid. Creates new tokens only when needed (no more delete-all-and-recreate).
-- `--servers content,prompts` (default: both): Selectively install only the content or prompts server.
+**Token management** (OAuth users):
+- Creates one PAT per tool per MCP server (e.g., claude-code gets a separate PAT for content and a separate PAT for prompts). Tokens are not shared across tools.
+- Token names follow the pattern `cli-mcp-{tool}-{server}-{6hex}` where `{server}` is `content` or `prompts` and `{6hex}` is random (e.g., `cli-mcp-claude-code-content-a1b2c3`).
+- **Re-install behavior**: Reads existing PATs from the tool's config file, validates each via `GET /users/me` (200 or 451 = valid), and reuses valid tokens. Only creates new PATs when the existing one is missing or returns 401.
+- `--servers content,prompts` (default: both): Install only the content server, only the prompts server, or both.
 
-PAT users reuse their existing token for both servers (with a warning).
+**PAT users**: The CLI cannot create new tokens via the API when authenticated with a PAT (`POST /tokens/` requires OAuth). Instead, the existing login PAT is used for both MCP servers. A warning is printed.
 
 **Tool detection** (`DetectTools`):
 - **claude-desktop**: Checks if the config directory exists (`~/Library/Application Support/Claude/` on macOS, `~/.config/Claude/` on Linux, `%APPDATA%\Claude\` on Windows). Also checks for `npx` in PATH (required for `mcp-remote`).
@@ -161,27 +162,33 @@ PAT users reuse their existing token for both servers (with a warning).
 | claude-code | `~/.claude.json` | JSON | `{"type": "http", "url": "<url>", "headers": {"Authorization": "Bearer <pat>"}}` |
 | codex | `~/.codex/config.toml` | TOML | `[mcp_servers.<name>]` with `url` and `http_headers` |
 
-Two MCP servers are configured: `bookmarks_notes` (content) and `prompts`.
+Two MCP server entries are written into the config: `bookmarks_notes` (points to the content MCP server for bookmarks and notes) and `prompts` (points to the prompt MCP server).
 
-All config files are written with mode 0600 (owner-only read/write). Directories are created with 0700. Existing config keys/servers are preserved. Malformed config files are backed up to `.bak` before overwriting.
+All config files are written atomically (write-to-temp + rename) with mode 0600 (owner-only read/write). Directories are created with 0700. Existing config keys/servers are preserved. Malformed config files are backed up to `.bak` before overwriting.
 
-**Claude Code scopes** (`--scope`):
+**`--scope`** (Claude Code only — ignored for claude-desktop and codex, which have a single global config):
 - `user` (default): writes to top-level `mcpServers` in `~/.claude.json`
 - `local`: writes to `projects[<cwd>].mcpServers` in `~/.claude.json`
 - `project`: writes to `.mcp.json` in the current working directory
 
-**Dry run** (`--dry-run`): Shows before/after diff of each config file without writing. No tokens are created — placeholder values are shown in the diff output. Existing PATs are still validated (read-only).
+A warning is printed if `--scope` is set to a non-default value with a non-Claude-Code tool.
+
+**`--dry-run`**: Shows before/after diff of each config file without writing anything to disk. No PATs are created — the literal string `<new-token-would-be-created>` appears in the diff where a real token would go. If the tool already has PATs in its config, they are still validated via `GET /users/me` (read-only) to show whether they would be reused or replaced.
 
 ### `tiddly mcp status`
 
-Shows which AI tools are detected and whether Tiddly MCP servers are configured. Reads config files directly — no API calls, no subprocesses.
+For each supported tool, shows: not detected (binary/config dir not found), detected but not configured (no `bookmarks_notes`/`prompts` entries in config), or configured (lists which server entries are present). Reads config files directly — no API calls, no subprocesses.
 
 ### `tiddly mcp uninstall <tool>`
 
-Removes `bookmarks_notes` and `prompts` server entries from the specified tool's config file. Preserves all other config.
+Removes the `bookmarks_notes` and `prompts` server entries from the specified tool's config file. All other config keys are preserved.
 
-- Without `--delete-tokens`: Warns about orphaned PATs (checks via `GET /tokens/` for any `tiddly-mcp-*` tokens).
-- With `--delete-tokens`: Extracts PATs from the tool's config before removing entries, then revokes the matching tokens via the API (matched by `token_prefix`).
+**`--delete-tokens`** (requires OAuth auth):
+1. Reads the PATs from the tool's config file *before* removing the server entries.
+2. Removes the server entries from the config file.
+3. Calls `GET /tokens/` to list all tokens, then deletes any token where: (a) the `token_prefix` field (first 12 chars stored by the API) matches the extracted PAT, AND (b) the token name starts with `cli-mcp-`. The name guard prevents accidentally deleting user-created tokens that happen to share a prefix.
+
+**Without `--delete-tokens`**: After removing config entries, checks `GET /tokens/` for any tokens whose name starts with `cli-mcp-`. If found, warns the user that these tokens may be orphaned and suggests `--delete-tokens` or `tiddly tokens list`.
 
 ## Auth0 Setup (Required for OAuth)
 
