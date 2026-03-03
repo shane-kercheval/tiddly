@@ -34,7 +34,7 @@ func DetectTools(looker ExecLooker) []DetectedTool {
 func detectClaudeDesktop(looker ExecLooker) DetectedTool {
 	tool := DetectedTool{Name: "claude-desktop"}
 
-	configPath := claudeDesktopConfigPath()
+	configPath := ClaudeDesktopConfigPath()
 	configDir := filepath.Dir(configPath)
 
 	if info, err := os.Stat(configDir); err == nil && info.IsDir() {
@@ -70,7 +70,7 @@ func detectCodex(looker ExecLooker) DetectedTool {
 		return tool
 	}
 
-	configPath := codexConfigPath()
+	configPath := CodexConfigPath()
 	configDir := filepath.Dir(configPath)
 	if info, err := os.Stat(configDir); err == nil && info.IsDir() {
 		tool.Installed = true
@@ -81,8 +81,8 @@ func detectCodex(looker ExecLooker) DetectedTool {
 	return tool
 }
 
-// claudeDesktopConfigPath returns the Claude Desktop config file path for the current OS.
-func claudeDesktopConfigPath() string {
+// ClaudeDesktopConfigPath returns the Claude Desktop config file path for the current OS.
+func ClaudeDesktopConfigPath() string {
 	switch runtime.GOOS {
 	case "darwin":
 		home, _ := os.UserHomeDir()
@@ -100,8 +100,8 @@ func claudeDesktopConfigPath() string {
 	}
 }
 
-// codexConfigPath returns the Codex config file path.
-func codexConfigPath() string {
+// CodexConfigPath returns the Codex config file path.
+func CodexConfigPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".codex", "config.toml")
 }

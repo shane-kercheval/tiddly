@@ -21,11 +21,11 @@ type codexMCPServer struct {
 	HTTPHeaders map[string]string `toml:"http_headers,omitempty"`
 }
 
-// InstallCodex writes MCP server entries into the Codex config.
-func InstallCodex(configPath, contentPAT, promptPAT string) error {
+// buildCodexConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
+func buildCodexConfig(configPath, contentPAT, promptPAT string) (*codexConfig, error) {
 	config, err := readCodexConfig(configPath)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return nil, err
 	}
 
 	if config.MCPServers == nil {
@@ -34,17 +34,26 @@ func InstallCodex(configPath, contentPAT, promptPAT string) error {
 
 	if contentPAT != "" {
 		config.MCPServers[serverNameContent] = codexMCPServer{
-			URL:         contentMCPURL,
+			URL:         ContentMCPURL(),
 			HTTPHeaders: map[string]string{"Authorization": "Bearer " + contentPAT},
 		}
 	}
 	if promptPAT != "" {
 		config.MCPServers[serverNamePrompts] = codexMCPServer{
-			URL:         promptMCPURL,
+			URL:         PromptMCPURL(),
 			HTTPHeaders: map[string]string{"Authorization": "Bearer " + promptPAT},
 		}
 	}
 
+	return config, nil
+}
+
+// InstallCodex writes MCP server entries into the Codex config.
+func InstallCodex(configPath, contentPAT, promptPAT string) error {
+	config, err := buildCodexConfig(configPath, contentPAT, promptPAT)
+	if err != nil {
+		return err
+	}
 	return writeCodexConfig(configPath, config)
 }
 
@@ -89,28 +98,18 @@ func StatusCodex(configPath string) ([]string, error) {
 
 // DryRunCodex returns the config that would be written without writing it.
 func DryRunCodex(configPath, contentPAT, promptPAT string) (before, after string, err error) {
-	config, readErr := readCodexConfig(configPath)
+	// Capture before state
+	existing, readErr := readCodexConfig(configPath)
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return "", "", readErr
 	}
-
-	beforeData, _ := toml.Marshal(config.rest)
+	beforeData, _ := toml.Marshal(existing.rest)
 	before = string(beforeData)
 
-	if config.MCPServers == nil {
-		config.MCPServers = make(map[string]codexMCPServer)
-	}
-	if contentPAT != "" {
-		config.MCPServers[serverNameContent] = codexMCPServer{
-			URL:         contentMCPURL,
-			HTTPHeaders: map[string]string{"Authorization": "Bearer " + contentPAT},
-		}
-	}
-	if promptPAT != "" {
-		config.MCPServers[serverNamePrompts] = codexMCPServer{
-			URL:         promptMCPURL,
-			HTTPHeaders: map[string]string{"Authorization": "Bearer " + promptPAT},
-		}
+	// Build new config
+	config, err := buildCodexConfig(configPath, contentPAT, promptPAT)
+	if err != nil {
+		return "", "", err
 	}
 
 	// Merge mcp_servers back into rest for marshaling

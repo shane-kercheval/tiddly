@@ -8,12 +8,28 @@ import (
 )
 
 const (
-	contentMCPURL = "https://content-mcp.tiddly.me/mcp"
-	promptMCPURL  = "https://prompt-mcp.tiddly.me/mcp"
+	defaultContentMCPURL = "https://content-mcp.tiddly.me/mcp"
+	defaultPromptMCPURL  = "https://prompt-mcp.tiddly.me/mcp"
 
 	serverNameContent = "bookmarks_notes"
 	serverNamePrompts = "prompts"
 )
+
+// ContentMCPURL returns the content MCP server URL, overridable via TIDDLY_CONTENT_MCP_URL.
+func ContentMCPURL() string {
+	if url := os.Getenv("TIDDLY_CONTENT_MCP_URL"); url != "" {
+		return url
+	}
+	return defaultContentMCPURL
+}
+
+// PromptMCPURL returns the prompt MCP server URL, overridable via TIDDLY_PROMPT_MCP_URL.
+func PromptMCPURL() string {
+	if url := os.Getenv("TIDDLY_PROMPT_MCP_URL"); url != "" {
+		return url
+	}
+	return defaultPromptMCPURL
+}
 
 // mcpServerEntry is a Claude Desktop MCP server config entry.
 type mcpServerEntry struct {
@@ -21,15 +37,14 @@ type mcpServerEntry struct {
 	Args    []string `json:"args"`
 }
 
-// InstallClaudeDesktop writes MCP server entries into the Claude Desktop config.
-// Preserves all existing config and servers.
-func InstallClaudeDesktop(configPath, contentPAT, promptPAT string) error {
+// buildClaudeDesktopConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
+func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[string]any, error) {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			config = make(map[string]any)
 		} else {
-			return err
+			return nil, err
 		}
 	}
 
@@ -41,17 +56,27 @@ func InstallClaudeDesktop(configPath, contentPAT, promptPAT string) error {
 	if contentPAT != "" {
 		servers[serverNameContent] = mcpServerEntry{
 			Command: "npx",
-			Args:    []string{"mcp-remote", contentMCPURL, "--header", "Authorization: Bearer " + contentPAT},
+			Args:    []string{"mcp-remote", ContentMCPURL(), "--header", "Authorization: Bearer " + contentPAT},
 		}
 	}
 	if promptPAT != "" {
 		servers[serverNamePrompts] = mcpServerEntry{
 			Command: "npx",
-			Args:    []string{"mcp-remote", promptMCPURL, "--header", "Authorization: Bearer " + promptPAT},
+			Args:    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer " + promptPAT},
 		}
 	}
 
 	config["mcpServers"] = servers
+	return config, nil
+}
+
+// InstallClaudeDesktop writes MCP server entries into the Claude Desktop config.
+// Preserves all existing config and servers.
+func InstallClaudeDesktop(configPath, contentPAT, promptPAT string) error {
+	config, err := buildClaudeDesktopConfig(configPath, contentPAT, promptPAT)
+	if err != nil {
+		return err
+	}
 	return writeJSONConfig(configPath, config)
 }
 
@@ -103,35 +128,22 @@ func StatusClaudeDesktop(configPath string) ([]string, error) {
 
 // DryRunClaudeDesktop returns the config that would be written without writing it.
 func DryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, after string, err error) {
-	config, err := readJSONConfig(configPath)
-	if err != nil && !os.IsNotExist(err) {
-		return "", "", err
+	// Capture before state
+	existing, readErr := readJSONConfig(configPath)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return "", "", readErr
 	}
-	if os.IsNotExist(err) {
-		config = make(map[string]any)
+	if existing == nil {
+		existing = make(map[string]any)
 	}
-
-	beforeJSON, _ := json.MarshalIndent(config, "", "  ")
+	beforeJSON, _ := json.MarshalIndent(existing, "", "  ")
 	before = string(beforeJSON)
 
-	servers, ok := config["mcpServers"].(map[string]any)
-	if !ok {
-		servers = make(map[string]any)
+	// Build new config
+	config, err := buildClaudeDesktopConfig(configPath, contentPAT, promptPAT)
+	if err != nil {
+		return "", "", err
 	}
-	if contentPAT != "" {
-		servers[serverNameContent] = mcpServerEntry{
-			Command: "npx",
-			Args:    []string{"mcp-remote", contentMCPURL, "--header", "Authorization: Bearer " + contentPAT},
-		}
-	}
-	if promptPAT != "" {
-		servers[serverNamePrompts] = mcpServerEntry{
-			Command: "npx",
-			Args:    []string{"mcp-remote", promptMCPURL, "--header", "Authorization: Bearer " + promptPAT},
-		}
-	}
-	config["mcpServers"] = servers
-
 	afterJSON, _ := json.MarshalIndent(config, "", "  ")
 	after = string(afterJSON)
 

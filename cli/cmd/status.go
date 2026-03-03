@@ -4,9 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,12 +61,12 @@ func newStatusCmd() *cobra.Command {
 					apiReachable = true
 					fmt.Fprintf(w, "  Status:     %s\n", health.Status)
 					fmt.Fprintf(w, "  Latency:    %dms\n", latency.Milliseconds())
-				}
 
-				// User info
-				user, err := client.GetMe()
-				if err == nil && user.Email != "" {
-					fmt.Fprintf(w, "\n  User:       %s\n", user.Email)
+					// User info
+					user, userErr := client.GetMe()
+					if userErr == nil && user.Email != "" {
+						fmt.Fprintf(w, "\n  User:       %s\n", user.Email)
+					}
 				}
 			} else {
 				fmt.Fprintln(w, "  Status:     Not checked (not authenticated)")
@@ -75,7 +74,7 @@ func newStatusCmd() *cobra.Command {
 
 			// --- Content counts (parallel, only if API is reachable) ---
 			if apiReachable {
-				printContentCounts(w, client)
+				printContentCounts(w, cmd.ErrOrStderr(), client)
 			}
 
 			// --- MCP Servers ---
@@ -100,7 +99,7 @@ func newStatusCmd() *cobra.Command {
 					fmt.Fprintln(w, label)
 					fmt.Fprintf(cmd.ErrOrStderr(), "  Run 'tiddly mcp install %s' to configure.\n", tool.Name)
 				} else {
-					fmt.Fprintf(w, "  %-18s Configured (%s)\n", tool.Name+":", joinServers(servers))
+					fmt.Fprintf(w, "  %-18s Configured (%s)\n", tool.Name+":", strings.Join(servers, ", "))
 					if tool.Name == "claude-desktop" && !tool.HasNpx {
 						fmt.Fprintf(cmd.ErrOrStderr(), "  Warning: npx not found in PATH\n")
 					}
@@ -112,7 +111,7 @@ func newStatusCmd() *cobra.Command {
 	}
 }
 
-func printContentCounts(w io.Writer, client *api.Client) {
+func printContentCounts(w io.Writer, errW io.Writer, client *api.Client) {
 	type countResult struct {
 		name  string
 		count int
@@ -138,9 +137,12 @@ func printContentCounts(w io.Writer, client *api.Client) {
 	}()
 
 	counts := make(map[string]int)
+	errCount := 0
 	for r := range results {
 		if r.err == nil {
 			counts[r.name] = r.count
+		} else {
+			errCount++
 		}
 	}
 
@@ -151,6 +153,10 @@ func printContentCounts(w io.Writer, client *api.Client) {
 				fmt.Fprintf(w, "  %-18s %d\n", name+":", count)
 			}
 		}
+	}
+
+	if errCount == len(types) {
+		fmt.Fprintln(errW, "  Warning: Could not fetch content counts. Token may be expired; run 'tiddly login'.")
 	}
 }
 
@@ -163,27 +169,11 @@ func getToolStatus(tool mcp.DetectedTool, runner mcp.CommandRunner) ([]string, e
 	case "codex":
 		configPath := tool.ConfigPath
 		if configPath == "" {
-			configPath = codexConfigPath()
+			configPath = mcp.CodexConfigPath()
 		}
 		return mcp.StatusCodex(configPath)
 	}
 	return nil, nil
-}
-
-func codexConfigPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".codex", "config.toml")
-}
-
-func joinServers(servers []string) string {
-	if len(servers) == 0 {
-		return "none"
-	}
-	result := servers[0]
-	for _, s := range servers[1:] {
-		result += ", " + s
-	}
-	return result
 }
 
 // realExecLooker wraps exec.LookPath for production use.

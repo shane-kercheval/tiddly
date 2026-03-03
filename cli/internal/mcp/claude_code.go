@@ -21,7 +21,7 @@ func InstallClaudeCode(runner CommandRunner, contentPAT, promptPAT, scope string
 			"--transport", "http",
 			"--scope", scope,
 			serverNameContent,
-			contentMCPURL,
+			ContentMCPURL(),
 			"--header", "Authorization: Bearer "+contentPAT,
 		)
 		if err != nil {
@@ -34,7 +34,7 @@ func InstallClaudeCode(runner CommandRunner, contentPAT, promptPAT, scope string
 			"--transport", "http",
 			"--scope", scope,
 			serverNamePrompts,
-			promptMCPURL,
+			PromptMCPURL(),
 			"--header", "Authorization: Bearer "+promptPAT,
 		)
 		if err != nil {
@@ -83,14 +83,14 @@ func DryRunClaudeCode(contentPAT, promptPAT, scope string) []string {
 	if contentPAT != "" {
 		cmds = append(cmds, fmt.Sprintf(
 			`claude mcp add --transport http --scope %s %s %s --header %s`,
-			scope, serverNameContent, contentMCPURL,
+			scope, serverNameContent, ContentMCPURL(),
 			shellQuote("Authorization: Bearer "+contentPAT),
 		))
 	}
 	if promptPAT != "" {
 		cmds = append(cmds, fmt.Sprintf(
 			`claude mcp add --transport http --scope %s %s %s --header %s`,
-			scope, serverNamePrompts, promptMCPURL,
+			scope, serverNamePrompts, PromptMCPURL(),
 			shellQuote("Authorization: Bearer "+promptPAT),
 		))
 	}

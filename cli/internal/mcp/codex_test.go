@@ -21,12 +21,12 @@ func TestInstallCodex__new_config(t *testing.T) {
 	mcpServers := config["mcp_servers"].(map[string]any)
 
 	content := mcpServers["bookmarks_notes"].(map[string]any)
-	assert.Equal(t, contentMCPURL, content["url"])
+	assert.Equal(t, ContentMCPURL(), content["url"])
 	headers := content["http_headers"].(map[string]any)
 	assert.Equal(t, "Bearer bm_content", headers["Authorization"])
 
 	prompts := mcpServers["prompts"].(map[string]any)
-	assert.Equal(t, promptMCPURL, prompts["url"])
+	assert.Equal(t, PromptMCPURL(), prompts["url"])
 }
 
 func TestInstallCodex__preserves_existing(t *testing.T) {

@@ -28,7 +28,6 @@ func newMCPCmd() *cobra.Command {
 
 func newMCPInstallCmd() *cobra.Command {
 	var (
-		allFlag   bool
 		dryRun    bool
 		scope     string
 		expiresIn int
@@ -41,10 +40,21 @@ func newMCPInstallCmd() *cobra.Command {
 
   tiddly mcp install              Auto-detect and install for all found tools
   tiddly mcp install claude-code  Install for a specific tool
-  tiddly mcp install --all        Install for all detected tools
   tiddly mcp install --dry-run    Preview changes without writing`,
 		ValidArgs: validTools,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			validScopes := []string{"user", "local", "project"}
+			scopeValid := false
+			for _, s := range validScopes {
+				if scope == s {
+					scopeValid = true
+					break
+				}
+			}
+			if !scopeValid {
+				return fmt.Errorf("invalid scope %q. Valid scopes: %s", scope, strings.Join(validScopes, ", "))
+			}
+
 			// Resolve auth — prefer OAuth for token creation
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, true)
 			if err != nil {
@@ -129,7 +139,6 @@ func newMCPInstallCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&allFlag, "all", false, "Install for all detected tools")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")
 	cmd.Flags().StringVar(&scope, "scope", "user", "Claude Code scope: user (global) or local (project)")
 	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (0 = no expiration)")
@@ -160,7 +169,7 @@ func newMCPStatusCmd() *cobra.Command {
 				if len(servers) == 0 {
 					fmt.Fprintf(w, "%-18s Not configured\n", tool.Name+":")
 				} else {
-					fmt.Fprintf(w, "%-18s Configured (%s)\n", tool.Name+":", joinServers(servers))
+					fmt.Fprintf(w, "%-18s Configured (%s)\n", tool.Name+":", strings.Join(servers, ", "))
 				}
 			}
 
@@ -207,7 +216,7 @@ func newMCPUninstallCmd() *cobra.Command {
 			case "codex":
 				configPath := tool.ConfigPath
 				if configPath == "" {
-					configPath = codexConfigPath()
+					configPath = mcp.CodexConfigPath()
 				}
 				if err := mcp.UninstallCodex(configPath); err != nil {
 					return err

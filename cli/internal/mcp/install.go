@@ -87,38 +87,34 @@ func resolvePATs(opts InstallOpts, result *InstallResult) (contentPAT, promptPAT
 		return "", "", fmt.Errorf("listing existing tokens: %w", err)
 	}
 
-	contentPAT = findExistingToken(existing, "tiddly-mcp-content")
-	promptPAT = findExistingToken(existing, "tiddly-mcp-prompts")
+	// Delete any existing tiddly-mcp tokens so re-install is idempotent
+	deleteExistingTokens(opts.Client, existing, "tiddly-mcp-content")
+	deleteExistingTokens(opts.Client, existing, "tiddly-mcp-prompts")
 
-	if contentPAT == "" {
-		resp, err := opts.Client.CreateToken("tiddly-mcp-content", opts.ExpiresIn)
-		if err != nil {
-			return "", "", fmt.Errorf("creating content MCP token: %w", err)
-		}
-		contentPAT = resp.Token
-		result.TokensCreated = append(result.TokensCreated, "tiddly-mcp-content")
+	contentResp, err := opts.Client.CreateToken("tiddly-mcp-content", opts.ExpiresIn)
+	if err != nil {
+		return "", "", fmt.Errorf("creating content MCP token: %w", err)
 	}
+	contentPAT = contentResp.Token
+	result.TokensCreated = append(result.TokensCreated, "tiddly-mcp-content")
 
-	if promptPAT == "" {
-		resp, err := opts.Client.CreateToken("tiddly-mcp-prompts", opts.ExpiresIn)
-		if err != nil {
-			return "", "", fmt.Errorf("creating prompts MCP token: %w", err)
-		}
-		promptPAT = resp.Token
-		result.TokensCreated = append(result.TokensCreated, "tiddly-mcp-prompts")
+	promptResp, err := opts.Client.CreateToken("tiddly-mcp-prompts", opts.ExpiresIn)
+	if err != nil {
+		return "", "", fmt.Errorf("creating prompts MCP token: %w", err)
 	}
+	promptPAT = promptResp.Token
+	result.TokensCreated = append(result.TokensCreated, "tiddly-mcp-prompts")
 
 	return contentPAT, promptPAT, nil
 }
 
-func findExistingToken(tokens []api.TokenInfo, name string) string {
+// deleteExistingTokens removes any tokens with the given name so re-install doesn't accumulate duplicates.
+func deleteExistingTokens(client *api.Client, tokens []api.TokenInfo, name string) {
 	for _, t := range tokens {
 		if t.Name == name {
-			// Token exists but we can't retrieve the plaintext — need to create a new one
-			return ""
+			_ = client.DeleteToken(t.ID) // best-effort; creation will fail if this matters
 		}
 	}
-	return ""
 }
 
 func installTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT string, result *InstallResult) error {
@@ -128,7 +124,11 @@ func installTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT stri
 			result.Warnings = append(result.Warnings,
 				"Claude Desktop requires Node.js for mcp-remote. Install from https://nodejs.org")
 		}
-		if err := backupIfMalformed(tool.ConfigPath); err != nil {
+		backedUp, err := backupIfMalformed(tool.ConfigPath)
+		if err != nil {
+			return err
+		}
+		if backedUp {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", tool.ConfigPath, tool.ConfigPath))
 		}
@@ -147,9 +147,13 @@ func installTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT stri
 	case "codex":
 		configPath := tool.ConfigPath
 		if configPath == "" {
-			configPath = codexConfigPath()
+			configPath = CodexConfigPath()
 		}
-		if err := backupIfMalformed(configPath); err != nil {
+		backedUp, err := backupIfMalformed(configPath)
+		if err != nil {
+			return err
+		}
+		if backedUp {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", configPath, configPath))
 		}
@@ -170,7 +174,7 @@ func dryRunTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT strin
 	case "claude-desktop":
 		configPath := tool.ConfigPath
 		if configPath == "" {
-			configPath = claudeDesktopConfigPath()
+			configPath = ClaudeDesktopConfigPath()
 		}
 		before, after, err := DryRunClaudeDesktop(configPath, contentPAT, promptPAT)
 		if err != nil {
@@ -188,7 +192,7 @@ func dryRunTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT strin
 	case "codex":
 		configPath := tool.ConfigPath
 		if configPath == "" {
-			configPath = codexConfigPath()
+			configPath = CodexConfigPath()
 		}
 		before, after, err := DryRunCodex(configPath, contentPAT, promptPAT)
 		if err != nil {
@@ -209,40 +213,44 @@ func printDiff(w io.Writer, path, before, after string) {
 }
 
 // backupIfMalformed tries to parse the config file.
-// If it fails to parse, creates a .bak copy and returns an error to signal the backup happened.
-// Returns nil if file doesn't exist or parses fine.
-func backupIfMalformed(path string) error {
+// If malformed, creates a .bak copy and removes the original so install can start fresh.
+// Returns (true, nil) if backup was created, (false, nil) if file is fine or missing,
+// and (false, err) if the backup write failed.
+func backupIfMalformed(path string) (bool, error) {
 	if path == "" {
-		return nil
+		return false, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil // file doesn't exist — nothing to backup
+		return false, nil // file doesn't exist — nothing to backup
 	}
 
-	// Try to parse based on extension
+	malformed := false
 	if strings.HasSuffix(path, ".json") {
 		var raw map[string]any
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return createBackup(path, data)
+		if json.Unmarshal(data, &raw) != nil {
+			malformed = true
 		}
 	} else if strings.HasSuffix(path, ".toml") {
 		var raw map[string]any
-		if err := toml.Unmarshal(data, &raw); err != nil {
-			return createBackup(path, data)
+		if toml.Unmarshal(data, &raw) != nil {
+			malformed = true
 		}
 	}
 
-	return nil
-}
+	if !malformed {
+		return false, nil
+	}
 
-func createBackup(path string, data []byte) error {
 	backupPath := path + ".bak"
 	if err := os.WriteFile(backupPath, data, 0644); err != nil {
-		return fmt.Errorf("creating backup at %s: %w", backupPath, err)
+		return false, fmt.Errorf("creating backup at %s: %w", backupPath, err)
 	}
-	return fmt.Errorf("malformed config backed up")
+	if err := os.Remove(path); err != nil {
+		return false, fmt.Errorf("removing malformed config at %s: %w", path, err)
+	}
+	return true, nil
 }
 
 // CheckOrphanedTokens checks for tiddly-mcp-* tokens that may be orphaned after uninstall.

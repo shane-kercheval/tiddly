@@ -54,7 +54,7 @@ func TestInstallClaudeCode__calls_correct_commands(t *testing.T) {
 	call := runner.calls[0]
 	assert.Equal(t, "claude", call.name)
 	assert.Contains(t, call.args, "bookmarks_notes")
-	assert.Contains(t, call.args, contentMCPURL)
+	assert.Contains(t, call.args, ContentMCPURL())
 	assert.Contains(t, call.args, "--scope")
 	assert.Contains(t, call.args, "user")
 
@@ -62,7 +62,7 @@ func TestInstallClaudeCode__calls_correct_commands(t *testing.T) {
 	call = runner.calls[1]
 	assert.Equal(t, "claude", call.name)
 	assert.Contains(t, call.args, "prompts")
-	assert.Contains(t, call.args, promptMCPURL)
+	assert.Contains(t, call.args, PromptMCPURL())
 }
 
 func TestInstallClaudeCode__default_scope_is_user(t *testing.T) {

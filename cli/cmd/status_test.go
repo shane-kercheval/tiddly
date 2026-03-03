@@ -43,12 +43,20 @@ func TestStatus__with_pat(t *testing.T) {
 	assert.Contains(t, result.Stdout, "Logged in")
 	assert.Contains(t, result.Stdout, "pat")
 	assert.Contains(t, result.Stdout, "user@example.com")
+	// Content counts should appear
+	assert.Contains(t, result.Stdout, "bookmarks:")
+	assert.Contains(t, result.Stdout, "10")
+	assert.Contains(t, result.Stdout, "notes:")
+	assert.Contains(t, result.Stdout, "5")
+	assert.Contains(t, result.Stdout, "prompts:")
+	assert.Contains(t, result.Stdout, "3")
 }
 
 func TestStatus__api_unreachable(t *testing.T) {
 	mock := testutil.NewMockAPI(t)
 	mock.On("GET", "/health").RespondError(500, "internal server error")
-	mock.On("GET", "/users/me").RespondError(500, "internal server error")
+	// /users/me should NOT be called when API is unreachable
+	// (no route registered — mock will fail the test if it's called)
 
 	store := testutil.CredsWithPAT("bm_test123")
 	setupTestDeps(t, store)
@@ -58,6 +66,7 @@ func TestStatus__api_unreachable(t *testing.T) {
 
 	require.NoError(t, result.Err) // Command itself doesn't error
 	assert.Contains(t, result.Stdout, "Logged in")
+	assert.Contains(t, result.Stdout, "Unreachable")
 }
 
 func TestStatus__shows_version(t *testing.T) {
