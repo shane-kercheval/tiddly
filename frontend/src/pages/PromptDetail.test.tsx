@@ -477,6 +477,76 @@ describe('PromptDetail page', () => {
     })
   })
 
+  describe('optimistic navigation', () => {
+    it('should navigate immediately on archive', async () => {
+      const user = userEvent.setup()
+      mockArchiveMutateAsync.mockResolvedValue({ ...mockPrompt, archived_at: '2024-01-02T00:00:00Z' })
+
+      renderWithRouter('/app/prompts/1')
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Archive')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByLabelText('Archive'))
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+      expect(mockArchiveMutateAsync).toHaveBeenCalledWith('1')
+    })
+
+    it('should navigate immediately on delete', async () => {
+      const user = userEvent.setup()
+      mockDeleteMutateAsync.mockResolvedValue(undefined)
+
+      renderWithRouter('/app/prompts/1')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /delete/i }))
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+      expect(mockDeleteMutateAsync).toHaveBeenCalledWith({ id: '1', permanent: false })
+    })
+
+    it('should navigate immediately on restore from deleted', async () => {
+      const user = userEvent.setup()
+      const deletedPrompt = { ...mockPrompt, deleted_at: '2024-01-02T00:00:00Z' }
+      mockFetchPrompt.mockResolvedValue(deletedPrompt)
+      mockRestoreMutateAsync.mockResolvedValue({ ...mockPrompt, deleted_at: null })
+
+      renderWithRouter('/app/prompts/1')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /restore/i }))
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+      expect(mockRestoreMutateAsync).toHaveBeenCalledWith('1')
+    })
+
+    it('should navigate immediately on unarchive', async () => {
+      const user = userEvent.setup()
+      const archivedPrompt = { ...mockPrompt, archived_at: '2024-01-02T00:00:00Z' }
+      mockFetchPrompt.mockResolvedValue(archivedPrompt)
+      mockUnarchiveMutateAsync.mockResolvedValue({ ...mockPrompt, archived_at: null })
+
+      renderWithRouter('/app/prompts/1')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /restore/i }))
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+      expect(mockUnarchiveMutateAsync).toHaveBeenCalledWith('1')
+    })
+  })
+
   describe('create then stay on page', () => {
     it('should navigate to prompt URL with state after creating', async () => {
       const user = userEvent.setup()

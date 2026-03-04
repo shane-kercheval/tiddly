@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 import { isDevMode } from '../config'
+import { PrefetchLink } from './PrefetchLink'
 import { BookmarkIcon } from './icons'
 
 interface DropdownItem {
@@ -104,10 +105,10 @@ export function PublicHeader(): ReactNode {
       <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-8 lg:px-12">
         {/* Left: Logo + Nav */}
         <div className="flex items-center gap-8">
-          <Link to="/" className="flex items-center gap-2" aria-label="Home">
+          <PrefetchLink to="/" className="flex items-center gap-2" aria-label="Home">
             <BookmarkIcon className="h-6 w-6 text-gray-900" />
             <span className="text-lg font-semibold text-gray-900">Tiddly</span>
-          </Link>
+          </PrefetchLink>
 
           <nav className="hidden items-center gap-6 sm:flex">
             {/* Product dropdown */}
@@ -130,36 +131,36 @@ export function PublicHeader(): ReactNode {
               {productOpen && (
                 <div className="absolute left-0 top-full z-50 mt-2 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
                   {productItems.map((item) => (
-                    <Link
+                    <PrefetchLink
                       key={item.path}
                       to={item.path}
                       className="block px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                     >
                       {item.label}
-                    </Link>
+                    </PrefetchLink>
                   ))}
                 </div>
               )}
             </div>
 
-            <Link to="/docs" className={navLinkClass(isActiveLink('/docs'))}>
+            <PrefetchLink to="/docs" className={navLinkClass(isActiveLink('/docs'))}>
               Docs
-            </Link>
-            <Link to="/pricing" className={navLinkClass(isActiveLink('/pricing'))}>
+            </PrefetchLink>
+            <PrefetchLink to="/pricing" className={navLinkClass(isActiveLink('/pricing'))}>
               Pricing
-            </Link>
+            </PrefetchLink>
           </nav>
         </div>
 
         {/* Right: Auth buttons */}
         <div className="flex items-center gap-3">
           {isAuthenticated || isDevMode ? (
-            <Link
+            <PrefetchLink
               to="/app/content"
               className="rounded-lg bg-gray-900 px-5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
             >
               Open App
-            </Link>
+            </PrefetchLink>
           ) : (
             <AuthButtons />
           )}

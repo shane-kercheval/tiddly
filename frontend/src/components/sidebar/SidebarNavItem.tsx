@@ -2,9 +2,9 @@
  * Individual navigation link item in the sidebar with optional hover actions.
  * Includes two-click confirmation for delete to prevent accidental deletions.
  */
-import { NavLink } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useConfirmDelete } from '../../hooks/useConfirmDelete'
+import { PrefetchNavLink } from '../PrefetchLink'
 import { EditIcon, TrashIcon } from '../icons'
 import { Tooltip } from '../ui'
 
@@ -38,7 +38,7 @@ export function SidebarNavItem({
   })
 
   const navLinkElement = (
-    <NavLink
+    <PrefetchNavLink
       to={to}
       end
       onClick={onClick}
@@ -52,7 +52,7 @@ export function SidebarNavItem({
     >
       {icon && <span className="flex-shrink-0">{icon}</span>}
       <span className={`${isCollapsed ? 'sr-only' : 'flex-1 truncate min-w-0'}`}>{label}</span>
-    </NavLink>
+    </PrefetchNavLink>
   )
 
   return (

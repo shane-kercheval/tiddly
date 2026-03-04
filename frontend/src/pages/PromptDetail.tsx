@@ -218,10 +218,9 @@ export function PromptDetail(): ReactNode {
 
   const handleArchive = useCallback(async (): Promise<void> => {
     if (!promptId) return
+    navigateBack()
     try {
-      const archivedPrompt = await archiveMutation.mutateAsync(promptId)
-      setPrompt(archivedPrompt)
-      navigateBack()
+      await archiveMutation.mutateAsync(promptId)
     } catch {
       toast.error('Failed to archive prompt')
     }
@@ -229,10 +228,9 @@ export function PromptDetail(): ReactNode {
 
   const handleUnarchive = useCallback(async (): Promise<void> => {
     if (!promptId) return
+    navigateBack()
     try {
-      const unarchivedPrompt = await unarchiveMutation.mutateAsync(promptId)
-      setPrompt(unarchivedPrompt)
-      navigateBack()
+      await unarchiveMutation.mutateAsync(promptId)
     } catch {
       toast.error('Failed to unarchive prompt')
     }
@@ -240,10 +238,9 @@ export function PromptDetail(): ReactNode {
 
   const handleDelete = useCallback(async (): Promise<void> => {
     if (!promptId) return
+    navigateBack()
     try {
-      const isPermanent = viewState === 'deleted'
-      await deleteMutation.mutateAsync({ id: promptId, permanent: isPermanent })
-      navigateBack()
+      await deleteMutation.mutateAsync({ id: promptId, permanent: viewState === 'deleted' })
     } catch {
       toast.error('Failed to delete prompt')
     }
@@ -251,10 +248,9 @@ export function PromptDetail(): ReactNode {
 
   const handleRestore = useCallback(async (): Promise<void> => {
     if (!promptId) return
+    navigateBack()
     try {
-      const restoredPrompt = await restoreMutation.mutateAsync(promptId)
-      setPrompt(restoredPrompt)
-      navigateBack()
+      await restoreMutation.mutateAsync(promptId)
     } catch {
       toast.error('Failed to restore prompt')
     }

@@ -1,8 +1,8 @@
 import { useAuth0 } from '@auth0/auth0-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { isDevMode } from '../config'
+import { PrefetchLink } from '../components/PrefetchLink'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { PublicHeader } from '../components/PublicHeader'
 import { Footer } from '../components/Footer'
@@ -126,7 +126,7 @@ function SupportedClientCard({ client }: { client: SupportedClient }): ReactNode
   }
 
   return (
-    <Link
+    <PrefetchLink
       to={client.docsPath}
       className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-[#f09040] hover:bg-[#fff7f0]"
     >
@@ -138,7 +138,7 @@ function SupportedClientCard({ client }: { client: SupportedClient }): ReactNode
       <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
         {client.environment}
       </span>
-    </Link>
+    </PrefetchLink>
   )
 }
 

@@ -5,6 +5,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { prefetchRoute } from '../../routePrefetch'
 import {
   DndContext,
   KeyboardSensor,
@@ -557,9 +558,9 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
         <nav className={`flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2 pt-1${isCollapsed ? ' scrollbar-none' : ''}`}>
           {/* Actions Section */}
           <div className="space-y-0.5 pb-2 border-b border-gray-200 mb-2">
-            <QuickAddButton label="New Note" icon={<NoteIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-note" onClick={handleQuickAddNote} isCollapsed={isCollapsed} />
-            <QuickAddButton label="New Bookmark" icon={<BookmarkIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-bookmark" onClick={handleQuickAddBookmark} isCollapsed={isCollapsed} />
-            <QuickAddButton label="New Prompt" icon={<PromptIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-prompt" onClick={handleQuickAddPrompt} isCollapsed={isCollapsed} />
+            <QuickAddButton label="New Note" icon={<NoteIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-note" onClick={handleQuickAddNote} isCollapsed={isCollapsed} onPrefetch={() => prefetchRoute('/app/notes/new')} />
+            <QuickAddButton label="New Bookmark" icon={<BookmarkIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-bookmark" onClick={handleQuickAddBookmark} isCollapsed={isCollapsed} onPrefetch={() => prefetchRoute('/app/bookmarks/new')} />
+            <QuickAddButton label="New Prompt" icon={<PromptIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-prompt" onClick={handleQuickAddPrompt} isCollapsed={isCollapsed} onPrefetch={() => prefetchRoute('/app/prompts/new')} />
 
             {/* Command Palette */}
             {isCollapsed ? (
@@ -715,12 +716,14 @@ function QuickAddButton({
   brandColor,
   onClick,
   isCollapsed,
+  onPrefetch,
 }: {
   label: string
   icon: ReactNode
   brandColor: string
   onClick: () => void
   isCollapsed: boolean
+  onPrefetch?: () => void
 }): ReactNode {
   return (
     <div className="relative w-full min-w-0 overflow-hidden">
@@ -728,6 +731,8 @@ function QuickAddButton({
         <Tooltip content={label} compact position="right" className="w-full">
           <button
             onClick={onClick}
+            onMouseEnter={onPrefetch}
+            onFocus={onPrefetch}
             className={`flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm ${brandColor} transition-colors hover:bg-gray-100 focus:outline-none`}
             aria-label={label}
           >
@@ -737,6 +742,8 @@ function QuickAddButton({
       ) : (
         <button
           onClick={onClick}
+          onMouseEnter={onPrefetch}
+          onFocus={onPrefetch}
           className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
           aria-label={label}
         >
