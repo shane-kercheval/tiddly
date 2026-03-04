@@ -510,7 +510,9 @@ func TestValidatePAT__valid(t *testing.T) {
 	}))
 	defer server.Close()
 
-	assert.True(t, validatePAT(context.Background(), server.URL, "bm_valid"))
+	valid, err := validatePAT(context.Background(), server.URL, "bm_valid")
+	require.NoError(t, err)
+	assert.True(t, valid)
 }
 
 func TestValidatePAT__consent_needed_still_valid(t *testing.T) {
@@ -524,16 +526,40 @@ func TestValidatePAT__consent_needed_still_valid(t *testing.T) {
 	}))
 	defer server.Close()
 
-	assert.True(t, validatePAT(context.Background(), server.URL, "bm_consent"))
+	valid, err := validatePAT(context.Background(), server.URL, "bm_consent")
+	require.NoError(t, err)
+	assert.True(t, valid)
 }
 
-func TestValidatePAT__invalid(t *testing.T) {
+func TestValidatePAT__invalid_401(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer server.Close()
 
-	assert.False(t, validatePAT(context.Background(), server.URL, "bm_expired"))
+	valid, err := validatePAT(context.Background(), server.URL, "bm_expired")
+	require.NoError(t, err)
+	assert.False(t, valid)
+}
+
+func TestValidatePAT__server_error_returns_error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	valid, err := validatePAT(context.Background(), server.URL, "bm_test")
+	assert.False(t, valid)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "validating token")
+}
+
+func TestValidatePAT__network_error_returns_error(t *testing.T) {
+	// Use a URL that will fail to connect
+	valid, err := validatePAT(context.Background(), "http://127.0.0.1:1", "bm_test")
+	assert.False(t, valid)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "validating token")
 }
 
 func TestDeleteTokensByPrefix__matches_and_deletes(t *testing.T) {
@@ -569,6 +595,40 @@ func TestDeleteTokensByPrefix__matches_and_deletes(t *testing.T) {
 	assert.Contains(t, deletedIDs, "tok-2")
 	assert.NotContains(t, deletedIDs, "tok-3")
 	assert.Len(t, deleted, 2)
+}
+
+func TestDeleteTokensByPrefix__partial_failure_returns_deleted_and_error(t *testing.T) {
+	var deletedIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/tokens/":
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-1", Name: "cli-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_abcdefghi"},
+				{ID: "tok-2", Name: "cli-mcp-claude-code-prompts-d4e5f6", TokenPrefix: "bm_123456789"},
+			})
+		case r.Method == "DELETE" && r.URL.Path == "/tokens/tok-1":
+			deletedIDs = append(deletedIDs, "tok-1")
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == "DELETE" && r.URL.Path == "/tokens/tok-2":
+			// Simulate failure for second token
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+
+	pats := []string{"bm_abcdefghijklmnop", "bm_123456789jklmnop"}
+	deleted, err := DeleteTokensByPrefix(context.Background(), client, pats)
+
+	// Should return both the successfully deleted token AND the error
+	assert.Len(t, deleted, 1)
+	assert.Contains(t, deleted, "cli-mcp-claude-code-content-a1b2c3")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cli-mcp-claude-code-prompts-d4e5f6")
 }
 
 func TestExtractPATsFromTool__claude_desktop(t *testing.T) {

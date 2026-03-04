@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -65,9 +66,6 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 	}
 	if opts.Ctx == nil {
 		opts.Ctx = context.Background()
-	}
-	if opts.Cwd == "" {
-		opts.Cwd, _ = os.Getwd()
 	}
 
 	result := &InstallResult{}
@@ -149,10 +147,16 @@ func resolveToolPATs(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, isP
 // If an existing PAT is found and valid, it's reused. Otherwise a new one is created.
 func resolveServerPAT(opts InstallOpts, toolName, serverType, existingPAT string, result *InstallResult) (string, error) {
 	// Try to reuse existing PAT
-	if existingPAT != "" && validatePAT(opts.Ctx, opts.Client.BaseURL, existingPAT) {
-		result.TokensReused = append(result.TokensReused,
-			fmt.Sprintf("%s/%s", toolName, serverType))
-		return existingPAT, nil
+	if existingPAT != "" {
+		valid, err := validatePAT(opts.Ctx, opts.Client.BaseURL, existingPAT)
+		if err != nil {
+			return "", fmt.Errorf("checking existing %s token for %s: %w", serverType, toolName, err)
+		}
+		if valid {
+			result.TokensReused = append(result.TokensReused,
+				fmt.Sprintf("%s/%s", toolName, serverType))
+			return existingPAT, nil
+		}
 	}
 
 	// Dry-run: don't create tokens
@@ -182,18 +186,24 @@ func generateTokenName(tool, server string) string {
 }
 
 // validatePAT checks whether a PAT is still valid by calling GET /users/me.
-// Returns true if the token works (200) or needs consent (451, still valid).
-func validatePAT(ctx context.Context, baseURL, pat string) bool {
+// Returns (true, nil) if the token works (200) or needs consent (451).
+// Returns (false, nil) if the token is definitively invalid (401).
+// Returns (false, err) if validation couldn't be determined (network error, 500, etc.).
+func validatePAT(ctx context.Context, baseURL, pat string) (bool, error) {
 	client := api.NewClient(baseURL, pat, "pat")
 	_, err := client.GetMe(ctx)
 	if err == nil {
-		return true
+		return true, nil
 	}
-	// 451 = consent needed but token is still valid
-	if apiErr, ok := err.(*api.APIError); ok && apiErr.StatusCode == 451 {
-		return true
+	if apiErr, ok := err.(*api.APIError); ok {
+		switch apiErr.StatusCode {
+		case 451:
+			return true, nil // consent needed but token is still valid
+		case 401:
+			return false, nil // definitively invalid
+		}
 	}
-	return false
+	return false, fmt.Errorf("validating token: %w", err)
 }
 
 // ExtractPATsFromTool dispatches to the appropriate Extract function for the tool.
@@ -212,7 +222,8 @@ func ExtractPATsFromTool(tool DetectedTool, rc ResolvedConfig) (contentPAT, prom
 // DeleteTokensByPrefix finds and deletes tokens that match a PAT's prefix.
 // Only deletes tokens whose name starts with tokenNamePrefix ("cli-mcp-") to avoid
 // accidentally deleting user-created tokens that share a token prefix.
-// Used by uninstall --delete-tokens. Returns the names of deleted tokens.
+// Used by uninstall --delete-tokens. Returns the names of successfully deleted tokens
+// and any errors encountered during individual deletions.
 func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string) ([]string, error) {
 	tokens, err := client.ListTokens(ctx)
 	if err != nil {
@@ -220,6 +231,7 @@ func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string
 	}
 
 	var deleted []string
+	var deleteErrors []error
 	for _, pat := range pats {
 		if len(pat) < tokenPrefixLen {
 			continue
@@ -227,11 +239,16 @@ func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string
 		prefix := pat[:tokenPrefixLen]
 		for _, t := range tokens {
 			if t.TokenPrefix == prefix && strings.HasPrefix(t.Name, tokenNamePrefix) {
-				if err := client.DeleteToken(ctx, t.ID); err == nil {
+				if err := client.DeleteToken(ctx, t.ID); err != nil {
+					deleteErrors = append(deleteErrors, fmt.Errorf("deleting token %s: %w", t.Name, err))
+				} else {
 					deleted = append(deleted, t.Name)
 				}
 			}
 		}
+	}
+	if len(deleteErrors) > 0 {
+		return deleted, errors.Join(deleteErrors...)
 	}
 	return deleted, nil
 }

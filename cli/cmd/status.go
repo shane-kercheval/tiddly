@@ -84,7 +84,10 @@ func newStatusCmd() *cobra.Command {
 			// --- MCP Servers ---
 			fmt.Fprintln(w, "\nMCP Servers:")
 			tools := mcp.DetectTools(appDeps.ExecLooker)
-			cwd, _ := os.Getwd()
+			cwd, cwdErr := os.Getwd()
+			if cwdErr != nil {
+				cwd = "" // non-fatal for global status; ResolveToolConfig handles empty cwd for "user" scope
+			}
 
 			for _, tool := range tools {
 				if !tool.Installed {

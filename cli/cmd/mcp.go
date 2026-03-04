@@ -134,12 +134,18 @@ func newMCPInstallCmd() *cobra.Command {
 				expires = &expiresIn
 			}
 
+			cwd, err := getWorkingDir()
+			if err != nil {
+				return err
+			}
+
 			opts := mcp.InstallOpts{
 				Ctx:       cmd.Context(),
 				Client:    client,
 				AuthType:  result.AuthType,
 				DryRun:    dryRun,
 				Scope:     scope,
+				Cwd:       cwd,
 				Servers:   serverList,
 				ExpiresIn: expires,
 				Output:    cmd.OutOrStdout(),
@@ -211,7 +217,10 @@ func newMCPStatusCmd() *cobra.Command {
 
 			w := cmd.OutOrStdout()
 			tools := mcp.DetectTools(appDeps.ExecLooker)
-			cwd, _ := os.Getwd()
+			cwd, err := getWorkingDir()
+			if err != nil {
+				return err
+			}
 
 			for _, tool := range tools {
 				if !tool.Installed {
@@ -276,7 +285,10 @@ func newMCPUninstallCmd() *cobra.Command {
 				return fmt.Errorf("%s is not installed on this system", toolName)
 			}
 
-			cwd, _ := os.Getwd()
+			cwd, err := getWorkingDir()
+			if err != nil {
+				return err
+			}
 
 			rc, err := mcp.ResolveToolConfig(tool.Name, tool.ResolvedConfigPath(), scope, cwd)
 			if err != nil {
@@ -320,10 +332,11 @@ func newMCPUninstallCmd() *cobra.Command {
 
 				if deleteTokens && len(extractedPATs) > 0 {
 					deleted, delErr := mcp.DeleteTokensByPrefix(cmd.Context(), client, extractedPATs)
-					if delErr != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Failed to delete tokens: %v\n", delErr)
-					} else if len(deleted) > 0 {
+					if len(deleted) > 0 {
 						fmt.Fprintf(cmd.OutOrStdout(), "Deleted tokens: %s\n", strings.Join(deleted, ", "))
+					}
+					if delErr != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Some tokens could not be deleted: %v\n", delErr)
 					}
 				} else if !deleteTokens {
 					orphaned, orphanErr := mcp.CheckOrphanedTokens(cmd.Context(), client)
@@ -348,6 +361,14 @@ func newMCPUninstallCmd() *cobra.Command {
 	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
 
 	return cmd
+}
+
+func getWorkingDir() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("determining working directory: %w", err)
+	}
+	return cwd, nil
 }
 
 func isValidTool(name string) bool {

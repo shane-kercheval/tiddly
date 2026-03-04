@@ -16,8 +16,9 @@ import (
 // mockStore is an in-memory CredentialStore for auth package tests.
 // Cannot use testutil.MockCredStore here due to import cycle (testutil imports auth).
 type mockStore struct {
-	creds  map[string]string
-	getErr error // if non-nil, Get always returns this error
+	creds          map[string]string
+	getErr         error // if non-nil, Get always returns this error
+	setMultipleErr error // if non-nil, SetMultiple always returns this error
 }
 
 func newMockStore() *mockStore {
@@ -37,6 +38,16 @@ func (m *mockStore) Get(account string) (string, error) {
 
 func (m *mockStore) Set(account string, value string) error {
 	m.creds[account] = value
+	return nil
+}
+
+func (m *mockStore) SetMultiple(entries map[string]string) error {
+	if m.setMultipleErr != nil {
+		return m.setMultipleErr
+	}
+	for k, v := range entries {
+		m.creds[k] = v
+	}
 	return nil
 }
 
@@ -270,6 +281,41 @@ func TestResolveToken__refresh_failure_propagates(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "session expired")
+}
+
+func TestResolveToken__refresh_store_failure_returns_actionable_error(t *testing.T) {
+	expiredJWT := makeJWT(time.Now().Add(-1 * time.Hour))
+	newJWT := makeJWT(time.Now().Add(1 * time.Hour))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  newJWT,
+			"refresh_token": "new-refresh-token",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		})
+	}))
+	defer server.Close()
+
+	store := newMockStore()
+	require.NoError(t, store.Set(AccountOAuthAccess, expiredJWT))
+	require.NoError(t, store.Set(AccountOAuthRefresh, "old-refresh-token"))
+	store.setMultipleErr = fmt.Errorf("disk full")
+
+	df := &DeviceFlow{
+		Auth0Config: Auth0Config{ClientID: "test-client"},
+		BaseURL:     server.URL,
+		HTTPClient:  &http.Client{},
+	}
+	tm := NewTokenManager(store, df)
+	t.Setenv("TIDDLY_TOKEN", "")
+
+	_, err := tm.ResolveToken("", false)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storing refreshed tokens")
+	assert.Contains(t, err.Error(), "disk full")
 }
 
 func TestClearAll(t *testing.T) {

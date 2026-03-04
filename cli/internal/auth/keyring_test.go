@@ -90,6 +90,43 @@ func TestFileStore(t *testing.T) {
 	}
 }
 
+func TestFileStore__set_multiple_writes_atomically(t *testing.T) {
+	dir := t.TempDir()
+	store := &fileStore{dir: dir}
+
+	err := store.SetMultiple(map[string]string{
+		"key1": "val1",
+		"key2": "val2",
+	})
+	require.NoError(t, err)
+
+	v1, err := store.Get("key1")
+	require.NoError(t, err)
+	assert.Equal(t, "val1", v1)
+
+	v2, err := store.Get("key2")
+	require.NoError(t, err)
+	assert.Equal(t, "val2", v2)
+}
+
+func TestFileStore__set_multiple_preserves_existing(t *testing.T) {
+	dir := t.TempDir()
+	store := &fileStore{dir: dir}
+
+	require.NoError(t, store.Set("existing", "keep-me"))
+
+	err := store.SetMultiple(map[string]string{"new-key": "new-val"})
+	require.NoError(t, err)
+
+	v, err := store.Get("existing")
+	require.NoError(t, err)
+	assert.Equal(t, "keep-me", v)
+
+	v2, err := store.Get("new-key")
+	require.NoError(t, err)
+	assert.Equal(t, "new-val", v2)
+}
+
 func TestFileStore__file_permissions(t *testing.T) {
 	dir := t.TempDir()
 	store := &fileStore{dir: dir}

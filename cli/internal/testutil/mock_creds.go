@@ -48,6 +48,13 @@ func (m *MockCredStore) Set(account string, value string) error {
 	return nil
 }
 
+func (m *MockCredStore) SetMultiple(entries map[string]string) error {
+	for k, v := range entries {
+		m.creds[k] = v
+	}
+	return nil
+}
+
 func (m *MockCredStore) Delete(account string) error {
 	delete(m.creds, account)
 	return nil

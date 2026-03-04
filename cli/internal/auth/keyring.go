@@ -25,6 +25,10 @@ const (
 type CredentialStore interface {
 	Get(account string) (string, error)
 	Set(account string, value string) error
+	// SetMultiple stores multiple credentials atomically where possible.
+	// For file-based storage, this is a single read-modify-write.
+	// For keyring storage, this is sequential (best effort).
+	SetMultiple(entries map[string]string) error
 	Delete(account string) error
 }
 
@@ -106,6 +110,15 @@ func (s *keyringStore) Set(account string, value string) error {
 	return keyring.Set(serviceName, account, value)
 }
 
+func (s *keyringStore) SetMultiple(entries map[string]string) error {
+	for account, value := range entries {
+		if err := keyring.Set(serviceName, account, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *keyringStore) Delete(account string) error {
 	err := keyring.Delete(serviceName, account)
 	if err == keyring.ErrNotFound {
@@ -167,6 +180,17 @@ func (s *fileStore) Set(account string, value string) error {
 		return err
 	}
 	creds[account] = value
+	return s.save(creds)
+}
+
+func (s *fileStore) SetMultiple(entries map[string]string) error {
+	creds, err := s.load()
+	if err != nil {
+		return err
+	}
+	for k, v := range entries {
+		creds[k] = v
+	}
 	return s.save(creds)
 }
 

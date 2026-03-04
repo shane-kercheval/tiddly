@@ -125,14 +125,16 @@ func (tm *TokenManager) refreshOAuthToken() (string, error) {
 		return "", err
 	}
 
-	// Store BOTH new tokens (Auth0 rotation invalidates old refresh token)
-	if err := tm.Store.Set(AccountOAuthAccess, result.AccessToken); err != nil {
-		return "", fmt.Errorf("storing refreshed access token: %w", err)
-	}
+	// Store BOTH new tokens atomically (Auth0 rotation invalidates old refresh token).
+	// Using SetMultiple ensures fileStore does a single read-modify-write,
+	// preventing a state where the new access token is stored but the old
+	// (now-invalidated) refresh token remains.
+	entries := map[string]string{AccountOAuthAccess: result.AccessToken}
 	if result.RefreshToken != "" {
-		if err := tm.Store.Set(AccountOAuthRefresh, result.RefreshToken); err != nil {
-			return "", fmt.Errorf("storing refreshed refresh token: %w", err)
-		}
+		entries[AccountOAuthRefresh] = result.RefreshToken
+	}
+	if err := tm.Store.SetMultiple(entries); err != nil {
+		return "", fmt.Errorf("storing refreshed tokens: %w", err)
 	}
 
 	return result.AccessToken, nil
@@ -143,15 +145,13 @@ func (tm *TokenManager) StorePAT(token string) error {
 	return tm.Store.Set(AccountPAT, token)
 }
 
-// StoreOAuthTokens stores OAuth access and refresh tokens.
+// StoreOAuthTokens stores OAuth access and refresh tokens atomically.
 func (tm *TokenManager) StoreOAuthTokens(accessToken, refreshToken string) error {
-	if err := tm.Store.Set(AccountOAuthAccess, accessToken); err != nil {
-		return err
-	}
+	entries := map[string]string{AccountOAuthAccess: accessToken}
 	if refreshToken != "" {
-		return tm.Store.Set(AccountOAuthRefresh, refreshToken)
+		entries[AccountOAuthRefresh] = refreshToken
 	}
-	return nil
+	return tm.Store.SetMultiple(entries)
 }
 
 // ClearAll removes all stored credentials.
