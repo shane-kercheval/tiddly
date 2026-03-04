@@ -39,7 +39,7 @@ export function DocsCLIHub(): ReactNode {
       <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Start</h2>
 
       <StepSection step={1} title="Install">
-        <CopyableCodeBlock code="go install github.com/shane-kercheval/tiddly/cli@latest" />
+        <CopyableCodeBlock code="brew install tiddly" />
       </StepSection>
 
       <StepSection step={2} title="Log in">
@@ -52,11 +52,18 @@ export function DocsCLIHub(): ReactNode {
       </StepSection>
 
       <StepSection step={3} title="Set up MCP">
-        <CopyableCodeBlock code="tiddly mcp install" />
+        <p className="text-gray-600 mb-3 text-sm">
+          By default, this installs both MCP servers (bookmarks/notes and prompts) for all
+          detected AI tools. Use <code className="bg-gray-100 px-1 rounded">--servers</code> to
+          install only one:
+        </p>
+        <CopyableCodeBlock code={`tiddly mcp install                   # both servers, all detected tools
+tiddly mcp install --servers content  # bookmarks & notes only
+tiddly mcp install --servers prompts  # prompts only`} />
         <p className="text-gray-600 mt-2 text-sm">
-          Auto-detects installed AI tools and configures MCP servers. See{' '}
+          See{' '}
           <Link to="/docs/cli/mcp" className="underline hover:text-gray-900">MCP Setup</Link>{' '}
-          for server selection and options.
+          for targeting specific tools, scopes, and other options.
         </p>
       </StepSection>
 
