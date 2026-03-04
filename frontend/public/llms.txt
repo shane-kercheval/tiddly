@@ -202,6 +202,17 @@ The Tiddly Bookmarks Chrome extension lets you save the current page as a bookma
 - **Search:** On restricted pages (new tab, chrome://, etc.), the extension shows a search interface with your recent bookmarks and full-text search.
 - **Setup:** Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/npjlfgkihebhandkknldnjlcdmcpomkc), then open the extension options and enter a Personal Access Token (create one in Settings > Personal Access Tokens on tiddly.me). Optionally configure default tags that will be pre-selected on every save.
 
+### CLI
+
+The Tiddly CLI (`tiddly`) manages authentication and MCP server configuration for AI tools.
+
+- `tiddly login` / `tiddly logout`: Authenticate via OAuth device flow or Personal Access Token.
+- `tiddly status`: Overview of authentication, API health, content counts, and MCP server status.
+- `tiddly mcp install`: Auto-detect installed AI tools (Claude Desktop, Claude Code, Codex) and configure MCP servers with dedicated tokens.
+- `tiddly mcp status` / `tiddly mcp uninstall`: View or remove MCP server configurations.
+
+Supports config scopes (user, local, project), dry-run mode, and automatic token management. Full documentation at https://tiddly.me/docs/cli.
+
 ### Programmatic API Access
 
 The full REST API is available at `https://api.tiddly.me`. Authenticate with a PAT via `Authorization: Bearer bm_...` header. PATs support all read and write operations except sensitive endpoints (URL metadata scraping, token management, account settings).
