@@ -356,6 +356,76 @@ describe('NoteDetail page', () => {
     })
   })
 
+  describe('optimistic navigation', () => {
+    it('should navigate immediately on archive', async () => {
+      const user = userEvent.setup()
+      mockArchiveMutateAsync.mockResolvedValue({ ...mockNote, archived_at: '2024-01-02T00:00:00Z' })
+
+      renderWithRouter('/app/notes/1')
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Archive')).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByLabelText('Archive'))
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+      expect(mockArchiveMutateAsync).toHaveBeenCalledWith('1')
+    })
+
+    it('should navigate immediately on delete', async () => {
+      const user = userEvent.setup()
+      mockDeleteMutateAsync.mockResolvedValue(undefined)
+
+      renderWithRouter('/app/notes/1')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /delete/i }))
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+      expect(mockDeleteMutateAsync).toHaveBeenCalledWith({ id: '1', permanent: false })
+    })
+
+    it('should navigate immediately on restore', async () => {
+      const user = userEvent.setup()
+      const deletedNote = { ...mockNote, deleted_at: '2024-01-02T00:00:00Z' }
+      mockFetchNote.mockResolvedValue(deletedNote)
+      mockRestoreMutateAsync.mockResolvedValue({ ...mockNote, deleted_at: null })
+
+      renderWithRouter('/app/notes/1')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /restore/i }))
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+      expect(mockRestoreMutateAsync).toHaveBeenCalledWith('1')
+    })
+
+    it('should navigate immediately on unarchive', async () => {
+      const user = userEvent.setup()
+      const archivedNote = { ...mockNote, archived_at: '2024-01-02T00:00:00Z' }
+      mockFetchNote.mockResolvedValue(archivedNote)
+      mockUnarchiveMutateAsync.mockResolvedValue({ ...mockNote, archived_at: null })
+
+      renderWithRouter('/app/notes/1')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument()
+      })
+
+      await user.click(screen.getByRole('button', { name: /restore/i }))
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
+      expect(mockUnarchiveMutateAsync).toHaveBeenCalledWith('1')
+    })
+  })
+
   describe('create then stay on page', () => {
     it('should navigate to note URL with state after creating', async () => {
       const user = userEvent.setup()

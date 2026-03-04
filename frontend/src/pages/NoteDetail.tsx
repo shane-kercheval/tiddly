@@ -187,10 +187,9 @@ export function NoteDetail(): ReactNode {
 
   const handleArchive = useCallback(async (): Promise<void> => {
     if (!noteId) return
+    navigateBack()
     try {
-      const archivedNote = await archiveMutation.mutateAsync(noteId)
-      setNote(archivedNote)
-      navigateBack()
+      await archiveMutation.mutateAsync(noteId)
     } catch {
       toast.error('Failed to archive note')
     }
@@ -198,10 +197,9 @@ export function NoteDetail(): ReactNode {
 
   const handleUnarchive = useCallback(async (): Promise<void> => {
     if (!noteId) return
+    navigateBack()
     try {
-      const unarchivedNote = await unarchiveMutation.mutateAsync(noteId)
-      setNote(unarchivedNote)
-      navigateBack()
+      await unarchiveMutation.mutateAsync(noteId)
     } catch {
       toast.error('Failed to unarchive note')
     }
@@ -209,10 +207,9 @@ export function NoteDetail(): ReactNode {
 
   const handleDelete = useCallback(async (): Promise<void> => {
     if (!noteId) return
+    navigateBack()
     try {
-      const isPermanent = viewState === 'deleted'
-      await deleteMutation.mutateAsync({ id: noteId, permanent: isPermanent })
-      navigateBack()
+      await deleteMutation.mutateAsync({ id: noteId, permanent: viewState === 'deleted' })
     } catch {
       toast.error('Failed to delete note')
     }
@@ -220,10 +217,9 @@ export function NoteDetail(): ReactNode {
 
   const handleRestore = useCallback(async (): Promise<void> => {
     if (!noteId) return
+    navigateBack()
     try {
-      const restoredNote = await restoreMutation.mutateAsync(noteId)
-      setNote(restoredNote)
-      navigateBack()
+      await restoreMutation.mutateAsync(noteId)
     } catch {
       toast.error('Failed to restore note')
     }

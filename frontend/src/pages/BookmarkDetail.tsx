@@ -229,10 +229,9 @@ export function BookmarkDetail(): ReactNode {
 
   const handleArchive = useCallback(async (): Promise<void> => {
     if (!bookmarkId) return
+    navigateBack()
     try {
-      const archivedBookmark = await archiveMutation.mutateAsync(bookmarkId)
-      setBookmark(archivedBookmark)
-      navigateBack()
+      await archiveMutation.mutateAsync(bookmarkId)
     } catch {
       toast.error('Failed to archive bookmark')
     }
@@ -240,10 +239,9 @@ export function BookmarkDetail(): ReactNode {
 
   const handleUnarchive = useCallback(async (): Promise<void> => {
     if (!bookmarkId) return
+    navigateBack()
     try {
-      const unarchivedBookmark = await unarchiveMutation.mutateAsync(bookmarkId)
-      setBookmark(unarchivedBookmark)
-      navigateBack()
+      await unarchiveMutation.mutateAsync(bookmarkId)
     } catch {
       toast.error('Failed to restore bookmark')
     }
@@ -251,9 +249,9 @@ export function BookmarkDetail(): ReactNode {
 
   const handleDelete = useCallback(async (): Promise<void> => {
     if (!bookmarkId) return
+    navigateBack()
     try {
       await deleteMutation.mutateAsync({ id: bookmarkId })
-      navigateBack()
     } catch {
       toast.error('Failed to delete bookmark')
     }
