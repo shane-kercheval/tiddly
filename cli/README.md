@@ -15,7 +15,7 @@ make cli-build        # outputs bin/tiddly
 
 # Run
 ./bin/tiddly --help
-./bin/tiddly login --token bm_YOUR_PAT
+./bin/tiddly login
 ./bin/tiddly auth status
 
 # Test & lint
