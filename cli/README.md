@@ -164,14 +164,17 @@ Installs Tiddly MCP server entries into AI tool config files so they can access 
 
 Two MCP server entries are written into the config: `bookmarks_notes` (points to the content MCP server for bookmarks and notes) and `prompts` (points to the prompt MCP server).
 
-All config files are written atomically (write-to-temp + rename) with mode 0600 (owner-only read/write). Directories are created with 0700. Existing config keys/servers are preserved. Malformed config files are backed up to `.bak` before overwriting.
+All config files are written atomically (write-to-temp + rename). Existing file permissions are preserved; new files default to 0600 (owner-only read/write). Directories are created with 0700 if they don't exist. Existing config keys/servers are preserved. Malformed config files are backed up to `.bak` before overwriting.
 
-**`--scope`** (Claude Code only — ignored for claude-desktop and codex, which have a single global config):
-- `user` (default): writes to top-level `mcpServers` in `~/.claude.json`
-- `local`: writes to `projects[<cwd>].mcpServers` in `~/.claude.json`
-- `project`: writes to `.mcp.json` in the current working directory
+**`--scope`** controls which config file is written. Support varies by tool:
 
-A warning is printed if `--scope` is set to a non-default value with a non-Claude-Code tool.
+| Scope | claude-desktop | claude-code | codex |
+|-------|---------------|-------------|-------|
+| `user` (default) | Global config | `~/.claude.json` top-level `mcpServers` | `~/.codex/config.toml` |
+| `local` | N/A | `~/.claude.json` under `projects[<cwd>].mcpServers` | N/A |
+| `project` | N/A | `.mcp.json` in cwd | `.codex/config.toml` in cwd |
+
+If a tool is explicitly targeted with an unsupported scope (e.g., `tiddly mcp install codex --scope local`), the command returns an error. During auto-detect (no tool argument), unsupported tools are skipped with a message.
 
 **`--dry-run`**: Shows before/after diff of each config file without writing anything to disk. No PATs are created — the literal string `<new-token-would-be-created>` appears in the diff where a real token would go. If the tool already has PATs in its config, they are still validated via `GET /users/me` (read-only) to show whether they would be reused or replaced.
 

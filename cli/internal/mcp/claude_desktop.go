@@ -229,7 +229,14 @@ func writeJSONConfig(path string, config map[string]any) error {
 
 // atomicWriteFile writes data to a temp file in the same directory and renames it to path.
 // This prevents corruption if the process is killed mid-write.
-func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+// If the file already exists, its permissions are preserved. Otherwise defaultPerm is used.
+func atomicWriteFile(path string, data []byte, defaultPerm os.FileMode) error {
+	// Preserve existing file permissions if the file already exists
+	perm := defaultPerm
+	if info, err := os.Stat(path); err == nil {
+		perm = info.Mode().Perm()
+	}
+
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {

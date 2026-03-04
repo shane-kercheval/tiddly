@@ -304,6 +304,114 @@ func TestParseServersFlag__invalid(t *testing.T) {
 	}
 }
 
+func TestMCPInstall__scope_local_with_codex_explicit_returns_error(t *testing.T) {
+	store := testutil.CredsWithPAT("bm_test123")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	// Mock looker that detects codex
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["codex"] = "/usr/bin/codex"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "codex", "--scope", "local")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "not supported by codex")
+}
+
+func TestMCPInstall__auto_detect_skips_unsupported_scope(t *testing.T) {
+	// Auto-detect with --scope local should skip codex (doesn't support local)
+	// and install claude-code only, not abort.
+	store := testutil.CredsWithPAT("bm_test123")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+	looker.Paths["codex"] = "/usr/bin/codex"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	// No tool arg = auto-detect. --scope local is unsupported by codex but fine for claude-code.
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "--scope", "local")
+
+	// Should succeed (claude-code installed), not fail because codex doesn't support local
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "claude-code")
+	// Stderr should have skip message for codex
+	assert.Contains(t, result.Stderr, "Skipping codex")
+}
+
+func TestMCPUninstall__scope_local_with_codex_returns_error(t *testing.T) {
+	store := testutil.CredsWithPAT("bm_test123")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["codex"] = "/usr/bin/codex"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "uninstall", "codex", "--scope", "local")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "not supported by codex")
+}
+
+func TestMCPStatus__invalid_scope_returns_error(t *testing.T) {
+	store := testutil.NewMockCredStore()
+	setupTestDeps(t, store)
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "status", "--scope", "bogus")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "invalid scope")
+}
+
+func TestMCPUninstall__invalid_scope_returns_error(t *testing.T) {
+	store := testutil.NewMockCredStore()
+	setupTestDeps(t, store)
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "uninstall", "claude-code", "--scope", "bogus")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "invalid scope")
+}
+
 // fixedDesktopLooker wraps a real looker but overrides Claude Desktop detection
 // to use a temp config path for testing.
 type fixedDesktopLooker struct {

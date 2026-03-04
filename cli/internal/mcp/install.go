@@ -26,7 +26,7 @@ type InstallOpts struct {
 	Client    *api.Client
 	AuthType  string // "oauth", "pat", "flag", "env"
 	DryRun    bool
-	Scope     string   // claude code scope: "user" (default) or "local"
+	Scope     string   // config scope: "user" (default), "local", or "project"
 	Cwd       string   // working directory for "local"/"project" scope resolution
 	Servers   []string // which servers to install: "content", "prompts" (default: both)
 	ExpiresIn *int     // PAT expiration in days (nil = no expiration)
@@ -83,21 +83,26 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 			continue
 		}
 
+		rc, err := ResolveToolConfig(tool.Name, tool.ResolvedConfigPath(), opts.Scope, opts.Cwd)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", tool.Name, err)
+		}
+
 		// Resolve PATs per-tool
-		contentPAT, promptPAT, err := resolveToolPATs(opts, tool, isPATAuth, result)
+		contentPAT, promptPAT, err := resolveToolPATs(opts, tool, rc, isPATAuth, result)
 		if err != nil {
 			return nil, fmt.Errorf("resolving tokens for %s: %w", tool.Name, err)
 		}
 
 		if opts.DryRun {
-			if err := dryRunTool(opts, tool, contentPAT, promptPAT); err != nil {
+			if err := dryRunTool(opts, tool, rc, contentPAT, promptPAT); err != nil {
 				return nil, err
 			}
 			result.ToolsConfigured = append(result.ToolsConfigured, tool.Name)
 			continue
 		}
 
-		if err := installTool(opts, tool, contentPAT, promptPAT, result); err != nil {
+		if err := installTool(opts, tool, rc, contentPAT, promptPAT, result); err != nil {
 			return nil, fmt.Errorf("installing %s: %w", tool.Name, err)
 		}
 		result.ToolsConfigured = append(result.ToolsConfigured, tool.Name)
@@ -109,7 +114,7 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 // resolveToolPATs determines the content and prompt PATs for a specific tool.
 // For PAT auth: reuses the login token. For OAuth: extracts existing PATs from the
 // tool's config, validates them, and creates new ones only if needed.
-func resolveToolPATs(opts InstallOpts, tool DetectedTool, isPATAuth bool, result *InstallResult) (contentPAT, promptPAT string, err error) {
+func resolveToolPATs(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, isPATAuth bool, result *InstallResult) (contentPAT, promptPAT string, err error) {
 	if isPATAuth {
 		pat := opts.Client.Token
 		if opts.wantServer("content") {
@@ -122,7 +127,7 @@ func resolveToolPATs(opts InstallOpts, tool DetectedTool, isPATAuth bool, result
 	}
 
 	// OAuth: try to reuse existing PATs from the tool's config
-	existingContent, existingPrompt := ExtractPATsFromTool(tool, opts.Scope, opts.Cwd)
+	existingContent, existingPrompt := ExtractPATsFromTool(tool, rc)
 
 	if opts.wantServer("content") {
 		contentPAT, err = resolveServerPAT(opts, tool.Name, "content", existingContent, result)
@@ -192,14 +197,14 @@ func validatePAT(ctx context.Context, baseURL, pat string) bool {
 }
 
 // ExtractPATsFromTool dispatches to the appropriate Extract function for the tool.
-func ExtractPATsFromTool(tool DetectedTool, scope, cwd string) (contentPAT, promptPAT string) {
+func ExtractPATsFromTool(tool DetectedTool, rc ResolvedConfig) (contentPAT, promptPAT string) {
 	switch tool.Name {
 	case "claude-desktop":
-		return ExtractClaudeDesktopPATs(tool.ResolvedConfigPath())
+		return ExtractClaudeDesktopPATs(rc.Path)
 	case "claude-code":
-		return ExtractClaudeCodePATs(tool.ResolvedConfigPath(), scope, cwd)
+		return ExtractClaudeCodePATs(rc)
 	case "codex":
-		return ExtractCodexPATs(tool.ResolvedConfigPath(), scope, cwd)
+		return ExtractCodexPATs(rc)
 	}
 	return "", ""
 }
@@ -231,96 +236,86 @@ func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string
 	return deleted, nil
 }
 
-func installTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT string, result *InstallResult) error {
+func installTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, contentPAT, promptPAT string, result *InstallResult) error {
 	switch tool.Name {
 	case "claude-desktop":
 		if !tool.HasNpx {
 			result.Warnings = append(result.Warnings,
 				"Claude Desktop requires Node.js for mcp-remote. Install from https://nodejs.org")
 		}
-		configPath := tool.ResolvedConfigPath()
-		backedUp, err := backupIfMalformed(configPath)
+		backedUp, err := backupIfMalformed(rc.Path)
 		if err != nil {
 			return err
 		}
 		if backedUp {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", configPath, configPath))
+				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", rc.Path, rc.Path))
 		}
-		if err := InstallClaudeDesktop(configPath, contentPAT, promptPAT); err != nil {
+		if err := InstallClaudeDesktop(rc.Path, contentPAT, promptPAT); err != nil {
 			return err
 		}
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", configPath))
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", rc.Path))
 		result.Warnings = append(result.Warnings, "Restart Claude Desktop to apply changes.")
 
 	case "claude-code":
-		configPath := tool.ResolvedConfigPath()
-		resolved := resolveClaudeCodePath(configPath, opts.Scope, opts.Cwd)
-		backedUp, err := backupIfMalformed(resolved)
+		backedUp, err := backupIfMalformed(rc.Path)
 		if err != nil {
 			return err
 		}
 		if backedUp {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", resolved, resolved))
+				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", rc.Path, rc.Path))
 		}
-		if err := InstallClaudeCode(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd); err != nil {
+		if err := InstallClaudeCode(rc, contentPAT, promptPAT); err != nil {
 			return err
 		}
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", resolved))
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", rc.Path))
 
 	case "codex":
-		configPath := tool.ResolvedConfigPath()
-		resolved := resolveCodexPath(configPath, opts.Scope, opts.Cwd)
-		backedUp, err := backupIfMalformed(resolved)
+		backedUp, err := backupIfMalformed(rc.Path)
 		if err != nil {
 			return err
 		}
 		if backedUp {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", resolved, resolved))
+				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", rc.Path, rc.Path))
 		}
-		if err := InstallCodex(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd); err != nil {
+		if err := InstallCodex(rc, contentPAT, promptPAT); err != nil {
 			return err
 		}
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", resolved))
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", rc.Path))
 	}
 
 	return nil
 }
 
-func dryRunTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT string) error {
+func dryRunTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, contentPAT, promptPAT string) error {
 	fmt.Fprintf(opts.Output, "\n--- %s ---\n", tool.Name)
 
 	switch tool.Name {
 	case "claude-desktop":
-		configPath := tool.ResolvedConfigPath()
-		before, after, err := DryRunClaudeDesktop(configPath, contentPAT, promptPAT)
+		before, after, err := DryRunClaudeDesktop(rc.Path, contentPAT, promptPAT)
 		if err != nil {
 			return err
 		}
-		printDiff(opts.Output, configPath, before, after)
+		printDiff(opts.Output, rc.Path, before, after)
 
 	case "claude-code":
-		configPath := tool.ResolvedConfigPath()
-		resolved := resolveClaudeCodePath(configPath, opts.Scope, opts.Cwd)
-		before, after, err := DryRunClaudeCode(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd)
+		before, after, err := DryRunClaudeCode(rc, contentPAT, promptPAT)
 		if err != nil {
 			return err
 		}
-		printDiff(opts.Output, resolved, before, after)
+		printDiff(opts.Output, rc.Path, before, after)
 
 	case "codex":
-		configPath := tool.ResolvedConfigPath()
-		resolved := resolveCodexPath(configPath, opts.Scope, opts.Cwd)
-		before, after, err := DryRunCodex(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd)
+		before, after, err := DryRunCodex(rc, contentPAT, promptPAT)
 		if err != nil {
 			return err
 		}
-		printDiff(opts.Output, resolved, before, after)
+		printDiff(opts.Output, rc.Path, before, after)
 	}
 
 	return nil

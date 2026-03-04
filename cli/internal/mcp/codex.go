@@ -21,10 +21,22 @@ type codexMCPServer struct {
 	HTTPHeaders map[string]string `toml:"http_headers,omitempty"`
 }
 
+// resolveCodexPath returns the config file path based on scope.
+// Called only from ResolveToolConfig.
+func resolveCodexPath(configPath, scope, cwd string) string {
+	if scope == "project" {
+		return filepath.Join(cwd, ".codex", "config.toml")
+	}
+	if configPath != "" {
+		return configPath
+	}
+	return CodexConfigPath()
+}
+
 // ExtractCodexPATs reads the Codex config and extracts the Bearer tokens
 // for the tiddly MCP servers. Returns empty strings on any parse error (best-effort).
-func ExtractCodexPATs(configPath string) (contentPAT, promptPAT string) {
-	config, err := readCodexConfig(configPath)
+func ExtractCodexPATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
+	config, err := readCodexConfig(rc.Path)
 	if err != nil {
 		return "", ""
 	}
@@ -43,8 +55,8 @@ func ExtractCodexPATs(configPath string) (contentPAT, promptPAT string) {
 }
 
 // buildCodexConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
-func buildCodexConfig(configPath, contentPAT, promptPAT string) (*codexConfig, error) {
-	config, err := readCodexConfig(configPath)
+func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) {
+	config, err := readCodexConfig(path)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
@@ -70,17 +82,17 @@ func buildCodexConfig(configPath, contentPAT, promptPAT string) (*codexConfig, e
 }
 
 // InstallCodex writes MCP server entries into the Codex config.
-func InstallCodex(configPath, contentPAT, promptPAT string) error {
-	config, err := buildCodexConfig(configPath, contentPAT, promptPAT)
+func InstallCodex(rc ResolvedConfig, contentPAT, promptPAT string) error {
+	config, err := buildCodexConfig(rc.Path, contentPAT, promptPAT)
 	if err != nil {
 		return err
 	}
-	return writeCodexConfig(configPath, config)
+	return writeCodexConfig(rc.Path, config)
 }
 
 // UninstallCodex removes tiddly MCP server entries from the config.
-func UninstallCodex(configPath string) error {
-	config, err := readCodexConfig(configPath)
+func UninstallCodex(rc ResolvedConfig) error {
+	config, err := readCodexConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -95,12 +107,12 @@ func UninstallCodex(configPath string) error {
 	delete(config.MCPServers, serverNameContent)
 	delete(config.MCPServers, serverNamePrompts)
 
-	return writeCodexConfig(configPath, config)
+	return writeCodexConfig(rc.Path, config)
 }
 
 // StatusCodex returns the names of tiddly MCP servers configured.
-func StatusCodex(configPath string) ([]string, error) {
-	config, err := readCodexConfig(configPath)
+func StatusCodex(rc ResolvedConfig) ([]string, error) {
+	config, err := readCodexConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -118,9 +130,9 @@ func StatusCodex(configPath string) ([]string, error) {
 }
 
 // DryRunCodex returns the config that would be written without writing it.
-func DryRunCodex(configPath, contentPAT, promptPAT string) (before, after string, err error) {
+func DryRunCodex(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error) {
 	// Capture before state
-	existing, readErr := readCodexConfig(configPath)
+	existing, readErr := readCodexConfig(rc.Path)
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return "", "", readErr
 	}
@@ -128,7 +140,7 @@ func DryRunCodex(configPath, contentPAT, promptPAT string) (before, after string
 	before = string(beforeData)
 
 	// Build new config
-	config, err := buildCodexConfig(configPath, contentPAT, promptPAT)
+	config, err := buildCodexConfig(rc.Path, contentPAT, promptPAT)
 	if err != nil {
 		return "", "", err
 	}

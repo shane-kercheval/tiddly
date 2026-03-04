@@ -15,10 +15,11 @@ func TestExtractClaudeCodePATs__user_scope(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	err := InstallClaudeCode(configPath, "bm_content123", "bm_prompt456", "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := InstallClaudeCode(rc, "bm_content123", "bm_prompt456")
 	require.NoError(t, err)
 
-	contentPAT, promptPAT := ExtractClaudeCodePATs(configPath, "user", "")
+	contentPAT, promptPAT := ExtractClaudeCodePATs(rc)
 	assert.Equal(t, "bm_content123", contentPAT)
 	assert.Equal(t, "bm_prompt456", promptPAT)
 }
@@ -33,13 +34,15 @@ func TestExtractClaudeCodePATs__no_tiddly_servers(t *testing.T) {
 		},
 	})
 
-	contentPAT, promptPAT := ExtractClaudeCodePATs(configPath, "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	contentPAT, promptPAT := ExtractClaudeCodePATs(rc)
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }
 
 func TestExtractClaudeCodePATs__missing_file(t *testing.T) {
-	contentPAT, promptPAT := ExtractClaudeCodePATs("/nonexistent/.claude.json", "user", "")
+	rc := ResolvedConfig{Path: "/nonexistent/.claude.json", Scope: "user"}
+	contentPAT, promptPAT := ExtractClaudeCodePATs(rc)
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }
@@ -49,7 +52,8 @@ func TestExtractClaudeCodePATs__malformed_file(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
 
-	contentPAT, promptPAT := ExtractClaudeCodePATs(configPath, "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	contentPAT, promptPAT := ExtractClaudeCodePATs(rc)
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }
@@ -60,7 +64,8 @@ func TestInstallClaudeCode__user_scope_creates_config(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	err := InstallClaudeCode(configPath, "bm_content", "bm_prompts", "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := InstallClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -90,7 +95,8 @@ func TestInstallClaudeCode__preserves_existing_config(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := InstallClaudeCode(configPath, "bm_content", "bm_prompts", "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := InstallClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -102,24 +108,13 @@ func TestInstallClaudeCode__preserves_existing_config(t *testing.T) {
 	assert.NotNil(t, servers["prompts"], "new server should be added")
 }
 
-func TestInstallClaudeCode__default_scope_is_user(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-
-	err := InstallClaudeCode(configPath, "bm_content", "", "", "")
-	require.NoError(t, err)
-
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.NotNil(t, servers["bookmarks_notes"])
-}
-
 func TestInstallClaudeCode__local_scope(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 	fakeCwd := "/fake/project/dir"
 
-	err := InstallClaudeCode(configPath, "bm_content", "", "local", fakeCwd)
+	rc := ResolvedConfig{Path: configPath, Scope: "local", Cwd: fakeCwd}
+	err := InstallClaudeCode(rc, "bm_content", "")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -140,12 +135,14 @@ func TestUninstallClaudeCode__removes_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+
 	// Install first
-	err := InstallClaudeCode(configPath, "bm_content", "bm_prompts", "user", "")
+	err := InstallClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Uninstall
-	err = UninstallClaudeCode(configPath, "user", "")
+	err = UninstallClaudeCode(rc)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -158,7 +155,8 @@ func TestUninstallClaudeCode__no_file_is_noop(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	err := UninstallClaudeCode(configPath, "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := UninstallClaudeCode(rc)
 	require.NoError(t, err)
 }
 
@@ -166,10 +164,11 @@ func TestStatusClaudeCode__finds_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	err := InstallClaudeCode(configPath, "bm_content", "bm_prompts", "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := InstallClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	servers, err := StatusClaudeCode(configPath, "user", "")
+	servers, err := StatusClaudeCode(rc)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"bookmarks_notes", "prompts"}, servers)
 }
@@ -180,7 +179,8 @@ func TestStatusClaudeCode__no_servers(t *testing.T) {
 
 	writeTestJSON(t, configPath, map[string]any{"mcpServers": map[string]any{}})
 
-	servers, err := StatusClaudeCode(configPath, "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	servers, err := StatusClaudeCode(rc)
 	require.NoError(t, err)
 	assert.Nil(t, servers)
 }
@@ -189,7 +189,8 @@ func TestStatusClaudeCode__no_file(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	servers, err := StatusClaudeCode(configPath, "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	servers, err := StatusClaudeCode(rc)
 	require.NoError(t, err)
 	assert.Nil(t, servers)
 }
@@ -198,7 +199,8 @@ func TestDryRunClaudeCode__shows_diff(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	before, after, err := DryRunClaudeCode(configPath, "bm_content", "bm_prompts", "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	before, after, err := DryRunClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	assert.Contains(t, before, "{}")

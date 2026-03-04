@@ -165,13 +165,17 @@ func printContentCounts(ctx context.Context, w io.Writer, errW io.Writer, client
 }
 
 func getToolStatus(tool mcp.DetectedTool, scope, cwd string) ([]string, error) {
+	rc, err := mcp.ResolveToolConfig(tool.Name, tool.ResolvedConfigPath(), scope, cwd)
+	if err != nil {
+		return nil, err
+	}
 	switch tool.Name {
 	case "claude-desktop":
-		return mcp.StatusClaudeDesktop(tool.ResolvedConfigPath())
+		return mcp.StatusClaudeDesktop(rc.Path)
 	case "claude-code":
-		return mcp.StatusClaudeCode(tool.ResolvedConfigPath(), scope, cwd)
+		return mcp.StatusClaudeCode(rc)
 	case "codex":
-		return mcp.StatusCodex(tool.ResolvedConfigPath())
+		return mcp.StatusCodex(rc)
 	}
 	return nil, nil
 }

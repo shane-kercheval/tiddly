@@ -14,6 +14,19 @@ import (
 
 var validTools = []string{"claude-desktop", "claude-code", "codex"}
 
+// validScopes is the flat list of all known scopes, used for early typo rejection
+// before per-tool validation in ResolveToolConfig.
+var validScopes = []string{"user", "local", "project"}
+
+func validateScope(scope string) error {
+	for _, s := range validScopes {
+		if scope == s {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid scope %q. Valid scopes: %s", scope, strings.Join(validScopes, ", "))
+}
+
 func newMCPCmd() *cobra.Command {
 	mcpCmd := &cobra.Command{
 		Use:   "mcp",
@@ -46,16 +59,8 @@ func newMCPInstallCmd() *cobra.Command {
   tiddly mcp install --servers content    Install only the content server`,
 		ValidArgs: validTools,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			validScopes := []string{"user", "local", "project"}
-			scopeValid := false
-			for _, s := range validScopes {
-				if scope == s {
-					scopeValid = true
-					break
-				}
-			}
-			if !scopeValid {
-				return fmt.Errorf("invalid scope %q. Valid scopes: %s", scope, strings.Join(validScopes, ", "))
+			if err := validateScope(scope); err != nil {
+				return err
 			}
 
 			// Parse and validate --servers flag
@@ -96,20 +101,25 @@ func newMCPInstallCmd() *cobra.Command {
 					}
 				}
 			} else {
-				// Auto-detect: use all installed tools
+				// Auto-detect: use all installed tools, skip those that don't support the scope
 				for _, t := range allTools {
-					if t.Installed {
-						targetTools = append(targetTools, t)
+					if !t.Installed {
+						continue
 					}
-				}
-			}
-
-			// Warn if --scope is non-default and a specific non-Claude-Code tool is targeted
-			if scope != "user" && len(args) > 0 {
-				for _, arg := range args {
-					if arg != "claude-code" {
-						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: --scope only applies to claude-code, ignored for %s\n", arg)
+					supported := mcp.ToolSupportedScopes(t.Name)
+					scopeOK := false
+					for _, s := range supported {
+						if s == scope {
+							scopeOK = true
+							break
+						}
 					}
+					if !scopeOK {
+						fmt.Fprintf(cmd.ErrOrStderr(), "Skipping %s: --scope %s is not supported (valid: %s)\n",
+							t.Name, scope, strings.Join(supported, ", "))
+						continue
+					}
+					targetTools = append(targetTools, t)
 				}
 			}
 
@@ -161,7 +171,7 @@ func newMCPInstallCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")
-	cmd.Flags().StringVar(&scope, "scope", "user", "Claude Code scope: user (global) or local (project)")
+	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
 	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (0 = no expiration)")
 	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which MCP servers to install: content, prompts, or both")
 
@@ -195,6 +205,10 @@ func newMCPStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show MCP server configuration status",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateScope(scope); err != nil {
+				return err
+			}
+
 			w := cmd.OutOrStdout()
 			tools := mcp.DetectTools(appDeps.ExecLooker)
 			cwd, _ := os.Getwd()
@@ -222,7 +236,7 @@ func newMCPStatusCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&scope, "scope", "user", "Claude Code scope: user (global) or local (project)")
+	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
 
 	return cmd
 }
@@ -239,6 +253,10 @@ func newMCPUninstallCmd() *cobra.Command {
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: validTools,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateScope(scope); err != nil {
+				return err
+			}
+
 			toolName := args[0]
 			if !isValidTool(toolName) {
 				return fmt.Errorf("unknown tool %q. Valid tools: %s", toolName, strings.Join(validTools, ", "))
@@ -260,10 +278,15 @@ func newMCPUninstallCmd() *cobra.Command {
 
 			cwd, _ := os.Getwd()
 
+			rc, err := mcp.ResolveToolConfig(tool.Name, tool.ResolvedConfigPath(), scope, cwd)
+			if err != nil {
+				return err
+			}
+
 			// Extract PATs from config BEFORE removing entries
 			var extractedPATs []string
 			if deleteTokens {
-				contentPAT, promptPAT := mcp.ExtractPATsFromTool(*tool, scope, cwd)
+				contentPAT, promptPAT := mcp.ExtractPATsFromTool(*tool, rc)
 				if contentPAT != "" {
 					extractedPATs = append(extractedPATs, contentPAT)
 				}
@@ -275,15 +298,15 @@ func newMCPUninstallCmd() *cobra.Command {
 			// Remove config entries
 			switch toolName {
 			case "claude-desktop":
-				if err := mcp.UninstallClaudeDesktop(tool.ResolvedConfigPath()); err != nil {
+				if err := mcp.UninstallClaudeDesktop(rc.Path); err != nil {
 					return err
 				}
 			case "claude-code":
-				if err := mcp.UninstallClaudeCode(tool.ResolvedConfigPath(), scope, cwd); err != nil {
+				if err := mcp.UninstallClaudeCode(rc); err != nil {
 					return err
 				}
 			case "codex":
-				if err := mcp.UninstallCodex(tool.ResolvedConfigPath()); err != nil {
+				if err := mcp.UninstallCodex(rc); err != nil {
 					return err
 				}
 			}
@@ -322,7 +345,7 @@ func newMCPUninstallCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&deleteTokens, "delete-tokens", false, "Revoke PATs extracted from config during uninstall")
-	cmd.Flags().StringVar(&scope, "scope", "user", "Claude Code scope: user (global) or local (project)")
+	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
 
 	return cmd
 }

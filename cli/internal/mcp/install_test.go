@@ -437,6 +437,25 @@ func TestRunInstall__malformed_config_creates_backup_and_succeeds(t *testing.T) 
 	assert.True(t, hasBackupWarning, "should warn about malformed backup")
 }
 
+func TestRunInstall__unsupported_scope_returns_error(t *testing.T) {
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "codex", Installed: true},
+	}
+
+	_, err := RunInstall(InstallOpts{
+		Client:   client,
+		AuthType: "pat",
+		Scope:    "local",
+		Output:   stdout,
+	}, tools)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported by codex")
+}
+
 func TestCheckOrphanedTokens__finds_mcp_tokens(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -571,14 +590,16 @@ func TestExtractPATsFromTool__claude_desktop(t *testing.T) {
 	writeTestJSON(t, configPath, config)
 
 	tool := DetectedTool{Name: "claude-desktop", ConfigPath: configPath}
-	contentPAT, promptPAT := ExtractPATsFromTool(tool, "user", "")
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	contentPAT, promptPAT := ExtractPATsFromTool(tool, rc)
 	assert.Equal(t, "bm_content123", contentPAT)
 	assert.Equal(t, "bm_prompt456", promptPAT)
 }
 
 func TestExtractPATsFromTool__missing_config(t *testing.T) {
 	tool := DetectedTool{Name: "claude-desktop", ConfigPath: "/nonexistent/path.json"}
-	contentPAT, promptPAT := ExtractPATsFromTool(tool, "user", "")
+	rc := ResolvedConfig{Path: "/nonexistent/path.json", Scope: "user"}
+	contentPAT, promptPAT := ExtractPATsFromTool(tool, rc)
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }
