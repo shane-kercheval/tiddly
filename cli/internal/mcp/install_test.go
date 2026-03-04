@@ -582,3 +582,79 @@ func TestExtractPATsFromTool__missing_config(t *testing.T) {
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }
+
+func TestInstallTool__claude_code_project_scope_backup_targets_mcp_json(t *testing.T) {
+	// Regression: installTool claude-code case used to backup tool.ResolvedConfigPath()
+	// (~/.claude.json) instead of the resolved project path (.mcp.json) when --scope project.
+	cwd := t.TempDir()
+	mcpPath := filepath.Join(cwd, ".mcp.json")
+
+	// Write malformed .mcp.json so backup triggers
+	require.NoError(t, os.WriteFile(mcpPath, []byte("not json{"), 0644))
+
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-code", Installed: true, ConfigPath: ""},
+	}
+
+	result, err := RunInstall(InstallOpts{
+		Client:    client,
+		AuthType:  "pat",
+		Scope:     "project",
+		Cwd:       cwd,
+		Output:    stdout,
+		ErrOutput: stderr,
+	}, tools)
+
+	require.NoError(t, err)
+	assert.Contains(t, result.ToolsConfigured, "claude-code")
+
+	// Backup should be .mcp.json.bak in the project dir, not ~/.claude.json.bak
+	backupPath := mcpPath + ".bak"
+	backupData, err := os.ReadFile(backupPath)
+	require.NoError(t, err, "backup should be at .mcp.json.bak")
+	assert.Equal(t, "not json{", string(backupData))
+
+	// New .mcp.json should be valid JSON with our servers
+	newData, err := os.ReadFile(mcpPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(newData), "bookmarks_notes")
+
+	// Warning should reference .mcp.json, not ~/.claude.json
+	hasCorrectWarning := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, ".mcp.json") && strings.Contains(w, "malformed") {
+			hasCorrectWarning = true
+		}
+	}
+	assert.True(t, hasCorrectWarning, "backup warning should reference .mcp.json")
+}
+
+func TestDryRunTool__claude_code_project_scope_shows_correct_path(t *testing.T) {
+	// Regression: dryRunTool claude-code case showed tool.ResolvedConfigPath()
+	// in diff output instead of the resolved project path.
+	cwd := t.TempDir()
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-code", Installed: true, ConfigPath: ""},
+	}
+
+	_, err := RunInstall(InstallOpts{
+		Client:   client,
+		AuthType: "pat",
+		DryRun:   true,
+		Scope:    "project",
+		Cwd:      cwd,
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+	output := stdout.String()
+	// Should show the .mcp.json path, not ~/.claude.json
+	assert.Contains(t, output, filepath.Join(cwd, ".mcp.json"))
+}

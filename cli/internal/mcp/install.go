@@ -199,7 +199,7 @@ func ExtractPATsFromTool(tool DetectedTool, scope, cwd string) (contentPAT, prom
 	case "claude-code":
 		return ExtractClaudeCodePATs(tool.ResolvedConfigPath(), scope, cwd)
 	case "codex":
-		return ExtractCodexPATs(tool.ResolvedConfigPath())
+		return ExtractCodexPATs(tool.ResolvedConfigPath(), scope, cwd)
 	}
 	return "", ""
 }
@@ -256,35 +256,37 @@ func installTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT stri
 
 	case "claude-code":
 		configPath := tool.ResolvedConfigPath()
-		backedUp, err := backupIfMalformed(configPath)
+		resolved := resolveClaudeCodePath(configPath, opts.Scope, opts.Cwd)
+		backedUp, err := backupIfMalformed(resolved)
 		if err != nil {
 			return err
 		}
 		if backedUp {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", configPath, configPath))
+				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", resolved, resolved))
 		}
 		if err := InstallClaudeCode(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd); err != nil {
 			return err
 		}
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", configPath))
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", resolved))
 
 	case "codex":
 		configPath := tool.ResolvedConfigPath()
-		backedUp, err := backupIfMalformed(configPath)
+		resolved := resolveCodexPath(configPath, opts.Scope, opts.Cwd)
+		backedUp, err := backupIfMalformed(resolved)
 		if err != nil {
 			return err
 		}
 		if backedUp {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", configPath, configPath))
+				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", resolved, resolved))
 		}
-		if err := InstallCodex(configPath, contentPAT, promptPAT); err != nil {
+		if err := InstallCodex(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd); err != nil {
 			return err
 		}
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", configPath))
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", resolved))
 	}
 
 	return nil
@@ -304,19 +306,21 @@ func dryRunTool(opts InstallOpts, tool DetectedTool, contentPAT, promptPAT strin
 
 	case "claude-code":
 		configPath := tool.ResolvedConfigPath()
+		resolved := resolveClaudeCodePath(configPath, opts.Scope, opts.Cwd)
 		before, after, err := DryRunClaudeCode(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd)
 		if err != nil {
 			return err
 		}
-		printDiff(opts.Output, configPath, before, after)
+		printDiff(opts.Output, resolved, before, after)
 
 	case "codex":
 		configPath := tool.ResolvedConfigPath()
-		before, after, err := DryRunCodex(configPath, contentPAT, promptPAT)
+		resolved := resolveCodexPath(configPath, opts.Scope, opts.Cwd)
+		before, after, err := DryRunCodex(configPath, contentPAT, promptPAT, opts.Scope, opts.Cwd)
 		if err != nil {
 			return err
 		}
-		printDiff(opts.Output, configPath, before, after)
+		printDiff(opts.Output, resolved, before, after)
 	}
 
 	return nil
