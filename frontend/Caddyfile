@@ -25,31 +25,35 @@
 		-Server
 	}
 
+	# Default: always revalidate (SPA routes, index.html, etc.)
+	header Cache-Control "no-cache"
+
 	# Hashed assets (JS, CSS, fonts, images) — immutable, cache forever
 	# Vite outputs all hashed files to /assets/ with content hashes in filenames
 	@hashed_assets path /assets/*
 	header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
 
-	# index.html — always revalidate to pick up new deployments
-	@html path /index.html /
-	header @html Cache-Control "no-cache"
-
 	root * {{.DIST_DIR}}
-
-	file_server {
-		hide .git
-		hide .env*
-	}
 
 	encode {
 		gzip
 		zstd
 	}
 
-	try_files {path} {path}.html {path}/index.html /index.html
+	# Static assets — 404 if missing, don't fall through to SPA
+	handle /assets/* {
+		file_server {
+			hide .git
+			hide .env*
+		}
+	}
 
-	handle_errors {
-		rewrite * /{err.status_code}.html
-		file_server
+	# SPA routing for everything else
+	handle {
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server {
+			hide .git
+			hide .env*
+		}
 	}
 }
