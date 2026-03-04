@@ -12,22 +12,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor-codemirror': [
-            '@codemirror/autocomplete',
-            '@codemirror/commands',
-            '@codemirror/lang-markdown',
-            '@codemirror/language',
-            '@codemirror/search',
-            '@codemirror/state',
-            '@codemirror/view',
-            '@uiw/react-codemirror',
-          ],
-          'vendor-milkdown': [
-            '@milkdown/kit',
-            '@milkdown/react',
-            '@milkdown/theme-nord',
-            '@milkdown/plugin-listener',
-          ],
           'vendor-react': [
             'react',
             'react-dom',

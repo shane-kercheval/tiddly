@@ -251,7 +251,7 @@ describe('Layout', () => {
       expect(mockUseLimits).toHaveBeenCalledWith({ enabled: false })
     })
 
-    it('should call useLimits with enabled: true when user needs consent (needsConsent=true shows dialog, not blocking)', () => {
+    it('should call useLimits with enabled: false when user needs consent', () => {
       vi.mocked(config).isDevMode = false
       mockNeedsConsent = true // user needs to give consent
 
