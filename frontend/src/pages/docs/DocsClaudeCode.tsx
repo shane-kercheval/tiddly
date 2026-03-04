@@ -9,12 +9,12 @@ import { SkillsSection } from './components/SkillsSection'
 import { ExamplePrompts } from './components/ExamplePrompts'
 
 function generateContentCommand(mcpUrl: string): string {
-  return `claude mcp add --transport http bookmarks_notes ${mcpUrl}/mcp \\
+  return `claude mcp add --transport http tiddly_content ${mcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
 }
 
 function generatePromptCommand(promptMcpUrl: string): string {
-  return `claude mcp add --transport http prompts ${promptMcpUrl}/mcp \\
+  return `claude mcp add --transport http tiddly_prompts ${promptMcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
 }
 

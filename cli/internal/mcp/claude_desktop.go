@@ -12,8 +12,8 @@ const (
 	defaultContentMCPURL = "https://content-mcp.tiddly.me/mcp"
 	defaultPromptMCPURL  = "https://prompt-mcp.tiddly.me/mcp"
 
-	serverNameContent = "bookmarks_notes"
-	serverNamePrompts = "prompts"
+	serverNameContent = "tiddly_content"
+	serverNamePrompts = "tiddly_prompts"
 )
 
 // ContentMCPURL returns the content MCP server URL, overridable via TIDDLY_CONTENT_MCP_URL.

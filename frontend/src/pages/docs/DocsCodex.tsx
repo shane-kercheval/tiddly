@@ -9,11 +9,11 @@ import { SkillsSection } from './components/SkillsSection'
 import { ExamplePrompts } from './components/ExamplePrompts'
 
 function generateCombinedConfig(mcpUrl: string, promptMcpUrl: string): string {
-  return `[mcp_servers.bookmarks_notes]
+  return `[mcp_servers.tiddly_content]
 url = "${mcpUrl}/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }
 
-[mcp_servers.prompts]
+[mcp_servers.tiddly_prompts]
 url = "${promptMcpUrl}/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
 }

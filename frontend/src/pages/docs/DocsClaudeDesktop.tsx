@@ -14,7 +14,7 @@ const CONFIG_PATH_WINDOWS = '%APPDATA%\\Claude\\claude_desktop_config.json'
 function generateCombinedConfig(mcpUrl: string, promptMcpUrl: string): string {
   const configObj = {
     mcpServers: {
-      bookmarks_notes: {
+      tiddly_content: {
         command: 'npx',
         args: [
           'mcp-remote',
@@ -23,7 +23,7 @@ function generateCombinedConfig(mcpUrl: string, promptMcpUrl: string): string {
           'Authorization: Bearer YOUR_TOKEN_HERE',
         ],
       },
-      prompts: {
+      tiddly_prompts: {
         command: 'npx',
         args: [
           'mcp-remote',

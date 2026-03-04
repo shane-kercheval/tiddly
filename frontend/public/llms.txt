@@ -150,11 +150,11 @@ All MCP setup requires a Personal Access Token (PAT). Generate one in Settings >
 ```json
 {
   "mcpServers": {
-    "bookmarks_notes": {
+    "tiddly_content": {
       "command": "npx",
       "args": ["mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
     },
-    "prompts": {
+    "tiddly_prompts": {
       "command": "npx",
       "args": ["mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
     }
@@ -167,10 +167,10 @@ Restart Claude Desktop after saving. Uses `mcp-remote` as a bridge since Claude 
 **Claude Code** — Run in your project directory:
 
 ```
-claude mcp add --transport http bookmarks_notes https://content-mcp.tiddly.me/mcp \
+claude mcp add --transport http tiddly_content https://content-mcp.tiddly.me/mcp \
   --header "Authorization: Bearer YOUR_PAT"
 
-claude mcp add --transport http prompts https://prompt-mcp.tiddly.me/mcp \
+claude mcp add --transport http tiddly_prompts https://prompt-mcp.tiddly.me/mcp \
   --header "Authorization: Bearer YOUR_PAT"
 ```
 
@@ -179,11 +179,11 @@ Note: Claude Code MCP servers are configured per project directory. Alternativel
 **Codex** — Add to `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.bookmarks_notes]
+[mcp_servers.tiddly_content]
 url = "https://content-mcp.tiddly.me/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_PAT" }
 
-[mcp_servers.prompts]
+[mcp_servers.tiddly_prompts]
 url = "https://prompt-mcp.tiddly.me/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_PAT" }
 ```

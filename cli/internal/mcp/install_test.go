@@ -97,11 +97,11 @@ func TestRunInstall__oauth_reuses_valid_existing_pat(t *testing.T) {
 	// Write existing config with valid PATs
 	existingConfig := map[string]any{
 		"mcpServers": map[string]any{
-			"bookmarks_notes": map[string]any{
+			"tiddly_content": map[string]any{
 				"command": "npx",
 				"args":    []string{"mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_existing_content"},
 			},
-			"prompts": map[string]any{
+			"tiddly_prompts": map[string]any{
 				"command": "npx",
 				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_existing_prompt"},
 			},
@@ -159,11 +159,11 @@ func TestRunInstall__oauth_creates_new_pat_when_existing_invalid(t *testing.T) {
 	// Write existing config with invalid PATs
 	existingConfig := map[string]any{
 		"mcpServers": map[string]any{
-			"bookmarks_notes": map[string]any{
+			"tiddly_content": map[string]any{
 				"command": "npx",
 				"args":    []string{"mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_expired_content"},
 			},
-			"prompts": map[string]any{
+			"tiddly_prompts": map[string]any{
 				"command": "npx",
 				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_expired_prompt"},
 			},
@@ -217,7 +217,7 @@ func TestRunInstall__pat_reuses_token(t *testing.T) {
 	// Verify the config was written with the existing PAT
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
-	content := servers["bookmarks_notes"].(map[string]any)
+	content := servers["tiddly_content"].(map[string]any)
 	args := toStringSlice(content["args"])
 	assert.Contains(t, args[3], "bm_existing")
 }
@@ -287,7 +287,7 @@ func TestRunInstall__dry_run_pat_auth_shows_diff(t *testing.T) {
 	}, tools)
 
 	require.NoError(t, err)
-	assert.Contains(t, stdout.String(), "bookmarks_notes")
+	assert.Contains(t, stdout.String(), "tiddly_content")
 	assert.Contains(t, stdout.String(), "bm_test")
 
 	// File should NOT exist (dry run)
@@ -343,8 +343,8 @@ func TestRunInstall__servers_content_only(t *testing.T) {
 	// Config should only have content server
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
-	assert.Contains(t, servers, "bookmarks_notes")
-	assert.NotContains(t, servers, "prompts")
+	assert.Contains(t, servers, "tiddly_content")
+	assert.NotContains(t, servers, "tiddly_prompts")
 }
 
 func TestRunInstall__servers_prompts_only(t *testing.T) {
@@ -370,8 +370,8 @@ func TestRunInstall__servers_prompts_only(t *testing.T) {
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
-	assert.NotContains(t, servers, "bookmarks_notes")
-	assert.Contains(t, servers, "prompts")
+	assert.NotContains(t, servers, "tiddly_content")
+	assert.Contains(t, servers, "tiddly_prompts")
 }
 
 func TestRunInstall__skips_uninstalled_tools(t *testing.T) {
@@ -425,7 +425,7 @@ func TestRunInstall__malformed_config_creates_backup_and_succeeds(t *testing.T) 
 	// New config should be valid JSON
 	newData, err := os.ReadFile(configPath)
 	require.NoError(t, err)
-	assert.Contains(t, string(newData), "bookmarks_notes")
+	assert.Contains(t, string(newData), "tiddly_content")
 
 	// Warning should mention the backup
 	hasBackupWarning := false
@@ -637,11 +637,11 @@ func TestExtractPATsFromTool__claude_desktop(t *testing.T) {
 
 	config := map[string]any{
 		"mcpServers": map[string]any{
-			"bookmarks_notes": map[string]any{
+			"tiddly_content": map[string]any{
 				"command": "npx",
 				"args":    []string{"mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_content123"},
 			},
-			"prompts": map[string]any{
+			"tiddly_prompts": map[string]any{
 				"command": "npx",
 				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_prompt456"},
 			},
@@ -702,7 +702,7 @@ func TestInstallTool__claude_code_project_scope_backup_targets_mcp_json(t *testi
 	// New .mcp.json should be valid JSON with our servers
 	newData, err := os.ReadFile(mcpPath)
 	require.NoError(t, err)
-	assert.Contains(t, string(newData), "bookmarks_notes")
+	assert.Contains(t, string(newData), "tiddly_content")
 
 	// Warning should reference .mcp.json, not ~/.claude.json
 	hasCorrectWarning := false

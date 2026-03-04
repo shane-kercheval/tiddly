@@ -71,13 +71,13 @@ func TestInstallClaudeCode__user_scope_creates_config(t *testing.T) {
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
 
-	content := servers["bookmarks_notes"].(map[string]any)
+	content := servers["tiddly_content"].(map[string]any)
 	assert.Equal(t, "http", content["type"])
 	assert.Equal(t, ContentMCPURL(), content["url"])
 	headers := content["headers"].(map[string]any)
 	assert.Equal(t, "Bearer bm_content", headers["Authorization"])
 
-	prompts := servers["prompts"].(map[string]any)
+	prompts := servers["tiddly_prompts"].(map[string]any)
 	assert.Equal(t, "http", prompts["type"])
 	assert.Equal(t, PromptMCPURL(), prompts["url"])
 }
@@ -104,8 +104,8 @@ func TestInstallClaudeCode__preserves_existing_config(t *testing.T) {
 
 	servers := config["mcpServers"].(map[string]any)
 	assert.NotNil(t, servers["other-server"], "existing server should be preserved")
-	assert.NotNil(t, servers["bookmarks_notes"], "new server should be added")
-	assert.NotNil(t, servers["prompts"], "new server should be added")
+	assert.NotNil(t, servers["tiddly_content"], "new server should be added")
+	assert.NotNil(t, servers["tiddly_prompts"], "new server should be added")
 }
 
 func TestInstallClaudeCode__local_scope(t *testing.T) {
@@ -121,7 +121,7 @@ func TestInstallClaudeCode__local_scope(t *testing.T) {
 	projects := config["projects"].(map[string]any)
 	proj := projects[fakeCwd].(map[string]any)
 	servers := proj["mcpServers"].(map[string]any)
-	assert.NotNil(t, servers["bookmarks_notes"])
+	assert.NotNil(t, servers["tiddly_content"])
 }
 
 func TestInstallClaudeCode__project_scope(t *testing.T) {
@@ -147,8 +147,8 @@ func TestUninstallClaudeCode__removes_servers(t *testing.T) {
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
-	assert.Nil(t, servers["bookmarks_notes"])
-	assert.Nil(t, servers["prompts"])
+	assert.Nil(t, servers["tiddly_content"])
+	assert.Nil(t, servers["tiddly_prompts"])
 }
 
 func TestUninstallClaudeCode__no_file_is_noop(t *testing.T) {
@@ -170,7 +170,7 @@ func TestStatusClaudeCode__finds_servers(t *testing.T) {
 
 	servers, err := StatusClaudeCode(rc)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"bookmarks_notes", "prompts"}, servers)
+	assert.Equal(t, []string{"tiddly_content", "tiddly_prompts"}, servers)
 }
 
 func TestStatusClaudeCode__no_servers(t *testing.T) {
@@ -204,8 +204,8 @@ func TestDryRunClaudeCode__shows_diff(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, before, "{}")
-	assert.Contains(t, after, "bookmarks_notes")
-	assert.Contains(t, after, "prompts")
+	assert.Contains(t, after, "tiddly_content")
+	assert.Contains(t, after, "tiddly_prompts")
 
 	// File should NOT have been created
 	_, err = os.Stat(configPath)
