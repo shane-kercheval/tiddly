@@ -1,5 +1,5 @@
 import { useAuth0 } from '@auth0/auth0-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { isDevMode } from '../config'
@@ -33,9 +33,16 @@ function ReplayableAnimation({
   restartDelay?: number
 }): ReactNode {
   const [key, setKey] = useState(0)
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
 
   const handleComplete = useCallback((): void => {
-    setTimeout(() => setKey((k) => k + 1), restartDelay)
+    timerRef.current = setTimeout(() => setKey((k) => k + 1), restartDelay)
   }, [restartDelay])
 
   return <Component key={key} onComplete={handleComplete} />
@@ -136,17 +143,15 @@ function SupportedClientCard({ client }: { client: SupportedClient }): ReactNode
 }
 
 function FeaturesContent({
-  onLogin,
   onSignup,
 }: {
-  onLogin: () => void
   onSignup: () => void
 }): ReactNode {
   usePageTitle('Features')
 
   return (
     <div className="min-h-screen bg-white">
-      <PublicHeader onLogin={onLogin} onSignup={onSignup} />
+      <PublicHeader />
 
       {/* 1. Hero */}
       <section className="mx-auto max-w-5xl px-6 pb-12 pt-16 text-center sm:px-8 lg:px-12">
@@ -402,7 +407,6 @@ function Auth0FeaturesPage(): ReactNode {
 
   return (
     <FeaturesContent
-      onLogin={() => loginWithRedirect({ authorizationParams: { screen_hint: 'login' } })}
       onSignup={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
     />
   )
@@ -410,7 +414,7 @@ function Auth0FeaturesPage(): ReactNode {
 
 export function FeaturesPage(): ReactNode {
   if (isDevMode) {
-    return <FeaturesContent onLogin={() => {}} onSignup={() => {}} />
+    return <FeaturesContent onSignup={() => {}} />
   }
 
   return <Auth0FeaturesPage />

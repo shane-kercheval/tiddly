@@ -134,9 +134,9 @@ export function Layout(): ReactNode {
       >
         <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
           <div className={`flex flex-col min-h-0 px-4 pb-4 md:px-5 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>
-            <Suspense fallback={<ContentAreaSpinner />}>
-              {consentReady ? <Outlet /> : <ContentAreaSpinner />}
-            </Suspense>
+            {consentReady
+              ? <Suspense fallback={<ContentAreaSpinner />}><Outlet /></Suspense>
+              : <ContentAreaSpinner />}
           </div>
         </div>
         {showFooter && <Footer />}
