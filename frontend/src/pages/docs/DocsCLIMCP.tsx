@@ -20,11 +20,76 @@ export function DocsCLIMCP(): ReactNode {
       <h2 className="text-xl font-bold text-gray-900 mb-4">tiddly mcp install</h2>
       <p className="text-gray-600 mb-3">
         Installs Tiddly MCP server entries into AI tool config files. Without arguments, it
-        auto-detects all installed tools. Specify tool names to target specific tools:
+        auto-detects all installed tools and installs both servers. Use{' '}
+        <code className="bg-gray-100 px-1 rounded">--servers</code> to choose which servers to install:
       </p>
-      <CopyableCodeBlock code="tiddly mcp install                     # auto-detect all tools
-tiddly mcp install claude-code           # specific tool
-tiddly mcp install claude-code codex     # multiple tools" />
+      <CopyableCodeBlock code={`tiddly mcp install                               # all tools, both servers
+tiddly mcp install --servers content              # bookmarks & notes server only
+tiddly mcp install --servers prompts              # prompts server only
+tiddly mcp install claude-code                    # specific tool, both servers
+tiddly mcp install claude-code --servers content  # specific tool + server
+tiddly mcp install claude-code codex              # multiple tools`} />
+
+      {/* Server explanation */}
+      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Servers</h3>
+      <p className="text-gray-600 mb-2">
+        Tiddly exposes two MCP servers, each with its own set of tools:
+      </p>
+      <ul className="list-disc list-inside space-y-1 text-gray-600 mb-6">
+        <li>
+          <code className="bg-gray-100 px-1 rounded">bookmarks_notes</code> (content server) —
+          search, create, and edit bookmarks and notes
+        </li>
+        <li>
+          <code className="bg-gray-100 px-1 rounded">prompts</code> (prompt server) —
+          manage and render Jinja2 prompt templates
+        </li>
+      </ul>
+
+      {/* tiddly mcp status */}
+      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">tiddly mcp status</h2>
+      <p className="text-gray-600 mb-3">
+        Shows MCP server configuration status for each supported tool:
+      </p>
+      <CopyableCodeBlock code="tiddly mcp status" />
+      <p className="text-gray-600 mt-3 mb-4">
+        For each tool, reports one of:
+      </p>
+      <ul className="list-disc list-inside space-y-1 text-gray-600 mb-6">
+        <li><strong>Not detected</strong> — binary or config directory not found</li>
+        <li><strong>Detected, not configured</strong> — tool is installed but no MCP server entries</li>
+        <li><strong>Configured</strong> — lists which server entries are present</li>
+      </ul>
+      <p className="text-sm text-gray-500 mb-4">
+        Reads config files directly — no API calls or subprocesses.
+      </p>
+
+      {/* tiddly mcp uninstall */}
+      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">tiddly mcp uninstall</h2>
+      <p className="text-gray-600 mb-3">
+        Removes MCP server entries from a tool&apos;s config file. All other config keys are preserved.
+      </p>
+      <CopyableCodeBlock code="tiddly mcp uninstall claude-code
+tiddly mcp uninstall claude-code --delete-tokens" />
+
+      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">--delete-tokens</h3>
+      <p className="text-gray-600 mb-3">
+        With <code className="bg-gray-100 px-1 rounded">--delete-tokens</code> (requires OAuth
+        auth), the CLI:
+      </p>
+      <ol className="list-decimal list-inside space-y-1 text-gray-600 mb-4">
+        <li>Reads PATs from the tool&apos;s config before removing server entries</li>
+        <li>Removes the server entries from the config file</li>
+        <li>Deletes matching tokens from your account (matched by prefix and{' '}
+          <code className="bg-gray-100 px-1 rounded">cli-mcp-</code> name pattern)</li>
+      </ol>
+      <p className="text-gray-600 mb-8">
+        Without <code className="bg-gray-100 px-1 rounded">--delete-tokens</code>, the CLI warns
+        about potentially orphaned tokens and suggests cleanup options.
+      </p>
+
+      {/* Reference */}
+      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">Reference</h2>
 
       {/* Token Management */}
       <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Token Management</h3>
@@ -72,11 +137,6 @@ tiddly mcp install claude-code codex     # multiple tools" />
 
       {/* Config Files */}
       <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Config Files Written</h3>
-      <p className="text-gray-600 mb-3">
-        Two MCP server entries are added to each tool&apos;s config:{' '}
-        <code className="bg-gray-100 px-1 rounded">bookmarks_notes</code> (content server) and{' '}
-        <code className="bg-gray-100 px-1 rounded">prompts</code> (prompt server).
-      </p>
       <div className="overflow-x-auto mb-4">
         <table className="min-w-full text-sm">
           <thead>
@@ -150,8 +210,8 @@ tiddly mcp install claude-code codex     # multiple tools" />
         </table>
       </div>
 
-      {/* Flags */}
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Flags</h3>
+      {/* All Flags */}
+      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">All Flags</h3>
       <div className="overflow-x-auto mb-6">
         <table className="min-w-full text-sm">
           <thead>
@@ -162,16 +222,16 @@ tiddly mcp install claude-code codex     # multiple tools" />
           </thead>
           <tbody className="text-gray-600">
             <tr className="border-b border-gray-100">
-              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--dry-run</code></td>
-              <td className="py-2">Preview config changes without writing files or creating tokens</td>
-            </tr>
-            <tr className="border-b border-gray-100">
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--servers content,prompts</code></td>
               <td className="py-2">Install only specific servers (default: both)</td>
             </tr>
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--scope user|local|project</code></td>
               <td className="py-2">Config level to write (default: user)</td>
+            </tr>
+            <tr className="border-b border-gray-100">
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--dry-run</code></td>
+              <td className="py-2">Preview config changes without writing files or creating tokens</td>
             </tr>
             <tr>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--expires-in</code></td>
@@ -180,48 +240,6 @@ tiddly mcp install claude-code codex     # multiple tools" />
           </tbody>
         </table>
       </div>
-
-      {/* tiddly mcp status */}
-      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">tiddly mcp status</h2>
-      <p className="text-gray-600 mb-3">
-        Shows MCP server configuration status for each supported tool:
-      </p>
-      <CopyableCodeBlock code="tiddly mcp status" />
-      <p className="text-gray-600 mt-3 mb-4">
-        For each tool, reports one of:
-      </p>
-      <ul className="list-disc list-inside space-y-1 text-gray-600 mb-6">
-        <li><strong>Not detected</strong> — binary or config directory not found</li>
-        <li><strong>Detected, not configured</strong> — tool is installed but no MCP server entries</li>
-        <li><strong>Configured</strong> — lists which server entries are present</li>
-      </ul>
-      <p className="text-sm text-gray-500 mb-4">
-        Reads config files directly — no API calls or subprocesses.
-      </p>
-
-      {/* tiddly mcp uninstall */}
-      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">tiddly mcp uninstall</h2>
-      <p className="text-gray-600 mb-3">
-        Removes MCP server entries from a tool&apos;s config file. All other config keys are preserved.
-      </p>
-      <CopyableCodeBlock code="tiddly mcp uninstall claude-code
-tiddly mcp uninstall claude-code --delete-tokens" />
-
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">--delete-tokens</h3>
-      <p className="text-gray-600 mb-3">
-        With <code className="bg-gray-100 px-1 rounded">--delete-tokens</code> (requires OAuth
-        auth), the CLI:
-      </p>
-      <ol className="list-decimal list-inside space-y-1 text-gray-600 mb-4">
-        <li>Reads PATs from the tool&apos;s config before removing server entries</li>
-        <li>Removes the server entries from the config file</li>
-        <li>Deletes matching tokens from your account (matched by prefix and{' '}
-          <code className="bg-gray-100 px-1 rounded">cli-mcp-</code> name pattern)</li>
-      </ol>
-      <p className="text-gray-600 mb-6">
-        Without <code className="bg-gray-100 px-1 rounded">--delete-tokens</code>, the CLI warns
-        about potentially orphaned tokens and suggests cleanup options.
-      </p>
 
       {/* Cross-link to AI Integration */}
       <InfoCallout variant="tip" title="Manual Setup">
