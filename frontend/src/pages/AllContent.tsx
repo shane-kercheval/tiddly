@@ -150,7 +150,7 @@ export function AllContent(): ReactNode {
   const tagMatch = getTagMatch(tagFilterViewKey)
 
   // Get current filter data for custom filters
-  const { filters } = useFiltersStore()
+  const { filters, hasFetched: filtersHasFetched } = useFiltersStore()
   const currentFilter = useMemo(
     () => currentFilterId !== undefined ? filters.find(f => f.id === currentFilterId) : undefined,
     [currentFilterId, filters]
@@ -257,6 +257,11 @@ export function AllContent(): ReactNode {
     [effectiveSearchQuery, selectedTags, tagMatch, sortBy, sortOrder, offset, pageSize, currentView, currentFilterId, selectedContentTypes]
   )
 
+  // Gate content query on filter readiness to avoid a wasted API call.
+  // For filter views, wait until filtersStore has loaded so we query with correct params.
+  // For builtin views (All/Archived/Trash), currentFilterId is undefined so query fires immediately.
+  const isFilterReady = currentFilterId === undefined || filtersHasFetched
+
   // Fetch content with TanStack Query
   const {
     data: queryData,
@@ -264,7 +269,7 @@ export function AllContent(): ReactNode {
     isFetching,
     error: queryError,
     refetch,
-  } = useContentQuery(currentParams)
+  } = useContentQuery(currentParams, { enabled: isFilterReady })
 
   // View switches (All → Archived, sidebar filter changes) and search refinements
   // are intentionally handled differently during fetches:
@@ -906,7 +911,7 @@ export function AllContent(): ReactNode {
       </div>
 
       {/* Content - spinner for initial load, results for all other states */}
-      {isLoading || isViewSwitching ? (
+      {isLoading || isViewSwitching || !isFilterReady ? (
         <ContentAreaSpinner label="Loading content..." />
       ) : (
         <div aria-busy={isFetching && !isLoading ? true : undefined}>

@@ -49,17 +49,18 @@ async function fetchLimits(): Promise<UserLimits> {
  * return <Input maxLength={limits.max_title_length} />
  * ```
  */
-export function useLimits(): {
+export function useLimits(options?: { enabled?: boolean }): {
   limits: UserLimits | undefined
   isLoading: boolean
   error: Error | null
 } {
   const { isAuthenticated, userId } = useAuthStatus()
+  const externalEnabled = options?.enabled ?? true
 
   const { data, isLoading, error } = useQuery({
     queryKey: limitsKeys.user(userId ?? 'anonymous'),
     queryFn: fetchLimits,
-    enabled: isAuthenticated && !!userId, // Only fetch when authenticated
+    enabled: isAuthenticated && !!userId && externalEnabled,
     staleTime: Infinity, // Limits rarely change, cache until page refresh
     gcTime: Infinity, // Keep in cache indefinitely
   })
