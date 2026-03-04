@@ -47,6 +47,16 @@ const CHANGELOG: ChangelogMonth[] = [
         emoji: '✨',
         entries: [
           {
+            title: 'Page load performance',
+            description:
+              'Route-level code splitting, CORS preflight caching, and proper static asset cache headers. Faster cold loads and repeat navigations skip network round-trips entirely.',
+          },
+          {
+            title: 'Smarter data fetching',
+            description:
+              'Filter views no longer fire a redundant API call before filters load. User limits are prefetched at the layout level so detail pages render without a sequential waterfall.',
+          },
+          {
             title: 'Landing page animations',
             description: 'Scroll-triggered animations for a smoother first impression.',
           },
