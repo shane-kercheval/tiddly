@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 import { isDevMode } from '../config'
 import { BookmarkIcon } from './icons'
@@ -13,28 +14,47 @@ interface DropdownItem {
 
 const productItems: DropdownItem[] = [
   { label: 'Features', path: '/features' },
-  { label: 'Changelog', path: '/changelog' },
   { label: 'Roadmap', path: '/roadmap' },
+  { label: 'Changelog', path: '/changelog' },
 ]
+
+/**
+ * Auth buttons that use Auth0's loginWithRedirect.
+ * Isolated into a sub-component so useAuth0() is only called in production
+ * (where Auth0Provider is mounted). In dev mode, PublicHeader renders "Open App" instead.
+ */
+function AuthButtons(): ReactNode {
+  const { loginWithRedirect } = useAuth0()
+
+  return (
+    <>
+      <button
+        onClick={() => loginWithRedirect({ authorizationParams: { screen_hint: 'login' } })}
+        className="rounded-lg px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+      >
+        Log In
+      </button>
+      <button
+        onClick={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
+        className="rounded-lg bg-gray-900 px-5 py-1.5 text-sm font-medium text-white transition-all hover:bg-gray-700 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+      >
+        Sign Up
+      </button>
+    </>
+  )
+}
 
 /**
  * Shared header for all public pages (landing, docs, changelog, roadmap, pricing).
  * Nav: Logo(Tiddly) | Product (dropdown) | Docs | Pricing ... Log In | Sign Up
+ *
+ * In dev mode, shows "Open App" link (no auth buttons). In production, unauthenticated
+ * users see Log In / Sign Up buttons rendered by AuthButtons (which calls useAuth0).
  */
-export function PublicHeader({
-  onLogin,
-  onSignup,
-  fullWidth = false,
-}: {
-  onLogin?: () => void
-  onSignup?: () => void
-  fullWidth?: boolean
-}): ReactNode {
+export function PublicHeader(): ReactNode {
   const { isAuthenticated } = useAuthStatus()
   const location = useLocation()
 
-  const handleLogin = onLogin ?? (() => {})
-  const handleSignup = onSignup ?? (() => {})
   const [productOpen, setProductOpen] = useState(false)
   const [prevPath, setPrevPath] = useState(location.pathname)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -81,7 +101,7 @@ export function PublicHeader({
 
   return (
     <header className={`sticky top-0 z-40 w-full bg-white/80 backdrop-blur-md transition-colors ${scrolled ? 'border-b border-gray-200/60' : 'border-b border-transparent'}`}>
-      <div className={`flex items-center justify-between px-6 py-4 sm:px-8 lg:px-12 ${fullWidth ? '' : 'mx-auto max-w-5xl'}`}>
+      <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4 sm:px-8 lg:px-12">
         {/* Left: Logo + Nav */}
         <div className="flex items-center gap-8">
           <Link to="/" className="flex items-center gap-2" aria-label="Home">
@@ -108,7 +128,7 @@ export function PublicHeader({
                 </svg>
               </button>
               {productOpen && (
-                <div className="absolute left-0 top-full z-50 mt-2 w-40 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                <div className="absolute left-0 top-full z-50 mt-2 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
                   {productItems.map((item) => (
                     <Link
                       key={item.path}
@@ -141,20 +161,7 @@ export function PublicHeader({
               Open App
             </Link>
           ) : (
-            <>
-              <button
-                onClick={handleLogin}
-                className="rounded-lg px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
-              >
-                Log In
-              </button>
-              <button
-                onClick={handleSignup}
-                className="rounded-lg bg-gray-900 px-5 py-1.5 text-sm font-medium text-white transition-all hover:bg-gray-700 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
-              >
-                Sign Up
-              </button>
-            </>
+            <AuthButtons />
           )}
         </div>
       </div>

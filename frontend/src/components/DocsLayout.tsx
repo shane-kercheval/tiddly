@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { ContentAreaSpinner } from './ui'
 import { PublicHeader } from './PublicHeader'
 import { Footer } from './Footer'
 
@@ -112,9 +113,9 @@ export function DocsLayout(): ReactNode {
 
   return (
     <div className="flex min-h-screen flex-col bg-white">
-      <PublicHeader fullWidth />
+      <PublicHeader />
 
-      <div className="flex w-full flex-1">
+      <div className="flex flex-1">
         {/* Mobile menu button */}
         <button
           type="button"
@@ -142,13 +143,13 @@ export function DocsLayout(): ReactNode {
           />
         )}
 
-        {/* Sidebar — extends to left edge */}
+        {/* Sidebar — sticky below header */}
         <aside
-          className={`fixed inset-y-0 left-0 z-30 w-64 transform overflow-y-auto bg-white p-6 pt-20 shadow-lg transition-transform md:static md:block md:w-56 md:shrink-0 md:transform-none md:border-r md:border-gray-200 md:shadow-none md:pt-8 md:pl-6 md:pr-6 lg:pl-8 ${
+          className={`fixed inset-y-0 left-0 z-30 w-64 transform overflow-y-auto bg-white p-6 pt-20 shadow-lg transition-transform md:sticky md:top-[57px] md:block md:h-[calc(100vh-57px)] md:w-[15.25rem] md:shrink-0 md:transform-none md:border-r md:border-gray-200 md:p-0 md:shadow-none ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
           }`}
         >
-          <nav className="ml-auto w-full max-w-[12rem] space-y-1">
+          <nav className="w-full space-y-1 p-6 pl-6 lg:pl-8">
             {docsNav.map((item) => (
               <NavItem key={item.path} item={item} pathname={pathname} />
             ))}
@@ -156,9 +157,13 @@ export function DocsLayout(): ReactNode {
         </aside>
 
         {/* Main content */}
-        <main className="min-w-0 flex-1 px-6 py-8 sm:px-8 lg:px-12">
-          <div className="max-w-3xl">
-            <Outlet />
+        <main className="min-w-0 flex-1">
+          <div className="px-6 py-8 sm:px-8 lg:px-12">
+            <div className="max-w-3xl">
+              <Suspense fallback={<ContentAreaSpinner />}>
+                <Outlet />
+              </Suspense>
+            </div>
           </div>
         </main>
       </div>

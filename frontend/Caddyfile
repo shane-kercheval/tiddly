@@ -1,0 +1,53 @@
+{
+	admin off
+	persist_config off
+	auto_https off
+
+	log {
+		format json
+	}
+
+	servers {
+		trusted_proxies static private_ranges 100.0.0.0/8
+	}
+}
+
+:{$PORT:80} {
+	log {
+		format json
+	}
+
+	respond /health 200
+
+	# Security headers
+	header {
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	root * {{.DIST_DIR}}
+
+	encode {
+		gzip
+		zstd
+	}
+
+	# Hashed assets — immutable, cache forever; 404 if missing (don't fall through to SPA)
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server {
+			hide .git
+			hide .env*
+		}
+	}
+
+	# SPA routing for everything else — always revalidate to pick up new deploys
+	handle {
+		header Cache-Control "no-cache"
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server {
+			hide .git
+			hide .env*
+		}
+	}
+}

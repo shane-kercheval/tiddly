@@ -10,6 +10,7 @@ interface FiltersState {
   filters: ContentFilter[]
   isLoading: boolean
   error: string | null
+  hasFetched: boolean
 }
 
 interface FiltersActions {
@@ -27,16 +28,17 @@ export const useFiltersStore = create<FiltersStore>((set, get) => ({
   filters: [],
   isLoading: false,
   error: null,
+  hasFetched: false,
 
   // Actions
   fetchFilters: async () => {
     set({ isLoading: true, error: null })
     try {
       const response = await api.get<ContentFilter[]>('/filters/')
-      set({ filters: response.data, isLoading: false })
+      set({ filters: response.data, isLoading: false, hasFetched: true })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch filters'
-      set({ isLoading: false, error: message })
+      set({ isLoading: false, error: message, hasFetched: true })
     }
   },
 

@@ -59,15 +59,13 @@ function FeatureCard({
  * Landing page content shown to unauthenticated users.
  */
 function LandingContent({
-  onLogin,
   onSignup,
 }: {
-  onLogin: () => void
   onSignup: () => void
 }): ReactNode {
   return (
     <div className="min-h-screen bg-white">
-      <PublicHeader onLogin={onLogin} onSignup={onSignup} />
+      <PublicHeader />
 
       {/* Hero Section */}
       <div className="mx-auto max-w-5xl px-6 pb-8 pt-10 sm:px-8 lg:px-12">
@@ -216,7 +214,7 @@ function LandingContent({
               </div>
               <h3 className="mb-1 text-base font-semibold text-gray-900">Keyboard-first</h3>
               <p className="text-sm leading-relaxed text-gray-600">
-                Command palette, shortcuts, and no-mouse workflows.
+                Command palette & shortcuts.
               </p>
             </div>
           </div>
@@ -410,7 +408,6 @@ function AuthenticatedLandingPage(): ReactNode {
 
   return (
     <LandingContent
-      onLogin={() => loginWithRedirect({ authorizationParams: { screen_hint: 'login' } })}
       onSignup={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
     />
   )

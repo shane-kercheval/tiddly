@@ -8,6 +8,19 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   // Read .env from project root (parent directory)
   envDir: '..',
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': [
+            'react',
+            'react-dom',
+            'react-router-dom',
+          ],
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

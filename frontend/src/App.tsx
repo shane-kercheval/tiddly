@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { Toaster } from 'react-hot-toast'
@@ -5,46 +6,57 @@ import { AuthProvider } from './components/AuthProvider'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppLayout } from './components/AppLayout'
 import { Layout } from './components/Layout'
-import { DocsLayout } from './components/DocsLayout'
-import { PublicPageLayout } from './components/PublicPageLayout'
 import { LandingPage } from './pages/LandingPage'
-import { PrivacyPolicy } from './pages/PrivacyPolicy'
-import { TermsOfService } from './pages/TermsOfService'
-import { BookmarkDetail } from './pages/BookmarkDetail'
-import { NoteDetail } from './pages/NoteDetail'
-import { PromptDetail } from './pages/PromptDetail'
 import { AllContent } from './pages/AllContent'
-import { SettingsGeneral } from './pages/settings/SettingsGeneral'
-import { SettingsTokens } from './pages/settings/SettingsTokens'
-import { SettingsMCP } from './pages/settings/SettingsMCP'
-import { SettingsTags } from './pages/settings/SettingsTags'
-import { SettingsFAQ } from './pages/settings/SettingsFAQ'
-import { SettingsVersionHistory } from './pages/settings/SettingsVersionHistory'
-import { DocsOverview } from './pages/docs/DocsOverview'
-import { DocsAIHub } from './pages/docs/DocsAIHub'
-import { DocsClaudeDesktop } from './pages/docs/DocsClaudeDesktop'
-import { DocsClaudeCode } from './pages/docs/DocsClaudeCode'
-import { DocsCodex } from './pages/docs/DocsCodex'
-import { DocsAIChatGPT } from './pages/docs/DocsAIChatGPT'
-import { DocsAIGeminiCLI } from './pages/docs/DocsAIGeminiCLI'
-import { DocsAIMCPTools } from './pages/docs/DocsAIMCPTools'
-import { DocsExtensionsHub } from './pages/docs/DocsExtensionsHub'
-import { DocsExtensionsChrome } from './pages/docs/DocsExtensionsChrome'
-import { DocsExtensionsSafari } from './pages/docs/DocsExtensionsSafari'
-import { DocsAPI } from './pages/docs/DocsAPI'
-import { DocsAPIEndpoint } from './pages/docs/DocsAPIEndpoint'
-import { DocsFeaturesHub } from './pages/docs/DocsFeaturesHub'
-import { DocsContentTypes } from './pages/docs/DocsContentTypes'
-import { DocsPrompts } from './pages/docs/DocsPrompts'
-import { DocsTagsFilters } from './pages/docs/DocsTagsFilters'
-import { DocsSearch } from './pages/docs/DocsSearch'
-import { DocsVersioning } from './pages/docs/DocsVersioning'
-import { DocsShortcuts } from './pages/docs/DocsShortcuts'
-import { DocsFAQ } from './pages/docs/DocsFAQ'
-import { Changelog } from './pages/changelog/Changelog'
-import { Roadmap } from './pages/roadmap/Roadmap'
-import { Pricing } from './pages/Pricing'
-import { FeaturesPage } from './pages/FeaturesPage'
+import { LoadingSpinnerPage } from './components/ui'
+
+// Lazy-loaded layouts (only used by lazy routes)
+const DocsLayout = lazy(() => import('./components/DocsLayout').then(m => ({ default: m.DocsLayout })))
+const PublicPageLayout = lazy(() => import('./components/PublicPageLayout').then(m => ({ default: m.PublicPageLayout })))
+
+// Lazy-loaded detail pages (heavy — pulls in CodeMirror + Milkdown)
+const BookmarkDetail = lazy(() => import('./pages/BookmarkDetail').then(m => ({ default: m.BookmarkDetail })))
+const NoteDetail = lazy(() => import('./pages/NoteDetail').then(m => ({ default: m.NoteDetail })))
+const PromptDetail = lazy(() => import('./pages/PromptDetail').then(m => ({ default: m.PromptDetail })))
+
+// Lazy-loaded settings pages
+const SettingsGeneral = lazy(() => import('./pages/settings/SettingsGeneral').then(m => ({ default: m.SettingsGeneral })))
+const SettingsTokens = lazy(() => import('./pages/settings/SettingsTokens').then(m => ({ default: m.SettingsTokens })))
+const SettingsMCP = lazy(() => import('./pages/settings/SettingsMCP').then(m => ({ default: m.SettingsMCP })))
+const SettingsTags = lazy(() => import('./pages/settings/SettingsTags').then(m => ({ default: m.SettingsTags })))
+const SettingsFAQ = lazy(() => import('./pages/settings/SettingsFAQ').then(m => ({ default: m.SettingsFAQ })))
+const SettingsVersionHistory = lazy(() => import('./pages/settings/SettingsVersionHistory').then(m => ({ default: m.SettingsVersionHistory })))
+
+// Lazy-loaded docs pages
+const DocsOverview = lazy(() => import('./pages/docs/DocsOverview').then(m => ({ default: m.DocsOverview })))
+const DocsAIHub = lazy(() => import('./pages/docs/DocsAIHub').then(m => ({ default: m.DocsAIHub })))
+const DocsClaudeDesktop = lazy(() => import('./pages/docs/DocsClaudeDesktop').then(m => ({ default: m.DocsClaudeDesktop })))
+const DocsClaudeCode = lazy(() => import('./pages/docs/DocsClaudeCode').then(m => ({ default: m.DocsClaudeCode })))
+const DocsCodex = lazy(() => import('./pages/docs/DocsCodex').then(m => ({ default: m.DocsCodex })))
+const DocsAIChatGPT = lazy(() => import('./pages/docs/DocsAIChatGPT').then(m => ({ default: m.DocsAIChatGPT })))
+const DocsAIGeminiCLI = lazy(() => import('./pages/docs/DocsAIGeminiCLI').then(m => ({ default: m.DocsAIGeminiCLI })))
+const DocsAIMCPTools = lazy(() => import('./pages/docs/DocsAIMCPTools').then(m => ({ default: m.DocsAIMCPTools })))
+const DocsExtensionsHub = lazy(() => import('./pages/docs/DocsExtensionsHub').then(m => ({ default: m.DocsExtensionsHub })))
+const DocsExtensionsChrome = lazy(() => import('./pages/docs/DocsExtensionsChrome').then(m => ({ default: m.DocsExtensionsChrome })))
+const DocsExtensionsSafari = lazy(() => import('./pages/docs/DocsExtensionsSafari').then(m => ({ default: m.DocsExtensionsSafari })))
+const DocsAPI = lazy(() => import('./pages/docs/DocsAPI').then(m => ({ default: m.DocsAPI })))
+const DocsAPIEndpoint = lazy(() => import('./pages/docs/DocsAPIEndpoint').then(m => ({ default: m.DocsAPIEndpoint })))
+const DocsFeaturesHub = lazy(() => import('./pages/docs/DocsFeaturesHub').then(m => ({ default: m.DocsFeaturesHub })))
+const DocsContentTypes = lazy(() => import('./pages/docs/DocsContentTypes').then(m => ({ default: m.DocsContentTypes })))
+const DocsPrompts = lazy(() => import('./pages/docs/DocsPrompts').then(m => ({ default: m.DocsPrompts })))
+const DocsTagsFilters = lazy(() => import('./pages/docs/DocsTagsFilters').then(m => ({ default: m.DocsTagsFilters })))
+const DocsSearch = lazy(() => import('./pages/docs/DocsSearch').then(m => ({ default: m.DocsSearch })))
+const DocsVersioning = lazy(() => import('./pages/docs/DocsVersioning').then(m => ({ default: m.DocsVersioning })))
+const DocsShortcuts = lazy(() => import('./pages/docs/DocsShortcuts').then(m => ({ default: m.DocsShortcuts })))
+const DocsFAQ = lazy(() => import('./pages/docs/DocsFAQ').then(m => ({ default: m.DocsFAQ })))
+
+// Lazy-loaded public pages
+const FeaturesPage = lazy(() => import('./pages/FeaturesPage').then(m => ({ default: m.FeaturesPage })))
+const Pricing = lazy(() => import('./pages/Pricing').then(m => ({ default: m.Pricing })))
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })))
+const TermsOfService = lazy(() => import('./pages/TermsOfService').then(m => ({ default: m.TermsOfService })))
+const Changelog = lazy(() => import('./pages/changelog/Changelog').then(m => ({ default: m.Changelog })))
+const Roadmap = lazy(() => import('./pages/roadmap/Roadmap').then(m => ({ default: m.Roadmap })))
 
 /**
  * Root layout component that wraps the entire app with providers.
@@ -53,7 +65,9 @@ function RootLayout(): ReactNode {
   return (
     <AuthProvider>
       <Toaster position="top-right" />
-      <Outlet />
+      <Suspense fallback={<LoadingSpinnerPage />}>
+        <Outlet />
+      </Suspense>
     </AuthProvider>
   )
 }

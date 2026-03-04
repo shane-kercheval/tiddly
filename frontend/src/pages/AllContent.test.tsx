@@ -15,7 +15,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Routes, Route, Link } from 'react-router-dom'
 import { AllContent } from './AllContent'
-import type { ContentListItem, ContentListResponse } from '../types'
+import type { ContentListItem, ContentListResponse, ContentSearchParams } from '../types'
 
 // Mock data
 const mockBookmark: ContentListItem = {
@@ -115,15 +115,29 @@ let mockContentQueryData: ContentListResponse = createMockResponse([])
 let mockContentQueryLoading = false
 let mockContentQueryFetching = false
 let mockContentQueryError: Error | null = null
+let mockContentQueryEnabled = true
 
 vi.mock('../hooks/useContentQuery', () => ({
-  useContentQuery: () => ({
-    data: mockContentQueryData,
-    isLoading: mockContentQueryLoading,
-    isFetching: mockContentQueryFetching,
-    error: mockContentQueryError,
-    refetch: mockRefetch,
-  }),
+  useContentQuery: (_params: ContentSearchParams, options?: { enabled?: boolean }) => {
+    mockContentQueryEnabled = options?.enabled ?? true
+    // When disabled, return loading state with no data (matches TanStack Query behavior)
+    if (!mockContentQueryEnabled) {
+      return {
+        data: undefined,
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: mockRefetch,
+      }
+    }
+    return {
+      data: mockContentQueryData,
+      isLoading: mockContentQueryLoading,
+      isFetching: mockContentQueryFetching,
+      error: mockContentQueryError,
+      refetch: mockRefetch,
+    }
+  },
 }))
 
 vi.mock('../hooks/useBookmarks', () => ({
@@ -239,40 +253,44 @@ vi.mock('../stores/contentTypeFilterStore', () => ({
   }),
 }))
 
+let mockFiltersHasFetched = true
+const mockFilters = [
+  {
+    id: '1',
+    name: 'Reading List',
+    content_types: ['bookmark'],
+    filter_expression: { groups: [{ tags: ['filter-tag-1', 'filter-tag-2'], operator: 'AND' }], group_operator: 'OR' },
+    default_sort_by: null,
+    default_sort_ascending: null,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: '2',
+    name: 'Ideas',
+    content_types: ['note'],
+    filter_expression: { groups: [], group_operator: 'OR' },
+    default_sort_by: null,
+    default_sort_ascending: null,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: '3',
+    name: 'Mixed',
+    content_types: ['bookmark', 'note'],
+    filter_expression: { groups: [], group_operator: 'OR' },
+    default_sort_by: null,
+    default_sort_ascending: null,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+]
+
 vi.mock('../stores/filtersStore', () => ({
   useFiltersStore: () => ({
-    filters: [
-      {
-        id: '1',
-        name: 'Reading List',
-        content_types: ['bookmark'],
-        filter_expression: { groups: [{ tags: ['filter-tag-1', 'filter-tag-2'], operator: 'AND' }], group_operator: 'OR' },
-        default_sort_by: null,
-        default_sort_ascending: null,
-        created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2024-01-01T00:00:00Z',
-      },
-      {
-        id: '2',
-        name: 'Ideas',
-        content_types: ['note'],
-        filter_expression: { groups: [], group_operator: 'OR' },
-        default_sort_by: null,
-        default_sort_ascending: null,
-        created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2024-01-01T00:00:00Z',
-      },
-      {
-        id: '3',
-        name: 'Mixed',
-        content_types: ['bookmark', 'note'],
-        filter_expression: { groups: [], group_operator: 'OR' },
-        default_sort_by: null,
-        default_sort_ascending: null,
-        created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2024-01-01T00:00:00Z',
-      },
-    ],
+    filters: mockFilters,
+    hasFetched: mockFiltersHasFetched,
   }),
 }))
 
@@ -322,6 +340,8 @@ describe('AllContent', () => {
     mockContentQueryError = null
     mockSelectedTags = []
     mockSelectedContentTypes = ['bookmark', 'note', 'prompt']
+    mockFiltersHasFetched = true
+    mockContentQueryEnabled = true
   })
 
   describe('view-specific empty states', () => {
@@ -1120,6 +1140,74 @@ describe('AllContent', () => {
         id: '5',
         data: { tags: ['prompt'] },
       })
+    })
+  })
+
+  describe('filter readiness gating', () => {
+    it('shows spinner on filter view when filters have not loaded', async () => {
+      mockFiltersHasFetched = false
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content/filters/1')
+
+      // Should show spinner because isFilterReady is false
+      expect(screen.getByText('Loading content...')).toBeInTheDocument()
+    })
+
+    it('renders content on filter view when filters have loaded (valid filter)', async () => {
+      mockFiltersHasFetched = true
+      mockContentQueryData = createMockResponse([mockBookmark])
+      renderAtRoute('/app/content/filters/1')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+    })
+
+    it('renders on filter view with invalid filter ID after filters load', async () => {
+      mockFiltersHasFetched = true
+      mockContentQueryData = createMockResponse([])
+      // Filter ID 999 doesn't exist in mockFilters
+      renderAtRoute('/app/content/filters/999')
+
+      // Should not be stuck on spinner - hasFetched is true so query fires
+      await waitFor(() => {
+        expect(screen.getByText('No content yet')).toBeInTheDocument()
+      })
+    })
+
+    it('renders builtin view immediately even when filters have not loaded', async () => {
+      mockFiltersHasFetched = false
+      mockContentQueryData = createMockResponse([mockBookmark])
+      renderAtRoute('/app/content')
+
+      // Builtin views are not gated on filter readiness
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+    })
+
+    it('disables content query when filter view and filters not loaded', () => {
+      mockFiltersHasFetched = false
+      renderAtRoute('/app/content/filters/1')
+
+      // The mock captures the enabled value passed to useContentQuery
+      expect(mockContentQueryEnabled).toBe(false)
+    })
+
+    it('enables content query when filter view and filters loaded', () => {
+      mockFiltersHasFetched = true
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content/filters/1')
+
+      expect(mockContentQueryEnabled).toBe(true)
+    })
+
+    it('enables content query for builtin view regardless of hasFetched', () => {
+      mockFiltersHasFetched = false
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content')
+
+      expect(mockContentQueryEnabled).toBe(true)
     })
   })
 

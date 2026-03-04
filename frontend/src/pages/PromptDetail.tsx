@@ -128,7 +128,6 @@ export function PromptDetail(): ReactNode {
       try {
         const fetchedPrompt = await fetchPrompt(promptId!)
         setPrompt(fetchedPrompt)
-        // Track usage when viewing
         trackPromptUsage(promptId!)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load prompt')

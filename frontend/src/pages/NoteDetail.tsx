@@ -129,7 +129,6 @@ export function NoteDetail(): ReactNode {
       try {
         const fetchedNote = await fetchNote(noteId!)
         setNote(fetchedNote)
-        // Track usage when viewing
         trackNoteUsage(noteId!)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load note')
