@@ -1,0 +1,55 @@
+{
+	admin off
+	persist_config off
+	auto_https off
+
+	log {
+		format json
+	}
+
+	servers {
+		trusted_proxies static private_ranges 100.0.0.0/8
+	}
+}
+
+:{$PORT:80} {
+	log {
+		format json
+	}
+
+	respond /health 200
+
+	# Security headers
+	header {
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	# Hashed assets (JS, CSS, fonts, images) — immutable, cache forever
+	# Vite outputs all hashed files to /assets/ with content hashes in filenames
+	@hashed_assets path /assets/*
+	header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
+
+	# index.html — always revalidate to pick up new deployments
+	@html path /index.html /
+	header @html Cache-Control "no-cache"
+
+	root * {{.DIST_DIR}}
+
+	file_server {
+		hide .git
+		hide .env*
+	}
+
+	encode {
+		gzip
+		zstd
+	}
+
+	try_files {path} {path}.html {path}/index.html /index.html
+
+	handle_errors {
+		rewrite * /{err.status_code}.html
+		file_server
+	}
+}
