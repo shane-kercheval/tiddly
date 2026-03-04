@@ -192,7 +192,7 @@ func TestUninstallCodex__removes_tiddly_servers(t *testing.T) {
 url = "https://content-mcp.tiddly.me/mcp"
 
 [mcp_servers.tiddly_prompts]
-url = "https://prompt-mcp.tiddly.me/mcp"
+url = "https://prompts-mcp.tiddly.me/mcp"
 
 [mcp_servers.other]
 url = "https://other.example.com/mcp"
@@ -246,7 +246,7 @@ func TestStatusCodex__configured(t *testing.T) {
 url = "https://content-mcp.tiddly.me/mcp"
 
 [mcp_servers.tiddly_prompts]
-url = "https://prompt-mcp.tiddly.me/mcp"
+url = "https://prompts-mcp.tiddly.me/mcp"
 `
 	require.NoError(t, os.WriteFile(configPath, []byte(config), 0644))
 

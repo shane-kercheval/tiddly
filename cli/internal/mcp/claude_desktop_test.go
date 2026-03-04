@@ -164,7 +164,7 @@ func TestExtractClaudeDesktopPATs__valid_config(t *testing.T) {
 			},
 			"tiddly_prompts": map[string]any{
 				"command": "npx",
-				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_prompt456"},
+				"args":    []string{"mcp-remote", "https://prompts-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_prompt456"},
 			},
 		},
 	}

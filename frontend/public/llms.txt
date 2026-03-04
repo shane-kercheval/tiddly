@@ -123,7 +123,7 @@ Provides access to prompts as both MCP tools and the MCP prompts capability.
 ### MCP Endpoints
 
 - Content MCP: `https://content-mcp.tiddly.me/mcp`
-- Prompt MCP: `https://prompt-mcp.tiddly.me/mcp`
+- Prompt MCP: `https://prompts-mcp.tiddly.me/mcp`
 
 Test connectivity with curl:
 
@@ -135,7 +135,7 @@ curl -X POST https://content-mcp.tiddly.me/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
 # Prompt MCP
-curl -X POST https://prompt-mcp.tiddly.me/mcp \
+curl -X POST https://prompts-mcp.tiddly.me/mcp \
   -H "Authorization: Bearer YOUR_PAT" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
@@ -156,7 +156,7 @@ All MCP setup requires a Personal Access Token (PAT). Generate one in Settings >
     },
     "tiddly_prompts": {
       "command": "npx",
-      "args": ["mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
+      "args": ["mcp-remote", "https://prompts-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
     }
   }
 }
@@ -170,7 +170,7 @@ Restart Claude Desktop after saving. Uses `mcp-remote` as a bridge since Claude 
 claude mcp add --transport http tiddly_content https://content-mcp.tiddly.me/mcp \
   --header "Authorization: Bearer YOUR_PAT"
 
-claude mcp add --transport http tiddly_prompts https://prompt-mcp.tiddly.me/mcp \
+claude mcp add --transport http tiddly_prompts https://prompts-mcp.tiddly.me/mcp \
   --header "Authorization: Bearer YOUR_PAT"
 ```
 
@@ -184,11 +184,11 @@ url = "https://content-mcp.tiddly.me/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_PAT" }
 
 [mcp_servers.tiddly_prompts]
-url = "https://prompt-mcp.tiddly.me/mcp"
+url = "https://prompts-mcp.tiddly.me/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_PAT" }
 ```
 
-Note: Codex does not support MCP Prompts directly. To use saved prompts, ask Codex to fetch and apply them via tools (e.g., "Get my 'code-review' prompt and use it to review this file").
+Note: Codex does not support MCP Prompts natively (the `/prompt-name` invocation available in Claude Code). However, the prompt server still provides MCP tools for searching and retrieving prompts, so you can ask Codex to fetch and apply a prompt by name. For Codex-native prompt invocation, export your prompts as Codex Skills (see tiddly.me/docs/ai/codex).
 
 **ChatGPT** — Not yet supported. ChatGPT requires OAuth authentication, which is coming soon.
 

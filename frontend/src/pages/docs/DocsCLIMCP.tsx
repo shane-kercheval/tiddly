@@ -46,6 +46,17 @@ tiddly mcp install claude-code codex              # multiple tools`} />
         </li>
       </ul>
 
+      <InfoCallout variant="info" title="Codex and Prompts">
+        <p>
+          Codex does not support MCP Prompts natively (the{' '}
+          <code className="bg-blue-100 px-1 rounded">/prompt-name</code> invocation available in
+          Claude Code). However, the prompt server still provides MCP <em>tools</em> for searching
+          and retrieving prompts, so you can ask Codex to fetch and apply a prompt by name. For
+          Codex-native prompt invocation, export your prompts as{' '}
+          <Link to="/docs/ai/codex" className="underline hover:text-gray-900">Codex Skills</Link>.
+        </p>
+      </InfoCallout>
+
       {/* tiddly mcp status */}
       <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">tiddly mcp status</h2>
       <p className="text-gray-600 mb-3">

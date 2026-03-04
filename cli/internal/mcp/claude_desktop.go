@@ -10,7 +10,7 @@ import (
 
 const (
 	defaultContentMCPURL = "https://content-mcp.tiddly.me/mcp"
-	defaultPromptMCPURL  = "https://prompt-mcp.tiddly.me/mcp"
+	defaultPromptMCPURL  = "https://prompts-mcp.tiddly.me/mcp"
 
 	serverNameContent = "tiddly_content"
 	serverNamePrompts = "tiddly_prompts"

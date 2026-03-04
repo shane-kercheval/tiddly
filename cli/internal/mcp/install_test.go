@@ -103,7 +103,7 @@ func TestRunInstall__oauth_reuses_valid_existing_pat(t *testing.T) {
 			},
 			"tiddly_prompts": map[string]any{
 				"command": "npx",
-				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_existing_prompt"},
+				"args":    []string{"mcp-remote", "https://prompts-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_existing_prompt"},
 			},
 		},
 	}
@@ -165,7 +165,7 @@ func TestRunInstall__oauth_creates_new_pat_when_existing_invalid(t *testing.T) {
 			},
 			"tiddly_prompts": map[string]any{
 				"command": "npx",
-				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_expired_prompt"},
+				"args":    []string{"mcp-remote", "https://prompts-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_expired_prompt"},
 			},
 		},
 	}
@@ -643,7 +643,7 @@ func TestExtractPATsFromTool__claude_desktop(t *testing.T) {
 			},
 			"tiddly_prompts": map[string]any{
 				"command": "npx",
-				"args":    []string{"mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_prompt456"},
+				"args":    []string{"mcp-remote", "https://prompts-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_prompt456"},
 			},
 		},
 	}
