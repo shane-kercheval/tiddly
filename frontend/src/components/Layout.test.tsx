@@ -11,6 +11,17 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { Layout } from './Layout'
 import * as config from '../config'
 
+// Mock useLimits - track calls to verify prefetch behavior
+const mockUseLimits = vi.fn().mockReturnValue({
+  limits: undefined,
+  isLoading: false,
+  error: null,
+})
+
+vi.mock('../hooks/useLimits', () => ({
+  useLimits: (...args: unknown[]) => mockUseLimits(...args),
+}))
+
 // Mock the config module
 vi.mock('../config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../config')>()
@@ -221,6 +232,33 @@ describe('Layout', () => {
       expect(mockFetchSidebar).toHaveBeenCalledTimes(1)
       expect(mockFetchFilters).toHaveBeenCalledTimes(1)
       expect(mockFetchTags).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('limits prefetching', () => {
+    it('should call useLimits with enabled: true when consent is ready', () => {
+      renderLayout()
+
+      expect(mockUseLimits).toHaveBeenCalledWith({ enabled: true })
+    })
+
+    it('should call useLimits with enabled: false when consent is not ready', () => {
+      vi.mocked(config).isDevMode = false
+      mockNeedsConsent = null // consent not yet checked
+
+      renderLayout()
+
+      expect(mockUseLimits).toHaveBeenCalledWith({ enabled: false })
+    })
+
+    it('should call useLimits with enabled: true when user needs consent (needsConsent=true shows dialog, not blocking)', () => {
+      vi.mocked(config).isDevMode = false
+      mockNeedsConsent = true // user needs to give consent
+
+      renderLayout()
+
+      // needsConsent=true means consentReady = false (isDevMode || needsConsent === false)
+      expect(mockUseLimits).toHaveBeenCalledWith({ enabled: false })
     })
   })
 

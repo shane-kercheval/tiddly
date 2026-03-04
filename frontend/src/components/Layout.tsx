@@ -15,6 +15,7 @@ import { useFiltersStore } from '../stores/filtersStore'
 import { useTagsStore } from '../stores/tagsStore'
 import { useRightSidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/rightSidebarStore'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { useLimits } from '../hooks/useLimits'
 
 /**
  * Layout component that wraps authenticated pages.
@@ -37,6 +38,8 @@ export function Layout(): ReactNode {
   const needsConsent = useConsentStore((state) => state.needsConsent)
   // Consent is ready in dev mode (no consent flow) or once consent is confirmed
   const consentReady = isDevMode || needsConsent === false
+  // Prefetch limits so detail pages don't wait for a sequential fetch.
+  useLimits({ enabled: consentReady })
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const toggleFullWidthLayout = useUIPreferencesStore((state) => state.toggleFullWidthLayout)
   const toggleSidebar = useSidebarStore((state) => state.toggleCollapse)
