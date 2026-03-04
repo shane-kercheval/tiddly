@@ -110,14 +110,14 @@ func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 			tokenCreated++
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(201)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":    "tok-new",
 				"token": "bm_created",
 			})
 		})
 
 	store := testutil.NewMockCredStore()
-	store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
 	viper.Reset()
 	tm := auth.NewTokenManager(store, nil)
 
@@ -226,7 +226,7 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 	mock.On("GET", "/tokens/").
 		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]api.TokenInfo{
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
 				{ID: "tok-content", Name: "cli-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_content_t"},
 				{ID: "tok-prompts", Name: "cli-mcp-claude-code-prompts-d4e5f6", TokenPrefix: "bm_promptsx_"},
 			})
@@ -243,7 +243,7 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 		})
 
 	store := testutil.NewMockCredStore()
-	store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
 	viper.Reset()
 	tm := auth.NewTokenManager(store, nil)
 
