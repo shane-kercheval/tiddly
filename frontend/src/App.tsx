@@ -10,6 +10,7 @@ import { LandingPage } from './pages/LandingPage'
 import { AllContent } from './pages/AllContent'
 import { LoadingSpinnerPage } from './components/ui'
 
+// Lazy-loaded routes — keep in sync with routePrefetch.ts
 // Lazy-loaded layouts (only used by lazy routes)
 const DocsLayout = lazy(() => import('./components/DocsLayout').then(m => ({ default: m.DocsLayout })))
 const PublicPageLayout = lazy(() => import('./components/PublicPageLayout').then(m => ({ default: m.PublicPageLayout })))

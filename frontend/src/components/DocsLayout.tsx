@@ -1,7 +1,8 @@
 import { useState, Suspense } from 'react'
-import { Outlet, Link, useLocation } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { ContentAreaSpinner } from './ui'
+import { PrefetchLink } from './PrefetchLink'
 import { PublicHeader } from './PublicHeader'
 import { Footer } from './Footer'
 
@@ -72,7 +73,7 @@ function NavItem({ item, pathname, depth = 0 }: { item: DocNavItem; pathname: st
 
   return (
     <div>
-      <Link
+      <PrefetchLink
         to={item.path}
         aria-current={isActive ? 'page' : undefined}
         className={`block rounded-md px-3 py-1.5 text-sm transition-colors ${
@@ -84,7 +85,7 @@ function NavItem({ item, pathname, depth = 0 }: { item: DocNavItem; pathname: st
         }`}
       >
         {item.label}
-      </Link>
+      </PrefetchLink>
       {hasChildren && isParentActive && (
         <div className="mt-1 space-y-1">
           {item.children!.map((child) => (

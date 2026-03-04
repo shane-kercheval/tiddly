@@ -13,6 +13,7 @@
  * ```
  */
 import type { ReactNode } from 'react'
+import { prefetchRoute } from '../../routePrefetch'
 import { ContentCardContext } from './ContentCardContext'
 import type { ContentCardView } from './ContentCardContext'
 import { ContentCardFooter } from './ContentCardFooter'
@@ -58,6 +59,7 @@ function ContentCardBase({
       <div
         className={`card ${interactive ? 'card-interactive' : ''} group ${onClick ? 'cursor-pointer' : ''} ${className}`.trim()}
         onClick={(onClick || href) ? handleClick : undefined}
+        onMouseEnter={href ? () => prefetchRoute(href) : undefined}
       >
         <div className="grid grid-cols-[auto_1fr] gap-x-2 items-start">
           {children}
