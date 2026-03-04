@@ -54,12 +54,13 @@ export function DocsCLIHub(): ReactNode {
       <StepSection step={3} title="Set up MCP">
         <p className="text-gray-600 mb-3 text-sm">
           By default, this installs both MCP servers (bookmarks/notes and prompts) for all
-          detected AI tools. Use <code className="bg-gray-100 px-1 rounded">--servers</code> to
-          install only one:
+          detected AI tools. You can target specific tools and/or servers:
         </p>
         <CopyableCodeBlock code={`tiddly mcp install                   # both servers, all detected tools
-tiddly mcp install --servers content  # bookmarks & notes only
-tiddly mcp install --servers prompts  # prompts only`} />
+tiddly mcp install claude-code       # specific tool only
+tiddly mcp install claude-code codex # multiple tools
+tiddly mcp install --servers content # bookmarks & notes server only
+tiddly mcp install --servers prompts # prompts server only`} />
         <p className="text-gray-600 mt-2 text-sm">
           See{' '}
           <Link to="/docs/cli/mcp" className="underline hover:text-gray-900">MCP Setup</Link>{' '}
