@@ -72,9 +72,12 @@ async def test__put_sidebar__updates_structure(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    # Filter to builtins only (orphan lists may be prepended)
-    builtins = [item for item in data["items"] if item["type"] == "builtin"]
-    # Order among builtins should be preserved
+    # Filter to navigable builtins only (command-palette is auto-injected, orphan lists may be prepended)
+    builtins = [
+        item for item in data["items"]
+        if item["type"] == "builtin" and item["key"] != "command-palette"
+    ]
+    # Order among navigable builtins should be preserved
     assert builtins[0]["key"] == "trash"
     assert builtins[1]["key"] == "all"
     assert builtins[2]["key"] == "archived"
