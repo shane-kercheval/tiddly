@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -55,27 +54,15 @@ func NewCredentialStore(mode KeyringMode, configDir string) (CredentialStore, bo
 		return &fileStore{dir: configDir}, false // explicitly requested
 	}
 
-	if mode == KeyringForce || keyringAvailable() {
-		store := &keyringStore{}
-		// Verify keyring works with a timeout
-		if mode == KeyringForce || testKeyringWithTimeout() {
-			return store, false
-		}
+	if mode == KeyringForce || testKeyringWithTimeout() {
+		return &keyringStore{}, false
 	}
 
 	return &fileStore{dir: configDir}, true // fallback
 }
 
-// keyringAvailable checks if a desktop session exists (Linux-specific).
-func keyringAvailable() bool {
-	if runtime.GOOS != "linux" {
-		return true
-	}
-	return os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != ""
-}
-
 // testKeyringWithTimeout attempts a keyring operation with a timeout to detect
-// hangs on misconfigured Linux systems (go-keyring has no context parameter).
+// hangs on misconfigured systems (go-keyring has no context parameter).
 func testKeyringWithTimeout() bool {
 	type result struct {
 		err error

@@ -3,7 +3,6 @@ package auth
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -137,45 +136,6 @@ func TestFileStore__file_permissions(t *testing.T) {
 	info, err := os.Stat(filepath.Join(dir, "credentials"))
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
-}
-
-func TestKeyringAvailable(t *testing.T) {
-	tests := []struct {
-		name     string
-		display  string
-		wayland  string
-		expected bool
-	}{
-		{
-			name:     "available when DISPLAY set",
-			display:  ":0",
-			expected: true,
-		},
-		{
-			name:     "available when WAYLAND_DISPLAY set",
-			wayland:  "wayland-0",
-			expected: true,
-		},
-		{
-			name:     "unavailable when both unset",
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Only test on Linux where this logic applies
-			if runtime.GOOS != "linux" {
-				t.Skip("keyring availability check is Linux-specific")
-			}
-
-			t.Setenv("DISPLAY", tt.display)
-			t.Setenv("WAYLAND_DISPLAY", tt.wayland)
-
-			result := keyringAvailable()
-			assert.Equal(t, tt.expected, result)
-		})
-	}
 }
 
 func TestNewCredentialStore__file_mode(t *testing.T) {
