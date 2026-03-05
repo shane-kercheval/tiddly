@@ -12,7 +12,7 @@ const (
 	defaultContentMCPURL = "https://content-mcp.tiddly.me/mcp"
 	defaultPromptMCPURL  = "https://prompts-mcp.tiddly.me/mcp"
 
-	serverNameContent = "tiddly_content"
+	serverNameContent = "tiddly_notes_bookmarks"
 	serverNamePrompts = "tiddly_prompts"
 )
 

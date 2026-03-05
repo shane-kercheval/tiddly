@@ -69,10 +69,10 @@ describe('DocsClaudeCode', () => {
 
     const codeBlocks = document.querySelectorAll('pre code')
     const contentBlock = Array.from(codeBlocks).find((el) =>
-      el.textContent?.includes('tiddly_content')
+      el.textContent?.includes('tiddly_notes_bookmarks')
     )
     expect(contentBlock?.textContent).toContain('http://localhost:8001/mcp')
-    expect(contentBlock?.textContent).toContain('claude mcp add --transport http tiddly_content')
+    expect(contentBlock?.textContent).toContain('claude mcp add --transport http tiddly_notes_bookmarks')
   })
 
   it('should show Prompt server setup with correct command', () => {
@@ -89,7 +89,7 @@ describe('DocsClaudeCode', () => {
   it('should show both servers inline (no server selector)', () => {
     renderPage()
     const text = document.body.textContent || ''
-    expect(text).toContain('tiddly_content')
+    expect(text).toContain('tiddly_notes_bookmarks')
     expect(text).toContain('http://localhost:8001/mcp')
     expect(text).toContain('http://localhost:8002/mcp')
   })

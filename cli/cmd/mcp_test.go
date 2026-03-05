@@ -140,7 +140,7 @@ func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "claude-code", "--dry-run", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "tiddly_content")
+	assert.Contains(t, result.Stdout, "tiddly_notes_bookmarks")
 	// Dry-run should NOT create tokens
 	assert.Equal(t, 0, tokenCreated, "dry-run should not create tokens")
 	// Output should contain placeholder
@@ -203,14 +203,14 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 	configPath := filepath.Join(tmpDir, ".claude.json")
 	configData := `{
 		"mcpServers": {
-			"tiddly_content": {
+			"tiddly_notes_bookmarks": {
 				"type": "http",
-				"url": "https://mcp.tiddly.me/content/mcp",
+				"url": "https://content-mcp.tiddly.me/mcp",
 				"headers": {"Authorization": "Bearer bm_content_token_abc"}
 			},
 			"tiddly_prompts": {
 				"type": "http",
-				"url": "https://mcp.tiddly.me/prompts/mcp",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
 				"headers": {"Authorization": "Bearer bm_promptsx_token_xyz"}
 			}
 		}
@@ -273,7 +273,7 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 	// Verify the config file was modified — tiddly servers removed
 	data, err := os.ReadFile(configPath)
 	require.NoError(t, err)
-	assert.NotContains(t, string(data), "tiddly_content")
+	assert.NotContains(t, string(data), "tiddly_notes_bookmarks")
 	assert.NotContains(t, string(data), "tiddly_prompts")
 }
 

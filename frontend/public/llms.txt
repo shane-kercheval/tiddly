@@ -150,7 +150,7 @@ All MCP setup requires a Personal Access Token (PAT). Generate one in Settings >
 ```json
 {
   "mcpServers": {
-    "tiddly_content": {
+    "tiddly_notes_bookmarks": {
       "command": "npx",
       "args": ["mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
     },
@@ -167,7 +167,7 @@ Restart Claude Desktop after saving. Uses `mcp-remote` as a bridge since Claude 
 **Claude Code** — Run in your project directory:
 
 ```
-claude mcp add --transport http tiddly_content https://content-mcp.tiddly.me/mcp \
+claude mcp add --transport http tiddly_notes_bookmarks https://content-mcp.tiddly.me/mcp \
   --header "Authorization: Bearer YOUR_PAT"
 
 claude mcp add --transport http tiddly_prompts https://prompts-mcp.tiddly.me/mcp \
@@ -179,7 +179,7 @@ Note: Claude Code MCP servers are configured per project directory. Alternativel
 **Codex** — Add to `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.tiddly_content]
+[mcp_servers.tiddly_notes_bookmarks]
 url = "https://content-mcp.tiddly.me/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_PAT" }
 

@@ -37,7 +37,7 @@ describe('DocsClaudeDesktop', () => {
 
     const codeBlocks = document.querySelectorAll('pre code')
     const configBlock = Array.from(codeBlocks).find((el) =>
-      el.textContent?.includes('tiddly_content') && el.textContent?.includes('"tiddly_prompts"')
+      el.textContent?.includes('tiddly_notes_bookmarks') && el.textContent?.includes('"tiddly_prompts"')
     )
     expect(configBlock).toBeTruthy()
     expect(configBlock?.textContent).toContain('http://localhost:8001/mcp')

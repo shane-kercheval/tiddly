@@ -37,7 +37,7 @@ describe('DocsCodex', () => {
 
     const codeBlocks = document.querySelectorAll('pre code')
     const configBlock = Array.from(codeBlocks).find((el) =>
-      el.textContent?.includes('[mcp_servers.tiddly_content]') &&
+      el.textContent?.includes('[mcp_servers.tiddly_notes_bookmarks]') &&
       el.textContent?.includes('[mcp_servers.tiddly_prompts]')
     )
     expect(configBlock).toBeTruthy()

@@ -9,7 +9,7 @@ import { SkillsSection } from './components/SkillsSection'
 import { ExamplePrompts } from './components/ExamplePrompts'
 
 function generateContentCommand(mcpUrl: string): string {
-  return `claude mcp add --transport http tiddly_content ${mcpUrl}/mcp \\
+  return `claude mcp add --transport http tiddly_notes_bookmarks ${mcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
 }
 

@@ -85,7 +85,7 @@ func TestInstallCodex__new_config(t *testing.T) {
 	config := readTestTOML(t, configPath)
 	mcpServers := config["mcp_servers"].(map[string]any)
 
-	content := mcpServers["tiddly_content"].(map[string]any)
+	content := mcpServers["tiddly_notes_bookmarks"].(map[string]any)
 	assert.Equal(t, ContentMCPURL(), content["url"])
 	headers := content["http_headers"].(map[string]any)
 	assert.Equal(t, "Bearer bm_content", headers["Authorization"])
@@ -118,7 +118,7 @@ url = "https://other.example.com/mcp"
 	// Other MCP server preserved
 	mcpServers := config["mcp_servers"].(map[string]any)
 	assert.Contains(t, mcpServers, "other_server")
-	assert.Contains(t, mcpServers, "tiddly_content")
+	assert.Contains(t, mcpServers, "tiddly_notes_bookmarks")
 	assert.Contains(t, mcpServers, "tiddly_prompts")
 }
 
@@ -132,7 +132,7 @@ func TestInstallCodex__idempotent(t *testing.T) {
 
 	config := readTestTOML(t, configPath)
 	mcpServers := config["mcp_servers"].(map[string]any)
-	content := mcpServers["tiddly_content"].(map[string]any)
+	content := mcpServers["tiddly_notes_bookmarks"].(map[string]any)
 	headers := content["http_headers"].(map[string]any)
 
 	assert.Equal(t, "Bearer bm_new", headers["Authorization"])
@@ -149,7 +149,7 @@ func TestInstallCodex__project_scope_creates_config(t *testing.T) {
 	config := readTestTOML(t, projectConfig)
 	mcpServers := config["mcp_servers"].(map[string]any)
 
-	content := mcpServers["tiddly_content"].(map[string]any)
+	content := mcpServers["tiddly_notes_bookmarks"].(map[string]any)
 	assert.Equal(t, ContentMCPURL(), content["url"])
 
 	prompts := mcpServers["tiddly_prompts"].(map[string]any)
@@ -179,7 +179,7 @@ url = "https://other.example.com/mcp"
 
 	mcpServers := config["mcp_servers"].(map[string]any)
 	assert.Contains(t, mcpServers, "other_server")
-	assert.Contains(t, mcpServers, "tiddly_content")
+	assert.Contains(t, mcpServers, "tiddly_notes_bookmarks")
 	assert.Contains(t, mcpServers, "tiddly_prompts")
 }
 
@@ -188,7 +188,7 @@ func TestUninstallCodex__removes_tiddly_servers(t *testing.T) {
 	configPath := filepath.Join(dir, "config.toml")
 
 	existing := `
-[mcp_servers.tiddly_content]
+[mcp_servers.tiddly_notes_bookmarks]
 url = "https://content-mcp.tiddly.me/mcp"
 
 [mcp_servers.tiddly_prompts]
@@ -206,7 +206,7 @@ url = "https://other.example.com/mcp"
 	config := readTestTOML(t, configPath)
 	mcpServers := config["mcp_servers"].(map[string]any)
 
-	assert.NotContains(t, mcpServers, "tiddly_content")
+	assert.NotContains(t, mcpServers, "tiddly_notes_bookmarks")
 	assert.NotContains(t, mcpServers, "tiddly_prompts")
 	assert.Contains(t, mcpServers, "other")
 }
@@ -242,7 +242,7 @@ func TestStatusCodex__configured(t *testing.T) {
 	configPath := filepath.Join(dir, "config.toml")
 
 	config := `
-[mcp_servers.tiddly_content]
+[mcp_servers.tiddly_notes_bookmarks]
 url = "https://content-mcp.tiddly.me/mcp"
 
 [mcp_servers.tiddly_prompts]
@@ -253,7 +253,7 @@ url = "https://prompts-mcp.tiddly.me/mcp"
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	servers, err := StatusCodex(rc)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"tiddly_content", "tiddly_prompts"}, servers)
+	assert.Equal(t, []string{"tiddly_notes_bookmarks", "tiddly_prompts"}, servers)
 }
 
 func TestStatusCodex__not_configured(t *testing.T) {
@@ -286,7 +286,7 @@ func TestStatusCodex__project_scope(t *testing.T) {
 	// Status from project scope
 	servers, err := StatusCodex(rc)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"tiddly_content", "tiddly_prompts"}, servers)
+	assert.Equal(t, []string{"tiddly_notes_bookmarks", "tiddly_prompts"}, servers)
 }
 
 func TestInstallCodex__malformed_toml_returns_error(t *testing.T) {
@@ -312,7 +312,7 @@ func TestDryRunCodex__project_scope(t *testing.T) {
 	assert.Empty(t, before)
 
 	// After should contain our servers
-	assert.Contains(t, after, "tiddly_content")
+	assert.Contains(t, after, "tiddly_notes_bookmarks")
 	assert.Contains(t, after, "tiddly_prompts")
 }
 

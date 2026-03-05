@@ -20,10 +20,10 @@ func TestInstallClaudeDesktop__new_config(t *testing.T) {
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
 
-	assert.Contains(t, servers, "tiddly_content")
+	assert.Contains(t, servers, "tiddly_notes_bookmarks")
 	assert.Contains(t, servers, "tiddly_prompts")
 
-	content := servers["tiddly_content"].(map[string]any)
+	content := servers["tiddly_notes_bookmarks"].(map[string]any)
 	assert.Equal(t, "npx", content["command"])
 	args := toStringSlice(content["args"])
 	assert.Contains(t, args[1], "content-mcp.tiddly.me")
@@ -54,7 +54,7 @@ func TestInstallClaudeDesktop__preserves_existing(t *testing.T) {
 	// Other server preserved
 	servers := config["mcpServers"].(map[string]any)
 	assert.Contains(t, servers, "other-server")
-	assert.Contains(t, servers, "tiddly_content")
+	assert.Contains(t, servers, "tiddly_notes_bookmarks")
 	assert.Contains(t, servers, "tiddly_prompts")
 
 	// Other settings preserved
@@ -71,7 +71,7 @@ func TestInstallClaudeDesktop__idempotent(t *testing.T) {
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
-	content := servers["tiddly_content"].(map[string]any)
+	content := servers["tiddly_notes_bookmarks"].(map[string]any)
 	args := toStringSlice(content["args"])
 
 	// Should have the new token
@@ -84,7 +84,7 @@ func TestUninstallClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 
 	existing := map[string]any{
 		"mcpServers": map[string]any{
-			"tiddly_content": map[string]any{"command": "npx"},
+			"tiddly_notes_bookmarks": map[string]any{"command": "npx"},
 			"tiddly_prompts":         map[string]any{"command": "npx"},
 			"other-server":    map[string]any{"command": "node"},
 		},
@@ -97,7 +97,7 @@ func TestUninstallClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
 
-	assert.NotContains(t, servers, "tiddly_content")
+	assert.NotContains(t, servers, "tiddly_notes_bookmarks")
 	assert.NotContains(t, servers, "tiddly_prompts")
 	assert.Contains(t, servers, "other-server")
 }
@@ -113,7 +113,7 @@ func TestStatusClaudeDesktop__configured(t *testing.T) {
 
 	config := map[string]any{
 		"mcpServers": map[string]any{
-			"tiddly_content": map[string]any{"command": "npx"},
+			"tiddly_notes_bookmarks": map[string]any{"command": "npx"},
 			"tiddly_prompts":         map[string]any{"command": "npx"},
 		},
 	}
@@ -121,7 +121,7 @@ func TestStatusClaudeDesktop__configured(t *testing.T) {
 
 	servers, err := StatusClaudeDesktop(configPath)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"tiddly_content", "tiddly_prompts"}, servers)
+	assert.Equal(t, []string{"tiddly_notes_bookmarks", "tiddly_prompts"}, servers)
 }
 
 func TestStatusClaudeDesktop__not_configured(t *testing.T) {
@@ -158,7 +158,7 @@ func TestExtractClaudeDesktopPATs__valid_config(t *testing.T) {
 
 	config := map[string]any{
 		"mcpServers": map[string]any{
-			"tiddly_content": map[string]any{
+			"tiddly_notes_bookmarks": map[string]any{
 				"command": "npx",
 				"args":    []string{"mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_content123"},
 			},

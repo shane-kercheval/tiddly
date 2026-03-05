@@ -37,7 +37,7 @@ tiddly mcp install claude-code codex              # multiple tools`} />
       </p>
       <ul className="list-disc list-inside space-y-1 text-gray-600 mb-6">
         <li>
-          <code className="bg-gray-100 px-1 rounded">tiddly_content</code> (content server) —
+          <code className="bg-gray-100 px-1 rounded">tiddly_notes_bookmarks</code> (content server) —
           search, create, and edit bookmarks and notes
         </li>
         <li>

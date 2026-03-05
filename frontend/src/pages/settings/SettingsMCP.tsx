@@ -107,7 +107,7 @@ function generateClaudeDesktopConfig(
   const servers: Record<string, McpServerConfig> = {}
 
   if (server === 'content') {
-    servers.tiddly_content = {
+    servers.tiddly_notes_bookmarks = {
       command: 'npx',
       args: [
         'mcp-remote',
@@ -141,7 +141,7 @@ function generateClaudeCodeCommand(
   promptMcpUrl: string
 ): string {
   if (server === 'content') {
-    return `claude mcp add --transport http tiddly_content ${mcpUrl}/mcp \\
+    return `claude mcp add --transport http tiddly_notes_bookmarks ${mcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
   } else {
     return `claude mcp add --transport http tiddly_prompts ${promptMcpUrl}/mcp \\
@@ -491,7 +491,7 @@ function generateCodexConfig(
   promptMcpUrl: string
 ): string {
   if (server === 'content') {
-    return `[mcp_servers.tiddly_content]
+    return `[mcp_servers.tiddly_notes_bookmarks]
 url = "${mcpUrl}/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
   } else {

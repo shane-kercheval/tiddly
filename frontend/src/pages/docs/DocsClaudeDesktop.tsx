@@ -14,7 +14,7 @@ const CONFIG_PATH_WINDOWS = '%APPDATA%\\Claude\\claude_desktop_config.json'
 function generateCombinedConfig(mcpUrl: string, promptMcpUrl: string): string {
   const configObj = {
     mcpServers: {
-      tiddly_content: {
+      tiddly_notes_bookmarks: {
         command: 'npx',
         args: [
           'mcp-remote',
