@@ -33,6 +33,11 @@ describe('sidebarDndUtils', () => {
       const icon = getBuiltinIcon('trash')
       expect(icon).toBeDefined()
     })
+
+    it('should return an icon for "command-palette"', () => {
+      const icon = getBuiltinIcon('command-palette')
+      expect(icon).toBeDefined()
+    })
   })
 
   describe('getFilterIcon', () => {

@@ -309,7 +309,15 @@ export interface ContentFilterUpdate {
 // =============================================================================
 
 /** Valid built-in sidebar item keys */
-export type BuiltinKey = 'all' | 'archived' | 'trash'
+export type BuiltinKey = 'all' | 'archived' | 'trash' | 'command-palette'
+
+/** Built-in keys that map to a navigation route */
+export type NavigableBuiltinKey = Exclude<BuiltinKey, 'command-palette'>
+
+/** Type guard: returns true if the builtin key maps to a navigation route */
+export function isNavigableBuiltin(key: BuiltinKey): key is NavigableBuiltinKey {
+  return key !== 'command-palette'
+}
 
 /** A built-in sidebar navigation item (input format) */
 export interface SidebarBuiltinItem {

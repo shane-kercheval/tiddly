@@ -10,6 +10,9 @@ import { getBuiltinRoute, getFilterRoute } from './routes'
 import { getItemId, getBuiltinIcon, getFilterIcon } from './sidebarDndUtils'
 import { GripIcon } from '../icons'
 import { Tooltip } from '../ui'
+import {
+  isNavigableBuiltin,
+} from '../../types'
 import type {
   SidebarBuiltinItemComputed,
   SidebarFilterItemComputed,
@@ -22,6 +25,8 @@ export interface SortableNavItemProps {
   onEdit?: () => void
   onDelete?: () => void
   isDragging?: boolean
+  onAction?: () => void
+  shortcut?: string
 }
 
 /**
@@ -34,6 +39,8 @@ export function SortableNavItem({
   onEdit,
   onDelete,
   isDragging,
+  onAction,
+  shortcut,
 }: SortableNavItemProps): ReactNode {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: getItemId(item),
@@ -51,11 +58,26 @@ export function SortableNavItem({
       : getFilterIcon(item.content_types)
 
   const route =
-    item.type === 'builtin'
-      ? getBuiltinRoute(item.key)
-      : getFilterRoute(item.id)
+    item.type === 'filter'
+      ? getFilterRoute(item.id)
+      : isNavigableBuiltin(item.key)
+        ? getBuiltinRoute(item.key)
+        : null
 
-  const navItem = (
+  const navItem = onAction ? (
+    <button
+      onClick={() => { onAction(); onNavClick?.() }}
+      className={`flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none min-w-0 ${isCollapsed ? 'justify-center' : ''}`}
+    >
+      <span className="flex-shrink-0">{icon}</span>
+      {!isCollapsed && (
+        <>
+          <span className="flex-1 truncate min-w-0 text-left">{item.name}</span>
+          {shortcut && <kbd className="text-[11px] text-gray-400 font-sans flex-shrink-0">{shortcut}</kbd>}
+        </>
+      )}
+    </button>
+  ) : route ? (
     <SidebarNavItem
       to={route}
       label={item.name}
@@ -65,7 +87,9 @@ export function SortableNavItem({
       onEdit={item.type === 'filter' ? onEdit : undefined}
       onDelete={item.type === 'filter' ? onDelete : undefined}
     />
-  )
+  ) : null
+
+  if (!navItem) return null
 
   return (
     <div ref={setNodeRef} style={style} className="group/item flex w-full items-center min-w-0 overflow-hidden">

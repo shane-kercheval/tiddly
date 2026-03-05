@@ -69,12 +69,13 @@ def test__get_default_sidebar_order__returns_correct_structure() -> None:
     result = get_default_sidebar_order()
 
     assert result["version"] == SIDEBAR_VERSION
-    assert len(result["items"]) == 3
+    assert len(result["items"]) == 4
 
     # Check builtin items
-    assert result["items"][0] == {"type": "builtin", "key": "all"}
-    assert result["items"][1] == {"type": "builtin", "key": "archived"}
-    assert result["items"][2] == {"type": "builtin", "key": "trash"}
+    assert result["items"][0] == {"type": "builtin", "key": "command-palette"}
+    assert result["items"][1] == {"type": "builtin", "key": "all"}
+    assert result["items"][2] == {"type": "builtin", "key": "archived"}
+    assert result["items"][3] == {"type": "builtin", "key": "trash"}
 
 
 # =============================================================================
@@ -108,7 +109,7 @@ def test__ensure_sidebar_order_structure__adds_missing_items() -> None:
     """Test that missing items key is filled with defaults."""
     result = _ensure_sidebar_order_structure({"version": 1})
     assert "items" in result
-    assert len(result["items"]) == 3  # Default builtins
+    assert len(result["items"]) == 4  # Default builtins
 
 
 # =============================================================================
@@ -377,15 +378,74 @@ async def test__get_computed_sidebar__returns_default_for_new_user(
     result = await get_computed_sidebar(db_session, test_user.id, [])
 
     assert result.version == SIDEBAR_VERSION
-    assert len(result.items) == 3
+    assert len(result.items) == 4
 
     # Check builtin names are resolved
     builtin_keys = [
         item.key for item in result.items if hasattr(item, "key")
     ]
+    assert "command-palette" in builtin_keys
     assert "all" in builtin_keys
     assert "archived" in builtin_keys
     assert "trash" in builtin_keys
+
+
+async def test__get_computed_sidebar__injects_command_palette_for_existing_users(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that command-palette is injected at top for existing users missing it."""
+    # Simulate an existing user's saved sidebar without command-palette
+    settings = UserSettings(
+        user_id=test_user.id,
+        sidebar_order={
+            "version": 1,
+            "items": [
+                {"type": "builtin", "key": "all"},
+                {"type": "builtin", "key": "archived"},
+                {"type": "builtin", "key": "trash"},
+            ],
+        },
+    )
+    db_session.add(settings)
+    await db_session.flush()
+
+    result = await get_computed_sidebar(db_session, test_user.id, [])
+
+    # Should have 4 items: command-palette prepended + existing 3
+    assert len(result.items) == 4
+    assert result.items[0].key == "command-palette"  # type: ignore[union-attr]
+    assert result.items[1].key == "all"  # type: ignore[union-attr]
+
+
+async def test__get_computed_sidebar__does_not_duplicate_command_palette(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that command-palette is not duplicated if already present."""
+    settings = UserSettings(
+        user_id=test_user.id,
+        sidebar_order={
+            "version": 1,
+            "items": [
+                {"type": "builtin", "key": "all"},
+                {"type": "builtin", "key": "command-palette"},
+                {"type": "builtin", "key": "trash"},
+            ],
+        },
+    )
+    db_session.add(settings)
+    await db_session.flush()
+
+    result = await get_computed_sidebar(db_session, test_user.id, [])
+
+    # Should remain 3 items, command-palette not duplicated
+    assert len(result.items) == 3
+    command_palette_count = sum(
+        1 for item in result.items
+        if hasattr(item, "key") and item.key == "command-palette"
+    )
+    assert command_palette_count == 1
 
 
 async def test__get_computed_sidebar__resolves_list_names(
@@ -439,9 +499,10 @@ async def test__get_computed_sidebar__filters_deleted_list_references(
 
     result = await get_computed_sidebar(db_session, test_user.id, [])
 
-    # Should only have the builtin
-    assert len(result.items) == 1
-    assert result.items[0].key == "all"  # type: ignore[union-attr]
+    # Should have command-palette (injected) + the builtin
+    assert len(result.items) == 2
+    assert result.items[0].key == "command-palette"  # type: ignore[union-attr]
+    assert result.items[1].key == "all"  # type: ignore[union-attr]
 
 
 async def test__get_computed_sidebar__prepends_orphan_lists_to_root(
@@ -465,10 +526,10 @@ async def test__get_computed_sidebar__prepends_orphan_lists_to_root(
 
     result = await get_computed_sidebar(db_session, test_user.id, [test_filter])
 
-    # Should have builtin + orphan list
-    assert len(result.items) == 2
+    # Should have orphan list + command-palette (injected) + builtin
+    assert len(result.items) == 3
 
-    # First item should be the orphaned list
+    # First item should be the orphaned list (prepended before command-palette)
     first_item = result.items[0]
     assert hasattr(first_item, "id")
     assert first_item.id == test_filter.id  # type: ignore[union-attr]
@@ -501,8 +562,10 @@ async def test__get_computed_sidebar__preserves_group_structure(
 
     result = await get_computed_sidebar(db_session, test_user.id, [test_filter])
 
-    assert len(result.items) == 1
-    group = result.items[0]
+    # command-palette injected + the collection
+    assert len(result.items) == 2
+    assert result.items[0].key == "command-palette"  # type: ignore[union-attr]
+    group = result.items[1]
     assert group.type == "collection"
     assert group.name == "Work"  # type: ignore[union-attr]
     assert len(group.items) == 1  # type: ignore[union-attr]

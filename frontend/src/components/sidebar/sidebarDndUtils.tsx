@@ -10,6 +10,7 @@ import {
   NoteIcon,
   PromptIcon,
   ListIcon,
+  SearchIcon,
 } from '../icons'
 import type {
   BuiltinKey,
@@ -31,6 +32,8 @@ export function getBuiltinIcon(key: BuiltinKey): ReactNode {
       return <ArchiveIcon className="h-[18px] w-[18px] text-gray-500" />
     case 'trash':
       return <TrashIcon className="h-[18px] w-[18px] text-red-500" />
+    case 'command-palette':
+      return <SearchIcon className="h-[18px] w-[18px] text-gray-500" />
   }
 }
 
@@ -154,6 +157,7 @@ export const customCollisionDetection: CollisionDetection = (args) => {
   const activeCollectionChild = parseCollectionChildId(activeId)
   const sourceCollectionId = activeCollectionChild?.collectionId ?? null
   const isDraggingCollection = activeId.startsWith('collection:')
+  const isDraggingCommandPalette = activeId === 'builtin:command-palette'
 
   // Get all sortable collisions (exclude dropzones)
   const sortableContainers = args.droppableContainers.filter(
@@ -194,7 +198,7 @@ export const customCollisionDetection: CollisionDetection = (args) => {
   // Case 1: Pointer is inside a DIFFERENT collection's bounds -> drop into that collection
   // Dropzone activates for the entire collection area
   // Collections cannot be dropped into other collections
-  if (isOverDifferentCollection && !isDraggingCollection) {
+  if (isOverDifferentCollection && !isDraggingCollection && !isDraggingCommandPalette) {
     const dropzoneCollision = dropzoneCollisions.find(
       (c) => String(c.id) === `dropzone:${currentDropzoneCollectionId}`
     )

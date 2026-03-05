@@ -17,6 +17,9 @@ import {
   getFilterIcon,
 } from './sidebarDndUtils'
 import { GripIcon, GroupIcon } from '../icons'
+import {
+  isNavigableBuiltin,
+} from '../../types'
 import type {
   SidebarBuiltinItemComputed,
   SidebarFilterItemComputed,
@@ -92,9 +95,14 @@ function SortableCollectionChild({
       : getFilterIcon(item.content_types)
 
   const route =
-    item.type === 'builtin'
-      ? getBuiltinRoute(item.key)
-      : getFilterRoute(item.id)
+    item.type === 'filter'
+      ? getFilterRoute(item.id)
+      : isNavigableBuiltin(item.key)
+        ? getBuiltinRoute(item.key)
+        : null
+
+  // Non-navigable builtins (e.g. command-palette) shouldn't be inside collections
+  if (!route) return null
 
   return (
     <div ref={setNodeRef} style={style} className="group/item flex w-full items-center min-w-0 overflow-hidden">

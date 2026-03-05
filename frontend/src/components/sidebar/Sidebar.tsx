@@ -56,7 +56,6 @@ import {
   SparklesIcon,
   HistoryIcon,
   HelpIcon,
-  SearchIcon,
   IconWithBadge,
 } from '../icons'
 import { Tooltip } from '../ui'
@@ -436,7 +435,8 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
     }
 
     // Case 4: Dragging from root level to a collection dropzone
-    if (!activeCollectionChild && isOverDropzone && !isDraggingCollection) {
+    // Command palette is a global action — don't allow it inside collections
+    if (!activeCollectionChild && isOverDropzone && !isDraggingCollection && activeIdStr !== 'builtin:command-palette') {
       const activeIndex = items.findIndex((item) => getItemId(item) === activeIdStr)
       if (activeIndex === -1) return
 
@@ -505,17 +505,22 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
   // Render a builtin or filter item
   const renderNavItem = (
     item: SidebarBuiltinItemComputed | SidebarFilterItemComputed
-  ): ReactNode => (
-    <SortableNavItem
-      key={getItemId(item)}
-      item={item}
-      isCollapsed={isCollapsed}
-      onNavClick={onNavClick}
-      onEdit={item.type === 'filter' ? () => handleEditFilter(item.id) : undefined}
-      onDelete={item.type === 'filter' ? () => handleDeleteFilter(item.id) : undefined}
-      isDragging={activeId === getItemId(item)}
-    />
-  )
+  ): ReactNode => {
+    const isCommandPalette = item.type === 'builtin' && item.key === 'command-palette'
+    return (
+      <SortableNavItem
+        key={getItemId(item)}
+        item={item}
+        isCollapsed={isCollapsed}
+        onNavClick={onNavClick}
+        onEdit={item.type === 'filter' ? () => handleEditFilter(item.id) : undefined}
+        onDelete={item.type === 'filter' ? () => handleDeleteFilter(item.id) : undefined}
+        isDragging={activeId === getItemId(item)}
+        onAction={isCommandPalette ? onOpenPalette : undefined}
+        shortcut={isCommandPalette ? '⌘⇧P' : undefined}
+      />
+    )
+  }
 
   // Render a sidebar item based on type
   const renderItem = (item: SidebarItemComputed): ReactNode => {
@@ -557,35 +562,24 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
       >
         <nav className={`flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2 pt-1${isCollapsed ? ' scrollbar-none' : ''}`}>
           {/* Actions Section */}
-          <div className="space-y-0.5 pb-2 border-b border-gray-200 mb-2">
-            <QuickAddButton label="New Note" icon={<NoteIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-note" onClick={handleQuickAddNote} isCollapsed={isCollapsed} onPrefetch={() => prefetchRoute('/app/notes/new')} />
-            <QuickAddButton label="New Bookmark" icon={<BookmarkIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-bookmark" onClick={handleQuickAddBookmark} isCollapsed={isCollapsed} onPrefetch={() => prefetchRoute('/app/bookmarks/new')} />
-            <QuickAddButton label="New Prompt" icon={<PromptIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-prompt" onClick={handleQuickAddPrompt} isCollapsed={isCollapsed} onPrefetch={() => prefetchRoute('/app/prompts/new')} />
-
-            {/* Command Palette */}
+          <div className="space-y-0.5 pb-1 border-b border-gray-200 mb-2">
             {isCollapsed ? (
-              <Tooltip content="Command Palette (⌘⇧P)" compact position="right" className="w-full">
-                <button
-                  onClick={onOpenPalette}
-                  className="flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
-                >
-                  <SearchIcon className="h-[18px] w-[18px] text-gray-500 flex-shrink-0" />
-                  <span className="sr-only">Command Palette (⌘⇧P)</span>
-                </button>
-              </Tooltip>
+              <>
+                <QuickAddButton label="New Note" icon={<NoteIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-note" onClick={handleQuickAddNote} isCollapsed={isCollapsed} onPrefetch={() => prefetchRoute('/app/notes/new')} />
+                <QuickAddButton label="New Bookmark" icon={<BookmarkIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-bookmark" onClick={handleQuickAddBookmark} isCollapsed={isCollapsed} onPrefetch={() => prefetchRoute('/app/bookmarks/new')} />
+                <QuickAddButton label="New Prompt" icon={<PromptIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-prompt" onClick={handleQuickAddPrompt} isCollapsed={isCollapsed} onPrefetch={() => prefetchRoute('/app/prompts/new')} />
+              </>
             ) : (
-              <button
-                onClick={onOpenPalette}
-                className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
-              >
-                <SearchIcon className="h-[18px] w-[18px] text-gray-500 flex-shrink-0" />
-                <span className="flex-1 truncate min-w-0 text-left">Command Palette</span>
-                <kbd className="text-[11px] text-gray-400 font-sans">⌘⇧P</kbd>
-              </button>
+              <div className="flex items-center gap-0.5">
+                <QuickAddButton label="Note" icon={<NoteIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-note" onClick={handleQuickAddNote} isCollapsed={false} compact onPrefetch={() => prefetchRoute('/app/notes/new')} />
+                <QuickAddButton label="Bookmark" icon={<BookmarkIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-bookmark" onClick={handleQuickAddBookmark} isCollapsed={false} compact onPrefetch={() => prefetchRoute('/app/bookmarks/new')} />
+                <QuickAddButton label="Prompt" icon={<PromptIcon className="h-[18px] w-[18px]" />} brandColor="text-brand-prompt" onClick={handleQuickAddPrompt} isCollapsed={false} compact onPrefetch={() => prefetchRoute('/app/prompts/new')} />
+              </div>
             )}
+
           </div>
 
-          {/* Filters and Collections (drag-and-drop) */}
+          {/* Filters, Collections, and Command Palette (drag-and-drop) */}
           <SortableContext items={rootItemIds} strategy={verticalListSortingStrategy}>
             {sidebar?.items.map(renderItem)}
           </SortableContext>
@@ -716,6 +710,7 @@ function QuickAddButton({
   brandColor,
   onClick,
   isCollapsed,
+  compact,
   onPrefetch,
 }: {
   label: string
@@ -723,11 +718,12 @@ function QuickAddButton({
   brandColor: string
   onClick: () => void
   isCollapsed: boolean
+  compact?: boolean
   onPrefetch?: () => void
 }): ReactNode {
-  return (
-    <div className="relative w-full min-w-0 overflow-hidden">
-      {isCollapsed ? (
+  if (isCollapsed) {
+    return (
+      <div className="relative w-full min-w-0 overflow-hidden">
         <Tooltip content={label} compact position="right" className="w-full">
           <button
             onClick={onClick}
@@ -736,23 +732,44 @@ function QuickAddButton({
             className={`flex w-full items-center justify-center rounded-lg px-3 h-[32px] text-sm ${brandColor} transition-colors hover:bg-gray-100 focus:outline-none`}
             aria-label={label}
           >
-            <IconWithBadge>{icon}</IconWithBadge>
+            <span className="-translate-x-[1px]"><IconWithBadge>{icon}</IconWithBadge></span>
           </button>
         </Tooltip>
-      ) : (
-        <button
-          onClick={onClick}
-          onMouseEnter={onPrefetch}
-          onFocus={onPrefetch}
-          className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
-          aria-label={label}
-        >
-          <span className={`flex-shrink-0 ${brandColor}`}>
-            <IconWithBadge>{icon}</IconWithBadge>
-          </span>
-          <span className="flex-1 truncate min-w-0 text-left">{label}</span>
-        </button>
-      )}
+      </div>
+    )
+  }
+
+  if (compact) {
+    return (
+      <button
+        onClick={onClick}
+        onMouseEnter={onPrefetch}
+        onFocus={onPrefetch}
+        className="flex flex-1 items-center justify-center gap-2 rounded-lg h-[32px] text-xs text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
+        aria-label={`New ${label}`}
+      >
+        <span className={`flex-shrink-0 ${brandColor}`}>
+          <IconWithBadge>{icon}</IconWithBadge>
+        </span>
+        <span className="truncate">{label}</span>
+      </button>
+    )
+  }
+
+  return (
+    <div className="relative w-full min-w-0 overflow-hidden">
+      <button
+        onClick={onClick}
+        onMouseEnter={onPrefetch}
+        onFocus={onPrefetch}
+        className="flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none"
+        aria-label={label}
+      >
+        <span className={`flex-shrink-0 ${brandColor}`}>
+          <IconWithBadge>{icon}</IconWithBadge>
+        </span>
+        <span className="flex-1 truncate min-w-0 text-left">{label}</span>
+      </button>
     </div>
   )
 }

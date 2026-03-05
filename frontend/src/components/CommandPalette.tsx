@@ -51,6 +51,9 @@ import {
 import { isEffectivelyArchived } from '../utils'
 import { getFilterRoute, getBuiltinRoute } from './sidebar/routes'
 import { getFilterIcon, getBuiltinIcon } from './sidebar/sidebarDndUtils'
+import {
+  isNavigableBuiltin,
+} from '../types'
 import type {
   ContentListItem,
   ContentSearchParams,
@@ -352,14 +355,15 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     if (sidebar) {
       const navItems = collectNavItems(sidebar.items)
       for (const item of navItems) {
-        if (item.type === 'builtin') {
+        if (item.type === 'builtin' && isNavigableBuiltin(item.key)) {
+          const key = item.key
           cmds.push({
-            id: `builtin-${item.key}`,
+            id: `builtin-${key}`,
             label: item.name,
-            icon: getBuiltinIcon(item.key),
-            action: () => navigateAndClose(getBuiltinRoute(item.key)),
+            icon: getBuiltinIcon(key),
+            action: () => navigateAndClose(getBuiltinRoute(key)),
           })
-        } else {
+        } else if (item.type === 'filter') {
           cmds.push({
             id: `filter-${item.id}`,
             label: `Filter: ${item.name}`,

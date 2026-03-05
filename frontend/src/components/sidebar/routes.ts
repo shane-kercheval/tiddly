@@ -4,12 +4,13 @@
  * All content routes use the unified /app/content/* pattern.
  */
 
-import type { BuiltinKey } from '../../types'
+import type { NavigableBuiltinKey } from '../../types'
 
 /**
- * Get the route path for a builtin sidebar item.
+ * Get the route path for a navigable builtin sidebar item.
+ * Only accepts NavigableBuiltinKey — use isNavigableBuiltin() to narrow first.
  */
-export function getBuiltinRoute(key: BuiltinKey): string {
+export function getBuiltinRoute(key: NavigableBuiltinKey): string {
   switch (key) {
     case 'all':
       return '/app/content'

@@ -42,6 +42,7 @@ def get_default_sidebar_order() -> dict:
     return {
         "version": SIDEBAR_VERSION,
         "items": [
+            {"type": "builtin", "key": "command-palette"},
             {"type": "builtin", "key": "all"},
             {"type": "builtin", "key": "archived"},
             {"type": "builtin", "key": "trash"},
@@ -251,6 +252,15 @@ async def get_computed_sidebar(
         filter_map,
         seen_filter_ids,
     )
+
+    # Inject command-palette if missing from saved sidebar (for existing users)
+    has_command_palette = any(
+        item.key == "command-palette"
+        for item in computed_items
+        if isinstance(item, SidebarBuiltinItemComputed)
+    )
+    if not has_command_palette:
+        computed_items.insert(0, _compute_builtin_item("command-palette"))
 
     # Prepend orphaned filters (in DB but not in sidebar) to root
     orphaned_items: list[SidebarFilterItemComputed] = []

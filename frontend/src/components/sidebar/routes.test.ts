@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { getBuiltinRoute, getFilterRoute } from './routes'
+import { isNavigableBuiltin } from '../../types'
 
 describe('getBuiltinRoute', () => {
   it('returns /app/content for "all"', () => {
@@ -19,11 +20,23 @@ describe('getBuiltinRoute', () => {
     expect(getBuiltinRoute('trash')).toBe('/app/content/trash')
   })
 
-  it('all builtin routes start with /app/', () => {
+  it('all navigable builtin routes start with /app/', () => {
     const builtinKeys = ['all', 'archived', 'trash'] as const
     for (const key of builtinKeys) {
       expect(getBuiltinRoute(key).startsWith('/app/')).toBe(true)
     }
+  })
+})
+
+describe('isNavigableBuiltin', () => {
+  it('returns true for navigable builtins', () => {
+    expect(isNavigableBuiltin('all')).toBe(true)
+    expect(isNavigableBuiltin('archived')).toBe(true)
+    expect(isNavigableBuiltin('trash')).toBe(true)
+  })
+
+  it('returns false for command-palette', () => {
+    expect(isNavigableBuiltin('command-palette')).toBe(false)
   })
 })
 

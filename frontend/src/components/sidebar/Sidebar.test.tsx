@@ -44,6 +44,7 @@ vi.mock('../../stores/settingsStore', () => ({
         sidebar: {
           version: 1,
           items: [
+            { type: 'builtin', key: 'command-palette', name: 'Command Palette' },
             { type: 'builtin', key: 'all', name: 'All Content' },
             { type: 'filter', id: '5', name: 'Test Filter', content_types: ['bookmark'] },
           ],
@@ -61,6 +62,7 @@ vi.mock('../../stores/settingsStore', () => ({
         sidebar: {
           version: 1,
           items: [
+            { type: 'builtin', key: 'command-palette', name: 'Command Palette' },
             { type: 'builtin', key: 'all', name: 'All Content' },
             { type: 'filter', id: '5', name: 'Test Filter', content_types: ['bookmark'] },
           ],
@@ -162,6 +164,48 @@ describe('Sidebar', () => {
     mockDeleteFilter.mockResolvedValue(undefined)
     mockFetchSidebar.mockResolvedValue(undefined)
     mockUpdateSidebar.mockResolvedValue(undefined)
+  })
+
+  describe('command palette', () => {
+    it('renders Command Palette as a draggable sidebar item', () => {
+      const mockOnOpenPalette = vi.fn()
+
+      render(<Sidebar onOpenPalette={mockOnOpenPalette} />, {
+        wrapper: createWrapper(['/app/content']),
+      })
+
+      // Should render as a button (not a link) with the label
+      const paletteText = screen.getAllByText('Command Palette')
+      expect(paletteText.length).toBeGreaterThan(0)
+    })
+
+    it('calls onOpenPalette when Command Palette is clicked', async () => {
+      const user = userEvent.setup()
+      const mockOnOpenPalette = vi.fn()
+
+      render(<Sidebar onOpenPalette={mockOnOpenPalette} />, {
+        wrapper: createWrapper(['/app/content']),
+      })
+
+      // Find the button containing "Command Palette" text
+      const paletteButtons = screen.getAllByText('Command Palette')
+      // Click the closest button ancestor
+      await user.click(paletteButtons[0].closest('button')!)
+
+      expect(mockOnOpenPalette).toHaveBeenCalledOnce()
+    })
+
+    it('displays keyboard shortcut badge', () => {
+      const mockOnOpenPalette = vi.fn()
+
+      render(<Sidebar onOpenPalette={mockOnOpenPalette} />, {
+        wrapper: createWrapper(['/app/content']),
+      })
+
+      // The shortcut should be visible in the desktop sidebar (inside <kbd> elements)
+      const shortcuts = screen.getAllByText('⌘⇧P')
+      expect(shortcuts.length).toBeGreaterThan(0)
+    })
   })
 
   describe('delete filter navigation', () => {

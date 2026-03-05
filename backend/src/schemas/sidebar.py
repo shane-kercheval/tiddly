@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 SIDEBAR_VERSION = 1
 
 # Valid built-in keys for sidebar navigation
-BuiltinKey = Literal["all", "archived", "trash"]
+BuiltinKey = Literal["all", "archived", "trash", "command-palette"]
 
 # UUID regex pattern for validation
 UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -128,4 +128,5 @@ BUILTIN_DISPLAY_NAMES: dict[BuiltinKey, str] = {
     "all": "All Content",
     "archived": "Archived",
     "trash": "Trash",
+    "command-palette": "Command Palette",
 }
