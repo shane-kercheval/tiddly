@@ -212,6 +212,13 @@ The Tiddly CLI (`tiddly`) manages authentication and MCP server configuration fo
 - `tiddly mcp status` / `tiddly mcp uninstall`: View or remove MCP server configurations.
 - `tiddly skills sync [tool]`: Export prompt templates as agent skills to Claude Code, Codex, or Claude Desktop. Auto-detects tools if none specified. Supports `--tags` for filtering and `--scope` for project-level paths.
 - `tiddly skills list`: List available skills (prompts eligible for export). Supports `--tags` for filtering.
+- `tiddly tokens list`: List all Personal Access Tokens with name, prefix, last used, expiration, and creation date.
+- `tiddly tokens create <name> [--expires N]`: Create a new PAT. The plaintext token is shown once at creation.
+- `tiddly tokens delete <id> [--force]`: Revoke a PAT by ID. Prompts for confirmation unless `--force` is used.
+- `tiddly completion bash/zsh/fish`: Generate shell completion scripts.
+- `tiddly export`: Bulk export bookmarks, notes, and prompts as JSON. Supports `--types`, `--output`, and `--include-archived`.
+
+Token management requires OAuth login (browser-based). PAT authentication is not sufficient for token operations.
 
 Supports config scopes (user, local, project), dry-run mode, and automatic token management. Full documentation at https://tiddly.me/docs/cli.
 

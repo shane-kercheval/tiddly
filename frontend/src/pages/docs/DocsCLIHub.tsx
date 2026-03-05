@@ -116,7 +116,19 @@ tiddly skills list --tags python         # list skills filtered by tags`} />
         </p>
       </div>
 
-      <div className="mb-10">
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">Tokens</h3>
+        <p className="text-gray-600 mb-3 text-sm">
+          Manage Personal Access Tokens for programmatic API access. Requires OAuth login (browser-based).
+        </p>
+        <CopyableCodeBlock code={`tiddly tokens list                       # list all tokens
+tiddly tokens create "My Token"          # create a new token
+tiddly tokens create "CI" --expires 90   # create with 90-day expiration
+tiddly tokens delete <id>                # delete (with confirmation)
+tiddly tokens delete <id> --force        # delete without confirmation`} />
+      </div>
+
+      <div className="mb-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-2">Export</h3>
         <p className="text-gray-600 mb-3 text-sm">
           Bulk export your content as JSON for backup or migration.
@@ -125,6 +137,16 @@ tiddly skills list --tags python         # list skills filtered by tags`} />
 tiddly export --types bookmarks,notes    # export specific content types
 tiddly export --output backup.json       # write to file
 tiddly export --include-archived         # include archived items`} />
+      </div>
+
+      <div className="mb-10">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">Shell Completions</h3>
+        <p className="text-gray-600 mb-3 text-sm">
+          Generate shell completion scripts for tab completion of commands and flags.
+        </p>
+        <CopyableCodeBlock code={`source <(tiddly completion bash)          # Bash (add to ~/.bashrc)
+source <(tiddly completion zsh)           # Zsh (add to ~/.zshrc)
+tiddly completion fish | source           # Fish`} />
       </div>
 
       {/* Advanced Configuration */}
