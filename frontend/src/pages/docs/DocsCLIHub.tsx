@@ -21,6 +21,11 @@ const PAGES: CLIPageCard[] = [
     description: 'Auto-detect AI tools and configure MCP servers with dedicated tokens.',
     path: '/docs/cli/mcp',
   },
+  {
+    name: 'Skills',
+    description: 'Export prompt templates as agent skills for Claude Code, Codex, and Claude Desktop.',
+    path: '/docs/cli/skills',
+  },
 ]
 
 export function DocsCLIHub(): ReactNode {
@@ -104,6 +109,11 @@ tiddly skills sync --tags skill          # only sync prompts with matching tags
 tiddly skills sync --scope project       # sync to project-level paths
 tiddly skills list                       # list available skills
 tiddly skills list --tags python         # list skills filtered by tags`} />
+        <p className="text-gray-600 mt-2 text-sm">
+          See{' '}
+          <Link to="/docs/cli/skills" className="underline hover:text-gray-900">Skills</Link>{' '}
+          for full reference.
+        </p>
       </div>
 
       <div className="mb-10">

@@ -149,7 +149,7 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
         <p className="mt-2 text-sm text-gray-500">
           Add <code className="bg-gray-100 px-1 rounded">--tags</code> to filter (e.g.{' '}
           <code className="bg-gray-100 px-1 rounded">tiddly skills sync {client} --tags skill</code>).
-          See <a href="/docs/cli" className="text-[#d97b3d] hover:underline">CLI docs</a> for installation and setup.
+          See <a href="/docs/cli/skills" className="text-[#d97b3d] hover:underline">CLI docs</a> for installation and setup.
         </p>
 
         {/* Option 2: Manual (curl) */}

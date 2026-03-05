@@ -149,7 +149,9 @@ export function DocsPrompts(): ReactNode {
           <Link to="/docs/ai/claude-code" className="text-[#d97b3d] hover:underline">Claude Code</Link>{' '}
           or{' '}
           <Link to="/docs/ai/claude-desktop" className="text-[#d97b3d] hover:underline">Claude Desktop</Link>{' '}
-          docs for setup instructions.
+          docs for setup instructions, or use the{' '}
+          <Link to="/docs/cli/skills" className="text-[#d97b3d] hover:underline">CLI</Link>{' '}
+          for quick sync.
         </p>
       </div>
     </div>

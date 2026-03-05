@@ -1227,7 +1227,7 @@ function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
         <p className="text-sm text-blue-800">
           <strong>Tip:</strong> If you have the Tiddly CLI installed, run{' '}
           <code className="bg-blue-100 px-1 rounded">tiddly skills sync {client}</code> instead.
-          See <Link to="/docs/cli" className="text-[#d97b3d] hover:underline">CLI docs</Link>.
+          See <Link to="/docs/cli/skills" className="text-[#d97b3d] hover:underline">CLI docs</Link>.
         </p>
       </div>
 

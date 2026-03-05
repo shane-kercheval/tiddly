@@ -261,7 +261,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Skills' }))
 
       expect(screen.getByText(/tiddly skills sync/)).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: /CLI docs/ })).toHaveAttribute('href', '/docs/cli')
+      expect(screen.getByRole('link', { name: /CLI docs/ })).toHaveAttribute('href', '/docs/cli/skills')
     })
 
     it('should show not applicable message when Skills and Bookmarks & Notes are selected', async () => {
