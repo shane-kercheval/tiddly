@@ -46,6 +46,9 @@ var ErrNotFound = errors.New("credential not found")
 // ErrNotLoggedIn is returned when no credentials are available anywhere in the resolution chain.
 var ErrNotLoggedIn = errors.New("not logged in. Run 'tiddly login' to authenticate")
 
+// keyringProbe tests whether the system keyring is usable. Overridden in tests.
+var keyringProbe = testKeyringWithTimeout
+
 // NewCredentialStore creates a CredentialStore based on the mode and environment.
 // configDir is the directory for file-based fallback storage.
 // Returns the store and true if it fell back to file-based storage (not explicitly requested).
@@ -54,7 +57,7 @@ func NewCredentialStore(mode KeyringMode, configDir string) (CredentialStore, bo
 		return &fileStore{dir: configDir}, false // explicitly requested
 	}
 
-	if mode == KeyringForce || testKeyringWithTimeout() {
+	if mode == KeyringForce || keyringProbe() {
 		return &keyringStore{}, false
 	}
 

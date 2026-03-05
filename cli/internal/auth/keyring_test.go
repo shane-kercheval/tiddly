@@ -138,6 +138,32 @@ func TestFileStore__file_permissions(t *testing.T) {
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 }
 
+func TestNewCredentialStore__auto_keyring_available(t *testing.T) {
+	original := keyringProbe
+	keyringProbe = func() bool { return true }
+	t.Cleanup(func() { keyringProbe = original })
+
+	dir := t.TempDir()
+	store, fallback := NewCredentialStore(KeyringAuto, dir)
+
+	_, ok := store.(*keyringStore)
+	assert.True(t, ok, "auto mode with working keyring should create keyringStore")
+	assert.False(t, fallback, "should not report as fallback")
+}
+
+func TestNewCredentialStore__auto_keyring_unavailable(t *testing.T) {
+	original := keyringProbe
+	keyringProbe = func() bool { return false }
+	t.Cleanup(func() { keyringProbe = original })
+
+	dir := t.TempDir()
+	store, fallback := NewCredentialStore(KeyringAuto, dir)
+
+	_, ok := store.(*fileStore)
+	assert.True(t, ok, "auto mode with broken keyring should fall back to fileStore")
+	assert.True(t, fallback, "should report as fallback")
+}
+
 func TestNewCredentialStore__file_mode(t *testing.T) {
 	dir := t.TempDir()
 	store, fallback := NewCredentialStore(KeyringFile, dir)
