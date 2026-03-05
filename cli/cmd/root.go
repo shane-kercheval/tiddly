@@ -94,6 +94,7 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newMCPCmd())
 	rootCmd.AddCommand(newSkillsCmd())
+	rootCmd.AddCommand(newExportCmd())
 
 	return rootCmd
 }

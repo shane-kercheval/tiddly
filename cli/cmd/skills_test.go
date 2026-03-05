@@ -69,10 +69,13 @@ func TestSkillsSync__auto_detect_tools(t *testing.T) {
 	setupTestDeps(t, store)
 	appDeps.ExecLooker = execLooker
 
-	// Set up config path override for claude-code detection
+	// Set up config path overrides to control detection.
+	// Override codex to a nonexistent path so it isn't detected via ~/.codex/ on the host.
 	destDir := t.TempDir()
 	cleanupConfig := mcp.SetConfigPathOverride("claude-code", filepath.Join(destDir, "claude.json"))
 	defer cleanupConfig()
+	cleanupCodexConfig := mcp.SetConfigPathOverride("codex", filepath.Join(destDir, "nonexistent", "config.toml"))
+	defer cleanupCodexConfig()
 	cleanupSkills := skills.SetToolPathOverride("claude-code", "global", filepath.Join(destDir, "skills"))
 	defer cleanupSkills()
 
