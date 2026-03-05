@@ -254,6 +254,16 @@ describe('SettingsMCP', () => {
       expect(screen.getByText(/Prompt names longer than 64 characters/)).toBeInTheDocument()
     })
 
+    it('should show CLI tip when Skills is selected', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+
+      expect(screen.getByText(/tiddly skills sync/)).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /CLI docs/ })).toHaveAttribute('href', '/docs/cli')
+    })
+
     it('should show not applicable message when Skills and Bookmarks & Notes are selected', async () => {
       const user = userEvent.setup()
       renderWithRouter()

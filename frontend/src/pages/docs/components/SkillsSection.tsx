@@ -133,10 +133,33 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
         <h3 className="text-base font-semibold text-gray-900 mb-2">
           {client === 'claude-desktop' ? 'Download Skills' : 'Sync Skills'}
         </h3>
+
+        {/* Option 1: Tiddly CLI */}
+        <h4 className="text-sm font-semibold text-gray-800 mb-2">
+          Option 1: Tiddly CLI (Recommended)
+        </h4>
         <p className="text-gray-600 mb-3">
           {client === 'claude-desktop'
-            ? 'Run this command to download your skills:'
-            : 'Run this command to download and install your skills:'}
+            ? 'Download your skills with the Tiddly CLI:'
+            : 'Sync your skills with the Tiddly CLI:'}
+        </p>
+        <CopyableCodeBlock
+          code={`tiddly skills sync ${client}`}
+        />
+        <p className="mt-2 text-sm text-gray-500">
+          Add <code className="bg-gray-100 px-1 rounded">--tags</code> to filter (e.g.{' '}
+          <code className="bg-gray-100 px-1 rounded">tiddly skills sync {client} --tags skill</code>).
+          See <a href="/docs/cli" className="text-[#d97b3d] hover:underline">CLI docs</a> for installation and setup.
+        </p>
+
+        {/* Option 2: Manual (curl) */}
+        <h4 className="text-sm font-semibold text-gray-800 mt-5 mb-2">
+          Option 2: Manual (curl)
+        </h4>
+        <p className="text-gray-600 mb-3">
+          {client === 'claude-desktop'
+            ? 'Or download manually with curl:'
+            : 'Or download and install manually with curl:'}
         </p>
         {client === 'claude-desktop' ? (
           <CopyableCodeBlock

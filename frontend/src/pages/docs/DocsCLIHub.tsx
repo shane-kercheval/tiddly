@@ -31,8 +31,8 @@ export function DocsCLIHub(): ReactNode {
       <h1 className="text-3xl font-bold text-gray-900 mb-2">Tiddly CLI</h1>
       <p className="text-gray-600 mb-8">
         The Tiddly CLI (<code className="bg-gray-100 px-1 rounded">tiddly</code>) is a command-line
-        tool for authenticating with the Tiddly API and configuring MCP servers for AI tools like
-        Claude Desktop, Claude Code, and Codex.
+        tool for authenticating with the Tiddly API, configuring MCP servers, syncing agent skills,
+        and exporting content for AI tools like Claude Desktop, Claude Code, and Codex.
       </p>
 
       {/* Quick Start */}
@@ -88,6 +88,33 @@ tiddly mcp install --servers prompts # prompts server only`} />
             <p className="text-sm text-gray-600">{page.description}</p>
           </Link>
         ))}
+      </div>
+
+      {/* More Commands */}
+      <h2 className="text-xl font-bold text-gray-900 mb-4">More Commands</h2>
+
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">Skills</h3>
+        <p className="text-gray-600 mb-3 text-sm">
+          Export your prompt templates as agent skills for Claude Code, Codex, or Claude Desktop.
+        </p>
+        <CopyableCodeBlock code={`tiddly skills sync                       # auto-detect tools and sync skills
+tiddly skills sync claude-code           # sync for a specific tool
+tiddly skills sync --tags skill          # only sync prompts with matching tags
+tiddly skills sync --scope project       # sync to project-level paths
+tiddly skills list                       # list available skills
+tiddly skills list --tags python         # list skills filtered by tags`} />
+      </div>
+
+      <div className="mb-10">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">Export</h3>
+        <p className="text-gray-600 mb-3 text-sm">
+          Bulk export your content as JSON for backup or migration.
+        </p>
+        <CopyableCodeBlock code={`tiddly export                            # export all content as JSON
+tiddly export --types bookmarks,notes    # export specific content types
+tiddly export --output backup.json       # write to file
+tiddly export --include-archived         # include archived items`} />
       </div>
 
       {/* Advanced Configuration */}

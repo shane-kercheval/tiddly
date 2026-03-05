@@ -1222,6 +1222,15 @@ function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
 
   return (
     <>
+      {/* CLI tip */}
+      <div className="mb-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
+        <p className="text-sm text-blue-800">
+          <strong>Tip:</strong> If you have the Tiddly CLI installed, run{' '}
+          <code className="bg-blue-100 px-1 rounded">tiddly skills sync {client}</code> instead.
+          See <Link to="/docs/cli" className="text-[#d97b3d] hover:underline">CLI docs</Link>.
+        </p>
+      </div>
+
       {/* Client-specific notes */}
       {(client === 'claude-code' || client === 'claude-desktop') && (
         <div className="mb-6 rounded-lg bg-amber-50 border border-amber-200 p-4">

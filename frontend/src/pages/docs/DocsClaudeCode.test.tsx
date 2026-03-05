@@ -131,4 +131,10 @@ describe('DocsClaudeCode', () => {
     expect(text).toContain('~/.claude/skills/')
     expect(text).toContain('/prompts/export/skills')
   })
+
+  it('should show CLI sync command for skills', () => {
+    renderPage()
+    const text = document.body.textContent || ''
+    expect(text).toContain('tiddly skills sync claude-code')
+  })
 })
