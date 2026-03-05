@@ -159,7 +159,38 @@ func (s *fileStore) save(creds map[string]string) error {
 	if err != nil {
 		return fmt.Errorf("encoding credentials: %w", err)
 	}
-	return os.WriteFile(s.path(), data, 0600)
+	return atomicWriteCredentials(s.path(), data)
+}
+
+// atomicWriteCredentials writes data to a temp file and renames it to path,
+// preventing corruption if the process is killed mid-write.
+func atomicWriteCredentials(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()           //nolint:errcheck
+		os.Remove(tmpPath)    //nolint:errcheck
+		return fmt.Errorf("writing temp file: %w", err)
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()           //nolint:errcheck
+		os.Remove(tmpPath)    //nolint:errcheck
+		return fmt.Errorf("setting file permissions: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath) //nolint:errcheck
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath) //nolint:errcheck
+		return fmt.Errorf("renaming temp file: %w", err)
+	}
+	return nil
 }
 
 func (s *fileStore) Get(account string) (string, error) {

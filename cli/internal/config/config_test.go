@@ -16,31 +16,21 @@ func TestInit(t *testing.T) {
 		configYAML  string
 		envVars     map[string]string
 		wantAPIURL  string
-		wantFormat  string
 	}{
 		{
 			name:       "defaults when no config file",
 			wantAPIURL: DefaultAPIURL,
-			wantFormat: DefaultFormat,
 		},
 		{
 			name:       "reads values from config file",
-			configYAML: "api_url: https://custom.example.com\nformat: json\n",
+			configYAML: "api_url: https://custom.example.com\n",
 			wantAPIURL: "https://custom.example.com",
-			wantFormat: "json",
 		},
 		{
 			name:       "env var overrides config file",
 			configYAML: "api_url: https://from-file.example.com\n",
 			envVars:    map[string]string{"TIDDLY_API_URL": "https://from-env.example.com"},
 			wantAPIURL: "https://from-env.example.com",
-			wantFormat: DefaultFormat,
-		},
-		{
-			name:       "env var overrides default",
-			envVars:    map[string]string{"TIDDLY_FORMAT": "json"},
-			wantAPIURL: DefaultAPIURL,
-			wantFormat: "json",
 		},
 	}
 
@@ -64,7 +54,6 @@ func TestInit(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantAPIURL, viper.GetString("api_url"))
-			assert.Equal(t, tt.wantFormat, viper.GetString("format"))
 		})
 	}
 }

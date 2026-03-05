@@ -16,7 +16,7 @@ func TestStatus__not_logged_in(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "status")
 
 	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "Tiddly CLI v")
+	assert.Contains(t, result.Stdout, "Tiddly CLI vdev")
 	assert.Contains(t, result.Stdout, "Not logged in")
 }
 
@@ -77,5 +77,5 @@ func TestStatus__shows_version(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "status")
 
 	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "Tiddly CLI v0.1.0")
+	assert.Contains(t, result.Stdout, "Tiddly CLI vdev")
 }

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -77,7 +76,7 @@ func loginWithPAT(cmd *cobra.Command, token string) error {
 
 func loginWithOAuth(cmd *cobra.Command) error {
 	// Set up context with Ctrl+C cancellation
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
 
 	// Shallow copy the DeviceFlow from appDeps to preserve HTTPClient, BaseURL, etc.

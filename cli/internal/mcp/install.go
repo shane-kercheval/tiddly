@@ -272,7 +272,7 @@ func installTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, content
 			return err
 		}
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", rc.Path))
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path))
 		result.Warnings = append(result.Warnings, "Restart Claude Desktop to apply changes.")
 
 	case "claude-code":
@@ -288,7 +288,7 @@ func installTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, content
 			return err
 		}
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", rc.Path))
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path))
 
 	case "codex":
 		backedUp, err := backupIfMalformed(rc.Path)
@@ -303,7 +303,7 @@ func installTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, content
 			return err
 		}
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Use 'tiddly tokens list' to audit.", rc.Path))
+			fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path))
 	}
 
 	return nil

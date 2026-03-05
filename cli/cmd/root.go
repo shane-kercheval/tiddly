@@ -11,7 +11,6 @@ import (
 var (
 	flagToken   string
 	flagAPIURL  string
-	flagFormat  string
 	flagKeyring string
 )
 
@@ -51,9 +50,6 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 			if flagAPIURL != "" {
 				viper.Set("api_url", flagAPIURL)
 			}
-			if flagFormat != "" {
-				viper.Set("format", flagFormat)
-			}
 
 			// Initialize config and deps (unless deps already set by test)
 			if appDeps == nil {
@@ -89,7 +85,6 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 
 	rootCmd.PersistentFlags().StringVar(&flagToken, "token", "", "Override auth token")
 	rootCmd.PersistentFlags().StringVar(&flagAPIURL, "api-url", "", "API base URL (default: https://api.tiddly.me)")
-	rootCmd.PersistentFlags().StringVar(&flagFormat, "format", "", "Output format: text, json (default: text)")
 	rootCmd.PersistentFlags().StringVar(&flagKeyring, "keyring", "auto", "Credential storage: auto, force, file")
 	_ = rootCmd.PersistentFlags().MarkHidden("keyring")
 

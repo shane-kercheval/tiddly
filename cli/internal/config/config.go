@@ -9,7 +9,6 @@ import (
 
 const (
 	DefaultAPIURL = "https://api.tiddly.me"
-	DefaultFormat = "text"
 )
 
 // Dir returns the configuration directory path, respecting XDG_CONFIG_HOME.
@@ -29,7 +28,6 @@ func Init(configDir string) error {
 	}
 
 	viper.SetDefault("api_url", DefaultAPIURL)
-	viper.SetDefault("format", DefaultFormat)
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")

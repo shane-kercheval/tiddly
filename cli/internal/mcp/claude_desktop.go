@@ -170,18 +170,23 @@ func ExtractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) 
 }
 
 // extractClaudeDesktopServerPAT extracts the Bearer token from a Claude Desktop MCP server entry.
-// The token is in args[3] as "Authorization: Bearer <PAT>".
+// Scans args for "--header" and extracts the Bearer token from the following element.
 func extractClaudeDesktopServerPAT(servers map[string]any, serverName string) string {
 	server, _ := servers[serverName].(map[string]any)
 	if server == nil {
 		return ""
 	}
 	args, _ := server["args"].([]any)
-	if len(args) < 4 {
-		return ""
+	for i, arg := range args {
+		s, _ := arg.(string)
+		if s == "--header" && i+1 < len(args) {
+			headerVal, _ := args[i+1].(string)
+			if token := extractBearerToken(headerVal); token != "" {
+				return token
+			}
+		}
 	}
-	headerVal, _ := args[3].(string)
-	return extractBearerToken(headerVal)
+	return ""
 }
 
 // extractBearerToken extracts the token from a string like "Bearer <token>" or

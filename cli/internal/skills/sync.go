@@ -111,10 +111,15 @@ func Sync(ctx context.Context, client *api.Client, tool string, tags []string, t
 
 	// Read full body into memory (archives are small — prompt content only).
 	// Limit to 100MB as a safety net against unexpected server responses.
+	// Read limit+1 bytes so we can detect truncation without false positives
+	// on a legitimate exactly-100MB archive.
 	const maxArchiveSize = 100 * 1024 * 1024
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArchiveSize))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArchiveSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading skills archive: %w", err)
+	}
+	if len(data) > maxArchiveSize {
+		return nil, fmt.Errorf("skills archive exceeds %d MB size limit", maxArchiveSize/(1024*1024))
 	}
 
 	if len(data) == 0 {

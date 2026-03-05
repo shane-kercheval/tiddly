@@ -344,7 +344,7 @@ func newMCPUninstallCmd() *cobra.Command {
 						fmt.Fprintf(cmd.ErrOrStderr(),
 							"Warning: PATs created for MCP servers still exist: %s\n", strings.Join(orphaned, ", "))
 						fmt.Fprintln(cmd.ErrOrStderr(),
-							"Run 'tiddly mcp uninstall <tool> --delete-tokens' to revoke, or 'tiddly tokens list' to review.")
+							"Run 'tiddly mcp uninstall <tool> --delete-tokens' to revoke, or manage tokens at https://tiddly.me/settings.")
 					}
 				}
 			}

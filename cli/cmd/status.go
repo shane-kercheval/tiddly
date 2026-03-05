@@ -18,7 +18,7 @@ import (
 )
 
 // cliVersion is set via -ldflags "-X github.com/shane-kercheval/tiddly/cli/cmd.cliVersion=x.y.z" at build time.
-var cliVersion = "0.1.0"
+var cliVersion = "dev"
 
 func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
