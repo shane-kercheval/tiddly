@@ -251,6 +251,52 @@ func TestStatusClaudeCode__url_false_positive_rejected(t *testing.T) {
 	assert.Empty(t, sr.Servers, "should not match URL with different host")
 }
 
+func TestStatusClaudeCode__same_host_different_path_rejected(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// Same host as content MCP but different path — should not match
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"other_service": map[string]any{
+				"type": "http",
+				"url":  "https://content-mcp.tiddly.me/other-endpoint",
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := StatusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Empty(t, sr.Servers, "should not match URL with same host but different path")
+}
+
+func TestStatusClaudeCode__canonical_preferred_over_custom(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// Both a canonical and custom entry point to the same tiddly URL
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my_custom_content": map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
+			},
+			serverNameContent: map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := StatusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 1, "should deduplicate to one match")
+	assert.Equal(t, serverNameContent, sr.Servers[0].Name, "should prefer canonical name")
+	assert.Equal(t, MatchByName, sr.Servers[0].MatchMethod)
+}
+
 func TestUninstallClaudeCode__removes_custom_named_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")

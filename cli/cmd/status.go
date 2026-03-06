@@ -24,9 +24,17 @@ func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show Tiddly CLI status overview",
-		Long: `Show a summary of CLI version, authentication, API connectivity,
-content counts, and MCP server configuration.
+		Long: `Show a summary of CLI version, authentication, API connectivity, content counts, and MCP server configuration.
 
+Sections displayed:
+  Authentication — login status and auth method (OAuth or PAT)
+  API            — URL, reachability, and round-trip latency
+  Content        — bookmark, note, and prompt counts (fetched in parallel)
+  MCP Servers    — detected tools and whether Tiddly servers are configured
+
+MCP servers are identified by URL, not by config key name. Content counts are only shown when the API is reachable and authenticated.
+
+Examples:
   tiddly status    Show full status overview`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()

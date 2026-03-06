@@ -103,6 +103,11 @@ func newTokensCreateCmd() *cobra.Command {
 		Short: "Create a new Personal Access Token",
 		Long: `Create a new Personal Access Token for programmatic API access.
 
+The token value is displayed once and cannot be retrieved again — copy it immediately. Requires OAuth login; PAT authentication cannot create tokens.
+
+Without --expires, the token has no expiration. With --expires, provide a number of days (1-365).
+
+Examples:
   tiddly tokens create "My Token"
   tiddly tokens create "CI Pipeline" --expires 90`,
 		Args: cobra.ExactArgs(1),

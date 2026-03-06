@@ -43,8 +43,16 @@ func newSkillsSyncCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync [tool]",
 		Short: "Download and install skills for AI tools",
-		Long: `Sync your Tiddly prompts as skills for AI tools.
+		Long: `Download your Tiddly prompts and install them as agent skills.
 
+Each prompt is written as a Markdown skill file ({skill-name}/SKILL.md) to the tool's skills directory. The destination varies by tool and scope:
+  claude-code (global)  — ~/.claude/commands/
+  claude-code (project) — .claude/commands/
+  codex (global)        — ~/.codex/instructions/
+
+Re-syncing overwrites existing skill files but does not remove skills whose prompts have been deleted. For Claude Desktop, a .zip file is exported instead — upload it manually via Settings > Skills.
+
+Examples:
   tiddly skills sync                       Auto-detect tools and sync skills
   tiddly skills sync claude-code           Sync skills for a specific tool
   tiddly skills sync --scope project       Sync to project-level paths
@@ -157,12 +165,11 @@ func newSkillsListCmd() *cobra.Command {
 		Short: "List prompts available as skills",
 		Long: `List prompts available for export as agent skills.
 
-Shows prompt name and description for each prompt. Use --tags to filter
-by tags and --tag-match to control matching mode.
+Prints a two-column table of prompt name and description. Use --tags to filter by tags and --tag-match to control matching mode ("all" requires every tag, "any" requires at least one).
 
 Examples:
-  tiddly skills list                          List all available skills
-  tiddly skills list --tags python,skill      List skills with specific tags
+  tiddly skills list                               List all available skills
+  tiddly skills list --tags python,skill            List skills with specific tags
   tiddly skills list --tags python --tag-match any  Match any tag (default: all)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)

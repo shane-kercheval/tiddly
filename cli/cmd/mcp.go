@@ -31,8 +31,7 @@ func newMCPCmd() *cobra.Command {
 	mcpCmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Manage MCP server integrations",
-		Long: `Install, configure, and manage MCP (Model Context Protocol) servers
-for AI tools like Claude Desktop, Claude Code, and Codex.
+		Long: `Install, configure, and manage MCP (Model Context Protocol) servers for AI tools like Claude Desktop, Claude Code, and Codex.
 
   tiddly mcp install             Auto-detect tools and configure MCP servers
   tiddly mcp status              Show MCP configuration for all tools
@@ -59,9 +58,7 @@ func newMCPInstallCmd() *cobra.Command {
 		Short: "Install MCP servers for AI tools",
 		Long: `Install Tiddly MCP servers for AI tools.
 
-Servers are identified by URL, not by name. If an existing entry points to a
-Tiddly MCP URL (regardless of its key name), it is replaced with the canonical
-entry. This means re-installs and migrations from manual setups are safe.
+Servers are identified by URL, not by name. If an existing entry points to a Tiddly MCP URL (regardless of its key name), it is replaced with the canonical entry. This means re-installs and migrations from manual setups are safe.
 
 Examples:
   tiddly mcp install                      Auto-detect and install for all found tools
@@ -223,8 +220,7 @@ func newMCPStatusCmd() *cobra.Command {
 		Short: "Show MCP server configuration status",
 		Long: `Show MCP server configuration status for each supported AI tool.
 
-Detects Tiddly MCP servers by URL, not by key name. Entries pointing to a
-Tiddly MCP URL are recognized regardless of their config key name.
+Detects Tiddly MCP servers by URL, not by key name. Entries pointing to a Tiddly MCP URL are recognized regardless of their config key name.
 
 For each tool, reports one of:
   Not detected       — binary or config directory not found
@@ -291,15 +287,11 @@ func newMCPUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:       "uninstall <tool>",
 		Short:     "Remove MCP server configuration for a tool",
-		Long: `Remove Tiddly MCP server entries from a tool's config file.
-All other config keys are preserved.
+		Long: `Remove Tiddly MCP server entries from a tool's config file. All other config keys are preserved.
 
-Servers are identified by URL, not by name. Any entry pointing to a Tiddly
-MCP URL is removed, even if the key name differs from the default.
+Servers are identified by URL, not by name. Any entry pointing to a Tiddly MCP URL is removed, even if the key name differs from the default.
 
-With --delete-tokens (requires OAuth login), the CLI reads PATs from the
-tool's config before removing entries, then revokes those tokens from your
-account. Without --delete-tokens, warns about potentially orphaned tokens.
+With --delete-tokens (requires OAuth login), the CLI reads PATs from the tool's config before removing entries, then revokes those tokens from your account. Without --delete-tokens, warns about potentially orphaned tokens.
 
 Claude Desktop users: restart Claude Desktop after uninstalling.
 

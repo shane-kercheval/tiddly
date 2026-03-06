@@ -24,6 +24,11 @@ func newExportCmd() *cobra.Command {
 		Short: "Export bookmarks, notes, and prompts as JSON",
 		Long: `Export your content as streaming JSON.
 
+Outputs a single JSON object with an "exported_at" timestamp and arrays for each content type. Items are streamed as they are fetched (low memory usage).
+
+When writing to a file (--output), progress is printed to stderr. When writing to stdout, progress is suppressed to avoid mixing with JSON output. If the export fails, incomplete output files are automatically deleted.
+
+Examples:
   tiddly export                              Export all content to stdout
   tiddly export --types bookmark,note        Export only bookmarks and notes
   tiddly export --output backup.json         Export to a file

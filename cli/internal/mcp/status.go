@@ -3,6 +3,7 @@ package mcp
 import (
 	"net/url"
 	"sort"
+	"strings"
 )
 
 // MatchMethod indicates how a server entry was identified as a tiddly MCP server.
@@ -36,35 +37,48 @@ func (sr *StatusResult) SortServers() {
 	})
 }
 
-// extractHostFromURL parses a URL and returns its host. Returns the raw string on parse error.
-func extractHostFromURL(rawURL string) string {
+// urlPrefix returns scheme + host + path (without query/fragment) for a URL.
+// Returns the raw string on parse error.
+func urlPrefix(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Host == "" {
 		return rawURL
 	}
-	return u.Host
+	return u.Scheme + "://" + u.Host + u.Path
 }
 
-// urlMatchesHost parses candidateURL and checks if its host matches patternHost exactly.
-func urlMatchesHost(candidateURL, patternHost string) bool {
-	u, err := url.Parse(candidateURL)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	return u.Host == patternHost
+// urlMatchesPrefix parses candidateURL and checks if its scheme+host+path
+// matches the patternPrefix exactly.
+func urlMatchesPrefix(candidateURL, patternPrefix string) bool {
+	return urlPrefix(candidateURL) == patternPrefix
 }
 
 // isTiddlyContentURL returns true if the URL points to the tiddly content MCP server.
 func isTiddlyContentURL(rawURL string) bool {
-	return urlMatchesHost(rawURL, extractHostFromURL(ContentMCPURL()))
+	return urlMatchesPrefix(rawURL, urlPrefix(ContentMCPURL()))
 }
 
 // isTiddlyPromptURL returns true if the URL points to the tiddly prompt MCP server.
 func isTiddlyPromptURL(rawURL string) bool {
-	return urlMatchesHost(rawURL, extractHostFromURL(PromptMCPURL()))
+	return urlMatchesPrefix(rawURL, urlPrefix(PromptMCPURL()))
 }
 
 // isTiddlyURL returns true if the URL points to either tiddly MCP server.
 func isTiddlyURL(rawURL string) bool {
 	return isTiddlyContentURL(rawURL) || isTiddlyPromptURL(rawURL)
+}
+
+// canonicalNamesFirst returns keys sorted so that canonical server names
+// (serverNameContent, serverNamePrompts) come before other keys, ensuring
+// deterministic match selection when both canonical and custom entries exist.
+func canonicalNamesFirst(keys []string) []string {
+	sort.SliceStable(keys, func(i, j int) bool {
+		iCanonical := keys[i] == serverNameContent || keys[i] == serverNamePrompts
+		jCanonical := keys[j] == serverNameContent || keys[j] == serverNamePrompts
+		if iCanonical != jCanonical {
+			return iCanonical
+		}
+		return strings.Compare(keys[i], keys[j]) < 0
+	})
+	return keys
 }

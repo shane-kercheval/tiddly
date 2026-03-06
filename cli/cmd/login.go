@@ -20,6 +20,13 @@ func newLoginCmd() *cobra.Command {
 		Short: "Authenticate with Tiddly",
 		Long: `Authenticate with Tiddly using OAuth device flow or a Personal Access Token.
 
+Without --token, starts an OAuth device-code flow: opens a browser with a verification code and polls until you approve. Press Ctrl+C to cancel.
+
+With --token, validates the PAT format (must start with "bm_"), verifies it against the API, and stores it. Leading/trailing whitespace is trimmed.
+
+Credentials are stored in the system keyring. If the keyring is unavailable, falls back to plaintext at ~/.config/tiddly/credentials.
+
+Examples:
   tiddly login              Open browser for OAuth login
   tiddly login --token X    Use a Personal Access Token`,
 		RunE: func(cmd *cobra.Command, args []string) error {

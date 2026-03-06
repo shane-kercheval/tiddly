@@ -149,8 +149,14 @@ func StatusClaudeDesktop(configPath string) (StatusResult, error) {
 	foundContent := false
 	foundPrompts := false
 
-	for name, entry := range servers {
-		serverMap, _ := entry.(map[string]any)
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	canonicalNamesFirst(names)
+
+	for _, name := range names {
+		serverMap, _ := servers[name].(map[string]any)
 		if serverMap == nil {
 			continue
 		}
@@ -220,8 +226,14 @@ func ExtractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) 
 		return "", ""
 	}
 
-	for _, entry := range servers {
-		serverMap, _ := entry.(map[string]any)
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	canonicalNamesFirst(names)
+
+	for _, name := range names {
+		serverMap, _ := servers[name].(map[string]any)
 		if serverMap == nil {
 			continue
 		}

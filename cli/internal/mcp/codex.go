@@ -42,7 +42,14 @@ func ExtractCodexPATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 		return "", ""
 	}
 
-	for _, server := range config.MCPServers {
+	names := make([]string, 0, len(config.MCPServers))
+	for name := range config.MCPServers {
+		names = append(names, name)
+	}
+	canonicalNamesFirst(names)
+
+	for _, name := range names {
+		server := config.MCPServers[name]
 		if contentPAT == "" && isTiddlyContentURL(server.URL) {
 			contentPAT = extractBearerToken(server.HTTPHeaders["Authorization"])
 		}
@@ -140,7 +147,15 @@ func StatusCodex(rc ResolvedConfig) (StatusResult, error) {
 	foundContent := false
 	foundPrompts := false
 
-	for name, server := range config.MCPServers {
+	names := make([]string, 0, len(config.MCPServers))
+	for name := range config.MCPServers {
+		names = append(names, name)
+	}
+	canonicalNamesFirst(names)
+
+	for _, name := range names {
+		server := config.MCPServers[name]
+
 		method := MatchByURL
 		if name == serverNameContent || name == serverNamePrompts {
 			method = MatchByName
