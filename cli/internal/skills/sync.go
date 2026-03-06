@@ -185,13 +185,11 @@ func extractTarGz(data []byte, destPath string) (int, error) {
 			continue
 		}
 
-		// Sanitize path to prevent directory traversal
-		cleanName := filepath.Clean(header.Name)
-		if strings.HasPrefix(cleanName, "..") || filepath.IsAbs(cleanName) {
+		// Sanitize path to prevent directory traversal (zip-slip)
+		target := filepath.Join(destPath, filepath.Clean(header.Name))
+		if !strings.HasPrefix(target, destPath+string(filepath.Separator)) {
 			continue
 		}
-
-		target := filepath.Join(destPath, cleanName)
 		if err := writeFile(target, tr); err != nil {
 			return 0, err
 		}
@@ -218,12 +216,11 @@ func extractZip(data []byte, destPath string) (int, error) {
 			continue
 		}
 
-		cleanName := filepath.Clean(f.Name)
-		if strings.HasPrefix(cleanName, "..") || filepath.IsAbs(cleanName) {
+		// Sanitize path to prevent directory traversal (zip-slip)
+		target := filepath.Join(destPath, filepath.Clean(f.Name))
+		if !strings.HasPrefix(target, destPath+string(filepath.Separator)) {
 			continue
 		}
-
-		target := filepath.Join(destPath, cleanName)
 
 		rc, err := f.Open()
 		if err != nil {
