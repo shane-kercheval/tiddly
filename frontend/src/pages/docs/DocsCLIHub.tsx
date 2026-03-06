@@ -137,7 +137,7 @@ tiddly tokens delete <id> --force        # delete without confirmation`} />
           Bulk export your content as JSON for backup or migration.
         </p>
         <CopyableCodeBlock code={`tiddly export                            # export all content as JSON
-tiddly export --types bookmarks,notes    # export specific content types
+tiddly export --types bookmark,note      # export specific content types
 tiddly export --output backup.json       # write to file
 tiddly export --include-archived         # include archived items`} />
       </div>

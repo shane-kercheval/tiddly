@@ -176,6 +176,48 @@ func TestMCPStatus__runs(t *testing.T) {
 	assert.Contains(t, result.Stdout, "codex")
 }
 
+func TestMCPStatus__shows_config_path_for_configured_tool(t *testing.T) {
+	// Set up a Claude Code config with tiddly servers so it's "configured"
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {"type": "http", "url": "https://content-mcp.tiddly.me/mcp"},
+			"tiddly_prompts": {"type": "http", "url": "https://prompts-mcp.tiddly.me/mcp"}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	cleanup := mcp.SetConfigPathOverride("claude-code", configPath)
+	t.Cleanup(cleanup)
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "status")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "claude-code")
+	assert.Contains(t, result.Stdout, "Configured")
+	assert.Contains(t, result.Stdout, configPath)
+}
+
 func TestMCPUninstall__requires_tool_arg(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)

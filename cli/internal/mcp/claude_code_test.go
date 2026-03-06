@@ -168,9 +168,14 @@ func TestStatusClaudeCode__finds_servers(t *testing.T) {
 	err := InstallClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	servers, err := StatusClaudeCode(rc)
+	sr, err := StatusClaudeCode(rc)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"tiddly_notes_bookmarks", "tiddly_prompts"}, servers)
+	assert.Len(t, sr.Servers, 2)
+	assert.Equal(t, configPath, sr.ConfigPath)
+	assert.Equal(t, "content", sr.Servers[0].ServerType)
+	assert.True(t, sr.Servers[0].MatchMethod == MatchByName)
+	assert.Equal(t, "prompts", sr.Servers[1].ServerType)
+	assert.True(t, sr.Servers[1].MatchMethod == MatchByName)
 }
 
 func TestStatusClaudeCode__no_servers(t *testing.T) {
@@ -180,9 +185,10 @@ func TestStatusClaudeCode__no_servers(t *testing.T) {
 	writeTestJSON(t, configPath, map[string]any{"mcpServers": map[string]any{}})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	servers, err := StatusClaudeCode(rc)
+	sr, err := StatusClaudeCode(rc)
 	require.NoError(t, err)
-	assert.Nil(t, servers)
+	assert.Empty(t, sr.Servers)
+	assert.Equal(t, configPath, sr.ConfigPath)
 }
 
 func TestStatusClaudeCode__no_file(t *testing.T) {
@@ -190,9 +196,145 @@ func TestStatusClaudeCode__no_file(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	servers, err := StatusClaudeCode(rc)
+	sr, err := StatusClaudeCode(rc)
 	require.NoError(t, err)
-	assert.Nil(t, servers)
+	assert.Empty(t, sr.Servers)
+	assert.Equal(t, configPath, sr.ConfigPath)
+}
+
+func TestStatusClaudeCode__url_based_detection(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my_custom_content": map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
+			},
+			"my_custom_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := StatusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 2)
+
+	// Should be detected by URL, not by name
+	for _, s := range sr.Servers {
+		assert.True(t, s.MatchMethod == MatchByURL, "server %q should be detected by URL", s.Name)
+		assert.False(t, s.MatchMethod == MatchByName)
+	}
+}
+
+func TestStatusClaudeCode__url_false_positive_rejected(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// A URL that contains the tiddly host as a substring but has a different actual host
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"sneaky_server": map[string]any{
+				"type": "http",
+				"url":  "https://content-mcp.tiddly.me.evil.com/mcp",
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := StatusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Empty(t, sr.Servers, "should not match URL with different host")
+}
+
+func TestUninstallClaudeCode__removes_custom_named_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my_content": map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
+			},
+			"my_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+			},
+			"other-server": map[string]any{
+				"type": "stdio",
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := UninstallClaudeCode(rc)
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.NotContains(t, servers, "my_content")
+	assert.NotContains(t, servers, "my_prompts")
+	assert.Contains(t, servers, "other-server")
+}
+
+func TestInstallClaudeCode__replaces_custom_named_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// Pre-populate with custom-named entries pointing to tiddly URLs
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my_content": map[string]any{
+				"type":    "http",
+				"url":     ContentMCPURL(),
+				"headers": map[string]any{"Authorization": "Bearer old_token"},
+			},
+			"other-server": map[string]any{"type": "stdio"},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := InstallClaudeCode(rc, "bm_new_content", "bm_new_prompts")
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	// Custom-named entry should be removed, canonical name should exist
+	assert.NotContains(t, servers, "my_content")
+	assert.Contains(t, servers, "tiddly_notes_bookmarks")
+	assert.Contains(t, servers, "tiddly_prompts")
+	assert.Contains(t, servers, "other-server")
+}
+
+func TestExtractClaudeCodePATs__custom_named_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my_content": map[string]any{
+				"type":    "http",
+				"url":     ContentMCPURL(),
+				"headers": map[string]any{"Authorization": "Bearer bm_custom_content"},
+			},
+			"my_prompts": map[string]any{
+				"type":    "http",
+				"url":     PromptMCPURL(),
+				"headers": map[string]any{"Authorization": "Bearer bm_custom_prompts"},
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	contentPAT, promptPAT := ExtractClaudeCodePATs(rc)
+	assert.Equal(t, "bm_custom_content", contentPAT)
+	assert.Equal(t, "bm_custom_prompts", promptPAT)
 }
 
 func TestDryRunClaudeCode__shows_diff(t *testing.T) {

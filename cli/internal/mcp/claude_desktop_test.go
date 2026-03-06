@@ -84,9 +84,15 @@ func TestUninstallClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 
 	existing := map[string]any{
 		"mcpServers": map[string]any{
-			"tiddly_notes_bookmarks": map[string]any{"command": "npx"},
-			"tiddly_prompts":         map[string]any{"command": "npx"},
-			"other-server":    map[string]any{"command": "node"},
+			"tiddly_notes_bookmarks": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL(), "--header", "Authorization: Bearer tok"},
+			},
+			"tiddly_prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer tok"},
+			},
+			"other-server": map[string]any{"command": "node"},
 		},
 	}
 	writeTestJSON(t, configPath, existing)
@@ -113,15 +119,26 @@ func TestStatusClaudeDesktop__configured(t *testing.T) {
 
 	config := map[string]any{
 		"mcpServers": map[string]any{
-			"tiddly_notes_bookmarks": map[string]any{"command": "npx"},
-			"tiddly_prompts":         map[string]any{"command": "npx"},
+			"tiddly_notes_bookmarks": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL()},
+			},
+			"tiddly_prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", PromptMCPURL()},
+			},
 		},
 	}
 	writeTestJSON(t, configPath, config)
 
-	servers, err := StatusClaudeDesktop(configPath)
+	sr, err := StatusClaudeDesktop(configPath)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"tiddly_notes_bookmarks", "tiddly_prompts"}, servers)
+	assert.Len(t, sr.Servers, 2)
+	assert.Equal(t, configPath, sr.ConfigPath)
+	assert.Equal(t, "content", sr.Servers[0].ServerType)
+	assert.True(t, sr.Servers[0].MatchMethod == MatchByName)
+	assert.Equal(t, "prompts", sr.Servers[1].ServerType)
+	assert.True(t, sr.Servers[1].MatchMethod == MatchByName)
 }
 
 func TestStatusClaudeDesktop__not_configured(t *testing.T) {
@@ -129,15 +146,120 @@ func TestStatusClaudeDesktop__not_configured(t *testing.T) {
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	writeTestJSON(t, configPath, map[string]any{})
 
-	servers, err := StatusClaudeDesktop(configPath)
+	sr, err := StatusClaudeDesktop(configPath)
 	require.NoError(t, err)
-	assert.Nil(t, servers)
+	assert.Empty(t, sr.Servers)
+	assert.Equal(t, configPath, sr.ConfigPath)
 }
 
 func TestStatusClaudeDesktop__missing_file(t *testing.T) {
-	servers, err := StatusClaudeDesktop("/nonexistent/path.json")
+	sr, err := StatusClaudeDesktop("/nonexistent/path.json")
 	require.NoError(t, err)
-	assert.Nil(t, servers)
+	assert.Empty(t, sr.Servers)
+	assert.Equal(t, "/nonexistent/path.json", sr.ConfigPath)
+}
+
+func TestStatusClaudeDesktop__url_based_detection(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my_content_server": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL(), "--header", "Authorization: Bearer tok"},
+			},
+			"my_prompts_server": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer tok"},
+			},
+		},
+	})
+
+	sr, err := StatusClaudeDesktop(configPath)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 2)
+
+	for _, s := range sr.Servers {
+		assert.True(t, s.MatchMethod == MatchByURL, "server %q should be detected by URL", s.Name)
+		assert.False(t, s.MatchMethod == MatchByName)
+	}
+}
+
+func TestUninstallClaudeDesktop__removes_custom_named_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my_content": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL()},
+			},
+			"my_prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", PromptMCPURL()},
+			},
+			"other-server": map[string]any{"command": "node"},
+		},
+	})
+
+	err := UninstallClaudeDesktop(configPath)
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.NotContains(t, servers, "my_content")
+	assert.NotContains(t, servers, "my_prompts")
+	assert.Contains(t, servers, "other-server")
+}
+
+func TestInstallClaudeDesktop__replaces_custom_named_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my_content": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL(), "--header", "Authorization: Bearer old_token"},
+			},
+			"other-server": map[string]any{"command": "node"},
+		},
+	})
+
+	err := InstallClaudeDesktop(configPath, "bm_new_content", "bm_new_prompts")
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	assert.NotContains(t, servers, "my_content")
+	assert.Contains(t, servers, "tiddly_notes_bookmarks")
+	assert.Contains(t, servers, "tiddly_prompts")
+	assert.Contains(t, servers, "other-server")
+}
+
+func TestExtractClaudeDesktopPATs__custom_named_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my_content": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL(), "--header", "Authorization: Bearer bm_custom_content"},
+			},
+			"my_prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer bm_custom_prompts"},
+			},
+		},
+	})
+
+	contentPAT, promptPAT := ExtractClaudeDesktopPATs(configPath)
+	assert.Equal(t, "bm_custom_content", contentPAT)
+	assert.Equal(t, "bm_custom_prompts", promptPAT)
 }
 
 func TestInstallClaudeDesktop__malformed_json_returns_error(t *testing.T) {

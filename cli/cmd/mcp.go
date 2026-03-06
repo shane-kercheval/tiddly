@@ -59,6 +59,11 @@ func newMCPInstallCmd() *cobra.Command {
 		Short: "Install MCP servers for AI tools",
 		Long: `Install Tiddly MCP servers for AI tools.
 
+Servers are identified by URL, not by name. If an existing entry points to a
+Tiddly MCP URL (regardless of its key name), it is replaced with the canonical
+entry. This means re-installs and migrations from manual setups are safe.
+
+Examples:
   tiddly mcp install                      Auto-detect and install for all found tools
   tiddly mcp install claude-code          Install for a specific tool
   tiddly mcp install --dry-run            Preview changes without writing
@@ -184,7 +189,7 @@ func newMCPInstallCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")
 	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
-	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (0 = no expiration)")
+	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (1-365, or 0 for no expiration)")
 	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which MCP servers to install: content, prompts, or both")
 
 	return cmd
@@ -216,6 +221,19 @@ func newMCPStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show MCP server configuration status",
+		Long: `Show MCP server configuration status for each supported AI tool.
+
+Detects Tiddly MCP servers by URL, not by key name. Entries pointing to a
+Tiddly MCP URL are recognized regardless of their config key name.
+
+For each tool, reports one of:
+  Not detected       — binary or config directory not found
+  Not configured     — tool is installed but no MCP server entries
+  Configured         — lists which server entries are present (content, prompts)
+
+Examples:
+  tiddly mcp status                  Check all tools at user scope (default)
+  tiddly mcp status --scope project  Check project-level config`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateScope(scope); err != nil {
 				return err
@@ -234,16 +252,24 @@ func newMCPStatusCmd() *cobra.Command {
 					continue
 				}
 
-				servers, err := getToolStatus(tool, scope, cwd)
+				sr, err := getToolStatus(tool, scope, cwd)
 				if err != nil {
 					fmt.Fprintf(w, "%-18s Error: %v\n", tool.Name+":", err)
 					continue
 				}
 
-				if len(servers) == 0 {
+				if len(sr.Servers) == 0 {
 					fmt.Fprintf(w, "%-18s Not configured\n", tool.Name+":")
+					fmt.Fprintf(w, "%-18s %s\n", "", sr.ConfigPath)
+					hint := fmt.Sprintf("tiddly mcp install %s", tool.Name)
+					if scope != "user" {
+						hint += " --scope " + scope
+					}
+					fmt.Fprintf(w, "%-18s Hint: Run '%s'\n", "", hint)
 				} else {
-					fmt.Fprintf(w, "%-18s Configured (%s)\n", tool.Name+":", strings.Join(servers, ", "))
+					labels := formatServerLabels(sr.Servers)
+					fmt.Fprintf(w, "%-18s Configured (%s)\n", tool.Name+":", strings.Join(labels, ", "))
+					fmt.Fprintf(w, "%-18s %s\n", "", sr.ConfigPath)
 				}
 			}
 
@@ -265,6 +291,22 @@ func newMCPUninstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:       "uninstall <tool>",
 		Short:     "Remove MCP server configuration for a tool",
+		Long: `Remove Tiddly MCP server entries from a tool's config file.
+All other config keys are preserved.
+
+Servers are identified by URL, not by name. Any entry pointing to a Tiddly
+MCP URL is removed, even if the key name differs from the default.
+
+With --delete-tokens (requires OAuth login), the CLI reads PATs from the
+tool's config before removing entries, then revokes those tokens from your
+account. Without --delete-tokens, warns about potentially orphaned tokens.
+
+Claude Desktop users: restart Claude Desktop after uninstalling.
+
+Examples:
+  tiddly mcp uninstall claude-code                   Remove MCP entries
+  tiddly mcp uninstall claude-code --delete-tokens   Remove entries and revoke PATs
+  tiddly mcp uninstall codex --scope project         Remove from project config`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: validTools,
 		RunE: func(cmd *cobra.Command, args []string) error {

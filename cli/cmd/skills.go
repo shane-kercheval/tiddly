@@ -155,6 +155,15 @@ func newSkillsListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List prompts available as skills",
+		Long: `List prompts available for export as agent skills.
+
+Shows prompt name and description for each prompt. Use --tags to filter
+by tags and --tag-match to control matching mode.
+
+Examples:
+  tiddly skills list                          List all available skills
+  tiddly skills list --tags python,skill      List skills with specific tags
+  tiddly skills list --tags python --tag-match any  Match any tag (default: all)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
 			if err != nil {

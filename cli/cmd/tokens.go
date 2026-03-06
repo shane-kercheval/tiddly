@@ -55,6 +55,13 @@ func newTokensListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all Personal Access Tokens",
+		Long: `List all Personal Access Tokens for your account.
+
+Displays a table with columns: ID, NAME, PREFIX, LAST USED, EXPIRES, CREATED.
+Requires OAuth login (browser-based). PAT authentication cannot list tokens.
+
+Examples:
+  tiddly tokens list`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := resolveOAuthToken(cmd)
 			if err != nil {
@@ -145,6 +152,14 @@ func newTokensDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <id>",
 		Short: "Delete a Personal Access Token",
+		Long: `Delete (revoke) a Personal Access Token by ID.
+
+Prompts for confirmation before deleting. Use --force to skip the prompt.
+Requires OAuth login (browser-based). PAT authentication cannot delete tokens.
+
+Examples:
+  tiddly tokens delete abc123            Delete with confirmation prompt
+  tiddly tokens delete abc123 --force    Delete without confirmation`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tokenID := args[0]

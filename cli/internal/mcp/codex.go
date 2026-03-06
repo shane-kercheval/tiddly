@@ -34,27 +34,28 @@ func resolveCodexPath(configPath, scope, cwd string) string {
 }
 
 // ExtractCodexPATs reads the Codex config and extracts the Bearer tokens
-// for the tiddly MCP servers. Returns empty strings on any parse error (best-effort).
+// for the tiddly MCP servers. Identifies servers by URL, not by name.
+// Returns empty strings on any parse error (best-effort).
 func ExtractCodexPATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
 		return "", ""
 	}
 
-	if config.MCPServers == nil {
-		return "", ""
-	}
-
-	if server, ok := config.MCPServers[serverNameContent]; ok {
-		contentPAT = extractBearerToken(server.HTTPHeaders["Authorization"])
-	}
-	if server, ok := config.MCPServers[serverNamePrompts]; ok {
-		promptPAT = extractBearerToken(server.HTTPHeaders["Authorization"])
+	for _, server := range config.MCPServers {
+		if contentPAT == "" && isTiddlyContentURL(server.URL) {
+			contentPAT = extractBearerToken(server.HTTPHeaders["Authorization"])
+		}
+		if promptPAT == "" && isTiddlyPromptURL(server.URL) {
+			promptPAT = extractBearerToken(server.HTTPHeaders["Authorization"])
+		}
 	}
 	return contentPAT, promptPAT
 }
 
 // buildCodexConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
+// Removes any existing entries pointing to tiddly URLs (regardless of key name) before adding
+// new entries under canonical names.
 func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) {
 	config, err := readCodexConfig(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -64,6 +65,9 @@ func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) 
 	if config.MCPServers == nil {
 		config.MCPServers = make(map[string]codexMCPServer)
 	}
+
+	// Remove any existing entries pointing to tiddly URLs (handles custom names)
+	removeCodexServersByTiddlyURL(config.MCPServers)
 
 	if contentPAT != "" {
 		config.MCPServers[serverNameContent] = codexMCPServer{
@@ -81,6 +85,15 @@ func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) 
 	return config, nil
 }
 
+// removeCodexServersByTiddlyURL removes entries matching tiddly MCP server URLs.
+func removeCodexServersByTiddlyURL(servers map[string]codexMCPServer) {
+	for name, server := range servers {
+		if isTiddlyURL(server.URL) {
+			delete(servers, name)
+		}
+	}
+}
+
 // InstallCodex writes MCP server entries into the Codex config.
 func InstallCodex(rc ResolvedConfig, contentPAT, promptPAT string) error {
 	config, err := buildCodexConfig(rc.Path, contentPAT, promptPAT)
@@ -91,6 +104,7 @@ func InstallCodex(rc ResolvedConfig, contentPAT, promptPAT string) error {
 }
 
 // UninstallCodex removes tiddly MCP server entries from the config.
+// Identifies servers by URL, not by name, so custom-named entries are also removed.
 func UninstallCodex(rc ResolvedConfig) error {
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
@@ -104,29 +118,50 @@ func UninstallCodex(rc ResolvedConfig) error {
 		return nil
 	}
 
-	delete(config.MCPServers, serverNameContent)
-	delete(config.MCPServers, serverNamePrompts)
+	removeCodexServersByTiddlyURL(config.MCPServers)
 
 	return writeCodexConfig(rc.Path, config)
 }
 
-// StatusCodex returns the names of tiddly MCP servers configured.
-func StatusCodex(rc ResolvedConfig) ([]string, error) {
+// StatusCodex returns tiddly MCP servers configured in Codex.
+// Identifies servers by URL. Entries under canonical names are tagged MatchByName;
+// entries under other names are tagged MatchByURL.
+func StatusCodex(rc ResolvedConfig) (StatusResult, error) {
+	result := StatusResult{ConfigPath: rc.Path}
+
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return result, nil
 		}
-		return nil, err
+		return result, err
 	}
 
-	var found []string
-	for _, name := range []string{serverNameContent, serverNamePrompts} {
-		if _, exists := config.MCPServers[name]; exists {
-			found = append(found, name)
+	foundContent := false
+	foundPrompts := false
+
+	for name, server := range config.MCPServers {
+		method := MatchByURL
+		if name == serverNameContent || name == serverNamePrompts {
+			method = MatchByName
+		}
+
+		if !foundContent && isTiddlyContentURL(server.URL) {
+			result.Servers = append(result.Servers, ServerMatch{
+				ServerType: "content", Name: name, MatchMethod: method,
+			})
+			foundContent = true
+		}
+		if !foundPrompts && isTiddlyPromptURL(server.URL) {
+			result.Servers = append(result.Servers, ServerMatch{
+				ServerType: "prompts", Name: name, MatchMethod: method,
+			})
+			foundPrompts = true
 		}
 	}
-	return found, nil
+
+	result.SortServers()
+	return result, nil
 }
 
 // DryRunCodex returns the config that would be written without writing it.

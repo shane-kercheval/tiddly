@@ -1,0 +1,70 @@
+package mcp
+
+import (
+	"net/url"
+	"sort"
+)
+
+// MatchMethod indicates how a server entry was identified as a tiddly MCP server.
+type MatchMethod int
+
+const (
+	// MatchByName means the entry was found under the canonical key name.
+	MatchByName MatchMethod = iota
+	// MatchByURL means the entry was found by matching its URL against tiddly server hosts.
+	MatchByURL
+)
+
+// ServerMatch describes a detected tiddly MCP server entry.
+type ServerMatch struct {
+	ServerType  string      // "content" or "prompts"
+	Name        string      // actual key name in config
+	MatchMethod MatchMethod // how it was matched
+}
+
+// StatusResult holds the outcome of a status check for a single tool.
+type StatusResult struct {
+	Servers    []ServerMatch
+	ConfigPath string
+}
+
+// SortServers sorts the Servers slice so "content" comes before "prompts",
+// ensuring deterministic output regardless of map iteration order.
+func (sr *StatusResult) SortServers() {
+	sort.Slice(sr.Servers, func(i, j int) bool {
+		return sr.Servers[i].ServerType < sr.Servers[j].ServerType
+	})
+}
+
+// extractHostFromURL parses a URL and returns its host. Returns the raw string on parse error.
+func extractHostFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return u.Host
+}
+
+// urlMatchesHost parses candidateURL and checks if its host matches patternHost exactly.
+func urlMatchesHost(candidateURL, patternHost string) bool {
+	u, err := url.Parse(candidateURL)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return u.Host == patternHost
+}
+
+// isTiddlyContentURL returns true if the URL points to the tiddly content MCP server.
+func isTiddlyContentURL(rawURL string) bool {
+	return urlMatchesHost(rawURL, extractHostFromURL(ContentMCPURL()))
+}
+
+// isTiddlyPromptURL returns true if the URL points to the tiddly prompt MCP server.
+func isTiddlyPromptURL(rawURL string) bool {
+	return urlMatchesHost(rawURL, extractHostFromURL(PromptMCPURL()))
+}
+
+// isTiddlyURL returns true if the URL points to either tiddly MCP server.
+func isTiddlyURL(rawURL string) bool {
+	return isTiddlyContentURL(rawURL) || isTiddlyPromptURL(rawURL)
+}

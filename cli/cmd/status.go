@@ -99,18 +99,19 @@ content counts, and MCP server configuration.
 					continue
 				}
 
-				servers, err := getToolStatus(tool, "user", cwd)
+				sr, err := getToolStatus(tool, "user", cwd)
 				if err != nil {
 					fmt.Fprintf(w, "  %-18s Detected, status unknown\n", tool.Name+":")
 					continue
 				}
 
-				if len(servers) == 0 {
-					label := fmt.Sprintf("  %-18s Detected, not configured", tool.Name+":")
-					fmt.Fprintln(w, label)
-					fmt.Fprintf(cmd.ErrOrStderr(), "  Run 'tiddly mcp install %s' to configure.\n", tool.Name)
+				if len(sr.Servers) == 0 {
+					fmt.Fprintf(w, "  %-18s Detected, not configured\n", tool.Name+":")
+					fmt.Fprintf(w, "  %-18s %s\n", "", sr.ConfigPath)
+					fmt.Fprintf(cmd.ErrOrStderr(), "    Run 'tiddly mcp install %s' to configure.\n", tool.Name)
 				} else {
-					fmt.Fprintf(w, "  %-18s Configured (%s)\n", tool.Name+":", strings.Join(servers, ", "))
+					labels := formatServerLabels(sr.Servers)
+					fmt.Fprintf(w, "  %-18s Configured (%s)\n", tool.Name+":", strings.Join(labels, ", "))
 					if tool.Name == "claude-desktop" && !tool.HasNpx {
 						fmt.Fprintf(cmd.ErrOrStderr(), "  Warning: npx not found in PATH\n")
 					}
@@ -171,10 +172,10 @@ func printContentCounts(ctx context.Context, w io.Writer, errW io.Writer, client
 	}
 }
 
-func getToolStatus(tool mcp.DetectedTool, scope, cwd string) ([]string, error) {
+func getToolStatus(tool mcp.DetectedTool, scope, cwd string) (mcp.StatusResult, error) {
 	rc, err := mcp.ResolveToolConfig(tool.Name, tool.ResolvedConfigPath(), scope, cwd)
 	if err != nil {
-		return nil, err
+		return mcp.StatusResult{}, err
 	}
 	switch tool.Name {
 	case "claude-desktop":
@@ -184,7 +185,22 @@ func getToolStatus(tool mcp.DetectedTool, scope, cwd string) ([]string, error) {
 	case "codex":
 		return mcp.StatusCodex(rc)
 	}
-	return nil, fmt.Errorf("unknown tool %q", tool.Name)
+	return mcp.StatusResult{}, fmt.Errorf("unknown tool %q", tool.Name)
+}
+
+// formatServerLabels converts ServerMatch entries to display labels.
+// Canonical name matches show as "content"/"prompts".
+// URL-matched entries show as `content (detected in "custom_name")`.
+func formatServerLabels(servers []mcp.ServerMatch) []string {
+	labels := make([]string, 0, len(servers))
+	for _, s := range servers {
+		if s.MatchMethod == mcp.MatchByName {
+			labels = append(labels, s.ServerType)
+		} else {
+			labels = append(labels, fmt.Sprintf("%s (detected in %q)", s.ServerType, s.Name))
+		}
+	}
+	return labels
 }
 
 // realExecLooker wraps exec.LookPath for production use.
