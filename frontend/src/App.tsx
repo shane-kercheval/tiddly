@@ -37,6 +37,10 @@ const DocsCodex = lazy(() => import('./pages/docs/DocsCodex').then(m => ({ defau
 const DocsAIChatGPT = lazy(() => import('./pages/docs/DocsAIChatGPT').then(m => ({ default: m.DocsAIChatGPT })))
 const DocsAIGeminiCLI = lazy(() => import('./pages/docs/DocsAIGeminiCLI').then(m => ({ default: m.DocsAIGeminiCLI })))
 const DocsAIMCPTools = lazy(() => import('./pages/docs/DocsAIMCPTools').then(m => ({ default: m.DocsAIMCPTools })))
+const DocsCLIHub = lazy(() => import('./pages/docs/DocsCLIHub').then(m => ({ default: m.DocsCLIHub })))
+const DocsCLIAuth = lazy(() => import('./pages/docs/DocsCLIAuth').then(m => ({ default: m.DocsCLIAuth })))
+const DocsCLIMCP = lazy(() => import('./pages/docs/DocsCLIMCP').then(m => ({ default: m.DocsCLIMCP })))
+const DocsCLISkills = lazy(() => import('./pages/docs/DocsCLISkills').then(m => ({ default: m.DocsCLISkills })))
 const DocsExtensionsHub = lazy(() => import('./pages/docs/DocsExtensionsHub').then(m => ({ default: m.DocsExtensionsHub })))
 const DocsExtensionsChrome = lazy(() => import('./pages/docs/DocsExtensionsChrome').then(m => ({ default: m.DocsExtensionsChrome })))
 const DocsExtensionsSafari = lazy(() => import('./pages/docs/DocsExtensionsSafari').then(m => ({ default: m.DocsExtensionsSafari })))
@@ -106,6 +110,10 @@ const router = createBrowserRouter([
           { path: '/docs/ai/chatgpt', element: <DocsAIChatGPT /> },
           { path: '/docs/ai/gemini-cli', element: <DocsAIGeminiCLI /> },
           { path: '/docs/ai/mcp-tools', element: <DocsAIMCPTools /> },
+          { path: '/docs/cli', element: <DocsCLIHub /> },
+          { path: '/docs/cli/authentication', element: <DocsCLIAuth /> },
+          { path: '/docs/cli/mcp', element: <DocsCLIMCP /> },
+          { path: '/docs/cli/skills', element: <DocsCLISkills /> },
           { path: '/docs/extensions', element: <DocsExtensionsHub /> },
           { path: '/docs/extensions/chrome', element: <DocsExtensionsChrome /> },
           { path: '/docs/extensions/safari', element: <DocsExtensionsSafari /> },

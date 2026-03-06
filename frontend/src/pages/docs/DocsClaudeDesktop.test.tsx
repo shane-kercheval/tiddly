@@ -37,7 +37,7 @@ describe('DocsClaudeDesktop', () => {
 
     const codeBlocks = document.querySelectorAll('pre code')
     const configBlock = Array.from(codeBlocks).find((el) =>
-      el.textContent?.includes('bookmarks_notes') && el.textContent?.includes('"prompts"')
+      el.textContent?.includes('tiddly_notes_bookmarks') && el.textContent?.includes('"tiddly_prompts"')
     )
     expect(configBlock).toBeTruthy()
     expect(configBlock?.textContent).toContain('http://localhost:8001/mcp')
@@ -54,5 +54,11 @@ describe('DocsClaudeDesktop', () => {
   it('should show Restart Claude Desktop step', () => {
     renderPage()
     expect(screen.getByText('Step 4: Restart Claude Desktop')).toBeInTheDocument()
+  })
+
+  it('should show CLI sync command for skills', () => {
+    renderPage()
+    const text = document.body.textContent || ''
+    expect(text).toContain('tiddly skills sync claude-desktop')
   })
 })

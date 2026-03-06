@@ -182,7 +182,7 @@ describe('SettingsMCP', () => {
       renderWithRouter()
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('bookmarks_notes')
+      expect(preElement?.textContent).toContain('tiddly_notes_bookmarks')
       expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
     })
 
@@ -193,7 +193,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Prompts' }))
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('"prompts"')
+      expect(preElement?.textContent).toContain('"tiddly_prompts"')
       expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
     })
   })
@@ -216,7 +216,7 @@ describe('SettingsMCP', () => {
       expect(screen.getByText('Step 2: Add MCP Server')).toBeInTheDocument()
       // Check for the main command in the pre block
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('claude mcp add --transport http bookmarks_notes')
+      expect(preElement?.textContent).toContain('claude mcp add --transport http tiddly_notes_bookmarks')
     })
 
     it('should show coming soon for ChatGPT (requires OAuth)', async () => {
@@ -252,6 +252,16 @@ describe('SettingsMCP', () => {
       expect(screen.getByText('Step 2: Filter by Tags (Optional)')).toBeInTheDocument()
       // Should show the warning about name truncation for Claude Desktop (default client)
       expect(screen.getByText(/Prompt names longer than 64 characters/)).toBeInTheDocument()
+    })
+
+    it('should show CLI tip when Skills is selected', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+
+      await user.click(screen.getByRole('button', { name: 'Skills' }))
+
+      expect(screen.getByText(/tiddly skills sync/)).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /CLI docs/ })).toHaveAttribute('href', '/docs/cli/skills')
     })
 
     it('should show not applicable message when Skills and Bookmarks & Notes are selected', async () => {
@@ -292,7 +302,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Codex' }))
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('[mcp_servers.bookmarks_notes]')
+      expect(preElement?.textContent).toContain('[mcp_servers.tiddly_notes_bookmarks]')
       expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
     })
   })
@@ -393,14 +403,14 @@ describe('SettingsMCP', () => {
       return preElement?.textContent || ''
     }
 
-    it('should generate config with bookmarks_notes for content server', () => {
+    it('should generate config with tiddly_notes_bookmarks for content server', () => {
       renderWithRouter()
 
       const configText = getConfigText()
 
-      expect(configText).toContain('bookmarks_notes')
+      expect(configText).toContain('tiddly_notes_bookmarks')
       expect(configText).toContain('http://localhost:8001/mcp')
-      expect(configText).not.toContain('"prompts"')
+      expect(configText).not.toContain('"tiddly_prompts"')
     })
 
     it('should generate config with prompts for prompt server', async () => {
@@ -411,9 +421,9 @@ describe('SettingsMCP', () => {
 
       const configText = getConfigText()
 
-      expect(configText).toContain('"prompts"')
+      expect(configText).toContain('"tiddly_prompts"')
       expect(configText).toContain('http://localhost:8002/mcp')
-      expect(configText).not.toContain('bookmarks_notes')
+      expect(configText).not.toContain('tiddly_notes_bookmarks')
     })
 
     it('should always use YOUR_TOKEN_HERE placeholder', () => {
@@ -433,7 +443,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Claude Code' }))
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('claude mcp add --transport http bookmarks_notes')
+      expect(preElement?.textContent).toContain('claude mcp add --transport http tiddly_notes_bookmarks')
       expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
     })
 
@@ -445,7 +455,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Prompts' }))
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('claude mcp add --transport http prompts')
+      expect(preElement?.textContent).toContain('claude mcp add --transport http tiddly_prompts')
       expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
     })
 
@@ -468,7 +478,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Codex' }))
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('[mcp_servers.bookmarks_notes]')
+      expect(preElement?.textContent).toContain('[mcp_servers.tiddly_notes_bookmarks]')
       expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
     })
 
@@ -480,7 +490,7 @@ describe('SettingsMCP', () => {
       await user.click(screen.getByRole('button', { name: 'Prompts' }))
 
       const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('[mcp_servers.prompts]')
+      expect(preElement?.textContent).toContain('[mcp_servers.tiddly_prompts]')
       expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
     })
 

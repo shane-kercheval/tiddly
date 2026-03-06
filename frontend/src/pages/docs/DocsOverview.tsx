@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
-import { ListIcon, SparklesIcon, ExternalLinkIcon, KeyIcon } from '../../components/icons'
+import { ListIcon, SparklesIcon, ExternalLinkIcon, KeyIcon, PromptIcon } from '../../components/icons'
 
 interface SectionCard {
   name: string
@@ -28,6 +28,12 @@ const SECTIONS: SectionCard[] = [
     description: 'Save bookmarks directly from Chrome or Safari with browser extensions.',
     path: '/docs/extensions',
     icon: <ExternalLinkIcon className="h-5 w-5" />,
+  },
+  {
+    name: 'CLI',
+    description: 'Authenticate and configure MCP servers for AI tools from the command line.',
+    path: '/docs/cli',
+    icon: <PromptIcon className="h-5 w-5" />,
   },
   {
     name: 'API',

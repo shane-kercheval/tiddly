@@ -9,12 +9,12 @@ import { SkillsSection } from './components/SkillsSection'
 import { ExamplePrompts } from './components/ExamplePrompts'
 
 function generateContentCommand(mcpUrl: string): string {
-  return `claude mcp add --transport http bookmarks_notes ${mcpUrl}/mcp \\
+  return `claude mcp add --transport http tiddly_notes_bookmarks ${mcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
 }
 
 function generatePromptCommand(promptMcpUrl: string): string {
-  return `claude mcp add --transport http prompts ${promptMcpUrl}/mcp \\
+  return `claude mcp add --transport http tiddly_prompts ${promptMcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
 }
 
@@ -32,8 +32,16 @@ export function DocsClaudeCode(): ReactNode {
         Add servers with a single terminal command per project.
       </p>
 
+      <InfoCallout variant="tip" title="Automatic Setup">
+        <p>
+          Use <code className="bg-gray-100 px-1 rounded">tiddly mcp install</code> to configure
+          this automatically. See{' '}
+          <a href="/docs/cli/mcp" className="underline hover:text-gray-900">CLI &rarr; MCP Setup</a>.
+        </p>
+      </InfoCallout>
+
       {/* MCP Server Setup */}
-      <h2 className="text-xl font-bold text-gray-900 mb-4">MCP Server Setup</h2>
+      <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">MCP Server Setup</h2>
 
       <CreateTokenStep />
 

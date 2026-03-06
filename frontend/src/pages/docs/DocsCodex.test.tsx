@@ -37,8 +37,8 @@ describe('DocsCodex', () => {
 
     const codeBlocks = document.querySelectorAll('pre code')
     const configBlock = Array.from(codeBlocks).find((el) =>
-      el.textContent?.includes('[mcp_servers.bookmarks_notes]') &&
-      el.textContent?.includes('[mcp_servers.prompts]')
+      el.textContent?.includes('[mcp_servers.tiddly_notes_bookmarks]') &&
+      el.textContent?.includes('[mcp_servers.tiddly_prompts]')
     )
     expect(configBlock).toBeTruthy()
     expect(configBlock?.textContent).toContain('http://localhost:8001/mcp')
@@ -49,5 +49,11 @@ describe('DocsCodex', () => {
     renderPage()
     expect(screen.getByText('Using Your Prompts')).toBeInTheDocument()
     expect(screen.getByText(/Codex does not support MCP Prompts directly/)).toBeInTheDocument()
+  })
+
+  it('should show CLI sync command for skills', () => {
+    renderPage()
+    const text = document.body.textContent || ''
+    expect(text).toContain('tiddly skills sync codex')
   })
 })

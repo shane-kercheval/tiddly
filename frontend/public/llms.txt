@@ -123,7 +123,7 @@ Provides access to prompts as both MCP tools and the MCP prompts capability.
 ### MCP Endpoints
 
 - Content MCP: `https://content-mcp.tiddly.me/mcp`
-- Prompt MCP: `https://prompt-mcp.tiddly.me/mcp`
+- Prompt MCP: `https://prompts-mcp.tiddly.me/mcp`
 
 Test connectivity with curl:
 
@@ -135,7 +135,7 @@ curl -X POST https://content-mcp.tiddly.me/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
 # Prompt MCP
-curl -X POST https://prompt-mcp.tiddly.me/mcp \
+curl -X POST https://prompts-mcp.tiddly.me/mcp \
   -H "Authorization: Bearer YOUR_PAT" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
@@ -150,13 +150,13 @@ All MCP setup requires a Personal Access Token (PAT). Generate one in Settings >
 ```json
 {
   "mcpServers": {
-    "bookmarks_notes": {
+    "tiddly_notes_bookmarks": {
       "command": "npx",
       "args": ["mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
     },
-    "prompts": {
+    "tiddly_prompts": {
       "command": "npx",
-      "args": ["mcp-remote", "https://prompt-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
+      "args": ["mcp-remote", "https://prompts-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
     }
   }
 }
@@ -167,10 +167,10 @@ Restart Claude Desktop after saving. Uses `mcp-remote` as a bridge since Claude 
 **Claude Code** — Run in your project directory:
 
 ```
-claude mcp add --transport http bookmarks_notes https://content-mcp.tiddly.me/mcp \
+claude mcp add --transport http tiddly_notes_bookmarks https://content-mcp.tiddly.me/mcp \
   --header "Authorization: Bearer YOUR_PAT"
 
-claude mcp add --transport http prompts https://prompt-mcp.tiddly.me/mcp \
+claude mcp add --transport http tiddly_prompts https://prompts-mcp.tiddly.me/mcp \
   --header "Authorization: Bearer YOUR_PAT"
 ```
 
@@ -179,16 +179,16 @@ Note: Claude Code MCP servers are configured per project directory. Alternativel
 **Codex** — Add to `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.bookmarks_notes]
+[mcp_servers.tiddly_notes_bookmarks]
 url = "https://content-mcp.tiddly.me/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_PAT" }
 
-[mcp_servers.prompts]
-url = "https://prompt-mcp.tiddly.me/mcp"
+[mcp_servers.tiddly_prompts]
+url = "https://prompts-mcp.tiddly.me/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_PAT" }
 ```
 
-Note: Codex does not support MCP Prompts directly. To use saved prompts, ask Codex to fetch and apply them via tools (e.g., "Get my 'code-review' prompt and use it to review this file").
+Note: Codex does not support MCP Prompts natively (the `/prompt-name` invocation available in Claude Code). However, the prompt server still provides MCP tools for searching and retrieving prompts, so you can ask Codex to fetch and apply a prompt by name. For Codex-native prompt invocation, export your prompts as Codex Skills (see tiddly.me/docs/ai/codex).
 
 **ChatGPT** — Not yet supported. ChatGPT requires OAuth authentication, which is coming soon.
 
@@ -201,6 +201,36 @@ The Tiddly Bookmarks Chrome extension lets you save the current page as a bookma
 - **Save flow:** Click the extension icon on any page to see a pre-filled form (URL, title, description, tags). Page content is captured automatically for full-text search. Tags are pre-selected from your defaults and last-used tags, with selectable chips from your existing tags.
 - **Search:** On restricted pages (new tab, chrome://, etc.), the extension shows a search interface with your recent bookmarks and full-text search.
 - **Setup:** Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/npjlfgkihebhandkknldnjlcdmcpomkc), then open the extension options and enter a Personal Access Token (create one in Settings > Personal Access Tokens on tiddly.me). Optionally configure default tags that will be pre-selected on every save.
+
+### CLI
+
+The Tiddly CLI (`tiddly`) manages authentication and MCP server configuration for AI tools.
+
+**Installation:**
+```
+curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh
+```
+
+**Commands:**
+- `tiddly login` / `tiddly logout`: Authenticate via OAuth device flow or Personal Access Token.
+- `tiddly status`: Overview of authentication, API health, content counts, and MCP server status.
+- `tiddly mcp install`: Auto-detect installed AI tools (Claude Desktop, Claude Code, Codex) and configure MCP servers with dedicated tokens.
+- `tiddly mcp status` / `tiddly mcp uninstall`: View or remove MCP server configurations.
+- `tiddly skills sync [tool]`: Export prompt templates as agent skills to Claude Code, Codex, or Claude Desktop. Auto-detects tools if none specified. Supports `--tags` for filtering and `--scope` for project-level paths.
+- `tiddly skills list`: List available skills (prompts eligible for export). Supports `--tags` for filtering.
+- `tiddly tokens list`: List all Personal Access Tokens with name, prefix, last used, expiration, and creation date.
+- `tiddly tokens create <name> [--expires N]`: Create a new PAT. The plaintext token is shown once at creation.
+- `tiddly tokens delete <id> [--force]`: Revoke a PAT by ID. Prompts for confirmation unless `--force` is used.
+- `tiddly completion bash/zsh/fish`: Generate shell completion scripts.
+- `tiddly export`: Bulk export bookmarks, notes, and prompts as JSON. Supports `--types`, `--output`, and `--include-archived`.
+- `tiddly upgrade`: Download and install the latest CLI version. Verifies SHA256 checksum before replacing the binary.
+- `tiddly config list`: Show all configuration values.
+- `tiddly config get <key>`: Get a configuration value.
+- `tiddly config set <key> <value>`: Set a configuration value. Supported keys: `api_url`, `update_check`.
+
+Token management requires OAuth login (browser-based). PAT authentication is not sufficient for token operations.
+
+Supports config scopes (user, local, project), dry-run mode, and automatic token management. Full documentation at https://tiddly.me/docs/cli.
 
 ### Programmatic API Access
 
@@ -241,7 +271,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - **Authentication**: Auth0.
 - **Multi-tenant**: All content is isolated by user ID. There is no sharing functionality.
 - **Privacy**: No client-side/end-to-end encryption (would prevent full-text search). The database administrator could technically access user data. Self-hosting is available for complete privacy.
-- **Data export**: Not yet available through the UI, but the full REST API can be used with a PAT to export content programmatically. A built-in export feature is planned.
+- **Data export**: The CLI provides `tiddly export` for bulk JSON export of bookmarks, notes, and prompts. Supports filtering by content type (`--types`), writing to file (`--output`), and including archived items (`--include-archived`). The full REST API can also be used with a PAT to export content programmatically.
 - **Future plans**: Optional AI-powered features (summarization, auto-suggestions, enhanced search) are planned but not yet implemented — these will be completely opt-in and may be priced separately.
 
 ## Tier Limits

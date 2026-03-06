@@ -47,6 +47,15 @@ const docsNav: DocNavItem[] = [
     ],
   },
   {
+    label: 'CLI',
+    path: '/docs/cli',
+    children: [
+      { label: 'Authentication', path: '/docs/cli/authentication' },
+      { label: 'MCP Setup', path: '/docs/cli/mcp' },
+      { label: 'Skills', path: '/docs/cli/skills' },
+    ],
+  },
+  {
     label: 'API',
     path: '/docs/api',
     children: [

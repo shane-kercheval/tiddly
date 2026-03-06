@@ -107,7 +107,7 @@ function generateClaudeDesktopConfig(
   const servers: Record<string, McpServerConfig> = {}
 
   if (server === 'content') {
-    servers.bookmarks_notes = {
+    servers.tiddly_notes_bookmarks = {
       command: 'npx',
       args: [
         'mcp-remote',
@@ -117,7 +117,7 @@ function generateClaudeDesktopConfig(
       ],
     }
   } else {
-    servers.prompts = {
+    servers.tiddly_prompts = {
       command: 'npx',
       args: [
         'mcp-remote',
@@ -141,10 +141,10 @@ function generateClaudeCodeCommand(
   promptMcpUrl: string
 ): string {
   if (server === 'content') {
-    return `claude mcp add --transport http bookmarks_notes ${mcpUrl}/mcp \\
+    return `claude mcp add --transport http tiddly_notes_bookmarks ${mcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
   } else {
-    return `claude mcp add --transport http prompts ${promptMcpUrl}/mcp \\
+    return `claude mcp add --transport http tiddly_prompts ${promptMcpUrl}/mcp \\
   --header "Authorization: Bearer YOUR_TOKEN_HERE"`
   }
 }
@@ -491,11 +491,11 @@ function generateCodexConfig(
   promptMcpUrl: string
 ): string {
   if (server === 'content') {
-    return `[mcp_servers.bookmarks_notes]
+    return `[mcp_servers.tiddly_notes_bookmarks]
 url = "${mcpUrl}/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
   } else {
-    return `[mcp_servers.prompts]
+    return `[mcp_servers.tiddly_prompts]
 url = "${promptMcpUrl}/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
   }
@@ -1222,6 +1222,15 @@ function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
 
   return (
     <>
+      {/* CLI tip */}
+      <div className="mb-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
+        <p className="text-sm text-blue-800">
+          <strong>Tip:</strong> If you have the Tiddly CLI installed, run{' '}
+          <code className="bg-blue-100 px-1 rounded">tiddly skills sync {client}</code> instead.
+          See <Link to="/docs/cli/skills" className="text-[#d97b3d] hover:underline">CLI docs</Link>.
+        </p>
+      </div>
+
       {/* Client-specific notes */}
       {(client === 'claude-code' || client === 'claude-desktop') && (
         <div className="mb-6 rounded-lg bg-amber-50 border border-amber-200 p-4">

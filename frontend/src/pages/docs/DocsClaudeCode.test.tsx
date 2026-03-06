@@ -69,10 +69,10 @@ describe('DocsClaudeCode', () => {
 
     const codeBlocks = document.querySelectorAll('pre code')
     const contentBlock = Array.from(codeBlocks).find((el) =>
-      el.textContent?.includes('bookmarks_notes')
+      el.textContent?.includes('tiddly_notes_bookmarks')
     )
     expect(contentBlock?.textContent).toContain('http://localhost:8001/mcp')
-    expect(contentBlock?.textContent).toContain('claude mcp add --transport http bookmarks_notes')
+    expect(contentBlock?.textContent).toContain('claude mcp add --transport http tiddly_notes_bookmarks')
   })
 
   it('should show Prompt server setup with correct command', () => {
@@ -83,13 +83,13 @@ describe('DocsClaudeCode', () => {
     const promptBlock = Array.from(codeBlocks).find((el) =>
       el.textContent?.includes('http://localhost:8002/mcp')
     )
-    expect(promptBlock?.textContent).toContain('claude mcp add --transport http prompts')
+    expect(promptBlock?.textContent).toContain('claude mcp add --transport http tiddly_prompts')
   })
 
   it('should show both servers inline (no server selector)', () => {
     renderPage()
     const text = document.body.textContent || ''
-    expect(text).toContain('bookmarks_notes')
+    expect(text).toContain('tiddly_notes_bookmarks')
     expect(text).toContain('http://localhost:8001/mcp')
     expect(text).toContain('http://localhost:8002/mcp')
   })
@@ -130,5 +130,11 @@ describe('DocsClaudeCode', () => {
     const text = document.body.textContent || ''
     expect(text).toContain('~/.claude/skills/')
     expect(text).toContain('/prompts/export/skills')
+  })
+
+  it('should show CLI sync command for skills', () => {
+    renderPage()
+    const text = document.body.textContent || ''
+    expect(text).toContain('tiddly skills sync claude-code')
   })
 })

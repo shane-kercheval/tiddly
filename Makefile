@@ -1,4 +1,4 @@
-.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp api-run-bench eval-viewer-install eval-viewer test-data test-data-clear
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp api-run-bench eval-viewer-install eval-viewer test-data test-data-clear cli-build cli-test cli-lint cli-snapshot cli-release-check
 
 -include .env
 export
@@ -145,3 +145,21 @@ test-data:  ## Populate database with test data
 
 test-data-clear:  ## Remove all test data
 	PYTHONPATH=$(PYTHONPATH) uv run python backend/scripts/seed_data.py clear
+
+####
+# CLI (Go)
+####
+cli-build:  ## Build CLI binary
+	cd cli && go build -o ../bin/tiddly .
+
+cli-test:  ## Run CLI tests
+	cd cli && go test ./... -count=1
+
+cli-lint:  ## Run CLI linter
+	cd cli && $(shell go env GOPATH)/bin/golangci-lint run ./...
+
+cli-release-check:  ## Pre-release checks (tests + vet + build)
+	cd cli && go test ./... -count=1 && go vet ./... && go build ./...
+
+cli-snapshot:  ## Build CLI snapshot (local testing, requires goreleaser)
+	cd cli && goreleaser build --snapshot --clean

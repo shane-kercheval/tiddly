@@ -9,11 +9,11 @@ import { SkillsSection } from './components/SkillsSection'
 import { ExamplePrompts } from './components/ExamplePrompts'
 
 function generateCombinedConfig(mcpUrl: string, promptMcpUrl: string): string {
-  return `[mcp_servers.bookmarks_notes]
+  return `[mcp_servers.tiddly_notes_bookmarks]
 url = "${mcpUrl}/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }
 
-[mcp_servers.prompts]
+[mcp_servers.tiddly_prompts]
 url = "${promptMcpUrl}/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
 }
@@ -31,8 +31,16 @@ export function DocsCodex(): ReactNode {
         Add both servers to your TOML configuration file.
       </p>
 
+      <InfoCallout variant="tip" title="Automatic Setup">
+        <p>
+          Use <code className="bg-gray-100 px-1 rounded">tiddly mcp install</code> to configure
+          this automatically. See{' '}
+          <a href="/docs/cli/mcp" className="underline hover:text-gray-900">CLI &rarr; MCP Setup</a>.
+        </p>
+      </InfoCallout>
+
       {/* MCP Server Setup */}
-      <h2 className="text-xl font-bold text-gray-900 mb-4">MCP Server Setup</h2>
+      <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">MCP Server Setup</h2>
 
       <CreateTokenStep />
 
