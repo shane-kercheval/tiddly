@@ -205,6 +205,10 @@ func ExtractBinary(tarGzReader io.Reader) ([]byte, error) {
 		// Match the binary name (may be at root or in a subdirectory)
 		name := filepath.Base(hdr.Name)
 		if name == "tiddly" && hdr.Typeflag == tar.TypeReg {
+			const maxBinarySize = 200 * 1024 * 1024 // 200MB
+			if hdr.Size > maxBinarySize {
+				return nil, fmt.Errorf("binary too large (%d bytes, max %d)", hdr.Size, maxBinarySize)
+			}
 			data, err := io.ReadAll(tr)
 			if err != nil {
 				return nil, fmt.Errorf("reading binary from archive: %w", err)

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/url"
 )
 
 // TokenCreateRequest is the body for POST /tokens/.
@@ -51,5 +52,5 @@ func (c *Client) ListTokens(ctx context.Context) ([]TokenInfo, error) {
 
 // DeleteToken revokes a PAT by ID. Requires OAuth auth.
 func (c *Client) DeleteToken(ctx context.Context, id string) error {
-	return c.Do(ctx, "DELETE", fmt.Sprintf("/tokens/%s", id), nil, nil)
+	return c.Do(ctx, "DELETE", fmt.Sprintf("/tokens/%s", url.PathEscape(id)), nil, nil)
 }

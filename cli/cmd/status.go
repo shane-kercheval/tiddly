@@ -184,7 +184,7 @@ func getToolStatus(tool mcp.DetectedTool, scope, cwd string) ([]string, error) {
 	case "codex":
 		return mcp.StatusCodex(rc)
 	}
-	return nil, nil
+	return nil, fmt.Errorf("unknown tool %q", tool.Name)
 }
 
 // realExecLooker wraps exec.LookPath for production use.

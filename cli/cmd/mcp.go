@@ -308,7 +308,7 @@ func newMCPUninstallCmd() *cobra.Command {
 				if contentPAT != "" {
 					extractedPATs = append(extractedPATs, contentPAT)
 				}
-				if promptPAT != "" {
+				if promptPAT != "" && promptPAT != contentPAT {
 					extractedPATs = append(extractedPATs, promptPAT)
 				}
 			}
@@ -348,9 +348,9 @@ func newMCPUninstallCmd() *cobra.Command {
 					orphaned, orphanErr := mcp.CheckOrphanedTokens(cmd.Context(), client)
 					if orphanErr == nil && len(orphaned) > 0 {
 						fmt.Fprintf(cmd.ErrOrStderr(),
-							"Warning: PATs created for MCP servers still exist: %s\n", strings.Join(orphaned, ", "))
-						fmt.Fprintln(cmd.ErrOrStderr(),
-							"Run 'tiddly mcp uninstall <tool> --delete-tokens' to revoke, or manage tokens at https://tiddly.me/settings.")
+							"Warning: PATs created for %s may still exist: %s\n", toolName, strings.Join(orphaned, ", "))
+						fmt.Fprintf(cmd.ErrOrStderr(),
+							"Run 'tiddly mcp uninstall %s --delete-tokens' to revoke, or manage tokens at https://tiddly.me/settings.\n", toolName)
 					}
 				}
 			}

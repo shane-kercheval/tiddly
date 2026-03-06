@@ -50,7 +50,7 @@ func (c *Client) ListContent(ctx context.Context, contentType string, offset, li
 // GetContent returns a single item with full content.
 // contentType is "bookmark", "note", or "prompt".
 func (c *Client) GetContent(ctx context.Context, contentType, id string) (map[string]any, error) {
-	path := fmt.Sprintf("/%ss/%s", contentType, id)
+	path := fmt.Sprintf("/%ss/%s", url.PathEscape(contentType), url.PathEscape(id))
 	var item map[string]any
 	if err := c.Do(ctx, "GET", path, nil, &item); err != nil {
 		return nil, err

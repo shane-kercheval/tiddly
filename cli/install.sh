@@ -36,6 +36,10 @@ if [ -z "$VERSION" ]; then
     echo "Error: Could not determine latest version" >&2
     exit 1
 fi
+echo "$VERSION" | grep -qE '^(cli/)?v[0-9]' || {
+    echo "Error: Unexpected version format: $VERSION" >&2
+    exit 1
+}
 echo "Latest version: $VERSION"
 
 # Store full tag for download URLs (GitHub uses the full tag in release paths)

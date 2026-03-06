@@ -50,6 +50,7 @@ func newExportCmd() *cobra.Command {
 			// Determine output destination
 			w := cmd.OutOrStdout()
 			var progress = cmd.ErrOrStderr()
+			var outputFile *os.File
 
 			if output != "" {
 				f, err := os.Create(output)
@@ -58,6 +59,7 @@ func newExportCmd() *cobra.Command {
 				}
 				defer f.Close() //nolint:errcheck
 				w = f
+				outputFile = f
 			} else {
 				// When writing to stdout, suppress progress to avoid mixing with JSON
 				progress = nil
@@ -71,9 +73,10 @@ func newExportCmd() *cobra.Command {
 
 			exportResult, err := export.Run(cmd.Context(), client, opts, w)
 			if err != nil {
-				// Remove partial output file on error
-				if output != "" {
-					os.Remove(output) //nolint:errcheck
+				// Close before removing so the delete succeeds on Windows
+				if outputFile != nil {
+					outputFile.Close() //nolint:errcheck
+					os.Remove(output)  //nolint:errcheck
 				}
 				return err
 			}

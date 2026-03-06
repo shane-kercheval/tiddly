@@ -82,18 +82,11 @@ func (c *Client) ExportSkills(ctx context.Context, client string, tags []string,
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close() //nolint:errcheck
-		return nil, c.handleErrorFromBytes(resp, body)
+		return nil, c.classifyError(resp, body)
 	}
 
 	return &ExportSkillsResponse{
 		Body:        resp.Body,
 		ContentType: resp.Header.Get("Content-Type"),
 	}, nil
-}
-
-// handleErrorFromBytes creates an appropriate APIError from a non-2xx response.
-// Passes maxRetries as attempt to ensure no retry is attempted — the response body
-// is already consumed so the request cannot be replayed.
-func (c *Client) handleErrorFromBytes(resp *http.Response, body []byte) error {
-	return c.handleError(context.Background(), resp, body, "GET", "", nil, nil, maxRetries)
 }

@@ -91,14 +91,7 @@ func newSkillsSyncCmd() *cobra.Command {
 				}
 			}
 
-			// Parse tags
-			var tagList []string
-			if tags != "" {
-				tagList = strings.Split(tags, ",")
-				for i, t := range tagList {
-					tagList[i] = strings.TrimSpace(t)
-				}
-			}
+			tagList := parseTags(tags)
 
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
@@ -175,13 +168,7 @@ func newSkillsListCmd() *cobra.Command {
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
 
-			var tagList []string
-			if tags != "" {
-				tagList = strings.Split(tags, ",")
-				for i, t := range tagList {
-					tagList[i] = strings.TrimSpace(t)
-				}
-			}
+			tagList := parseTags(tags)
 
 			prompts, err := fetchAllPrompts(ctx, client, tagList, tagMatch)
 			if err != nil {
@@ -218,6 +205,18 @@ func newSkillsListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tagMatch, "tag-match", "", `Tag matching mode: "all" (default) or "any"`)
 
 	return cmd
+}
+
+// parseTags splits a comma-separated tag string into a trimmed slice.
+func parseTags(csv string) []string {
+	if csv == "" {
+		return nil
+	}
+	parts := strings.Split(csv, ",")
+	for i, t := range parts {
+		parts[i] = strings.TrimSpace(t)
+	}
+	return parts
 }
 
 // projectMarkers are directories that indicate the CWD is a project root.

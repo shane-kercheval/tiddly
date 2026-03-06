@@ -99,6 +99,17 @@ func (c *Client) doWithRetry(ctx context.Context, method, path string, body any,
 }
 
 func (c *Client) handleError(ctx context.Context, resp *http.Response, respBody []byte, method, path string, reqBody any, result any, attempt int) error {
+	// 429 is the only status that triggers retry logic
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return c.handle429(ctx, resp, respBody, method, path, reqBody, result, attempt)
+	}
+	return c.classifyError(resp, respBody)
+}
+
+// classifyError maps a non-2xx response to an APIError without retry logic.
+// Used by handleError (after 429 check) and directly by methods that bypass Do()
+// (e.g., ExportSkills which streams the response body).
+func (c *Client) classifyError(resp *http.Response, respBody []byte) error {
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
 		return &APIError{
@@ -114,9 +125,6 @@ func (c *Client) handleError(ctx context.Context, resp *http.Response, respBody 
 			StatusCode: 403,
 			Message:    "This action requires browser login. Run 'tiddly login' (without --token).",
 		}
-
-	case http.StatusTooManyRequests:
-		return c.handle429(ctx, resp, respBody, method, path, reqBody, result, attempt)
 
 	case 451:
 		return c.handle451(respBody)

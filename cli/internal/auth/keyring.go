@@ -195,6 +195,10 @@ func (s *fileStore) Get(account string) (string, error) {
 	return val, nil
 }
 
+// Note: fileStore operations are not concurrency-safe across processes.
+// Concurrent CLI processes (e.g., parallel CI jobs) that both trigger a token
+// refresh could race on read-modify-write. PATs are the recommended auth
+// mechanism for CI/scripting where concurrent access is expected.
 func (s *fileStore) Set(account string, value string) error {
 	creds, err := s.load()
 	if err != nil {
