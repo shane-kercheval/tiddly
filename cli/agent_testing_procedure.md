@@ -78,6 +78,13 @@ bin/tiddly status
 - [ ] Output includes: `Tiddly CLI v`, `Authentication:`, `API:`, `MCP Servers:`
 - [ ] Shows detection status for each tool (claude-desktop, claude-code, codex)
 
+```bash
+bin/tiddly status --scope project
+```
+**Verify:**
+- [ ] Exit code 0
+- [ ] MCP Servers section reflects project-level config
+
 ---
 
 ## Test Group 2: Authentication

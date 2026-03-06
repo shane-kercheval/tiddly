@@ -213,7 +213,7 @@ curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/ins
 
 **Commands:**
 - `tiddly login` / `tiddly logout`: Authenticate via OAuth device flow or Personal Access Token.
-- `tiddly status`: Overview of authentication, API health, content counts, and MCP server status.
+- `tiddly status [--scope user|local|project]`: Overview of authentication, API health, content counts, and MCP server status. Use `--scope` to check a specific config level for MCP servers (default: user).
 - `tiddly mcp install`: Auto-detect installed AI tools (Claude Desktop, Claude Code, Codex) and configure MCP servers with dedicated tokens.
 - `tiddly mcp status` / `tiddly mcp uninstall`: View or remove MCP server configurations.
 - `tiddly skills sync [tool...]`: Export prompt templates as agent skills to Claude Code, Codex, or Claude Desktop. Auto-detects tools if none specified. Supports `--tags` for filtering, `--tag-match` ("all" or "any") for tag matching mode, and `--scope` for project-level paths.

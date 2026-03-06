@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -21,7 +20,9 @@ import (
 var cliVersion = "dev"
 
 func newStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	var scope string
+
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show Tiddly CLI status overview",
 		Long: `Show a summary of CLI version, authentication, API connectivity, content counts, and MCP server configuration.
@@ -34,9 +35,18 @@ Sections displayed:
 
 MCP servers are identified by URL, not by config key name. Content counts are only shown when the API is reachable and authenticated.
 
+Use --scope to control which config level is checked for MCP servers:
+  user     Global/user-level config (default)
+  local    Claude Code local config
+  project  Project-level config (.mcp.json in cwd)
+
 Examples:
-  tiddly status    Show full status overview`,
+  tiddly status                  Show full status overview
+  tiddly status --scope project  Check project-level MCP config`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateScope(scope); err != nil {
+				return err
+			}
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "Tiddly CLI v%s\n", cliVersion)
 
@@ -96,8 +106,11 @@ Examples:
 			// --- MCP Servers ---
 			fmt.Fprintln(w, "\nMCP Servers:")
 			tools := mcp.DetectTools(appDeps.ExecLooker)
-			cwd, cwdErr := os.Getwd()
+			cwd, cwdErr := getWorkingDir()
 			if cwdErr != nil {
+				if scope != "user" {
+					return fmt.Errorf("--scope %s requires a working directory: %w", scope, cwdErr)
+				}
 				cwd = "" // non-fatal for global status; ResolveToolConfig handles empty cwd for "user" scope
 			}
 
@@ -107,16 +120,20 @@ Examples:
 					continue
 				}
 
-				sr, err := getToolStatus(tool, "user", cwd)
+				sr, err := getToolStatus(tool, scope, cwd)
 				if err != nil {
-					fmt.Fprintf(w, "  %-18s Detected, status unknown\n", tool.Name+":")
+					fmt.Fprintf(w, "  %-18s Error: %v\n", tool.Name+":", err)
 					continue
 				}
 
 				if len(sr.Servers) == 0 {
 					fmt.Fprintf(w, "  %-18s Detected, not configured\n", tool.Name+":")
 					fmt.Fprintf(w, "  %-18s %s\n", "", sr.ConfigPath)
-					fmt.Fprintf(cmd.ErrOrStderr(), "    Run 'tiddly mcp install %s' to configure.\n", tool.Name)
+					hint := fmt.Sprintf("tiddly mcp install %s", tool.Name)
+					if scope != "user" {
+						hint += " --scope " + scope
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(), "    Run '%s' to configure.\n", hint)
 				} else {
 					labels := formatServerLabels(sr.Servers)
 					fmt.Fprintf(w, "  %-18s Configured (%s)\n", tool.Name+":", strings.Join(labels, ", "))
@@ -129,6 +146,9 @@ Examples:
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&scope, "scope", "user", `Config scope: user (global), local (claude-code only), or project`)
+	return cmd
 }
 
 func printContentCounts(ctx context.Context, w io.Writer, errW io.Writer, client *api.Client) {

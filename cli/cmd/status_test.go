@@ -69,6 +69,28 @@ func TestStatus__api_unreachable(t *testing.T) {
 	assert.Contains(t, result.Stdout, "Unreachable")
 }
 
+func TestStatus__invalid_scope_returns_error(t *testing.T) {
+	store := testutil.NewMockCredStore()
+	setupTestDeps(t, store)
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "status", "--scope", "bogus")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "invalid scope")
+}
+
+func TestStatus__scope_flag_accepted(t *testing.T) {
+	store := testutil.NewMockCredStore()
+	setupTestDeps(t, store)
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "status", "--scope", "project")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "Tiddly CLI vdev")
+}
+
 func TestStatus__shows_version(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
