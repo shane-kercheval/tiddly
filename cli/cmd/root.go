@@ -1,9 +1,13 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/shane-kercheval/tiddly/cli/internal/config"
 	"github.com/shane-kercheval/tiddly/cli/internal/mcp"
+	"github.com/shane-kercheval/tiddly/cli/internal/update"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -21,6 +25,7 @@ type AppDeps struct {
 	ConfigDir         string
 	ExecLooker        mcp.ExecLooker
 	FileStoreFallback bool // true if credentials fell back to plaintext file storage
+	UpdateChecker     update.Checker
 }
 
 // appDeps is the global deps instance, set during PersistentPreRunE or by tests.
@@ -29,7 +34,11 @@ var appDeps *AppDeps
 // SetDeps allows tests to inject dependencies before command execution.
 func SetDeps(deps *AppDeps) {
 	appDeps = deps
+	updateCheckResult = nil
 }
+
+// updateCheckResult receives the background update check result (if started).
+var updateCheckResult <-chan string
 
 func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
@@ -79,7 +88,31 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 				}
 			}
 
+			// Start background update check
+			if shouldCheckForUpdates(cmd, appDeps.ConfigDir) {
+				checker := appDeps.UpdateChecker
+				if checker == nil {
+					checker = update.NewGitHubChecker()
+				}
+				updateCheckResult = startUpdateCheck(cmd.Context(), checker, appDeps.ConfigDir)
+			}
+
 			return nil
+		},
+		// Cobra only runs the most-specific post-run hook. Do not add PersistentPostRun
+		// to subcommands — it would override this one and suppress update notifications.
+		PersistentPostRun: func(cmd *cobra.Command, args []string) {
+			if updateCheckResult == nil {
+				return
+			}
+			// Non-blocking: only print if the result is already available
+			select {
+			case msg := <-updateCheckResult:
+				if msg != "" {
+					fmt.Fprintln(os.Stderr, msg)
+				}
+			default:
+			}
 		},
 	}
 
@@ -97,6 +130,8 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 	rootCmd.AddCommand(newExportCmd())
 	rootCmd.AddCommand(newTokensCmd())
 	rootCmd.AddCommand(newCompletionCmd())
+	rootCmd.AddCommand(newConfigCmd())
+	rootCmd.AddCommand(newUpgradeCmd())
 
 	return rootCmd
 }

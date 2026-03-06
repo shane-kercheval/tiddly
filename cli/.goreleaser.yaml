@@ -1,0 +1,27 @@
+version: 2
+project_name: tiddly
+monorepo:
+  tag_prefix: cli/
+builds:
+  - main: .
+    binary: tiddly
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/shane-kercheval/tiddly/cli/cmd.cliVersion={{.Version}}
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+release:
+  github:
+    owner: shane-kercheval
+    name: tiddly
+  name_template: "CLI {{.Tag}}"

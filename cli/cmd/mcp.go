@@ -31,6 +31,12 @@ func newMCPCmd() *cobra.Command {
 	mcpCmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Manage MCP server integrations",
+		Long: `Install, configure, and manage MCP (Model Context Protocol) servers
+for AI tools like Claude Desktop, Claude Code, and Codex.
+
+  tiddly mcp install             Auto-detect tools and configure MCP servers
+  tiddly mcp status              Show MCP configuration for all tools
+  tiddly mcp uninstall <tool>    Remove MCP configuration from a tool`,
 	}
 
 	mcpCmd.AddCommand(newMCPInstallCmd())

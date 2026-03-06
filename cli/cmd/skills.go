@@ -21,6 +21,10 @@ func newSkillsCmd() *cobra.Command {
 	skillsCmd := &cobra.Command{
 		Use:   "skills",
 		Short: "Manage AI tool skills from your prompts",
+		Long: `Export prompt templates as agent skills for AI tools.
+
+  tiddly skills sync             Auto-detect tools and sync skills
+  tiddly skills list             List available skills (prompts)`,
 	}
 
 	skillsCmd.AddCommand(newSkillsSyncCmd())

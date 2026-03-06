@@ -28,6 +28,7 @@ func Init(configDir string) error {
 	}
 
 	viper.SetDefault("api_url", DefaultAPIURL)
+	viper.SetDefault("update_check", true)
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")

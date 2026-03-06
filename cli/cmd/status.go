@@ -24,6 +24,10 @@ func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show Tiddly CLI status overview",
+		Long: `Show a summary of CLI version, authentication, API connectivity,
+content counts, and MCP server configuration.
+
+  tiddly status    Show full status overview`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "Tiddly CLI v%s\n", cliVersion)

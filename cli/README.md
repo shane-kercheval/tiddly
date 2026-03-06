@@ -1,6 +1,6 @@
 # Tiddly CLI
 
-Go CLI tool for managing Tiddly integrations — authentication and MCP server installation for AI tools.
+Go CLI tool for managing Tiddly integrations — authentication, MCP server installation, skills sync, data export, and self-updating.
 
 ## Prerequisites
 
@@ -62,39 +62,55 @@ Lint config is in `cli/.golangci.yml`. We exclude `fmt.Fprint*` and `http.Respon
 ```
 cli/
   main.go                     # Entry point
+  .goreleaser.yaml            # GoReleaser config for cross-platform builds
+  install.sh                  # curl installer script
   cmd/                        # Cobra command definitions
-    root.go                   # Global flags, dependency injection
+    root.go                   # Global flags, dependency injection, auto-update check
     login.go                  # tiddly login (OAuth + PAT)
     logout.go                 # tiddly logout
     auth.go                   # tiddly auth status
     status.go                 # tiddly status (overview)
     mcp.go                    # tiddly mcp install/status/uninstall
+    skills.go                 # tiddly skills sync/list
+    tokens.go                 # tiddly tokens list/create/delete
+    export.go                 # tiddly export
+    completion.go             # tiddly completion bash/zsh/fish
+    config.go                 # tiddly config list/get/set
+    upgrade.go                # tiddly upgrade (self-update)
+    update_check.go           # Background auto-update notification
   internal/
     api/                      # HTTP client
       client.go               # Auth headers, error handling, 429 retry (idempotent methods only)
       users.go                # GET /users/me, /health
       tokens.go               # POST/GET/DELETE /tokens/
       content.go              # GET /{content_type}/ (count)
+      prompts.go              # GET /prompts/ (list for skills)
     auth/                     # Authentication
       device_flow.go          # OAuth device code flow
       keyring.go              # Credential storage (keyring + file fallback)
       token_manager.go        # Token resolution chain, refresh
     config/                   # Configuration
       config.go               # ~/.config/tiddly/config.yaml via Viper
+      state.go                # ~/.config/tiddly/state.json (ephemeral state like last_update_check)
+    update/                   # Self-update logic
+      update.go               # GitHub release checking, download, checksum, binary replacement
     mcp/                      # MCP server management
       detect.go               # AI tool detection (PATH + config dirs)
       install.go              # Install orchestration, PAT creation, dry-run
       claude_desktop.go       # Claude Desktop config (JSON, uses npx mcp-remote)
       claude_code.go          # Claude Code config (JSON, direct HTTP entries)
       codex.go                # Codex config (TOML)
-    output/                   # Output formatting
-      formatter.go            # text/json output
+    skills/                   # Skills (prompt export)
+      sync.go                 # Fetch prompts and write as SKILL.md files
+    export/                   # Bulk export
+      export.go               # Streaming JSON export
     testutil/                 # Shared test infrastructure
       mock_api.go             # httptest server builder
       mock_creds.go           # In-memory credential store
       mock_exec.go            # Mock ExecLooker for PATH detection
       cmd_helper.go           # In-process Cobra command runner
       fixtures.go             # Shared response fixtures
+      archive.go              # tar.gz builder for update tests
 ```
 
 ### Test Patterns
@@ -105,6 +121,97 @@ Tests use dependency injection — no build tags, no real keyring or network cal
 - **Command tests** use `testutil.ExecuteCmd(t, cmd, args...)` to run Cobra commands in-process
 - **Credential tests** use `testutil.NewMockCredStore()` (in-memory)
 - **Table-driven tests** are the standard pattern: one test function with a `[]struct` of cases
+
+## Releases
+
+### Making a new release
+
+```bash
+# 1. Verify
+make cli-release-check
+
+# 2. Tag and push (triggers the release pipeline)
+git tag cli/v1.0.0
+git push origin cli/v1.0.0
+
+# 3. Monitor at: https://github.com/shane-kercheval/tiddly/actions
+```
+
+Pushing the tag triggers a GitHub Actions workflow (`.github/workflows/cli-release.yaml`) that builds and publishes everything automatically. No manual steps beyond tagging.
+
+**Tag format:** `cli/v<semver>` (e.g., `cli/v1.0.0`, `cli/v1.1.0-rc.1`). The `cli/` prefix scopes the tag to the CLI so it doesn't look like the entire monorepo is versioned. This is the standard Go monorepo convention. Other parts of the repo (backend, frontend) deploy via Railway and don't use git tags.
+
+**Pre-releases:** Tags like `cli/v1.0.0-rc.1` are valid. GoReleaser marks them as pre-releases on GitHub.
+
+### How the release pipeline works
+
+When you push a `cli/v*` tag, GitHub Actions runs [GoReleaser](https://goreleaser.com/), a tool that automates cross-compilation and release publishing:
+
+1. GoReleaser reads `cli/.goreleaser.yaml` for build configuration
+2. Strips the `cli/` tag prefix and uses the semver part (e.g., `1.0.0`) as the version
+3. Cross-compiles the binary for 6 targets: linux/darwin/windows × amd64/arm64
+4. Injects the version into the binary via `-ldflags "-X ...cmd.cliVersion=1.0.0"` (without this, `cliVersion` defaults to `"dev"` — see `cmd/status.go`)
+5. Creates archives (`.tar.gz` for linux/mac, `.zip` for windows) and `checksums.txt` (SHA256)
+6. Uploads everything as assets on a new **GitHub Release**
+
+The release appears at `https://github.com/shane-kercheval/tiddly/releases` with downloadable binaries for each platform. There is no package registry — GitHub Releases is the distribution mechanism.
+
+**Authentication:** The workflow uses `GITHUB_TOKEN`, which GitHub Actions provides automatically to every workflow run. No secrets to configure. The only prerequisite is that the repo allows Actions to create releases: Settings → Actions → General → Workflow permissions → **Read and write**.
+
+### How users install and update
+
+**New install:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh
+```
+
+The install script (`cli/install.sh`) detects OS/arch, downloads the matching archive from the latest GitHub Release, verifies the SHA256 checksum, and copies the binary to `/usr/local/bin` (or `~/.local/bin` if not writable). Users can override with `INSTALL_DIR=/custom/path`.
+
+**Self-update:**
+```bash
+tiddly upgrade
+```
+
+Calls the GitHub API for the latest release, compares versions using semver, downloads and verifies the archive, then atomically replaces the running binary via `os.Rename`. On permission errors, it suggests `sudo tiddly upgrade`. Windows is not supported for self-update (returns an error with a download link).
+
+**Auto-update notification:**
+
+On every command (except `upgrade`, `completion`, `help`, `config`), the CLI starts a non-blocking background check for new versions. If the check completes before the command finishes, it prints a message to stderr. The check runs at most once per 24 hours (tracked in `~/.config/tiddly/state.json`). Users can disable with `tiddly config set update_check false` or `TIDDLY_NO_UPDATE_CHECK=1`.
+
+### Local testing with GoReleaser
+
+To test that cross-compilation works without publishing:
+
+```bash
+# Install goreleaser (one-time)
+go install github.com/goreleaser/goreleaser/v2@latest
+
+# Build snapshot (no tag required, no publish)
+make cli-snapshot
+
+# Binaries appear in cli/dist/
+ls cli/dist/
+```
+
+### Version in local builds
+
+`make cli-build` produces a binary with `cliVersion="dev"`. To inject a real version locally:
+
+```bash
+go build -ldflags "-X github.com/shane-kercheval/tiddly/cli/cmd.cliVersion=1.2.3" -o ../bin/tiddly .
+```
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `cli/.goreleaser.yaml` | Build matrix, archive format, checksum, monorepo tag prefix |
+| `.github/workflows/cli-release.yaml` | Triggers on `cli/v*` tags, runs GoReleaser |
+| `cli/install.sh` | POSIX shell installer for `curl \| sh` |
+| `cli/internal/update/update.go` | GitHub API, checksum verification, atomic binary replace |
+| `cli/cmd/upgrade.go` | `tiddly upgrade` command |
+| `cli/cmd/update_check.go` | Background auto-update check |
+| `cli/internal/config/state.go` | Persists `last_update_check` (separate from config.yaml) |
 
 ## User Documentation
 
@@ -148,4 +255,3 @@ For local development without Auth0 configured:
   TIDDLY_AUTH0_AUDIENCE=https://localhost:8000 \
   tiddly login
   ```
-

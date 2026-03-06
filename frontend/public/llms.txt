@@ -206,6 +206,12 @@ The Tiddly Bookmarks Chrome extension lets you save the current page as a bookma
 
 The Tiddly CLI (`tiddly`) manages authentication and MCP server configuration for AI tools.
 
+**Installation:**
+```
+curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh
+```
+
+**Commands:**
 - `tiddly login` / `tiddly logout`: Authenticate via OAuth device flow or Personal Access Token.
 - `tiddly status`: Overview of authentication, API health, content counts, and MCP server status.
 - `tiddly mcp install`: Auto-detect installed AI tools (Claude Desktop, Claude Code, Codex) and configure MCP servers with dedicated tokens.
@@ -217,6 +223,10 @@ The Tiddly CLI (`tiddly`) manages authentication and MCP server configuration fo
 - `tiddly tokens delete <id> [--force]`: Revoke a PAT by ID. Prompts for confirmation unless `--force` is used.
 - `tiddly completion bash/zsh/fish`: Generate shell completion scripts.
 - `tiddly export`: Bulk export bookmarks, notes, and prompts as JSON. Supports `--types`, `--output`, and `--include-archived`.
+- `tiddly upgrade`: Download and install the latest CLI version. Verifies SHA256 checksum before replacing the binary.
+- `tiddly config list`: Show all configuration values.
+- `tiddly config get <key>`: Get a configuration value.
+- `tiddly config set <key> <value>`: Set a configuration value. Supported keys: `api_url`, `update_check`.
 
 Token management requires OAuth login (browser-based). PAT authentication is not sufficient for token operations.
 

@@ -13,6 +13,9 @@ func newAuthCmd() *cobra.Command {
 	authCmd := &cobra.Command{
 		Use:   "auth",
 		Short: "Authentication management",
+		Long: `View and manage authentication state.
+
+  tiddly auth status    Show current auth method and user`,
 	}
 
 	authCmd.AddCommand(newAuthStatusCmd())

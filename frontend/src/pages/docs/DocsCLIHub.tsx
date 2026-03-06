@@ -44,7 +44,10 @@ export function DocsCLIHub(): ReactNode {
       <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Start</h2>
 
       <StepSection step={1} title="Install">
-        <CopyableCodeBlock code="brew install tiddly" />
+        <CopyableCodeBlock code="curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh" />
+        <p className="text-gray-600 mt-2 text-sm">
+          To update later, run <code className="bg-gray-100 px-1 rounded">tiddly upgrade</code>.
+        </p>
       </StepSection>
 
       <StepSection step={2} title="Log in">
@@ -139,6 +142,19 @@ tiddly export --output backup.json       # write to file
 tiddly export --include-archived         # include archived items`} />
       </div>
 
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">Config</h3>
+        <p className="text-gray-600 mb-3 text-sm">
+          View and modify CLI configuration. Settings can also be set via environment variables
+          (<code className="bg-gray-100 px-1 rounded">TIDDLY_API_URL</code>,{' '}
+          <code className="bg-gray-100 px-1 rounded">TIDDLY_UPDATE_CHECK</code>).
+        </p>
+        <CopyableCodeBlock code={`tiddly config list                       # show all config values
+tiddly config get api_url                # get a specific value
+tiddly config set api_url http://...     # set a value
+tiddly config set update_check false     # disable auto-update checks`} />
+      </div>
+
       <div className="mb-10">
         <h3 className="text-lg font-semibold text-gray-900 mb-2">Shell Completions</h3>
         <p className="text-gray-600 mb-3 text-sm">
@@ -152,13 +168,12 @@ tiddly completion fish | source           # Fish`} />
       {/* Advanced Configuration */}
       <h2 className="text-xl font-bold text-gray-900 mb-4">Advanced Configuration</h2>
       <p className="text-gray-600 mb-3">
-        For most users, the defaults work out of the box. If you need to customize the API URL or
-        output format, the CLI reads configuration from{' '}
+        For most users, the defaults work out of the box. If you need to customize settings, the CLI reads configuration from{' '}
         <code className="bg-gray-100 px-1 rounded">~/.config/tiddly/config.yaml</code>{' '}
         (respects <code className="bg-gray-100 px-1 rounded">$XDG_CONFIG_HOME</code>):
       </p>
       <CopyableCodeBlock code={`api_url: https://api.tiddly.me
-format: text`} />
+update_check: true`} />
 
       <p className="text-gray-600 mt-4 mb-3">
         Settings can be overridden at multiple levels. The CLI resolves values in this order
@@ -177,12 +192,12 @@ format: text`} />
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4">1 (highest)</td>
               <td className="py-2 pr-4">CLI flags</td>
-              <td className="py-2"><code className="bg-gray-100 px-1 rounded">--api-url</code>, <code className="bg-gray-100 px-1 rounded">--format</code></td>
+              <td className="py-2"><code className="bg-gray-100 px-1 rounded">--api-url</code>, <code className="bg-gray-100 px-1 rounded">--token</code></td>
             </tr>
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4">2</td>
               <td className="py-2 pr-4">Environment variables</td>
-              <td className="py-2"><code className="bg-gray-100 px-1 rounded">TIDDLY_API_URL</code>, <code className="bg-gray-100 px-1 rounded">TIDDLY_FORMAT</code></td>
+              <td className="py-2"><code className="bg-gray-100 px-1 rounded">TIDDLY_API_URL</code>, <code className="bg-gray-100 px-1 rounded">TIDDLY_UPDATE_CHECK</code></td>
             </tr>
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4">3</td>
@@ -192,7 +207,7 @@ format: text`} />
             <tr>
               <td className="py-2 pr-4">4 (lowest)</td>
               <td className="py-2 pr-4">Defaults</td>
-              <td className="py-2"><code className="bg-gray-100 px-1 rounded">https://api.tiddly.me</code>, <code className="bg-gray-100 px-1 rounded">text</code></td>
+              <td className="py-2"><code className="bg-gray-100 px-1 rounded">https://api.tiddly.me</code>, <code className="bg-gray-100 px-1 rounded">true</code></td>
             </tr>
           </tbody>
         </table>
