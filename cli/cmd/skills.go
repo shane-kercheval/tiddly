@@ -23,17 +23,17 @@ func newSkillsCmd() *cobra.Command {
 		Short: "Manage AI tool skills from your prompts",
 		Long: `Export prompt templates as agent skills for AI tools.
 
-  tiddly skills sync             Auto-detect tools and sync skills
+  tiddly skills download         Auto-detect tools and download skills
   tiddly skills list             List available skills (prompts)`,
 	}
 
-	skillsCmd.AddCommand(newSkillsSyncCmd())
+	skillsCmd.AddCommand(newSkillsDownloadCmd())
 	skillsCmd.AddCommand(newSkillsListCmd())
 
 	return skillsCmd
 }
 
-func newSkillsSyncCmd() *cobra.Command {
+func newSkillsDownloadCmd() *cobra.Command {
 	var (
 		scope    string
 		tags     string
@@ -41,22 +41,25 @@ func newSkillsSyncCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "sync [tool]",
+		Use:   "download [tool]",
 		Short: "Download and install skills for AI tools",
 		Long: `Download your Tiddly prompts and install them as agent skills.
 
 Each prompt is written as a Markdown skill file ({skill-name}/SKILL.md) to the tool's skills directory. The destination varies by tool and scope:
-  claude-code (global)  — ~/.claude/commands/
-  claude-code (project) — .claude/commands/
-  codex (global)        — ~/.codex/instructions/
+  claude-code (global)  — ~/.claude/skills/
+  claude-code (project) — .claude/skills/
+  codex (global)        — ~/.codex/skills/
 
-Re-syncing overwrites existing skill files but does not remove skills whose prompts have been deleted. For Claude Desktop, a .zip file is exported instead — upload it manually via Settings > Skills.
+Re-downloading overwrites existing skill files but does not remove skills whose prompts have been deleted. For Claude Desktop, a .zip file is exported instead — upload it manually via Settings > Skills.
+
+By default, only prompts tagged "skill" are downloaded (matching the frontend default). Use --tags "" to download all prompts.
 
 Examples:
-  tiddly skills sync                       Auto-detect tools and sync skills
-  tiddly skills sync claude-code           Sync skills for a specific tool
-  tiddly skills sync --scope project       Sync to project-level paths
-  tiddly skills sync --tags python,skill   Only sync prompts with these tags`,
+  tiddly skills download                         Auto-detect tools and download skills
+  tiddly skills download claude-code             Download skills for a specific tool
+  tiddly skills download --scope project         Download to project-level paths
+  tiddly skills download --tags python,skill     Only download prompts with these tags
+  tiddly skills download --tags ""               Download all prompts (no tag filter)`,
 		ValidArgs: validSkillsTools,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate scope
@@ -110,37 +113,37 @@ Examples:
 				warnIfNotProjectDir(errW)
 			}
 
-			var syncErrors []string
-			synced := 0
+			var dlErrors []string
+			downloaded := 0
 			for _, tool := range tools {
-				syncResult, err := skills.Sync(ctx, client, tool, tagList, tagMatch, scope)
+				dlResult, err := skills.Download(ctx, client, tool, tagList, tagMatch, scope)
 				if err != nil {
-					fmt.Fprintf(errW, "Error syncing %s: %v\n", tool, err)
-					syncErrors = append(syncErrors, tool)
+					fmt.Fprintf(errW, "Error downloading %s: %v\n", tool, err)
+					dlErrors = append(dlErrors, tool)
 					continue
 				}
 
-				if syncResult.SkillCount == 0 {
-					fmt.Fprintf(w, "%s: No skills to sync.\n", tool)
+				if dlResult.SkillCount == 0 {
+					fmt.Fprintf(w, "%s: No skills to download.\n", tool)
 					if len(tagList) > 0 {
 						fmt.Fprintf(errW, "  No prompts match tags: %s\n", strings.Join(tagList, ", "))
 					}
 					continue
 				}
 
-				synced++
-				if syncResult.ZipPath != "" {
+				downloaded++
+				if dlResult.ZipPath != "" {
 					// Claude Desktop: zip saved to temp
-					fmt.Fprintf(w, "%s: %d skill(s) exported to %s\n", tool, syncResult.SkillCount, syncResult.ZipPath)
+					fmt.Fprintf(w, "%s: %d skill(s) exported to %s\n", tool, dlResult.SkillCount, dlResult.ZipPath)
 					fmt.Fprintf(w, "  Upload this file to Claude Desktop via Settings > Skills.\n")
 				} else {
-					fmt.Fprintf(w, "%s: Synced %d skill(s) to %s\n", tool, syncResult.SkillCount, syncResult.DestPath)
+					fmt.Fprintf(w, "%s: Downloaded %d skill(s) to %s\n", tool, dlResult.SkillCount, dlResult.DestPath)
 				}
 			}
 
 			// Return error if all tools failed with errors
-			if len(syncErrors) > 0 && synced == 0 {
-				return fmt.Errorf("skills sync failed for: %s", strings.Join(syncErrors, ", "))
+			if len(dlErrors) > 0 && downloaded == 0 {
+				return fmt.Errorf("skills download failed for: %s", strings.Join(dlErrors, ", "))
 			}
 
 			return nil
@@ -148,7 +151,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&scope, "scope", "global", "Extraction scope: global (default) or project")
-	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tag filter")
+	cmd.Flags().StringVar(&tags, "tags", "skill", `Comma-separated tag filter (use "" for all)`)
 	cmd.Flags().StringVar(&tagMatch, "tag-match", "", `Tag matching mode: "all" (default) or "any"`)
 
 	return cmd
@@ -165,11 +168,14 @@ func newSkillsListCmd() *cobra.Command {
 		Short: "List prompts available as skills",
 		Long: `List prompts available for export as agent skills.
 
+By default, only prompts tagged "skill" are listed (matching the frontend default). Use --tags "" to list all prompts.
+
 Prints a two-column table of prompt name and description. Use --tags to filter by tags and --tag-match to control matching mode ("all" requires every tag, "any" requires at least one).
 
 Examples:
-  tiddly skills list                               List all available skills
+  tiddly skills list                               List skills (default: --tags skill)
   tiddly skills list --tags python,skill            List skills with specific tags
+  tiddly skills list --tags ""                      List all prompts (no tag filter)
   tiddly skills list --tags python --tag-match any  Match any tag (default: all)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
@@ -217,7 +223,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tag filter")
+	cmd.Flags().StringVar(&tags, "tags", "skill", `Comma-separated tag filter (use "" for all)`)
 	cmd.Flags().StringVar(&tagMatch, "tag-match", "", `Tag matching mode: "all" (default) or "any"`)
 
 	return cmd

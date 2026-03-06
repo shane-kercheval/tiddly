@@ -939,7 +939,7 @@ function buildSkillsExportUrl(client: SkillsClientType, selectedTags: string[]):
 }
 
 /**
- * Claude Code skills sync instructions.
+ * Claude Code skills download instructions.
  */
 interface ClaudeCodeSkillsInstructionsProps {
   exportUrl: string
@@ -962,10 +962,10 @@ function ClaudeCodeSkillsInstructions({ exportUrl }: ClaudeCodeSkillsInstruction
 
   return (
     <>
-      {/* Step 3: Sync Command */}
+      {/* Step 3: Download Command */}
       <div className="mb-8">
         <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 3: Sync Skills
+          Step 3: Download Skills
         </h3>
         <p className="text-gray-600 mb-3">
           Run this command to download and install your skills:
@@ -1015,7 +1015,7 @@ function ClaudeCodeSkillsInstructions({ exportUrl }: ClaudeCodeSkillsInstruction
 }
 
 /**
- * Codex skills sync instructions.
+ * Codex skills download instructions.
  */
 interface CodexSkillsInstructionsProps {
   exportUrl: string
@@ -1038,10 +1038,10 @@ function CodexSkillsInstructions({ exportUrl }: CodexSkillsInstructionsProps): R
 
   return (
     <>
-      {/* Step 3: Sync Command */}
+      {/* Step 3: Download Command */}
       <div className="mb-8">
         <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 3: Sync Skills
+          Step 3: Download Skills
         </h3>
         <p className="text-gray-600 mb-3">
           Run this command to download and install your skills:
@@ -1226,7 +1226,7 @@ function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
       <div className="mb-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
         <p className="text-sm text-blue-800">
           <strong>Tip:</strong> If you have the Tiddly CLI installed, run{' '}
-          <code className="bg-blue-100 px-1 rounded">tiddly skills sync {client}</code> instead.
+          <code className="bg-blue-100 px-1 rounded">tiddly skills download {client}</code> instead.
           See <Link to="/docs/cli/skills" className="text-[#d97b3d] hover:underline">CLI docs</Link>.
         </p>
       </div>

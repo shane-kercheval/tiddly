@@ -56,9 +56,9 @@ describe('DocsClaudeDesktop', () => {
     expect(screen.getByText('Step 4: Restart Claude Desktop')).toBeInTheDocument()
   })
 
-  it('should show CLI sync command for skills', () => {
+  it('should show CLI download command for skills', () => {
     renderPage()
     const text = document.body.textContent || ''
-    expect(text).toContain('tiddly skills sync claude-desktop')
+    expect(text).toContain('tiddly skills download claude-desktop')
   })
 })

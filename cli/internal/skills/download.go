@@ -24,8 +24,8 @@ const (
 // ValidScopes is the list of valid scope values.
 var ValidScopes = []string{ScopeGlobal, ScopeProject}
 
-// SyncResult holds the outcome of a skills sync operation.
-type SyncResult struct {
+// DownloadResult holds the outcome of a skills download operation.
+type DownloadResult struct {
 	SkillCount int
 	DestPath   string
 	// ZipPath is set for claude-desktop when the zip is saved to a temp file.
@@ -90,8 +90,8 @@ func resolveToolPath(tool, scope string) (string, error) {
 	return toolPath(tool, scope)
 }
 
-// Sync downloads skills from the API and extracts them to the correct directory.
-func Sync(ctx context.Context, client *api.Client, tool string, tags []string, tagMatch string, scope string) (*SyncResult, error) {
+// Download downloads skills from the API and extracts them to the correct directory.
+func Download(ctx context.Context, client *api.Client, tool string, tags []string, tagMatch string, scope string) (*DownloadResult, error) {
 	// Validate scope
 	if scope == "" {
 		scope = ScopeGlobal
@@ -123,7 +123,7 @@ func Sync(ctx context.Context, client *api.Client, tool string, tags []string, t
 	}
 
 	if len(data) == 0 {
-		return &SyncResult{SkillCount: 0, DestPath: destPath}, nil
+		return &DownloadResult{SkillCount: 0, DestPath: destPath}, nil
 	}
 
 	// Extract based on content type
@@ -133,7 +133,7 @@ func Sync(ctx context.Context, client *api.Client, tool string, tags []string, t
 		if err != nil {
 			return nil, err
 		}
-		return &SyncResult{SkillCount: count, DestPath: destPath}, nil
+		return &DownloadResult{SkillCount: count, DestPath: destPath}, nil
 	}
 
 	if strings.Contains(contentType, "zip") {
@@ -147,13 +147,13 @@ func Sync(ctx context.Context, client *api.Client, tool string, tags []string, t
 			if err != nil {
 				return nil, err
 			}
-			return &SyncResult{SkillCount: count, ZipPath: zipPath}, nil
+			return &DownloadResult{SkillCount: count, ZipPath: zipPath}, nil
 		}
 		count, err := extractZip(data, destPath)
 		if err != nil {
 			return nil, err
 		}
-		return &SyncResult{SkillCount: count, DestPath: destPath}, nil
+		return &DownloadResult{SkillCount: count, DestPath: destPath}, nil
 	}
 
 	return nil, fmt.Errorf("unexpected content type: %s", contentType)

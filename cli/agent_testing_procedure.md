@@ -67,7 +67,7 @@ bin/tiddly skills --help
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Shows subcommands: `sync`, `list`
+- [ ] Shows subcommands: `download`, `list`
 
 ### T1.5 — Status overview
 ```bash
@@ -398,77 +398,77 @@ bin/tiddly mcp uninstall claude-code  # already uninstalled from T6.1
 
 ---
 
-## Test Group 7: Skills Sync
+## Test Group 7: Skills Download
 
-### T7.1 — Skills sync, Claude Code, global scope (default)
+### T7.1 — Skills download, Claude Code, global scope (default)
 ```bash
-bin/tiddly skills sync claude-code
+bin/tiddly skills download claude-code
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Output contains either `claude-code: Synced N skill(s) to ~/.claude/skills` or `claude-code: No skills to sync.`
+- [ ] Output contains either `claude-code: Downloaded N skill(s) to ~/.claude/skills` or `claude-code: No skills to download.`
 
-### T7.2 — Skills sync, Claude Code, project scope
+### T7.2 — Skills download, Claude Code, project scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills sync claude-code --scope project
+cd "$TEST_PROJECT" && bin/tiddly skills download claude-code --scope project
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] If skills exist: output contains `claude-code: Synced N skill(s) to .claude/skills`
+- [ ] If skills exist: output contains `claude-code: Downloaded N skill(s) to .claude/skills`
 - [ ] Skills extracted to `$TEST_PROJECT/.claude/skills/`
 
-### T7.3 — Skills sync, Codex, global scope
+### T7.3 — Skills download, Codex, global scope
 ```bash
-bin/tiddly skills sync codex
+bin/tiddly skills download codex
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Output references `~/.codex/skills`
 
-### T7.4 — Skills sync, Codex, project scope
+### T7.4 — Skills download, Codex, project scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills sync codex --scope project
+cd "$TEST_PROJECT" && bin/tiddly skills download codex --scope project
 ```
 **Verify:**
 - [ ] Skills extracted to `$TEST_PROJECT/.agents/skills/`
 
-### T7.5 — Skills sync, Claude Desktop, global scope
+### T7.5 — Skills download, Claude Desktop, global scope
 ```bash
-bin/tiddly skills sync claude-desktop
+bin/tiddly skills download claude-desktop
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] If skills exist: output contains `claude-desktop: N skill(s) exported to /tmp/tiddly-skills-*.zip`
 - [ ] Output contains `Upload this file to Claude Desktop via Settings > Skills.`
 
-### T7.6 — Skills sync with --tags filter
+### T7.6 — Skills download with --tags filter
 ```bash
-bin/tiddly skills sync claude-code --tags python,skill
+bin/tiddly skills download claude-code --tags python,skill
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Only prompts matching both tags are synced (default `--tag-match all`)
+- [ ] Only prompts matching both tags are downloaded (default `--tag-match all`)
 
-### T7.7 — Skills sync with --tags and --tag-match any
+### T7.7 — Skills download with --tags and --tag-match any
 ```bash
-bin/tiddly skills sync claude-code --tags python,skill --tag-match any
+bin/tiddly skills download claude-code --tags python,skill --tag-match any
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Prompts matching either tag are synced
+- [ ] Prompts matching either tag are downloaded
 
-### T7.8 — Skills sync auto-detect (no tool argument)
+### T7.8 — Skills download auto-detect (no tool argument)
 ```bash
-bin/tiddly skills sync
+bin/tiddly skills download
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Syncs for all detected tools
+- [ ] Downloads for all detected tools
 - [ ] Output line per tool
 
-### T7.9 — Skills sync with invalid scope
+### T7.9 — Skills download with invalid scope
 ```bash
-bin/tiddly skills sync --scope invalid
+bin/tiddly skills download --scope invalid
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -574,7 +574,7 @@ bin/tiddly mcp install claude-desktop  # if Claude Desktop is not detected
 
 ### T9.9 — Claude Desktop + skills --scope project
 ```bash
-bin/tiddly skills sync claude-desktop --scope project
+bin/tiddly skills download claude-desktop --scope project
 ```
 **Verify:**
 - [ ] Exit code non-zero (or error in output)
@@ -591,13 +591,13 @@ Run this group last — it logs out and requires re-authentication afterward.
 bin/tiddly logout
 bin/tiddly mcp install claude-code
 bin/tiddly skills list
-bin/tiddly skills sync claude-code
+bin/tiddly skills download claude-code
 ```
 **Verify:**
 - [ ] `logout` exits 0 with `Logged out successfully.`
 - [ ] `mcp install` exits non-zero with `not logged in. Run 'tiddly login' first`
 - [ ] `skills list` exits non-zero with `not logged in. Run 'tiddly login' first`
-- [ ] `skills sync` exits non-zero with `not logged in. Run 'tiddly login' first`
+- [ ] `skills download` exits non-zero with `not logged in. Run 'tiddly login' first`
 - [ ] Re-login after: `bin/tiddly login` (OAuth) or `bin/tiddly login --token bm_<your-token>` (PAT)
 
 ---

@@ -131,7 +131,7 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
       {/* Sync/Download Command */}
       <div className="mb-6">
         <h3 className="text-base font-semibold text-gray-900 mb-2">
-          {client === 'claude-desktop' ? 'Download Skills' : 'Sync Skills'}
+          Download Skills
         </h3>
 
         {/* Option 1: Tiddly CLI */}
@@ -139,16 +139,14 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
           Option 1: Tiddly CLI (Recommended)
         </h4>
         <p className="text-gray-600 mb-3">
-          {client === 'claude-desktop'
-            ? 'Download your skills with the Tiddly CLI:'
-            : 'Sync your skills with the Tiddly CLI:'}
+          Download your skills with the Tiddly CLI:
         </p>
         <CopyableCodeBlock
-          code={`tiddly skills sync ${client}`}
+          code={`tiddly skills download ${client}`}
         />
         <p className="mt-2 text-sm text-gray-500">
-          Add <code className="bg-gray-100 px-1 rounded">--tags</code> to filter (e.g.{' '}
-          <code className="bg-gray-100 px-1 rounded">tiddly skills sync {client} --tags skill</code>).
+          By default, only prompts tagged &quot;skill&quot; are downloaded. Use{' '}
+          <code className="bg-gray-100 px-1 rounded">--tags &quot;&quot;</code> to download all prompts.
           See <a href="/docs/cli/skills" className="text-[#d97b3d] hover:underline">CLI docs</a> for installation and setup.
         </p>
 
@@ -193,7 +191,7 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
           </>
         ) : (
           <p className="text-gray-600">
-            After syncing, invoke skills with <code className="bg-gray-100 px-1 rounded">{invokeSyntax}</code>.
+            After downloading, invoke skills with <code className="bg-gray-100 px-1 rounded">{invokeSyntax}</code>.
             {clientLabel} will also auto-invoke them when relevant to your task.
           </p>
         )}
@@ -201,8 +199,8 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
 
       {/* Sync behavior note */}
       {client !== 'claude-desktop' && (
-        <InfoCallout variant="tip" title="Sync Behavior">
-          Syncing is <strong>additive</strong>: new skills are added and existing skills are updated,
+        <InfoCallout variant="tip" title="Download Behavior">
+          Downloading is <strong>additive</strong>: new skills are added and existing skills are updated,
           but skills are not deleted. To remove a skill, manually delete its folder from{' '}
           <code className="bg-gray-200 px-1 rounded text-xs">{skillsDir}</code>.
         </InfoCallout>
