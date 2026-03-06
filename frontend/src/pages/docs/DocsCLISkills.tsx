@@ -24,19 +24,19 @@ export function DocsCLISkills(): ReactNode {
         . They let AI assistants auto-invoke your prompts based on context.
       </p>
 
-      {/* tiddly skills download */}
-      <h2 className="text-xl font-bold text-gray-900 mb-4">tiddly skills download</h2>
+      {/* tiddly skills install */}
+      <h2 className="text-xl font-bold text-gray-900 mb-4">tiddly skills install</h2>
       <p className="text-gray-600 mb-3">
-        Downloads your prompt templates as SKILL.md files and installs them for the target AI tool.
-        By default, only prompts tagged &quot;skill&quot; are downloaded. Without arguments, it auto-detects all installed tools:
+        Installs your prompt templates as SKILL.md files for the target AI tool.
+        By default, only prompts tagged &quot;skill&quot; are installed. Without arguments, it auto-detects all installed tools:
       </p>
-      <CopyableCodeBlock code={`tiddly skills download                                  # auto-detect tools, download "skill"-tagged prompts
-tiddly skills download claude-code                      # download for a specific tool
-tiddly skills download claude-code codex                # multiple tools
-tiddly skills download --tags python,skill --tag-match all  # prompts matching all tags (default)
-tiddly skills download --tags python,skill --tag-match any  # prompts matching any tag
-tiddly skills download --tags ""                         # download all prompts (no tag filter)
-tiddly skills download --scope project                   # download to project-level paths`} />
+      <CopyableCodeBlock code={`tiddly skills install                                  # auto-detect tools, install "skill"-tagged prompts
+tiddly skills install claude-code                      # install for a specific tool
+tiddly skills install claude-code codex                # multiple tools
+tiddly skills install --tags python,skill --tag-match all  # prompts matching all tags (default)
+tiddly skills install --tags python,skill --tag-match any  # prompts matching any tag
+tiddly skills install --tags ""                         # install all prompts (no tag filter)
+tiddly skills install --scope project                   # install to project-level paths`} />
 
       <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">What happens per client</h3>
       <ul className="list-disc list-inside space-y-2 text-gray-600 mb-4">
@@ -56,9 +56,9 @@ tiddly skills download --scope project                   # download to project-l
         </li>
       </ul>
 
-      <InfoCallout variant="tip" title="Download Behavior">
+      <InfoCallout variant="tip" title="Install Behavior">
         <p>
-          Downloading is <strong>additive</strong>: new skills are added and existing skills are updated,
+          Installing is <strong>additive</strong>: new skills are added and existing skills are updated,
           but skills are never deleted. To remove a skill, manually delete its folder from the skills
           directory.
         </p>
@@ -121,17 +121,17 @@ tiddly skills list --tags python         # list skills filtered by tags`} />
           <tbody className="text-gray-600">
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--tags</code></td>
-              <td className="py-2 pr-4">download, list</td>
+              <td className="py-2 pr-4">install, list</td>
               <td className="py-2">Comma-separated tag filter (default: &quot;skill&quot;)</td>
             </tr>
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--tag-match</code></td>
-              <td className="py-2 pr-4">download, list</td>
+              <td className="py-2 pr-4">install, list</td>
               <td className="py-2">&quot;all&quot; (default) or &quot;any&quot;</td>
             </tr>
             <tr>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--scope</code></td>
-              <td className="py-2 pr-4">download</td>
+              <td className="py-2 pr-4">install</td>
               <td className="py-2">global (default) or project</td>
             </tr>
           </tbody>

@@ -24,8 +24,8 @@ const (
 // ValidScopes is the list of valid scope values.
 var ValidScopes = []string{ScopeGlobal, ScopeProject}
 
-// DownloadResult holds the outcome of a skills download operation.
-type DownloadResult struct {
+// InstallResult holds the outcome of a skills install operation.
+type InstallResult struct {
 	SkillCount int
 	DestPath   string
 	// ZipPath is set for claude-desktop when the zip is saved to a temp file.
@@ -90,8 +90,8 @@ func resolveToolPath(tool, scope string) (string, error) {
 	return toolPath(tool, scope)
 }
 
-// Download downloads skills from the API and extracts them to the correct directory.
-func Download(ctx context.Context, client *api.Client, tool string, tags []string, tagMatch string, scope string) (*DownloadResult, error) {
+// Install downloads skills from the API and extracts them to the correct directory.
+func Install(ctx context.Context, client *api.Client, tool string, tags []string, tagMatch string, scope string) (*InstallResult, error) {
 	// Validate scope
 	if scope == "" {
 		scope = ScopeGlobal
@@ -105,7 +105,7 @@ func Download(ctx context.Context, client *api.Client, tool string, tags []strin
 	// Download archive
 	resp, err := client.ExportSkills(ctx, tool, tags, tagMatch)
 	if err != nil {
-		return nil, fmt.Errorf("downloading skills: %w", err)
+		return nil, fmt.Errorf("installing skills: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -123,17 +123,20 @@ func Download(ctx context.Context, client *api.Client, tool string, tags []strin
 	}
 
 	if len(data) == 0 {
-		return &DownloadResult{SkillCount: 0, DestPath: destPath}, nil
+		return &InstallResult{SkillCount: 0, DestPath: destPath}, nil
 	}
 
-	// Extract based on content type
+	// Extract based on content type.
+	// The server returns different formats per tool:
+	//   claude-code, codex  → tar.gz with {name}/SKILL.md structure
+	//   claude-desktop      → zip with flat {name}.md files (saved to temp for manual upload)
 	contentType := resp.ContentType
 	if strings.Contains(contentType, "gzip") || strings.HasSuffix(contentType, "tar+gzip") {
 		count, err := extractTarGz(data, destPath)
 		if err != nil {
 			return nil, err
 		}
-		return &DownloadResult{SkillCount: count, DestPath: destPath}, nil
+		return &InstallResult{SkillCount: count, DestPath: destPath}, nil
 	}
 
 	if strings.Contains(contentType, "zip") {
@@ -147,20 +150,20 @@ func Download(ctx context.Context, client *api.Client, tool string, tags []strin
 			if err != nil {
 				return nil, err
 			}
-			return &DownloadResult{SkillCount: count, ZipPath: zipPath}, nil
+			return &InstallResult{SkillCount: count, ZipPath: zipPath}, nil
 		}
 		count, err := extractZip(data, destPath)
 		if err != nil {
 			return nil, err
 		}
-		return &DownloadResult{SkillCount: count, DestPath: destPath}, nil
+		return &InstallResult{SkillCount: count, DestPath: destPath}, nil
 	}
 
 	return nil, fmt.Errorf("unexpected content type: %s", contentType)
 }
 
 // extractTarGz extracts a tar.gz archive to destPath.
-// Archive structure: {name}/SKILL.md
+// Archive structure: {name}/SKILL.md — only SKILL.md files are counted as skills.
 func extractTarGz(data []byte, destPath string) (int, error) {
 	gr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -204,6 +207,7 @@ func extractTarGz(data []byte, destPath string) (int, error) {
 }
 
 // extractZip extracts a zip archive to destPath.
+// Archive structure: flat {name}.md files — every file is a skill.
 func extractZip(data []byte, destPath string) (int, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {

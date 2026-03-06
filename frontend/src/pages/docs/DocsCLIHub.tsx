@@ -71,14 +71,14 @@ tiddly mcp install --servers prompts # prompts server only`} />
         </p>
       </StepSection>
 
-      <StepSection step={4} title="Download Skills">
+      <StepSection step={4} title="Install Skills">
         <p className="text-gray-600 mb-3 text-sm">
-          Export your prompt templates as agent skills. Without arguments, the download command
-          auto-detects installed AI tools and downloads prompts tagged &quot;skill&quot;:
+          Export your prompt templates as agent skills. Without arguments, the install command
+          auto-detects installed AI tools and installs prompts tagged &quot;skill&quot;:
         </p>
-        <CopyableCodeBlock code={`tiddly skills download                   # auto-detect tools, download "skill"-tagged prompts
-tiddly skills download claude-code       # download for a specific tool
-tiddly skills download --tags ""         # download all prompts (no tag filter)`} />
+        <CopyableCodeBlock code={`tiddly skills install                   # auto-detect tools, install "skill"-tagged prompts
+tiddly skills install claude-code       # install for a specific tool
+tiddly skills install --tags ""         # install all prompts (no tag filter)`} />
         <p className="text-gray-600 mt-2 text-sm">
           See{' '}
           <Link to="/docs/cli/skills" className="underline hover:text-gray-900">Skills</Link>{' '}

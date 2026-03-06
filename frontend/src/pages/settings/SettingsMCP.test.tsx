@@ -260,7 +260,7 @@ describe('SettingsMCP', () => {
 
       await user.click(screen.getByRole('button', { name: 'Skills' }))
 
-      expect(screen.getByText(/tiddly skills download/)).toBeInTheDocument()
+      expect(screen.getByText(/tiddly skills install/)).toBeInTheDocument()
       expect(screen.getByRole('link', { name: /CLI docs/ })).toHaveAttribute('href', '/docs/cli/skills')
     })
 

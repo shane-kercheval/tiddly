@@ -216,7 +216,7 @@ curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/ins
 - `tiddly status [--scope user|local|project]`: Overview of authentication, API health, content counts, and MCP server status. Use `--scope` to check a specific config level for MCP servers (default: user).
 - `tiddly mcp install`: Auto-detect installed AI tools (Claude Desktop, Claude Code, Codex) and configure MCP servers with dedicated tokens.
 - `tiddly mcp status` / `tiddly mcp uninstall`: View or remove MCP server configurations.
-- `tiddly skills download [tool...]`: Download prompt templates as agent skills to Claude Code, Codex, or Claude Desktop. Auto-detects tools if none specified. Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode, and `--scope` for project-level paths.
+- `tiddly skills install [tool...]`: Install prompt templates as agent skills for Claude Code, Codex, or Claude Desktop. Auto-detects tools if none specified. Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode, and `--scope` for project-level paths.
 - `tiddly skills list`: List available skills (prompts eligible for export). Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode.
 - `tiddly tokens list`: List all Personal Access Tokens with name, prefix, last used, expiration, and creation date.
 - `tiddly tokens create <name> [--expires N]`: Create a new PAT. The plaintext token is shown once at creation.

@@ -158,6 +158,8 @@ cli-test:  ## Run CLI tests
 cli-lint:  ## Run CLI linter
 	cd cli && $(shell go env GOPATH)/bin/golangci-lint run ./...
 
+cli-verify: cli-lint cli-test
+
 cli-release-check:  ## Pre-release checks (tests + vet + build)
 	cd cli && go test ./... -count=1 && go vet ./... && go build ./...
 

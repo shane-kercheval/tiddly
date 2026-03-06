@@ -124,17 +124,17 @@ describe('DocsClaudeCode', () => {
     expect(screen.getByText('Example Prompts')).toBeInTheDocument()
   })
 
-  it('should show download command for skills', () => {
+  it('should show install command for skills', () => {
     renderPage()
-    expect(screen.getByText('Download Skills')).toBeInTheDocument()
+    expect(screen.getByText('Install Skills')).toBeInTheDocument()
     const text = document.body.textContent || ''
     expect(text).toContain('~/.claude/skills/')
     expect(text).toContain('/prompts/export/skills')
   })
 
-  it('should show CLI download command for skills', () => {
+  it('should show CLI install command for skills', () => {
     renderPage()
     const text = document.body.textContent || ''
-    expect(text).toContain('tiddly skills download claude-code')
+    expect(text).toContain('tiddly skills install claude-code')
   })
 })

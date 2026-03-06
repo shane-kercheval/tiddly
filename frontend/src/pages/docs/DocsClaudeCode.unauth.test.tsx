@@ -54,9 +54,9 @@ describe('DocsClaudeCode - unauthenticated', () => {
     expect(screen.getByText(/to filter by tags/)).toBeInTheDocument()
   })
 
-  it('should still show download command with default URL', () => {
+  it('should still show install command with default URL', () => {
     renderPage()
-    expect(screen.getByText('Download Skills')).toBeInTheDocument()
+    expect(screen.getByText('Install Skills')).toBeInTheDocument()
     const text = document.body.textContent || ''
     expect(text).toContain('/prompts/export/skills')
   })

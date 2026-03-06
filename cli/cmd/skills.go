@@ -23,17 +23,17 @@ func newSkillsCmd() *cobra.Command {
 		Short: "Manage AI tool skills from your prompts",
 		Long: `Export prompt templates as agent skills for AI tools.
 
-  tiddly skills download         Auto-detect tools and download skills
+  tiddly skills install          Auto-detect tools and install skills
   tiddly skills list             List available skills (prompts)`,
 	}
 
-	skillsCmd.AddCommand(newSkillsDownloadCmd())
+	skillsCmd.AddCommand(newSkillsInstallCmd())
 	skillsCmd.AddCommand(newSkillsListCmd())
 
 	return skillsCmd
 }
 
-func newSkillsDownloadCmd() *cobra.Command {
+func newSkillsInstallCmd() *cobra.Command {
 	var (
 		scope    string
 		tags     string
@@ -41,25 +41,25 @@ func newSkillsDownloadCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "download [tool]",
-		Short: "Download and install skills for AI tools",
-		Long: `Download your Tiddly prompts and install them as agent skills.
+		Use:   "install [tool...]",
+		Short: "Install skills for AI tools",
+		Long: `Install your Tiddly prompts as agent skills.
 
 Each prompt is written as a Markdown skill file ({skill-name}/SKILL.md) to the tool's skills directory. The destination varies by tool and scope:
   claude-code (global)  — ~/.claude/skills/
   claude-code (project) — .claude/skills/
   codex (global)        — ~/.codex/skills/
 
-Re-downloading overwrites existing skill files but does not remove skills whose prompts have been deleted. For Claude Desktop, a .zip file is exported instead — upload it manually via Settings > Skills.
+Re-installing overwrites existing skill files but does not remove skills whose prompts have been deleted. For Claude Desktop, a .zip file is exported instead — upload it manually via Settings > Skills.
 
-By default, only prompts tagged "skill" are downloaded (matching the frontend default). Use --tags "" to download all prompts.
+By default, only prompts tagged "skill" are installed (matching the frontend default). Use --tags "" to install all prompts.
 
 Examples:
-  tiddly skills download                         Auto-detect tools and download skills
-  tiddly skills download claude-code             Download skills for a specific tool
-  tiddly skills download --scope project         Download to project-level paths
-  tiddly skills download --tags python,skill     Only download prompts with these tags
-  tiddly skills download --tags ""               Download all prompts (no tag filter)`,
+  tiddly skills install                         Auto-detect tools and install skills
+  tiddly skills install claude-code             Install skills for a specific tool
+  tiddly skills install --scope project         Install to project-level paths
+  tiddly skills install --tags python,skill     Only install prompts with these tags
+  tiddly skills install --tags ""               Install all prompts (no tag filter)`,
 		ValidArgs: validSkillsTools,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate scope
@@ -113,37 +113,37 @@ Examples:
 				warnIfNotProjectDir(errW)
 			}
 
-			var dlErrors []string
-			downloaded := 0
+			var instErrors []string
+			installed := 0
 			for _, tool := range tools {
-				dlResult, err := skills.Download(ctx, client, tool, tagList, tagMatch, scope)
+				instResult, err := skills.Install(ctx, client, tool, tagList, tagMatch, scope)
 				if err != nil {
-					fmt.Fprintf(errW, "Error downloading %s: %v\n", tool, err)
-					dlErrors = append(dlErrors, tool)
+					fmt.Fprintf(errW, "Error installing %s: %v\n", tool, err)
+					instErrors = append(instErrors, tool)
 					continue
 				}
 
-				if dlResult.SkillCount == 0 {
-					fmt.Fprintf(w, "%s: No skills to download.\n", tool)
+				if instResult.SkillCount == 0 {
+					fmt.Fprintf(w, "%s: No skills to install.\n", tool)
 					if len(tagList) > 0 {
 						fmt.Fprintf(errW, "  No prompts match tags: %s\n", strings.Join(tagList, ", "))
 					}
 					continue
 				}
 
-				downloaded++
-				if dlResult.ZipPath != "" {
+				installed++
+				if instResult.ZipPath != "" {
 					// Claude Desktop: zip saved to temp
-					fmt.Fprintf(w, "%s: %d skill(s) exported to %s\n", tool, dlResult.SkillCount, dlResult.ZipPath)
+					fmt.Fprintf(w, "%s: %d skill(s) exported to %s\n", tool, instResult.SkillCount, instResult.ZipPath)
 					fmt.Fprintf(w, "  Upload this file to Claude Desktop via Settings > Skills.\n")
 				} else {
-					fmt.Fprintf(w, "%s: Downloaded %d skill(s) to %s\n", tool, dlResult.SkillCount, dlResult.DestPath)
+					fmt.Fprintf(w, "%s: Installed %d skill(s) to %s\n", tool, instResult.SkillCount, instResult.DestPath)
 				}
 			}
 
 			// Return error if all tools failed with errors
-			if len(dlErrors) > 0 && downloaded == 0 {
-				return fmt.Errorf("skills download failed for: %s", strings.Join(dlErrors, ", "))
+			if len(instErrors) > 0 && installed == 0 {
+				return fmt.Errorf("skills install failed for: %s", strings.Join(instErrors, ", "))
 			}
 
 			return nil

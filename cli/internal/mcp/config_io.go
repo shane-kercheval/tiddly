@@ -17,7 +17,7 @@ func backupConfigFile(path string) error {
 		}
 		return fmt.Errorf("reading config for backup: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	info, err := f.Stat()
 	if err != nil {
