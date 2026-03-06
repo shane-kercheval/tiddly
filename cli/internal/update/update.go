@@ -77,7 +77,7 @@ func (g *GitHubChecker) LatestRelease(ctx context.Context) (*ReleaseInfo, error)
 	if err != nil {
 		return nil, fmt.Errorf("fetching latest release: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // HTTP response body close on read path
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
@@ -139,7 +139,7 @@ func (g *GitHubChecker) Download(ctx context.Context, url string) (io.ReadCloser
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck // best-effort close on error path
 		return nil, fmt.Errorf("download returned %d", resp.StatusCode)
 	}
 
@@ -190,7 +190,7 @@ func ExtractBinary(tarGzReader io.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decompressing archive: %w", err)
 	}
-	defer gr.Close()
+	defer gr.Close() //nolint:errcheck // gzip reader close after full read
 
 	tr := tar.NewReader(gr)
 	for {
@@ -265,16 +265,16 @@ func ReplaceBinaryAt(newBinary []byte, execPath string) error {
 	// Clean up temp file on any error
 	defer func() {
 		if tmpPath != "" {
-			os.Remove(tmpPath)
+			os.Remove(tmpPath) //nolint:errcheck // best-effort cleanup
 		}
 	}()
 
 	if _, err := tmp.Write(newBinary); err != nil {
-		tmp.Close()
+		tmp.Close() //nolint:errcheck // closing before cleanup
 		return fmt.Errorf("writing temp file: %w", err)
 	}
 	if err := tmp.Chmod(info.Mode()); err != nil {
-		tmp.Close()
+		tmp.Close() //nolint:errcheck // closing before cleanup
 		return fmt.Errorf("setting permissions: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

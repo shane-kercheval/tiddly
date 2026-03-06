@@ -60,7 +60,7 @@ On Linux/macOS, the binary is replaced atomically via rename.`,
 				return fmt.Errorf("downloading checksums: %w", err)
 			}
 			checksums, err := update.ParseChecksums(csBody)
-			csBody.Close()
+			csBody.Close() //nolint:errcheck // body fully read by ParseChecksums
 			if err != nil {
 				return fmt.Errorf("parsing checksums: %w", err)
 			}
@@ -71,7 +71,7 @@ On Linux/macOS, the binary is replaced atomically via rename.`,
 				return fmt.Errorf("downloading release: %w", err)
 			}
 			archiveData, err := io.ReadAll(body)
-			body.Close()
+			body.Close() //nolint:errcheck // body fully read by ReadAll
 			if err != nil {
 				return fmt.Errorf("reading download: %w", err)
 			}

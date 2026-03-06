@@ -6,6 +6,7 @@ Go CLI tool for managing Tiddly integrations — authentication, MCP server inst
 
 - [Go 1.21+](https://go.dev/dl/) — already installed in the dev VM
 - [golangci-lint](https://golangci-lint.run/welcome/install/) — installed at `$(go env GOPATH)/bin/golangci-lint`. The Makefile uses the full path so no PATH changes needed. To install/upgrade: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
+- [GoReleaser](https://goreleaser.com/) — needed for local snapshot builds and releases. To install: `go install github.com/goreleaser/goreleaser/v2@latest`
 
 ## Quick Start
 
@@ -83,8 +84,8 @@ cli/
       client.go               # Auth headers, error handling, 429 retry (idempotent methods only)
       users.go                # GET /users/me, /health
       tokens.go               # POST/GET/DELETE /tokens/
-      content.go              # GET /{content_type}/ (count)
-      prompts.go              # GET /prompts/ (list for skills)
+      content.go              # GET /{content_type}/ (count, list, get by ID)
+      prompts.go              # GET /prompts/ (list, export skills archive)
     auth/                     # Authentication
       device_flow.go          # OAuth device code flow
       keyring.go              # Credential storage (keyring + file fallback)
@@ -96,6 +97,7 @@ cli/
       update.go               # GitHub release checking, download, checksum, binary replacement
     mcp/                      # MCP server management
       detect.go               # AI tool detection (PATH + config dirs)
+      resolve.go              # Scope validation and config path resolution
       install.go              # Install orchestration, PAT creation, dry-run
       claude_desktop.go       # Claude Desktop config (JSON, uses npx mcp-remote)
       claude_code.go          # Claude Code config (JSON, direct HTTP entries)
@@ -127,14 +129,18 @@ Tests use dependency injection — no build tags, no real keyring or network cal
 ### Making a new release
 
 ```bash
-# 1. Verify
+# 1. Merge your PR to main, then:
+git checkout main
+git pull
+
+# 2. Verify
 make cli-release-check
 
-# 2. Tag and push (triggers the release pipeline)
+# 3. Tag and push (triggers the release pipeline)
 git tag cli/v1.0.0
 git push origin cli/v1.0.0
 
-# 3. Monitor at: https://github.com/shane-kercheval/tiddly/actions
+# 4. Monitor at: https://github.com/shane-kercheval/tiddly/actions
 ```
 
 Pushing the tag triggers a GitHub Actions workflow (`.github/workflows/cli-release.yaml`) that builds and publishes everything automatically. No manual steps beyond tagging.
