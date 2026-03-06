@@ -77,8 +77,9 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 }
 
 // removeDesktopServersByTiddlyURL removes entries from a JSON mcpServers map
-// whose args contain a tiddly MCP server URL.
-func removeDesktopServersByTiddlyURL(servers map[string]any) {
+// whose args contain a tiddly MCP server URL. Returns true if any were removed.
+func removeDesktopServersByTiddlyURL(servers map[string]any) bool {
+	removed := false
 	for name, entry := range servers {
 		serverMap, _ := entry.(map[string]any)
 		if serverMap == nil {
@@ -89,10 +90,12 @@ func removeDesktopServersByTiddlyURL(servers map[string]any) {
 			s, _ := arg.(string)
 			if isTiddlyURL(s) {
 				delete(servers, name)
+				removed = true
 				break
 			}
 		}
 	}
+	return removed
 }
 
 // InstallClaudeDesktop writes MCP server entries into the Claude Desktop config.
@@ -121,7 +124,9 @@ func UninstallClaudeDesktop(configPath string) error {
 		return nil
 	}
 
-	removeDesktopServersByTiddlyURL(servers)
+	if !removeDesktopServersByTiddlyURL(servers) {
+		return nil
+	}
 
 	config["mcpServers"] = servers
 	return writeJSONConfig(configPath, config)
@@ -312,6 +317,10 @@ func writeJSONConfig(path string, config map[string]any) error {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
+	if err := backupConfigFile(path); err != nil {
+		return err
+	}
+
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
@@ -321,48 +330,3 @@ func writeJSONConfig(path string, config map[string]any) error {
 	return atomicWriteFile(path, data, 0600)
 }
 
-// atomicWriteFile writes data to a temp file in the same directory and renames it to path.
-// This prevents corruption if the process is killed mid-write.
-// If the file already exists, its permissions are preserved. Otherwise defaultPerm is used.
-func atomicWriteFile(path string, data []byte, defaultPerm os.FileMode) error {
-	// Preserve existing file permissions if the file already exists
-	perm := defaultPerm
-	if info, err := os.Stat(path); err == nil {
-		perm = info.Mode().Perm()
-	}
-
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	closed := false
-	cleanup := func() {
-		if !closed {
-			_ = tmp.Close()
-		}
-		_ = os.Remove(tmpPath)
-	}
-
-	if _, err := tmp.Write(data); err != nil {
-		cleanup()
-		return fmt.Errorf("writing temp file: %w", err)
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		cleanup()
-		return fmt.Errorf("setting file permissions: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("closing temp file: %w", err)
-	}
-	closed = true
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("renaming temp file: %w", err)
-	}
-	return nil
-}

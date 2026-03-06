@@ -160,6 +160,29 @@ func TestUninstallClaudeCode__no_file_is_noop(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestUninstallClaudeCode__no_tiddly_servers_skips_write(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	existing := map[string]any{
+		"mcpServers": map[string]any{
+			"other-server": map[string]any{
+				"type": "http",
+				"url":  "https://other.example.com/mcp",
+			},
+		},
+	}
+	writeTestJSON(t, configPath, existing)
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := UninstallClaudeCode(rc)
+	require.NoError(t, err)
+
+	// No backup should be created since nothing was removed
+	_, statErr := os.Stat(configPath + ".bak")
+	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op uninstall")
+}
+
 func TestStatusClaudeCode__finds_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")

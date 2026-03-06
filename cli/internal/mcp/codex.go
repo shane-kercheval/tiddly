@@ -93,12 +93,16 @@ func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) 
 }
 
 // removeCodexServersByTiddlyURL removes entries matching tiddly MCP server URLs.
-func removeCodexServersByTiddlyURL(servers map[string]codexMCPServer) {
+// Returns true if any were removed.
+func removeCodexServersByTiddlyURL(servers map[string]codexMCPServer) bool {
+	removed := false
 	for name, server := range servers {
 		if isTiddlyURL(server.URL) {
 			delete(servers, name)
+			removed = true
 		}
 	}
+	return removed
 }
 
 // InstallCodex writes MCP server entries into the Codex config.
@@ -125,7 +129,9 @@ func UninstallCodex(rc ResolvedConfig) error {
 		return nil
 	}
 
-	removeCodexServersByTiddlyURL(config.MCPServers)
+	if !removeCodexServersByTiddlyURL(config.MCPServers) {
+		return nil
+	}
 
 	return writeCodexConfig(rc.Path, config)
 }
@@ -255,6 +261,10 @@ func readCodexConfig(path string) (*codexConfig, error) {
 func writeCodexConfig(path string, config *codexConfig) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
+	}
+
+	if err := backupConfigFile(path); err != nil {
+		return err
 	}
 
 	// Merge mcp_servers back into the raw map

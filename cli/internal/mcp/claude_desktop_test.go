@@ -113,6 +113,25 @@ func TestUninstallClaudeDesktop__missing_file_is_noop(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestUninstallClaudeDesktop__no_tiddly_servers_skips_write(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	existing := map[string]any{
+		"mcpServers": map[string]any{
+			"other-server": map[string]any{"command": "node"},
+		},
+	}
+	writeTestJSON(t, configPath, existing)
+
+	err := UninstallClaudeDesktop(configPath)
+	require.NoError(t, err)
+
+	// No backup should be created since nothing was removed
+	_, statErr := os.Stat(configPath + ".bak")
+	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op uninstall")
+}
+
 func TestStatusClaudeDesktop__configured(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")

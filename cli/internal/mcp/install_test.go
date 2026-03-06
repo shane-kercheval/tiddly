@@ -393,7 +393,7 @@ func TestRunInstall__skips_uninstalled_tools(t *testing.T) {
 	assert.Empty(t, result.ToolsConfigured)
 }
 
-func TestRunInstall__malformed_config_creates_backup_and_succeeds(t *testing.T) {
+func TestRunInstall__malformed_config_returns_parse_error(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
@@ -406,35 +406,20 @@ func TestRunInstall__malformed_config_creates_backup_and_succeeds(t *testing.T) 
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	_, err := RunInstall(InstallOpts{
 		Client:    client,
 		AuthType:  "pat",
 		Output:    stdout,
 		ErrOutput: stderr,
 	}, tools)
 
-	// Install should succeed after backup removes the malformed original
-	require.NoError(t, err)
-	assert.Contains(t, result.ToolsConfigured, "claude-desktop")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing")
 
-	// Backup should exist with original malformed content
-	backupData, backupErr := os.ReadFile(configPath + ".bak")
-	require.NoError(t, backupErr, "backup file should exist")
-	assert.Equal(t, "not json{", string(backupData))
-
-	// New config should be valid JSON
-	newData, err := os.ReadFile(configPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(newData), "tiddly_notes_bookmarks")
-
-	// Warning should mention the backup
-	hasBackupWarning := false
-	for _, w := range result.Warnings {
-		if strings.Contains(w, "malformed") {
-			hasBackupWarning = true
-		}
-	}
-	assert.True(t, hasBackupWarning, "should warn about malformed backup")
+	// Original file should be untouched
+	data, readErr := os.ReadFile(configPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "not json{", string(data))
 }
 
 func TestRunInstall__unsupported_scope_returns_error(t *testing.T) {
@@ -664,13 +649,11 @@ func TestExtractPATsFromTool__missing_config(t *testing.T) {
 	assert.Empty(t, promptPAT)
 }
 
-func TestInstallTool__claude_code_project_scope_backup_targets_mcp_json(t *testing.T) {
-	// Regression: installTool claude-code case used to backup tool.ResolvedConfigPath()
-	// (~/.claude.json) instead of the resolved project path (.mcp.json) when --scope project.
+func TestInstallTool__claude_code_project_scope_malformed_returns_error(t *testing.T) {
 	cwd := t.TempDir()
 	mcpPath := filepath.Join(cwd, ".mcp.json")
 
-	// Write malformed .mcp.json so backup triggers
+	// Write malformed .mcp.json
 	require.NoError(t, os.WriteFile(mcpPath, []byte("not json{"), 0644))
 
 	client := api.NewClient("http://unused", "bm_test", "pat")
@@ -681,7 +664,7 @@ func TestInstallTool__claude_code_project_scope_backup_targets_mcp_json(t *testi
 		{Name: "claude-code", Installed: true, ConfigPath: ""},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	_, err := RunInstall(InstallOpts{
 		Client:    client,
 		AuthType:  "pat",
 		Scope:     "project",
@@ -690,28 +673,13 @@ func TestInstallTool__claude_code_project_scope_backup_targets_mcp_json(t *testi
 		ErrOutput: stderr,
 	}, tools)
 
-	require.NoError(t, err)
-	assert.Contains(t, result.ToolsConfigured, "claude-code")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing")
 
-	// Backup should be .mcp.json.bak in the project dir, not ~/.claude.json.bak
-	backupPath := mcpPath + ".bak"
-	backupData, err := os.ReadFile(backupPath)
-	require.NoError(t, err, "backup should be at .mcp.json.bak")
-	assert.Equal(t, "not json{", string(backupData))
-
-	// New .mcp.json should be valid JSON with our servers
-	newData, err := os.ReadFile(mcpPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(newData), "tiddly_notes_bookmarks")
-
-	// Warning should reference .mcp.json, not ~/.claude.json
-	hasCorrectWarning := false
-	for _, w := range result.Warnings {
-		if strings.Contains(w, ".mcp.json") && strings.Contains(w, "malformed") {
-			hasCorrectWarning = true
-		}
-	}
-	assert.True(t, hasCorrectWarning, "backup warning should reference .mcp.json")
+	// Original malformed file should be untouched
+	data, readErr := os.ReadFile(mcpPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, "not json{", string(data))
 }
 
 func TestDryRunTool__claude_code_project_scope_shows_correct_path(t *testing.T) {
@@ -738,4 +706,93 @@ func TestDryRunTool__claude_code_project_scope_shows_correct_path(t *testing.T) 
 	output := stdout.String()
 	// Should show the .mcp.json path, not ~/.claude.json
 	assert.Contains(t, output, filepath.Join(cwd, ".mcp.json"))
+}
+
+func TestRunInstall__valid_config_creates_backup_before_writing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	// Write a valid existing config
+	existingConfig := map[string]any{"existingKey": "existingValue"}
+	writeTestJSON(t, configPath, existingConfig)
+
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+	}
+
+	result, err := RunInstall(InstallOpts{
+		Client:   client,
+		AuthType: "pat",
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+	assert.Contains(t, result.ToolsConfigured, "claude-desktop")
+
+	// Backup should exist with the original content
+	backupData, backupErr := os.ReadFile(configPath + ".bak")
+	require.NoError(t, backupErr, "backup file should exist")
+	assert.Contains(t, string(backupData), "existingKey")
+
+	// New config should have our servers
+	newData, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(newData), "tiddly_notes_bookmarks")
+}
+
+func TestRunUninstall__valid_config_creates_backup_before_writing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	// Write a valid existing config with tiddly servers
+	existingConfig := map[string]any{
+		"mcpServers": map[string]any{
+			"tiddly_notes_bookmarks": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer bm_test"},
+			},
+		},
+	}
+	writeTestJSON(t, configPath, existingConfig)
+
+	err := UninstallClaudeDesktop(configPath)
+	require.NoError(t, err)
+
+	// Backup should exist with the original content (including the tiddly server)
+	backupData, backupErr := os.ReadFile(configPath + ".bak")
+	require.NoError(t, backupErr, "backup file should exist")
+	assert.Contains(t, string(backupData), "tiddly_notes_bookmarks")
+}
+
+func TestRunInstall__no_existing_file_does_not_create_backup(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+	}
+
+	result, err := RunInstall(InstallOpts{
+		Client:   client,
+		AuthType: "pat",
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+	assert.Contains(t, result.ToolsConfigured, "claude-desktop")
+
+	// No backup should exist since there was no original file
+	_, statErr := os.Stat(configPath + ".bak")
+	assert.True(t, os.IsNotExist(statErr), "backup should not be created when no original file exists")
+
+	// Config should have been created
+	newData, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(newData), "tiddly_notes_bookmarks")
 }

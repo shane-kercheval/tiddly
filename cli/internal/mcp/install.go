@@ -4,14 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
-	toml "github.com/pelletier/go-toml/v2"
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
 )
 
@@ -260,14 +258,6 @@ func installTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, content
 			result.Warnings = append(result.Warnings,
 				"Claude Desktop requires Node.js for mcp-remote. Install from https://nodejs.org")
 		}
-		backedUp, err := backupIfMalformed(rc.Path)
-		if err != nil {
-			return err
-		}
-		if backedUp {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", rc.Path, rc.Path))
-		}
 		if err := InstallClaudeDesktop(rc.Path, contentPAT, promptPAT); err != nil {
 			return err
 		}
@@ -276,14 +266,6 @@ func installTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, content
 		result.Warnings = append(result.Warnings, "Restart Claude Desktop to apply changes.")
 
 	case "claude-code":
-		backedUp, err := backupIfMalformed(rc.Path)
-		if err != nil {
-			return err
-		}
-		if backedUp {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", rc.Path, rc.Path))
-		}
 		if err := InstallClaudeCode(rc, contentPAT, promptPAT); err != nil {
 			return err
 		}
@@ -291,14 +273,6 @@ func installTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, content
 			fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path))
 
 	case "codex":
-		backedUp, err := backupIfMalformed(rc.Path)
-		if err != nil {
-			return err
-		}
-		if backedUp {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", rc.Path, rc.Path))
-		}
 		if err := InstallCodex(rc, contentPAT, promptPAT); err != nil {
 			return err
 		}
@@ -348,47 +322,6 @@ func printDiff(w io.Writer, path, before, after string) {
 	}
 	fmt.Fprintln(w, "After:")
 	fmt.Fprintln(w, after)
-}
-
-// backupIfMalformed tries to parse the config file.
-// If malformed, atomically renames the original to .bak so install can start fresh.
-// Returns (true, nil) if backup was created, (false, nil) if file is fine or missing,
-// and (false, err) if the rename failed.
-func backupIfMalformed(path string) (bool, error) {
-	if path == "" {
-		return false, nil
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("reading config %s: %w", path, err)
-	}
-
-	malformed := false
-	if strings.HasSuffix(path, ".json") {
-		var raw map[string]any
-		if json.Unmarshal(data, &raw) != nil {
-			malformed = true
-		}
-	} else if strings.HasSuffix(path, ".toml") {
-		var raw map[string]any
-		if toml.Unmarshal(data, &raw) != nil {
-			malformed = true
-		}
-	}
-
-	if !malformed {
-		return false, nil
-	}
-
-	backupPath := path + ".bak"
-	if err := os.Rename(path, backupPath); err != nil {
-		return false, fmt.Errorf("backing up malformed config %s to %s: %w", path, backupPath, err)
-	}
-	return true, nil
 }
 
 // CheckOrphanedTokens checks for cli-mcp-* tokens that may be orphaned after uninstall.

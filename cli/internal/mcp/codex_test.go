@@ -217,6 +217,25 @@ func TestUninstallCodex__missing_file_is_noop(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestUninstallCodex__no_tiddly_servers_skips_write(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	existing := `
+[mcp_servers.other]
+url = "https://other.example.com/mcp"
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0644))
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := UninstallCodex(rc)
+	require.NoError(t, err)
+
+	// No backup should be created since nothing was removed
+	_, statErr := os.Stat(configPath + ".bak")
+	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op uninstall")
+}
+
 func TestUninstallCodex__project_scope(t *testing.T) {
 	cwd := t.TempDir()
 	projectConfig := filepath.Join(cwd, ".codex", "config.toml")
