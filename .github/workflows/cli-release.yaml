@@ -18,10 +18,17 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
 
-      - name: Strip monorepo tag prefix
-        id: tag
-        run: echo "version=${GITHUB_REF_NAME#cli/}" >> "$GITHUB_OUTPUT"
+      - name: Prepare version tag
+        id: version
+        run: |
+          # GoReleaser OSS can't parse monorepo-prefixed tags (cli/v0.1.0).
+          # Create a local v-only tag on the same commit for GoReleaser to use.
+          VTAG="${GITHUB_REF_NAME#cli/}"
+          git tag "$VTAG"
+          echo "vtag=$VTAG" >> "$GITHUB_OUTPUT"
+          echo "semver=${VTAG#v}" >> "$GITHUB_OUTPUT"
 
       - uses: goreleaser/goreleaser-action@v6
         with:
@@ -29,4 +36,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: ${{ steps.tag.outputs.version }}
+          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.vtag }}
