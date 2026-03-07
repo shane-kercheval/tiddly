@@ -6,13 +6,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
 )
 
+// maxConcurrentFetches is the maximum number of concurrent GetContent requests per page.
+const maxConcurrentFetches = 5
+
 // ValidTypes is the list of valid content types for export.
 var ValidTypes = []string{"bookmark", "note", "prompt"}
+
+// ContentFetcher abstracts the API calls needed for export, enabling testing.
+type ContentFetcher interface {
+	ListContent(ctx context.Context, contentType string, offset, limit int, includeArchived bool) (*api.ContentListResponse, error)
+	GetContent(ctx context.Context, contentType, id string) (map[string]any, error)
+}
 
 // Options configures an export operation.
 type Options struct {
@@ -30,6 +40,10 @@ type Result struct {
 
 // Run streams a JSON export to w, fetching full content for each item.
 func Run(ctx context.Context, client *api.Client, opts Options, w io.Writer) (*Result, error) {
+	return runWithFetcher(ctx, client, opts, w)
+}
+
+func runWithFetcher(ctx context.Context, fetcher ContentFetcher, opts Options, w io.Writer) (*Result, error) {
 	bw := bufio.NewWriter(w)
 	result := &Result{Counts: make(map[string]int)}
 
@@ -39,7 +53,7 @@ func Run(ctx context.Context, client *api.Client, opts Options, w io.Writer) (*R
 	}
 
 	for _, contentType := range opts.Types {
-		count, err := exportType(ctx, client, opts, bw, contentType)
+		count, err := exportType(ctx, fetcher, opts, bw, contentType)
 		if err != nil {
 			return nil, fmt.Errorf("exporting %ss: %w", contentType, err)
 		}
@@ -59,7 +73,9 @@ func Run(ctx context.Context, client *api.Client, opts Options, w io.Writer) (*R
 }
 
 // exportType writes all items of a given type as a JSON array.
-func exportType(ctx context.Context, client *api.Client, opts Options, w io.Writer, contentType string) (int, error) {
+// Items within each page are fetched concurrently (bounded by maxConcurrentFetches)
+// and written in order.
+func exportType(ctx context.Context, fetcher ContentFetcher, opts Options, w io.Writer, contentType string) (int, error) {
 	// Write array key
 	if _, err := fmt.Fprintf(w, ",%s:[", jsonString(contentType+"s")); err != nil {
 		return 0, err
@@ -75,7 +91,7 @@ func exportType(ctx context.Context, client *api.Client, opts Options, w io.Writ
 			return 0, err
 		}
 
-		page, err := client.ListContent(ctx, contentType, offset, pageSize, opts.IncludeArchived)
+		page, err := fetcher.ListContent(ctx, contentType, offset, pageSize, opts.IncludeArchived)
 		if err != nil {
 			return 0, err
 		}
@@ -88,17 +104,14 @@ func exportType(ctx context.Context, client *api.Client, opts Options, w io.Writ
 			fmt.Fprintf(opts.Progress, "Exporting %ss... %d/%d\n", contentType, fetched, page.Total)
 		}
 
-		for _, item := range page.Items {
-			id, ok := item["id"].(string)
-			if !ok {
-				return 0, fmt.Errorf("item in %s list response missing id field", contentType)
-			}
+		// Fetch all items in this page concurrently
+		pageResults, err := fetchPage(ctx, fetcher, contentType, page.Items)
+		if err != nil {
+			return 0, err
+		}
 
-			full, err := client.GetContent(ctx, contentType, id)
-			if err != nil {
-				return 0, fmt.Errorf("fetching %s %s: %w", contentType, id, err)
-			}
-
+		// Write results in order
+		for _, data := range pageResults {
 			if !first {
 				if _, err := io.WriteString(w, ","); err != nil {
 					return 0, err
@@ -106,11 +119,11 @@ func exportType(ctx context.Context, client *api.Client, opts Options, w io.Writ
 			}
 			first = false
 
-			data, err := json.Marshal(full)
+			encoded, err := json.Marshal(data)
 			if err != nil {
-				return 0, fmt.Errorf("encoding %s %s: %w", contentType, id, err)
+				return 0, fmt.Errorf("encoding %s: %w", contentType, err)
 			}
-			if _, err := w.Write(data); err != nil {
+			if _, err := w.Write(encoded); err != nil {
 				return 0, err
 			}
 			total++
@@ -128,6 +141,62 @@ func exportType(ctx context.Context, client *api.Client, opts Options, w io.Writ
 	}
 
 	return total, nil
+}
+
+// fetchPage fetches full content for all items in a page concurrently.
+// Returns results in the same order as the input items.
+// If any fetch fails, returns the first error encountered.
+func fetchPage(ctx context.Context, fetcher ContentFetcher, contentType string, items []map[string]any) ([]map[string]any, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	// Pre-validate all IDs before launching goroutines to avoid leaking workers.
+	ids := make([]string, len(items))
+	for i, item := range items {
+		id, ok := item["id"].(string)
+		if !ok {
+			return nil, fmt.Errorf("item in %s list response missing id field", contentType)
+		}
+		ids[i] = id
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make([]map[string]any, len(items))
+	errs := make([]error, len(items))
+
+	sem := make(chan struct{}, maxConcurrentFetches)
+	var wg sync.WaitGroup
+
+	for i, id := range ids {
+		wg.Add(1)
+		go func(idx int, itemID string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			full, err := fetcher.GetContent(ctx, contentType, itemID)
+			if err != nil {
+				errs[idx] = fmt.Errorf("fetching %s %s: %w", contentType, itemID, err)
+				cancel()
+				return
+			}
+			results[idx] = full
+		}(i, id)
+	}
+
+	wg.Wait()
+
+	// Return first error in index order
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return results, nil
 }
 
 // jsonString returns a JSON-encoded string literal.
