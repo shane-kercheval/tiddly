@@ -64,12 +64,13 @@ tiddly mcp install claude-code codex              # multiple tools`} />
       </p>
       <CopyableCodeBlock code="tiddly mcp status" />
       <p className="text-gray-600 mt-3 mb-4">
-        For each tool, reports one of:
+        For each tool and scope, shows:
       </p>
       <ul className="list-disc list-inside space-y-1 text-gray-600 mb-6">
         <li><strong>Not detected</strong> — binary or config directory not found</li>
-        <li><strong>Detected, not configured</strong> — tool is installed but no MCP server entries</li>
-        <li><strong>Configured</strong> — lists which server entries are present</li>
+        <li><strong>Tiddly servers</strong> — lists configured Tiddly MCP servers with their URLs</li>
+        <li><strong>Other servers</strong> — lists non-Tiddly MCP servers with their transport type (http/stdio)</li>
+        <li><strong>No Tiddly servers configured</strong> — shows an install hint</li>
       </ul>
       <p className="text-sm text-gray-500 mb-4">
         Reads config files directly — no API calls or subprocesses.
@@ -261,6 +262,17 @@ tiddly mcp uninstall claude-code --delete-tokens" />
           </tbody>
         </table>
       </div>
+
+      <InfoCallout variant="info" title="Default Scope vs Claude Code">
+        <p>
+          Tiddly defaults to <code className="bg-blue-100 px-1 rounded">user</code> scope so your
+          MCP servers are available across all projects without re-installing per project.
+          Claude Code&apos;s own <code className="bg-blue-100 px-1 rounded">claude mcp add</code> command
+          defaults to <code className="bg-blue-100 px-1 rounded">local</code> scope (per-project).
+          If you prefer per-project configuration, use{' '}
+          <code className="bg-blue-100 px-1 rounded">--scope local</code>.
+        </p>
+      </InfoCallout>
 
       {/* All Flags */}
       <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">All Flags</h3>
