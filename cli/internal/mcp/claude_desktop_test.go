@@ -259,6 +259,70 @@ func TestStatusClaudeDesktop__url_based_detection(t *testing.T) {
 	}
 }
 
+func TestStatusClaudeDesktop__includes_url_on_tiddly_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	require.NoError(t, installClaudeDesktop(configPath, "bm_content", "bm_prompts"))
+
+	sr, err := statusClaudeDesktop(configPath)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 2)
+	assert.Equal(t, ContentMCPURL(), sr.Servers[0].URL)
+	assert.Equal(t, PromptMCPURL(), sr.Servers[1].URL)
+}
+
+func TestStatusClaudeDesktop__collects_other_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL(), "--header", "Authorization: Bearer tok"},
+			},
+			"github": map[string]any{
+				"command": "node",
+				"args":    []string{"github-server.js"},
+			},
+			"sentry": map[string]any{
+				"command": "npx",
+				"args":    []string{"sentry-mcp"},
+			},
+		},
+	})
+
+	sr, err := statusClaudeDesktop(configPath)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 1)
+	assert.Len(t, sr.OtherServers, 2)
+	assert.Equal(t, "github", sr.OtherServers[0].Name)
+	assert.Equal(t, "stdio", sr.OtherServers[0].Transport)
+	assert.Equal(t, "sentry", sr.OtherServers[1].Name)
+	assert.Equal(t, "stdio", sr.OtherServers[1].Transport)
+}
+
+func TestStatusClaudeDesktop__only_other_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"my-tool": map[string]any{
+				"command": "npx",
+				"args":    []string{"my-mcp-tool"},
+			},
+		},
+	})
+
+	sr, err := statusClaudeDesktop(configPath)
+	require.NoError(t, err)
+	assert.Empty(t, sr.Servers)
+	assert.Len(t, sr.OtherServers, 1)
+	assert.Equal(t, "my-tool", sr.OtherServers[0].Name)
+}
+
 func TestUninstallClaudeDesktop__removes_custom_named_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")

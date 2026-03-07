@@ -57,11 +57,31 @@ func newMCPInstallCmd() *cobra.Command {
 
 Servers are identified by URL, not by name. If an existing entry points to a Tiddly MCP URL (regardless of its key name), it is replaced with the canonical entry. This means re-installs and migrations from manual setups are safe.
 
+Scope:
+  The --scope flag controls where the MCP server config is written. The default is "user",
+  which makes Tiddly servers available across all projects.
+
+  Note: Claude Code's own "claude mcp add" command defaults to "local" scope (per-project).
+  Tiddly defaults to "user" scope so you don't need to re-install for each project.
+
+  Scopes for claude-code:
+    user     ~/.claude.json top-level mcpServers (available in all projects)
+    local    ~/.claude.json under projects[<cwd>] (current project only, same file)
+    project  .mcp.json in project root (shared with collaborators via version control)
+
+  Scopes for claude-desktop:
+    user     ~/Library/Application Support/Claude/claude_desktop_config.json (macOS)
+
+  Scopes for codex:
+    user     ~/.codex/config.toml
+    project  <cwd>/.codex/config.toml
+
 Examples:
-  tiddly mcp install                      Auto-detect and install for all found tools
-  tiddly mcp install claude-code          Install for a specific tool
-  tiddly mcp install --dry-run            Preview changes without writing
-  tiddly mcp install --servers content    Install only the content server`,
+  tiddly mcp install                                Auto-detect and install for all found tools
+  tiddly mcp install claude-code                    Install for a specific tool
+  tiddly mcp install claude-code --scope local      Install for current project only
+  tiddly mcp install --dry-run                      Preview changes without writing
+  tiddly mcp install --servers content              Install only the content server`,
 		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateScope(scope); err != nil {
@@ -246,7 +266,7 @@ Examples:
 			w := cmd.OutOrStdout()
 			tools := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
 			projectPathExplicit := cmd.Flags().Changed("project-path")
-			printMCPTree(w, cmd.ErrOrStderr(), tools, resolvedProjectPath, projectPathExplicit)
+			printMCPTree(w, tools, resolvedProjectPath, projectPathExplicit)
 
 			return nil
 		},

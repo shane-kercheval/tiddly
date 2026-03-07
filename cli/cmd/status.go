@@ -110,7 +110,7 @@ Examples:
 			// --- MCP Servers ---
 			tools := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
 			projectPathExplicit := cmd.Flags().Changed("project-path")
-			printMCPTree(w, cmd.ErrOrStderr(), tools, resolvedProjectPath, projectPathExplicit)
+			printMCPTree(w, tools, resolvedProjectPath, projectPathExplicit)
 
 			// --- Skills ---
 			printSkillsSection(w, resolvedProjectPath)
@@ -167,7 +167,7 @@ func getToolStatusAllScopes(tool mcp.DetectedTool, projectPath string) []scopeSt
 	return results
 }
 
-func printMCPTree(w io.Writer, errW io.Writer, tools []mcp.DetectedTool, projectPath string, showProjectPath bool) {
+func printMCPTree(w io.Writer, tools []mcp.DetectedTool, projectPath string, showProjectPath bool) {
 	if showProjectPath && projectPath != "" {
 		fmt.Fprintf(w, "\nMCP Servers (project: %s):\n", projectPath)
 	} else {
@@ -179,11 +179,11 @@ func printMCPTree(w io.Writer, errW io.Writer, tools []mcp.DetectedTool, project
 			fmt.Fprintf(w, "\n  %-18s Not detected\n", tool.Name)
 			continue
 		}
-		printToolTree(w, errW, tool, projectPath)
+		printToolTree(w, tool, projectPath)
 	}
 }
 
-func printToolTree(w io.Writer, errW io.Writer, tool mcp.DetectedTool, projectPath string) {
+func printToolTree(w io.Writer, tool mcp.DetectedTool, projectPath string) {
 	fmt.Fprintf(w, "\n  %s\n", tool.Name)
 
 	statuses := getToolStatusAllScopes(tool, projectPath)
@@ -202,23 +202,33 @@ func printToolTree(w io.Writer, errW io.Writer, tool mcp.DetectedTool, projectPa
 		}
 
 		configDisplay := displayPath(ss.Result.ConfigPath, projectPath, ss.Scope)
+		fmt.Fprintf(w, "  %s %-10s %s\n", connector, ss.Scope, configDisplay)
+
 		if len(ss.Result.Servers) == 0 {
-			fmt.Fprintf(w, "  %s %-10s %s\n", connector, ss.Scope, configDisplay)
-			fmt.Fprintf(w, "  %s           Not configured\n", prefix)
 			hint := fmt.Sprintf("tiddly mcp install %s", tool.Name)
 			if ss.Scope != "user" {
 				hint += " --scope " + ss.Scope
 			}
-			fmt.Fprintf(errW, "  %s           Run '%s' to configure.\n", prefix, hint)
+			fmt.Fprintf(w, "  %s           No Tiddly servers configured. Run '%s' to configure.\n", prefix, hint)
 		} else {
-			labels := formatServerLabels(ss.Result.Servers)
-			fmt.Fprintf(w, "  %s %-10s %s\n", connector, ss.Scope, configDisplay)
-			fmt.Fprintf(w, "  %s           Configured. Installed servers:\n", prefix)
-			for _, l := range labels {
-				fmt.Fprintf(w, "  %s             - %s\n", prefix, l)
+			fmt.Fprintf(w, "  %s           Tiddly servers:\n", prefix)
+			for _, s := range ss.Result.Servers {
+				label := serverDisplayLabel(s)
+				fmt.Fprintf(w, "  %s             - %-18s %s\n", prefix, label, s.URL)
 			}
 			if tool.Name == "claude-desktop" && !tool.HasNpx {
-				fmt.Fprintf(errW, "  Warning: npx not found in PATH\n")
+				fmt.Fprintln(w, "  Warning: npx not found in PATH")
+			}
+		}
+
+		if len(ss.Result.OtherServers) > 0 {
+			fmt.Fprintf(w, "  %s           Other servers:\n", prefix)
+			for _, s := range ss.Result.OtherServers {
+				if s.Transport != "" {
+					fmt.Fprintf(w, "  %s             - %-18s (%s)\n", prefix, s.Name, s.Transport)
+				} else {
+					fmt.Fprintf(w, "  %s             - %s\n", prefix, s.Name)
+				}
 			}
 		}
 	}
@@ -369,17 +379,12 @@ var serverDisplayName = map[string]string{
 	"prompts": "prompts",
 }
 
-// formatServerLabels converts ServerMatch entries to user-friendly display labels.
-func formatServerLabels(servers []mcp.ServerMatch) []string {
-	labels := make([]string, 0, len(servers))
-	for _, s := range servers {
-		if name, ok := serverDisplayName[s.ServerType]; ok {
-			labels = append(labels, name)
-		} else {
-			labels = append(labels, s.ServerType)
-		}
+// serverDisplayLabel returns the user-friendly label for a tiddly server match.
+func serverDisplayLabel(s mcp.ServerMatch) string {
+	if name, ok := serverDisplayName[s.ServerType]; ok {
+		return name
 	}
-	return labels
+	return s.ServerType
 }
 
 // realExecLooker wraps exec.LookPath for production use.

@@ -40,6 +40,71 @@ func TestUrlMatchesPrefix(t *testing.T) {
 	assert.False(t, urlMatchesPrefix("http://content-mcp.tiddly.me/mcp", pattern), "scheme mismatch")
 }
 
+func TestExtractServerURL__http_url_field(t *testing.T) {
+	m := map[string]any{"url": "https://example.com/mcp"}
+	assert.Equal(t, "https://example.com/mcp", extractServerURL(m))
+}
+
+func TestExtractServerURL__stdio_mcp_remote(t *testing.T) {
+	m := map[string]any{
+		"command": "npx",
+		"args":    []any{"mcp-remote", "https://example.com/mcp", "--header", "Authorization: Bearer tok"},
+	}
+	assert.Equal(t, "https://example.com/mcp", extractServerURL(m))
+}
+
+func TestExtractServerURL__stdio_mcp_remote_with_prefix_flags(t *testing.T) {
+	m := map[string]any{
+		"command": "npx",
+		"args":    []any{"-y", "mcp-remote", "https://example.com/mcp", "--header", "Authorization: Bearer tok"},
+	}
+	assert.Equal(t, "https://example.com/mcp", extractServerURL(m))
+}
+
+func TestExtractServerURL__stdio_non_mcp_remote(t *testing.T) {
+	m := map[string]any{
+		"command": "node",
+		"args":    []any{"server.js", "https://example.com/mcp"},
+	}
+	assert.Equal(t, "", extractServerURL(m))
+}
+
+func TestExtractServerURL__empty_map(t *testing.T) {
+	assert.Equal(t, "", extractServerURL(map[string]any{}))
+}
+
+func TestDetectTransport__url_field(t *testing.T) {
+	assert.Equal(t, "http", detectTransport(map[string]any{"url": "https://example.com"}))
+}
+
+func TestDetectTransport__type_http(t *testing.T) {
+	assert.Equal(t, "http", detectTransport(map[string]any{"type": "http", "command": "npx"}))
+}
+
+func TestDetectTransport__command_field(t *testing.T) {
+	assert.Equal(t, "stdio", detectTransport(map[string]any{"command": "npx", "args": []any{"server"}}))
+}
+
+func TestDetectTransport__url_takes_precedence(t *testing.T) {
+	assert.Equal(t, "http", detectTransport(map[string]any{"url": "https://x.com", "command": "npx"}))
+}
+
+func TestDetectTransport__empty_map(t *testing.T) {
+	assert.Equal(t, "", detectTransport(map[string]any{}))
+}
+
+func TestSortOtherServers(t *testing.T) {
+	servers := []OtherServer{
+		{Name: "zebra", Transport: "stdio"},
+		{Name: "alpha", Transport: "http"},
+		{Name: "middle", Transport: ""},
+	}
+	sortOtherServers(servers)
+	assert.Equal(t, "alpha", servers[0].Name)
+	assert.Equal(t, "middle", servers[1].Name)
+	assert.Equal(t, "zebra", servers[2].Name)
+}
+
 func TestCanonicalNamesFirst(t *testing.T) {
 	keys := []string{"zebra", serverNamePrompts, "alpha", serverNameContent}
 	sorted := canonicalNamesFirst(keys)

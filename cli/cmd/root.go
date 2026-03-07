@@ -125,6 +125,8 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 		},
 	}
 
+	rootCmd.Version = cliVersion
+
 	rootCmd.PersistentFlags().StringVar(&flagToken, "token", "", "Override auth token")
 	rootCmd.PersistentFlags().StringVar(&flagAPIURL, "api-url", "", "API base URL (default: https://api.tiddly.me)")
 	rootCmd.PersistentFlags().StringVar(&flagKeyring, "keyring", "auto", "Credential storage: auto, force, file")

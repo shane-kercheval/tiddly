@@ -218,9 +218,9 @@ func uninstallClaudeCode(rc ResolvedConfig) error {
 	return writeJSONConfig(rc.Path, config)
 }
 
-// statusClaudeCode returns tiddly MCP servers configured in Claude Code.
-// Identifies servers by URL. Entries under canonical names are tagged MatchByName;
-// entries under other names are tagged MatchByURL.
+// statusClaudeCode returns MCP servers configured in Claude Code.
+// Tiddly servers are identified by URL and listed in Servers; all others go to OtherServers.
+// Entries under canonical names are tagged MatchByName; others are tagged MatchByURL.
 func statusClaudeCode(rc ResolvedConfig) (StatusResult, error) {
 	result := StatusResult{ConfigPath: rc.Path}
 
@@ -255,21 +255,31 @@ func statusClaudeCode(rc ResolvedConfig) (StatusResult, error) {
 			method = MatchByName
 		}
 
+		matched := false
 		if !foundContent && isTiddlyContentURL(urlStr) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "content", Name: name, MatchMethod: method,
+				ServerType: "content", Name: name, MatchMethod: method, URL: urlStr,
 			})
 			foundContent = true
+			matched = true
 		}
 		if !foundPrompts && isTiddlyPromptURL(urlStr) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "prompts", Name: name, MatchMethod: method,
+				ServerType: "prompts", Name: name, MatchMethod: method, URL: urlStr,
 			})
 			foundPrompts = true
+			matched = true
+		}
+		if !matched && !isTiddlyURL(urlStr) {
+			result.OtherServers = append(result.OtherServers, OtherServer{
+				Name:      name,
+				Transport: detectTransport(serverMap),
+			})
 		}
 	}
 
 	result.SortServers()
+	sortOtherServers(result.OtherServers)
 	return result, nil
 }
 
