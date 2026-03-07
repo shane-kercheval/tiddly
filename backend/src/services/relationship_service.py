@@ -365,8 +365,9 @@ async def delete_relationships_for_content(
         ContentRelationship.target_id == content_id,
     )
 
-    # DELETE ... RETURNING atomically deletes and returns the affected rows,
-    # avoiding READ COMMITTED snapshot mismatch between separate SELECT + DELETE.
+    # DELETE ... RETURNING combines deletion and affected-entity identification
+    # in a single statement (also avoids a separate SELECT that could see
+    # different rows under READ COMMITTED).
     stmt = (
         delete(ContentRelationship)
         .where(

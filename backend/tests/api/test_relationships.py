@@ -1670,7 +1670,8 @@ async def test__api_permanent_delete__bumps_related_entity_updated_at(
     await asyncio.sleep(0.01)
 
     # Soft-delete then permanent-delete Note A
-    await client.delete(f'/notes/{note_a["id"]}')
+    resp = await client.delete(f'/notes/{note_a["id"]}')
+    assert resp.status_code == 204
     resp = await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
     assert resp.status_code == 204
 
@@ -1693,8 +1694,10 @@ async def test__api_permanent_delete__does_not_record_history_on_related_entity(
     history_before = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
 
     # Soft-delete then permanent-delete Note A
-    await client.delete(f'/notes/{note_a["id"]}')
-    await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    resp = await client.delete(f'/notes/{note_a["id"]}')
+    assert resp.status_code == 204
+    resp = await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    assert resp.status_code == 204
 
     history_after = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
     assert history_after == history_before
@@ -1727,8 +1730,10 @@ async def test__api_permanent_delete__invalidates_related_entity_http_cache(
     await asyncio.sleep(1.1)
 
     # Soft-delete then permanent-delete Note A
-    await client.delete(f'/notes/{note_a["id"]}')
-    await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    resp = await client.delete(f'/notes/{note_a["id"]}')
+    assert resp.status_code == 204
+    resp = await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    assert resp.status_code == 204
 
     # Should get 200 now
     response = await client.get(
@@ -1758,8 +1763,10 @@ async def test__api_permanent_delete__bumps_all_related_entities(
     await asyncio.sleep(0.01)
 
     # Soft-delete then permanent-delete Note A
-    await client.delete(f'/notes/{note_a["id"]}')
-    await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    resp = await client.delete(f'/notes/{note_a["id"]}')
+    assert resp.status_code == 204
+    resp = await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    assert resp.status_code == 204
 
     # Both should have bumped
     note_b_after = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
