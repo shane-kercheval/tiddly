@@ -33,7 +33,7 @@ bookmarks/
 ## Prerequisites
 
 - Python 3.13+ with [uv](https://docs.astral.sh/uv/)
-- Node.js 20+ (for frontend)
+- [nvm](https://github.com/nvm-sh/nvm) (`curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash`), then: `nvm install 22 && nvm alias default 22`
 - Docker (for PostgreSQL)
 
 ## Quick Start

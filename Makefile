@@ -33,25 +33,40 @@ prompt-mcp-server:  ## Start Prompt MCP server (port 8002, requires API on 8000)
 ####
 # Frontend Development
 ####
+EXPECTED_NODE_MAJOR := $(shell cat frontend/.nvmrc 2>/dev/null)
+ACTUAL_NODE_MAJOR := $(shell node -v 2>/dev/null | sed 's/v\([0-9]*\).*/\1/')
+define check_node_version
+	@if [ "$(ACTUAL_NODE_MAJOR)" != "$(EXPECTED_NODE_MAJOR)" ]; then \
+		echo "Error: Node $(EXPECTED_NODE_MAJOR) required (found $(ACTUAL_NODE_MAJOR)). Run: nvm install $(EXPECTED_NODE_MAJOR) && nvm alias default $(EXPECTED_NODE_MAJOR)"; \
+		exit 1; \
+	fi
+endef
 frontend-run:  ## Start frontend dev server
+	$(check_node_version)
 	cd frontend && npm run dev
 
 frontend-run-ssh:  ## Start frontend dev server accessible from host
+	$(check_node_version)
 	cd frontend && npm run dev -- --host 0.0.0.0
 
 frontend-install:  ## Install frontend dependencies
+	$(check_node_version)
 	cd frontend && npm install
 
 frontend-build:  ## Build frontend for production
+	$(check_node_version)
 	cd frontend && npm run build
 
 frontend-lint:  ## Run frontend linter
+	$(check_node_version)
 	cd frontend && npm run lint
 
 frontend-typecheck:  ## Run TypeScript type checking
+	$(check_node_version)
 	cd frontend && npm run typecheck
 
 frontend-tests:  ## Run frontend tests
+	$(check_node_version)
 	cd frontend && npm run test:run
 
 frontend-verify: frontend-lint frontend-typecheck frontend-tests
