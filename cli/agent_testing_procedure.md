@@ -194,7 +194,7 @@ bin/tiddly mcp install claude-code --servers content
 **Verify:**
 - [ ] Exit code 0
 - [ ] `~/.claude.json` contains `mcpServers.tiddly_notes_bookmarks`
-- [ ] `~/.claude.json` does NOT contain `mcpServers.tiddly_prompts` (unless from prior test)
+- [ ] `~/.claude.json` still contains `mcpServers.tiddly_prompts` from T3.1 (--servers content must not delete prompts)
 
 ### T3.3 — Claude Code, user scope, prompts only
 ```bash
@@ -203,7 +203,7 @@ bin/tiddly mcp install claude-code --servers prompts
 **Verify:**
 - [ ] Exit code 0
 - [ ] `~/.claude.json` contains `mcpServers.tiddly_prompts`
-- [ ] `tiddly_notes_bookmarks` from T3.2 is still present (install merges, doesn't delete)
+- [ ] `tiddly_notes_bookmarks` from T3.2 is still present (--servers prompts must not delete content)
 
 ### T3.4 — Claude Code, project scope
 ```bash

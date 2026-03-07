@@ -122,6 +122,62 @@ url = "https://other.example.com/mcp"
 	assert.Contains(t, mcpServers, "tiddly_prompts")
 }
 
+func TestInstallCodex__content_only_preserves_existing_prompts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	// Install both servers first
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := installCodex(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	// Re-install with only content PAT (simulates --servers content)
+	err = installCodex(rc, "bm_new_content", "")
+	require.NoError(t, err)
+
+	config := readTestTOML(t, configPath)
+	mcpServers := config["mcp_servers"].(map[string]any)
+
+	// Content should be updated
+	content := mcpServers["tiddly_notes_bookmarks"].(map[string]any)
+	headers := content["http_headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_new_content", headers["Authorization"])
+
+	// Prompts should be preserved from the first install
+	assert.Contains(t, mcpServers, "tiddly_prompts", "prompts server should be preserved")
+	prompts := mcpServers["tiddly_prompts"].(map[string]any)
+	promptHeaders := prompts["http_headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_prompts", promptHeaders["Authorization"])
+}
+
+func TestInstallCodex__prompts_only_preserves_existing_content(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	// Install both servers first
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := installCodex(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	// Re-install with only prompts PAT (simulates --servers prompts)
+	err = installCodex(rc, "", "bm_new_prompts")
+	require.NoError(t, err)
+
+	config := readTestTOML(t, configPath)
+	mcpServers := config["mcp_servers"].(map[string]any)
+
+	// Content should be preserved from the first install
+	assert.Contains(t, mcpServers, "tiddly_notes_bookmarks", "content server should be preserved")
+	content := mcpServers["tiddly_notes_bookmarks"].(map[string]any)
+	headers := content["http_headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_content", headers["Authorization"])
+
+	// Prompts should be updated
+	prompts := mcpServers["tiddly_prompts"].(map[string]any)
+	promptHeaders := prompts["http_headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_new_prompts", promptHeaders["Authorization"])
+}
+
 func TestInstallCodex__idempotent(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")

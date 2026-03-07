@@ -68,6 +68,41 @@ func isTiddlyURL(rawURL string) bool {
 	return isTiddlyContentURL(rawURL) || isTiddlyPromptURL(rawURL)
 }
 
+// extractServerURL returns the tiddly MCP URL from a server entry, checking both
+// the HTTP format ("url" field) and the stdio/npx format ("args" array).
+// For stdio format, it scans the args for a URL matching a tiddly MCP server.
+func extractServerURL(serverMap map[string]any) string {
+	if urlStr, _ := serverMap["url"].(string); urlStr != "" {
+		return urlStr
+	}
+	args, _ := serverMap["args"].([]any)
+	for _, arg := range args {
+		s, _ := arg.(string)
+		if s != "" && isTiddlyURL(s) {
+			return s
+		}
+	}
+	return ""
+}
+
+// removeJSONServersByTiddlyURL removes entries from a JSON mcpServers map
+// whose URL matches the given predicate (checking both HTTP and stdio/npx formats).
+func removeJSONServersByTiddlyURL(servers map[string]any, match func(string) bool) bool {
+	removed := false
+	for name, entry := range servers {
+		serverMap, _ := entry.(map[string]any)
+		if serverMap == nil {
+			continue
+		}
+		urlStr := extractServerURL(serverMap)
+		if match(urlStr) {
+			delete(servers, name)
+			removed = true
+		}
+	}
+	return removed
+}
+
 // canonicalNamesFirst returns keys sorted so that canonical server names
 // (serverNameContent, serverNamePrompts) come before other keys, ensuring
 // deterministic match selection when both canonical and custom entries exist.

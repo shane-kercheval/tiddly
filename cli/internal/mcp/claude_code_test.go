@@ -472,6 +472,62 @@ func TestExtractClaudeCodePATs__custom_named_servers(t *testing.T) {
 	assert.Equal(t, "bm_custom_prompts", promptPAT)
 }
 
+func TestInstallClaudeCode__content_only_preserves_existing_prompts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// Install both servers first
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := installClaudeCode(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	// Re-install with only content PAT (simulates --servers content)
+	err = installClaudeCode(rc, "bm_new_content", "")
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	// Content should be updated
+	content := servers["tiddly_notes_bookmarks"].(map[string]any)
+	headers := content["headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_new_content", headers["Authorization"])
+
+	// Prompts should be preserved from the first install
+	prompts := servers["tiddly_prompts"].(map[string]any)
+	assert.NotNil(t, prompts, "prompts server should be preserved")
+	promptHeaders := prompts["headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_prompts", promptHeaders["Authorization"])
+}
+
+func TestInstallClaudeCode__prompts_only_preserves_existing_content(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// Install both servers first
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := installClaudeCode(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	// Re-install with only prompts PAT (simulates --servers prompts)
+	err = installClaudeCode(rc, "", "bm_new_prompts")
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	// Content should be preserved from the first install
+	content := servers["tiddly_notes_bookmarks"].(map[string]any)
+	assert.NotNil(t, content, "content server should be preserved")
+	headers := content["headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_content", headers["Authorization"])
+
+	// Prompts should be updated
+	prompts := servers["tiddly_prompts"].(map[string]any)
+	promptHeaders := prompts["headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_new_prompts", promptHeaders["Authorization"])
+}
+
 func TestDryRunClaudeCode__shows_diff(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")

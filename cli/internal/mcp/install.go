@@ -16,6 +16,25 @@ import (
 // dryRunPlaceholder is the token shown in dry-run output when a new token would be created.
 const dryRunPlaceholder = "<new-token-would-be-created>"
 
+// tiddlyURLMatcher returns a predicate that matches only the server types being
+// installed (indicated by non-empty PAT). When only one PAT is set, only that
+// server type's URLs are matched, preserving the other. When both are set, all
+// tiddly URLs are matched. When neither is set, nothing is matched (no-op).
+func tiddlyURLMatcher(contentPAT, promptPAT string) func(string) bool {
+	hasContent := contentPAT != ""
+	hasPrompts := promptPAT != ""
+	switch {
+	case hasContent && hasPrompts:
+		return isTiddlyURL
+	case hasContent:
+		return isTiddlyContentURL
+	case hasPrompts:
+		return isTiddlyPromptURL
+	default:
+		return func(string) bool { return false }
+	}
+}
+
 // tokenPrefixLen is the number of leading characters the API stores as token_prefix.
 const tokenPrefixLen = 12
 

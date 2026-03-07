@@ -73,8 +73,8 @@ func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) 
 		config.MCPServers = make(map[string]codexMCPServer)
 	}
 
-	// Remove any existing entries pointing to tiddly URLs (handles custom names)
-	removeCodexServersByTiddlyURL(config.MCPServers)
+	// Remove only the server types being installed (non-empty PAT means it's being installed)
+	removeCodexServersByTiddlyURL(config.MCPServers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	if contentPAT != "" {
 		config.MCPServers[serverNameContent] = codexMCPServer{
@@ -92,12 +92,12 @@ func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) 
 	return config, nil
 }
 
-// removeCodexServersByTiddlyURL removes entries matching tiddly MCP server URLs.
+// removeCodexServersByTiddlyURL removes entries whose URL matches the given predicate.
 // Returns true if any were removed.
-func removeCodexServersByTiddlyURL(servers map[string]codexMCPServer) bool {
+func removeCodexServersByTiddlyURL(servers map[string]codexMCPServer, match func(string) bool) bool {
 	removed := false
 	for name, server := range servers {
-		if isTiddlyURL(server.URL) {
+		if match(server.URL) {
 			delete(servers, name)
 			removed = true
 		}
@@ -129,7 +129,7 @@ func uninstallCodex(rc ResolvedConfig) error {
 		return nil
 	}
 
-	if !removeCodexServersByTiddlyURL(config.MCPServers) {
+	if !removeCodexServersByTiddlyURL(config.MCPServers, isTiddlyURL) {
 		return nil
 	}
 

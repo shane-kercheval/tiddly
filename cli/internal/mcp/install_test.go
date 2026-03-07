@@ -382,6 +382,88 @@ func TestRunInstall__servers_prompts_only(t *testing.T) {
 	assert.Contains(t, servers, "tiddly_prompts")
 }
 
+func TestRunInstall__servers_content_only_preserves_existing_prompts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// Pre-install both servers
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := installClaudeCode(rc, "bm_old_content", "bm_old_prompts")
+	require.NoError(t, err)
+
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-code", Installed: true, ConfigPath: configPath},
+	}
+
+	_, err = RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
+		Client:   client,
+		AuthType: "pat",
+		Servers:  []string{"content"},
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	// Content should be updated with the new PAT
+	content := servers["tiddly_notes_bookmarks"].(map[string]any)
+	headers := content["headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_test", headers["Authorization"])
+
+	// Prompts should be preserved from the original install
+	assert.Contains(t, servers, "tiddly_prompts", "prompts server should be preserved when --servers content")
+	prompts := servers["tiddly_prompts"].(map[string]any)
+	promptHeaders := prompts["headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_old_prompts", promptHeaders["Authorization"])
+}
+
+func TestRunInstall__servers_prompts_only_preserves_existing_content(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// Pre-install both servers
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := installClaudeCode(rc, "bm_old_content", "bm_old_prompts")
+	require.NoError(t, err)
+
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-code", Installed: true, ConfigPath: configPath},
+	}
+
+	_, err = RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
+		Client:   client,
+		AuthType: "pat",
+		Servers:  []string{"prompts"},
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	// Content should be preserved from the original install
+	assert.Contains(t, servers, "tiddly_notes_bookmarks", "content server should be preserved when --servers prompts")
+	content := servers["tiddly_notes_bookmarks"].(map[string]any)
+	headers := content["headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_old_content", headers["Authorization"])
+
+	// Prompts should be updated with the new PAT
+	prompts := servers["tiddly_prompts"].(map[string]any)
+	promptHeaders := prompts["headers"].(map[string]any)
+	assert.Equal(t, "Bearer bm_test", promptHeaders["Authorization"])
+}
+
 func TestRunInstall__skips_uninstalled_tools(t *testing.T) {
 	client := api.NewClient("http://unused", "bm_test", "pat")
 	stdout := &bytes.Buffer{}
@@ -506,6 +588,51 @@ func TestGenerateTokenName__unique(t *testing.T) {
 	name1 := generateTokenName("claude-code", "content")
 	name2 := generateTokenName("claude-code", "content")
 	assert.NotEqual(t, name1, name2, "names should be unique due to random suffix")
+}
+
+func TestTiddlyURLMatcher__both_pats(t *testing.T) {
+	match := tiddlyURLMatcher("bm_content", "bm_prompts")
+	assert.True(t, match(ContentMCPURL()))
+	assert.True(t, match(PromptMCPURL()))
+	assert.False(t, match("https://other.example.com/mcp"))
+}
+
+func TestTiddlyURLMatcher__content_only(t *testing.T) {
+	match := tiddlyURLMatcher("bm_content", "")
+	assert.True(t, match(ContentMCPURL()))
+	assert.False(t, match(PromptMCPURL()))
+}
+
+func TestTiddlyURLMatcher__prompts_only(t *testing.T) {
+	match := tiddlyURLMatcher("", "bm_prompts")
+	assert.False(t, match(ContentMCPURL()))
+	assert.True(t, match(PromptMCPURL()))
+}
+
+func TestTiddlyURLMatcher__neither_pat_matches_nothing(t *testing.T) {
+	match := tiddlyURLMatcher("", "")
+	assert.False(t, match(ContentMCPURL()))
+	assert.False(t, match(PromptMCPURL()))
+	assert.False(t, match("https://other.example.com/mcp"))
+}
+
+func TestInstallClaudeCode__both_pats_empty_preserves_existing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// Install both servers first
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := installClaudeCode(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	// Call with both PATs empty — should be a no-op for existing servers
+	err = installClaudeCode(rc, "", "")
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.Contains(t, servers, "tiddly_notes_bookmarks", "content should be preserved")
+	assert.Contains(t, servers, "tiddly_prompts", "prompts should be preserved")
 }
 
 func TestValidatePAT__valid(t *testing.T) {

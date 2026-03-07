@@ -61,6 +61,60 @@ func TestInstallClaudeDesktop__preserves_existing(t *testing.T) {
 	assert.Equal(t, true, config["someOtherSetting"])
 }
 
+func TestInstallClaudeDesktop__content_only_preserves_existing_prompts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	// Install both servers first
+	err := installClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	// Re-install with only content PAT (simulates --servers content)
+	err = installClaudeDesktop(configPath, "bm_new_content", "")
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	// Content should be updated
+	content := servers["tiddly_notes_bookmarks"].(map[string]any)
+	args := toStringSlice(content["args"])
+	assert.Contains(t, args[3], "bm_new_content")
+
+	// Prompts should be preserved from the first install
+	assert.Contains(t, servers, "tiddly_prompts", "prompts server should be preserved")
+	prompts := servers["tiddly_prompts"].(map[string]any)
+	promptArgs := toStringSlice(prompts["args"])
+	assert.Contains(t, promptArgs[3], "bm_prompts")
+}
+
+func TestInstallClaudeDesktop__prompts_only_preserves_existing_content(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	// Install both servers first
+	err := installClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	// Re-install with only prompts PAT (simulates --servers prompts)
+	err = installClaudeDesktop(configPath, "", "bm_new_prompts")
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+
+	// Content should be preserved from the first install
+	assert.Contains(t, servers, "tiddly_notes_bookmarks", "content server should be preserved")
+	content := servers["tiddly_notes_bookmarks"].(map[string]any)
+	contentArgs := toStringSlice(content["args"])
+	assert.Contains(t, contentArgs[3], "bm_content")
+
+	// Prompts should be updated
+	prompts := servers["tiddly_prompts"].(map[string]any)
+	promptArgs := toStringSlice(prompts["args"])
+	assert.Contains(t, promptArgs[3], "bm_new_prompts")
+}
+
 func TestInstallClaudeDesktop__idempotent(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")

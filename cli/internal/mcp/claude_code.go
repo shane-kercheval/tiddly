@@ -119,23 +119,6 @@ func setMCPServersMap(config map[string]any, scope, cwd string, servers map[stri
 	}
 }
 
-// extractServerURL returns the tiddly MCP URL from a server entry, checking both
-// the HTTP format ("url" field) and the stdio/npx format ("args" array).
-// For stdio format, it scans the args for a URL matching a tiddly MCP server.
-func extractServerURL(serverMap map[string]any) string {
-	if urlStr, _ := serverMap["url"].(string); urlStr != "" {
-		return urlStr
-	}
-	args, _ := serverMap["args"].([]any)
-	for _, arg := range args {
-		s, _ := arg.(string)
-		if s != "" && isTiddlyURL(s) {
-			return s
-		}
-	}
-	return ""
-}
-
 // resolveClaudeCodePath returns the config file path for the given scope.
 // "user" and "local" both use ~/.claude.json. "project" uses .mcp.json in cwd.
 // Called only from ResolveToolConfig.
@@ -189,8 +172,8 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 		servers = make(map[string]any)
 	}
 
-	// Remove any existing entries pointing to tiddly URLs (handles custom names)
-	removeJSONServersByTiddlyURL(servers)
+	// Remove only the server types being installed (non-empty PAT means it's being installed)
+	removeJSONServersByTiddlyURL(servers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	for k, v := range newServers {
 		servers[k] = v
@@ -199,24 +182,6 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 	setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
 
 	return config, nil
-}
-
-// removeJSONServersByTiddlyURL removes entries from a JSON mcpServers map
-// whose URL matches a tiddly MCP server (checking both HTTP and stdio/npx formats).
-func removeJSONServersByTiddlyURL(servers map[string]any) bool {
-	removed := false
-	for name, entry := range servers {
-		serverMap, _ := entry.(map[string]any)
-		if serverMap == nil {
-			continue
-		}
-		urlStr := extractServerURL(serverMap)
-		if isTiddlyURL(urlStr) {
-			delete(servers, name)
-			removed = true
-		}
-	}
-	return removed
 }
 
 // installClaudeCode writes MCP server entries into the Claude Code config.
@@ -244,7 +209,7 @@ func uninstallClaudeCode(rc ResolvedConfig) error {
 		return nil
 	}
 
-	if !removeJSONServersByTiddlyURL(servers) {
+	if !removeJSONServersByTiddlyURL(servers, isTiddlyURL) {
 		return nil
 	}
 

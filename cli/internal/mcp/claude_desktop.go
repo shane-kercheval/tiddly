@@ -56,8 +56,8 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 		servers = make(map[string]any)
 	}
 
-	// Remove any existing entries pointing to tiddly URLs (handles custom names)
-	removeDesktopServersByTiddlyURL(servers)
+	// Remove only the server types being installed (non-empty PAT means it's being installed)
+	removeJSONServersByTiddlyURL(servers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	if contentPAT != "" {
 		servers[serverNameContent] = mcpServerEntry{
@@ -74,28 +74,6 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 
 	config["mcpServers"] = servers
 	return config, nil
-}
-
-// removeDesktopServersByTiddlyURL removes entries from a JSON mcpServers map
-// whose args contain a tiddly MCP server URL. Returns true if any were removed.
-func removeDesktopServersByTiddlyURL(servers map[string]any) bool {
-	removed := false
-	for name, entry := range servers {
-		serverMap, _ := entry.(map[string]any)
-		if serverMap == nil {
-			continue
-		}
-		args, _ := serverMap["args"].([]any)
-		for _, arg := range args {
-			s, _ := arg.(string)
-			if isTiddlyURL(s) {
-				delete(servers, name)
-				removed = true
-				break
-			}
-		}
-	}
-	return removed
 }
 
 // installClaudeDesktop writes MCP server entries into the Claude Desktop config.
@@ -124,7 +102,7 @@ func uninstallClaudeDesktop(configPath string) error {
 		return nil
 	}
 
-	if !removeDesktopServersByTiddlyURL(servers) {
+	if !removeJSONServersByTiddlyURL(servers, isTiddlyURL) {
 		return nil
 	}
 
