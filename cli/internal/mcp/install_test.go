@@ -273,6 +273,40 @@ func TestRunInstall__dry_run_no_token_creation(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "config file should not be created in dry-run")
 }
 
+func TestRunInstall__dry_run_skips_pat_validation(t *testing.T) {
+	// Dry-run should not make any network calls — not even PAT validation.
+	// Use a server that fails on any request to prove this.
+	var apiCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-code", Installed: true, ConfigPath: configPath},
+	}
+
+	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
+		Client:   client,
+		AuthType: "oauth",
+		DryRun:   true,
+		Output:   stdout,
+	}, tools)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, apiCalls, "dry-run should not make any API calls")
+	assert.Contains(t, result.ToolsConfigured, "claude-code")
+	assert.Contains(t, stdout.String(), "new-token-would-be-created")
+}
+
 func TestRunInstall__dry_run_pat_auth_shows_diff(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")

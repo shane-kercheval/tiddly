@@ -46,6 +46,8 @@ make frontend-install   # Install frontend dependencies
 make docker-up          # Start PostgreSQL
 make migrate            # Run database migrations
 
+make tests
+
 # Run backend
 make api-run            # API at http://localhost:8000/docs
 

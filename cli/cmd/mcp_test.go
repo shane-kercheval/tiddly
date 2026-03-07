@@ -100,10 +100,12 @@ func TestMCPInstall__happy_path_with_pat(t *testing.T) {
 func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 	var tokenCreated int
 	mock := testutil.NewMockAPI(t)
+	var patValidationCalls int
 	mock.On("GET", "/users/me").
 		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Reject PAT validation so dry-run uses placeholder
-			w.WriteHeader(http.StatusUnauthorized)
+			patValidationCalls++
+			t.Error("dry-run should not call PAT validation endpoint")
+			w.WriteHeader(http.StatusInternalServerError)
 		})
 	mock.On("POST", "/tokens/").
 		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +143,8 @@ func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "tiddly_notes_bookmarks")
-	// Dry-run should NOT create tokens
+	// Dry-run should not make any API calls (no PAT validation, no token creation)
+	assert.Equal(t, 0, patValidationCalls, "dry-run should not validate PATs")
 	assert.Equal(t, 0, tokenCreated, "dry-run should not create tokens")
 	// Output should contain placeholder
 	assert.Contains(t, result.Stdout, "new-token-would-be-created")

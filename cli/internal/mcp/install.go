@@ -174,6 +174,18 @@ func resolveToolPATs(opts InstallOpts, handler ToolHandler, tool DetectedTool, r
 // resolveServerPAT resolves a single PAT for a specific server.
 // If an existing PAT is found and valid, it's reused. Otherwise a new one is created.
 func resolveServerPAT(opts InstallOpts, toolName, serverType, existingPAT string, result *InstallResult) (string, error) {
+	// Dry-run: skip network calls entirely — show placeholder for new tokens,
+	// optimistically reuse existing ones without validation. This previews
+	// the config as-is; a real install will validate and replace stale PATs.
+	if opts.DryRun {
+		if existingPAT != "" {
+			result.TokensReused = append(result.TokensReused,
+				fmt.Sprintf("%s/%s", toolName, serverType))
+			return existingPAT, nil
+		}
+		return dryRunPlaceholder, nil
+	}
+
 	// Try to reuse existing PAT
 	if existingPAT != "" {
 		valid, err := validatePAT(opts.Ctx, opts.Client.BaseURL, existingPAT)
@@ -185,11 +197,6 @@ func resolveServerPAT(opts InstallOpts, toolName, serverType, existingPAT string
 				fmt.Sprintf("%s/%s", toolName, serverType))
 			return existingPAT, nil
 		}
-	}
-
-	// Dry-run: don't create tokens
-	if opts.DryRun {
-		return dryRunPlaceholder, nil
 	}
 
 	// Create a new PAT

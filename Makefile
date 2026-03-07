@@ -123,7 +123,7 @@ backend-verify: backend-lint backend-tests
 
 lint: backend-lint frontend-lint
 
-tests: backend-verify frontend-verify
+tests: cli-verify backend-verify frontend-verify
 
 pen_tests:  ## Run deployed security tests (requires SECURITY_TEST_* env vars in .env)
 	uv run pytest backend/tests/security/deployed -v

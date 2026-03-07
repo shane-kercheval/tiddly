@@ -44,8 +44,8 @@ func shouldCheckForUpdates(cmd *cobra.Command, configDir string) bool {
 		return false
 	}
 
-	// Skip in CI environments
-	if os.Getenv("CI") == "true" {
+	// Skip in CI environments (CI=true, CI=1, or any non-empty value)
+	if os.Getenv("CI") != "" {
 		return false
 	}
 
