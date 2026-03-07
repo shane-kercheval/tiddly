@@ -807,8 +807,12 @@ async def _notify_affected_targets(
     """
     Bump updated_at on affected target entities and optionally record history.
 
-    NOTE: Milestone 1 implements equivalent logic in _record_relationship_history
-    (relationships.py router). Keep both in sync when modifying history behavior.
+    NOTE: _record_relationship_history in relationships.py router implements the
+    same logic for the standalone endpoint path. If changing the record_action call
+    signature, changed_fields value, or content passthrough (current=previous=
+    entity.content), update both. The gating differs intentionally: the router
+    always records history (it has request context); this function gates on
+    `if context:` since callers may not have it (e.g. during restore).
     """
     # Lazy imports to avoid circular dependencies — entity services import
     # relationship_service, so we can't import them at module level.

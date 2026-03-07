@@ -50,8 +50,10 @@ async def _record_relationship_history(
     """
     Bump entity updated_at and record a metadata-only history entry for a relationship change.
 
-    NOTE: Milestone 2 implements equivalent logic in sync_relationships_for_entity
-    (relationship_service.py). Keep both in sync when modifying history behavior.
+    NOTE: _notify_affected_targets in relationship_service.py implements the same
+    logic for the inline sync path. If changing the record_action call signature,
+    changed_fields value, or content passthrough (current=previous=entity.content),
+    update both.
     """
     et = EntityType(entity_type)
     service = _entity_services[et]
@@ -213,8 +215,6 @@ async def update_relationship(
         raise HTTPException(status_code=404, detail="Relationship not found")
 
     # Only record history if the description actually changed
-    # NOTE: Milestone 2 implements equivalent logic in sync_relationships_for_entity
-    # (relationship_service.py). Keep both in sync when modifying history behavior.
     if changed:
         await _record_relationship_history(
             db, current_user.id, rel.source_type, rel.source_id, limits, request,

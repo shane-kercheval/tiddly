@@ -1,5 +1,5 @@
 """
-API-level tests for FTS + ILIKE combined search (Milestone 3).
+API-level tests for FTS + ILIKE combined search.
 
 Tests relevance sorting, default sort behavior, and MCP sort_by at the API level.
 Also tests resolve_filter_and_sorting with query parameter.
