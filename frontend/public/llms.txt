@@ -230,7 +230,12 @@ curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/ins
 
 Token management requires OAuth login (browser-based). PAT authentication is not sufficient for token operations.
 
-Supports config scopes (user, local, project), dry-run mode, and automatic token management. Full documentation at https://tiddly.me/docs/cli.
+**Config scopes** control where MCP server entries are written:
+- `user` (default) — applies globally to all projects. Stored in the user's home directory.
+- `local` (Claude Code only) — scoped to a specific project but stored in the user's home directory (`~/.claude.json` under a project key). Not committed to the repo — useful for private config you don't want to share with collaborators.
+- `project` — scoped to the project and stored in the project directory itself (`.mcp.json` for Claude Code, `.codex/config.toml` for Codex). Can be committed and shared with collaborators.
+
+Also supports dry-run mode and automatic token management. Full documentation at https://tiddly.me/docs/cli.
 
 ### Programmatic API Access
 

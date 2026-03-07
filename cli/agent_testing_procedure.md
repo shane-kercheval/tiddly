@@ -5,6 +5,7 @@ A structured checklist for an AI agent to systematically test all CLI command, t
 ## Prerequisites
 
 - [ ] CLI is built: `make cli-build` (verify `bin/tiddly` exists)
+- [ ] Local API and MCP servers are running (tests run against local services, not production)
 - [ ] Authenticated via OAuth: `bin/tiddly login` (required — token creation/deletion tests need OAuth)
 - [ ] API is reachable: `bin/tiddly status` shows API status "ok"
 - [ ] Note platform-specific config paths:
@@ -36,6 +37,11 @@ backup_dir() {
     echo "Skipped (does not exist): $src"
   fi
 }
+
+# Point CLI and MCP installs at local services (not production)
+export TIDDLY_API_URL=http://localhost:8000
+export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
+export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
 
 # Record which tools are detected
 bin/tiddly mcp status
@@ -174,10 +180,10 @@ bin/tiddly mcp install claude-code
 - [ ] Output contains `Configured: claude-code`
 - [ ] `~/.claude.json` contains `mcpServers.tiddly_notes_bookmarks` with:
   - `"type": "http"`
-  - `"url": "https://content-mcp.tiddly.me/mcp"`
+  - URL matching `TIDDLY_CONTENT_MCP_URL` (localhost during testing, production default otherwise)
   - `"headers"` with `"Authorization": "Bearer bm_..."` (token starts with `bm_`)
 - [ ] `~/.claude.json` contains `mcpServers.tiddly_prompts` with:
-  - `"url": "https://prompts-mcp.tiddly.me/mcp"`
+  - URL matching `TIDDLY_PROMPT_MCP_URL`
 - [ ] No other tiddly entries added outside `mcpServers`
 - [ ] Existing non-tiddly entries in `~/.claude.json` preserved
 
@@ -226,10 +232,10 @@ bin/tiddly mcp install codex
 **Verify:**
 - [ ] Exit code 0
 - [ ] `~/.codex/config.toml` contains `[mcp_servers.tiddly_notes_bookmarks]` with:
-  - `url = "https://content-mcp.tiddly.me/mcp"`
+  - URL matching `TIDDLY_CONTENT_MCP_URL`
   - `[mcp_servers.tiddly_notes_bookmarks.http_headers]` with `Authorization = "Bearer bm_..."`
 - [ ] `~/.codex/config.toml` contains `[mcp_servers.tiddly_prompts]` with:
-  - `url = "https://prompts-mcp.tiddly.me/mcp"`
+  - URL matching `TIDDLY_PROMPT_MCP_URL`
 - [ ] Existing non-tiddly sections preserved
 
 ### T3.7 — Codex, project scope
@@ -250,9 +256,9 @@ bin/tiddly mcp install claude-desktop
 - [ ] Exit code 0
 - [ ] Config file contains `mcpServers.tiddly_notes_bookmarks` with:
   - `"command": "npx"`
-  - `"args"` array containing `"mcp-remote"`, `"https://content-mcp.tiddly.me/mcp"`, `"--header"`, `"Authorization: Bearer bm_..."`
+  - `"args"` array containing `"mcp-remote"`, the content MCP URL, `"--header"`, `"Authorization: Bearer bm_..."`
 - [ ] Config file contains `mcpServers.tiddly_prompts` with:
-  - `"args"` containing `"https://prompts-mcp.tiddly.me/mcp"`
+  - `"args"` containing the prompts MCP URL
 - [ ] Stderr contains `Restart Claude Desktop to apply changes.`
 - [ ] Existing non-tiddly entries preserved
 
@@ -689,6 +695,11 @@ diff <(awk '{print $1}' "$BACKUP_DIR/tokens-before.txt" | sort) \
   bin/tiddly tokens delete "$TOKEN_ID" --force 2>/dev/null
 done
 
+# Restore production URLs
+unset TIDDLY_API_URL
+unset TIDDLY_CONTENT_MCP_URL
+unset TIDDLY_PROMPT_MCP_URL
+
 # Remove temp directories
 rm -rf "$TEST_PROJECT"
 rm -rf "$BACKUP_DIR"
@@ -814,8 +825,11 @@ Same TOML structure as user scope.
 |----------|-------|
 | Content server name | `tiddly_notes_bookmarks` |
 | Prompts server name | `tiddly_prompts` |
-| Content MCP URL | `https://content-mcp.tiddly.me/mcp` |
-| Prompts MCP URL | `https://prompts-mcp.tiddly.me/mcp` |
+| Content MCP URL (production) | `https://content-mcp.tiddly.me/mcp` |
+| Content MCP URL (local) | `http://localhost:8001/mcp` |
+| Prompts MCP URL (production) | `https://prompts-mcp.tiddly.me/mcp` |
+| Prompts MCP URL (local) | `http://localhost:8002/mcp` |
+| API URL (local) | `http://localhost:8000` |
 | Token name pattern | `cli-mcp-<tool>-<server>-<6hex>` |
 | Token prefix | `bm_` |
 | Dry-run placeholder | `<new-token-would-be-created>` |

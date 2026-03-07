@@ -214,6 +214,21 @@ tiddly mcp uninstall claude-code --delete-tokens" />
         Use <code className="bg-gray-100 px-1 rounded">--scope</code> to control which config
         level is written. Support varies by tool:
       </p>
+      <ul className="list-disc list-inside space-y-2 text-gray-600 mb-4">
+        <li>
+          <strong>user</strong> — applies globally to all projects. Stored in your home directory.
+        </li>
+        <li>
+          <strong>local</strong> (Claude Code only) — scoped to a specific project but stored in
+          your home directory (<code className="bg-gray-100 px-1 rounded text-xs">~/.claude.json</code> under
+          a project key). Not committed to the repo — useful for private config you don&apos;t want
+          to share with collaborators.
+        </li>
+        <li>
+          <strong>project</strong> — scoped to the project and stored in the project directory
+          itself. Can be committed and shared with collaborators.
+        </li>
+      </ul>
       <div className="overflow-x-auto mb-4">
         <table className="min-w-full text-sm">
           <thead>
