@@ -769,12 +769,13 @@ class TestUpdateRelationship:
             'bookmark', bookmark_a.id, 'note', note_a.id,
             'related',
         )
-        updated = await update_relationship(
+        updated, changed = await update_relationship(
             db_session, test_user.id, rel.id,
             description='Updated description',
         )
         assert updated is not None
         assert updated.description == 'Updated description'
+        assert changed is True
 
     @pytest.mark.asyncio
     async def test__update_relationship__clear_description(
@@ -787,12 +788,13 @@ class TestUpdateRelationship:
             'bookmark', bookmark_a.id, 'note', note_a.id,
             'related', description='Original',
         )
-        updated = await update_relationship(
+        updated, changed = await update_relationship(
             db_session, test_user.id, rel.id,
             description=None,
         )
         assert updated is not None
         assert updated.description is None
+        assert changed is True
 
     @pytest.mark.asyncio
     async def test__update_relationship__no_change_when_not_provided(
@@ -806,9 +808,10 @@ class TestUpdateRelationship:
             'related', description='Keep this',
         )
         # Call without description keyword — uses sentinel default
-        updated = await update_relationship(db_session, test_user.id, rel.id)
+        updated, changed = await update_relationship(db_session, test_user.id, rel.id)
         assert updated is not None
         assert updated.description == 'Keep this'
+        assert changed is False
 
     @pytest.mark.asyncio
     async def test__update_relationship__bumps_updated_at(
@@ -823,12 +826,13 @@ class TestUpdateRelationship:
         )
         original_updated_at = rel.updated_at
 
-        updated = await update_relationship(
+        updated, changed = await update_relationship(
             db_session, test_user.id, rel.id,
             description='New description',
         )
         assert updated is not None
         assert updated.updated_at > original_updated_at
+        assert changed is True
 
     @pytest.mark.asyncio
     async def test__update_relationship__no_change_does_not_bump_updated_at(
@@ -843,20 +847,22 @@ class TestUpdateRelationship:
         )
         original_updated_at = rel.updated_at
 
-        updated = await update_relationship(db_session, test_user.id, rel.id)
+        updated, changed = await update_relationship(db_session, test_user.id, rel.id)
         assert updated is not None
         assert updated.updated_at == original_updated_at
+        assert changed is False
 
     @pytest.mark.asyncio
     async def test__update_relationship__not_found(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
         """Returns None for non-existent relationship."""
-        result = await update_relationship(
+        result, changed = await update_relationship(
             db_session, test_user.id, uuid4(),
             description='Does not matter',
         )
         assert result is None
+        assert changed is False
 
 
 # ---------------------------------------------------------------------------

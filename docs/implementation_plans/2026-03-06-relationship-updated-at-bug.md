@@ -8,14 +8,15 @@ When relationships are created, updated, or deleted, the `updated_at` timestamp 
 
 2. **Frontend stale dialog never triggers:** `useStaleCheck` compares `updated_at` timestamps to detect server-side changes. Since relationship mutations don't bump `updated_at`, the dialog never fires.
 
-There are **two code paths** that mutate relationships:
+There are **three code paths** that mutate relationships:
 
 | Path | Where | Source `updated_at` | Target `updated_at` | History |
 |------|-------|---------------------|---------------------|---------|
 | **Standalone endpoints** (`POST/PATCH/DELETE /relationships/`) | `relationships.py` router | Not bumped | Not bumped | Source only |
 | **Inline sync** (`PATCH /notes/{id}` with `relationships` field) | `sync_relationships_for_entity` in `relationship_service.py` | Bumped by normal update flow | Not bumped | Source only (via normal update) |
+| **Permanent delete cascade** (`DELETE /notes/{id}?permanent=true`) | `delete_relationships_for_content` in `relationship_service.py`, called from `base_entity_service.delete` | N/A (deleted) | Not bumped | None |
 
-Both paths need to be fixed.
+All three paths need to be fixed.
 
 ---
 
@@ -164,6 +165,9 @@ Use `asyncio.sleep(0.01)` for timestamp separation, `>` comparison. Fetch entiti
 **HTTP cache regression (1 test):**
 - `test__api_create_relationship__invalidates_http_cache` -- `GET /notes/{id}/metadata` with `If-Modified-Since` header returns 200 (not 304) after a relationship is created on that note. Use `~1.1s` delay before the relationship creation to cross a second boundary, since `check_not_modified` compares at second precision (`updated_at.replace(microsecond=0)`).
 
+**Existing service tests (`backend/tests/services/test_relationship_service.py`):**
+- Update the 6 `test__update_relationship__*` tests (lines 762-859) to unpack the new `(rel, changed)` tuple return value from `update_relationship`. The existing test assertions for `description`, `updated_at`, and `not found` remain valid — they just need to destructure the return value.
+
 ### Verification
 
 ```bash
@@ -270,14 +274,14 @@ if affected_targets:
     await db.flush()
 ```
 
-This requires adding the necessary imports and an `_entity_services` map in the service file. Since the relationship service already imports the model classes (`Bookmark`, `Note`, `Prompt`) via `MODEL_MAP`, the entity services can follow the same pattern:
+This requires the entity services and `history_service` for `get_metadata_snapshot` and `record_action`. Since `note_service.py`, `bookmark_service.py`, and `prompt_service.py` all do `from services import relationship_service`, importing them at module level in `relationship_service.py` would create a circular import. Use lazy imports inside the function body:
 
 ```python
+# Inside sync_relationships_for_entity, at the top of the affected_targets block:
 from services.bookmark_service import BookmarkService
 from services.note_service import NoteService
 from services.prompt_service import PromptService
 from services.history_service import history_service
-from models.content_history import ActionType, EntityType
 
 _entity_services = {
     EntityType.BOOKMARK: BookmarkService(),
@@ -286,11 +290,11 @@ _entity_services = {
 }
 ```
 
-Note: Check for circular import issues. The service files already import `relationship_service`, so importing entity services here could create a cycle. If so, use lazy imports inside the function body or a `TYPE_CHECKING` guard. The existing `MODEL_MAP` pattern (importing models, not services) avoids this — but we need the services for `get_metadata_snapshot`. If circular imports are an issue, instantiate the services lazily inside the function.
+**Architectural tradeoff:** Milestone 2 intentionally centralizes history orchestration in `relationship_service` (with lazy imports) despite the added coupling to peer entity services. The alternative — duplicating the diff-based target logic across 3 caller services — is worse: `sync_relationships_for_entity` already knows which targets were affected from the diff, and pushing that knowledge out to callers would mean each caller reconstructing the same information. The lazy import breaks the cycle cleanly, and `sync_relationships_for_entity` is not called in a tight loop where import overhead matters.
 
 #### Callers: `note_service.py`, `bookmark_service.py`, `prompt_service.py`
 
-**Update all calls to `sync_relationships_for_entity`** to pass `context` and `limits`. Each caller already has both values. Example from `note_service.py` (line ~243):
+**Update all 6 call sites** to pass `context` and `limits`. All three services have both values in their `create` and `update` method signatures. Example from `note_service.py` `update` (line ~243):
 
 ```python
 await relationship_service.sync_relationships_for_entity(
@@ -302,7 +306,10 @@ await relationship_service.sync_relationships_for_entity(
 )
 ```
 
-Apply the same change to `bookmark_service.py` and `prompt_service.py` (both `create` and `update` methods).
+All 6 call sites:
+- `note_service.py`: `create` (~line 155) and `update` (~line 243)
+- `bookmark_service.py`: `create` (~line 228) and `update` (~line 324)
+- `prompt_service.py`: `create` (~line 285) and `update` (~line 401)
 
 ### Testing Strategy
 
@@ -320,8 +327,122 @@ Tests go in `backend/tests/api/test_relationships.py`.
 **No-op sync doesn't bump (1 test):**
 - `test__api_update_note_with_same_relationships__does_not_bump_target` -- If the relationship set hasn't changed, target `updated_at` should not be bumped and no history should be recorded. Create Note A linked to Note B, then update Note A with the same `relationships` list. Verify Note B's `updated_at` is unchanged and no new history entry exists.
 
+**Restore removes relationship and bumps other side (2 tests):**
+- `test__api_restore_version__bumps_target_updated_at_on_relationship_remove` -- Create Bookmark with a relationship to Note. Update Bookmark (new version without the relationship). Restore Bookmark to version 1 (re-adds relationship). Verify Note's `updated_at` increased. Then update Bookmark again to remove the relationship and restore to version 2 (which has no relationship). Verify Note's `updated_at` increased again.
+- `test__api_restore_version__records_history_on_target_for_relationship_change` -- Same setup: restore removes a relationship. Verify the target entity (Note) gets a history entry with `changed_fields=["relationships"]`.
+
 **HTTP cache regression for inline path (1 test):**
 - `test__api_update_note_with_relationships__invalidates_target_http_cache` -- `GET /notes/{target_id}/metadata` with `If-Modified-Since` returns 200 (not 304) after the source note is updated with a new relationship to the target. Use `~1.1s` delay for second-precision boundary.
+
+### Verification
+
+```bash
+cd backend && python -m pytest tests/api/test_relationships.py -x -v
+cd backend && python -m pytest --tb=short  # full suite for regressions
+```
+
+---
+
+## Milestone 3: Permanent Delete Cascade
+
+### Goal & Outcome
+
+Fix `delete_relationships_for_content` so that when an entity is permanently deleted, the *other* entities that were linked to it get their `updated_at` bumped. No history should be recorded on the surviving entities — the deleted entity is gone and the relationship cannot be restored, so a history entry would create a misleading version.
+
+After this milestone:
+- Permanently deleting Note A (which is linked to Note B) bumps Note B's `updated_at`
+- Note B's HTTP cache is invalidated (Safari serves fresh data without the dead link)
+- No spurious history entry is created on Note B (nothing to restore)
+- All three relationship mutation paths consistently invalidate caches
+
+### Implementation Outline
+
+#### `backend/src/services/relationship_service.py`
+
+**Modify `delete_relationships_for_content`** (line ~333): Before the bulk `DELETE`, collect the other-side entity IDs from the relationships being removed, then bump their `updated_at` after deletion.
+
+The current function uses a single `DELETE ... WHERE` statement which is efficient but doesn't tell us which entities were affected. We need to query first, then delete.
+
+```python
+async def delete_relationships_for_content(
+    db: AsyncSession,
+    user_id: UUID,
+    content_type: str,
+    content_id: UUID,
+) -> int:
+    """
+    Delete all relationships where this content is source OR target.
+
+    Called when content is permanently deleted (application-level cascade).
+    Bumps updated_at on the surviving entities so their HTTP caches are
+    invalidated. No history is recorded — the deleted entity is gone and
+    the relationship cannot be restored.
+
+    Returns the count of deleted relationships.
+    """
+    is_source = and_(
+        ContentRelationship.source_type == content_type,
+        ContentRelationship.source_id == content_id,
+    )
+    is_target = and_(
+        ContentRelationship.target_type == content_type,
+        ContentRelationship.target_id == content_id,
+    )
+
+    # Fetch relationships before deleting to identify affected entities
+    fetch_stmt = select(ContentRelationship).where(
+        ContentRelationship.user_id == user_id,
+        or_(is_source, is_target),
+    )
+    result = await db.execute(fetch_stmt)
+    rels = list(result.scalars().all())
+
+    if not rels:
+        return 0
+
+    # Collect the "other side" entities that survive the delete
+    from collections import defaultdict
+    affected: defaultdict[str, set[UUID]] = defaultdict(set)
+    for rel in rels:
+        other_type, other_id = _resolve_other_side(rel, content_type, content_id)
+        affected[other_type].add(other_id)
+
+    # Delete the relationship rows
+    for rel in rels:
+        await db.delete(rel)
+    await db.flush()
+
+    # Bump updated_at on surviving entities (no history — nothing to restore)
+    for entity_type, ids in affected.items():
+        model = MODEL_MAP.get(entity_type)
+        if model is None:
+            continue
+        stmt = select(model).where(model.id.in_(ids), model.user_id == user_id)
+        result = await db.execute(stmt)
+        for entity in result.scalars():
+            entity.updated_at = func.clock_timestamp()
+
+    await db.flush()
+    return len(rels)
+```
+
+Note: The original used a bulk `DELETE` SQL statement. The replacement fetches rows first (needed to identify affected entities), then deletes them via ORM `db.delete()`. This trades one bulk SQL for a SELECT + per-row deletes, but the relationship count per entity is capped at ~50 (tier limit) so the overhead is negligible. The `_resolve_other_side` helper already exists in the module.
+
+### Testing Strategy
+
+Tests go in `backend/tests/api/test_relationships.py`.
+
+**`updated_at` bump on surviving entity (1 test):**
+- `test__api_permanent_delete__bumps_related_entity_updated_at` -- Create Note A and Note B with a relationship between them. Record Note B's `updated_at`. Soft-delete Note A, then permanently delete Note A. Verify Note B's `updated_at` increased.
+
+**No history on surviving entity (1 test):**
+- `test__api_permanent_delete__does_not_record_history_on_related_entity` -- Same setup. Verify Note B's history count does not increase after the permanent delete (no `changed_fields=["relationships"]` entry).
+
+**HTTP cache invalidation (1 test):**
+- `test__api_permanent_delete__invalidates_related_entity_http_cache` -- Create Note A linked to Note B. GET Note B's metadata to capture `Last-Modified`. Wait >1s, then permanently delete Note A. GET Note B's metadata with `If-Modified-Since` — should return 200, not 304.
+
+**Multiple surviving entities (1 test):**
+- `test__api_permanent_delete__bumps_all_related_entities` -- Create Note A linked to both Note B and Bookmark C. Permanently delete Note A. Verify both Note B and Bookmark C have their `updated_at` bumped.
 
 ### Verification
 

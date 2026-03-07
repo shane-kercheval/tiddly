@@ -229,26 +229,32 @@ async def update_relationship(
     relationship_id: UUID,
     *,
     description: str | None = ...,  # type: ignore[assignment]
-) -> ContentRelationship | None:
+) -> tuple[ContentRelationship | None, bool]:
     """
     Update relationship metadata (currently only description).
 
     Uses sentinel default (...) to distinguish "not provided" from "explicitly
     set to None", consistent with existing service update patterns.
 
-    Returns None if relationship not found.
+    Returns (None, False) if relationship not found, or (rel, changed) where
+    changed indicates whether the description actually changed.
     """
     rel = await get_relationship(db, user_id, relationship_id)
     if rel is None:
-        return None
+        return None, False
 
-    if description is not ...:
+    changed = False
+    if description is not ... and description != rel.description:
         rel.description = description
         rel.updated_at = func.clock_timestamp()
+        changed = True
+
+    if not changed:
+        return rel, False
 
     await db.flush()
     await db.refresh(rel)
-    return rel
+    return rel, True
 
 
 async def delete_relationship(
