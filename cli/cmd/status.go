@@ -213,7 +213,10 @@ func printToolTree(w io.Writer, errW io.Writer, tool mcp.DetectedTool, projectPa
 		} else {
 			labels := formatServerLabels(ss.Result.Servers)
 			fmt.Fprintf(w, "  %s %-10s %s\n", connector, ss.Scope, configDisplay)
-			fmt.Fprintf(w, "  %s           Configured. Installed servers: %s\n", prefix, strings.Join(labels, ", "))
+			fmt.Fprintf(w, "  %s           Configured. Installed servers:\n", prefix)
+			for _, l := range labels {
+				fmt.Fprintf(w, "  %s             - %s\n", prefix, l)
+			}
 			if tool.Name == "claude-desktop" && !tool.HasNpx {
 				fmt.Fprintf(errW, "  Warning: npx not found in PATH\n")
 			}
@@ -292,8 +295,8 @@ func printSkillsSection(w io.Writer, projectPath string) {
 			}
 			path := shortenHome(r.Path)
 			fmt.Fprintf(w, "  %s %-10s %s   %s\n", connector, r.Scope, label, path)
-			if count > 0 {
-				fmt.Fprintf(w, "  %s           %s\n", prefix, strings.Join(r.SkillNames, ", "))
+			for _, name := range r.SkillNames {
+				fmt.Fprintf(w, "  %s             - %s\n", prefix, name)
 			}
 		}
 	}
