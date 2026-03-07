@@ -27,6 +27,16 @@ func ToolSupportedScopes(toolName string) []string {
 	}
 }
 
+// IsScopeSupported returns true if the given scope is valid for the tool.
+func IsScopeSupported(toolName, scope string) bool {
+	for _, s := range ToolSupportedScopes(toolName) {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
 // ResolveToolConfig validates the scope for the tool and resolves the config path.
 // Empty scope defaults to "user". Returns an error if the scope is unsupported
 // for the tool, or if cwd is empty for project/local scope.
@@ -39,15 +49,7 @@ func ResolveToolConfig(toolName, configPath, scope, cwd string) (ResolvedConfig,
 	if supported == nil {
 		return ResolvedConfig{}, fmt.Errorf("unknown tool %q", toolName)
 	}
-
-	valid := false
-	for _, s := range supported {
-		if s == scope {
-			valid = true
-			break
-		}
-	}
-	if !valid {
+	if !IsScopeSupported(toolName, scope) {
 		return ResolvedConfig{}, fmt.Errorf(
 			"scope %q is not supported by %s (valid: %s)",
 			scope, toolName, strings.Join(supported, ", "),
@@ -59,17 +61,21 @@ func ResolveToolConfig(toolName, configPath, scope, cwd string) (ResolvedConfig,
 	}
 
 	var path string
+	var pathErr error
 	switch toolName {
 	case "claude-desktop":
 		if configPath != "" {
 			path = configPath
 		} else {
-			path = ClaudeDesktopConfigPath()
+			path, pathErr = ClaudeDesktopConfigPath()
 		}
 	case "claude-code":
-		path = resolveClaudeCodePath(configPath, scope, cwd)
+		path, pathErr = resolveClaudeCodePath(configPath, scope, cwd)
 	case "codex":
-		path = resolveCodexPath(configPath, scope, cwd)
+		path, pathErr = resolveCodexPath(configPath, scope, cwd)
+	}
+	if pathErr != nil {
+		return ResolvedConfig{}, fmt.Errorf("resolving %s config path: %w", toolName, pathErr)
 	}
 
 	return ResolvedConfig{Path: path, Scope: scope, Cwd: cwd}, nil

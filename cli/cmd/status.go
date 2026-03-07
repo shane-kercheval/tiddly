@@ -349,7 +349,7 @@ func printContentCounts(ctx context.Context, w io.Writer, errW io.Writer, client
 }
 
 func getToolStatus(tool mcp.DetectedTool, scope, cwd string) (mcp.StatusResult, error) {
-	rc, err := mcp.ResolveToolConfig(tool.Name, tool.ResolvedConfigPath(), scope, cwd)
+	rc, err := mcp.ResolveToolConfig(tool.Name, tool.ConfigPath, scope, cwd)
 	if err != nil {
 		return mcp.StatusResult{}, err
 	}

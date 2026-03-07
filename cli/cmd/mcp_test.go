@@ -374,7 +374,48 @@ func TestMCPInstall__scope_local_with_codex_explicit_returns_error(t *testing.T)
 	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "codex", "--scope", "local")
 
 	require.Error(t, result.Err)
-	assert.Contains(t, result.Err.Error(), "not supported by codex")
+	assert.Contains(t, result.Err.Error(), "not supported by")
+	assert.Contains(t, result.Err.Error(), "codex")
+}
+
+func TestMCPInstall__scope_local_with_multiple_tools_fails_before_any_install(t *testing.T) {
+	// When explicit tools are passed, scope is pre-validated for ALL tools before
+	// any installs happen. This prevents partial application (e.g. claude-code
+	// configured but codex fails).
+	store := testutil.CredsWithPAT("bm_test123")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+	looker.Paths["codex"] = "/usr/bin/codex"
+
+	dir := t.TempDir()
+	cleanupCC := mcp.SetConfigPathOverride("claude-code", filepath.Join(dir, "claude.json"))
+	defer cleanupCC()
+	cleanupCX := mcp.SetConfigPathOverride("codex", filepath.Join(dir, "codex-config.toml"))
+	defer cleanupCX()
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "claude-code", "codex", "--scope", "local")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "codex")
+
+	// Verify no config files were written (pre-validation failed before install)
+	_, err := os.Stat(filepath.Join(dir, "claude.json"))
+	assert.True(t, os.IsNotExist(err), "claude-code config should not have been written")
 }
 
 func TestMCPInstall__auto_detect_skips_unsupported_scope(t *testing.T) {

@@ -117,6 +117,43 @@ func TestDetectTools__npx_detected_for_desktop(t *testing.T) {
 	assert.True(t, desktop.HasNpx)
 }
 
+func TestDetectTools__tolerant_when_home_unavailable(t *testing.T) {
+	// When HOME is unset, detection should mark tools as not-installed
+	// rather than producing garbage paths or panicking.
+	t.Setenv("HOME", "")
+
+	looker := newMockLooker()
+	// Even with binaries in PATH, config paths can't be resolved without HOME
+	looker.paths["claude"] = "/usr/bin/claude"
+
+	tools := DetectTools(looker)
+
+	for _, tool := range tools {
+		switch tool.Name {
+		case "claude-code":
+			// claude-code is detected via binary, ConfigPath may be empty
+			assert.True(t, tool.Installed, "claude-code should still be detected via binary")
+			assert.Empty(t, tool.ConfigPath, "config path should be empty when HOME is unset")
+		case "claude-desktop", "codex":
+			// These rely on config directory detection which needs HOME
+			assert.False(t, tool.Installed, "%s should not be detected without HOME", tool.Name)
+		}
+	}
+}
+
+func TestConfigPath__returns_error_when_home_unavailable(t *testing.T) {
+	t.Setenv("HOME", "")
+
+	_, err := ClaudeCodeConfigPath()
+	assert.Error(t, err)
+
+	_, err = ClaudeDesktopConfigPath()
+	assert.Error(t, err)
+
+	_, err = CodexConfigPath()
+	assert.Error(t, err)
+}
+
 func TestDetectTools__always_returns_three_tools(t *testing.T) {
 	looker := newMockLooker()
 	tools := DetectTools(looker)

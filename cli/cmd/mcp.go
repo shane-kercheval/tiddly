@@ -109,20 +109,27 @@ Examples:
 					if !t.Installed {
 						continue
 					}
-					supported := mcp.ToolSupportedScopes(t.Name)
-					scopeOK := false
-					for _, s := range supported {
-						if s == scope {
-							scopeOK = true
-							break
-						}
-					}
-					if !scopeOK {
+					if !mcp.IsScopeSupported(t.Name, scope) {
+						supported := mcp.ToolSupportedScopes(t.Name)
 						fmt.Fprintf(cmd.ErrOrStderr(), "Skipping %s: --scope %s is not supported (valid: %s)\n",
 							t.Name, scope, strings.Join(supported, ", "))
 						continue
 					}
 					targetTools = append(targetTools, t)
+				}
+			}
+
+			// Pre-validate scope for all explicit tools before any installs
+			if len(args) > 0 {
+				var unsupported []string
+				for _, t := range targetTools {
+					if !mcp.IsScopeSupported(t.Name, scope) {
+						supported := mcp.ToolSupportedScopes(t.Name)
+						unsupported = append(unsupported, fmt.Sprintf("%s (valid: %s)", t.Name, strings.Join(supported, ", ")))
+					}
+				}
+				if len(unsupported) > 0 {
+					return fmt.Errorf("--scope %s is not supported by: %s", scope, strings.Join(unsupported, "; "))
 				}
 			}
 
@@ -300,7 +307,7 @@ Examples:
 				return err
 			}
 
-			rc, err := mcp.ResolveToolConfig(tool.Name, tool.ResolvedConfigPath(), scope, cwd)
+			rc, err := mcp.ResolveToolConfig(tool.Name, tool.ConfigPath, scope, cwd)
 			if err != nil {
 				return err
 			}

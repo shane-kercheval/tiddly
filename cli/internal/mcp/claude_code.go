@@ -55,9 +55,12 @@ func extractClaudeCodePATFromServer(server map[string]any) string {
 }
 
 // ClaudeCodeConfigPath returns the path to ~/.claude.json.
-func ClaudeCodeConfigPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude.json")
+func ClaudeCodeConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude.json"), nil
 }
 
 // claudeCodeHTTPEntry is the JSON structure for an HTTP MCP server in Claude Code.
@@ -136,12 +139,12 @@ func extractServerURL(serverMap map[string]any) string {
 // resolveClaudeCodePath returns the config file path for the given scope.
 // "user" and "local" both use ~/.claude.json. "project" uses .mcp.json in cwd.
 // Called only from ResolveToolConfig.
-func resolveClaudeCodePath(configPath, scope, cwd string) string {
+func resolveClaudeCodePath(configPath, scope, cwd string) (string, error) {
 	if scope == "project" {
-		return filepath.Join(cwd, ".mcp.json")
+		return filepath.Join(cwd, ".mcp.json"), nil
 	}
 	if configPath != "" {
-		return configPath
+		return configPath, nil
 	}
 	return ClaudeCodeConfigPath()
 }

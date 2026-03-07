@@ -23,12 +23,12 @@ type codexMCPServer struct {
 
 // resolveCodexPath returns the config file path based on scope.
 // Called only from ResolveToolConfig.
-func resolveCodexPath(configPath, scope, cwd string) string {
+func resolveCodexPath(configPath, scope, cwd string) (string, error) {
 	if scope == "project" {
-		return filepath.Join(cwd, ".codex", "config.toml")
+		return filepath.Join(cwd, ".codex", "config.toml"), nil
 	}
 	if configPath != "" {
-		return configPath
+		return configPath, nil
 	}
 	return CodexConfigPath()
 }

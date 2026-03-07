@@ -127,7 +127,8 @@ func TestInstallClaudeCode__local_scope(t *testing.T) {
 func TestInstallClaudeCode__project_scope(t *testing.T) {
 	dir := t.TempDir()
 	// project scope uses cwd/.mcp.json
-	path := resolveClaudeCodePath("", "project", dir)
+	path, err := resolveClaudeCodePath("", "project", dir)
+	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, ".mcp.json"), path)
 }
 

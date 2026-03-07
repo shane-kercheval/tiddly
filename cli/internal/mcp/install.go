@@ -79,7 +79,7 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 			continue
 		}
 
-		rc, err := ResolveToolConfig(tool.Name, tool.ResolvedConfigPath(), opts.Scope, opts.Cwd)
+		rc, err := ResolveToolConfig(tool.Name, tool.ConfigPath, opts.Scope, opts.Cwd)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", tool.Name, err)
 		}
