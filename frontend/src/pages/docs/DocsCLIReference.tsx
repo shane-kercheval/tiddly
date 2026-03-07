@@ -108,13 +108,14 @@ export function DocsCLIReference(): ReactNode {
       <p className="text-gray-600 mb-3">
         When the system keyring is unavailable, credentials are stored in{' '}
         <code className="bg-gray-100 px-1 rounded">~/.config/tiddly/credentials</code> (mode 0600,
-        owner-only read/write). The file fallback is used when:
+        owner-only read/write). You may see this warning:
       </p>
-      <ul className="list-disc list-inside space-y-1 text-gray-600 mb-4">
-        <li>No desktop session (<code className="bg-gray-100 px-1 rounded">DISPLAY</code>/<code className="bg-gray-100 px-1 rounded">WAYLAND_DISPLAY</code> unset on Linux)</li>
-        <li>Keyring hangs (3-second timeout)</li>
-        <li><code className="bg-gray-100 px-1 rounded">--keyring=file</code> flag is passed</li>
-      </ul>
+      <CopyableCodeBlock code="Warning: System keyring unavailable. Credentials stored in plaintext at ~/.config/tiddly/credentials" />
+      <p className="text-gray-600 mt-3 mb-3">
+        This is common in VMs, containers, WSL, and SSH sessions where the keyring is not unlocked
+        by a graphical login. It is safe to ignore — the file store uses restricted permissions.
+        To suppress the warning, pass{' '}
+        <code className="bg-gray-100 px-1 rounded">--keyring=file</code> to explicitly choose file storage.</p>
 
       {/* Token Resolution */}
       <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">Token Resolution</h2>
