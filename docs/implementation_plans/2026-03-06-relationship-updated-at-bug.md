@@ -359,9 +359,9 @@ After this milestone:
 
 #### `backend/src/services/relationship_service.py`
 
-**Modify `delete_relationships_for_content`** (line ~333): Before the bulk `DELETE`, collect the other-side entity IDs from the relationships being removed, then bump their `updated_at` after deletion.
+**Modify `delete_relationships_for_content`** (line ~333): Use `DELETE ... RETURNING` to atomically delete relationships and identify affected surviving entities in a single statement, then bump their `updated_at`.
 
-The current function uses a single `DELETE ... WHERE` statement which is efficient but doesn't tell us which entities were affected. We need to query first, then delete.
+The current function uses a bulk `DELETE ... WHERE` which is efficient but doesn't tell us which entities were affected. Using `RETURNING` couples the delete and the affected-entity identification into one atomic statement, avoiding a READ COMMITTED snapshot mismatch where a separate SELECT and DELETE could see different rows.
 
 ```python
 async def delete_relationships_for_content(
@@ -389,44 +389,51 @@ async def delete_relationships_for_content(
         ContentRelationship.target_id == content_id,
     )
 
-    # Fetch relationships before deleting to identify affected entities
-    fetch_stmt = select(ContentRelationship).where(
-        ContentRelationship.user_id == user_id,
-        or_(is_source, is_target),
+    # DELETE ... RETURNING atomically deletes and returns the affected rows,
+    # avoiding READ COMMITTED snapshot mismatch between separate SELECT + DELETE.
+    stmt = (
+        delete(ContentRelationship)
+        .where(
+            ContentRelationship.user_id == user_id,
+            or_(is_source, is_target),
+        )
+        .returning(
+            ContentRelationship.source_type,
+            ContentRelationship.source_id,
+            ContentRelationship.target_type,
+            ContentRelationship.target_id,
+        )
     )
-    result = await db.execute(fetch_stmt)
-    rels = list(result.scalars().all())
+    result = await db.execute(stmt)
+    deleted_rows = result.all()
 
-    if not rels:
+    if not deleted_rows:
         return 0
 
     # Collect the "other side" entities that survive the delete
-    from collections import defaultdict
-    affected: defaultdict[str, set[UUID]] = defaultdict(set)
-    for rel in rels:
-        other_type, other_id = _resolve_other_side(rel, content_type, content_id)
-        affected[other_type].add(other_id)
-
-    # Delete the relationship rows
-    for rel in rels:
-        await db.delete(rel)
-    await db.flush()
+    affected: set[tuple[str, UUID]] = set()
+    for source_type, source_id, target_type, target_id in deleted_rows:
+        if source_type == content_type and source_id == content_id:
+            affected.add((target_type, target_id))
+        else:
+            affected.add((source_type, source_id))
 
     # Bump updated_at on surviving entities (no history — nothing to restore)
-    for entity_type, ids in affected.items():
+    for entity_type, ids in _group_by_type(affected).items():
         model = MODEL_MAP.get(entity_type)
         if model is None:
             continue
-        stmt = select(model).where(model.id.in_(ids), model.user_id == user_id)
-        result = await db.execute(stmt)
-        for entity in result.scalars():
-            entity.updated_at = func.clock_timestamp()
+        await db.execute(
+            update(model)
+            .where(model.id.in_(ids), model.user_id == user_id)
+            .values(updated_at=func.clock_timestamp())
+        )
 
     await db.flush()
-    return len(rels)
+    return len(deleted_rows)
 ```
 
-Note: The original used a bulk `DELETE` SQL statement. The replacement fetches rows first (needed to identify affected entities), then deletes them via ORM `db.delete()`. This trades one bulk SQL for a SELECT + per-row deletes, but the relationship count per entity is capped at ~50 (tier limit) so the overhead is negligible. The `_resolve_other_side` helper already exists in the module.
+Note: Uses `DELETE ... RETURNING` (PostgreSQL) to atomically couple deletion with affected-entity identification. The bump uses a bulk `UPDATE ... SET updated_at` per entity type (at most 3 statements) rather than loading entities via ORM, since no history recording or eager-loaded attributes are needed — just a timestamp bump. The `_group_by_type` helper groups `set[tuple[str, UUID]]` into `dict[str, set[UUID]]` by entity type.
 
 ### Testing Strategy
 

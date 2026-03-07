@@ -1646,3 +1646,123 @@ async def test__api_update_note_with_relationships__invalidates_target_http_cach
         headers={'If-Modified-Since': last_modified},
     )
     assert response.status_code == 200
+
+
+# =============================================================================
+# Milestone 3: Permanent delete cascade
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_permanent_delete__bumps_related_entity_updated_at(
+    client: AsyncClient,
+) -> None:
+    """Permanently deleting an entity bumps updated_at on surviving related entities."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Create relationship
+    await _create_relationship(client, 'note', note_a['id'], 'note', note_b['id'])
+
+    # Record Note B's updated_at
+    note_b_before = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    # Soft-delete then permanent-delete Note A
+    await client.delete(f'/notes/{note_a["id"]}')
+    resp = await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    assert resp.status_code == 204
+
+    # Note B's updated_at should have increased
+    note_b_after = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    assert note_b_after > note_b_before
+
+
+@pytest.mark.asyncio
+async def test__api_permanent_delete__does_not_record_history_on_related_entity(
+    client: AsyncClient,
+) -> None:
+    """Permanently deleting an entity does NOT create history on surviving related entities."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Create relationship
+    await _create_relationship(client, 'note', note_a['id'], 'note', note_b['id'])
+
+    history_before = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+
+    # Soft-delete then permanent-delete Note A
+    await client.delete(f'/notes/{note_a["id"]}')
+    await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+
+    history_after = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+    assert history_after == history_before
+
+
+@pytest.mark.asyncio
+async def test__api_permanent_delete__invalidates_related_entity_http_cache(
+    client: AsyncClient,
+) -> None:
+    """GET /notes/{id}/metadata returns 200 (not 304) after related entity is permanently deleted."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Create relationship
+    await _create_relationship(client, 'note', note_a['id'], 'note', note_b['id'])
+
+    # Get Last-Modified for Note B
+    response = await client.get(f'/notes/{note_b["id"]}/metadata')
+    assert response.status_code == 200
+    last_modified = response.headers['last-modified']
+
+    # Verify 304
+    response = await client.get(
+        f'/notes/{note_b["id"]}/metadata',
+        headers={'If-Modified-Since': last_modified},
+    )
+    assert response.status_code == 304
+
+    # Wait >1s for second-precision boundary
+    await asyncio.sleep(1.1)
+
+    # Soft-delete then permanent-delete Note A
+    await client.delete(f'/notes/{note_a["id"]}')
+    await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+
+    # Should get 200 now
+    response = await client.get(
+        f'/notes/{note_b["id"]}/metadata',
+        headers={'If-Modified-Since': last_modified},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test__api_permanent_delete__bumps_all_related_entities(
+    client: AsyncClient,
+) -> None:
+    """Permanently deleting an entity bumps updated_at on ALL surviving related entities."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+    bookmark_c = await _create_bookmark(client, title='Bookmark C')
+
+    # Create relationships: A -> B and A -> C
+    await _create_relationship(client, 'note', note_a['id'], 'note', note_b['id'])
+    await _create_relationship(client, 'note', note_a['id'], 'bookmark', bookmark_c['id'])
+
+    # Record timestamps
+    note_b_before = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    bookmark_c_before = (await client.get(f'/bookmarks/{bookmark_c["id"]}')).json()['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    # Soft-delete then permanent-delete Note A
+    await client.delete(f'/notes/{note_a["id"]}')
+    await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+
+    # Both should have bumped
+    note_b_after = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    bookmark_c_after = (await client.get(f'/bookmarks/{bookmark_c["id"]}')).json()['updated_at']
+    assert note_b_after > note_b_before
+    assert bookmark_c_after > bookmark_c_before

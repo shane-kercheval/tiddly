@@ -47,7 +47,8 @@ async def _record_relationship_history(
     limits: TierLimits,
     request: Request,
 ) -> None:
-    """Bump entity updated_at and record a metadata-only history entry for a relationship change.
+    """
+    Bump entity updated_at and record a metadata-only history entry for a relationship change.
 
     NOTE: Milestone 2 implements equivalent logic in sync_relationships_for_entity
     (relationship_service.py). Keep both in sync when modifying history behavior.
