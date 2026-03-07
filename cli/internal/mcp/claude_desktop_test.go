@@ -14,7 +14,7 @@ func TestInstallClaudeDesktop__new_config(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
-	err := InstallClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	err := installClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -46,7 +46,7 @@ func TestInstallClaudeDesktop__preserves_existing(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := InstallClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	err := installClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -66,8 +66,8 @@ func TestInstallClaudeDesktop__idempotent(t *testing.T) {
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
 	// Install twice
-	require.NoError(t, InstallClaudeDesktop(configPath, "bm_old", "bm_old"))
-	require.NoError(t, InstallClaudeDesktop(configPath, "bm_new", "bm_new"))
+	require.NoError(t, installClaudeDesktop(configPath, "bm_old", "bm_old"))
+	require.NoError(t, installClaudeDesktop(configPath, "bm_new", "bm_new"))
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
@@ -97,7 +97,7 @@ func TestUninstallClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := UninstallClaudeDesktop(configPath)
+	err := uninstallClaudeDesktop(configPath)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -109,7 +109,7 @@ func TestUninstallClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 }
 
 func TestUninstallClaudeDesktop__missing_file_is_noop(t *testing.T) {
-	err := UninstallClaudeDesktop("/nonexistent/path.json")
+	err := uninstallClaudeDesktop("/nonexistent/path.json")
 	assert.NoError(t, err)
 }
 
@@ -124,7 +124,7 @@ func TestUninstallClaudeDesktop__no_tiddly_servers_skips_write(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := UninstallClaudeDesktop(configPath)
+	err := uninstallClaudeDesktop(configPath)
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
@@ -150,7 +150,7 @@ func TestStatusClaudeDesktop__configured(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, config)
 
-	sr, err := StatusClaudeDesktop(configPath)
+	sr, err := statusClaudeDesktop(configPath)
 	require.NoError(t, err)
 	assert.Len(t, sr.Servers, 2)
 	assert.Equal(t, configPath, sr.ConfigPath)
@@ -165,14 +165,14 @@ func TestStatusClaudeDesktop__not_configured(t *testing.T) {
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	writeTestJSON(t, configPath, map[string]any{})
 
-	sr, err := StatusClaudeDesktop(configPath)
+	sr, err := statusClaudeDesktop(configPath)
 	require.NoError(t, err)
 	assert.Empty(t, sr.Servers)
 	assert.Equal(t, configPath, sr.ConfigPath)
 }
 
 func TestStatusClaudeDesktop__missing_file(t *testing.T) {
-	sr, err := StatusClaudeDesktop("/nonexistent/path.json")
+	sr, err := statusClaudeDesktop("/nonexistent/path.json")
 	require.NoError(t, err)
 	assert.Empty(t, sr.Servers)
 	assert.Equal(t, "/nonexistent/path.json", sr.ConfigPath)
@@ -195,7 +195,7 @@ func TestStatusClaudeDesktop__url_based_detection(t *testing.T) {
 		},
 	})
 
-	sr, err := StatusClaudeDesktop(configPath)
+	sr, err := statusClaudeDesktop(configPath)
 	require.NoError(t, err)
 	assert.Len(t, sr.Servers, 2)
 
@@ -223,7 +223,7 @@ func TestUninstallClaudeDesktop__removes_custom_named_servers(t *testing.T) {
 		},
 	})
 
-	err := UninstallClaudeDesktop(configPath)
+	err := uninstallClaudeDesktop(configPath)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -247,7 +247,7 @@ func TestInstallClaudeDesktop__replaces_custom_named_servers(t *testing.T) {
 		},
 	})
 
-	err := InstallClaudeDesktop(configPath, "bm_new_content", "bm_new_prompts")
+	err := installClaudeDesktop(configPath, "bm_new_content", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -276,7 +276,7 @@ func TestExtractClaudeDesktopPATs__custom_named_servers(t *testing.T) {
 		},
 	})
 
-	contentPAT, promptPAT := ExtractClaudeDesktopPATs(configPath)
+	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
 	assert.Equal(t, "bm_custom_content", contentPAT)
 	assert.Equal(t, "bm_custom_prompts", promptPAT)
 }
@@ -286,7 +286,7 @@ func TestInstallClaudeDesktop__malformed_json_returns_error(t *testing.T) {
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
 
-	err := InstallClaudeDesktop(configPath, "bm_test", "bm_test")
+	err := installClaudeDesktop(configPath, "bm_test", "bm_test")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parsing")
 }
@@ -311,7 +311,7 @@ func TestExtractClaudeDesktopPATs__valid_config(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, config)
 
-	contentPAT, promptPAT := ExtractClaudeDesktopPATs(configPath)
+	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
 	assert.Equal(t, "bm_content123", contentPAT)
 	assert.Equal(t, "bm_prompt456", promptPAT)
 }
@@ -327,13 +327,13 @@ func TestExtractClaudeDesktopPATs__no_tiddly_servers(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, config)
 
-	contentPAT, promptPAT := ExtractClaudeDesktopPATs(configPath)
+	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }
 
 func TestExtractClaudeDesktopPATs__missing_file(t *testing.T) {
-	contentPAT, promptPAT := ExtractClaudeDesktopPATs("/nonexistent/path.json")
+	contentPAT, promptPAT := extractClaudeDesktopPATs("/nonexistent/path.json")
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }
@@ -343,7 +343,7 @@ func TestExtractClaudeDesktopPATs__malformed_file(t *testing.T) {
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
 
-	contentPAT, promptPAT := ExtractClaudeDesktopPATs(configPath)
+	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }

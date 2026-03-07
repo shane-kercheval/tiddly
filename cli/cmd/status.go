@@ -108,7 +108,7 @@ Examples:
 			}
 
 			// --- MCP Servers ---
-			tools := mcp.DetectTools(appDeps.ExecLooker)
+			tools := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
 			projectPathExplicit := cmd.Flags().Changed("project-path")
 			printMCPTree(w, cmd.ErrOrStderr(), tools, resolvedProjectPath, projectPathExplicit)
 
@@ -349,19 +349,15 @@ func printContentCounts(ctx context.Context, w io.Writer, errW io.Writer, client
 }
 
 func getToolStatus(tool mcp.DetectedTool, scope, cwd string) (mcp.StatusResult, error) {
-	rc, err := mcp.ResolveToolConfig(tool.Name, tool.ConfigPath, scope, cwd)
+	handler, ok := mcp.GetHandler(appDeps.handlers(), tool.Name)
+	if !ok {
+		return mcp.StatusResult{}, fmt.Errorf("unknown tool %q", tool.Name)
+	}
+	rc, err := mcp.ResolveToolConfig(handler, tool.ConfigPath, scope, cwd)
 	if err != nil {
 		return mcp.StatusResult{}, err
 	}
-	switch tool.Name {
-	case "claude-desktop":
-		return mcp.StatusClaudeDesktop(rc.Path)
-	case "claude-code":
-		return mcp.StatusClaudeCode(rc)
-	case "codex":
-		return mcp.StatusCodex(rc)
-	}
-	return mcp.StatusResult{}, fmt.Errorf("unknown tool %q", tool.Name)
+	return handler.Status(rc)
 }
 
 // serverDisplayName maps internal server type to a user-friendly label.

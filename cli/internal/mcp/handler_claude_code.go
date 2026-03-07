@@ -32,7 +32,7 @@ func (h *ClaudeCodeHandler) ResolvePath(configPath, scope, cwd string) (string, 
 }
 
 func (h *ClaudeCodeHandler) Install(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, error) {
-	if err := InstallClaudeCode(rc, contentPAT, promptPAT); err != nil {
+	if err := installClaudeCode(rc, contentPAT, promptPAT); err != nil {
 		return nil, err
 	}
 	warnings := []string{
@@ -42,18 +42,18 @@ func (h *ClaudeCodeHandler) Install(rc ResolvedConfig, contentPAT, promptPAT str
 }
 
 func (h *ClaudeCodeHandler) Uninstall(rc ResolvedConfig) error {
-	return UninstallClaudeCode(rc)
+	return uninstallClaudeCode(rc)
 }
 
 func (h *ClaudeCodeHandler) Status(rc ResolvedConfig) (StatusResult, error) {
-	return StatusClaudeCode(rc)
+	return statusClaudeCode(rc)
 }
 
 func (h *ClaudeCodeHandler) DryRun(rc ResolvedConfig, contentPAT, promptPAT string) (string, string, error) {
-	return DryRunClaudeCode(rc, contentPAT, promptPAT)
+	return dryRunClaudeCode(rc, contentPAT, promptPAT)
 }
 
 func (h *ClaudeCodeHandler) ExtractPATs(rc ResolvedConfig) (string, string) {
-	return ExtractClaudeCodePATs(rc)
+	return extractClaudeCodePATs(rc)
 }
 

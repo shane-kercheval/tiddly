@@ -40,3 +40,21 @@ func GetHandler(handlers []ToolHandler, name string) (ToolHandler, bool) {
 	}
 	return nil, false
 }
+
+// DetectAll runs detection for all handlers and returns the results in handler order.
+func DetectAll(handlers []ToolHandler, looker ExecLooker) []DetectedTool {
+	tools := make([]DetectedTool, len(handlers))
+	for i, h := range handlers {
+		tools[i] = h.Detect(looker)
+	}
+	return tools
+}
+
+// ValidToolNames returns the names of all handlers in order.
+func ValidToolNames(handlers []ToolHandler) []string {
+	names := make([]string, len(handlers))
+	for i, h := range handlers {
+		names[i] = h.Name()
+	}
+	return names
+}

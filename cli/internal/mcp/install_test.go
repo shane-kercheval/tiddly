@@ -52,6 +52,7 @@ func TestRunInstall__oauth_creates_pats_with_unique_names(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
 		Output:   stdout,
@@ -117,6 +118,7 @@ func TestRunInstall__oauth_reuses_valid_existing_pat(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
 		Output:   stdout,
@@ -179,6 +181,7 @@ func TestRunInstall__oauth_creates_new_pat_when_existing_invalid(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
 		Output:   stdout,
@@ -204,6 +207,7 @@ func TestRunInstall__pat_reuses_token(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:    client,
 		AuthType:  "pat",
 		Output:    stdout,
@@ -250,6 +254,7 @@ func TestRunInstall__dry_run_no_token_creation(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
 		DryRun:   true,
@@ -280,6 +285,7 @@ func TestRunInstall__dry_run_pat_auth_shows_diff(t *testing.T) {
 	}
 
 	_, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
 		DryRun:   true,
@@ -329,6 +335,7 @@ func TestRunInstall__servers_content_only(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
 		Servers:  []string{"content"},
@@ -359,6 +366,7 @@ func TestRunInstall__servers_prompts_only(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
 		Servers:  []string{"prompts"},
@@ -384,6 +392,7 @@ func TestRunInstall__skips_uninstalled_tools(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
 		Output:   stdout,
@@ -407,6 +416,7 @@ func TestRunInstall__malformed_config_returns_parse_error(t *testing.T) {
 	}
 
 	_, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:    client,
 		AuthType:  "pat",
 		Output:    stdout,
@@ -431,6 +441,7 @@ func TestRunInstall__unsupported_scope_returns_error(t *testing.T) {
 	}
 
 	_, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
 		Scope:    "local",
@@ -625,7 +636,7 @@ func TestDeleteTokensByPrefix__partial_failure_returns_deleted_and_error(t *test
 	assert.Contains(t, err.Error(), "cli-mcp-claude-code-prompts-d4e5f6")
 }
 
-func TestExtractPATsFromTool__claude_desktop(t *testing.T) {
+func TestExtractPATs__claude_desktop_handler(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -643,17 +654,17 @@ func TestExtractPATsFromTool__claude_desktop(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, config)
 
-	tool := DetectedTool{Name: "claude-desktop", ConfigPath: configPath}
+	h := &ClaudeDesktopHandler{}
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	contentPAT, promptPAT := ExtractPATsFromTool(tool, rc)
+	contentPAT, promptPAT := h.ExtractPATs(rc)
 	assert.Equal(t, "bm_content123", contentPAT)
 	assert.Equal(t, "bm_prompt456", promptPAT)
 }
 
-func TestExtractPATsFromTool__missing_config(t *testing.T) {
-	tool := DetectedTool{Name: "claude-desktop", ConfigPath: "/nonexistent/path.json"}
+func TestExtractPATs__missing_config(t *testing.T) {
+	h := &ClaudeDesktopHandler{}
 	rc := ResolvedConfig{Path: "/nonexistent/path.json", Scope: "user"}
-	contentPAT, promptPAT := ExtractPATsFromTool(tool, rc)
+	contentPAT, promptPAT := h.ExtractPATs(rc)
 	assert.Empty(t, contentPAT)
 	assert.Empty(t, promptPAT)
 }
@@ -674,6 +685,7 @@ func TestInstallTool__claude_code_project_scope_malformed_returns_error(t *testi
 	}
 
 	_, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:    client,
 		AuthType:  "pat",
 		Scope:     "project",
@@ -703,6 +715,7 @@ func TestDryRunTool__claude_code_project_scope_shows_correct_path(t *testing.T) 
 	}
 
 	_, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
 		DryRun:   true,
@@ -733,6 +746,7 @@ func TestRunInstall__valid_config_creates_backup_before_writing(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
 		Output:   stdout,
@@ -767,7 +781,8 @@ func TestRunUninstall__valid_config_creates_backup_before_writing(t *testing.T) 
 	}
 	writeTestJSON(t, configPath, existingConfig)
 
-	err := UninstallClaudeDesktop(configPath)
+	h := &ClaudeDesktopHandler{}
+	err := h.Uninstall(ResolvedConfig{Path: configPath, Scope: "user"})
 	require.NoError(t, err)
 
 	// Backup should exist with the original content (including the tiddly server)
@@ -788,6 +803,7 @@ func TestRunInstall__no_existing_file_does_not_create_backup(t *testing.T) {
 	}
 
 	result, err := RunInstall(InstallOpts{
+		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
 		Output:   stdout,

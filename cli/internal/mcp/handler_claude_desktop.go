@@ -48,7 +48,7 @@ func (h *ClaudeDesktopHandler) ResolvePath(configPath, _, _ string) (string, err
 }
 
 func (h *ClaudeDesktopHandler) Install(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, error) {
-	if err := InstallClaudeDesktop(rc.Path, contentPAT, promptPAT); err != nil {
+	if err := installClaudeDesktop(rc.Path, contentPAT, promptPAT); err != nil {
 		return nil, err
 	}
 	var warnings []string
@@ -63,17 +63,17 @@ func (h *ClaudeDesktopHandler) Install(rc ResolvedConfig, contentPAT, promptPAT 
 }
 
 func (h *ClaudeDesktopHandler) Uninstall(rc ResolvedConfig) error {
-	return UninstallClaudeDesktop(rc.Path)
+	return uninstallClaudeDesktop(rc.Path)
 }
 
 func (h *ClaudeDesktopHandler) Status(rc ResolvedConfig) (StatusResult, error) {
-	return StatusClaudeDesktop(rc.Path)
+	return statusClaudeDesktop(rc.Path)
 }
 
 func (h *ClaudeDesktopHandler) DryRun(rc ResolvedConfig, contentPAT, promptPAT string) (string, string, error) {
-	return DryRunClaudeDesktop(rc.Path, contentPAT, promptPAT)
+	return dryRunClaudeDesktop(rc.Path, contentPAT, promptPAT)
 }
 
 func (h *ClaudeDesktopHandler) ExtractPATs(rc ResolvedConfig) (string, string) {
-	return ExtractClaudeDesktopPATs(rc.Path)
+	return extractClaudeDesktopPATs(rc.Path)
 }

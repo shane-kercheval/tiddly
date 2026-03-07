@@ -50,7 +50,7 @@ func (h *CodexHandler) ResolvePath(configPath, scope, cwd string) (string, error
 }
 
 func (h *CodexHandler) Install(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, error) {
-	if err := InstallCodex(rc, contentPAT, promptPAT); err != nil {
+	if err := installCodex(rc, contentPAT, promptPAT); err != nil {
 		return nil, err
 	}
 	warnings := []string{
@@ -60,18 +60,18 @@ func (h *CodexHandler) Install(rc ResolvedConfig, contentPAT, promptPAT string, 
 }
 
 func (h *CodexHandler) Uninstall(rc ResolvedConfig) error {
-	return UninstallCodex(rc)
+	return uninstallCodex(rc)
 }
 
 func (h *CodexHandler) Status(rc ResolvedConfig) (StatusResult, error) {
-	return StatusCodex(rc)
+	return statusCodex(rc)
 }
 
 func (h *CodexHandler) DryRun(rc ResolvedConfig, contentPAT, promptPAT string) (string, string, error) {
-	return DryRunCodex(rc, contentPAT, promptPAT)
+	return dryRunCodex(rc, contentPAT, promptPAT)
 }
 
 func (h *CodexHandler) ExtractPATs(rc ResolvedConfig) (string, string) {
-	return ExtractCodexPATs(rc)
+	return extractCodexPATs(rc)
 }
 

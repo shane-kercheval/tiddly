@@ -98,9 +98,9 @@ func removeDesktopServersByTiddlyURL(servers map[string]any) bool {
 	return removed
 }
 
-// InstallClaudeDesktop writes MCP server entries into the Claude Desktop config.
+// installClaudeDesktop writes MCP server entries into the Claude Desktop config.
 // Preserves all existing config and servers.
-func InstallClaudeDesktop(configPath, contentPAT, promptPAT string) error {
+func installClaudeDesktop(configPath, contentPAT, promptPAT string) error {
 	config, err := buildClaudeDesktopConfig(configPath, contentPAT, promptPAT)
 	if err != nil {
 		return err
@@ -108,9 +108,9 @@ func InstallClaudeDesktop(configPath, contentPAT, promptPAT string) error {
 	return writeJSONConfig(configPath, config)
 }
 
-// UninstallClaudeDesktop removes tiddly MCP server entries from the config.
+// uninstallClaudeDesktop removes tiddly MCP server entries from the config.
 // Identifies servers by URL in args, not by name, so custom-named entries are also removed.
-func UninstallClaudeDesktop(configPath string) error {
+func uninstallClaudeDesktop(configPath string) error {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -132,10 +132,10 @@ func UninstallClaudeDesktop(configPath string) error {
 	return writeJSONConfig(configPath, config)
 }
 
-// StatusClaudeDesktop returns tiddly MCP servers configured in Claude Desktop.
+// statusClaudeDesktop returns tiddly MCP servers configured in Claude Desktop.
 // Identifies servers by URL in args. Entries under canonical names are tagged MatchByName;
 // entries under other names are tagged MatchByURL.
-func StatusClaudeDesktop(configPath string) (StatusResult, error) {
+func statusClaudeDesktop(configPath string) (StatusResult, error) {
 	result := StatusResult{ConfigPath: configPath}
 
 	config, err := readJSONConfig(configPath)
@@ -193,8 +193,8 @@ func StatusClaudeDesktop(configPath string) (StatusResult, error) {
 	return result, nil
 }
 
-// DryRunClaudeDesktop returns the config that would be written without writing it.
-func DryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, after string, err error) {
+// dryRunClaudeDesktop returns the config that would be written without writing it.
+func dryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, after string, err error) {
 	// Capture before state
 	existing, readErr := readJSONConfig(configPath)
 	if readErr != nil && !os.IsNotExist(readErr) {
@@ -217,10 +217,10 @@ func DryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, afte
 	return before, after, nil
 }
 
-// ExtractClaudeDesktopPATs reads the Claude Desktop config and extracts the Bearer tokens
+// extractClaudeDesktopPATs reads the Claude Desktop config and extracts the Bearer tokens
 // for the tiddly MCP servers. Identifies servers by URL in args, not by name.
 // Returns empty strings on any parse error (best-effort).
-func ExtractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) {
+func extractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		return "", ""

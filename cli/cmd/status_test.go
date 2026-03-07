@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/auth"
-	"github.com/shane-kercheval/tiddly/cli/internal/mcp"
 	"github.com/shane-kercheval/tiddly/cli/internal/skills"
 	"github.com/shane-kercheval/tiddly/cli/internal/testutil"
 	"github.com/spf13/viper"
@@ -122,9 +121,6 @@ func TestStatus__shows_tree_output(t *testing.T) {
 	}`
 	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
 
-	cleanup := mcp.SetConfigPathOverride("claude-code", configPath)
-	t.Cleanup(cleanup)
-
 	store := testutil.NewMockCredStore()
 	viper.Reset()
 	tm := auth.NewTokenManager(store, nil)
@@ -137,6 +133,7 @@ func TestStatus__shows_tree_output(t *testing.T) {
 		TokenManager: tm,
 		ConfigDir:    "",
 		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
 	})
 	t.Cleanup(func() {
 		appDeps = nil

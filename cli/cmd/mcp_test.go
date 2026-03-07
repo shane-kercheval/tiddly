@@ -75,7 +75,7 @@ func TestMCPInstall__happy_path_with_pat(t *testing.T) {
 	looker := testutil.NewMockExecLooker()
 	looker.Paths["npx"] = "/usr/bin/npx"
 
-	// Override DetectTools via a custom looker that uses our temp dir
+	// Override detection via a custom looker that uses our temp dir
 	SetDeps(&AppDeps{
 		CredStore:    store,
 		TokenManager: tm,
@@ -91,7 +91,7 @@ func TestMCPInstall__happy_path_with_pat(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "claude-desktop")
 
 	// PAT auth can't detect the temp config dir via the normal path, so the tool
-	// won't be found. This is expected because DetectTools uses OS-specific paths.
+	// won't be found. This is expected because detection uses OS-specific paths.
 	// Instead, test the dry-run path via the install_test.go unit tests.
 	// This test just verifies the command wiring doesn't panic.
 	_ = result
@@ -188,9 +188,6 @@ func TestMCPStatus__shows_config_path_for_configured_tool(t *testing.T) {
 	}`
 	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
 
-	cleanup := mcp.SetConfigPathOverride("claude-code", configPath)
-	t.Cleanup(cleanup)
-
 	store := testutil.NewMockCredStore()
 	viper.Reset()
 	tm := auth.NewTokenManager(store, nil)
@@ -203,6 +200,7 @@ func TestMCPStatus__shows_config_path_for_configured_tool(t *testing.T) {
 		TokenManager: tm,
 		ConfigDir:    "",
 		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
 	})
 	t.Cleanup(func() {
 		appDeps = nil
@@ -263,10 +261,6 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 	}`
 	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
 
-	// Override config path so DetectTools returns the temp path instead of ~/.claude.json
-	cleanup := mcp.SetConfigPathOverride("claude-code", configPath)
-	t.Cleanup(cleanup)
-
 	var deletedTokenIDs []string
 	mock := testutil.NewMockAPI(t)
 	mock.On("GET", "/tokens/").
@@ -301,6 +295,7 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 		TokenManager: tm,
 		ConfigDir:    "",
 		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
 	})
 	t.Cleanup(func() {
 		appDeps = nil
@@ -391,16 +386,15 @@ func TestMCPInstall__scope_local_with_multiple_tools_fails_before_any_install(t 
 	looker.Paths["codex"] = "/usr/bin/codex"
 
 	dir := t.TempDir()
-	cleanupCC := mcp.SetConfigPathOverride("claude-code", filepath.Join(dir, "claude.json"))
-	defer cleanupCC()
-	cleanupCX := mcp.SetConfigPathOverride("codex", filepath.Join(dir, "codex-config.toml"))
-	defer cleanupCX()
-
 	SetDeps(&AppDeps{
 		CredStore:    store,
 		TokenManager: tm,
 		ConfigDir:    "",
 		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverrides(map[string]string{
+			"claude-code": filepath.Join(dir, "claude.json"),
+			"codex":       filepath.Join(dir, "codex-config.toml"),
+		}),
 	})
 	t.Cleanup(func() {
 		appDeps = nil
@@ -510,4 +504,28 @@ type fixedDesktopLooker struct {
 
 func (f *fixedDesktopLooker) LookPath(file string) (string, error) {
 	return f.inner.LookPath(file)
+}
+
+// handlersWithOverride returns DefaultHandlers with a ConfigPathOverride set for the named tool.
+func handlersWithOverride(toolName, configPath string) []mcp.ToolHandler {
+	return handlersWithOverrides(map[string]string{toolName: configPath})
+}
+
+// handlersWithOverrides returns DefaultHandlers with ConfigPathOverride set for multiple tools.
+func handlersWithOverrides(overrides map[string]string) []mcp.ToolHandler {
+	handlers := mcp.DefaultHandlers()
+	for i, h := range handlers {
+		if path, ok := overrides[h.Name()]; ok {
+			switch v := h.(type) {
+			case *mcp.ClaudeDesktopHandler:
+				v.ConfigPathOverride = path
+			case *mcp.ClaudeCodeHandler:
+				v.ConfigPathOverride = path
+			case *mcp.CodexHandler:
+				v.ConfigPathOverride = path
+			}
+			handlers[i] = h
+		}
+	}
+	return handlers
 }

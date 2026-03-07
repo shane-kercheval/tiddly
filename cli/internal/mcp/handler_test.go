@@ -204,9 +204,7 @@ func TestCodexHandler__extract_pats_no_config(t *testing.T) {
 	assert.Empty(t, prompt)
 }
 
-func TestHandlerDetect__matches_legacy_DetectTools(t *testing.T) {
-	// Verify that handler-based detection produces the same results as
-	// the legacy DetectTools function for the simple case of no tools installed.
+func TestDetectAll__returns_results_in_handler_order(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -214,16 +212,16 @@ func TestHandlerDetect__matches_legacy_DetectTools(t *testing.T) {
 	looker.paths["claude"] = "/usr/bin/claude"
 	looker.paths["npx"] = "/usr/bin/npx"
 
-	legacyTools := DetectTools(looker)
 	handlers := DefaultHandlers()
+	tools := DetectAll(handlers, looker)
 
+	require.Len(t, tools, len(handlers))
 	for i, h := range handlers {
-		handlerTool := h.Detect(looker)
-		legacy := legacyTools[i]
-
-		assert.Equal(t, legacy.Name, handlerTool.Name, "name mismatch for %s", h.Name())
-		assert.Equal(t, legacy.Installed, handlerTool.Installed, "installed mismatch for %s", h.Name())
-		assert.Equal(t, legacy.Reason, handlerTool.Reason, "reason mismatch for %s", h.Name())
-		assert.Equal(t, legacy.HasNpx, handlerTool.HasNpx, "hasNpx mismatch for %s", h.Name())
+		assert.Equal(t, h.Name(), tools[i].Name, "tool at index %d should match handler name", i)
 	}
+}
+
+func TestValidToolNames(t *testing.T) {
+	names := ValidToolNames(DefaultHandlers())
+	assert.Equal(t, []string{"claude-desktop", "claude-code", "codex"}, names)
 }

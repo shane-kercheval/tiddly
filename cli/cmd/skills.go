@@ -86,7 +86,7 @@ Examples:
 				tools = args
 			} else {
 				// Auto-detect installed tools
-				detected := mcp.DetectTools(appDeps.ExecLooker)
+				detected := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
 				for _, t := range detected {
 					if t.Installed {
 						tools = append(tools, t.Name)

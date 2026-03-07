@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var validTools = []string{"claude-desktop", "claude-code", "codex"}
 
 // validScopes is the flat list of all known scopes, used for early typo rejection
 // before per-tool validation in ResolveToolConfig.
@@ -63,7 +62,7 @@ Examples:
   tiddly mcp install claude-code          Install for a specific tool
   tiddly mcp install --dry-run            Preview changes without writing
   tiddly mcp install --servers content    Install only the content server`,
-		ValidArgs: validTools,
+		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateScope(scope); err != nil {
 				return err
@@ -85,14 +84,16 @@ Examples:
 			client.Stderr = cmd.ErrOrStderr()
 
 			// Detect or filter tools
-			allTools := mcp.DetectTools(appDeps.ExecLooker)
+			handlers := appDeps.handlers()
+			toolNames := mcp.ValidToolNames(handlers)
+			allTools := mcp.DetectAll(handlers, appDeps.ExecLooker)
 			var targetTools []mcp.DetectedTool
 
 			if len(args) > 0 {
 				// Specific tools requested
 				for _, arg := range args {
-					if !isValidTool(arg) {
-						return fmt.Errorf("unknown tool %q. Valid tools: %s", arg, strings.Join(validTools, ", "))
+					if !isValidTool(arg, toolNames) {
+						return fmt.Errorf("unknown tool %q. Valid tools: %s", arg, strings.Join(toolNames, ", "))
 					}
 					for _, t := range allTools {
 						if t.Name == arg {
@@ -135,7 +136,7 @@ Examples:
 
 			if len(targetTools) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No AI tools detected on this system.")
-				fmt.Fprintln(cmd.OutOrStdout(), "Supported tools: "+strings.Join(validTools, ", "))
+				fmt.Fprintln(cmd.OutOrStdout(), "Supported tools: "+strings.Join(toolNames, ", "))
 				return nil
 			}
 
@@ -152,6 +153,7 @@ Examples:
 			opts := mcp.InstallOpts{
 				Ctx:       cmd.Context(),
 				Client:    client,
+				Handlers:  handlers,
 				AuthType:  result.AuthType,
 				DryRun:    dryRun,
 				Scope:     scope,
@@ -242,7 +244,7 @@ Examples:
 			}
 
 			w := cmd.OutOrStdout()
-			tools := mcp.DetectTools(appDeps.ExecLooker)
+			tools := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
 			projectPathExplicit := cmd.Flags().Changed("project-path")
 			printMCPTree(w, cmd.ErrOrStderr(), tools, resolvedProjectPath, projectPathExplicit)
 
@@ -277,21 +279,27 @@ Examples:
   tiddly mcp uninstall claude-code --delete-tokens   Remove entries and revoke PATs
   tiddly mcp uninstall codex --scope project         Remove from project config`,
 		Args:      cobra.ExactArgs(1),
-		ValidArgs: validTools,
+		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateScope(scope); err != nil {
 				return err
 			}
 
+			handlers := appDeps.handlers()
+			toolNames := mcp.ValidToolNames(handlers)
 			toolName := args[0]
-			if !isValidTool(toolName) {
-				return fmt.Errorf("unknown tool %q. Valid tools: %s", toolName, strings.Join(validTools, ", "))
+			if !isValidTool(toolName, toolNames) {
+				return fmt.Errorf("unknown tool %q. Valid tools: %s", toolName, strings.Join(toolNames, ", "))
 			}
 
-			tools := mcp.DetectTools(appDeps.ExecLooker)
+			handler, ok := mcp.GetHandler(handlers, toolName)
+			if !ok {
+				return fmt.Errorf("no handler for %q", toolName)
+			}
+			allTools := mcp.DetectAll(handlers, appDeps.ExecLooker)
 
 			var tool *mcp.DetectedTool
-			for _, t := range tools {
+			for _, t := range allTools {
 				if t.Name == toolName {
 					tool = &t
 					break
@@ -307,7 +315,7 @@ Examples:
 				return err
 			}
 
-			rc, err := mcp.ResolveToolConfig(tool.Name, tool.ConfigPath, scope, cwd)
+			rc, err := mcp.ResolveToolConfig(handler, tool.ConfigPath, scope, cwd)
 			if err != nil {
 				return err
 			}
@@ -315,7 +323,7 @@ Examples:
 			// Extract PATs from config BEFORE removing entries
 			var extractedPATs []string
 			if deleteTokens {
-				contentPAT, promptPAT := mcp.ExtractPATsFromTool(*tool, rc)
+				contentPAT, promptPAT := handler.ExtractPATs(rc)
 				if contentPAT != "" {
 					extractedPATs = append(extractedPATs, contentPAT)
 				}
@@ -325,19 +333,8 @@ Examples:
 			}
 
 			// Remove config entries
-			switch toolName {
-			case "claude-desktop":
-				if err := mcp.UninstallClaudeDesktop(rc.Path); err != nil {
-					return err
-				}
-			case "claude-code":
-				if err := mcp.UninstallClaudeCode(rc); err != nil {
-					return err
-				}
-			case "codex":
-				if err := mcp.UninstallCodex(rc); err != nil {
-					return err
-				}
+			if err := handler.Uninstall(rc); err != nil {
+				return err
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Removed Tiddly MCP servers from %s.\n", toolName)
@@ -388,8 +385,8 @@ func getWorkingDir() (string, error) {
 	return cwd, nil
 }
 
-func isValidTool(name string) bool {
-	for _, t := range validTools {
+func isValidTool(name string, toolNames []string) bool {
+	for _, t := range toolNames {
 		if t == name {
 			return true
 		}

@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 )
 
-// ExtractClaudeCodePATs reads the Claude Code config and extracts the Bearer tokens
+// extractClaudeCodePATs reads the Claude Code config and extracts the Bearer tokens
 // for the tiddly MCP servers. Identifies servers by URL, not by name.
 // Returns empty strings on any parse error (best-effort).
-func ExtractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
+func extractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		return "", ""
@@ -171,7 +171,7 @@ func buildClaudeCodeServers(contentPAT, promptPAT string) map[string]any {
 
 // buildClaudeCodeConfig reads the existing config and merges in the tiddly MCP server entries.
 // Removes any existing entries pointing to tiddly URLs (regardless of key name) before adding
-// new entries under canonical names. Used by both InstallClaudeCode and DryRunClaudeCode.
+// new entries under canonical names. Used by both installClaudeCode and dryRunClaudeCode.
 func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map[string]any, error) {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
@@ -219,8 +219,8 @@ func removeJSONServersByTiddlyURL(servers map[string]any) bool {
 	return removed
 }
 
-// InstallClaudeCode writes MCP server entries into the Claude Code config.
-func InstallClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
+// installClaudeCode writes MCP server entries into the Claude Code config.
+func installClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
 	config, err := buildClaudeCodeConfig(rc, contentPAT, promptPAT)
 	if err != nil {
 		return err
@@ -228,9 +228,9 @@ func InstallClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
 	return writeJSONConfig(rc.Path, config)
 }
 
-// UninstallClaudeCode removes tiddly MCP server entries from the Claude Code config.
+// uninstallClaudeCode removes tiddly MCP server entries from the Claude Code config.
 // Identifies servers by URL, not by name, so custom-named entries are also removed.
-func UninstallClaudeCode(rc ResolvedConfig) error {
+func uninstallClaudeCode(rc ResolvedConfig) error {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -253,10 +253,10 @@ func UninstallClaudeCode(rc ResolvedConfig) error {
 	return writeJSONConfig(rc.Path, config)
 }
 
-// StatusClaudeCode returns tiddly MCP servers configured in Claude Code.
+// statusClaudeCode returns tiddly MCP servers configured in Claude Code.
 // Identifies servers by URL. Entries under canonical names are tagged MatchByName;
 // entries under other names are tagged MatchByURL.
-func StatusClaudeCode(rc ResolvedConfig) (StatusResult, error) {
+func statusClaudeCode(rc ResolvedConfig) (StatusResult, error) {
 	result := StatusResult{ConfigPath: rc.Path}
 
 	config, err := readJSONConfig(rc.Path)
@@ -308,8 +308,8 @@ func StatusClaudeCode(rc ResolvedConfig) (StatusResult, error) {
 	return result, nil
 }
 
-// DryRunClaudeCode returns the config that would be written without writing it.
-func DryRunClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error) {
+// dryRunClaudeCode returns the config that would be written without writing it.
+func dryRunClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error) {
 	// Capture before state
 	existing, readErr := readJSONConfig(rc.Path)
 	if readErr != nil && !os.IsNotExist(readErr) {
