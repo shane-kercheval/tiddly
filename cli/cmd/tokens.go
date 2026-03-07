@@ -9,7 +9,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
-	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -40,9 +39,6 @@ Token management requires OAuth login (browser-based). PAT authentication is not
 func resolveOAuthToken(cmd *cobra.Command) (*api.Client, error) {
 	result, err := appDeps.TokenManager.ResolveToken(flagToken, true)
 	if err != nil {
-		if errors.Is(err, auth.ErrNotLoggedIn) {
-			return nil, fmt.Errorf("not logged in. Run 'tiddly login' first")
-		}
 		return nil, err
 	}
 

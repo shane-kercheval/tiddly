@@ -2,14 +2,12 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
-	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/shane-kercheval/tiddly/cli/internal/mcp"
 	"github.com/shane-kercheval/tiddly/cli/internal/skills"
 	"github.com/spf13/cobra"
@@ -77,9 +75,6 @@ Examples:
 			// Resolve auth
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
 			if err != nil {
-				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not logged in. Run 'tiddly login' first")
-				}
 				return err
 			}
 
@@ -180,9 +175,6 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
 			if err != nil {
-				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not logged in. Run 'tiddly login' first")
-				}
 				return err
 			}
 
@@ -229,16 +221,24 @@ Examples:
 	return cmd
 }
 
-// parseTags splits a comma-separated tag string into a trimmed slice.
+// parseTags splits a comma-separated tag string into a trimmed slice,
+// filtering out empty strings from trailing commas or whitespace-only entries.
 func parseTags(csv string) []string {
 	if csv == "" {
 		return nil
 	}
 	parts := strings.Split(csv, ",")
-	for i, t := range parts {
-		parts[i] = strings.TrimSpace(t)
+	var result []string
+	for _, t := range parts {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			result = append(result, t)
+		}
 	}
-	return parts
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // projectMarkers are directories that indicate the CWD is a project root.

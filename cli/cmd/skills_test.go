@@ -306,6 +306,27 @@ func TestSkillsList__not_logged_in(t *testing.T) {
 	assert.Contains(t, result.Err.Error(), "not logged in")
 }
 
+func TestParseTags(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"", nil},
+		{"skill", []string{"skill"}},
+		{"skill,test", []string{"skill", "test"}},
+		{" skill , test ", []string{"skill", "test"}},
+		{"skill,", []string{"skill"}},    // trailing comma → filter empty
+		{",", nil},                       // only comma → nil
+		{",,skill,,", []string{"skill"}}, // multiple empties filtered
+		{"a, ,b", []string{"a", "b"}}, // whitespace-only entry filtered
+	}
+
+	for _, tc := range tests {
+		result := parseTags(tc.input)
+		assert.Equal(t, tc.expected, result, "input: %q", tc.input)
+	}
+}
+
 func TestSkillsHelp(t *testing.T) {
 	cmd := newRootCmd()
 	result := testutil.ExecuteCmd(t, cmd, "skills", "--help")

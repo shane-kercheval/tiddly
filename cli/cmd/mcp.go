@@ -1,13 +1,11 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
-	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/shane-kercheval/tiddly/cli/internal/mcp"
 	"github.com/spf13/cobra"
 )
@@ -80,9 +78,6 @@ Examples:
 			// Resolve auth — prefer OAuth for token creation
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, true)
 			if err != nil {
-				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not logged in. Run 'tiddly login' first")
-				}
 				return err
 			}
 
@@ -354,7 +349,7 @@ Examples:
 						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Some tokens could not be deleted: %v\n", delErr)
 					}
 				} else if !deleteTokens {
-					orphaned, orphanErr := mcp.CheckOrphanedTokens(cmd.Context(), client)
+					orphaned, orphanErr := mcp.CheckOrphanedTokens(cmd.Context(), client, toolName)
 					if orphanErr == nil && len(orphaned) > 0 {
 						fmt.Fprintf(cmd.ErrOrStderr(),
 							"Warning: PATs created for %s may still exist: %s\n", toolName, strings.Join(orphaned, ", "))

@@ -1,13 +1,11 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
-	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/shane-kercheval/tiddly/cli/internal/export"
 	"github.com/spf13/cobra"
 )
@@ -43,9 +41,6 @@ Examples:
 			// Resolve auth
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
 			if err != nil {
-				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not logged in. Run 'tiddly login' first")
-				}
 				return err
 			}
 

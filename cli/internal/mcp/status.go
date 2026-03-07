@@ -44,7 +44,7 @@ func urlPrefix(rawURL string) string {
 	if err != nil || u.Host == "" {
 		return rawURL
 	}
-	return u.Scheme + "://" + u.Host + u.Path
+	return u.Scheme + "://" + u.Host + strings.TrimSuffix(u.Path, "/")
 }
 
 // urlMatchesPrefix parses candidateURL and checks if its scheme+host+path

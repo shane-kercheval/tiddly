@@ -18,6 +18,8 @@ func TestUrlPrefix(t *testing.T) {
 		{"different path", "https://content-mcp.tiddly.me/other", "https://content-mcp.tiddly.me/other"},
 		{"no path", "https://content-mcp.tiddly.me", "https://content-mcp.tiddly.me"},
 		{"invalid URL", "not-a-url", "not-a-url"},
+		{"trailing slash stripped", "https://content-mcp.tiddly.me/mcp/", "https://content-mcp.tiddly.me/mcp"},
+		{"root trailing slash", "https://content-mcp.tiddly.me/", "https://content-mcp.tiddly.me"},
 	}
 
 	for _, tt := range tests {
@@ -32,6 +34,7 @@ func TestUrlMatchesPrefix(t *testing.T) {
 
 	assert.True(t, urlMatchesPrefix("https://content-mcp.tiddly.me/mcp", pattern))
 	assert.True(t, urlMatchesPrefix("https://content-mcp.tiddly.me/mcp?key=val", pattern))
+	assert.True(t, urlMatchesPrefix("https://content-mcp.tiddly.me/mcp/", pattern), "trailing slash should match")
 	assert.False(t, urlMatchesPrefix("https://content-mcp.tiddly.me/other", pattern))
 	assert.False(t, urlMatchesPrefix("https://content-mcp.tiddly.me.evil.com/mcp", pattern))
 	assert.False(t, urlMatchesPrefix("http://content-mcp.tiddly.me/mcp", pattern), "scheme mismatch")

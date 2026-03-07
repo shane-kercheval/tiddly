@@ -324,16 +324,19 @@ func printDiff(w io.Writer, path, before, after string) {
 	fmt.Fprintln(w, after)
 }
 
-// CheckOrphanedTokens checks for cli-mcp-* tokens that may be orphaned after uninstall.
-func CheckOrphanedTokens(ctx context.Context, client *api.Client) ([]string, error) {
+// CheckOrphanedTokens checks for cli-mcp-{toolName}-* tokens that may be orphaned after uninstall.
+// Only returns tokens whose name matches the given tool, so uninstalling one tool
+// doesn't report another tool's tokens.
+func CheckOrphanedTokens(ctx context.Context, client *api.Client, toolName string) ([]string, error) {
 	tokens, err := client.ListTokens(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	prefix := fmt.Sprintf("%s%s-", tokenNamePrefix, toolName)
 	var orphaned []string
 	for _, t := range tokens {
-		if strings.HasPrefix(t.Name, tokenNamePrefix) {
+		if strings.HasPrefix(t.Name, prefix) {
 			orphaned = append(orphaned, t.Name)
 		}
 	}

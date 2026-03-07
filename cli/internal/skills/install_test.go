@@ -294,6 +294,48 @@ func TestInstall__claude_desktop_project_scope_error(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not support --scope project")
 }
 
+func TestExtractTarGz__skips_symlinks(t *testing.T) {
+	// Build a tar.gz with a symlink entry and a regular file
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	// Add a symlink entry
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name:     "evil-link",
+		Typeflag: tar.TypeSymlink,
+		Linkname: "/etc/passwd",
+	}))
+
+	// Add a regular file
+	content := []byte("safe content")
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name:     "safe-skill/SKILL.md",
+		Mode:     0644,
+		Size:     int64(len(content)),
+		Typeflag: tar.TypeReg,
+	}))
+	_, err := tw.Write(content)
+	require.NoError(t, err)
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	destDir := t.TempDir()
+	count, err := extractTarGz(buf.Bytes(), destDir)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "should only count the regular file")
+
+	// Verify no symlink was created
+	_, err = os.Lstat(filepath.Join(destDir, "evil-link"))
+	assert.True(t, os.IsNotExist(err), "symlink should not be extracted")
+
+	// Verify regular file was extracted
+	data, err := os.ReadFile(filepath.Join(destDir, "safe-skill", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "safe content", string(data))
+}
+
 func TestInstall__directory_traversal_prevented(t *testing.T) {
 	// Archive with path traversal attempt
 	archive := testutil.CreateTarGz(t, map[string]string{

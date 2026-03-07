@@ -90,11 +90,11 @@ func getMCPServersMap(config map[string]any, scope, cwd string) map[string]any {
 
 // getServersForScope returns the mcpServers map for any scope including "project".
 func getServersForScope(config map[string]any, scope, cwd string) map[string]any {
-	if scope == "project" {
-		servers, _ := config["mcpServers"].(map[string]any)
-		return servers
+	if scope == "local" {
+		return getMCPServersMap(config, scope, cwd)
 	}
-	return getMCPServersMap(config, scope, cwd)
+	servers, _ := config["mcpServers"].(map[string]any)
+	return servers
 }
 
 // setMCPServersMap writes the mcpServers map back into the config at the correct path.
@@ -193,11 +193,7 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 		servers[k] = v
 	}
 
-	if rc.Scope == "project" {
-		config["mcpServers"] = servers
-	} else {
-		setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
-	}
+	setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
 
 	return config, nil
 }
@@ -249,11 +245,7 @@ func UninstallClaudeCode(rc ResolvedConfig) error {
 		return nil
 	}
 
-	if rc.Scope == "project" {
-		config["mcpServers"] = servers
-	} else {
-		setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
-	}
+	setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
 
 	return writeJSONConfig(rc.Path, config)
 }

@@ -441,24 +441,32 @@ func TestRunInstall__unsupported_scope_returns_error(t *testing.T) {
 	assert.Contains(t, err.Error(), "not supported by codex")
 }
 
-func TestCheckOrphanedTokens__finds_mcp_tokens(t *testing.T) {
+func TestCheckOrphanedTokens__finds_mcp_tokens_for_tool(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]api.TokenInfo{
 			{ID: "tok-1", Name: "cli-mcp-claude-code-content-a1b2c3"},
 			{ID: "tok-2", Name: "cli-mcp-claude-code-prompts-d4e5f6"},
-			{ID: "tok-3", Name: "other-token"},
+			{ID: "tok-3", Name: "cli-mcp-codex-content-x1y2z3"},
+			{ID: "tok-4", Name: "other-token"},
 		})
 	}))
 	defer server.Close()
 
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
-	orphaned, err := CheckOrphanedTokens(context.Background(), client)
 
+	// Should only return claude-code tokens
+	orphaned, err := CheckOrphanedTokens(context.Background(), client, "claude-code")
 	require.NoError(t, err)
 	assert.Len(t, orphaned, 2)
-	assert.Contains(t, orphaned[0], "cli-mcp-")
-	assert.Contains(t, orphaned[1], "cli-mcp-")
+	assert.Contains(t, orphaned[0], "cli-mcp-claude-code-")
+	assert.Contains(t, orphaned[1], "cli-mcp-claude-code-")
+
+	// Should only return codex tokens
+	orphaned, err = CheckOrphanedTokens(context.Background(), client, "codex")
+	require.NoError(t, err)
+	assert.Len(t, orphaned, 1)
+	assert.Contains(t, orphaned[0], "cli-mcp-codex-")
 }
 
 func TestCheckOrphanedTokens__no_orphans(t *testing.T) {
@@ -466,12 +474,13 @@ func TestCheckOrphanedTokens__no_orphans(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]api.TokenInfo{
 			{ID: "tok-1", Name: "other-token"},
+			{ID: "tok-2", Name: "cli-mcp-codex-content-a1b2c3"},
 		})
 	}))
 	defer server.Close()
 
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
-	orphaned, err := CheckOrphanedTokens(context.Background(), client)
+	orphaned, err := CheckOrphanedTokens(context.Background(), client, "claude-code")
 
 	require.NoError(t, err)
 	assert.Nil(t, orphaned)

@@ -183,8 +183,8 @@ func extractTarGz(data []byte, destPath string) (int, error) {
 			return 0, fmt.Errorf("reading tar entry: %w", err)
 		}
 
-		// Skip directories
-		if header.Typeflag == tar.TypeDir {
+		// Skip non-regular files (directories, symlinks, etc.) to prevent zip-slip via symlink
+		if !header.FileInfo().Mode().IsRegular() {
 			continue
 		}
 
@@ -216,7 +216,8 @@ func extractZip(data []byte, destPath string) (int, error) {
 
 	count := 0
 	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
+		// Skip non-regular files (directories, symlinks, etc.)
+		if !f.FileInfo().Mode().IsRegular() {
 			continue
 		}
 
