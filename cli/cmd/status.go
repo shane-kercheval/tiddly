@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
 	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/shane-kercheval/tiddly/cli/internal/mcp"
+	"github.com/shane-kercheval/tiddly/cli/internal/skills"
 	"github.com/spf13/cobra"
 )
 
@@ -20,33 +23,34 @@ import (
 var cliVersion = "dev"
 
 func newStatusCmd() *cobra.Command {
-	var scope string
+	var projectPath string
 
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show Tiddly CLI status overview",
-		Long: `Show a summary of CLI version, authentication, API connectivity, content counts, and MCP server configuration.
+		Long: `Show a summary of CLI version, authentication, API connectivity, content counts, MCP server configuration, and installed skills.
 
 Sections displayed:
   Authentication — login status and auth method (OAuth or PAT)
   API            — URL, reachability, and round-trip latency
   Content        — bookmark, note, and prompt counts (fetched in parallel)
-  MCP Servers    — detected tools and whether Tiddly servers are configured
+  MCP Servers    — detected tools with configuration status across all scopes
+  Skills         — installed skills across all tools and scopes
 
 MCP servers are identified by URL, not by config key name. Content counts are only shown when the API is reachable and authenticated.
 
-Use --scope to control which config level is checked for MCP servers:
-  user     Global/user-level config (default)
-  local    Claude Code local config
-  project  Project-level config (.mcp.json in cwd)
+Use --project-path to specify which project directory to inspect for local/project scopes.
+Defaults to the current working directory.
 
 Examples:
-  tiddly status                  Show full status overview
-  tiddly status --scope project  Check project-level MCP config`,
+  tiddly status                                Show full status overview
+  tiddly status --project-path /path/to/project  Check a specific project`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateScope(scope); err != nil {
+			resolvedProjectPath, err := resolveProjectPath(projectPath)
+			if err != nil {
 				return err
 			}
+
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "Tiddly CLI v%s\n", cliVersion)
 
@@ -104,51 +108,195 @@ Examples:
 			}
 
 			// --- MCP Servers ---
-			fmt.Fprintln(w, "\nMCP Servers:")
 			tools := mcp.DetectTools(appDeps.ExecLooker)
-			cwd, cwdErr := getWorkingDir()
-			if cwdErr != nil {
-				if scope != "user" {
-					return fmt.Errorf("--scope %s requires a working directory: %w", scope, cwdErr)
-				}
-				cwd = "" // non-fatal for global status; ResolveToolConfig handles empty cwd for "user" scope
-			}
+			projectPathExplicit := cmd.Flags().Changed("project-path")
+			printMCPTree(w, cmd.ErrOrStderr(), tools, resolvedProjectPath, projectPathExplicit)
 
-			for _, tool := range tools {
-				if !tool.Installed {
-					fmt.Fprintf(w, "  %-18s Not detected\n", tool.Name+":")
-					continue
-				}
-
-				sr, err := getToolStatus(tool, scope, cwd)
-				if err != nil {
-					fmt.Fprintf(w, "  %-18s Error: %v\n", tool.Name+":", err)
-					continue
-				}
-
-				if len(sr.Servers) == 0 {
-					fmt.Fprintf(w, "  %-18s Detected, not configured\n", tool.Name+":")
-					fmt.Fprintf(w, "  %-18s %s\n", "", sr.ConfigPath)
-					hint := fmt.Sprintf("tiddly mcp install %s", tool.Name)
-					if scope != "user" {
-						hint += " --scope " + scope
-					}
-					fmt.Fprintf(cmd.ErrOrStderr(), "    Run '%s' to configure.\n", hint)
-				} else {
-					labels := formatServerLabels(sr.Servers)
-					fmt.Fprintf(w, "  %-18s Configured (%s)\n", tool.Name+":", strings.Join(labels, ", "))
-					if tool.Name == "claude-desktop" && !tool.HasNpx {
-						fmt.Fprintf(cmd.ErrOrStderr(), "  Warning: npx not found in PATH\n")
-					}
-				}
-			}
+			// --- Skills ---
+			printSkillsSection(w, resolvedProjectPath)
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&scope, "scope", "user", `Config scope: user (global), local (claude-code only), or project`)
+	cmd.Flags().StringVar(&projectPath, "project-path", "", "Project directory to inspect for local/project scopes (default: cwd)")
 	return cmd
+}
+
+// resolveProjectPath resolves the --project-path flag to an absolute path.
+// If empty, uses cwd. If cwd is unavailable, returns "".
+func resolveProjectPath(flagValue string) (string, error) {
+	if flagValue != "" {
+		abs, err := filepath.Abs(flagValue)
+		if err != nil {
+			return "", fmt.Errorf("resolving project path: %w", err)
+		}
+		info, err := os.Stat(abs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", fmt.Errorf("project path %q does not exist", flagValue)
+			}
+			return "", fmt.Errorf("project path %q: %w", flagValue, err)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("project path %q is not a directory", flagValue)
+		}
+		return abs, nil
+	}
+	cwd, err := getWorkingDir()
+	if err != nil {
+		return "", nil // non-fatal; local/project scopes will show errors inline
+	}
+	return cwd, nil
+}
+
+// scopeStatus holds the result of checking a single scope for a tool.
+type scopeStatus struct {
+	Scope  string
+	Result mcp.StatusResult
+	Err    error
+}
+
+func getToolStatusAllScopes(tool mcp.DetectedTool, projectPath string) []scopeStatus {
+	scopes := mcp.ToolSupportedScopes(tool.Name)
+	results := make([]scopeStatus, 0, len(scopes))
+	for _, scope := range scopes {
+		sr, err := getToolStatus(tool, scope, projectPath)
+		results = append(results, scopeStatus{Scope: scope, Result: sr, Err: err})
+	}
+	return results
+}
+
+func printMCPTree(w io.Writer, errW io.Writer, tools []mcp.DetectedTool, projectPath string, showProjectPath bool) {
+	if showProjectPath && projectPath != "" {
+		fmt.Fprintf(w, "\nMCP Servers (project: %s):\n", projectPath)
+	} else {
+		fmt.Fprintln(w, "\nMCP Servers:")
+	}
+
+	for _, tool := range tools {
+		if !tool.Installed {
+			fmt.Fprintf(w, "\n  %-18s Not detected\n", tool.Name)
+			continue
+		}
+		printToolTree(w, errW, tool, projectPath)
+	}
+}
+
+func printToolTree(w io.Writer, errW io.Writer, tool mcp.DetectedTool, projectPath string) {
+	fmt.Fprintf(w, "\n  %s\n", tool.Name)
+
+	statuses := getToolStatusAllScopes(tool, projectPath)
+	for i, ss := range statuses {
+		isLast := i == len(statuses)-1
+		connector := "├──"
+		prefix := "│  "
+		if isLast {
+			connector = "└──"
+			prefix = "   "
+		}
+
+		if ss.Err != nil {
+			fmt.Fprintf(w, "  %s %-10s Error: %v\n", connector, ss.Scope, ss.Err)
+			continue
+		}
+
+		configDisplay := displayPath(ss.Result.ConfigPath, projectPath, ss.Scope)
+		if len(ss.Result.Servers) == 0 {
+			fmt.Fprintf(w, "  %s %-10s %s\n", connector, ss.Scope, configDisplay)
+			fmt.Fprintf(w, "  %s           Not configured\n", prefix)
+			hint := fmt.Sprintf("tiddly mcp install %s", tool.Name)
+			if ss.Scope != "user" {
+				hint += " --scope " + ss.Scope
+			}
+			fmt.Fprintf(errW, "  %s           Run '%s' to configure.\n", prefix, hint)
+		} else {
+			labels := formatServerLabels(ss.Result.Servers)
+			fmt.Fprintf(w, "  %s %-10s %s\n", connector, ss.Scope, configDisplay)
+			fmt.Fprintf(w, "  %s           Configured. Installed servers: %s\n", prefix, strings.Join(labels, ", "))
+			if tool.Name == "claude-desktop" && !tool.HasNpx {
+				fmt.Fprintf(errW, "  Warning: npx not found in PATH\n")
+			}
+		}
+	}
+}
+
+// shortenHome replaces the user's home directory prefix with ~.
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
+// displayPath formats a config path for display, shortening the home dir prefix.
+// For local scope, appends the JSON path within the file.
+func displayPath(configPath, projectPath, scope string) string {
+	display := shortenHome(configPath)
+	if scope == "local" && projectPath != "" {
+		display += " → projects[" + shortenHome(projectPath) + "]"
+	}
+	return display
+}
+
+// printSkillsSection renders the Skills tree.
+// NOTE: Skills use "global"/"project" scope terminology (from `tiddly skills install --scope`),
+// while MCP uses "user"/"local"/"project" (from Claude Code's conventions). "user" and "global"
+// refer to the same thing (~/ config). Changing either would break existing CLI contracts.
+func printSkillsSection(w io.Writer, projectPath string) {
+	fmt.Fprintln(w, "\nSkills:")
+	fmt.Fprintln(w, "  Skills directories may include non-Tiddly skills.")
+
+	results := skills.ScanAllSkills(projectPath)
+
+	// Group results by tool, preserving order
+	type toolGroup struct {
+		tool    string
+		scopes []skills.ScanResult
+	}
+	var groups []toolGroup
+	groupIdx := map[string]int{}
+	for _, r := range results {
+		if idx, ok := groupIdx[r.Tool]; ok {
+			groups[idx].scopes = append(groups[idx].scopes, r)
+		} else {
+			groupIdx[r.Tool] = len(groups)
+			groups = append(groups, toolGroup{tool: r.Tool, scopes: []skills.ScanResult{r}})
+		}
+	}
+
+	for _, g := range groups {
+		fmt.Fprintf(w, "\n  %s\n", g.tool)
+		for i, r := range g.scopes {
+			isLast := i == len(g.scopes)-1
+			connector := "├──"
+			prefix := "│  "
+			if isLast {
+				connector = "└──"
+				prefix = "   "
+			}
+
+			if r.Err != nil {
+				fmt.Fprintf(w, "  %s %-10s Error: %v\n", connector, r.Scope, r.Err)
+				continue
+			}
+
+			count := len(r.SkillNames)
+			label := fmt.Sprintf("%d skills", count)
+			if count == 1 {
+				label = "1 skill"
+			}
+			path := shortenHome(r.Path)
+			fmt.Fprintf(w, "  %s %-10s %s   %s\n", connector, r.Scope, label, path)
+			if count > 0 {
+				fmt.Fprintf(w, "  %s           %s\n", prefix, strings.Join(r.SkillNames, ", "))
+			}
+		}
+	}
 }
 
 func printContentCounts(ctx context.Context, w io.Writer, errW io.Writer, client *api.Client) {
@@ -216,16 +364,20 @@ func getToolStatus(tool mcp.DetectedTool, scope, cwd string) (mcp.StatusResult, 
 	return mcp.StatusResult{}, fmt.Errorf("unknown tool %q", tool.Name)
 }
 
-// formatServerLabels converts ServerMatch entries to display labels.
-// Canonical name matches show as "content"/"prompts".
-// URL-matched entries show as `content (detected in "custom_name")`.
+// serverDisplayName maps internal server type to a user-friendly label.
+var serverDisplayName = map[string]string{
+	"content": "bookmarks/notes",
+	"prompts": "prompts",
+}
+
+// formatServerLabels converts ServerMatch entries to user-friendly display labels.
 func formatServerLabels(servers []mcp.ServerMatch) []string {
 	labels := make([]string, 0, len(servers))
 	for _, s := range servers {
-		if s.MatchMethod == mcp.MatchByName {
-			labels = append(labels, s.ServerType)
+		if name, ok := serverDisplayName[s.ServerType]; ok {
+			labels = append(labels, name)
 		} else {
-			labels = append(labels, fmt.Sprintf("%s (detected in %q)", s.ServerType, s.Name))
+			labels = append(labels, s.ServerType)
 		}
 	}
 	return labels

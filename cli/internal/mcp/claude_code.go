@@ -31,7 +31,7 @@ func ExtractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 		if serverMap == nil {
 			continue
 		}
-		urlStr, _ := serverMap["url"].(string)
+		urlStr := extractServerURL(serverMap)
 		pat := extractClaudeCodePATFromServer(serverMap)
 		if contentPAT == "" && isTiddlyContentURL(urlStr) {
 			contentPAT = pat
@@ -116,6 +116,23 @@ func setMCPServersMap(config map[string]any, scope, cwd string, servers map[stri
 	}
 }
 
+// extractServerURL returns the tiddly MCP URL from a server entry, checking both
+// the HTTP format ("url" field) and the stdio/npx format ("args" array).
+// For stdio format, it scans the args for a URL matching a tiddly MCP server.
+func extractServerURL(serverMap map[string]any) string {
+	if urlStr, _ := serverMap["url"].(string); urlStr != "" {
+		return urlStr
+	}
+	args, _ := serverMap["args"].([]any)
+	for _, arg := range args {
+		s, _ := arg.(string)
+		if s != "" && isTiddlyURL(s) {
+			return s
+		}
+	}
+	return ""
+}
+
 // resolveClaudeCodePath returns the config file path for the given scope.
 // "user" and "local" both use ~/.claude.json. "project" uses .mcp.json in cwd.
 // Called only from ResolveToolConfig.
@@ -186,7 +203,7 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 }
 
 // removeJSONServersByTiddlyURL removes entries from a JSON mcpServers map
-// whose "url" field matches a tiddly MCP server URL.
+// whose URL matches a tiddly MCP server (checking both HTTP and stdio/npx formats).
 func removeJSONServersByTiddlyURL(servers map[string]any) bool {
 	removed := false
 	for name, entry := range servers {
@@ -194,7 +211,7 @@ func removeJSONServersByTiddlyURL(servers map[string]any) bool {
 		if serverMap == nil {
 			continue
 		}
-		urlStr, _ := serverMap["url"].(string)
+		urlStr := extractServerURL(serverMap)
 		if isTiddlyURL(urlStr) {
 			delete(servers, name)
 			removed = true
@@ -271,7 +288,7 @@ func StatusClaudeCode(rc ResolvedConfig) (StatusResult, error) {
 		if serverMap == nil {
 			continue
 		}
-		urlStr, _ := serverMap["url"].(string)
+		urlStr := extractServerURL(serverMap)
 
 		method := MatchByURL
 		if name == serverNameContent || name == serverNamePrompts {

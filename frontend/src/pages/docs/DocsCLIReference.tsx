@@ -86,15 +86,15 @@ export function DocsCLIReference(): ReactNode {
         <li>Authentication status and method</li>
         <li>API health and latency</li>
         <li>Content counts (bookmarks, notes, prompts — fetched in parallel)</li>
-        <li>MCP server status for each detected AI tool</li>
+        <li>MCP server status for each detected AI tool across all scopes (user, local, project)</li>
+        <li>Installed skills across all tools and scopes</li>
       </ul>
       <p className="text-gray-600 mb-3">
-        Use <code className="bg-gray-100 px-1 rounded">--scope</code> to control which config level
-        is checked for MCP servers: <code className="bg-gray-100 px-1 rounded">user</code> (global,
-        default), <code className="bg-gray-100 px-1 rounded">local</code> (Claude Code only),
-        or <code className="bg-gray-100 px-1 rounded">project</code> (project-level).
+        Use <code className="bg-gray-100 px-1 rounded">--project-path</code> to specify which
+        project directory to inspect for local/project scopes. Defaults to the current working
+        directory.
       </p>
-      <CopyableCodeBlock code="tiddly status --scope project" />
+      <CopyableCodeBlock code="tiddly status --project-path /path/to/project" />
 
       {/* Credential Storage */}
       <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">Credential Storage</h2>

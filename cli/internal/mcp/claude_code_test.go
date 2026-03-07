@@ -320,6 +320,71 @@ func TestStatusClaudeCode__canonical_preferred_over_custom(t *testing.T) {
 	assert.Equal(t, MatchByName, sr.Servers[0].MatchMethod)
 }
 
+func TestStatusClaudeCode__detects_stdio_npx_format(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// Simulate a server added via `claude mcp add` (stdio/npx format)
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"prompts": map[string]any{
+				"command": "npx",
+				"args": []any{
+					"mcp-remote",
+					PromptMCPURL(),
+					"--header",
+					"Authorization: Bearer bm_test123",
+				},
+			},
+			serverNameContent: map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := StatusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 2)
+	assert.Equal(t, "content", sr.Servers[0].ServerType)
+	assert.Equal(t, MatchByName, sr.Servers[0].MatchMethod)
+	assert.Equal(t, "prompts", sr.Servers[1].ServerType)
+	assert.Equal(t, MatchByURL, sr.Servers[1].MatchMethod)
+	assert.Equal(t, "prompts", sr.Servers[1].Name)
+}
+
+func TestUninstallClaudeCode__removes_stdio_npx_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"prompts": map[string]any{
+				"command": "npx",
+				"args": []any{
+					"mcp-remote",
+					PromptMCPURL(),
+					"--header",
+					"Authorization: Bearer bm_test123",
+				},
+			},
+			"other-server": map[string]any{
+				"type": "stdio",
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := UninstallClaudeCode(rc)
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.NotContains(t, servers, "prompts")
+	assert.Contains(t, servers, "other-server")
+}
+
 func TestUninstallClaudeCode__removes_custom_named_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")

@@ -16,15 +16,43 @@ A structured checklist for an AI agent to systematically test all CLI command, t
 **NOTE**: the configuration files referenced and tested are the actual files used by the underlying agent platforms and the user. We cannot permanently modify/corrupt the files.
 
 ```bash
+# Helper functions for safe backup/restore
+backup_file() {
+  local src="$1" dest="$2"
+  if [ -e "$src" ]; then
+    cp "$src" "$dest" || { echo "FATAL: Failed to back up $src"; exit 1; }
+    echo "Backed up: $src"
+  else
+    echo "Skipped (does not exist): $src"
+  fi
+}
+
+backup_dir() {
+  local src="$1" dest="$2"
+  if [ -d "$src" ]; then
+    cp -r "$src" "$dest" || { echo "FATAL: Failed to back up $src"; exit 1; }
+    echo "Backed up: $src"
+  else
+    echo "Skipped (does not exist): $src"
+  fi
+}
+
 # Record which tools are detected
 bin/tiddly mcp status
 
 # Back up existing config files
 BACKUP_DIR=$(mktemp -d)
 echo "Backup dir: $BACKUP_DIR"
-cp ~/.config/Claude/claude_desktop_config.json "$BACKUP_DIR/" 2>/dev/null || true
-cp ~/.claude.json "$BACKUP_DIR/" 2>/dev/null || true
-cp ~/.codex/config.toml "$BACKUP_DIR/" 2>/dev/null || true
+backup_file ~/.config/Claude/claude_desktop_config.json "$BACKUP_DIR/claude_desktop_config.json"
+backup_file ~/.claude.json "$BACKUP_DIR/.claude.json"
+backup_file ~/.codex/config.toml "$BACKUP_DIR/config.toml"
+
+# Back up skills directories
+backup_dir ~/.claude/skills "$BACKUP_DIR/claude-skills"
+backup_dir ~/.codex/skills "$BACKUP_DIR/codex-skills"
+
+# Record existing tokens so cleanup only deletes tokens created during testing
+bin/tiddly tokens list 2>/dev/null > "$BACKUP_DIR/tokens-before.txt" || true
 
 # Create temp project directory for project/local scope tests
 TEST_PROJECT=$(mktemp -d)
@@ -75,15 +103,26 @@ bin/tiddly status
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Output includes: `Tiddly CLI v`, `Authentication:`, `API:`, `MCP Servers:`
+- [ ] Output includes: `Tiddly CLI v`, `Authentication:`, `API:`, `MCP Servers:`, `Skills:`
 - [ ] Shows detection status for each tool (claude-desktop, claude-code, codex)
+- [ ] MCP Servers section shows tree with all scopes per tool (user, local, project)
+- [ ] Skills section shows tree with global/project scopes per tool
+- [ ] Header shows `MCP Servers:` (no project path when using default cwd)
 
 ```bash
-bin/tiddly status --scope project
+bin/tiddly status --project-path /path/to/project
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] MCP Servers section reflects project-level config
+- [ ] Header shows `MCP Servers (project: /path/to/project):`
+- [ ] local/project scopes reflect config for specified project path
+
+```bash
+bin/tiddly status --project-path /nonexistent/path
+```
+**Verify:**
+- [ ] Exit code non-zero
+- [ ] Error contains `does not exist`
 
 ---
 
@@ -289,32 +328,39 @@ bin/tiddly mcp install claude-desktop --dry-run
 
 ## Test Group 5: MCP Status
 
-### T5.1 — Status, user scope (default)
+### T5.1 — Status, all scopes (default)
 ```bash
 bin/tiddly mcp status
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Each tool shows one of: `Not detected`, `Not configured`, `Configured (tiddly_notes_bookmarks, tiddly_prompts)`
-- [ ] Configured tools show correct server names
+- [ ] Tree-style output with all scopes per tool
+- [ ] Each scope shows one of: `Not configured`, `Configured. Installed servers: bookmarks/notes, prompts`
+- [ ] Uninstalled tools show `Not detected`
+- [ ] Header shows `MCP Servers:` (no project path)
 
-### T5.2 — Status, local scope
+### T5.2 — Status with explicit project path
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp status --scope local
+bin/tiddly mcp status --project-path "$TEST_PROJECT"
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] claude-code shows local scope status (may differ from user scope)
-- [ ] Other tools show user-scope status (local scope falls through to user for tools that don't support it — or shows error)
+- [ ] Header shows `MCP Servers (project: $TEST_PROJECT):`
+- [ ] local/project scopes reflect config for specified project
+- [ ] claude-code local scope shows `~/.claude.json → projects[...]`
 
-### T5.3 — Status, project scope
+### T5.3 — Status with invalid project path
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp status --scope project
+bin/tiddly mcp status --project-path /nonexistent/path
 ```
 **Verify:**
-- [ ] Exit code 0
-- [ ] claude-code shows project scope status from `.mcp.json`
-- [ ] codex shows project scope status from `.codex/config.toml`
+- [ ] Exit code non-zero
+- [ ] Error contains `does not exist`
+
+### T5.4 — Status detects stdio/npx format servers
+If a tiddly server was added via `claude mcp add` (stdio format with URL in args), verify:
+- [ ] Status correctly shows it as `Configured`
+- [ ] Server type (bookmarks/notes or prompts) is correctly identified
 
 ---
 
@@ -605,18 +651,47 @@ bin/tiddly skills install claude-code
 ## Cleanup
 
 ```bash
-# Restore all config files from backup
-cp "$BACKUP_DIR/claude_desktop_config.json" ~/.config/Claude/claude_desktop_config.json 2>/dev/null || true
-cp "$BACKUP_DIR/.claude.json" ~/.claude.json 2>/dev/null || true
-cp "$BACKUP_DIR/config.toml" ~/.codex/config.toml 2>/dev/null || true
+# Restore config files from backup (only if backup exists)
+restore_file() {
+  local src="$1" dest="$2"
+  if [ -e "$src" ]; then
+    cp "$src" "$dest" || echo "WARNING: Failed to restore $dest"
+    echo "Restored: $dest"
+  else
+    echo "Skipped restore (no backup): $dest"
+  fi
+}
+
+restore_dir() {
+  local src="$1" dest="$2"
+  if [ -d "$src" ]; then
+    rm -rf "$dest" && cp -r "$src" "$dest" || echo "WARNING: Failed to restore $dest"
+    echo "Restored: $dest"
+  else
+    echo "Skipped restore (no backup): $dest"
+  fi
+}
+
+restore_file "$BACKUP_DIR/claude_desktop_config.json" ~/.config/Claude/claude_desktop_config.json
+restore_file "$BACKUP_DIR/.claude.json" ~/.claude.json
+restore_file "$BACKUP_DIR/config.toml" ~/.codex/config.toml
+
+# Restore skills directories
+restore_dir "$BACKUP_DIR/claude-skills" ~/.claude/skills
+restore_dir "$BACKUP_DIR/codex-skills" ~/.codex/skills
+
+# Delete only tokens created during this test procedure
+bin/tiddly tokens list 2>/dev/null > "$BACKUP_DIR/tokens-after.txt" || true
+diff <(awk '{print $1}' "$BACKUP_DIR/tokens-before.txt" | sort) \
+     <(awk '{print $1}' "$BACKUP_DIR/tokens-after.txt" | sort) \
+     | grep "^>" | awk '{print $2}' | while read -r TOKEN_ID; do
+  echo "Deleting test-created token: $TOKEN_ID"
+  bin/tiddly tokens delete "$TOKEN_ID" --force 2>/dev/null
+done
 
 # Remove temp directories
 rm -rf "$TEST_PROJECT"
 rm -rf "$BACKUP_DIR"
-
-# Note: CLI-created test PATs (named cli-mcp-*) may remain on the server.
-# Review with: bin/tiddly tokens list (if available)
-# Or delete via the web UI at https://tiddly.me/settings/tokens
 ```
 
 ---

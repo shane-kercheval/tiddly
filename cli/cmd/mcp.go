@@ -213,7 +213,7 @@ func parseServersFlag(value string) ([]string, error) {
 }
 
 func newMCPStatusCmd() *cobra.Command {
-	var scope string
+	var projectPath string
 
 	cmd := &cobra.Command{
 		Use:   "status",
@@ -222,58 +222,33 @@ func newMCPStatusCmd() *cobra.Command {
 
 Detects Tiddly MCP servers by URL, not by key name. Entries pointing to a Tiddly MCP URL are recognized regardless of their config key name.
 
-For each tool, reports one of:
+Shows all applicable scopes per tool in a tree-style layout:
   Not detected       — binary or config directory not found
-  Not configured     — tool is installed but no MCP server entries
+  Not configured     — tool is installed but no MCP server entries at that scope
   Configured         — lists which server entries are present (content, prompts)
 
+Use --project-path to specify which project directory to inspect for local/project scopes.
+Defaults to the current working directory.
+
 Examples:
-  tiddly mcp status                  Check all tools at user scope (default)
-  tiddly mcp status --scope project  Check project-level config`,
+  tiddly mcp status                                Show all tools at all scopes
+  tiddly mcp status --project-path /path/to/project  Check a specific project`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateScope(scope); err != nil {
+			resolvedProjectPath, err := resolveProjectPath(projectPath)
+			if err != nil {
 				return err
 			}
 
 			w := cmd.OutOrStdout()
 			tools := mcp.DetectTools(appDeps.ExecLooker)
-			cwd, err := getWorkingDir()
-			if err != nil {
-				return err
-			}
-
-			for _, tool := range tools {
-				if !tool.Installed {
-					fmt.Fprintf(w, "%-18s Not detected\n", tool.Name+":")
-					continue
-				}
-
-				sr, err := getToolStatus(tool, scope, cwd)
-				if err != nil {
-					fmt.Fprintf(w, "%-18s Error: %v\n", tool.Name+":", err)
-					continue
-				}
-
-				if len(sr.Servers) == 0 {
-					fmt.Fprintf(w, "%-18s Not configured\n", tool.Name+":")
-					fmt.Fprintf(w, "%-18s %s\n", "", sr.ConfigPath)
-					hint := fmt.Sprintf("tiddly mcp install %s", tool.Name)
-					if scope != "user" {
-						hint += " --scope " + scope
-					}
-					fmt.Fprintf(w, "%-18s Hint: Run '%s'\n", "", hint)
-				} else {
-					labels := formatServerLabels(sr.Servers)
-					fmt.Fprintf(w, "%-18s Configured (%s)\n", tool.Name+":", strings.Join(labels, ", "))
-					fmt.Fprintf(w, "%-18s %s\n", "", sr.ConfigPath)
-				}
-			}
+			projectPathExplicit := cmd.Flags().Changed("project-path")
+			printMCPTree(w, cmd.ErrOrStderr(), tools, resolvedProjectPath, projectPathExplicit)
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
+	cmd.Flags().StringVar(&projectPath, "project-path", "", "Project directory to inspect for local/project scopes (default: cwd)")
 
 	return cmd
 }

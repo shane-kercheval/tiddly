@@ -216,6 +216,10 @@ func TestMCPStatus__shows_config_path_for_configured_tool(t *testing.T) {
 	assert.Contains(t, result.Stdout, "claude-code")
 	assert.Contains(t, result.Stdout, "Configured")
 	assert.Contains(t, result.Stdout, configPath)
+	// Verify tree format with scope labels
+	assert.Contains(t, result.Stdout, "├──")
+	assert.Contains(t, result.Stdout, "└──")
+	assert.Contains(t, result.Stdout, "user")
 }
 
 func TestMCPUninstall__requires_tool_arg(t *testing.T) {
@@ -432,15 +436,17 @@ func TestMCPUninstall__scope_local_with_codex_returns_error(t *testing.T) {
 	assert.Contains(t, result.Err.Error(), "not supported by codex")
 }
 
-func TestMCPStatus__invalid_scope_returns_error(t *testing.T) {
+func TestMCPStatus__project_path_flag(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
-	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "status", "--scope", "bogus")
+	dir := t.TempDir()
 
-	require.Error(t, result.Err)
-	assert.Contains(t, result.Err.Error(), "invalid scope")
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "status", "--project-path", dir)
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "MCP Servers (project: "+dir+")")
 }
 
 func TestMCPUninstall__invalid_scope_returns_error(t *testing.T) {
