@@ -285,6 +285,8 @@ class PromptService(BaseEntityService[Prompt]):
             await relationship_service.sync_relationships_for_entity(
                 db, user_id, self.entity_type, prompt.id, data.relationships,
                 max_per_entity=limits.max_relationships_per_entity if limits else None,
+                context=context,
+                limits=limits,
             )
 
         # Record history for CREATE action
@@ -402,6 +404,8 @@ class PromptService(BaseEntityService[Prompt]):
                 db, user_id, self.entity_type, prompt.id, data.relationships,
                 skip_missing_targets=(action == ActionType.RESTORE),
                 max_per_entity=limits.max_relationships_per_entity if limits else None,
+                context=context,
+                limits=limits,
             )
 
         # Only bump updated_at if there were actual changes

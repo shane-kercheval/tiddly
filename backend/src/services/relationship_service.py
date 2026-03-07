@@ -2,16 +2,18 @@
 from datetime import datetime, UTC
 from uuid import UUID
 
-from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
-from models.content_history import EntityType
+from models.content_history import ActionType, EntityType
 from models.content_relationship import ContentRelationship
 from models.note import Note
 from models.prompt import Prompt
 from schemas.relationship import RelationshipInput, RelationshipWithContentResponse
+from core.request_context import RequestContext
+from core.tier_limits import TierLimits
 from services.exceptions import (
     ContentNotFoundError,
     DuplicateRelationshipError,
@@ -229,26 +231,32 @@ async def update_relationship(
     relationship_id: UUID,
     *,
     description: str | None = ...,  # type: ignore[assignment]
-) -> ContentRelationship | None:
+) -> tuple[ContentRelationship | None, bool]:
     """
     Update relationship metadata (currently only description).
 
     Uses sentinel default (...) to distinguish "not provided" from "explicitly
     set to None", consistent with existing service update patterns.
 
-    Returns None if relationship not found.
+    Returns (None, False) if relationship not found, or (rel, changed) where
+    changed indicates whether the description actually changed.
     """
     rel = await get_relationship(db, user_id, relationship_id)
     if rel is None:
-        return None
+        return None, False
 
-    if description is not ...:
+    changed = False
+    if description is not ... and description != rel.description:
         rel.description = description
         rel.updated_at = func.clock_timestamp()
+        changed = True
+
+    if not changed:
+        return rel, False
 
     await db.flush()
     await db.refresh(rel)
-    return rel
+    return rel, True
 
 
 async def delete_relationship(
@@ -324,6 +332,14 @@ async def get_relationships_for_content(
     return list(result.scalars().all()), total
 
 
+def _group_by_type(pairs: set[tuple[str, UUID]]) -> dict[str, set[UUID]]:
+    """Group (entity_type, entity_id) pairs into {type: {ids}} for batch operations."""
+    grouped: dict[str, set[UUID]] = {}
+    for entity_type, entity_id in pairs:
+        grouped.setdefault(entity_type, set()).add(entity_id)
+    return grouped
+
+
 async def delete_relationships_for_content(
     db: AsyncSession,
     user_id: UUID,
@@ -334,6 +350,10 @@ async def delete_relationships_for_content(
     Delete all relationships where this content is source OR target.
 
     Called when content is permanently deleted (application-level cascade).
+    Bumps updated_at on the surviving entities so their HTTP caches are
+    invalidated. No history is recorded — the deleted entity is gone and
+    the relationship cannot be restored.
+
     Returns the count of deleted relationships.
     """
     is_source = and_(
@@ -345,15 +365,50 @@ async def delete_relationships_for_content(
         ContentRelationship.target_id == content_id,
     )
 
+    # DELETE ... RETURNING combines deletion and affected-entity identification
+    # in a single statement (also avoids a separate SELECT that could see
+    # different rows under READ COMMITTED).
     stmt = (
         delete(ContentRelationship)
         .where(
             ContentRelationship.user_id == user_id,
             or_(is_source, is_target),
         )
+        .returning(
+            ContentRelationship.source_type,
+            ContentRelationship.source_id,
+            ContentRelationship.target_type,
+            ContentRelationship.target_id,
+        )
     )
     result = await db.execute(stmt)
-    return result.rowcount
+    deleted_rows = result.all()
+
+    if not deleted_rows:
+        return 0
+
+    # Collect the "other side" entities that survive the delete
+    affected: set[tuple[str, UUID]] = set()
+    for source_type, source_id, target_type, target_id in deleted_rows:
+        if source_type == content_type and source_id == content_id:
+            affected.add((target_type, target_id))
+        else:
+            affected.add((source_type, source_id))
+
+    # Bump updated_at on surviving entities (no history — nothing to restore).
+    # Bulk UPDATE per entity type (at most 3 statements).
+    for entity_type, ids in _group_by_type(affected).items():
+        model = MODEL_MAP.get(entity_type)
+        if model is None:
+            continue
+        await db.execute(
+            update(model)
+            .where(model.id.in_(ids), model.user_id == user_id)
+            .values(updated_at=func.clock_timestamp()),
+        )
+
+    await db.flush()
+    return len(deleted_rows)
 
 
 # Column tuples for batch resolution queries — only fetch what's needed.
@@ -588,7 +643,7 @@ async def get_relationships_snapshot(
     return snapshot
 
 
-async def sync_relationships_for_entity(
+async def sync_relationships_for_entity(  # noqa: PLR0912
     db: AsyncSession,
     user_id: UUID,
     entity_type: str,
@@ -597,6 +652,8 @@ async def sync_relationships_for_entity(
     *,
     skip_missing_targets: bool = False,
     max_per_entity: int | None = None,
+    context: RequestContext | None = None,
+    limits: TierLimits | None = None,
 ) -> None:
     """
     Sync relationships for an entity to match the desired set.
@@ -616,6 +673,9 @@ async def sync_relationships_for_entity(
             exceeds this limit, raises QuotaExceededError. Skipped during restore
             (skip_missing_targets=True) since historical snapshots may exceed
             current limits.
+        context: Request context for history recording on affected targets. If None,
+            history is skipped.
+        limits: User's tier limits, passed through to history recording.
     """
     if (
         max_per_entity is not None
@@ -703,6 +763,100 @@ async def sync_relationships_for_entity(
 
     if in_both:
         await db.flush()
+
+    # Bump updated_at and record history on affected target entities.
+    affected_targets = _collect_affected_targets(
+        to_add, to_remove, in_both, desired_by_key, current_descriptions,
+    )
+    if affected_targets:
+        await _notify_affected_targets(
+            db, user_id, affected_targets, context=context, limits=limits,
+        )
+
+
+def _collect_affected_targets(
+    to_add: set[tuple[str, str, str]],
+    to_remove: set[tuple[str, str, str]],
+    in_both: set[tuple[str, str, str]],
+    desired_by_key: dict[tuple[str, str, str], RelationshipInput],
+    current_descriptions: dict[tuple[str, str, str], str | None],
+) -> set[tuple[str, UUID]]:
+    """Collect targets affected by relationship mutations (add/remove/description change)."""
+    affected: set[tuple[str, UUID]] = set()
+    for key in to_remove:
+        target_type, target_id_str, _ = key
+        affected.add((target_type, UUID(target_id_str)))
+    for key in to_add:
+        target_type, target_id_str, _ = key
+        affected.add((target_type, UUID(target_id_str)))
+    for key in in_both:
+        if desired_by_key[key].description != current_descriptions[key]:
+            target_type, target_id_str, _ = key
+            affected.add((target_type, UUID(target_id_str)))
+    return affected
+
+
+async def _notify_affected_targets(
+    db: AsyncSession,
+    user_id: UUID,
+    affected_targets: set[tuple[str, UUID]],
+    *,
+    context: RequestContext | None = None,
+    limits: TierLimits | None = None,
+) -> None:
+    """
+    Bump updated_at on affected target entities and optionally record history.
+
+    NOTE: _record_relationship_history in relationships.py router implements the
+    same logic for the standalone endpoint path. If changing the record_action call
+    signature, changed_fields value, or content passthrough (current=previous=
+    entity.content), update both. The gating differs intentionally: the router
+    always records history (it has request context); this function gates on
+    `if context:` since callers may not have it (e.g. during restore).
+    """
+    # Lazy imports to avoid circular dependencies — entity services import
+    # relationship_service, so we can't import them at module level.
+    from services.bookmark_service import BookmarkService  # noqa: PLC0415
+    from services.history_service import history_service  # noqa: PLC0415
+    from services.note_service import NoteService  # noqa: PLC0415
+    from services.prompt_service import PromptService  # noqa: PLC0415
+
+    _entity_services = {
+        EntityType.BOOKMARK: BookmarkService(),
+        EntityType.NOTE: NoteService(),
+        EntityType.PROMPT: PromptService(),
+    }
+
+    # Per-entity service.get() instead of grouped select(model).where(id.in_(...))
+    # because get_metadata_snapshot accesses entity.tag_objects, which requires
+    # eager loading (selectinload) that service.get() handles correctly.
+    for target_type, target_id in affected_targets:
+        et = EntityType(target_type)
+        service = _entity_services[et]
+        entity = await service.get(db, user_id, target_id, include_archived=True)
+        if entity is None:
+            continue
+        entity.updated_at = func.clock_timestamp()
+
+        if context:
+            current_metadata = await service.get_metadata_snapshot(
+                db, user_id, entity,
+            )
+            await history_service.record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=et,
+                entity_id=entity.id,
+                action=ActionType.UPDATE,
+                current_content=entity.content,
+                previous_content=entity.content,
+                metadata=current_metadata,
+                context=context,
+                limits=limits,
+                changed_fields=["relationships"],
+            )
+
+    await db.flush()
 
 
 async def embed_relationships(

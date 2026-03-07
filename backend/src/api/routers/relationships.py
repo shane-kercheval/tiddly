@@ -3,6 +3,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_limits, get_current_user
@@ -46,12 +47,20 @@ async def _record_relationship_history(
     limits: TierLimits,
     request: Request,
 ) -> None:
-    """Record a metadata-only history entry for a relationship change on an entity."""
+    """
+    Bump entity updated_at and record a metadata-only history entry for a relationship change.
+
+    NOTE: _notify_affected_targets in relationship_service.py implements the same
+    logic for the inline sync path. If changing the record_action call signature,
+    changed_fields value, or content passthrough (current=previous=entity.content),
+    update both.
+    """
     et = EntityType(entity_type)
     service = _entity_services[et]
     entity = await service.get(db, user_id, entity_id, include_archived=True)
     if entity is None:
         return
+    entity.updated_at = func.clock_timestamp()
     context = get_request_context(request)
     current_metadata = await service.get_metadata_snapshot(db, user_id, entity)
     await history_service.record_action(
@@ -103,9 +112,12 @@ async def create_relationship(
     except InvalidRelationshipError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Record history on the source entity as specified by the caller
+    # Record history on both source and target entities
     await _record_relationship_history(
         db, current_user.id, data.source_type, data.source_id, limits, request,
+    )
+    await _record_relationship_history(
+        db, current_user.id, data.target_type, data.target_id, limits, request,
     )
 
     return RelationshipResponse.model_validate(rel)
@@ -187,16 +199,29 @@ async def update_relationship(
     if 'description' in updates:
         kwargs['description'] = updates['description']
 
-    rel = await relationship_service.update_relationship(
+    # Early return: no updatable fields provided → no-op
+    if not kwargs:
+        rel = await relationship_service.get_relationship(
+            db, current_user.id, relationship_id,
+        )
+        if rel is None:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+        return RelationshipResponse.model_validate(rel)
+
+    rel, changed = await relationship_service.update_relationship(
         db, current_user.id, relationship_id, **kwargs,
     )
     if rel is None:
         raise HTTPException(status_code=404, detail="Relationship not found")
 
-    # Record history on the source entity
-    await _record_relationship_history(
-        db, current_user.id, rel.source_type, rel.source_id, limits, request,
-    )
+    # Only record history if the description actually changed
+    if changed:
+        await _record_relationship_history(
+            db, current_user.id, rel.source_type, rel.source_id, limits, request,
+        )
+        await _record_relationship_history(
+            db, current_user.id, rel.target_type, rel.target_id, limits, request,
+        )
 
     return RelationshipResponse.model_validate(rel)
 
@@ -215,15 +240,20 @@ async def delete_relationship(
     if rel is None:
         raise HTTPException(status_code=404, detail="Relationship not found")
 
-    # Capture source info before deletion for history recording
+    # Capture entity info before deletion for history recording
     source_type = rel.source_type
     source_id = rel.source_id
+    target_type = rel.target_type
+    target_id = rel.target_id
 
     # Delete directly — we already have the object, no need to re-fetch
     await db.delete(rel)
     await db.flush()
 
-    # Record history on the source entity
+    # Record history on both source and target entities
     await _record_relationship_history(
         db, current_user.id, source_type, source_id, limits, request,
+    )
+    await _record_relationship_history(
+        db, current_user.id, target_type, target_id, limits, request,
     )

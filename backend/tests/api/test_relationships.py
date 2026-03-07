@@ -1,4 +1,5 @@
 """Tests for relationship API endpoints."""
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -1074,3 +1075,701 @@ async def test__api_create_relationship__enforces_limit(
         })
         assert resp.status_code == 402
         assert resp.json()['error_code'] == 'QUOTA_EXCEEDED'
+
+
+# =============================================================================
+# Milestone 1: Target entity history recording
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_create_relationship__records_history_on_target(
+    client: AsyncClient,
+) -> None:
+    """POST /relationships/ records a history entry on the target entity."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    # Check history on the target entity (note)
+    response = await client.get(f'/history/note/{note["id"]}')
+    assert response.status_code == 200
+    data = response.json()
+
+    # Should have CREATE (from note creation) + UPDATE (from relationship creation)
+    assert data['total'] >= 2
+    actions = [item['action'] for item in data['items']]
+    assert 'update' in actions
+
+    update_entry = next(item for item in data['items'] if item['action'] == 'update')
+    assert update_entry['changed_fields'] == ['relationships']
+
+
+@pytest.mark.asyncio
+async def test__api_delete_relationship__records_history_on_target(
+    client: AsyncClient,
+) -> None:
+    """DELETE /relationships/{id} records a history entry on the target entity."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    rel = await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    response = await client.delete(f'/relationships/{rel["id"]}')
+    assert response.status_code == 204
+
+    # Check history on the target entity (note)
+    response = await client.get(f'/history/note/{note["id"]}')
+    assert response.status_code == 200
+    data = response.json()
+
+    # Should have CREATE + UPDATE (add rel) + UPDATE (remove rel)
+    update_entries = [item for item in data['items'] if item['action'] == 'update']
+    assert len(update_entries) >= 2
+
+
+@pytest.mark.asyncio
+async def test__api_update_relationship__records_history_on_target(
+    client: AsyncClient,
+) -> None:
+    """PATCH /relationships/{id} records a history entry on the target entity."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    rel = await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    # Get history count on target before update
+    response = await client.get(f'/history/note/{note["id"]}')
+    count_before = response.json()['total']
+
+    # Update description
+    response = await client.patch(
+        f'/relationships/{rel["id"]}',
+        json={'description': 'New description'},
+    )
+    assert response.status_code == 200
+
+    # Check history on target — should have one more entry
+    response = await client.get(f'/history/note/{note["id"]}')
+    data = response.json()
+    assert data['total'] == count_before + 1
+
+    newest = data['items'][0]
+    assert newest['changed_fields'] == ['relationships']
+
+
+# =============================================================================
+# Milestone 1: updated_at bumps on both entities
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_create_relationship__bumps_updated_at_on_both(
+    client: AsyncClient,
+) -> None:
+    """POST /relationships/ bumps updated_at on both source and target entities."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    bm_before = bm['updated_at']
+    note_before = note['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    # Fetch both entities and check updated_at
+    bm_resp = await client.get(f'/bookmarks/{bm["id"]}')
+    note_resp = await client.get(f'/notes/{note["id"]}')
+
+    assert bm_resp.json()['updated_at'] > bm_before
+    assert note_resp.json()['updated_at'] > note_before
+
+
+@pytest.mark.asyncio
+async def test__api_delete_relationship__bumps_updated_at_on_both(
+    client: AsyncClient,
+) -> None:
+    """DELETE /relationships/{id} bumps updated_at on both entities."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    rel = await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    # Re-fetch to get updated_at after relationship creation
+    bm_after_create = (await client.get(f'/bookmarks/{bm["id"]}')).json()['updated_at']
+    note_after_create = (await client.get(f'/notes/{note["id"]}')).json()['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    response = await client.delete(f'/relationships/{rel["id"]}')
+    assert response.status_code == 204
+
+    bm_resp = await client.get(f'/bookmarks/{bm["id"]}')
+    note_resp = await client.get(f'/notes/{note["id"]}')
+
+    assert bm_resp.json()['updated_at'] > bm_after_create
+    assert note_resp.json()['updated_at'] > note_after_create
+
+
+@pytest.mark.asyncio
+async def test__api_update_relationship__bumps_updated_at_on_both(
+    client: AsyncClient,
+) -> None:
+    """PATCH /relationships/{id} bumps updated_at on both entities when description changes."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    rel = await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    bm_after_create = (await client.get(f'/bookmarks/{bm["id"]}')).json()['updated_at']
+    note_after_create = (await client.get(f'/notes/{note["id"]}')).json()['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    response = await client.patch(
+        f'/relationships/{rel["id"]}',
+        json={'description': 'Changed'},
+    )
+    assert response.status_code == 200
+
+    bm_resp = await client.get(f'/bookmarks/{bm["id"]}')
+    note_resp = await client.get(f'/notes/{note["id"]}')
+
+    assert bm_resp.json()['updated_at'] > bm_after_create
+    assert note_resp.json()['updated_at'] > note_after_create
+
+
+# =============================================================================
+# Milestone 1: Prompt entity coverage
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_create_relationship__bumps_updated_at_on_prompt(
+    client: AsyncClient,
+) -> None:
+    """POST /relationships/ bumps updated_at on a prompt entity."""
+    note = await _create_note(client)
+    prompt = await _create_prompt(client)
+
+    prompt_before = prompt['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    await _create_relationship(client, 'note', note['id'], 'prompt', prompt['id'])
+
+    prompt_resp = await client.get(f'/prompts/{prompt["id"]}')
+    assert prompt_resp.json()['updated_at'] > prompt_before
+
+
+# =============================================================================
+# Milestone 1: No-op gating
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_update_relationship__empty_body_does_not_bump_updated_at(
+    client: AsyncClient,
+) -> None:
+    """Empty PATCH body doesn't create history or bump updated_at."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    rel = await _create_relationship(client, 'bookmark', bm['id'], 'note', note['id'])
+
+    bm_after = (await client.get(f'/bookmarks/{bm["id"]}')).json()['updated_at']
+    note_after = (await client.get(f'/notes/{note["id"]}')).json()['updated_at']
+
+    # Get history counts
+    bm_history = (await client.get(f'/history/bookmark/{bm["id"]}')).json()['total']
+    note_history = (await client.get(f'/history/note/{note["id"]}')).json()['total']
+
+    # Send empty PATCH body
+    response = await client.patch(f'/relationships/{rel["id"]}', json={})
+    assert response.status_code == 200
+
+    # updated_at should not change
+    assert (await client.get(f'/bookmarks/{bm["id"]}')).json()['updated_at'] == bm_after
+    assert (await client.get(f'/notes/{note["id"]}')).json()['updated_at'] == note_after
+
+    # History counts should not change
+    assert (await client.get(f'/history/bookmark/{bm["id"]}')).json()['total'] == bm_history
+    assert (await client.get(f'/history/note/{note["id"]}')).json()['total'] == note_history
+
+
+@pytest.mark.asyncio
+async def test__api_update_relationship__same_description_does_not_bump_updated_at(
+    client: AsyncClient,
+) -> None:
+    """PATCH with same description value produces no history entry and no updated_at bump."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    rel = await _create_relationship(
+        client, 'bookmark', bm['id'], 'note', note['id'], description='Same',
+    )
+
+    bm_after = (await client.get(f'/bookmarks/{bm["id"]}')).json()['updated_at']
+    note_after = (await client.get(f'/notes/{note["id"]}')).json()['updated_at']
+
+    bm_history = (await client.get(f'/history/bookmark/{bm["id"]}')).json()['total']
+    note_history = (await client.get(f'/history/note/{note["id"]}')).json()['total']
+
+    # Send PATCH with same description
+    response = await client.patch(
+        f'/relationships/{rel["id"]}',
+        json={'description': 'Same'},
+    )
+    assert response.status_code == 200
+
+    # updated_at should not change
+    assert (await client.get(f'/bookmarks/{bm["id"]}')).json()['updated_at'] == bm_after
+    assert (await client.get(f'/notes/{note["id"]}')).json()['updated_at'] == note_after
+
+    # History counts should not change
+    assert (await client.get(f'/history/bookmark/{bm["id"]}')).json()['total'] == bm_history
+    assert (await client.get(f'/history/note/{note["id"]}')).json()['total'] == note_history
+
+
+# =============================================================================
+# Milestone 1: HTTP cache regression
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_create_relationship__invalidates_http_cache(
+    client: AsyncClient,
+) -> None:
+    """GET /notes/{id}/metadata returns 200 (not 304) after a relationship is created."""
+    note = await _create_note(client)
+
+    # Get Last-Modified from the metadata endpoint (consistent with test_http_cache.py)
+    response = await client.get(f'/notes/{note["id"]}/metadata')
+    assert response.status_code == 200
+    last_modified = response.headers['last-modified']
+
+    # Verify we get 304 (note hasn't changed)
+    response = await client.get(
+        f'/notes/{note["id"]}/metadata',
+        headers={'If-Modified-Since': last_modified},
+    )
+    assert response.status_code == 304
+
+    # Wait >1s to ensure the relationship creation bumps updated_at past the
+    # second boundary (check_not_modified compares at second precision)
+    await asyncio.sleep(1.1)
+
+    # Create a relationship — this bumps note's updated_at to now
+    bm = await _create_bookmark(client)
+    await _create_relationship(client, 'note', note['id'], 'bookmark', bm['id'])
+
+    # Now should get 200 because updated_at was bumped past our If-Modified-Since
+    response = await client.get(
+        f'/notes/{note["id"]}/metadata',
+        headers={'If-Modified-Since': last_modified},
+    )
+    assert response.status_code == 200
+
+
+# =============================================================================
+# Milestone 2: Target updated_at bump via inline sync
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_update_note_with_relationships__bumps_target_updated_at(
+    client: AsyncClient,
+) -> None:
+    """PATCH /notes/{id} with a new relationship bumps the target entity's updated_at."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    note_b_before = note_b['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    # Update Note A to add a relationship to Note B
+    response = await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note_b['id'], 'relationship_type': 'related'},
+        ],
+    })
+    assert response.status_code == 200
+
+    note_b_after = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    assert note_b_after > note_b_before
+
+
+@pytest.mark.asyncio
+async def test__api_update_note_remove_relationship__bumps_target_updated_at(
+    client: AsyncClient,
+) -> None:
+    """Removing a relationship via inline sync bumps the target's updated_at."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Add relationship via inline sync
+    await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note_b['id'], 'relationship_type': 'related'},
+        ],
+    })
+
+    note_b_after_add = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    # Remove relationship by setting to empty list
+    response = await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [],
+    })
+    assert response.status_code == 200
+
+    note_b_after_remove = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    assert note_b_after_remove > note_b_after_add
+
+
+@pytest.mark.asyncio
+async def test__api_update_bookmark_with_relationships__bumps_target_updated_at(
+    client: AsyncClient,
+) -> None:
+    """PATCH /bookmarks/{id} with a new relationship bumps the target's updated_at."""
+    bm = await _create_bookmark(client)
+    note = await _create_note(client)
+
+    note_before = note['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    response = await client.patch(f'/bookmarks/{bm["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note['id'], 'relationship_type': 'related'},
+        ],
+    })
+    assert response.status_code == 200
+
+    note_after = (await client.get(f'/notes/{note["id"]}')).json()['updated_at']
+    assert note_after > note_before
+
+
+# =============================================================================
+# Milestone 2: Target history via inline sync
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_update_note_with_relationships__records_history_on_target(
+    client: AsyncClient,
+) -> None:
+    """PATCH /notes/{id} with a new relationship records history on the target."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    history_before = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+
+    await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note_b['id'], 'relationship_type': 'related'},
+        ],
+    })
+
+    history_resp = await client.get(f'/history/note/{note_b["id"]}')
+    history_after = history_resp.json()['total']
+    assert history_after == history_before + 1
+
+    # Verify the history entry has changed_fields=["relationships"]
+    latest = history_resp.json()['items'][0]
+    assert latest['changed_fields'] == ['relationships']
+
+
+@pytest.mark.asyncio
+async def test__api_update_note_remove_relationship__records_history_on_target(
+    client: AsyncClient,
+) -> None:
+    """Removing a relationship via inline sync records history on the target."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Add relationship
+    await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note_b['id'], 'relationship_type': 'related'},
+        ],
+    })
+
+    history_before = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+
+    # Remove relationship
+    await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [],
+    })
+
+    history_after = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+    assert history_after == history_before + 1
+
+
+# =============================================================================
+# Milestone 2: No-op sync doesn't bump
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_update_note_with_same_relationships__does_not_bump_target(
+    client: AsyncClient,
+) -> None:
+    """Re-sending the same relationship set doesn't bump target updated_at or record history."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Add relationship
+    await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note_b['id'], 'relationship_type': 'related'},
+        ],
+    })
+
+    note_b_after_add = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    history_after_add = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+
+    # Re-send the same relationships
+    await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note_b['id'], 'relationship_type': 'related'},
+        ],
+    })
+
+    note_b_after_resend = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    history_after_resend = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+
+    assert note_b_after_resend == note_b_after_add
+    assert history_after_resend == history_after_add
+
+
+# =============================================================================
+# Milestone 2: Restore bumps target
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_restore_version__bumps_target_updated_at_on_relationship_change(
+    client: AsyncClient,
+) -> None:
+    """Restoring to a version that changes relationships bumps target updated_at."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Version 1: Note A created (no relationships)
+    # Update Note A to add relationship to Note B (creates version 2)
+    await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note_b['id'], 'relationship_type': 'related'},
+        ],
+    })
+
+    note_b_after_add = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    # Restore to version 1 (no relationships) — should remove the relationship
+    restore_resp = await client.post(f'/history/note/{note_a["id"]}/restore/1')
+    assert restore_resp.status_code == 200
+
+    note_b_after_restore = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    assert note_b_after_restore > note_b_after_add
+
+
+@pytest.mark.asyncio
+async def test__api_restore_version__records_history_on_target_for_relationship_change(
+    client: AsyncClient,
+) -> None:
+    """Restoring to a version that removes a relationship records history on the target."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Add relationship via update
+    await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note_b['id'], 'relationship_type': 'related'},
+        ],
+    })
+
+    history_before = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+
+    # Restore to version 1 (no relationships)
+    restore_resp = await client.post(f'/history/note/{note_a["id"]}/restore/1')
+    assert restore_resp.status_code == 200
+
+    history_after = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+    assert history_after == history_before + 1
+
+
+# =============================================================================
+# Milestone 2: HTTP cache regression for inline path
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_update_note_with_relationships__invalidates_target_http_cache(
+    client: AsyncClient,
+) -> None:
+    """GET /notes/{target_id}/metadata returns 200 (not 304) after inline relationship add."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Get Last-Modified for Note B
+    response = await client.get(f'/notes/{note_b["id"]}/metadata')
+    assert response.status_code == 200
+    last_modified = response.headers['last-modified']
+
+    # Verify 304
+    response = await client.get(
+        f'/notes/{note_b["id"]}/metadata',
+        headers={'If-Modified-Since': last_modified},
+    )
+    assert response.status_code == 304
+
+    # Wait >1s for second-precision boundary
+    await asyncio.sleep(1.1)
+
+    # Add relationship to Note B via updating Note A
+    await client.patch(f'/notes/{note_a["id"]}', json={
+        'relationships': [
+            {'target_type': 'note', 'target_id': note_b['id'], 'relationship_type': 'related'},
+        ],
+    })
+
+    # Should get 200 now
+    response = await client.get(
+        f'/notes/{note_b["id"]}/metadata',
+        headers={'If-Modified-Since': last_modified},
+    )
+    assert response.status_code == 200
+
+
+# =============================================================================
+# Milestone 3: Permanent delete cascade
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test__api_permanent_delete__bumps_related_entity_updated_at(
+    client: AsyncClient,
+) -> None:
+    """Permanently deleting an entity bumps updated_at on surviving related entities."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Create relationship
+    await _create_relationship(client, 'note', note_a['id'], 'note', note_b['id'])
+
+    # Record Note B's updated_at
+    note_b_before = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    # Soft-delete then permanent-delete Note A
+    resp = await client.delete(f'/notes/{note_a["id"]}')
+    assert resp.status_code == 204
+    resp = await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    assert resp.status_code == 204
+
+    # Note B's updated_at should have increased
+    note_b_after = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    assert note_b_after > note_b_before
+
+
+@pytest.mark.asyncio
+async def test__api_permanent_delete__does_not_record_history_on_related_entity(
+    client: AsyncClient,
+) -> None:
+    """Permanently deleting an entity does NOT create history on surviving related entities."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Create relationship
+    await _create_relationship(client, 'note', note_a['id'], 'note', note_b['id'])
+
+    history_before = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+
+    # Soft-delete then permanent-delete Note A
+    resp = await client.delete(f'/notes/{note_a["id"]}')
+    assert resp.status_code == 204
+    resp = await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    assert resp.status_code == 204
+
+    history_after = (await client.get(f'/history/note/{note_b["id"]}')).json()['total']
+    assert history_after == history_before
+
+
+@pytest.mark.asyncio
+async def test__api_permanent_delete__invalidates_related_entity_http_cache(
+    client: AsyncClient,
+) -> None:
+    """GET /notes/{id}/metadata returns 200 (not 304) after related entity is permanently deleted."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+
+    # Create relationship
+    await _create_relationship(client, 'note', note_a['id'], 'note', note_b['id'])
+
+    # Get Last-Modified for Note B
+    response = await client.get(f'/notes/{note_b["id"]}/metadata')
+    assert response.status_code == 200
+    last_modified = response.headers['last-modified']
+
+    # Verify 304
+    response = await client.get(
+        f'/notes/{note_b["id"]}/metadata',
+        headers={'If-Modified-Since': last_modified},
+    )
+    assert response.status_code == 304
+
+    # Wait >1s for second-precision boundary
+    await asyncio.sleep(1.1)
+
+    # Soft-delete then permanent-delete Note A
+    resp = await client.delete(f'/notes/{note_a["id"]}')
+    assert resp.status_code == 204
+    resp = await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    assert resp.status_code == 204
+
+    # Should get 200 now
+    response = await client.get(
+        f'/notes/{note_b["id"]}/metadata',
+        headers={'If-Modified-Since': last_modified},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test__api_permanent_delete__bumps_all_related_entities(
+    client: AsyncClient,
+) -> None:
+    """Permanently deleting an entity bumps updated_at on ALL surviving related entities."""
+    note_a = await _create_note(client, title='Note A')
+    note_b = await _create_note(client, title='Note B')
+    bookmark_c = await _create_bookmark(client, title='Bookmark C')
+
+    # Create relationships: A -> B and A -> C
+    await _create_relationship(client, 'note', note_a['id'], 'note', note_b['id'])
+    await _create_relationship(client, 'note', note_a['id'], 'bookmark', bookmark_c['id'])
+
+    # Record timestamps
+    note_b_before = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    bookmark_c_before = (await client.get(f'/bookmarks/{bookmark_c["id"]}')).json()['updated_at']
+
+    await asyncio.sleep(0.01)
+
+    # Soft-delete then permanent-delete Note A
+    resp = await client.delete(f'/notes/{note_a["id"]}')
+    assert resp.status_code == 204
+    resp = await client.delete(f'/notes/{note_a["id"]}', params={'permanent': 'true'})
+    assert resp.status_code == 204
+
+    # Both should have bumped
+    note_b_after = (await client.get(f'/notes/{note_b["id"]}')).json()['updated_at']
+    bookmark_c_after = (await client.get(f'/bookmarks/{bookmark_c["id"]}')).json()['updated_at']
+    assert note_b_after > note_b_before
+    assert bookmark_c_after > bookmark_c_before

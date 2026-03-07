@@ -155,6 +155,8 @@ class NoteService(BaseEntityService[Note]):
             await relationship_service.sync_relationships_for_entity(
                 db, user_id, self.entity_type, note.id, data.relationships,
                 max_per_entity=limits.max_relationships_per_entity if limits else None,
+                context=context,
+                limits=limits,
             )
 
         # Record history for CREATE action
@@ -244,6 +246,8 @@ class NoteService(BaseEntityService[Note]):
                 db, user_id, self.entity_type, note.id, data.relationships,
                 skip_missing_targets=(action == ActionType.RESTORE),
                 max_per_entity=limits.max_relationships_per_entity if limits else None,
+                context=context,
+                limits=limits,
             )
 
         note.updated_at = func.clock_timestamp()
