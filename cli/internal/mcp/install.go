@@ -4,19 +4,36 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
-	toml "github.com/pelletier/go-toml/v2"
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
 )
 
 // dryRunPlaceholder is the token shown in dry-run output when a new token would be created.
 const dryRunPlaceholder = "<new-token-would-be-created>"
+
+// tiddlyURLMatcher returns a predicate that matches only the server types being
+// installed (indicated by non-empty PAT). When only one PAT is set, only that
+// server type's URLs are matched, preserving the other. When both are set, all
+// tiddly URLs are matched. When neither is set, nothing is matched (no-op).
+func tiddlyURLMatcher(contentPAT, promptPAT string) func(string) bool {
+	hasContent := contentPAT != ""
+	hasPrompts := promptPAT != ""
+	switch {
+	case hasContent && hasPrompts:
+		return isTiddlyURL
+	case hasContent:
+		return isTiddlyContentURL
+	case hasPrompts:
+		return isTiddlyPromptURL
+	default:
+		return func(string) bool { return false }
+	}
+}
 
 // tokenPrefixLen is the number of leading characters the API stores as token_prefix.
 const tokenPrefixLen = 12
@@ -25,7 +42,8 @@ const tokenPrefixLen = 12
 type InstallOpts struct {
 	Ctx       context.Context
 	Client    *api.Client
-	AuthType  string // "oauth", "pat", "flag", "env"
+	Handlers  []ToolHandler // handler list for dispatch
+	AuthType  string        // "oauth", "pat", "flag", "env"
 	DryRun    bool
 	Scope     string   // config scope: "user" (default), "local", or "project"
 	Cwd       string   // working directory for "local"/"project" scope resolution
@@ -81,28 +99,38 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 			continue
 		}
 
-		rc, err := ResolveToolConfig(tool.Name, tool.ResolvedConfigPath(), opts.Scope, opts.Cwd)
+		handler, ok := GetHandler(opts.Handlers, tool.Name)
+		if !ok {
+			return nil, fmt.Errorf("no handler for tool %q", tool.Name)
+		}
+
+		rc, err := ResolveToolConfig(handler, tool.ConfigPath, opts.Scope, opts.Cwd)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", tool.Name, err)
 		}
 
 		// Resolve PATs per-tool
-		contentPAT, promptPAT, err := resolveToolPATs(opts, tool, rc, isPATAuth, result)
+		contentPAT, promptPAT, err := resolveToolPATs(opts, handler, tool, rc, isPATAuth, result)
 		if err != nil {
 			return nil, fmt.Errorf("resolving tokens for %s: %w", tool.Name, err)
 		}
 
 		if opts.DryRun {
-			if err := dryRunTool(opts, tool, rc, contentPAT, promptPAT); err != nil {
+			fmt.Fprintf(opts.Output, "\n--- %s ---\n", tool.Name)
+			before, after, err := handler.DryRun(rc, contentPAT, promptPAT)
+			if err != nil {
 				return nil, err
 			}
+			printDiff(opts.Output, rc.Path, before, after)
 			result.ToolsConfigured = append(result.ToolsConfigured, tool.Name)
 			continue
 		}
 
-		if err := installTool(opts, tool, rc, contentPAT, promptPAT, result); err != nil {
+		warnings, err := handler.Install(rc, contentPAT, promptPAT, tool)
+		if err != nil {
 			return nil, fmt.Errorf("installing %s: %w", tool.Name, err)
 		}
+		result.Warnings = append(result.Warnings, warnings...)
 		result.ToolsConfigured = append(result.ToolsConfigured, tool.Name)
 	}
 
@@ -112,7 +140,7 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 // resolveToolPATs determines the content and prompt PATs for a specific tool.
 // For PAT auth: reuses the login token. For OAuth: extracts existing PATs from the
 // tool's config, validates them, and creates new ones only if needed.
-func resolveToolPATs(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, isPATAuth bool, result *InstallResult) (contentPAT, promptPAT string, err error) {
+func resolveToolPATs(opts InstallOpts, handler ToolHandler, tool DetectedTool, rc ResolvedConfig, isPATAuth bool, result *InstallResult) (contentPAT, promptPAT string, err error) {
 	if isPATAuth {
 		pat := opts.Client.Token
 		if opts.wantServer("content") {
@@ -125,7 +153,7 @@ func resolveToolPATs(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, isP
 	}
 
 	// OAuth: try to reuse existing PATs from the tool's config
-	existingContent, existingPrompt := ExtractPATsFromTool(tool, rc)
+	existingContent, existingPrompt := handler.ExtractPATs(rc)
 
 	if opts.wantServer("content") {
 		contentPAT, err = resolveServerPAT(opts, tool.Name, "content", existingContent, result)
@@ -206,18 +234,6 @@ func validatePAT(ctx context.Context, baseURL, pat string) (bool, error) {
 	return false, fmt.Errorf("validating token: %w", err)
 }
 
-// ExtractPATsFromTool dispatches to the appropriate Extract function for the tool.
-func ExtractPATsFromTool(tool DetectedTool, rc ResolvedConfig) (contentPAT, promptPAT string) {
-	switch tool.Name {
-	case "claude-desktop":
-		return ExtractClaudeDesktopPATs(rc.Path)
-	case "claude-code":
-		return ExtractClaudeCodePATs(rc)
-	case "codex":
-		return ExtractCodexPATs(rc)
-	}
-	return "", ""
-}
 
 // DeleteTokensByPrefix finds and deletes tokens that match a PAT's prefix.
 // Only deletes tokens whose name starts with tokenNamePrefix ("cli-mcp-") to avoid
@@ -253,90 +269,6 @@ func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string
 	return deleted, nil
 }
 
-func installTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, contentPAT, promptPAT string, result *InstallResult) error {
-	switch tool.Name {
-	case "claude-desktop":
-		if !tool.HasNpx {
-			result.Warnings = append(result.Warnings,
-				"Claude Desktop requires Node.js for mcp-remote. Install from https://nodejs.org")
-		}
-		backedUp, err := backupIfMalformed(rc.Path)
-		if err != nil {
-			return err
-		}
-		if backedUp {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", rc.Path, rc.Path))
-		}
-		if err := InstallClaudeDesktop(rc.Path, contentPAT, promptPAT); err != nil {
-			return err
-		}
-		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path))
-		result.Warnings = append(result.Warnings, "Restart Claude Desktop to apply changes.")
-
-	case "claude-code":
-		backedUp, err := backupIfMalformed(rc.Path)
-		if err != nil {
-			return err
-		}
-		if backedUp {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", rc.Path, rc.Path))
-		}
-		if err := InstallClaudeCode(rc, contentPAT, promptPAT); err != nil {
-			return err
-		}
-		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path))
-
-	case "codex":
-		backedUp, err := backupIfMalformed(rc.Path)
-		if err != nil {
-			return err
-		}
-		if backedUp {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("Existing config at %s was malformed. Backup saved to %s.bak", rc.Path, rc.Path))
-		}
-		if err := InstallCodex(rc, contentPAT, promptPAT); err != nil {
-			return err
-		}
-		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path))
-	}
-
-	return nil
-}
-
-func dryRunTool(opts InstallOpts, tool DetectedTool, rc ResolvedConfig, contentPAT, promptPAT string) error {
-	fmt.Fprintf(opts.Output, "\n--- %s ---\n", tool.Name)
-
-	switch tool.Name {
-	case "claude-desktop":
-		before, after, err := DryRunClaudeDesktop(rc.Path, contentPAT, promptPAT)
-		if err != nil {
-			return err
-		}
-		printDiff(opts.Output, rc.Path, before, after)
-
-	case "claude-code":
-		before, after, err := DryRunClaudeCode(rc, contentPAT, promptPAT)
-		if err != nil {
-			return err
-		}
-		printDiff(opts.Output, rc.Path, before, after)
-
-	case "codex":
-		before, after, err := DryRunCodex(rc, contentPAT, promptPAT)
-		if err != nil {
-			return err
-		}
-		printDiff(opts.Output, rc.Path, before, after)
-	}
-
-	return nil
-}
 
 func printDiff(w io.Writer, path, before, after string) {
 	fmt.Fprintf(w, "File: %s\n", path)
@@ -350,57 +282,19 @@ func printDiff(w io.Writer, path, before, after string) {
 	fmt.Fprintln(w, after)
 }
 
-// backupIfMalformed tries to parse the config file.
-// If malformed, atomically renames the original to .bak so install can start fresh.
-// Returns (true, nil) if backup was created, (false, nil) if file is fine or missing,
-// and (false, err) if the rename failed.
-func backupIfMalformed(path string) (bool, error) {
-	if path == "" {
-		return false, nil
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("reading config %s: %w", path, err)
-	}
-
-	malformed := false
-	if strings.HasSuffix(path, ".json") {
-		var raw map[string]any
-		if json.Unmarshal(data, &raw) != nil {
-			malformed = true
-		}
-	} else if strings.HasSuffix(path, ".toml") {
-		var raw map[string]any
-		if toml.Unmarshal(data, &raw) != nil {
-			malformed = true
-		}
-	}
-
-	if !malformed {
-		return false, nil
-	}
-
-	backupPath := path + ".bak"
-	if err := os.Rename(path, backupPath); err != nil {
-		return false, fmt.Errorf("backing up malformed config %s to %s: %w", path, backupPath, err)
-	}
-	return true, nil
-}
-
-// CheckOrphanedTokens checks for cli-mcp-* tokens that may be orphaned after uninstall.
-func CheckOrphanedTokens(ctx context.Context, client *api.Client) ([]string, error) {
+// CheckOrphanedTokens checks for cli-mcp-{toolName}-* tokens that may be orphaned after uninstall.
+// Only returns tokens whose name matches the given tool, so uninstalling one tool
+// doesn't report another tool's tokens.
+func CheckOrphanedTokens(ctx context.Context, client *api.Client, toolName string) ([]string, error) {
 	tokens, err := client.ListTokens(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	prefix := fmt.Sprintf("%s%s-", tokenNamePrefix, toolName)
 	var orphaned []string
 	for _, t := range tokens {
-		if strings.HasPrefix(t.Name, tokenNamePrefix) {
+		if strings.HasPrefix(t.Name, prefix) {
 			orphaned = append(orphaned, t.Name)
 		}
 	}

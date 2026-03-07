@@ -51,9 +51,9 @@ describe('DocsCodex', () => {
     expect(screen.getByText(/Codex does not support MCP Prompts directly/)).toBeInTheDocument()
   })
 
-  it('should show CLI sync command for skills', () => {
+  it('should show CLI install command for skills', () => {
     renderPage()
     const text = document.body.textContent || ''
-    expect(text).toContain('tiddly skills sync codex')
+    expect(text).toContain('tiddly skills install codex')
   })
 })

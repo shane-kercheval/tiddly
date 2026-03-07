@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 )
 
-// ExtractClaudeCodePATs reads the Claude Code config and extracts the Bearer tokens
-// for the tiddly MCP servers. Returns empty strings on any parse error (best-effort).
-func ExtractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
+// extractClaudeCodePATs reads the Claude Code config and extracts the Bearer tokens
+// for the tiddly MCP servers. Identifies servers by URL, not by name.
+// Returns empty strings on any parse error (best-effort).
+func extractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		return "", ""
@@ -19,18 +20,32 @@ func ExtractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 		return "", ""
 	}
 
-	contentPAT = extractClaudeCodeServerPAT(servers, serverNameContent)
-	promptPAT = extractClaudeCodeServerPAT(servers, serverNamePrompts)
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	canonicalNamesFirst(names)
+
+	for _, name := range names {
+		serverMap, _ := servers[name].(map[string]any)
+		if serverMap == nil {
+			continue
+		}
+		urlStr := extractServerURL(serverMap)
+		pat := extractClaudeCodePATFromServer(serverMap)
+		if contentPAT == "" && isTiddlyContentURL(urlStr) {
+			contentPAT = pat
+		}
+		if promptPAT == "" && isTiddlyPromptURL(urlStr) {
+			promptPAT = pat
+		}
+	}
 	return contentPAT, promptPAT
 }
 
-// extractClaudeCodeServerPAT extracts the Bearer token from a Claude Code MCP server entry.
+// extractClaudeCodePATFromServer extracts the Bearer token from a Claude Code MCP server entry.
 // The token is in headers.Authorization as "Bearer <PAT>".
-func extractClaudeCodeServerPAT(servers map[string]any, serverName string) string {
-	server, _ := servers[serverName].(map[string]any)
-	if server == nil {
-		return ""
-	}
+func extractClaudeCodePATFromServer(server map[string]any) string {
 	headers, _ := server["headers"].(map[string]any)
 	if headers == nil {
 		return ""
@@ -40,9 +55,12 @@ func extractClaudeCodeServerPAT(servers map[string]any, serverName string) strin
 }
 
 // ClaudeCodeConfigPath returns the path to ~/.claude.json.
-func ClaudeCodeConfigPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude.json")
+func ClaudeCodeConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude.json"), nil
 }
 
 // claudeCodeHTTPEntry is the JSON structure for an HTTP MCP server in Claude Code.
@@ -75,11 +93,11 @@ func getMCPServersMap(config map[string]any, scope, cwd string) map[string]any {
 
 // getServersForScope returns the mcpServers map for any scope including "project".
 func getServersForScope(config map[string]any, scope, cwd string) map[string]any {
-	if scope == "project" {
-		servers, _ := config["mcpServers"].(map[string]any)
-		return servers
+	if scope == "local" {
+		return getMCPServersMap(config, scope, cwd)
 	}
-	return getMCPServersMap(config, scope, cwd)
+	servers, _ := config["mcpServers"].(map[string]any)
+	return servers
 }
 
 // setMCPServersMap writes the mcpServers map back into the config at the correct path.
@@ -104,12 +122,12 @@ func setMCPServersMap(config map[string]any, scope, cwd string, servers map[stri
 // resolveClaudeCodePath returns the config file path for the given scope.
 // "user" and "local" both use ~/.claude.json. "project" uses .mcp.json in cwd.
 // Called only from ResolveToolConfig.
-func resolveClaudeCodePath(configPath, scope, cwd string) string {
+func resolveClaudeCodePath(configPath, scope, cwd string) (string, error) {
 	if scope == "project" {
-		return filepath.Join(cwd, ".mcp.json")
+		return filepath.Join(cwd, ".mcp.json"), nil
 	}
 	if configPath != "" {
-		return configPath
+		return configPath, nil
 	}
 	return ClaudeCodeConfigPath()
 }
@@ -135,7 +153,8 @@ func buildClaudeCodeServers(contentPAT, promptPAT string) map[string]any {
 }
 
 // buildClaudeCodeConfig reads the existing config and merges in the tiddly MCP server entries.
-// Used by both InstallClaudeCode and DryRunClaudeCode to avoid duplicating merge logic.
+// Removes any existing entries pointing to tiddly URLs (regardless of key name) before adding
+// new entries under canonical names. Used by both installClaudeCode and dryRunClaudeCode.
 func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map[string]any, error) {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
@@ -148,31 +167,25 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 
 	newServers := buildClaudeCodeServers(contentPAT, promptPAT)
 
-	if rc.Scope == "project" {
-		servers, _ := config["mcpServers"].(map[string]any)
-		if servers == nil {
-			servers = make(map[string]any)
-		}
-		for k, v := range newServers {
-			servers[k] = v
-		}
-		config["mcpServers"] = servers
-	} else {
-		existing := getMCPServersMap(config, rc.Scope, rc.Cwd)
-		if existing == nil {
-			existing = make(map[string]any)
-		}
-		for k, v := range newServers {
-			existing[k] = v
-		}
-		setMCPServersMap(config, rc.Scope, rc.Cwd, existing)
+	servers := getServersForScope(config, rc.Scope, rc.Cwd)
+	if servers == nil {
+		servers = make(map[string]any)
 	}
+
+	// Remove only the server types being installed (non-empty PAT means it's being installed)
+	removeJSONServersByTiddlyURL(servers, tiddlyURLMatcher(contentPAT, promptPAT))
+
+	for k, v := range newServers {
+		servers[k] = v
+	}
+
+	setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
 
 	return config, nil
 }
 
-// InstallClaudeCode writes MCP server entries into the Claude Code config.
-func InstallClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
+// installClaudeCode writes MCP server entries into the Claude Code config.
+func installClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
 	config, err := buildClaudeCodeConfig(rc, contentPAT, promptPAT)
 	if err != nil {
 		return err
@@ -180,8 +193,9 @@ func InstallClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
 	return writeJSONConfig(rc.Path, config)
 }
 
-// UninstallClaudeCode removes tiddly MCP server entries from the Claude Code config.
-func UninstallClaudeCode(rc ResolvedConfig) error {
+// uninstallClaudeCode removes tiddly MCP server entries from the Claude Code config.
+// Identifies servers by URL, not by name, so custom-named entries are also removed.
+func uninstallClaudeCode(rc ResolvedConfig) error {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -190,51 +204,77 @@ func UninstallClaudeCode(rc ResolvedConfig) error {
 		return err
 	}
 
-	if rc.Scope == "project" {
-		servers, _ := config["mcpServers"].(map[string]any)
-		if servers == nil {
-			return nil
-		}
-		delete(servers, serverNameContent)
-		delete(servers, serverNamePrompts)
-		config["mcpServers"] = servers
-		return writeJSONConfig(rc.Path, config)
-	}
-
-	existing := getMCPServersMap(config, rc.Scope, rc.Cwd)
-	if existing == nil {
+	servers := getServersForScope(config, rc.Scope, rc.Cwd)
+	if servers == nil {
 		return nil
 	}
-	delete(existing, serverNameContent)
-	delete(existing, serverNamePrompts)
-	setMCPServersMap(config, rc.Scope, rc.Cwd, existing)
+
+	if !removeJSONServersByTiddlyURL(servers, isTiddlyURL) {
+		return nil
+	}
+
+	setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
 
 	return writeJSONConfig(rc.Path, config)
 }
 
-// StatusClaudeCode returns tiddly MCP servers configured in Claude Code.
-func StatusClaudeCode(rc ResolvedConfig) ([]string, error) {
+// statusClaudeCode returns tiddly MCP servers configured in Claude Code.
+// Identifies servers by URL. Entries under canonical names are tagged MatchByName;
+// entries under other names are tagged MatchByURL.
+func statusClaudeCode(rc ResolvedConfig) (StatusResult, error) {
+	result := StatusResult{ConfigPath: rc.Path}
+
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return result, nil
 		}
-		return nil, err
+		return result, err
 	}
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 
-	var found []string
-	for _, name := range []string{serverNameContent, serverNamePrompts} {
-		if _, exists := servers[name]; exists {
-			found = append(found, name)
+	foundContent := false
+	foundPrompts := false
+
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	canonicalNamesFirst(names)
+
+	for _, name := range names {
+		serverMap, _ := servers[name].(map[string]any)
+		if serverMap == nil {
+			continue
+		}
+		urlStr := extractServerURL(serverMap)
+
+		method := MatchByURL
+		if name == serverNameContent || name == serverNamePrompts {
+			method = MatchByName
+		}
+
+		if !foundContent && isTiddlyContentURL(urlStr) {
+			result.Servers = append(result.Servers, ServerMatch{
+				ServerType: "content", Name: name, MatchMethod: method,
+			})
+			foundContent = true
+		}
+		if !foundPrompts && isTiddlyPromptURL(urlStr) {
+			result.Servers = append(result.Servers, ServerMatch{
+				ServerType: "prompts", Name: name, MatchMethod: method,
+			})
+			foundPrompts = true
 		}
 	}
-	return found, nil
+
+	result.SortServers()
+	return result, nil
 }
 
-// DryRunClaudeCode returns the config that would be written without writing it.
-func DryRunClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error) {
+// dryRunClaudeCode returns the config that would be written without writing it.
+func dryRunClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error) {
 	// Capture before state
 	existing, readErr := readJSONConfig(rc.Path)
 	if readErr != nil && !os.IsNotExist(readErr) {

@@ -39,6 +39,14 @@ func newConfigListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "Show all config values",
+		Long: `Show all configuration keys and their current values.
+
+Supported keys:
+  api_url       — API base URL (default: https://api.tiddly.me)
+  update_check  — enable/disable automatic update checks (true/false)
+
+Examples:
+  tiddly config list`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := cmd.OutOrStdout()
 			for _, key := range sortedConfigKeys() {
@@ -53,6 +61,10 @@ func newConfigGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <key>",
 		Short: "Get a config value",
+		Long: `Print the current value of a single configuration key. Valid keys: api_url, update_check.
+
+Examples:
+  tiddly config get api_url`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
@@ -69,6 +81,11 @@ func newConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a config value",
+		Long: `Set a configuration value and persist it to disk. The update_check key accepts "true" or "false". Config is stored in ~/.config/tiddly/config.yaml. Valid keys: api_url, update_check.
+
+Examples:
+  tiddly config set api_url https://api.example.com
+  tiddly config set update_check false`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]

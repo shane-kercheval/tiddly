@@ -2,14 +2,12 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
-	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/shane-kercheval/tiddly/cli/internal/mcp"
 	"github.com/shane-kercheval/tiddly/cli/internal/skills"
 	"github.com/spf13/cobra"
@@ -23,17 +21,17 @@ func newSkillsCmd() *cobra.Command {
 		Short: "Manage AI tool skills from your prompts",
 		Long: `Export prompt templates as agent skills for AI tools.
 
-  tiddly skills sync             Auto-detect tools and sync skills
+  tiddly skills install          Auto-detect tools and install skills
   tiddly skills list             List available skills (prompts)`,
 	}
 
-	skillsCmd.AddCommand(newSkillsSyncCmd())
+	skillsCmd.AddCommand(newSkillsInstallCmd())
 	skillsCmd.AddCommand(newSkillsListCmd())
 
 	return skillsCmd
 }
 
-func newSkillsSyncCmd() *cobra.Command {
+func newSkillsInstallCmd() *cobra.Command {
 	var (
 		scope    string
 		tags     string
@@ -41,14 +39,25 @@ func newSkillsSyncCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "sync [tool]",
-		Short: "Download and install skills for AI tools",
-		Long: `Sync your Tiddly prompts as skills for AI tools.
+		Use:   "install [tool...]",
+		Short: "Install skills for AI tools",
+		Long: `Install your Tiddly prompts as agent skills.
 
-  tiddly skills sync                       Auto-detect tools and sync skills
-  tiddly skills sync claude-code           Sync skills for a specific tool
-  tiddly skills sync --scope project       Sync to project-level paths
-  tiddly skills sync --tags python,skill   Only sync prompts with these tags`,
+Each prompt is written as a Markdown skill file ({skill-name}/SKILL.md) to the tool's skills directory. The destination varies by tool and scope:
+  claude-code (global)  — ~/.claude/skills/
+  claude-code (project) — .claude/skills/
+  codex (global)        — ~/.codex/skills/
+
+Re-installing overwrites existing skill files but does not remove skills whose prompts have been deleted. For Claude Desktop, a .zip file is exported instead — upload it manually via Settings > Skills.
+
+By default, only prompts tagged "skill" are installed (matching the frontend default). Use --tags "" to install all prompts.
+
+Examples:
+  tiddly skills install                         Auto-detect tools and install skills
+  tiddly skills install claude-code             Install skills for a specific tool
+  tiddly skills install --scope project         Install to project-level paths
+  tiddly skills install --tags python,skill     Only install prompts with these tags
+  tiddly skills install --tags ""               Install all prompts (no tag filter)`,
 		ValidArgs: validSkillsTools,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate scope
@@ -66,9 +75,6 @@ func newSkillsSyncCmd() *cobra.Command {
 			// Resolve auth
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
 			if err != nil {
-				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not logged in. Run 'tiddly login' first")
-				}
 				return err
 			}
 
@@ -80,7 +86,7 @@ func newSkillsSyncCmd() *cobra.Command {
 				tools = args
 			} else {
 				// Auto-detect installed tools
-				detected := mcp.DetectTools(appDeps.ExecLooker)
+				detected := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
 				for _, t := range detected {
 					if t.Installed {
 						tools = append(tools, t.Name)
@@ -102,37 +108,37 @@ func newSkillsSyncCmd() *cobra.Command {
 				warnIfNotProjectDir(errW)
 			}
 
-			var syncErrors []string
-			synced := 0
+			var instErrors []string
+			installed := 0
 			for _, tool := range tools {
-				syncResult, err := skills.Sync(ctx, client, tool, tagList, tagMatch, scope)
+				instResult, err := skills.Install(ctx, client, tool, tagList, tagMatch, scope)
 				if err != nil {
-					fmt.Fprintf(errW, "Error syncing %s: %v\n", tool, err)
-					syncErrors = append(syncErrors, tool)
+					fmt.Fprintf(errW, "Error installing %s: %v\n", tool, err)
+					instErrors = append(instErrors, tool)
 					continue
 				}
 
-				if syncResult.SkillCount == 0 {
-					fmt.Fprintf(w, "%s: No skills to sync.\n", tool)
+				if instResult.SkillCount == 0 {
+					fmt.Fprintf(w, "%s: No skills to install.\n", tool)
 					if len(tagList) > 0 {
 						fmt.Fprintf(errW, "  No prompts match tags: %s\n", strings.Join(tagList, ", "))
 					}
 					continue
 				}
 
-				synced++
-				if syncResult.ZipPath != "" {
+				installed++
+				if instResult.ZipPath != "" {
 					// Claude Desktop: zip saved to temp
-					fmt.Fprintf(w, "%s: %d skill(s) exported to %s\n", tool, syncResult.SkillCount, syncResult.ZipPath)
+					fmt.Fprintf(w, "%s: %d skill(s) exported to %s\n", tool, instResult.SkillCount, instResult.ZipPath)
 					fmt.Fprintf(w, "  Upload this file to Claude Desktop via Settings > Skills.\n")
 				} else {
-					fmt.Fprintf(w, "%s: Synced %d skill(s) to %s\n", tool, syncResult.SkillCount, syncResult.DestPath)
+					fmt.Fprintf(w, "%s: Installed %d skill(s) to %s\n", tool, instResult.SkillCount, instResult.DestPath)
 				}
 			}
 
 			// Return error if all tools failed with errors
-			if len(syncErrors) > 0 && synced == 0 {
-				return fmt.Errorf("skills sync failed for: %s", strings.Join(syncErrors, ", "))
+			if len(instErrors) > 0 && installed == 0 {
+				return fmt.Errorf("skills install failed for: %s", strings.Join(instErrors, ", "))
 			}
 
 			return nil
@@ -140,7 +146,7 @@ func newSkillsSyncCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&scope, "scope", "global", "Extraction scope: global (default) or project")
-	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tag filter")
+	cmd.Flags().StringVar(&tags, "tags", "skill", `Comma-separated tag filter (use "" for all)`)
 	cmd.Flags().StringVar(&tagMatch, "tag-match", "", `Tag matching mode: "all" (default) or "any"`)
 
 	return cmd
@@ -155,12 +161,20 @@ func newSkillsListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List prompts available as skills",
+		Long: `List prompts available for export as agent skills.
+
+By default, only prompts tagged "skill" are listed (matching the frontend default). Use --tags "" to list all prompts.
+
+Prints a two-column table of prompt name and description. Use --tags to filter by tags and --tag-match to control matching mode ("all" requires every tag, "any" requires at least one).
+
+Examples:
+  tiddly skills list                               List skills (default: --tags skill)
+  tiddly skills list --tags python,skill            List skills with specific tags
+  tiddly skills list --tags ""                      List all prompts (no tag filter)
+  tiddly skills list --tags python --tag-match any  Match any tag (default: all)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
 			if err != nil {
-				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not logged in. Run 'tiddly login' first")
-				}
 				return err
 			}
 
@@ -201,22 +215,30 @@ func newSkillsListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tag filter")
+	cmd.Flags().StringVar(&tags, "tags", "skill", `Comma-separated tag filter (use "" for all)`)
 	cmd.Flags().StringVar(&tagMatch, "tag-match", "", `Tag matching mode: "all" (default) or "any"`)
 
 	return cmd
 }
 
-// parseTags splits a comma-separated tag string into a trimmed slice.
+// parseTags splits a comma-separated tag string into a trimmed slice,
+// filtering out empty strings from trailing commas or whitespace-only entries.
 func parseTags(csv string) []string {
 	if csv == "" {
 		return nil
 	}
 	parts := strings.Split(csv, ",")
-	for i, t := range parts {
-		parts[i] = strings.TrimSpace(t)
+	var result []string
+	for _, t := range parts {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			result = append(result, t)
+		}
 	}
-	return parts
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // projectMarkers are directories that indicate the CWD is a project root.

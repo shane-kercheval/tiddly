@@ -39,6 +39,8 @@ type mcpServerEntry struct {
 }
 
 // buildClaudeDesktopConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
+// Removes any existing entries pointing to tiddly URLs (regardless of key name) before adding
+// new entries under canonical names.
 func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[string]any, error) {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
@@ -53,6 +55,9 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 	if !ok {
 		servers = make(map[string]any)
 	}
+
+	// Remove only the server types being installed (non-empty PAT means it's being installed)
+	removeJSONServersByTiddlyURL(servers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	if contentPAT != "" {
 		servers[serverNameContent] = mcpServerEntry{
@@ -71,9 +76,9 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 	return config, nil
 }
 
-// InstallClaudeDesktop writes MCP server entries into the Claude Desktop config.
+// installClaudeDesktop writes MCP server entries into the Claude Desktop config.
 // Preserves all existing config and servers.
-func InstallClaudeDesktop(configPath, contentPAT, promptPAT string) error {
+func installClaudeDesktop(configPath, contentPAT, promptPAT string) error {
 	config, err := buildClaudeDesktopConfig(configPath, contentPAT, promptPAT)
 	if err != nil {
 		return err
@@ -81,8 +86,9 @@ func InstallClaudeDesktop(configPath, contentPAT, promptPAT string) error {
 	return writeJSONConfig(configPath, config)
 }
 
-// UninstallClaudeDesktop removes tiddly MCP server entries from the config.
-func UninstallClaudeDesktop(configPath string) error {
+// uninstallClaudeDesktop removes tiddly MCP server entries from the config.
+// Identifies servers by URL in args, not by name, so custom-named entries are also removed.
+func uninstallClaudeDesktop(configPath string) error {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -96,39 +102,77 @@ func UninstallClaudeDesktop(configPath string) error {
 		return nil
 	}
 
-	delete(servers, serverNameContent)
-	delete(servers, serverNamePrompts)
+	if !removeJSONServersByTiddlyURL(servers, isTiddlyURL) {
+		return nil
+	}
 
 	config["mcpServers"] = servers
 	return writeJSONConfig(configPath, config)
 }
 
-// StatusClaudeDesktop returns the names of tiddly MCP servers configured.
-func StatusClaudeDesktop(configPath string) ([]string, error) {
+// statusClaudeDesktop returns tiddly MCP servers configured in Claude Desktop.
+// Identifies servers by URL in args. Entries under canonical names are tagged MatchByName;
+// entries under other names are tagged MatchByURL.
+func statusClaudeDesktop(configPath string) (StatusResult, error) {
+	result := StatusResult{ConfigPath: configPath}
+
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return result, nil
 		}
-		return nil, err
+		return result, err
 	}
 
 	servers, ok := config["mcpServers"].(map[string]any)
 	if !ok {
-		return nil, nil
+		return result, nil
 	}
 
-	var found []string
-	for _, name := range []string{serverNameContent, serverNamePrompts} {
-		if _, exists := servers[name]; exists {
-			found = append(found, name)
+	foundContent := false
+	foundPrompts := false
+
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	canonicalNamesFirst(names)
+
+	for _, name := range names {
+		serverMap, _ := servers[name].(map[string]any)
+		if serverMap == nil {
+			continue
+		}
+
+		method := MatchByURL
+		if name == serverNameContent || name == serverNamePrompts {
+			method = MatchByName
+		}
+
+		args, _ := serverMap["args"].([]any)
+		for _, arg := range args {
+			s, _ := arg.(string)
+			if !foundContent && isTiddlyContentURL(s) {
+				result.Servers = append(result.Servers, ServerMatch{
+					ServerType: "content", Name: name, MatchMethod: method,
+				})
+				foundContent = true
+			}
+			if !foundPrompts && isTiddlyPromptURL(s) {
+				result.Servers = append(result.Servers, ServerMatch{
+					ServerType: "prompts", Name: name, MatchMethod: method,
+				})
+				foundPrompts = true
+			}
 		}
 	}
-	return found, nil
+
+	result.SortServers()
+	return result, nil
 }
 
-// DryRunClaudeDesktop returns the config that would be written without writing it.
-func DryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, after string, err error) {
+// dryRunClaudeDesktop returns the config that would be written without writing it.
+func dryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, after string, err error) {
 	// Capture before state
 	existing, readErr := readJSONConfig(configPath)
 	if readErr != nil && !os.IsNotExist(readErr) {
@@ -151,9 +195,10 @@ func DryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, afte
 	return before, after, nil
 }
 
-// ExtractClaudeDesktopPATs reads the Claude Desktop config and extracts the Bearer tokens
-// for the tiddly MCP servers. Returns empty strings on any parse error (best-effort).
-func ExtractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) {
+// extractClaudeDesktopPATs reads the Claude Desktop config and extracts the Bearer tokens
+// for the tiddly MCP servers. Identifies servers by URL in args, not by name.
+// Returns empty strings on any parse error (best-effort).
+func extractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		return "", ""
@@ -164,19 +209,46 @@ func ExtractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) 
 		return "", ""
 	}
 
-	contentPAT = extractClaudeDesktopServerPAT(servers, serverNameContent)
-	promptPAT = extractClaudeDesktopServerPAT(servers, serverNamePrompts)
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	canonicalNamesFirst(names)
+
+	for _, name := range names {
+		serverMap, _ := servers[name].(map[string]any)
+		if serverMap == nil {
+			continue
+		}
+		args, _ := serverMap["args"].([]any)
+
+		hasContent := false
+		hasPrompts := false
+		for _, arg := range args {
+			s, _ := arg.(string)
+			if isTiddlyContentURL(s) {
+				hasContent = true
+			}
+			if isTiddlyPromptURL(s) {
+				hasPrompts = true
+			}
+		}
+
+		if (hasContent && contentPAT == "") || (hasPrompts && promptPAT == "") {
+			pat := extractPATFromDesktopArgs(args)
+			if hasContent && contentPAT == "" {
+				contentPAT = pat
+			}
+			if hasPrompts && promptPAT == "" {
+				promptPAT = pat
+			}
+		}
+	}
 	return contentPAT, promptPAT
 }
 
-// extractClaudeDesktopServerPAT extracts the Bearer token from a Claude Desktop MCP server entry.
-// Scans args for "--header" and extracts the Bearer token from the following element.
-func extractClaudeDesktopServerPAT(servers map[string]any, serverName string) string {
-	server, _ := servers[serverName].(map[string]any)
-	if server == nil {
-		return ""
-	}
-	args, _ := server["args"].([]any)
+// extractPATFromDesktopArgs scans args for "--header" and extracts the Bearer token.
+func extractPATFromDesktopArgs(args []any) string {
 	for i, arg := range args {
 		s, _ := arg.(string)
 		if s == "--header" && i+1 < len(args) {
@@ -223,6 +295,10 @@ func writeJSONConfig(path string, config map[string]any) error {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
+	if err := backupConfigFile(path); err != nil {
+		return err
+	}
+
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding config: %w", err)
@@ -232,48 +308,3 @@ func writeJSONConfig(path string, config map[string]any) error {
 	return atomicWriteFile(path, data, 0600)
 }
 
-// atomicWriteFile writes data to a temp file in the same directory and renames it to path.
-// This prevents corruption if the process is killed mid-write.
-// If the file already exists, its permissions are preserved. Otherwise defaultPerm is used.
-func atomicWriteFile(path string, data []byte, defaultPerm os.FileMode) error {
-	// Preserve existing file permissions if the file already exists
-	perm := defaultPerm
-	if info, err := os.Stat(path); err == nil {
-		perm = info.Mode().Perm()
-	}
-
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return fmt.Errorf("creating temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	closed := false
-	cleanup := func() {
-		if !closed {
-			_ = tmp.Close()
-		}
-		_ = os.Remove(tmpPath)
-	}
-
-	if _, err := tmp.Write(data); err != nil {
-		cleanup()
-		return fmt.Errorf("writing temp file: %w", err)
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		cleanup()
-		return fmt.Errorf("setting file permissions: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("closing temp file: %w", err)
-	}
-	closed = true
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("renaming temp file: %w", err)
-	}
-	return nil
-}

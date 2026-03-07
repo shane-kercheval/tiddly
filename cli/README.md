@@ -1,6 +1,6 @@
 # Tiddly CLI
 
-Go CLI tool for managing Tiddly integrations — authentication, MCP server installation, skills sync, data export, and self-updating.
+Go CLI tool for managing Tiddly integrations — authentication, MCP server installation, skills install, data export, and self-updating.
 
 ## Prerequisites
 
@@ -72,7 +72,7 @@ cli/
     auth.go                   # tiddly auth status
     status.go                 # tiddly status (overview)
     mcp.go                    # tiddly mcp install/status/uninstall
-    skills.go                 # tiddly skills sync/list
+    skills.go                 # tiddly skills install/list
     tokens.go                 # tiddly tokens list/create/delete
     export.go                 # tiddly export
     completion.go             # tiddly completion bash/zsh/fish
@@ -103,7 +103,7 @@ cli/
       claude_code.go          # Claude Code config (JSON, direct HTTP entries)
       codex.go                # Codex config (TOML)
     skills/                   # Skills (prompt export)
-      sync.go                 # Fetch prompts and write as SKILL.md files
+      install.go             # Fetch prompts and write as SKILL.md files
     export/                   # Bulk export
       export.go               # Streaming JSON export
     testutil/                 # Shared test infrastructure

@@ -27,6 +27,12 @@ func newAuthStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show current authentication status",
+		Long: `Show current authentication method, API URL, and user email.
+
+A lightweight alternative to 'tiddly status' when you only need auth info. Always exits 0 — prints a helpful message instead of erroring when not logged in.
+
+Examples:
+  tiddly auth status    Show auth method and user email`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
 			if err != nil {
