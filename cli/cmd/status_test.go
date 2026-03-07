@@ -149,8 +149,8 @@ func TestStatus__shows_tree_output(t *testing.T) {
 	assert.Contains(t, result.Stdout, "└──")
 	// Scope labels
 	assert.Contains(t, result.Stdout, "user")
-	// Configured status
-	assert.Contains(t, result.Stdout, "Configured")
+	// Tiddly servers section
+	assert.Contains(t, result.Stdout, "Tiddly servers:")
 	assert.Contains(t, result.Stdout, "claude-code")
 	// Header should NOT show (project: ...) when --project-path is not passed
 	assert.Contains(t, result.Stdout, "MCP Servers:")
@@ -168,6 +168,165 @@ func TestStatus__shows_project_path_in_header(t *testing.T) {
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "MCP Servers (project: "+dir+")")
+}
+
+func TestStatus__shows_tiddly_server_urls(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {"type": "http", "url": "https://content-mcp.tiddly.me/mcp"},
+			"tiddly_prompts": {"type": "http", "url": "https://prompts-mcp.tiddly.me/mcp"}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "status")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "Tiddly servers:")
+	assert.Contains(t, result.Stdout, "https://content-mcp.tiddly.me/mcp")
+	assert.Contains(t, result.Stdout, "https://prompts-mcp.tiddly.me/mcp")
+}
+
+func TestStatus__shows_other_servers(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {"type": "http", "url": "https://content-mcp.tiddly.me/mcp"},
+			"github": {"command": "npx", "args": ["github-mcp-server"]},
+			"postgres-mcp": {"url": "https://postgres.example.com/mcp"}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "status")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "Tiddly servers:")
+	assert.Contains(t, result.Stdout, "Other servers:")
+	assert.Contains(t, result.Stdout, "github")
+	assert.Contains(t, result.Stdout, "(stdio)")
+	assert.Contains(t, result.Stdout, "postgres-mcp")
+	assert.Contains(t, result.Stdout, "(http)")
+}
+
+func TestStatus__no_tiddly_shows_hint_with_other_servers(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"sentry": {"command": "node", "args": ["sentry-server.js"]}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "status")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "No Tiddly servers configured.")
+	assert.Contains(t, result.Stdout, "tiddly mcp install")
+	assert.Contains(t, result.Stdout, "Other servers:")
+	assert.Contains(t, result.Stdout, "sentry")
+}
+
+func TestStatus__only_tiddly_no_other_section(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {"type": "http", "url": "https://content-mcp.tiddly.me/mcp"},
+			"tiddly_prompts": {"type": "http", "url": "https://prompts-mcp.tiddly.me/mcp"}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "status")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "Tiddly servers:")
+	assert.NotContains(t, result.Stdout, "Other servers:")
 }
 
 func TestStatus__shows_skills_section(t *testing.T) {

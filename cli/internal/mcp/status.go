@@ -21,12 +21,20 @@ type ServerMatch struct {
 	ServerType  string      // "content" or "prompts"
 	Name        string      // actual key name in config
 	MatchMethod MatchMethod // how it was matched
+	URL         string      // the MCP server URL
+}
+
+// OtherServer describes a non-tiddly MCP server entry.
+type OtherServer struct {
+	Name      string // config key name
+	Transport string // "http", "stdio", or "" if unknown
 }
 
 // StatusResult holds the outcome of a status check for a single tool.
 type StatusResult struct {
-	Servers    []ServerMatch
-	ConfigPath string
+	Servers      []ServerMatch // tiddly servers
+	OtherServers []OtherServer // non-tiddly servers
+	ConfigPath   string
 }
 
 // SortServers sorts the Servers slice so "content" comes before "prompts",
@@ -34,6 +42,13 @@ type StatusResult struct {
 func (sr *StatusResult) SortServers() {
 	sort.Slice(sr.Servers, func(i, j int) bool {
 		return sr.Servers[i].ServerType < sr.Servers[j].ServerType
+	})
+}
+
+// sortOtherServers sorts OtherServer entries alphabetically by name.
+func sortOtherServers(servers []OtherServer) {
+	sort.Slice(servers, func(i, j int) bool {
+		return servers[i].Name < servers[j].Name
 	})
 }
 
@@ -68,19 +83,40 @@ func isTiddlyURL(rawURL string) bool {
 	return isTiddlyContentURL(rawURL) || isTiddlyPromptURL(rawURL)
 }
 
-// extractServerURL returns the tiddly MCP URL from a server entry, checking both
-// the HTTP format ("url" field) and the stdio/npx format ("args" array).
-// For stdio format, it scans the args for a URL matching a tiddly MCP server.
+// extractServerURL returns the MCP URL from a server entry, checking both
+// the HTTP format ("url" field) and the stdio/npx mcp-remote format ("args" array).
+// For stdio format, it finds "mcp-remote" anywhere in args and returns the next element.
+// This handles variants like ["mcp-remote", "<url>"] and ["-y", "mcp-remote", "<url>"]
+// since users may manually configure servers with different npx flag orderings.
 func extractServerURL(serverMap map[string]any) string {
 	if urlStr, _ := serverMap["url"].(string); urlStr != "" {
 		return urlStr
 	}
 	args, _ := serverMap["args"].([]any)
-	for _, arg := range args {
+	for i, arg := range args {
 		s, _ := arg.(string)
-		if s != "" && isTiddlyURL(s) {
-			return s
+		if s == "mcp-remote" && i+1 < len(args) {
+			if urlStr, _ := args[i+1].(string); urlStr != "" {
+				return urlStr
+			}
 		}
+	}
+	return ""
+}
+
+// detectTransport returns the transport type for a JSON MCP server entry.
+// Returns "http" if a url field or type:"http" is present, "stdio" if a command
+// field is present, or "" if the format is unrecognized.
+// When both url/type and command fields exist, http takes precedence.
+func detectTransport(serverMap map[string]any) string {
+	if _, ok := serverMap["url"].(string); ok {
+		return "http"
+	}
+	if t, _ := serverMap["type"].(string); t == "http" {
+		return "http"
+	}
+	if _, ok := serverMap["command"].(string); ok {
+		return "stdio"
 	}
 	return ""
 }

@@ -397,6 +397,67 @@ url = "https://prompts-mcp.tiddly.me/mcp"
 	}
 }
 
+func TestStatusCodex__includes_url_on_tiddly_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	require.NoError(t, installCodex(rc, "bm_content", "bm_prompts"))
+
+	sr, err := statusCodex(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 2)
+	assert.Equal(t, ContentMCPURL(), sr.Servers[0].URL)
+	assert.Equal(t, PromptMCPURL(), sr.Servers[1].URL)
+}
+
+func TestStatusCodex__collects_other_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	config := `
+[mcp_servers.tiddly_notes_bookmarks]
+url = "https://content-mcp.tiddly.me/mcp"
+
+[mcp_servers.postgres]
+url = "https://postgres.example.com/mcp"
+
+[mcp_servers.analytics]
+url = "https://analytics.example.com/mcp"
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(config), 0644))
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := statusCodex(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 1)
+	assert.Len(t, sr.OtherServers, 2)
+	// Alphabetical order
+	assert.Equal(t, "analytics", sr.OtherServers[0].Name)
+	assert.Equal(t, "http", sr.OtherServers[0].Transport)
+	assert.Equal(t, "postgres", sr.OtherServers[1].Name)
+	assert.Equal(t, "http", sr.OtherServers[1].Transport)
+}
+
+func TestStatusCodex__only_other_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	config := `
+[mcp_servers.my_tool]
+url = "https://my-tool.example.com/mcp"
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(config), 0644))
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := statusCodex(rc)
+	require.NoError(t, err)
+	assert.Empty(t, sr.Servers)
+	assert.Len(t, sr.OtherServers, 1)
+	assert.Equal(t, "my_tool", sr.OtherServers[0].Name)
+	assert.Equal(t, "http", sr.OtherServers[0].Transport)
+}
+
 func TestUninstallCodex__removes_custom_named_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")

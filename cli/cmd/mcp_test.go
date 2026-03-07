@@ -212,7 +212,7 @@ func TestMCPStatus__shows_config_path_for_configured_tool(t *testing.T) {
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "claude-code")
-	assert.Contains(t, result.Stdout, "Configured")
+	assert.Contains(t, result.Stdout, "Tiddly servers:")
 	assert.Contains(t, result.Stdout, configPath)
 	// Verify tree format with scope labels
 	assert.Contains(t, result.Stdout, "├──")

@@ -110,9 +110,9 @@ func uninstallClaudeDesktop(configPath string) error {
 	return writeJSONConfig(configPath, config)
 }
 
-// statusClaudeDesktop returns tiddly MCP servers configured in Claude Desktop.
-// Identifies servers by URL in args. Entries under canonical names are tagged MatchByName;
-// entries under other names are tagged MatchByURL.
+// statusClaudeDesktop returns MCP servers configured in Claude Desktop.
+// Tiddly servers are identified by URL and listed in Servers; all others go to OtherServers.
+// Entries under canonical names are tagged MatchByName; others are tagged MatchByURL.
 func statusClaudeDesktop(configPath string) (StatusResult, error) {
 	result := StatusResult{ConfigPath: configPath}
 
@@ -149,25 +149,33 @@ func statusClaudeDesktop(configPath string) (StatusResult, error) {
 			method = MatchByName
 		}
 
-		args, _ := serverMap["args"].([]any)
-		for _, arg := range args {
-			s, _ := arg.(string)
-			if !foundContent && isTiddlyContentURL(s) {
-				result.Servers = append(result.Servers, ServerMatch{
-					ServerType: "content", Name: name, MatchMethod: method,
-				})
-				foundContent = true
-			}
-			if !foundPrompts && isTiddlyPromptURL(s) {
-				result.Servers = append(result.Servers, ServerMatch{
-					ServerType: "prompts", Name: name, MatchMethod: method,
-				})
-				foundPrompts = true
-			}
+		urlStr := extractServerURL(serverMap)
+
+		matched := false
+		if !foundContent && isTiddlyContentURL(urlStr) {
+			result.Servers = append(result.Servers, ServerMatch{
+				ServerType: "content", Name: name, MatchMethod: method, URL: urlStr,
+			})
+			foundContent = true
+			matched = true
+		}
+		if !foundPrompts && isTiddlyPromptURL(urlStr) {
+			result.Servers = append(result.Servers, ServerMatch{
+				ServerType: "prompts", Name: name, MatchMethod: method, URL: urlStr,
+			})
+			foundPrompts = true
+			matched = true
+		}
+		if !matched && !isTiddlyURL(urlStr) {
+			result.OtherServers = append(result.OtherServers, OtherServer{
+				Name:      name,
+				Transport: detectTransport(serverMap),
+			})
 		}
 	}
 
 	result.SortServers()
+	sortOtherServers(result.OtherServers)
 	return result, nil
 }
 

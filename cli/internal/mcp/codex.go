@@ -136,9 +136,9 @@ func uninstallCodex(rc ResolvedConfig) error {
 	return writeCodexConfig(rc.Path, config)
 }
 
-// statusCodex returns tiddly MCP servers configured in Codex.
-// Identifies servers by URL. Entries under canonical names are tagged MatchByName;
-// entries under other names are tagged MatchByURL.
+// statusCodex returns MCP servers configured in Codex.
+// Tiddly servers are identified by URL and listed in Servers; all others go to OtherServers.
+// Entries under canonical names are tagged MatchByName; others are tagged MatchByURL.
 func statusCodex(rc ResolvedConfig) (StatusResult, error) {
 	result := StatusResult{ConfigPath: rc.Path}
 
@@ -167,21 +167,31 @@ func statusCodex(rc ResolvedConfig) (StatusResult, error) {
 			method = MatchByName
 		}
 
+		matched := false
 		if !foundContent && isTiddlyContentURL(server.URL) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "content", Name: name, MatchMethod: method,
+				ServerType: "content", Name: name, MatchMethod: method, URL: server.URL,
 			})
 			foundContent = true
+			matched = true
 		}
 		if !foundPrompts && isTiddlyPromptURL(server.URL) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "prompts", Name: name, MatchMethod: method,
+				ServerType: "prompts", Name: name, MatchMethod: method, URL: server.URL,
 			})
 			foundPrompts = true
+			matched = true
+		}
+		if !matched && !isTiddlyURL(server.URL) {
+			result.OtherServers = append(result.OtherServers, OtherServer{
+				Name:      name,
+				Transport: "http", // Codex only supports HTTP MCP servers
+			})
 		}
 	}
 
 	result.SortServers()
+	sortOtherServers(result.OtherServers)
 	return result, nil
 }
 

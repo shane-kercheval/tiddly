@@ -355,6 +355,148 @@ func TestStatusClaudeCode__detects_stdio_npx_format(t *testing.T) {
 	assert.Equal(t, "prompts", sr.Servers[1].Name)
 }
 
+func TestStatusClaudeCode__includes_url_on_tiddly_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	require.NoError(t, installClaudeCode(rc, "bm_content", "bm_prompts"))
+
+	sr, err := statusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 2)
+	assert.Equal(t, ContentMCPURL(), sr.Servers[0].URL)
+	assert.Equal(t, PromptMCPURL(), sr.Servers[1].URL)
+}
+
+func TestStatusClaudeCode__collects_other_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
+			},
+			"github": map[string]any{
+				"command": "npx",
+				"args":    []any{"github-mcp-server"},
+			},
+			"postgres-mcp": map[string]any{
+				"url": "https://postgres.example.com/mcp",
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := statusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 1)
+	assert.Equal(t, "content", sr.Servers[0].ServerType)
+
+	assert.Len(t, sr.OtherServers, 2)
+	// Alphabetical order
+	assert.Equal(t, "github", sr.OtherServers[0].Name)
+	assert.Equal(t, "stdio", sr.OtherServers[0].Transport)
+	assert.Equal(t, "postgres-mcp", sr.OtherServers[1].Name)
+	assert.Equal(t, "http", sr.OtherServers[1].Transport)
+}
+
+func TestStatusClaudeCode__only_other_servers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"sentry": map[string]any{
+				"command": "node",
+				"args":    []any{"sentry-server.js"},
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := statusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Empty(t, sr.Servers)
+	assert.Len(t, sr.OtherServers, 1)
+	assert.Equal(t, "sentry", sr.OtherServers[0].Name)
+	assert.Equal(t, "stdio", sr.OtherServers[0].Transport)
+}
+
+func TestStatusClaudeCode__duplicate_tiddly_not_in_other(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
+			},
+			"my_custom_content": map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := statusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 1, "should deduplicate tiddly entries")
+	assert.Empty(t, sr.OtherServers, "duplicate tiddly entry should not appear in OtherServers")
+}
+
+func TestStatusClaudeCode__env_override_classified_as_tiddly(t *testing.T) {
+	t.Setenv("TIDDLY_CONTENT_MCP_URL", "http://localhost:8001/mcp")
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"type": "http",
+				"url":  "http://localhost:8001/mcp",
+			},
+			"other": map[string]any{
+				"command": "node",
+				"args":    []any{"server.js"},
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := statusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 1)
+	assert.Equal(t, "content", sr.Servers[0].ServerType)
+	assert.Equal(t, "http://localhost:8001/mcp", sr.Servers[0].URL)
+	assert.Len(t, sr.OtherServers, 1)
+	assert.Equal(t, "other", sr.OtherServers[0].Name)
+}
+
+func TestStatusClaudeCode__unknown_transport(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"mystery": map[string]any{
+				"config": "something",
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := statusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.OtherServers, 1)
+	assert.Equal(t, "", sr.OtherServers[0].Transport)
+}
+
 func TestUninstallClaudeCode__removes_stdio_npx_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")

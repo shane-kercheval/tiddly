@@ -18,6 +18,14 @@ func TestHelp__shows_all_subcommands(t *testing.T) {
 	assert.Contains(t, result.Stdout, "auth")
 }
 
+func TestVersion__flag(t *testing.T) {
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "--version")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "tiddly version dev")
+}
+
 func TestHelp__login_subcommand(t *testing.T) {
 	cmd := newRootCmd()
 	result := testutil.ExecuteCmd(t, cmd, "login", "--help")

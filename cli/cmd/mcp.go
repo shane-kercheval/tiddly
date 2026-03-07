@@ -246,7 +246,7 @@ Examples:
 			w := cmd.OutOrStdout()
 			tools := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
 			projectPathExplicit := cmd.Flags().Changed("project-path")
-			printMCPTree(w, cmd.ErrOrStderr(), tools, resolvedProjectPath, projectPathExplicit)
+			printMCPTree(w, tools, resolvedProjectPath, projectPathExplicit)
 
 			return nil
 		},
