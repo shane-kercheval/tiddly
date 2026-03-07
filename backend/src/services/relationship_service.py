@@ -7,11 +7,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.bookmark import Bookmark
-from models.content_history import EntityType
+from models.content_history import ActionType, EntityType
 from models.content_relationship import ContentRelationship
 from models.note import Note
 from models.prompt import Prompt
 from schemas.relationship import RelationshipInput, RelationshipWithContentResponse
+from core.request_context import RequestContext
+from core.tier_limits import TierLimits
 from services.exceptions import (
     ContentNotFoundError,
     DuplicateRelationshipError,
@@ -603,6 +605,8 @@ async def sync_relationships_for_entity(
     *,
     skip_missing_targets: bool = False,
     max_per_entity: int | None = None,
+    context: RequestContext | None = None,
+    limits: TierLimits | None = None,
 ) -> None:
     """
     Sync relationships for an entity to match the desired set.
@@ -709,6 +713,87 @@ async def sync_relationships_for_entity(
 
     if in_both:
         await db.flush()
+
+    # Bump updated_at and record history on affected target entities.
+    # Collect targets from all three mutation sets.
+    affected_targets: set[tuple[str, UUID]] = set()
+
+    for key in to_remove:
+        target_type, target_id_str, _ = key
+        affected_targets.add((target_type, UUID(target_id_str)))
+
+    for key in to_add:
+        target_type, target_id_str, _ = key
+        affected_targets.add((target_type, UUID(target_id_str)))
+
+    for key in in_both:
+        item = desired_by_key[key]
+        if item.description != current_descriptions[key]:
+            target_type, target_id_str, _ = key
+            affected_targets.add((target_type, UUID(target_id_str)))
+
+    if affected_targets:
+        await _notify_affected_targets(
+            db, user_id, affected_targets, context=context, limits=limits,
+        )
+
+
+async def _notify_affected_targets(
+    db: AsyncSession,
+    user_id: UUID,
+    affected_targets: set[tuple[str, UUID]],
+    *,
+    context: RequestContext | None = None,
+    limits: TierLimits | None = None,
+) -> None:
+    """Bump updated_at on affected target entities and optionally record history.
+
+    NOTE: Milestone 1 implements equivalent logic in _record_relationship_history
+    (relationships.py router). Keep both in sync when modifying history behavior.
+    """
+    # Lazy imports to avoid circular dependencies — entity services import
+    # relationship_service, so we can't import them at module level.
+    from services.bookmark_service import BookmarkService
+    from services.history_service import history_service
+    from services.note_service import NoteService
+    from services.prompt_service import PromptService
+
+    _entity_services = {
+        EntityType.BOOKMARK: BookmarkService(),
+        EntityType.NOTE: NoteService(),
+        EntityType.PROMPT: PromptService(),
+    }
+
+    # Per-entity service.get() instead of grouped select(model).where(id.in_(...))
+    # because get_metadata_snapshot accesses entity.tag_objects, which requires
+    # eager loading (selectinload) that service.get() handles correctly.
+    for target_type, target_id in affected_targets:
+        et = EntityType(target_type)
+        service = _entity_services[et]
+        entity = await service.get(db, user_id, target_id, include_archived=True)
+        if entity is None:
+            continue
+        entity.updated_at = func.clock_timestamp()
+
+        if context:
+            current_metadata = await service.get_metadata_snapshot(
+                db, user_id, entity,
+            )
+            await history_service.record_action(
+                db=db,
+                user_id=user_id,
+                entity_type=et,
+                entity_id=entity.id,
+                action=ActionType.UPDATE,
+                current_content=entity.content,
+                previous_content=entity.content,
+                metadata=current_metadata,
+                context=context,
+                limits=limits,
+                changed_fields=["relationships"],
+            )
+
+    await db.flush()
 
 
 async def embed_relationships(
