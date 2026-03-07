@@ -91,11 +91,11 @@ func (g *GitHubChecker) LatestRelease(ctx context.Context) (*ReleaseInfo, error)
 	osName := runtime.GOOS
 	archName := runtime.GOARCH
 
-	// Find matching binary asset by OS/arch pattern
+	// Find matching binary asset by OS/arch pattern (must be a .tar.gz archive)
 	pattern := fmt.Sprintf("_%s_%s.", osName, archName)
 	var assetURL string
 	for _, a := range release.Assets {
-		if strings.Contains(a.Name, pattern) && !strings.HasSuffix(a.Name, ".txt") {
+		if strings.Contains(a.Name, pattern) && strings.HasSuffix(a.Name, ".tar.gz") {
 			assetURL = a.BrowserDownloadURL
 			break
 		}

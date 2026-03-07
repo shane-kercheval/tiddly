@@ -9,7 +9,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
-	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -40,9 +39,6 @@ Token management requires OAuth login (browser-based). PAT authentication is not
 func resolveOAuthToken(cmd *cobra.Command) (*api.Client, error) {
 	result, err := appDeps.TokenManager.ResolveToken(flagToken, true)
 	if err != nil {
-		if errors.Is(err, auth.ErrNotLoggedIn) {
-			return nil, fmt.Errorf("not logged in. Run 'tiddly login' first")
-		}
 		return nil, err
 	}
 
@@ -55,6 +51,13 @@ func newTokensListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all Personal Access Tokens",
+		Long: `List all Personal Access Tokens for your account.
+
+Displays a table with columns: ID, NAME, PREFIX, LAST USED, EXPIRES, CREATED.
+Requires OAuth login (browser-based). PAT authentication cannot list tokens.
+
+Examples:
+  tiddly tokens list`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, err := resolveOAuthToken(cmd)
 			if err != nil {
@@ -96,6 +99,11 @@ func newTokensCreateCmd() *cobra.Command {
 		Short: "Create a new Personal Access Token",
 		Long: `Create a new Personal Access Token for programmatic API access.
 
+The token value is displayed once and cannot be retrieved again — copy it immediately. Requires OAuth login; PAT authentication cannot create tokens.
+
+Without --expires, the token has no expiration. With --expires, provide a number of days (1-365).
+
+Examples:
   tiddly tokens create "My Token"
   tiddly tokens create "CI Pipeline" --expires 90`,
 		Args: cobra.ExactArgs(1),
@@ -145,6 +153,14 @@ func newTokensDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <id>",
 		Short: "Delete a Personal Access Token",
+		Long: `Delete (revoke) a Personal Access Token by ID.
+
+Prompts for confirmation before deleting. Use --force to skip the prompt.
+Requires OAuth login (browser-based). PAT authentication cannot delete tokens.
+
+Examples:
+  tiddly tokens delete abc123            Delete with confirmation prompt
+  tiddly tokens delete abc123 --force    Delete without confirmation`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tokenID := args[0]

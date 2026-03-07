@@ -77,6 +77,37 @@ func TestLatestRelease__no_matching_asset(t *testing.T) {
 	assert.Contains(t, err.Error(), "no release asset found")
 }
 
+func TestLatestRelease__skips_non_tarball_assets(t *testing.T) {
+	osName := runtime.GOOS
+	archName := runtime.GOARCH
+
+	// Include a .sbom.json file that matches the OS/arch pattern but isn't a tarball
+	body := fmt.Sprintf(`{
+		"tag_name": "v1.0.0",
+		"assets": [
+			{"name": "tiddly_1.0.0_%s_%s.sbom.json", "browser_download_url": "https://example.com/sbom.json"},
+			{"name": "tiddly_1.0.0_%s_%s.tar.gz", "browser_download_url": "https://example.com/binary.tar.gz"},
+			{"name": "checksums.txt", "browser_download_url": "https://example.com/checksums.txt"}
+		]
+	}`, osName, archName, osName, archName)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	checker := &GitHubChecker{
+		Client: srv.Client(),
+		Owner:  "test",
+		Repo:   "test",
+	}
+	checker.Client.Transport = rewriteTransport{base: srv.URL}
+
+	info, err := checker.LatestRelease(context.Background())
+	require.NoError(t, err)
+	assert.Contains(t, info.AssetURL, "binary.tar.gz")
+}
+
 func TestParseChecksums__valid(t *testing.T) {
 	input := "abc123  tiddly_1.0.0_linux_amd64.tar.gz\ndef456  tiddly_1.0.0_darwin_arm64.tar.gz\n"
 	checksums, err := ParseChecksums(strings.NewReader(input))

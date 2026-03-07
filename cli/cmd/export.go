@@ -1,13 +1,11 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
-	"github.com/shane-kercheval/tiddly/cli/internal/auth"
 	"github.com/shane-kercheval/tiddly/cli/internal/export"
 	"github.com/spf13/cobra"
 )
@@ -24,6 +22,11 @@ func newExportCmd() *cobra.Command {
 		Short: "Export bookmarks, notes, and prompts as JSON",
 		Long: `Export your content as streaming JSON.
 
+Outputs a single JSON object with an "exported_at" timestamp and arrays for each content type. Items are streamed as they are fetched (low memory usage).
+
+When writing to a file (--output), progress is printed to stderr. When writing to stdout, progress is suppressed to avoid mixing with JSON output. If the export fails, incomplete output files are automatically deleted.
+
+Examples:
   tiddly export                              Export all content to stdout
   tiddly export --types bookmark,note        Export only bookmarks and notes
   tiddly export --output backup.json         Export to a file
@@ -38,9 +41,6 @@ func newExportCmd() *cobra.Command {
 			// Resolve auth
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, false)
 			if err != nil {
-				if errors.Is(err, auth.ErrNotLoggedIn) {
-					return fmt.Errorf("not logged in. Run 'tiddly login' first")
-				}
 				return err
 			}
 

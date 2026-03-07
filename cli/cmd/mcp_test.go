@@ -75,7 +75,7 @@ func TestMCPInstall__happy_path_with_pat(t *testing.T) {
 	looker := testutil.NewMockExecLooker()
 	looker.Paths["npx"] = "/usr/bin/npx"
 
-	// Override DetectTools via a custom looker that uses our temp dir
+	// Override detection via a custom looker that uses our temp dir
 	SetDeps(&AppDeps{
 		CredStore:    store,
 		TokenManager: tm,
@@ -91,7 +91,7 @@ func TestMCPInstall__happy_path_with_pat(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "claude-desktop")
 
 	// PAT auth can't detect the temp config dir via the normal path, so the tool
-	// won't be found. This is expected because DetectTools uses OS-specific paths.
+	// won't be found. This is expected because detection uses OS-specific paths.
 	// Instead, test the dry-run path via the install_test.go unit tests.
 	// This test just verifies the command wiring doesn't panic.
 	_ = result
@@ -100,10 +100,12 @@ func TestMCPInstall__happy_path_with_pat(t *testing.T) {
 func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 	var tokenCreated int
 	mock := testutil.NewMockAPI(t)
+	var patValidationCalls int
 	mock.On("GET", "/users/me").
 		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Reject PAT validation so dry-run uses placeholder
-			w.WriteHeader(http.StatusUnauthorized)
+			patValidationCalls++
+			t.Error("dry-run should not call PAT validation endpoint")
+			w.WriteHeader(http.StatusInternalServerError)
 		})
 	mock.On("POST", "/tokens/").
 		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +143,8 @@ func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "tiddly_notes_bookmarks")
-	// Dry-run should NOT create tokens
+	// Dry-run should not make any API calls (no PAT validation, no token creation)
+	assert.Equal(t, 0, patValidationCalls, "dry-run should not validate PATs")
 	assert.Equal(t, 0, tokenCreated, "dry-run should not create tokens")
 	// Output should contain placeholder
 	assert.Contains(t, result.Stdout, "new-token-would-be-created")
@@ -174,6 +177,50 @@ func TestMCPStatus__runs(t *testing.T) {
 	assert.Contains(t, result.Stdout, "claude-desktop")
 	assert.Contains(t, result.Stdout, "claude-code")
 	assert.Contains(t, result.Stdout, "codex")
+}
+
+func TestMCPStatus__shows_config_path_for_configured_tool(t *testing.T) {
+	// Set up a Claude Code config with tiddly servers so it's "configured"
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {"type": "http", "url": "https://content-mcp.tiddly.me/mcp"},
+			"tiddly_prompts": {"type": "http", "url": "https://prompts-mcp.tiddly.me/mcp"}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "status")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "claude-code")
+	assert.Contains(t, result.Stdout, "Tiddly servers:")
+	assert.Contains(t, result.Stdout, configPath)
+	// Verify tree format with scope labels
+	assert.Contains(t, result.Stdout, "├──")
+	assert.Contains(t, result.Stdout, "└──")
+	assert.Contains(t, result.Stdout, "user")
 }
 
 func TestMCPUninstall__requires_tool_arg(t *testing.T) {
@@ -217,10 +264,6 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 	}`
 	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
 
-	// Override config path so DetectTools returns the temp path instead of ~/.claude.json
-	cleanup := mcp.SetConfigPathOverride("claude-code", configPath)
-	t.Cleanup(cleanup)
-
 	var deletedTokenIDs []string
 	mock := testutil.NewMockAPI(t)
 	mock.On("GET", "/tokens/").
@@ -255,6 +298,7 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 		TokenManager: tm,
 		ConfigDir:    "",
 		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
 	})
 	t.Cleanup(func() {
 		appDeps = nil
@@ -328,7 +372,47 @@ func TestMCPInstall__scope_local_with_codex_explicit_returns_error(t *testing.T)
 	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "codex", "--scope", "local")
 
 	require.Error(t, result.Err)
-	assert.Contains(t, result.Err.Error(), "not supported by codex")
+	assert.Contains(t, result.Err.Error(), "not supported by")
+	assert.Contains(t, result.Err.Error(), "codex")
+}
+
+func TestMCPInstall__scope_local_with_multiple_tools_fails_before_any_install(t *testing.T) {
+	// When explicit tools are passed, scope is pre-validated for ALL tools before
+	// any installs happen. This prevents partial application (e.g. claude-code
+	// configured but codex fails).
+	store := testutil.CredsWithPAT("bm_test123")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+	looker.Paths["codex"] = "/usr/bin/codex"
+
+	dir := t.TempDir()
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverrides(map[string]string{
+			"claude-code": filepath.Join(dir, "claude.json"),
+			"codex":       filepath.Join(dir, "codex-config.toml"),
+		}),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "claude-code", "codex", "--scope", "local")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "codex")
+
+	// Verify no config files were written (pre-validation failed before install)
+	_, err := os.Stat(filepath.Join(dir, "claude.json"))
+	assert.True(t, os.IsNotExist(err), "claude-code config should not have been written")
 }
 
 func TestMCPInstall__auto_detect_skips_unsupported_scope(t *testing.T) {
@@ -390,15 +474,17 @@ func TestMCPUninstall__scope_local_with_codex_returns_error(t *testing.T) {
 	assert.Contains(t, result.Err.Error(), "not supported by codex")
 }
 
-func TestMCPStatus__invalid_scope_returns_error(t *testing.T) {
+func TestMCPStatus__project_path_flag(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
-	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "status", "--scope", "bogus")
+	dir := t.TempDir()
 
-	require.Error(t, result.Err)
-	assert.Contains(t, result.Err.Error(), "invalid scope")
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "status", "--project-path", dir)
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "MCP Servers (project: "+dir+")")
 }
 
 func TestMCPUninstall__invalid_scope_returns_error(t *testing.T) {
@@ -421,4 +507,28 @@ type fixedDesktopLooker struct {
 
 func (f *fixedDesktopLooker) LookPath(file string) (string, error) {
 	return f.inner.LookPath(file)
+}
+
+// handlersWithOverride returns DefaultHandlers with a ConfigPathOverride set for the named tool.
+func handlersWithOverride(toolName, configPath string) []mcp.ToolHandler {
+	return handlersWithOverrides(map[string]string{toolName: configPath})
+}
+
+// handlersWithOverrides returns DefaultHandlers with ConfigPathOverride set for multiple tools.
+func handlersWithOverrides(overrides map[string]string) []mcp.ToolHandler {
+	handlers := mcp.DefaultHandlers()
+	for i, h := range handlers {
+		if path, ok := overrides[h.Name()]; ok {
+			switch v := h.(type) {
+			case *mcp.ClaudeDesktopHandler:
+				v.ConfigPathOverride = path
+			case *mcp.ClaudeCodeHandler:
+				v.ConfigPathOverride = path
+			case *mcp.CodexHandler:
+				v.ConfigPathOverride = path
+			}
+			handlers[i] = h
+		}
+	}
+	return handlers
 }

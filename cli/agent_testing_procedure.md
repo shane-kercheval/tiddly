@@ -5,6 +5,7 @@ A structured checklist for an AI agent to systematically test all CLI command, t
 ## Prerequisites
 
 - [ ] CLI is built: `make cli-build` (verify `bin/tiddly` exists)
+- [ ] Local API and MCP servers are running (tests run against local services, not production)
 - [ ] Authenticated via OAuth: `bin/tiddly login` (required — token creation/deletion tests need OAuth)
 - [ ] API is reachable: `bin/tiddly status` shows API status "ok"
 - [ ] Note platform-specific config paths:
@@ -16,15 +17,48 @@ A structured checklist for an AI agent to systematically test all CLI command, t
 **NOTE**: the configuration files referenced and tested are the actual files used by the underlying agent platforms and the user. We cannot permanently modify/corrupt the files.
 
 ```bash
+# Helper functions for safe backup/restore
+backup_file() {
+  local src="$1" dest="$2"
+  if [ -e "$src" ]; then
+    cp "$src" "$dest" || { echo "FATAL: Failed to back up $src"; exit 1; }
+    echo "Backed up: $src"
+  else
+    echo "Skipped (does not exist): $src"
+  fi
+}
+
+backup_dir() {
+  local src="$1" dest="$2"
+  if [ -d "$src" ]; then
+    cp -r "$src" "$dest" || { echo "FATAL: Failed to back up $src"; exit 1; }
+    echo "Backed up: $src"
+  else
+    echo "Skipped (does not exist): $src"
+  fi
+}
+
+# Point CLI and MCP installs at local services (not production)
+export TIDDLY_API_URL=http://localhost:8000
+export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
+export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
+
 # Record which tools are detected
 bin/tiddly mcp status
 
 # Back up existing config files
 BACKUP_DIR=$(mktemp -d)
 echo "Backup dir: $BACKUP_DIR"
-cp ~/.config/Claude/claude_desktop_config.json "$BACKUP_DIR/" 2>/dev/null || true
-cp ~/.claude.json "$BACKUP_DIR/" 2>/dev/null || true
-cp ~/.codex/config.toml "$BACKUP_DIR/" 2>/dev/null || true
+backup_file ~/.config/Claude/claude_desktop_config.json "$BACKUP_DIR/claude_desktop_config.json"
+backup_file ~/.claude.json "$BACKUP_DIR/.claude.json"
+backup_file ~/.codex/config.toml "$BACKUP_DIR/config.toml"
+
+# Back up skills directories
+backup_dir ~/.claude/skills "$BACKUP_DIR/claude-skills"
+backup_dir ~/.codex/skills "$BACKUP_DIR/codex-skills"
+
+# Record existing tokens so cleanup only deletes tokens created during testing
+bin/tiddly tokens list 2>/dev/null > "$BACKUP_DIR/tokens-before.txt" || true
 
 # Create temp project directory for project/local scope tests
 TEST_PROJECT=$(mktemp -d)
@@ -42,7 +76,7 @@ bin/tiddly --help
 **Verify:**
 - [ ] Exit code 0
 - [ ] Shows subcommands: `login`, `logout`, `auth`, `status`, `mcp`, `skills`
-- [ ] Shows global flags: `--token`, `--api-url`, `--format`
+- [ ] Shows global flags: `--token`, `--api-url`
 
 ### T1.2 — MCP help
 ```bash
@@ -67,7 +101,7 @@ bin/tiddly skills --help
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Shows subcommands: `sync`, `list`
+- [ ] Shows subcommands: `install`, `list`
 
 ### T1.5 — Status overview
 ```bash
@@ -75,8 +109,26 @@ bin/tiddly status
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Output includes: `Tiddly CLI v`, `Authentication:`, `API:`, `MCP Servers:`
+- [ ] Output includes: `Tiddly CLI v`, `Authentication:`, `API:`, `MCP Servers:`, `Skills:`
 - [ ] Shows detection status for each tool (claude-desktop, claude-code, codex)
+- [ ] MCP Servers section shows tree with all scopes per tool (user, local, project)
+- [ ] Skills section shows tree with global/project scopes per tool
+- [ ] Header shows `MCP Servers:` (no project path when using default cwd)
+
+```bash
+bin/tiddly status --project-path /path/to/project
+```
+**Verify:**
+- [ ] Exit code 0
+- [ ] Header shows `MCP Servers (project: /path/to/project):`
+- [ ] local/project scopes reflect config for specified project path
+
+```bash
+bin/tiddly status --project-path /nonexistent/path
+```
+**Verify:**
+- [ ] Exit code non-zero
+- [ ] Error contains `does not exist`
 
 ---
 
@@ -128,10 +180,10 @@ bin/tiddly mcp install claude-code
 - [ ] Output contains `Configured: claude-code`
 - [ ] `~/.claude.json` contains `mcpServers.tiddly_notes_bookmarks` with:
   - `"type": "http"`
-  - `"url": "https://content-mcp.tiddly.me/mcp"`
+  - URL matching `TIDDLY_CONTENT_MCP_URL` (localhost during testing, production default otherwise)
   - `"headers"` with `"Authorization": "Bearer bm_..."` (token starts with `bm_`)
 - [ ] `~/.claude.json` contains `mcpServers.tiddly_prompts` with:
-  - `"url": "https://prompts-mcp.tiddly.me/mcp"`
+  - URL matching `TIDDLY_PROMPT_MCP_URL`
 - [ ] No other tiddly entries added outside `mcpServers`
 - [ ] Existing non-tiddly entries in `~/.claude.json` preserved
 
@@ -142,7 +194,7 @@ bin/tiddly mcp install claude-code --servers content
 **Verify:**
 - [ ] Exit code 0
 - [ ] `~/.claude.json` contains `mcpServers.tiddly_notes_bookmarks`
-- [ ] `~/.claude.json` does NOT contain `mcpServers.tiddly_prompts` (unless from prior test)
+- [ ] `~/.claude.json` still contains `mcpServers.tiddly_prompts` from T3.1 (--servers content must not delete prompts)
 
 ### T3.3 — Claude Code, user scope, prompts only
 ```bash
@@ -151,7 +203,7 @@ bin/tiddly mcp install claude-code --servers prompts
 **Verify:**
 - [ ] Exit code 0
 - [ ] `~/.claude.json` contains `mcpServers.tiddly_prompts`
-- [ ] `tiddly_notes_bookmarks` from T3.2 is still present (install merges, doesn't delete)
+- [ ] `tiddly_notes_bookmarks` from T3.2 is still present (--servers prompts must not delete content)
 
 ### T3.4 — Claude Code, project scope
 ```bash
@@ -180,10 +232,10 @@ bin/tiddly mcp install codex
 **Verify:**
 - [ ] Exit code 0
 - [ ] `~/.codex/config.toml` contains `[mcp_servers.tiddly_notes_bookmarks]` with:
-  - `url = "https://content-mcp.tiddly.me/mcp"`
+  - URL matching `TIDDLY_CONTENT_MCP_URL`
   - `[mcp_servers.tiddly_notes_bookmarks.http_headers]` with `Authorization = "Bearer bm_..."`
 - [ ] `~/.codex/config.toml` contains `[mcp_servers.tiddly_prompts]` with:
-  - `url = "https://prompts-mcp.tiddly.me/mcp"`
+  - URL matching `TIDDLY_PROMPT_MCP_URL`
 - [ ] Existing non-tiddly sections preserved
 
 ### T3.7 — Codex, project scope
@@ -204,19 +256,21 @@ bin/tiddly mcp install claude-desktop
 - [ ] Exit code 0
 - [ ] Config file contains `mcpServers.tiddly_notes_bookmarks` with:
   - `"command": "npx"`
-  - `"args"` array containing `"mcp-remote"`, `"https://content-mcp.tiddly.me/mcp"`, `"--header"`, `"Authorization: Bearer bm_..."`
+  - `"args"` array containing `"mcp-remote"`, the content MCP URL, `"--header"`, `"Authorization: Bearer bm_..."`
 - [ ] Config file contains `mcpServers.tiddly_prompts` with:
-  - `"args"` containing `"https://prompts-mcp.tiddly.me/mcp"`
+  - `"args"` containing the prompts MCP URL
 - [ ] Stderr contains `Restart Claude Desktop to apply changes.`
 - [ ] Existing non-tiddly entries preserved
 
 ### T3.9 — Install with --expires flag
 ```bash
+# Ensure no existing tokens to reuse, so --expires takes effect on newly created tokens
+bin/tiddly mcp uninstall claude-code --delete-tokens 2>/dev/null
 bin/tiddly mcp install claude-code --expires 30
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Output contains `Created tokens:` with names matching pattern `cli-mcp-claude-code-*`
+- [ ] Output contains `Created tokens:` (not `Reused tokens:`) with names matching pattern `cli-mcp-claude-code-*`
 - [ ] Config file updated with valid tokens
 
 ### T3.10 — Auto-detect install (no tool argument)
@@ -282,32 +336,34 @@ bin/tiddly mcp install claude-desktop --dry-run
 
 ## Test Group 5: MCP Status
 
-### T5.1 — Status, user scope (default)
+### T5.1 — Status, all scopes (default)
 ```bash
 bin/tiddly mcp status
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Each tool shows one of: `Not detected`, `Not configured`, `Configured (tiddly_notes_bookmarks, tiddly_prompts)`
-- [ ] Configured tools show correct server names
+- [ ] Tree-style output with all scopes per tool
+- [ ] Each scope shows one of: `Not configured`, `Configured. Installed servers: bookmarks/notes, prompts`
+- [ ] Uninstalled tools show `Not detected`
+- [ ] Header shows `MCP Servers:` (no project path)
 
-### T5.2 — Status, local scope
+### T5.2 — Status with explicit project path
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp status --scope local
+bin/tiddly mcp status --project-path "$TEST_PROJECT"
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] claude-code shows local scope status (may differ from user scope)
-- [ ] Other tools show user-scope status (local scope falls through to user for tools that don't support it — or shows error)
+- [ ] Header shows `MCP Servers (project: $TEST_PROJECT):`
+- [ ] local/project scopes reflect config for specified project
+- [ ] claude-code local scope shows `~/.claude.json → projects[...]`
 
-### T5.3 — Status, project scope
+### T5.3 — Status with invalid project path
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp status --scope project
+bin/tiddly mcp status --project-path /nonexistent/path
 ```
 **Verify:**
-- [ ] Exit code 0
-- [ ] claude-code shows project scope status from `.mcp.json`
-- [ ] codex shows project scope status from `.codex/config.toml`
+- [ ] Exit code non-zero
+- [ ] Error contains `does not exist`
 
 ---
 
@@ -391,77 +447,77 @@ bin/tiddly mcp uninstall claude-code  # already uninstalled from T6.1
 
 ---
 
-## Test Group 7: Skills Sync
+## Test Group 7: Skills Install
 
-### T7.1 — Skills sync, Claude Code, global scope (default)
+### T7.1 — Skills install, Claude Code, global scope (default)
 ```bash
-bin/tiddly skills sync claude-code
+bin/tiddly skills install claude-code
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Output contains either `claude-code: Synced N skill(s) to ~/.claude/skills` or `claude-code: No skills to sync.`
+- [ ] Output contains either `claude-code: Installed N skill(s) to ~/.claude/skills` or `claude-code: No skills to install.`
 
-### T7.2 — Skills sync, Claude Code, project scope
+### T7.2 — Skills install, Claude Code, project scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills sync claude-code --scope project
+cd "$TEST_PROJECT" && bin/tiddly skills install claude-code --scope project
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] If skills exist: output contains `claude-code: Synced N skill(s) to .claude/skills`
+- [ ] If skills exist: output contains `claude-code: Installed N skill(s) to .claude/skills`
 - [ ] Skills extracted to `$TEST_PROJECT/.claude/skills/`
 
-### T7.3 — Skills sync, Codex, global scope
+### T7.3 — Skills install, Codex, global scope
 ```bash
-bin/tiddly skills sync codex
+bin/tiddly skills install codex
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Output references `~/.codex/skills`
 
-### T7.4 — Skills sync, Codex, project scope
+### T7.4 — Skills install, Codex, project scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills sync codex --scope project
+cd "$TEST_PROJECT" && bin/tiddly skills install codex --scope project
 ```
 **Verify:**
 - [ ] Skills extracted to `$TEST_PROJECT/.agents/skills/`
 
-### T7.5 — Skills sync, Claude Desktop, global scope
+### T7.5 — Skills install, Claude Desktop, global scope
 ```bash
-bin/tiddly skills sync claude-desktop
+bin/tiddly skills install claude-desktop
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] If skills exist: output contains `claude-desktop: N skill(s) exported to /tmp/tiddly-skills-*.zip`
 - [ ] Output contains `Upload this file to Claude Desktop via Settings > Skills.`
 
-### T7.6 — Skills sync with --tags filter
+### T7.6 — Skills install with --tags filter
 ```bash
-bin/tiddly skills sync claude-code --tags python,skill
+bin/tiddly skills install claude-code --tags python,skill
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Only prompts matching both tags are synced (default `--tag-match all`)
+- [ ] Only prompts matching both tags are installed (default `--tag-match all`)
 
-### T7.7 — Skills sync with --tags and --tag-match any
+### T7.7 — Skills install with --tags and --tag-match any
 ```bash
-bin/tiddly skills sync claude-code --tags python,skill --tag-match any
+bin/tiddly skills install claude-code --tags python,skill --tag-match any
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Prompts matching either tag are synced
+- [ ] Prompts matching either tag are installed
 
-### T7.8 — Skills sync auto-detect (no tool argument)
+### T7.8 — Skills install auto-detect (no tool argument)
 ```bash
-bin/tiddly skills sync
+bin/tiddly skills install
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Syncs for all detected tools
+- [ ] Installs for all detected tools
 - [ ] Output line per tool
 
-### T7.9 — Skills sync with invalid scope
+### T7.9 — Skills install with invalid scope
 ```bash
-bin/tiddly skills sync --scope invalid
+bin/tiddly skills install --scope invalid
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -522,7 +578,7 @@ bin/tiddly mcp install codex --scope local
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `scope "local" is not supported by codex (valid: user, project)`
+- [ ] Error contains `--scope local is not supported by: codex (valid: user, project)`
 
 ### T9.5a — Unsupported scope: Claude Desktop + local
 ```bash
@@ -530,7 +586,7 @@ bin/tiddly mcp install claude-desktop --scope local
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `scope "local" is not supported by claude-desktop (valid: user)`
+- [ ] Error contains `--scope local is not supported by: claude-desktop (valid: user)`
 
 ### T9.5b — Unsupported scope: Claude Desktop + project
 ```bash
@@ -538,7 +594,7 @@ bin/tiddly mcp install claude-desktop --scope project
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `scope "project" is not supported by claude-desktop (valid: user)`
+- [ ] Error contains `--scope project is not supported by: claude-desktop (valid: user)`
 
 ### T9.6 — Invalid --servers flag
 ```bash
@@ -557,8 +613,8 @@ bin/tiddly mcp install claude-code --servers ""
 - [ ] Error contains `--servers flag requires at least one value: content, prompts`
 
 ### T9.8 — Tool not installed
+**Skip if all tools are detected on the machine.** Only testable when a tool (e.g. Claude Desktop) is not installed.
 ```bash
-# Only testable if a tool is not actually installed
 bin/tiddly mcp install claude-desktop  # if Claude Desktop is not detected
 ```
 **Verify:**
@@ -567,7 +623,7 @@ bin/tiddly mcp install claude-desktop  # if Claude Desktop is not detected
 
 ### T9.9 — Claude Desktop + skills --scope project
 ```bash
-bin/tiddly skills sync claude-desktop --scope project
+bin/tiddly skills install claude-desktop --scope project
 ```
 **Verify:**
 - [ ] Exit code non-zero (or error in output)
@@ -575,41 +631,83 @@ bin/tiddly skills sync claude-desktop --scope project
 
 ---
 
-## Test Group 10: Not Logged In
+## Cleanup & Logout Tests
 
-Run this group last — it logs out and requires re-authentication afterward.
+**IMPORTANT:** Token cleanup requires auth, so it must run **before** the logout test.
 
-### T10.1 — Logout and verify commands fail
+### Step 1: Delete test-created tokens (requires auth)
+
+```bash
+# Delete only tokens created during this test procedure
+bin/tiddly tokens list 2>/dev/null > "$BACKUP_DIR/tokens-after.txt" || true
+diff <(awk '{print $1}' "$BACKUP_DIR/tokens-before.txt" | sort) \
+     <(awk '{print $1}' "$BACKUP_DIR/tokens-after.txt" | sort) \
+     | grep "^>" | awk '{print $2}' | while read -r TOKEN_ID; do
+  echo "Deleting test-created token: $TOKEN_ID"
+  bin/tiddly tokens delete "$TOKEN_ID" --force 2>/dev/null
+done
+```
+
+### Step 2: Restore config files
+
+```bash
+restore_file() {
+  local src="$1" dest="$2"
+  if [ -e "$src" ]; then
+    cp "$src" "$dest" || echo "WARNING: Failed to restore $dest"
+    echo "Restored: $dest"
+  else
+    echo "Skipped restore (no backup): $dest"
+  fi
+}
+
+restore_dir() {
+  local src="$1" dest="$2"
+  if [ -d "$src" ]; then
+    rm -rf "$dest" && cp -r "$src" "$dest" || echo "WARNING: Failed to restore $dest"
+    echo "Restored: $dest"
+  else
+    echo "Skipped restore (no backup): $dest"
+  fi
+}
+
+restore_file "$BACKUP_DIR/claude_desktop_config.json" ~/.config/Claude/claude_desktop_config.json
+restore_file "$BACKUP_DIR/.claude.json" ~/.claude.json
+restore_file "$BACKUP_DIR/config.toml" ~/.codex/config.toml
+
+# Restore skills directories
+restore_dir "$BACKUP_DIR/claude-skills" ~/.claude/skills
+restore_dir "$BACKUP_DIR/codex-skills" ~/.codex/skills
+```
+
+### Step 3: T10.1 — Logout and verify commands fail
+
 ```bash
 bin/tiddly logout
 bin/tiddly mcp install claude-code
 bin/tiddly skills list
-bin/tiddly skills sync claude-code
+bin/tiddly skills install claude-code
 ```
 **Verify:**
 - [ ] `logout` exits 0 with `Logged out successfully.`
 - [ ] `mcp install` exits non-zero with `not logged in. Run 'tiddly login' first`
 - [ ] `skills list` exits non-zero with `not logged in. Run 'tiddly login' first`
-- [ ] `skills sync` exits non-zero with `not logged in. Run 'tiddly login' first`
-- [ ] Re-login after: `bin/tiddly login` (OAuth) or `bin/tiddly login --token bm_<your-token>` (PAT)
+- [ ] `skills install` exits non-zero with `not logged in. Run 'tiddly login' first`
 
----
-
-## Cleanup
+### Step 4: Re-login and final cleanup
 
 ```bash
-# Restore all config files from backup
-cp "$BACKUP_DIR/claude_desktop_config.json" ~/.config/Claude/claude_desktop_config.json 2>/dev/null || true
-cp "$BACKUP_DIR/.claude.json" ~/.claude.json 2>/dev/null || true
-cp "$BACKUP_DIR/config.toml" ~/.codex/config.toml 2>/dev/null || true
+# Re-login
+bin/tiddly login  # OAuth, or: bin/tiddly login --token bm_<your-token>
+
+# Restore production URLs (only needed if local env vars were set)
+unset TIDDLY_API_URL
+unset TIDDLY_CONTENT_MCP_URL
+unset TIDDLY_PROMPT_MCP_URL
 
 # Remove temp directories
 rm -rf "$TEST_PROJECT"
 rm -rf "$BACKUP_DIR"
-
-# Note: CLI-created test PATs (named cli-mcp-*) may remain on the server.
-# Review with: bin/tiddly tokens list (if available)
-# Or delete via the web UI at https://tiddly.me/settings/tokens
 ```
 
 ---
@@ -732,8 +830,11 @@ Same TOML structure as user scope.
 |----------|-------|
 | Content server name | `tiddly_notes_bookmarks` |
 | Prompts server name | `tiddly_prompts` |
-| Content MCP URL | `https://content-mcp.tiddly.me/mcp` |
-| Prompts MCP URL | `https://prompts-mcp.tiddly.me/mcp` |
+| Content MCP URL (production) | `https://content-mcp.tiddly.me/mcp` |
+| Content MCP URL (local) | `http://localhost:8001/mcp` |
+| Prompts MCP URL (production) | `https://prompts-mcp.tiddly.me/mcp` |
+| Prompts MCP URL (local) | `http://localhost:8002/mcp` |
+| API URL (local) | `http://localhost:8000` |
 | Token name pattern | `cli-mcp-<tool>-<server>-<6hex>` |
 | Token prefix | `bm_` |
 | Dry-run placeholder | `<new-token-would-be-created>` |

@@ -12,6 +12,9 @@ func newLogoutCmd() *cobra.Command {
 		Short: "Clear stored credentials",
 		Long: `Remove all stored credentials (OAuth tokens and PATs).
 
+Clears both OAuth tokens and Personal Access Tokens from the system keyring (or plaintext credential file if keyring is unavailable). After logout you must run 'tiddly login' again to use authenticated commands.
+
+Examples:
   tiddly logout    Clear credentials and log out`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := appDeps.TokenManager.ClearAll(); err != nil {

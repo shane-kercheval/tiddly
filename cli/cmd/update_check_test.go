@@ -52,9 +52,11 @@ func TestShouldCheckForUpdates__ci_env(t *testing.T) {
 	viper.SetDefault("update_check", true)
 	defer viper.Reset()
 
-	t.Setenv("CI", "true")
-
-	assert.False(t, shouldCheckForUpdates(newTestCmd("status"), ""))
+	// Any non-empty CI value should suppress update checks
+	for _, val := range []string{"true", "1", "yes", "anything"} {
+		t.Setenv("CI", val)
+		assert.False(t, shouldCheckForUpdates(newTestCmd("status"), ""), "CI=%q should suppress update checks", val)
+	}
 }
 
 func TestShouldCheckForUpdates__no_update_check_env(t *testing.T) {

@@ -24,8 +24,17 @@ type AppDeps struct {
 	TokenManager      *auth.TokenManager
 	ConfigDir         string
 	ExecLooker        mcp.ExecLooker
-	FileStoreFallback bool // true if credentials fell back to plaintext file storage
+	ToolHandlers      []mcp.ToolHandler // MCP tool handlers; nil uses DefaultHandlers()
+	FileStoreFallback bool              // true if credentials fell back to plaintext file storage
 	UpdateChecker     update.Checker
+}
+
+// handlers returns the tool handlers, defaulting to production handlers if not set.
+func (d *AppDeps) handlers() []mcp.ToolHandler {
+	if d.ToolHandlers != nil {
+		return d.ToolHandlers
+	}
+	return mcp.DefaultHandlers()
 }
 
 // appDeps is the global deps instance, set during PersistentPreRunE or by tests.
@@ -115,6 +124,8 @@ Authenticate, install MCP servers, sync skills, export data, and manage tokens.`
 			}
 		},
 	}
+
+	rootCmd.Version = cliVersion
 
 	rootCmd.PersistentFlags().StringVar(&flagToken, "token", "", "Override auth token")
 	rootCmd.PersistentFlags().StringVar(&flagAPIURL, "api-url", "", "API base URL (default: https://api.tiddly.me)")
