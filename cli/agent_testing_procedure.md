@@ -76,7 +76,7 @@ bin/tiddly --help
 **Verify:**
 - [ ] Exit code 0
 - [ ] Shows subcommands: `login`, `logout`, `auth`, `status`, `mcp`, `skills`
-- [ ] Shows global flags: `--token`, `--api-url`, `--format`
+- [ ] Shows global flags: `--token`, `--api-url`
 
 ### T1.2 — MCP help
 ```bash
@@ -264,11 +264,13 @@ bin/tiddly mcp install claude-desktop
 
 ### T3.9 — Install with --expires flag
 ```bash
+# Ensure no existing tokens to reuse, so --expires takes effect on newly created tokens
+bin/tiddly mcp uninstall claude-code --delete-tokens 2>/dev/null
 bin/tiddly mcp install claude-code --expires 30
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Output contains `Created tokens:` with names matching pattern `cli-mcp-claude-code-*`
+- [ ] Output contains `Created tokens:` (not `Reused tokens:`) with names matching pattern `cli-mcp-claude-code-*`
 - [ ] Config file updated with valid tokens
 
 ### T3.10 — Auto-detect install (no tool argument)
@@ -362,11 +364,6 @@ bin/tiddly mcp status --project-path /nonexistent/path
 **Verify:**
 - [ ] Exit code non-zero
 - [ ] Error contains `does not exist`
-
-### T5.4 — Status detects stdio/npx format servers
-If a tiddly server was added via `claude mcp add` (stdio format with URL in args), verify:
-- [ ] Status correctly shows it as `Configured`
-- [ ] Server type (bookmarks/notes or prompts) is correctly identified
 
 ---
 
@@ -581,7 +578,7 @@ bin/tiddly mcp install codex --scope local
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `scope "local" is not supported by codex (valid: user, project)`
+- [ ] Error contains `--scope local is not supported by: codex (valid: user, project)`
 
 ### T9.5a — Unsupported scope: Claude Desktop + local
 ```bash
@@ -589,7 +586,7 @@ bin/tiddly mcp install claude-desktop --scope local
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `scope "local" is not supported by claude-desktop (valid: user)`
+- [ ] Error contains `--scope local is not supported by: claude-desktop (valid: user)`
 
 ### T9.5b — Unsupported scope: Claude Desktop + project
 ```bash
@@ -597,7 +594,7 @@ bin/tiddly mcp install claude-desktop --scope project
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `scope "project" is not supported by claude-desktop (valid: user)`
+- [ ] Error contains `--scope project is not supported by: claude-desktop (valid: user)`
 
 ### T9.6 — Invalid --servers flag
 ```bash
@@ -616,8 +613,8 @@ bin/tiddly mcp install claude-code --servers ""
 - [ ] Error contains `--servers flag requires at least one value: content, prompts`
 
 ### T9.8 — Tool not installed
+**Skip if all tools are detected on the machine.** Only testable when a tool (e.g. Claude Desktop) is not installed.
 ```bash
-# Only testable if a tool is not actually installed
 bin/tiddly mcp install claude-desktop  # if Claude Desktop is not detected
 ```
 **Verify:**
@@ -634,30 +631,26 @@ bin/tiddly skills install claude-desktop --scope project
 
 ---
 
-## Test Group 10: Not Logged In
+## Cleanup & Logout Tests
 
-Run this group last — it logs out and requires re-authentication afterward.
+**IMPORTANT:** Token cleanup requires auth, so it must run **before** the logout test.
 
-### T10.1 — Logout and verify commands fail
+### Step 1: Delete test-created tokens (requires auth)
+
 ```bash
-bin/tiddly logout
-bin/tiddly mcp install claude-code
-bin/tiddly skills list
-bin/tiddly skills install claude-code
+# Delete only tokens created during this test procedure
+bin/tiddly tokens list 2>/dev/null > "$BACKUP_DIR/tokens-after.txt" || true
+diff <(awk '{print $1}' "$BACKUP_DIR/tokens-before.txt" | sort) \
+     <(awk '{print $1}' "$BACKUP_DIR/tokens-after.txt" | sort) \
+     | grep "^>" | awk '{print $2}' | while read -r TOKEN_ID; do
+  echo "Deleting test-created token: $TOKEN_ID"
+  bin/tiddly tokens delete "$TOKEN_ID" --force 2>/dev/null
+done
 ```
-**Verify:**
-- [ ] `logout` exits 0 with `Logged out successfully.`
-- [ ] `mcp install` exits non-zero with `not logged in. Run 'tiddly login' first`
-- [ ] `skills list` exits non-zero with `not logged in. Run 'tiddly login' first`
-- [ ] `skills install` exits non-zero with `not logged in. Run 'tiddly login' first`
-- [ ] Re-login after: `bin/tiddly login` (OAuth) or `bin/tiddly login --token bm_<your-token>` (PAT)
 
----
-
-## Cleanup
+### Step 2: Restore config files
 
 ```bash
-# Restore config files from backup (only if backup exists)
 restore_file() {
   local src="$1" dest="$2"
   if [ -e "$src" ]; then
@@ -685,17 +678,29 @@ restore_file "$BACKUP_DIR/config.toml" ~/.codex/config.toml
 # Restore skills directories
 restore_dir "$BACKUP_DIR/claude-skills" ~/.claude/skills
 restore_dir "$BACKUP_DIR/codex-skills" ~/.codex/skills
+```
 
-# Delete only tokens created during this test procedure
-bin/tiddly tokens list 2>/dev/null > "$BACKUP_DIR/tokens-after.txt" || true
-diff <(awk '{print $1}' "$BACKUP_DIR/tokens-before.txt" | sort) \
-     <(awk '{print $1}' "$BACKUP_DIR/tokens-after.txt" | sort) \
-     | grep "^>" | awk '{print $2}' | while read -r TOKEN_ID; do
-  echo "Deleting test-created token: $TOKEN_ID"
-  bin/tiddly tokens delete "$TOKEN_ID" --force 2>/dev/null
-done
+### Step 3: T10.1 — Logout and verify commands fail
 
-# Restore production URLs
+```bash
+bin/tiddly logout
+bin/tiddly mcp install claude-code
+bin/tiddly skills list
+bin/tiddly skills install claude-code
+```
+**Verify:**
+- [ ] `logout` exits 0 with `Logged out successfully.`
+- [ ] `mcp install` exits non-zero with `not logged in. Run 'tiddly login' first`
+- [ ] `skills list` exits non-zero with `not logged in. Run 'tiddly login' first`
+- [ ] `skills install` exits non-zero with `not logged in. Run 'tiddly login' first`
+
+### Step 4: Re-login and final cleanup
+
+```bash
+# Re-login
+bin/tiddly login  # OAuth, or: bin/tiddly login --token bm_<your-token>
+
+# Restore production URLs (only needed if local env vars were set)
 unset TIDDLY_API_URL
 unset TIDDLY_CONTENT_MCP_URL
 unset TIDDLY_PROMPT_MCP_URL
