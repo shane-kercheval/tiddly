@@ -8,8 +8,6 @@ When relationships are created, updated, or deleted, the `updated_at` timestamp 
 
 2. **Frontend stale dialog never triggers:** `useStaleCheck` compares `updated_at` timestamps to detect server-side changes. Since relationship mutations don't bump `updated_at`, the dialog never fires.
 
-Note: History is currently only recorded on the source entity. This isn't a bug -- it's just how the system works. However, in milestone 1 the fix naturally records history on the target as well, since `_record_relationship_history` does both the `updated_at` bump and history entry in one call.
-
 There are **two code paths** that mutate relationships:
 
 | Path | Where | Source `updated_at` | Target `updated_at` | History |
@@ -51,7 +49,7 @@ entity.updated_at = func.clock_timestamp()  # ADD THIS
 
 This is the right place because every caller of `_record_relationship_history` wants both the timestamp bump and the history entry. Putting the bump here avoids duplicating it across every endpoint.
 
-Also update the docstring from "Record a metadata-only history entry for a relationship change on an entity." to "Bump entity updated_at and record a metadata-only history entry for a relationship change."
+Also update the docstring from "Record a metadata-only history entry for a relationship change on an entity." to "Bump entity updated_at and record a metadata-only history entry for a relationship change." Add a note: "NOTE: Milestone 2 implements equivalent logic in sync_relationships_for_entity (relationship_service.py). Keep both in sync when modifying history behavior."
 
 **`create_relationship` endpoint** (after existing history call ~line 109): Add a second call for the target entity:
 
@@ -61,23 +59,58 @@ await _record_relationship_history(
 )
 ```
 
-**`update_relationship` endpoint** (lines ~196-199): Before calling `update_relationship`, capture the old description from the fetched relationship so we can detect no-effective-change. Gate history recording on whether the value actually changed, not just whether it was provided. This is consistent with `sync_relationships_for_entity` which compares old vs new at line 699.
+#### `backend/src/services/relationship_service.py`
+
+**Modify `update_relationship`** (lines ~226-251): Change the return type to `tuple[ContentRelationship | None, bool]`, returning whether the description actually changed. This avoids a redundant pre-fetch in the router and eliminates a TOCTOU race (where the description could change between a separate check and the update).
 
 ```python
-# Capture old value before mutation
-rel_before = await relationship_service.get_relationship(db, current_user.id, relationship_id)
-if rel_before is None:
-    raise HTTPException(status_code=404, detail="Relationship not found")
-old_description = rel_before.description
+async def update_relationship(
+    db: AsyncSession, user_id: UUID, relationship_id: UUID, *,
+    description: str | None = ...,
+) -> tuple[ContentRelationship | None, bool]:
+    rel = await get_relationship(db, user_id, relationship_id)
+    if rel is None:
+        return None, False
 
-rel = await relationship_service.update_relationship(
+    changed = False
+    if description is not ... and description != rel.description:
+        rel.description = description
+        rel.updated_at = func.clock_timestamp()
+        changed = True
+
+    await db.flush()
+    await db.refresh(rel)
+    return rel, changed
+```
+
+#### `backend/src/api/routers/relationships.py` (continued)
+
+**`update_relationship` endpoint** (lines ~174-201): Add an early return when no updatable fields are provided (empty PATCH body is a no-op). Use the `changed` flag from the service to gate history recording.
+
+```python
+kwargs: dict[str, str | None] = {}
+if 'description' in updates:
+    kwargs['description'] = updates['description']
+
+# Early return: no updatable fields provided → no-op
+if not kwargs:
+    rel = await relationship_service.get_relationship(
+        db, current_user.id, relationship_id,
+    )
+    if rel is None:
+        raise HTTPException(status_code=404, detail="Relationship not found")
+    return RelationshipResponse.model_validate(rel)
+
+rel, changed = await relationship_service.update_relationship(
     db, current_user.id, relationship_id, **kwargs,
 )
-# ...
+if rel is None:
+    raise HTTPException(status_code=404, detail="Relationship not found")
 
-# Only record history if a value actually changed
-actually_changed = kwargs and rel.description != old_description
-if actually_changed:
+# Only record history if the description actually changed
+# NOTE: Milestone 2 implements equivalent logic in sync_relationships_for_entity
+# (relationship_service.py). Keep both in sync when modifying history behavior.
+if changed:
     await _record_relationship_history(
         db, current_user.id, rel.source_type, rel.source_id, limits, request,
     )
@@ -85,8 +118,6 @@ if actually_changed:
         db, current_user.id, rel.target_type, rel.target_id, limits, request,
     )
 ```
-
-Note: This introduces an extra `get_relationship` call. Alternatively, the agent could refactor to capture the old description from the existing `update_relationship` service call (which already fetches the relationship internally). Either approach is fine -- the agent should use judgment on the cleanest implementation.
 
 **`delete_relationship` endpoint** (lines ~218-229): Capture target info before deletion and add second history call:
 
@@ -145,22 +176,41 @@ cd backend && python -m pytest tests/api/test_relationships.py -x -v
 
 ### Goal & Outcome
 
-Fix `sync_relationships_for_entity` so that target entities get their `updated_at` bumped when relationships are added, removed, or have their description changed via the inline path (e.g. `PATCH /notes/{id}` with `relationships` field).
+Fix `sync_relationships_for_entity` so that target entities get their `updated_at` bumped **and history recorded** when relationships are added, removed, or have their description changed via the inline path (e.g. `PATCH /notes/{id}` with `relationships` field).
 
 After this milestone:
-- Editing Note A to add a link to Note B bumps Note B's `updated_at`
+- Editing Note A to add a link to Note B bumps Note B's `updated_at` and records history on Note B
 - If Note B is open in another tab/session, the stale dialog fires and Safari serves fresh data
-- All relationship mutation paths consistently bump `updated_at` on both sides
+- All relationship mutation paths consistently bump `updated_at` and record history on both sides
 
 ### Implementation Outline
 
 #### `backend/src/services/relationship_service.py`
 
-**Modify `sync_relationships_for_entity`** (lines 591-705): After the three mutation loops (delete, create, update descriptions), collect all affected target entity IDs and bump their `updated_at`.
-
-The function already knows the affected targets from `to_add`, `to_remove`, and changed descriptions in `in_both`. Collect them into a set, then issue a bulk UPDATE. The source entity's `updated_at` is already bumped by the caller (e.g. `note_service.update` line 249), so we only need to handle targets here.
+**Add parameters to `sync_relationships_for_entity`** (line 591): Add `context` and `limits` parameters. The callers (`note_service.update`, `bookmark_service.update`, `prompt_service.update`) already have both values — they just need to pass them through.
 
 ```python
+async def sync_relationships_for_entity(
+    db: AsyncSession,
+    user_id: UUID,
+    entity_type: str,
+    entity_id: UUID,
+    desired: list[RelationshipInput],
+    *,
+    skip_missing_targets: bool = False,
+    max_per_entity: int | None = None,
+    context: RequestContext | None = None,  # ADD
+    limits: TierLimits | None = None,       # ADD
+) -> None:
+```
+
+**After the three mutation loops** (delete, create, update descriptions), collect all affected target entity IDs, bump their `updated_at`, and record history.
+
+The function already knows the affected targets from `to_add`, `to_remove`, and changed descriptions in `in_both`. Collect them into a set, then load and update in grouped queries (one per entity type, at most 3).
+
+```python
+from collections import defaultdict
+
 # Collect target entities whose relationships changed
 affected_targets: set[tuple[str, UUID]] = set()
 
@@ -178,22 +228,81 @@ for key in in_both:
         target_type, target_id_str, _ = key
         affected_targets.add((target_type, UUID(target_id_str)))
 
-# Bump updated_at on affected target entities
-for target_type, target_id in affected_targets:
-    model = MODEL_MAP.get(target_type)
-    if model is None:
-        continue
-    stmt = select(model).where(model.id == target_id, model.user_id == user_id)
-    result = await db.execute(stmt)
-    target_entity = result.scalar_one_or_none()
-    if target_entity is not None:
-        target_entity.updated_at = func.clock_timestamp()
-
+# Bump updated_at and record history on affected target entities.
+# Group by model type to minimize queries (one per entity type, at most 3).
+# NOTE: Milestone 1 implements equivalent logic in _record_relationship_history
+# (relationships.py router). Keep both in sync when modifying history behavior.
 if affected_targets:
+    by_type: defaultdict[str, set[UUID]] = defaultdict(set)
+    for target_type, target_id in affected_targets:
+        by_type[target_type].add(target_id)
+
+    for target_type, ids in by_type.items():
+        model = MODEL_MAP.get(target_type)
+        if model is None:
+            continue
+        stmt = select(model).where(model.id.in_(ids), model.user_id == user_id)
+        result = await db.execute(stmt)
+        for target_entity in result.scalars():
+            target_entity.updated_at = func.clock_timestamp()
+
+            # Record history if context is available (skipped during restore)
+            if context and limits:
+                et = EntityType(target_type)
+                service = _entity_services[et]
+                current_metadata = await service.get_metadata_snapshot(
+                    db, user_id, target_entity,
+                )
+                await history_service.record_action(
+                    db=db,
+                    user_id=user_id,
+                    entity_type=et,
+                    entity_id=target_entity.id,
+                    action=ActionType.UPDATE,
+                    current_content=target_entity.content,
+                    previous_content=target_entity.content,
+                    metadata=current_metadata,
+                    context=context,
+                    limits=limits,
+                    changed_fields=["relationships"],
+                )
+
     await db.flush()
 ```
 
-Note: We use individual filtered queries + attribute set rather than a bulk `UPDATE` statement because (a) the number of affected targets per sync is small (bounded by `max_per_entity`, typically ~50), and (b) the entities may span multiple model types (bookmark, note, prompt), so a single UPDATE statement wouldn't work. We filter by `user_id` (not just `db.get()` by PK) for defense in depth -- ensuring we never accidentally bump another user's entity.
+This requires adding the necessary imports and an `_entity_services` map in the service file. Since the relationship service already imports the model classes (`Bookmark`, `Note`, `Prompt`) via `MODEL_MAP`, the entity services can follow the same pattern:
+
+```python
+from services.bookmark_service import BookmarkService
+from services.note_service import NoteService
+from services.prompt_service import PromptService
+from services.history_service import history_service
+from models.content_history import ActionType, EntityType
+
+_entity_services = {
+    EntityType.BOOKMARK: BookmarkService(),
+    EntityType.NOTE: NoteService(),
+    EntityType.PROMPT: PromptService(),
+}
+```
+
+Note: Check for circular import issues. The service files already import `relationship_service`, so importing entity services here could create a cycle. If so, use lazy imports inside the function body or a `TYPE_CHECKING` guard. The existing `MODEL_MAP` pattern (importing models, not services) avoids this — but we need the services for `get_metadata_snapshot`. If circular imports are an issue, instantiate the services lazily inside the function.
+
+#### Callers: `note_service.py`, `bookmark_service.py`, `prompt_service.py`
+
+**Update all calls to `sync_relationships_for_entity`** to pass `context` and `limits`. Each caller already has both values. Example from `note_service.py` (line ~243):
+
+```python
+await relationship_service.sync_relationships_for_entity(
+    db, user_id, self.entity_type, note.id, data.relationships,
+    skip_missing_targets=(action == ActionType.RESTORE),
+    max_per_entity=limits.max_relationships_per_entity if limits else None,
+    context=context,   # ADD
+    limits=limits,     # ADD
+)
+```
+
+Apply the same change to `bookmark_service.py` and `prompt_service.py` (both `create` and `update` methods).
 
 ### Testing Strategy
 
@@ -204,8 +313,12 @@ Tests go in `backend/tests/api/test_relationships.py`.
 - `test__api_update_note_remove_relationship__bumps_target_updated_at` -- Same as above but for removing a relationship. Create the relationship first, then update Note A with `relationships: []` to remove it. Verify Note B's `updated_at` increased.
 - `test__api_update_bookmark_with_relationships__bumps_target_updated_at` -- Same pattern but via `PATCH /bookmarks/{id}` to confirm the sync path works across entity types, not just notes.
 
+**Target history via inline sync (2 tests):**
+- `test__api_update_note_with_relationships__records_history_on_target` -- `PATCH /notes/{id}` with a new relationship records a history entry on the target entity with `changed_fields=["relationships"]`.
+- `test__api_update_note_remove_relationship__records_history_on_target` -- Removing a relationship via inline sync records history on the target.
+
 **No-op sync doesn't bump (1 test):**
-- `test__api_update_note_with_same_relationships__does_not_bump_target` -- If the relationship set hasn't changed, target `updated_at` should not be bumped. Create Note A linked to Note B, then update Note A with the same `relationships` list. Verify Note B's `updated_at` is unchanged.
+- `test__api_update_note_with_same_relationships__does_not_bump_target` -- If the relationship set hasn't changed, target `updated_at` should not be bumped and no history should be recorded. Create Note A linked to Note B, then update Note A with the same `relationships` list. Verify Note B's `updated_at` is unchanged and no new history entry exists.
 
 **HTTP cache regression for inline path (1 test):**
 - `test__api_update_note_with_relationships__invalidates_target_http_cache` -- `GET /notes/{target_id}/metadata` with `If-Modified-Since` returns 200 (not 304) after the source note is updated with a new relationship to the target. Use `~1.1s` delay for second-precision boundary.
