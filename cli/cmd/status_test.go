@@ -286,7 +286,7 @@ func TestStatus__no_tiddly_shows_hint_with_other_servers(t *testing.T) {
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "No Tiddly servers configured.")
-	assert.Contains(t, result.Stdout, "tiddly mcp install")
+	assert.Contains(t, result.Stdout, "tiddly mcp configure")
 	assert.Contains(t, result.Stdout, "Other servers:")
 	assert.Contains(t, result.Stdout, "sentry")
 }

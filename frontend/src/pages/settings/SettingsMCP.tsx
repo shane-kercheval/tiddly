@@ -292,7 +292,7 @@ function generateCLICommands(
   const parts: string[] = []
 
   if (selectedServers.size > 0 && selectedTools.size > 0) {
-    let cmd = 'tiddly mcp install'
+    let cmd = 'tiddly mcp configure'
 
     // Add specific tools if not all selected
     const mcpTools = allTools.filter((t) => selectedTools.has(t))
@@ -314,7 +314,7 @@ function generateCLICommands(
   }
 
   if (installSkills && selectedTools.size > 0) {
-    let cmd = 'tiddly skills install'
+    let cmd = 'tiddly skills configure'
 
     // Add specific tools if not all selected
     const skillsTools = allTools.filter((t) => selectedTools.has(t))
@@ -1464,7 +1464,7 @@ function buildSkillsExportUrl(client: SkillsClientType, selectedTags: string[]):
 }
 
 /**
- * Claude Code skills install instructions.
+ * Claude Code skills configure instructions.
  */
 interface ClaudeCodeSkillsInstructionsProps {
   exportUrl: string
@@ -1528,7 +1528,7 @@ function ClaudeCodeSkillsInstructions({ exportUrl }: ClaudeCodeSkillsInstruction
 }
 
 /**
- * Codex skills install instructions.
+ * Codex skills configure instructions.
  */
 interface CodexSkillsInstructionsProps {
   exportUrl: string
@@ -1589,7 +1589,7 @@ function CodexSkillsInstructions({ exportUrl }: CodexSkillsInstructionsProps): R
 }
 
 /**
- * Claude Desktop skills install instructions.
+ * Claude Desktop skills configure instructions.
  */
 interface ClaudeDesktopSkillsInstructionsProps {
   exportUrl: string
@@ -1712,7 +1712,7 @@ function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
       <div className="mb-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
         <p className="text-sm text-blue-800">
           <strong>Tip:</strong> If you have the Tiddly CLI installed, run{' '}
-          <code className="bg-blue-100 px-1 rounded">tiddly skills install {client}</code> instead.
+          <code className="bg-blue-100 px-1 rounded">tiddly skills configure {client}</code> instead.
           See <Link to="/docs/cli/skills" className="text-[#d97b3d] hover:underline">CLI docs</Link>.
         </p>
       </div>

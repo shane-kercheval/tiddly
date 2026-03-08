@@ -148,8 +148,8 @@ describe('SettingsMCP', () => {
       renderWithRouter()
       const cli = screen.getByTestId('cli-setup-section')
       const pre = within(cli).getByTestId('cli-install-command')
-      expect(pre.textContent).toContain('tiddly mcp install claude-code codex')
-      expect(pre.textContent).not.toContain('tiddly skills install')
+      expect(pre.textContent).toContain('tiddly mcp configure claude-code codex')
+      expect(pre.textContent).not.toContain('tiddly skills configure')
     })
 
     it('should add skills command when skills enabled', async () => {
@@ -160,8 +160,8 @@ describe('SettingsMCP', () => {
       await user.click(within(cli).getByRole('button', { name: 'Yes' }))
 
       const pre = within(cli).getByTestId('cli-install-command')
-      expect(pre.textContent).toContain('tiddly mcp install')
-      expect(pre.textContent).toContain('tiddly skills install')
+      expect(pre.textContent).toContain('tiddly mcp configure')
+      expect(pre.textContent).toContain('tiddly skills configure')
     })
 
     it('should omit mcp command when no servers selected', async () => {
@@ -175,8 +175,8 @@ describe('SettingsMCP', () => {
       await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
 
       const pre = within(cli).getByTestId('cli-install-command')
-      expect(pre.textContent).not.toContain('tiddly mcp install')
-      expect(pre.textContent).toContain('tiddly skills install')
+      expect(pre.textContent).not.toContain('tiddly mcp configure')
+      expect(pre.textContent).toContain('tiddly skills configure')
     })
 
     it('should omit skills command when skills set to No', async () => {
@@ -189,8 +189,8 @@ describe('SettingsMCP', () => {
       await user.click(within(cli).getByRole('button', { name: 'No' }))
 
       const pre = within(cli).getByTestId('cli-install-command')
-      expect(pre.textContent).toContain('tiddly mcp install')
-      expect(pre.textContent).not.toContain('tiddly skills install')
+      expect(pre.textContent).toContain('tiddly mcp configure')
+      expect(pre.textContent).not.toContain('tiddly skills configure')
     })
 
     it('should add --servers flag when only one server selected', async () => {
@@ -213,7 +213,7 @@ describe('SettingsMCP', () => {
       await user.click(within(cli).getByRole('button', { name: 'Codex' }))
 
       const pre = within(cli).getByTestId('cli-install-command')
-      expect(pre.textContent).toContain('tiddly mcp install claude-code')
+      expect(pre.textContent).toContain('tiddly mcp configure claude-code')
       expect(pre.textContent).not.toContain('codex')
     })
 

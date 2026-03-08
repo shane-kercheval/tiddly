@@ -142,7 +142,7 @@ export function SkillsSection({ client }: SkillsSectionProps): ReactNode {
           Install your skills with the Tiddly CLI:
         </p>
         <CopyableCodeBlock
-          code={`tiddly skills install ${client}`}
+          code={`tiddly skills configure ${client}`}
         />
         <p className="mt-2 text-sm text-gray-500">
           By default, only prompts tagged &quot;skill&quot; are installed. Use{' '}

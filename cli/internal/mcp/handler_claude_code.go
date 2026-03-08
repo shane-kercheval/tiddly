@@ -31,8 +31,8 @@ func (h *ClaudeCodeHandler) ResolvePath(configPath, scope, cwd string) (string, 
 	return resolveClaudeCodePath(configPath, scope, cwd)
 }
 
-func (h *ClaudeCodeHandler) Install(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, error) {
-	if err := installClaudeCode(rc, contentPAT, promptPAT); err != nil {
+func (h *ClaudeCodeHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, error) {
+	if err := configureClaudeCode(rc, contentPAT, promptPAT); err != nil {
 		return nil, err
 	}
 	warnings := []string{
@@ -41,8 +41,8 @@ func (h *ClaudeCodeHandler) Install(rc ResolvedConfig, contentPAT, promptPAT str
 	return warnings, nil
 }
 
-func (h *ClaudeCodeHandler) Uninstall(rc ResolvedConfig) error {
-	return uninstallClaudeCode(rc)
+func (h *ClaudeCodeHandler) Remove(rc ResolvedConfig) error {
+	return removeClaudeCode(rc)
 }
 
 func (h *ClaudeCodeHandler) Status(rc ResolvedConfig) (StatusResult, error) {

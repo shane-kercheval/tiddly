@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunInstall__oauth_creates_pats_with_unique_names(t *testing.T) {
+func TestRunConfigure__oauth_creates_pats_with_unique_names(t *testing.T) {
 	var createdNames []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -51,7 +51,7 @@ func TestRunInstall__oauth_creates_pats_with_unique_names(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
@@ -71,7 +71,7 @@ func TestRunInstall__oauth_creates_pats_with_unique_names(t *testing.T) {
 	assert.Contains(t, result.ToolsConfigured, "claude-desktop")
 }
 
-func TestRunInstall__oauth_reuses_valid_existing_pat(t *testing.T) {
+func TestRunConfigure__oauth_reuses_valid_existing_pat(t *testing.T) {
 	var tokenCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -117,7 +117,7 @@ func TestRunInstall__oauth_reuses_valid_existing_pat(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
@@ -130,7 +130,7 @@ func TestRunInstall__oauth_reuses_valid_existing_pat(t *testing.T) {
 	assert.Empty(t, result.TokensCreated)
 }
 
-func TestRunInstall__oauth_creates_new_pat_when_existing_invalid(t *testing.T) {
+func TestRunConfigure__oauth_creates_new_pat_when_existing_invalid(t *testing.T) {
 	var tokenCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -180,7 +180,7 @@ func TestRunInstall__oauth_creates_new_pat_when_existing_invalid(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
@@ -193,7 +193,7 @@ func TestRunInstall__oauth_creates_new_pat_when_existing_invalid(t *testing.T) {
 	assert.Empty(t, result.TokensReused)
 }
 
-func TestRunInstall__pat_reuses_token(t *testing.T) {
+func TestRunConfigure__pat_reuses_token(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -206,7 +206,7 @@ func TestRunInstall__pat_reuses_token(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:    client,
 		AuthType:  "pat",
@@ -226,7 +226,7 @@ func TestRunInstall__pat_reuses_token(t *testing.T) {
 	assert.Contains(t, args[3], "bm_existing")
 }
 
-func TestRunInstall__dry_run_no_token_creation(t *testing.T) {
+func TestRunConfigure__dry_run_no_token_creation(t *testing.T) {
 	var tokenCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -253,7 +253,7 @@ func TestRunInstall__dry_run_no_token_creation(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
@@ -273,7 +273,7 @@ func TestRunInstall__dry_run_no_token_creation(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "config file should not be created in dry-run")
 }
 
-func TestRunInstall__dry_run_skips_pat_validation(t *testing.T) {
+func TestRunConfigure__dry_run_skips_pat_validation(t *testing.T) {
 	// Dry-run should not make any network calls — not even PAT validation.
 	// Use a server that fails on any request to prove this.
 	var apiCalls int
@@ -293,7 +293,7 @@ func TestRunInstall__dry_run_skips_pat_validation(t *testing.T) {
 		{Name: "claude-code", Installed: true, ConfigPath: configPath},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
@@ -307,7 +307,7 @@ func TestRunInstall__dry_run_skips_pat_validation(t *testing.T) {
 	assert.Contains(t, stdout.String(), "new-token-would-be-created")
 }
 
-func TestRunInstall__dry_run_pat_auth_shows_diff(t *testing.T) {
+func TestRunConfigure__dry_run_pat_auth_shows_diff(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
@@ -318,7 +318,7 @@ func TestRunInstall__dry_run_pat_auth_shows_diff(t *testing.T) {
 		{Name: "claude-code", Installed: true, ConfigPath: configPath},
 	}
 
-	_, err := RunInstall(InstallOpts{
+	_, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
@@ -335,7 +335,7 @@ func TestRunInstall__dry_run_pat_auth_shows_diff(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "config file should not be created in dry-run")
 }
 
-func TestRunInstall__servers_content_only(t *testing.T) {
+func TestRunConfigure__servers_content_only(t *testing.T) {
 	var createdNames []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -368,7 +368,7 @@ func TestRunInstall__servers_content_only(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "oauth",
@@ -388,7 +388,7 @@ func TestRunInstall__servers_content_only(t *testing.T) {
 	assert.NotContains(t, servers, "tiddly_prompts")
 }
 
-func TestRunInstall__servers_prompts_only(t *testing.T) {
+func TestRunConfigure__servers_prompts_only(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -399,7 +399,7 @@ func TestRunInstall__servers_prompts_only(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
@@ -416,13 +416,13 @@ func TestRunInstall__servers_prompts_only(t *testing.T) {
 	assert.Contains(t, servers, "tiddly_prompts")
 }
 
-func TestRunInstall__servers_content_only_preserves_existing_prompts(t *testing.T) {
+func TestRunConfigure__servers_content_only_preserves_existing_prompts(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
 	// Pre-install both servers
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installClaudeCode(rc, "bm_old_content", "bm_old_prompts")
+	err := configureClaudeCode(rc, "bm_old_content", "bm_old_prompts")
 	require.NoError(t, err)
 
 	client := api.NewClient("http://unused", "bm_test", "pat")
@@ -432,7 +432,7 @@ func TestRunInstall__servers_content_only_preserves_existing_prompts(t *testing.
 		{Name: "claude-code", Installed: true, ConfigPath: configPath},
 	}
 
-	_, err = RunInstall(InstallOpts{
+	_, err = RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
@@ -457,13 +457,13 @@ func TestRunInstall__servers_content_only_preserves_existing_prompts(t *testing.
 	assert.Equal(t, "Bearer bm_old_prompts", promptHeaders["Authorization"])
 }
 
-func TestRunInstall__servers_prompts_only_preserves_existing_content(t *testing.T) {
+func TestRunConfigure__servers_prompts_only_preserves_existing_content(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
 	// Pre-install both servers
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installClaudeCode(rc, "bm_old_content", "bm_old_prompts")
+	err := configureClaudeCode(rc, "bm_old_content", "bm_old_prompts")
 	require.NoError(t, err)
 
 	client := api.NewClient("http://unused", "bm_test", "pat")
@@ -473,7 +473,7 @@ func TestRunInstall__servers_prompts_only_preserves_existing_content(t *testing.
 		{Name: "claude-code", Installed: true, ConfigPath: configPath},
 	}
 
-	_, err = RunInstall(InstallOpts{
+	_, err = RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
@@ -498,7 +498,7 @@ func TestRunInstall__servers_prompts_only_preserves_existing_content(t *testing.
 	assert.Equal(t, "Bearer bm_test", promptHeaders["Authorization"])
 }
 
-func TestRunInstall__skips_uninstalled_tools(t *testing.T) {
+func TestRunConfigure__skips_uninstalled_tools(t *testing.T) {
 	client := api.NewClient("http://unused", "bm_test", "pat")
 	stdout := &bytes.Buffer{}
 
@@ -507,7 +507,7 @@ func TestRunInstall__skips_uninstalled_tools(t *testing.T) {
 		{Name: "claude-code", Installed: false},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
@@ -518,7 +518,7 @@ func TestRunInstall__skips_uninstalled_tools(t *testing.T) {
 	assert.Empty(t, result.ToolsConfigured)
 }
 
-func TestRunInstall__malformed_config_returns_parse_error(t *testing.T) {
+func TestRunConfigure__malformed_config_returns_parse_error(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
@@ -531,7 +531,7 @@ func TestRunInstall__malformed_config_returns_parse_error(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	_, err := RunInstall(InstallOpts{
+	_, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:    client,
 		AuthType:  "pat",
@@ -548,7 +548,7 @@ func TestRunInstall__malformed_config_returns_parse_error(t *testing.T) {
 	assert.Equal(t, "not json{", string(data))
 }
 
-func TestRunInstall__unsupported_scope_returns_error(t *testing.T) {
+func TestRunConfigure__unsupported_scope_returns_error(t *testing.T) {
 	client := api.NewClient("http://unused", "bm_test", "pat")
 	stdout := &bytes.Buffer{}
 
@@ -556,7 +556,7 @@ func TestRunInstall__unsupported_scope_returns_error(t *testing.T) {
 		{Name: "codex", Installed: true},
 	}
 
-	_, err := RunInstall(InstallOpts{
+	_, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
@@ -650,17 +650,17 @@ func TestTiddlyURLMatcher__neither_pat_matches_nothing(t *testing.T) {
 	assert.False(t, match("https://other.example.com/mcp"))
 }
 
-func TestInstallClaudeCode__both_pats_empty_preserves_existing(t *testing.T) {
+func TestConfigureClaudeCode__both_pats_empty_preserves_existing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
 	// Install both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installClaudeCode(rc, "bm_content", "bm_prompts")
+	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Call with both PATs empty — should be a no-op for existing servers
-	err = installClaudeCode(rc, "", "")
+	err = configureClaudeCode(rc, "", "")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -830,7 +830,7 @@ func TestExtractPATs__missing_config(t *testing.T) {
 	assert.Empty(t, promptPAT)
 }
 
-func TestInstallTool__claude_code_project_scope_malformed_returns_error(t *testing.T) {
+func TestConfigureTool__claude_code_project_scope_malformed_returns_error(t *testing.T) {
 	cwd := t.TempDir()
 	mcpPath := filepath.Join(cwd, ".mcp.json")
 
@@ -845,7 +845,7 @@ func TestInstallTool__claude_code_project_scope_malformed_returns_error(t *testi
 		{Name: "claude-code", Installed: true, ConfigPath: ""},
 	}
 
-	_, err := RunInstall(InstallOpts{
+	_, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:    client,
 		AuthType:  "pat",
@@ -864,7 +864,7 @@ func TestInstallTool__claude_code_project_scope_malformed_returns_error(t *testi
 	assert.Equal(t, "not json{", string(data))
 }
 
-func TestDryRunTool__claude_code_project_scope_shows_correct_path(t *testing.T) {
+func TestDryRunConfigure__claude_code_project_scope_shows_correct_path(t *testing.T) {
 	// Regression: dryRunTool claude-code case showed tool.ResolvedConfigPath()
 	// in diff output instead of the resolved project path.
 	cwd := t.TempDir()
@@ -875,7 +875,7 @@ func TestDryRunTool__claude_code_project_scope_shows_correct_path(t *testing.T) 
 		{Name: "claude-code", Installed: true, ConfigPath: ""},
 	}
 
-	_, err := RunInstall(InstallOpts{
+	_, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
@@ -891,7 +891,7 @@ func TestDryRunTool__claude_code_project_scope_shows_correct_path(t *testing.T) 
 	assert.Contains(t, output, filepath.Join(cwd, ".mcp.json"))
 }
 
-func TestRunInstall__valid_config_creates_backup_before_writing(t *testing.T) {
+func TestRunConfigure__valid_config_creates_backup_before_writing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -906,7 +906,7 @@ func TestRunInstall__valid_config_creates_backup_before_writing(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
@@ -927,7 +927,7 @@ func TestRunInstall__valid_config_creates_backup_before_writing(t *testing.T) {
 	assert.Contains(t, string(newData), "tiddly_notes_bookmarks")
 }
 
-func TestRunUninstall__valid_config_creates_backup_before_writing(t *testing.T) {
+func TestRunRemove__valid_config_creates_backup_before_writing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -943,7 +943,7 @@ func TestRunUninstall__valid_config_creates_backup_before_writing(t *testing.T) 
 	writeTestJSON(t, configPath, existingConfig)
 
 	h := &ClaudeDesktopHandler{}
-	err := h.Uninstall(ResolvedConfig{Path: configPath, Scope: "user"})
+	err := h.Remove(ResolvedConfig{Path: configPath, Scope: "user"})
 	require.NoError(t, err)
 
 	// Backup should exist with the original content (including the tiddly server)
@@ -952,7 +952,7 @@ func TestRunUninstall__valid_config_creates_backup_before_writing(t *testing.T) 
 	assert.Contains(t, string(backupData), "tiddly_notes_bookmarks")
 }
 
-func TestRunInstall__no_existing_file_does_not_create_backup(t *testing.T) {
+func TestRunConfigure__no_existing_file_does_not_create_backup(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -963,7 +963,7 @@ func TestRunInstall__no_existing_file_does_not_create_backup(t *testing.T) {
 		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
 	}
 
-	result, err := RunInstall(InstallOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",

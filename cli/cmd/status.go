@@ -205,7 +205,7 @@ func printToolTree(w io.Writer, tool mcp.DetectedTool, projectPath string) {
 		fmt.Fprintf(w, "  %s %-10s %s\n", connector, ss.Scope, configDisplay)
 
 		if len(ss.Result.Servers) == 0 {
-			hint := fmt.Sprintf("tiddly mcp install %s", tool.Name)
+			hint := fmt.Sprintf("tiddly mcp configure %s", tool.Name)
 			if ss.Scope != "user" {
 				hint += " --scope " + ss.Scope
 			}
@@ -257,7 +257,7 @@ func displayPath(configPath, projectPath, scope string) string {
 }
 
 // printSkillsSection renders the Skills tree.
-// NOTE: Skills use "global"/"project" scope terminology (from `tiddly skills install --scope`),
+// NOTE: Skills use "global"/"project" scope terminology (from `tiddly skills configure --scope`),
 // while MCP uses "user"/"local"/"project" (from Claude Code's conventions). "user" and "global"
 // refer to the same thing (~/ config). Changing either would break existing CLI contracts.
 func printSkillsSection(w io.Writer, projectPath string) {

@@ -6,7 +6,7 @@ A structured checklist for an AI agent to systematically test all CLI command, t
 
 - [ ] CLI is built: `make cli-build` (verify `bin/tiddly` exists)
 - [ ] Local API and MCP servers are running (tests run against local services, not production)
-- [ ] Authenticated via OAuth: `bin/tiddly login` (required — token creation/deletion tests need OAuth)
+- [ ] Authenticated via OAuth (see below — the engineer must run the login command manually)
 - [ ] API is reachable: `bin/tiddly status` shows API status "ok"
 - [ ] Note platform-specific config paths:
   - **Linux** (assumed): `~/.config/Claude/claude_desktop_config.json`, `~/.claude.json`, `~/.codex/config.toml`
@@ -43,6 +43,13 @@ export TIDDLY_API_URL=http://localhost:8000
 export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
 export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
 
+# Point CLI at the dev Auth0 tenant (required for local OAuth)
+# The CLI defaults to production Auth0. For local testing, the CLI must use the
+# same Auth0 tenant as the local API (configured via VITE_AUTH0_* in .env).
+export TIDDLY_AUTH0_DOMAIN=kercheval-dev.us.auth0.com
+export TIDDLY_AUTH0_CLIENT_ID=upLOqYelIdJIv7yZ8AnULA6VGklzak18
+export TIDDLY_AUTH0_AUDIENCE=bookmarks-api
+
 # Record which tools are detected
 bin/tiddly mcp status
 
@@ -65,6 +72,33 @@ TEST_PROJECT=$(mktemp -d)
 echo "Test project dir: $TEST_PROJECT"
 ```
 
+### OAuth Login (engineer must do this manually)
+
+The agent **cannot** complete the OAuth device flow — it requires opening a browser and entering a code. Prompt the engineer to run the following in their terminal:
+
+```bash
+export TIDDLY_API_URL=http://localhost:8000
+export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
+export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
+export TIDDLY_AUTH0_DOMAIN=kercheval-dev.us.auth0.com
+export TIDDLY_AUTH0_CLIENT_ID=upLOqYelIdJIv7yZ8AnULA6VGklzak18
+export TIDDLY_AUTH0_AUDIENCE=bookmarks-api
+bin/tiddly login
+```
+
+The exports only persist for the current shell session and won't affect future `tiddly` usage.
+
+Verify login succeeded:
+
+```bash
+bin/tiddly auth status
+# Should show: Auth method: oauth, User: <email>
+bin/tiddly tokens list
+# Should succeed (may show "No tokens found." — that's fine)
+```
+
+If `auth status` shows "Session expired" or `tokens list` fails with 401, the Auth0 env vars may not match the local API's `.env` settings (`VITE_AUTH0_DOMAIN`, `VITE_AUTH0_CLIENT_ID`, `VITE_AUTH0_AUDIENCE`). Ask the engineer to verify these match.
+
 ---
 
 ## Test Group 1: Help & Basic Commands
@@ -84,11 +118,11 @@ bin/tiddly mcp --help
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Shows subcommands: `install`, `status`, `uninstall`
+- [ ] Shows subcommands: `configure`, `status`, `remove`
 
-### T1.3 — MCP install help
+### T1.3 — MCP configure help
 ```bash
-bin/tiddly mcp install --help
+bin/tiddly mcp configure --help
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -101,7 +135,7 @@ bin/tiddly skills --help
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Shows subcommands: `install`, `list`
+- [ ] Shows subcommands: `configure`, `list`
 
 ### T1.5 — Status overview
 ```bash
@@ -161,7 +195,7 @@ bin/tiddly login --token "bm_definitely_not_valid_token"
 
 ---
 
-## Test Group 3: MCP Install
+## Test Group 3: MCP Configure
 
 ### Coverage Matrix
 
@@ -173,7 +207,7 @@ bin/tiddly login --token "bm_definitely_not_valid_token"
 
 ### T3.1 — Claude Code, user scope (default)
 ```bash
-bin/tiddly mcp install claude-code
+bin/tiddly mcp configure claude-code
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -189,7 +223,7 @@ bin/tiddly mcp install claude-code
 
 ### T3.2 — Claude Code, user scope, content only
 ```bash
-bin/tiddly mcp install claude-code --servers content
+bin/tiddly mcp configure claude-code --servers content
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -198,7 +232,7 @@ bin/tiddly mcp install claude-code --servers content
 
 ### T3.3 — Claude Code, user scope, prompts only
 ```bash
-bin/tiddly mcp install claude-code --servers prompts
+bin/tiddly mcp configure claude-code --servers prompts
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -207,7 +241,7 @@ bin/tiddly mcp install claude-code --servers prompts
 
 ### T3.4 — Claude Code, project scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp install claude-code --scope project
+cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope project
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -217,7 +251,7 @@ cd "$TEST_PROJECT" && bin/tiddly mcp install claude-code --scope project
 
 ### T3.5 — Claude Code, local scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp install claude-code --scope local
+cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope local
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -227,7 +261,7 @@ cd "$TEST_PROJECT" && bin/tiddly mcp install claude-code --scope local
 
 ### T3.6 — Codex, user scope
 ```bash
-bin/tiddly mcp install codex
+bin/tiddly mcp configure codex
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -240,7 +274,7 @@ bin/tiddly mcp install codex
 
 ### T3.7 — Codex, project scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp install codex --scope project
+cd "$TEST_PROJECT" && bin/tiddly mcp configure codex --scope project
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -250,7 +284,7 @@ cd "$TEST_PROJECT" && bin/tiddly mcp install codex --scope project
 
 ### T3.8 — Claude Desktop, user scope
 ```bash
-bin/tiddly mcp install claude-desktop
+bin/tiddly mcp configure claude-desktop
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -262,20 +296,20 @@ bin/tiddly mcp install claude-desktop
 - [ ] Stderr contains `Restart Claude Desktop to apply changes.`
 - [ ] Existing non-tiddly entries preserved
 
-### T3.9 — Install with --expires flag
+### T3.9 — Configure with --expires flag
 ```bash
 # Ensure no existing tokens to reuse, so --expires takes effect on newly created tokens
-bin/tiddly mcp uninstall claude-code --delete-tokens 2>/dev/null
-bin/tiddly mcp install claude-code --expires 30
+bin/tiddly mcp remove claude-code --delete-tokens 2>/dev/null
+bin/tiddly mcp configure claude-code --expires 30
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Output contains `Created tokens:` (not `Reused tokens:`) with names matching pattern `cli-mcp-claude-code-*`
 - [ ] Config file updated with valid tokens
 
-### T3.10 — Auto-detect install (no tool argument)
+### T3.10 — Auto-detect configure (no tool argument)
 ```bash
-bin/tiddly mcp install
+bin/tiddly mcp configure
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -284,11 +318,11 @@ bin/tiddly mcp install
 
 ---
 
-## Test Group 4: MCP Install --dry-run
+## Test Group 4: MCP Configure --dry-run
 
 ### T4.1 — Dry-run, Claude Code user scope
 ```bash
-bin/tiddly mcp install claude-code --dry-run
+bin/tiddly mcp configure claude-code --dry-run
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -300,7 +334,7 @@ bin/tiddly mcp install claude-code --dry-run
 
 ### T4.2 — Dry-run, new file scenario
 ```bash
-cd "$TEST_PROJECT" && rm -f .mcp.json && bin/tiddly mcp install claude-code --scope project --dry-run
+cd "$TEST_PROJECT" && rm -f .mcp.json && bin/tiddly mcp configure claude-code --scope project --dry-run
 ```
 **Verify:**
 - [ ] Output contains `(new file)`
@@ -308,7 +342,7 @@ cd "$TEST_PROJECT" && rm -f .mcp.json && bin/tiddly mcp install claude-code --sc
 
 ### T4.3 — Dry-run, placeholder tokens
 ```bash
-bin/tiddly mcp install claude-code --dry-run
+bin/tiddly mcp configure claude-code --dry-run
 ```
 **Verify:**
 - [ ] `After:` section shows `<new-token-would-be-created>` as the token value
@@ -316,7 +350,7 @@ bin/tiddly mcp install claude-code --dry-run
 
 ### T4.4 — Dry-run, Codex
 ```bash
-bin/tiddly mcp install codex --dry-run
+bin/tiddly mcp configure codex --dry-run
 ```
 **Verify:**
 - [ ] Output contains `--- codex ---`
@@ -325,7 +359,7 @@ bin/tiddly mcp install codex --dry-run
 
 ### T4.5 — Dry-run, Claude Desktop
 ```bash
-bin/tiddly mcp install claude-desktop --dry-run
+bin/tiddly mcp configure claude-desktop --dry-run
 ```
 **Verify:**
 - [ ] Output contains `--- claude-desktop ---`
@@ -367,12 +401,12 @@ bin/tiddly mcp status --project-path /nonexistent/path
 
 ---
 
-## Test Group 6: MCP Uninstall
+## Test Group 6: MCP Remove
 
-### T6.1 — Uninstall Claude Code, user scope
+### T6.1 — Remove Claude Code, user scope
 ```bash
-bin/tiddly mcp install claude-code  # ensure configured first
-bin/tiddly mcp uninstall claude-code
+bin/tiddly mcp configure claude-code  # ensure configured first
+bin/tiddly mcp remove claude-code
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -381,35 +415,35 @@ bin/tiddly mcp uninstall claude-code
 - [ ] Other non-tiddly entries in `~/.claude.json` preserved
 - [ ] Stderr may contain orphaned token warning
 
-### T6.2 — Uninstall Claude Code, project scope
+### T6.2 — Remove Claude Code, project scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp install claude-code --scope project
-cd "$TEST_PROJECT" && bin/tiddly mcp uninstall claude-code --scope project
+cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope project
+cd "$TEST_PROJECT" && bin/tiddly mcp remove claude-code --scope project
 ```
 **Verify:**
 - [ ] `$TEST_PROJECT/.mcp.json` no longer contains tiddly server entries
 - [ ] `~/.claude.json` was NOT modified
 
-### T6.3 — Uninstall Codex
+### T6.3 — Remove Codex
 ```bash
-bin/tiddly mcp install codex
-bin/tiddly mcp uninstall codex
+bin/tiddly mcp configure codex
+bin/tiddly mcp remove codex
 ```
 **Verify:**
 - [ ] Output contains `Removed Tiddly MCP servers from codex.`
 - [ ] `~/.codex/config.toml` no longer contains `tiddly_notes_bookmarks` or `tiddly_prompts`
 
-### T6.4 — Uninstall Claude Desktop
+### T6.4 — Remove Claude Desktop
 ```bash
-bin/tiddly mcp install claude-desktop
-bin/tiddly mcp uninstall claude-desktop
+bin/tiddly mcp configure claude-desktop
+bin/tiddly mcp remove claude-desktop
 ```
 **Verify:**
 - [ ] Output contains `Removed Tiddly MCP servers from claude-desktop.`
 - [ ] Stderr contains `Restart Claude Desktop to apply changes.`
 - [ ] Config file no longer contains tiddly entries
 
-### T6.5 — Uninstall with --delete-tokens
+### T6.5 — Remove with --delete-tokens
 
 **IMPORTANT:** Only use `--delete-tokens` immediately after a fresh install with no
 other changes in between. This ensures it only deletes the tokens just created and not
@@ -418,27 +452,27 @@ tokens you didn't just create in the same test sequence.
 
 ```bash
 # Clean install so we know exactly which tokens exist
-bin/tiddly mcp uninstall claude-code 2>/dev/null  # remove entries (ignore orphan warning)
-bin/tiddly mcp install claude-code                # creates fresh tokens — note the token names
-bin/tiddly mcp uninstall claude-code --delete-tokens
+bin/tiddly mcp remove claude-code 2>/dev/null  # remove entries (ignore orphan warning)
+bin/tiddly mcp configure claude-code                # creates fresh tokens — note the token names
+bin/tiddly mcp remove claude-code --delete-tokens
 ```
 **Verify:**
 - [ ] Install output contains `Created tokens:` — note the exact names
 - [ ] Uninstall output contains `Deleted tokens:` listing those same token names
 - [ ] Config entries removed
 
-### T6.6 — Uninstall without --delete-tokens (orphan warning)
+### T6.6 — Remove without --delete-tokens (orphan warning)
 ```bash
-bin/tiddly mcp install claude-code  # creates tokens
-bin/tiddly mcp uninstall claude-code
+bin/tiddly mcp configure claude-code  # creates tokens
+bin/tiddly mcp remove claude-code
 ```
 **Verify:**
 - [ ] Stderr contains `Warning: PATs created for MCP servers still exist: cli-mcp-`
-- [ ] Stderr contains `Run 'tiddly mcp uninstall <tool> --delete-tokens' to revoke`
+- [ ] Stderr contains `Run 'tiddly mcp remove <tool> --delete-tokens' to revoke`
 
-### T6.7 — Uninstall idempotent (already uninstalled)
+### T6.7 — Remove idempotent (already removed)
 ```bash
-bin/tiddly mcp uninstall claude-code  # already uninstalled from T6.1
+bin/tiddly mcp remove claude-code  # already uninstalled from T6.1
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -447,77 +481,77 @@ bin/tiddly mcp uninstall claude-code  # already uninstalled from T6.1
 
 ---
 
-## Test Group 7: Skills Install
+## Test Group 7: Skills Configure
 
-### T7.1 — Skills install, Claude Code, global scope (default)
+### T7.1 — Skills configure, Claude Code, global scope (default)
 ```bash
-bin/tiddly skills install claude-code
+bin/tiddly skills configure claude-code
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Output contains either `claude-code: Installed N skill(s) to ~/.claude/skills` or `claude-code: No skills to install.`
 
-### T7.2 — Skills install, Claude Code, project scope
+### T7.2 — Skills configure, Claude Code, project scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills install claude-code --scope project
+cd "$TEST_PROJECT" && bin/tiddly skills configure claude-code --scope project
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] If skills exist: output contains `claude-code: Installed N skill(s) to .claude/skills`
 - [ ] Skills extracted to `$TEST_PROJECT/.claude/skills/`
 
-### T7.3 — Skills install, Codex, global scope
+### T7.3 — Skills configure, Codex, global scope
 ```bash
-bin/tiddly skills install codex
+bin/tiddly skills configure codex
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Output references `~/.codex/skills`
 
-### T7.4 — Skills install, Codex, project scope
+### T7.4 — Skills configure, Codex, project scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills install codex --scope project
+cd "$TEST_PROJECT" && bin/tiddly skills configure codex --scope project
 ```
 **Verify:**
 - [ ] Skills extracted to `$TEST_PROJECT/.agents/skills/`
 
-### T7.5 — Skills install, Claude Desktop, global scope
+### T7.5 — Skills configure, Claude Desktop, global scope
 ```bash
-bin/tiddly skills install claude-desktop
+bin/tiddly skills configure claude-desktop
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] If skills exist: output contains `claude-desktop: N skill(s) exported to /tmp/tiddly-skills-*.zip`
 - [ ] Output contains `Upload this file to Claude Desktop via Settings > Skills.`
 
-### T7.6 — Skills install with --tags filter
+### T7.6 — Skills configure with --tags filter
 ```bash
-bin/tiddly skills install claude-code --tags python,skill
+bin/tiddly skills configure claude-code --tags python,skill
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Only prompts matching both tags are installed (default `--tag-match all`)
 
-### T7.7 — Skills install with --tags and --tag-match any
+### T7.7 — Skills configure with --tags and --tag-match any
 ```bash
-bin/tiddly skills install claude-code --tags python,skill --tag-match any
+bin/tiddly skills configure claude-code --tags python,skill --tag-match any
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Prompts matching either tag are installed
 
-### T7.8 — Skills install auto-detect (no tool argument)
+### T7.8 — Skills configure auto-detect (no tool argument)
 ```bash
-bin/tiddly skills install
+bin/tiddly skills configure
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Installs for all detected tools
 - [ ] Output line per tool
 
-### T7.9 — Skills install with invalid scope
+### T7.9 — Skills configure with invalid scope
 ```bash
-bin/tiddly skills install --scope invalid
+bin/tiddly skills configure --scope invalid
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -548,17 +582,17 @@ bin/tiddly skills list --tags python
 
 ## Test Group 9: Error Handling
 
-### T9.1 — Invalid tool name (install)
+### T9.1 — Invalid tool name (configure)
 ```bash
-bin/tiddly mcp install invalid-tool
+bin/tiddly mcp configure invalid-tool
 ```
 **Verify:**
 - [ ] Exit code non-zero
 - [ ] Error contains `unknown tool "invalid-tool". Valid tools: claude-desktop, claude-code, codex`
 
-### T9.2 — Invalid tool name (uninstall)
+### T9.2 — Invalid tool name (remove)
 ```bash
-bin/tiddly mcp uninstall invalid-tool
+bin/tiddly mcp remove invalid-tool
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -566,7 +600,7 @@ bin/tiddly mcp uninstall invalid-tool
 
 ### T9.3 — Invalid scope (typo)
 ```bash
-bin/tiddly mcp install claude-code --scope bad-scope
+bin/tiddly mcp configure claude-code --scope bad-scope
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -574,7 +608,7 @@ bin/tiddly mcp install claude-code --scope bad-scope
 
 ### T9.4 — Unsupported scope: Codex + local
 ```bash
-bin/tiddly mcp install codex --scope local
+bin/tiddly mcp configure codex --scope local
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -582,7 +616,7 @@ bin/tiddly mcp install codex --scope local
 
 ### T9.5a — Unsupported scope: Claude Desktop + local
 ```bash
-bin/tiddly mcp install claude-desktop --scope local
+bin/tiddly mcp configure claude-desktop --scope local
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -590,7 +624,7 @@ bin/tiddly mcp install claude-desktop --scope local
 
 ### T9.5b — Unsupported scope: Claude Desktop + project
 ```bash
-bin/tiddly mcp install claude-desktop --scope project
+bin/tiddly mcp configure claude-desktop --scope project
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -598,7 +632,7 @@ bin/tiddly mcp install claude-desktop --scope project
 
 ### T9.6 — Invalid --servers flag
 ```bash
-bin/tiddly mcp install claude-code --servers invalid
+bin/tiddly mcp configure claude-code --servers invalid
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -606,7 +640,7 @@ bin/tiddly mcp install claude-code --servers invalid
 
 ### T9.7 — Empty --servers flag
 ```bash
-bin/tiddly mcp install claude-code --servers ""
+bin/tiddly mcp configure claude-code --servers ""
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -615,7 +649,7 @@ bin/tiddly mcp install claude-code --servers ""
 ### T9.8 — Tool not installed
 **Skip if all tools are detected on the machine.** Only testable when a tool (e.g. Claude Desktop) is not installed.
 ```bash
-bin/tiddly mcp install claude-desktop  # if Claude Desktop is not detected
+bin/tiddly mcp configure claude-desktop  # if Claude Desktop is not detected
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -623,7 +657,7 @@ bin/tiddly mcp install claude-desktop  # if Claude Desktop is not detected
 
 ### T9.9 — Claude Desktop + skills --scope project
 ```bash
-bin/tiddly skills install claude-desktop --scope project
+bin/tiddly skills configure claude-desktop --scope project
 ```
 **Verify:**
 - [ ] Exit code non-zero (or error in output)
@@ -684,15 +718,15 @@ restore_dir "$BACKUP_DIR/codex-skills" ~/.codex/skills
 
 ```bash
 bin/tiddly logout
-bin/tiddly mcp install claude-code
+bin/tiddly mcp configure claude-code
 bin/tiddly skills list
-bin/tiddly skills install claude-code
+bin/tiddly skills configure claude-code
 ```
 **Verify:**
 - [ ] `logout` exits 0 with `Logged out successfully.`
-- [ ] `mcp install` exits non-zero with `not logged in. Run 'tiddly login' first`
+- [ ] `mcp configure` exits non-zero with `not logged in. Run 'tiddly login' first`
 - [ ] `skills list` exits non-zero with `not logged in. Run 'tiddly login' first`
-- [ ] `skills install` exits non-zero with `not logged in. Run 'tiddly login' first`
+- [ ] `skills configure` exits non-zero with `not logged in. Run 'tiddly login' first`
 
 ### Step 4: Re-login and final cleanup
 
@@ -700,10 +734,13 @@ bin/tiddly skills install claude-code
 # Re-login
 bin/tiddly login  # OAuth, or: bin/tiddly login --token bm_<your-token>
 
-# Restore production URLs (only needed if local env vars were set)
+# Restore production URLs and Auth0 defaults (only needed if local env vars were set)
 unset TIDDLY_API_URL
 unset TIDDLY_CONTENT_MCP_URL
 unset TIDDLY_PROMPT_MCP_URL
+unset TIDDLY_AUTH0_DOMAIN
+unset TIDDLY_AUTH0_CLIENT_ID
+unset TIDDLY_AUTH0_AUDIENCE
 
 # Remove temp directories
 rm -rf "$TEST_PROJECT"

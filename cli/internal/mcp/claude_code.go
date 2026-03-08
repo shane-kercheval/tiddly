@@ -184,8 +184,8 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 	return config, nil
 }
 
-// installClaudeCode writes MCP server entries into the Claude Code config.
-func installClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
+// configureClaudeCode writes MCP server entries into the Claude Code config.
+func configureClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
 	config, err := buildClaudeCodeConfig(rc, contentPAT, promptPAT)
 	if err != nil {
 		return err
@@ -193,9 +193,9 @@ func installClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
 	return writeJSONConfig(rc.Path, config)
 }
 
-// uninstallClaudeCode removes tiddly MCP server entries from the Claude Code config.
+// removeClaudeCode removes tiddly MCP server entries from the Claude Code config.
 // Identifies servers by URL, not by name, so custom-named entries are also removed.
-func uninstallClaudeCode(rc ResolvedConfig) error {
+func removeClaudeCode(rc ResolvedConfig) error {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
