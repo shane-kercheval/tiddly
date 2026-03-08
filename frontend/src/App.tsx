@@ -31,12 +31,6 @@ const SettingsVersionHistory = lazy(() => import('./pages/settings/SettingsVersi
 // Lazy-loaded docs pages
 const DocsOverview = lazy(() => import('./pages/docs/DocsOverview').then(m => ({ default: m.DocsOverview })))
 const DocsAIHub = lazy(() => import('./pages/docs/DocsAIHub').then(m => ({ default: m.DocsAIHub })))
-const DocsClaudeDesktop = lazy(() => import('./pages/docs/DocsClaudeDesktop').then(m => ({ default: m.DocsClaudeDesktop })))
-const DocsClaudeCode = lazy(() => import('./pages/docs/DocsClaudeCode').then(m => ({ default: m.DocsClaudeCode })))
-const DocsCodex = lazy(() => import('./pages/docs/DocsCodex').then(m => ({ default: m.DocsCodex })))
-const DocsAIChatGPT = lazy(() => import('./pages/docs/DocsAIChatGPT').then(m => ({ default: m.DocsAIChatGPT })))
-const DocsAIGeminiCLI = lazy(() => import('./pages/docs/DocsAIGeminiCLI').then(m => ({ default: m.DocsAIGeminiCLI })))
-const DocsAIMCPTools = lazy(() => import('./pages/docs/DocsAIMCPTools').then(m => ({ default: m.DocsAIMCPTools })))
 const DocsCLIHub = lazy(() => import('./pages/docs/DocsCLIHub').then(m => ({ default: m.DocsCLIHub })))
 const DocsCLIReference = lazy(() => import('./pages/docs/DocsCLIReference').then(m => ({ default: m.DocsCLIReference })))
 const DocsCLIMCP = lazy(() => import('./pages/docs/DocsCLIMCP').then(m => ({ default: m.DocsCLIMCP })))
@@ -104,12 +98,12 @@ const router = createBrowserRouter([
           { path: '/docs/features/versioning', element: <DocsVersioning /> },
           { path: '/docs/features/shortcuts', element: <DocsShortcuts /> },
           { path: '/docs/ai', element: <DocsAIHub /> },
-          { path: '/docs/ai/claude-desktop', element: <DocsClaudeDesktop /> },
-          { path: '/docs/ai/claude-code', element: <DocsClaudeCode /> },
-          { path: '/docs/ai/codex', element: <DocsCodex /> },
-          { path: '/docs/ai/chatgpt', element: <DocsAIChatGPT /> },
-          { path: '/docs/ai/gemini-cli', element: <DocsAIGeminiCLI /> },
-          { path: '/docs/ai/mcp-tools', element: <DocsAIMCPTools /> },
+          { path: '/docs/ai/claude-desktop', element: <Navigate to="/docs/ai" replace /> },
+          { path: '/docs/ai/claude-code', element: <Navigate to="/docs/ai" replace /> },
+          { path: '/docs/ai/codex', element: <Navigate to="/docs/ai" replace /> },
+          { path: '/docs/ai/chatgpt', element: <Navigate to="/docs/ai" replace /> },
+          { path: '/docs/ai/gemini-cli', element: <Navigate to="/docs/ai" replace /> },
+          { path: '/docs/ai/mcp-tools', element: <Navigate to="/docs/ai" replace /> },
           { path: '/docs/cli', element: <DocsCLIHub /> },
           { path: '/docs/cli/mcp', element: <DocsCLIMCP /> },
           { path: '/docs/cli/skills', element: <DocsCLISkills /> },

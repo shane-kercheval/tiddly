@@ -49,8 +49,8 @@ export function DocsExtensionsHub(): ReactNode {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-4">Browser Extensions</h1>
-      <p className="text-gray-600 mb-8">
+      <h1 className="text-2xl font-bold text-gray-900 mb-4">Browser Extensions</h1>
+      <p className="text-sm text-gray-600 mb-8">
         Save bookmarks directly from your browser without switching to the Tiddly web app.
         Extensions auto-scrape page metadata (title, description, content) and let you add
         tags before saving. You can also search your existing bookmarks saved to tiddly.me

@@ -10,17 +10,17 @@ export function DocsExtensionsChrome(): ReactNode {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-2">Chrome Extension</h1>
-      <p className="text-gray-600 mb-8">
+      <h1 className="text-2xl font-bold text-gray-900 mb-2">Chrome Extension</h1>
+      <p className="text-sm text-gray-600 mb-8">
         Save bookmarks to Tiddly with one click from any webpage. The extension auto-scrapes
         page metadata and captures content for full-text search.
       </p>
 
       {/* Setup */}
-      <h2 className="text-xl font-bold text-gray-900 mb-4">Setup</h2>
+      <h2 className="text-lg font-bold text-gray-900 mb-4">Setup</h2>
 
       <StepSection step={1} title="Install the Extension">
-        <p className="text-gray-600 mb-3">
+        <p className="text-sm text-gray-600 mb-3">
           Install from the{' '}
           <a
             href={CHROME_STORE_URL}
@@ -35,7 +35,7 @@ export function DocsExtensionsChrome(): ReactNode {
       </StepSection>
 
       <StepSection step={2} title="Create a Personal Access Token">
-        <p className="text-gray-600 mb-3">
+        <p className="text-sm text-gray-600 mb-3">
           The extension authenticates with a Personal Access Token (PAT).
         </p>
         <a
@@ -53,7 +53,7 @@ export function DocsExtensionsChrome(): ReactNode {
       </StepSection>
 
       <StepSection step={3} title="Configure the Extension">
-        <p className="text-gray-600 mb-3">
+        <p className="text-sm text-gray-600 mb-3">
           Right-click the extension icon and select <strong>Options</strong> (or click the gear icon in the popup).
           Paste your PAT and optionally set default tags that will be pre-selected when saving.
         </p>
@@ -61,14 +61,14 @@ export function DocsExtensionsChrome(): ReactNode {
 
       {/* Saving Bookmarks */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-3">Saving Bookmarks</h2>
-        <p className="text-gray-600 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Saving Bookmarks</h2>
+        <p className="text-sm text-gray-600 mb-4">
           Click the extension icon on any webpage to open the save popup. The form is
           pre-filled with data extracted from the page:
         </p>
 
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 mb-4">
-          <ul className="space-y-2 text-gray-600">
+          <ul className="space-y-2 text-sm text-gray-600">
             <li><strong>URL</strong> — current page URL</li>
             <li><strong>Title</strong> — from the page title or Open Graph tags</li>
             <li><strong>Description</strong> — from meta description or Open Graph tags</li>
@@ -77,7 +77,7 @@ export function DocsExtensionsChrome(): ReactNode {
           </ul>
         </div>
 
-        <p className="text-gray-600 mb-3">
+        <p className="text-sm text-gray-600 mb-3">
           Review and edit any field, then click <strong>Save Bookmark</strong>. You can select
           additional tags from your existing tags shown as chips below the tag input.
         </p>
@@ -90,12 +90,12 @@ export function DocsExtensionsChrome(): ReactNode {
 
       {/* Search Mode */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-3">Search Mode</h2>
-        <p className="text-gray-600 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Search Mode</h2>
+        <p className="text-sm text-gray-600 mb-4">
           On restricted pages where saving isn&apos;t possible — like new tab, <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">chrome://</code> pages,
           or other extension pages — the popup automatically switches to search mode.
         </p>
-        <ul className="space-y-1.5 text-gray-600">
+        <ul className="space-y-1.5 text-sm text-gray-600">
           <li>Browse your recent bookmarks sorted by creation date</li>
           <li>Type to search across titles, descriptions, URLs, and content</li>
           <li>Click a result to open it in a new tab</li>
@@ -105,8 +105,8 @@ export function DocsExtensionsChrome(): ReactNode {
 
       {/* Tips */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-3">Tips</h2>
-        <ul className="space-y-1.5 text-gray-600">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Tips</h2>
+        <ul className="space-y-1.5 text-sm text-gray-600">
           <li>
             <strong>Default tags</strong> — set frequently used tags in Options so they&apos;re pre-selected
             on every save (e.g., <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">reading-list</code>).

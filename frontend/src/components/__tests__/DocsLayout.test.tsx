@@ -11,8 +11,6 @@ function renderDocsLayout(initialPath: string): void {
         children: [
           { path: '/docs', element: <div>Overview Page</div> },
           { path: '/docs/ai', element: <div>AI Hub Page</div> },
-          { path: '/docs/ai/claude-code', element: <div>Claude Code Page</div> },
-          { path: '/docs/ai/claude-desktop', element: <div>Claude Desktop Page</div> },
           { path: '/docs/extensions', element: <div>Extensions Page</div> },
           { path: '/docs/extensions/chrome', element: <div>Chrome Extension Page</div> },
           { path: '/docs/api', element: <div>API Page</div> },
@@ -68,27 +66,25 @@ describe('DocsLayout', () => {
     expect(overviewLink).toHaveAttribute('aria-current', 'page')
   })
 
-  it('should expand parent when child is active', () => {
-    renderDocsLayout('/docs/ai/claude-code')
+  it('should expand parent when child is active (extensions)', () => {
+    renderDocsLayout('/docs/extensions/chrome')
 
-    // AI Integration parent should be visible
-    expect(screen.getByRole('link', { name: 'AI Integration' })).toBeInTheDocument()
+    // Extensions parent should be visible
+    expect(screen.getByRole('link', { name: 'Extensions' })).toBeInTheDocument()
 
     // Child items should be visible since the parent is expanded
-    expect(screen.getByRole('link', { name: 'Claude Code' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Claude Desktop' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Chrome' })).toBeInTheDocument()
 
-    // Claude Code should be marked as current page
-    const claudeCodeLink = screen.getByRole('link', { name: 'Claude Code' })
-    expect(claudeCodeLink).toHaveAttribute('aria-current', 'page')
+    // Chrome should be marked as current page
+    const chromeLink = screen.getByRole('link', { name: 'Chrome' })
+    expect(chromeLink).toHaveAttribute('aria-current', 'page')
   })
 
   it('should not expand parent when no child is active', () => {
     renderDocsLayout('/docs')
 
-    // AI Integration children should NOT be visible since no child is active
-    expect(screen.queryByRole('link', { name: 'Claude Code' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Claude Desktop' })).not.toBeInTheDocument()
+    // Extensions children should NOT be visible since no child is active
+    expect(screen.queryByRole('link', { name: 'Chrome' })).not.toBeInTheDocument()
   })
 
   it('should render mobile menu toggle button', () => {

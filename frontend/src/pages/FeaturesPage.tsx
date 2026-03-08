@@ -102,11 +102,11 @@ interface SupportedClient {
 }
 
 const SUPPORTED_CLIENTS: SupportedClient[] = [
-  { name: 'Claude Desktop', maker: 'Anthropic', icon: <AnthropicIcon className="h-5 w-5" />, environment: 'Desktop', docsPath: '/docs/ai/claude-desktop' },
-  { name: 'Claude Code', maker: 'Anthropic', icon: <AnthropicIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai/claude-code' },
-  { name: 'Codex', maker: 'OpenAI', icon: <OpenAIIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai/codex' },
-  { name: 'ChatGPT', maker: 'OpenAI', icon: <OpenAIIcon className="h-5 w-5" />, environment: 'Cloud', docsPath: '/docs/ai/chatgpt', comingSoon: true },
-  { name: 'Gemini CLI', maker: 'Google', icon: <GeminiIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai/gemini-cli', comingSoon: true },
+  { name: 'Claude Desktop', maker: 'Anthropic', icon: <AnthropicIcon className="h-5 w-5" />, environment: 'Desktop', docsPath: '/docs/ai' },
+  { name: 'Claude Code', maker: 'Anthropic', icon: <AnthropicIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai' },
+  { name: 'Codex', maker: 'OpenAI', icon: <OpenAIIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai' },
+  { name: 'ChatGPT', maker: 'OpenAI', icon: <OpenAIIcon className="h-5 w-5" />, environment: 'Cloud', docsPath: '/docs/ai', comingSoon: true },
+  { name: 'Gemini CLI', maker: 'Google', icon: <GeminiIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai', comingSoon: true },
 ]
 
 function SupportedClientCard({ client }: { client: SupportedClient }): ReactNode {

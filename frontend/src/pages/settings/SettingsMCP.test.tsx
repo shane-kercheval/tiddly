@@ -226,7 +226,7 @@ describe('SettingsMCP', () => {
       await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
       await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
 
-      expect(within(cli).getByText(/Select at least one item to install/)).toBeInTheDocument()
+      expect(within(cli).getByText(/Select at least one item and one target tool above/)).toBeInTheDocument()
     })
 
     it('should show numbered steps with install, login, and command', () => {

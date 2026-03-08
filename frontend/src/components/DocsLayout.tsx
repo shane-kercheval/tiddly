@@ -26,18 +26,7 @@ const docsNav: DocNavItem[] = [
       { label: 'Keyboard Shortcuts', path: '/docs/features/shortcuts' },
     ],
   },
-  {
-    label: 'AI Integration',
-    path: '/docs/ai',
-    children: [
-      { label: 'Claude Desktop', path: '/docs/ai/claude-desktop' },
-      { label: 'Claude Code', path: '/docs/ai/claude-code' },
-      { label: 'Codex', path: '/docs/ai/codex' },
-      { label: 'ChatGPT', path: '/docs/ai/chatgpt' },
-      { label: 'Gemini CLI', path: '/docs/ai/gemini-cli' },
-      { label: 'MCP Tools', path: '/docs/ai/mcp-tools' },
-    ],
-  },
+  { label: 'AI Integration', path: '/docs/ai' },
   {
     label: 'Extensions',
     path: '/docs/extensions',

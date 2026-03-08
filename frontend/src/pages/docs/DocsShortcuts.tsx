@@ -33,8 +33,8 @@ export function DocsShortcuts(): ReactNode {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-4">Keyboard Shortcuts</h1>
-      <p className="text-gray-600 mb-4">
+      <h1 className="text-2xl font-bold text-gray-900 mb-4">Keyboard Shortcuts</h1>
+      <p className="text-sm text-gray-600 mb-4">
         Navigate and manage content quickly without reaching for the mouse. Open the shortcuts
         dialog anytime with{' '}
         <span className="inline-flex items-center gap-1">
@@ -49,7 +49,7 @@ export function DocsShortcuts(): ReactNode {
       </InfoCallout>
 
       {/* Navigation */}
-      <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">Navigation</h2>
+      <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Navigation</h2>
       <table className="w-full">
         <tbody>
           <ShortcutRow keys={['/']} description="Focus search bar" />
@@ -60,7 +60,7 @@ export function DocsShortcuts(): ReactNode {
       </table>
 
       {/* Actions */}
-      <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">Actions</h2>
+      <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Actions</h2>
       <table className="w-full">
         <tbody>
           <ShortcutRow keys={['\u2318', 'V']} description="Paste URL to add bookmark" />
@@ -71,7 +71,7 @@ export function DocsShortcuts(): ReactNode {
       </table>
 
       {/* View */}
-      <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">View</h2>
+      <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">View</h2>
       <table className="w-full">
         <tbody>
           <ShortcutRow keys={['w']} description="Toggle full-width layout" />
@@ -87,8 +87,8 @@ export function DocsShortcuts(): ReactNode {
       </table>
 
       {/* Markdown Editor */}
-      <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">Markdown Editor</h2>
-      <p className="text-gray-600 mb-3">
+      <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Markdown Editor</h2>
+      <p className="text-sm text-gray-600 mb-3">
         These shortcuts work when the editor is focused (notes and prompts):
       </p>
       <table className="w-full">
@@ -111,17 +111,17 @@ export function DocsShortcuts(): ReactNode {
       </table>
 
       {/* Slash Commands */}
-      <h2 className="text-xl font-bold text-gray-900 mt-8 mb-3">Slash Commands</h2>
-      <p className="text-gray-600 mb-3">
+      <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Slash Commands</h2>
+      <p className="text-sm text-gray-600 mb-3">
         Type <Kbd>/</Kbd> at the start of a line in the editor to open a command menu with
         block-level formatting options:
       </p>
-      <ul className="space-y-1.5 text-gray-600 mb-4">
+      <ul className="space-y-1.5 text-sm text-gray-600 mb-4">
         <li>Heading 1, Heading 2, Heading 3</li>
         <li>Bulleted list, Numbered list, To-do list</li>
         <li>Code block, Blockquote, Link, Horizontal rule</li>
       </ul>
-      <p className="text-gray-600">
+      <p className="text-sm text-gray-600">
         In the prompt editor, the slash menu also includes Jinja2 commands: Variable, If block,
         and If block (trim).
       </p>
