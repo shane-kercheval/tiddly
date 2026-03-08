@@ -56,7 +56,7 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 		servers = make(map[string]any)
 	}
 
-	// Remove only the server types being installed (non-empty PAT means it's being installed)
+	// Remove only the server types being configured (non-empty PAT means it's being configured)
 	removeJSONServersByTiddlyURL(servers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	if contentPAT != "" {

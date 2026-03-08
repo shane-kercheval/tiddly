@@ -48,7 +48,7 @@ func TestRunConfigure__oauth_creates_pats_with_unique_names(t *testing.T) {
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -114,7 +114,7 @@ func TestRunConfigure__oauth_reuses_valid_existing_pat(t *testing.T) {
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -177,7 +177,7 @@ func TestRunConfigure__oauth_creates_new_pat_when_existing_invalid(t *testing.T)
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -203,7 +203,7 @@ func TestRunConfigure__pat_reuses_token(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -250,7 +250,7 @@ func TestRunConfigure__dry_run_no_token_creation(t *testing.T) {
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -290,7 +290,7 @@ func TestRunConfigure__dry_run_skips_pat_validation(t *testing.T) {
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-code", Installed: true, ConfigPath: configPath},
+		{Name: "claude-code", Detected: true, ConfigPath: configPath},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -315,7 +315,7 @@ func TestRunConfigure__dry_run_pat_auth_shows_diff(t *testing.T) {
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-code", Installed: true, ConfigPath: configPath},
+		{Name: "claude-code", Detected: true, ConfigPath: configPath},
 	}
 
 	_, err := RunConfigure(ConfigureOpts{
@@ -365,7 +365,7 @@ func TestRunConfigure__servers_content_only(t *testing.T) {
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -396,7 +396,7 @@ func TestRunConfigure__servers_prompts_only(t *testing.T) {
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -420,7 +420,7 @@ func TestRunConfigure__servers_content_only_preserves_existing_prompts(t *testin
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	// Pre-install both servers
+	// Pre-configure both servers
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	err := configureClaudeCode(rc, "bm_old_content", "bm_old_prompts")
 	require.NoError(t, err)
@@ -429,7 +429,7 @@ func TestRunConfigure__servers_content_only_preserves_existing_prompts(t *testin
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-code", Installed: true, ConfigPath: configPath},
+		{Name: "claude-code", Detected: true, ConfigPath: configPath},
 	}
 
 	_, err = RunConfigure(ConfigureOpts{
@@ -450,7 +450,7 @@ func TestRunConfigure__servers_content_only_preserves_existing_prompts(t *testin
 	headers := content["headers"].(map[string]any)
 	assert.Equal(t, "Bearer bm_test", headers["Authorization"])
 
-	// Prompts should be preserved from the original install
+	// Prompts should be preserved from the original configure
 	assert.Contains(t, servers, "tiddly_prompts", "prompts server should be preserved when --servers content")
 	prompts := servers["tiddly_prompts"].(map[string]any)
 	promptHeaders := prompts["headers"].(map[string]any)
@@ -461,7 +461,7 @@ func TestRunConfigure__servers_prompts_only_preserves_existing_content(t *testin
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	// Pre-install both servers
+	// Pre-configure both servers
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	err := configureClaudeCode(rc, "bm_old_content", "bm_old_prompts")
 	require.NoError(t, err)
@@ -470,7 +470,7 @@ func TestRunConfigure__servers_prompts_only_preserves_existing_content(t *testin
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-code", Installed: true, ConfigPath: configPath},
+		{Name: "claude-code", Detected: true, ConfigPath: configPath},
 	}
 
 	_, err = RunConfigure(ConfigureOpts{
@@ -486,7 +486,7 @@ func TestRunConfigure__servers_prompts_only_preserves_existing_content(t *testin
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
 
-	// Content should be preserved from the original install
+	// Content should be preserved from the original configure
 	assert.Contains(t, servers, "tiddly_notes_bookmarks", "content server should be preserved when --servers prompts")
 	content := servers["tiddly_notes_bookmarks"].(map[string]any)
 	headers := content["headers"].(map[string]any)
@@ -498,13 +498,13 @@ func TestRunConfigure__servers_prompts_only_preserves_existing_content(t *testin
 	assert.Equal(t, "Bearer bm_test", promptHeaders["Authorization"])
 }
 
-func TestRunConfigure__skips_uninstalled_tools(t *testing.T) {
+func TestRunConfigure__skips_undetected_tools(t *testing.T) {
 	client := api.NewClient("http://unused", "bm_test", "pat")
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: false},
-		{Name: "claude-code", Installed: false},
+		{Name: "claude-desktop", Detected: false},
+		{Name: "claude-code", Detected: false},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -528,7 +528,7 @@ func TestRunConfigure__malformed_config_returns_parse_error(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	_, err := RunConfigure(ConfigureOpts{
@@ -553,7 +553,7 @@ func TestRunConfigure__unsupported_scope_returns_error(t *testing.T) {
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "codex", Installed: true},
+		{Name: "codex", Detected: true},
 	}
 
 	_, err := RunConfigure(ConfigureOpts{
@@ -654,7 +654,7 @@ func TestConfigureClaudeCode__both_pats_empty_preserves_existing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	// Install both servers first
+	// Configure both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
@@ -842,7 +842,7 @@ func TestConfigureTool__claude_code_project_scope_malformed_returns_error(t *tes
 	stderr := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-code", Installed: true, ConfigPath: ""},
+		{Name: "claude-code", Detected: true, ConfigPath: ""},
 	}
 
 	_, err := RunConfigure(ConfigureOpts{
@@ -872,7 +872,7 @@ func TestDryRunConfigure__claude_code_project_scope_shows_correct_path(t *testin
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-code", Installed: true, ConfigPath: ""},
+		{Name: "claude-code", Detected: true, ConfigPath: ""},
 	}
 
 	_, err := RunConfigure(ConfigureOpts{
@@ -903,7 +903,7 @@ func TestRunConfigure__valid_config_creates_backup_before_writing(t *testing.T) 
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{
@@ -960,7 +960,7 @@ func TestRunConfigure__no_existing_file_does_not_create_backup(t *testing.T) {
 	stdout := &bytes.Buffer{}
 
 	tools := []DetectedTool{
-		{Name: "claude-desktop", Installed: true, ConfigPath: configPath, HasNpx: true},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
 	}
 
 	result, err := RunConfigure(ConfigureOpts{

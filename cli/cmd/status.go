@@ -28,14 +28,14 @@ func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show Tiddly CLI status overview",
-		Long: `Show a summary of CLI version, authentication, API connectivity, content counts, MCP server configuration, and installed skills.
+		Long: `Show a summary of CLI version, authentication, API connectivity, content counts, MCP server configuration, and configured skills.
 
 Sections displayed:
   Authentication — login status and auth method (OAuth or PAT)
   API            — URL, reachability, and round-trip latency
   Content        — bookmark, note, and prompt counts (fetched in parallel)
   MCP Servers    — detected tools with configuration status across all scopes
-  Skills         — installed skills across all tools and scopes
+  Skills         — configured skills across all tools and scopes
 
 MCP servers are identified by URL, not by config key name. Content counts are only shown when the API is reachable and authenticated.
 
@@ -175,7 +175,7 @@ func printMCPTree(w io.Writer, tools []mcp.DetectedTool, projectPath string, sho
 	}
 
 	for _, tool := range tools {
-		if !tool.Installed {
+		if !tool.Detected {
 			fmt.Fprintf(w, "\n  %-18s Not detected\n", tool.Name)
 			continue
 		}

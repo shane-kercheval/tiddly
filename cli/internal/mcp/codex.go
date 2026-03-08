@@ -73,7 +73,7 @@ func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) 
 		config.MCPServers = make(map[string]codexMCPServer)
 	}
 
-	// Remove only the server types being installed (non-empty PAT means it's being installed)
+	// Remove only the server types being configured (non-empty PAT means it's being configured)
 	removeCodexServersByTiddlyURL(config.MCPServers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	if contentPAT != "" {

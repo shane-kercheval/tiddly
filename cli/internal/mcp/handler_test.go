@@ -63,7 +63,7 @@ func TestClaudeDesktopHandler__detect_with_config_override(t *testing.T) {
 	h := &ClaudeDesktopHandler{ConfigPathOverride: configPath}
 	tool := h.Detect(newMockLooker())
 
-	assert.True(t, tool.Installed)
+	assert.True(t, tool.Detected)
 	assert.Equal(t, configPath, tool.ConfigPath)
 	assert.Equal(t, "config directory exists", tool.Reason)
 }
@@ -75,15 +75,15 @@ func TestClaudeCodeHandler__detect_with_config_override(t *testing.T) {
 	h := &ClaudeCodeHandler{ConfigPathOverride: "/tmp/test/.claude.json"}
 	tool := h.Detect(looker)
 
-	assert.True(t, tool.Installed)
+	assert.True(t, tool.Detected)
 	assert.Equal(t, "/tmp/test/.claude.json", tool.ConfigPath)
 }
 
-func TestClaudeCodeHandler__detect_not_installed(t *testing.T) {
+func TestClaudeCodeHandler__detect_not_found(t *testing.T) {
 	h := &ClaudeCodeHandler{}
 	tool := h.Detect(newMockLooker())
 
-	assert.False(t, tool.Installed)
+	assert.False(t, tool.Detected)
 	assert.Empty(t, tool.ConfigPath)
 }
 
@@ -94,7 +94,7 @@ func TestCodexHandler__detect_binary_in_path(t *testing.T) {
 	h := &CodexHandler{ConfigPathOverride: "/tmp/test/config.toml"}
 	tool := h.Detect(looker)
 
-	assert.True(t, tool.Installed)
+	assert.True(t, tool.Detected)
 	assert.Equal(t, "/tmp/test/config.toml", tool.ConfigPath)
 	assert.Equal(t, "binary in PATH", tool.Reason)
 }
@@ -107,7 +107,7 @@ func TestCodexHandler__detect_config_dir_with_override(t *testing.T) {
 	tool := h.Detect(newMockLooker())
 
 	// tmpDir exists as the parent directory
-	assert.True(t, tool.Installed)
+	assert.True(t, tool.Detected)
 	assert.Equal(t, configPath, tool.ConfigPath)
 	assert.Equal(t, "config directory exists", tool.Reason)
 }
@@ -131,7 +131,7 @@ func TestClaudeDesktopHandler__configure_and_status(t *testing.T) {
 	assert.Contains(t, warnings[0], "plaintext")
 	assert.Contains(t, warnings[1], "Restart")
 
-	// Verify status detects the installed servers
+	// Verify status detects the configured servers
 	result, err := h.Status(rc)
 	require.NoError(t, err)
 	assert.Len(t, result.Servers, 2)
@@ -172,7 +172,7 @@ func TestClaudeCodeHandler__configure_and_remove(t *testing.T) {
 	assert.Contains(t, servers, serverNameContent)
 	assert.Contains(t, servers, serverNamePrompts)
 
-	// Uninstall
+	// Remove
 	require.NoError(t, h.Remove(rc))
 
 	data, err = os.ReadFile(configPath)

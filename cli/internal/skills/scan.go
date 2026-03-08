@@ -41,7 +41,7 @@ func ScanSkillsDir(dirPath string) ([]string, error) {
 	return names, nil
 }
 
-// ScanAllSkills scans all tool+scope combinations for installed skills.
+// ScanAllSkills scans all tool+scope combinations for configured skills.
 // Claude Desktop is excluded (its skills aren't file-accessible).
 func ScanAllSkills(projectPath string) []ScanResult {
 	type combo struct {

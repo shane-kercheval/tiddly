@@ -15,7 +15,7 @@ func (h *ClaudeCodeHandler) Detect(looker ExecLooker) DetectedTool {
 	tool := DetectedTool{Name: h.Name()}
 
 	if _, err := looker.LookPath("claude"); err == nil {
-		tool.Installed = true
+		tool.Detected = true
 		tool.Reason = "binary in PATH"
 		if h.ConfigPathOverride != "" {
 			tool.ConfigPath = h.ConfigPathOverride

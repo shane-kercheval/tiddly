@@ -85,10 +85,10 @@ Examples:
 			if len(args) > 0 {
 				tools = args
 			} else {
-				// Auto-detect installed tools
+				// Auto-detect tools
 				detected := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
 				for _, t := range detected {
-					if t.Installed {
+					if t.Detected {
 						tools = append(tools, t.Name)
 					}
 				}
@@ -108,17 +108,17 @@ Examples:
 				warnIfNotProjectDir(errW)
 			}
 
-			var instErrors []string
-			installed := 0
+			var configErrors []string
+			configured := 0
 			for _, tool := range tools {
-				instResult, err := skills.Configure(ctx, client, tool, tagList, tagMatch, scope)
+				cfgResult, err := skills.Configure(ctx, client, tool, tagList, tagMatch, scope)
 				if err != nil {
 					fmt.Fprintf(errW, "Error configuring %s: %v\n", tool, err)
-					instErrors = append(instErrors, tool)
+					configErrors = append(configErrors, tool)
 					continue
 				}
 
-				if instResult.SkillCount == 0 {
+				if cfgResult.SkillCount == 0 {
 					fmt.Fprintf(w, "%s: No skills to configure.\n", tool)
 					if len(tagList) > 0 {
 						fmt.Fprintf(errW, "  No prompts match tags: %s\n", strings.Join(tagList, ", "))
@@ -126,19 +126,19 @@ Examples:
 					continue
 				}
 
-				installed++
-				if instResult.ZipPath != "" {
+				configured++
+				if cfgResult.ZipPath != "" {
 					// Claude Desktop: zip saved to temp
-					fmt.Fprintf(w, "%s: %d skill(s) exported to %s\n", tool, instResult.SkillCount, instResult.ZipPath)
+					fmt.Fprintf(w, "%s: %d skill(s) exported to %s\n", tool, cfgResult.SkillCount, cfgResult.ZipPath)
 					fmt.Fprintf(w, "  Upload this file to Claude Desktop via Settings > Skills.\n")
 				} else {
-					fmt.Fprintf(w, "%s: Installed %d skill(s) to %s\n", tool, instResult.SkillCount, instResult.DestPath)
+					fmt.Fprintf(w, "%s: Configured %d skill(s) to %s\n", tool, cfgResult.SkillCount, cfgResult.DestPath)
 				}
 			}
 
 			// Return error if all tools failed with errors
-			if len(instErrors) > 0 && installed == 0 {
-				return fmt.Errorf("skills configure failed for: %s", strings.Join(instErrors, ", "))
+			if len(configErrors) > 0 && configured == 0 {
+				return fmt.Errorf("skills configure failed for: %s", strings.Join(configErrors, ", "))
 			}
 
 			return nil

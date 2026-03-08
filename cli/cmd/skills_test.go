@@ -44,7 +44,7 @@ func TestSkillsConfigure__with_mock_api(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "Installed 2 skill(s)")
+	assert.Contains(t, result.Stdout, "Configured 2 skill(s)")
 }
 
 func TestSkillsConfigure__auto_detect_tools(t *testing.T) {
@@ -130,7 +130,7 @@ func TestSkillsConfigure__scope_project(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--scope", "project", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "Installed 1 skill(s)")
+	assert.Contains(t, result.Stdout, "Configured 1 skill(s)")
 }
 
 func TestSkillsConfigure__scope_project_warns_outside_project(t *testing.T) {

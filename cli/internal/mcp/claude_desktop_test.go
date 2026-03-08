@@ -65,11 +65,11 @@ func TestConfigureClaudeDesktop__content_only_preserves_existing_prompts(t *test
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
-	// Install both servers first
+	// Configure both servers first
 	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	// Re-install with only content PAT (simulates --servers content)
+	// Re-configure with only content PAT (simulates --servers content)
 	err = configureClaudeDesktop(configPath, "bm_new_content", "")
 	require.NoError(t, err)
 
@@ -81,7 +81,7 @@ func TestConfigureClaudeDesktop__content_only_preserves_existing_prompts(t *test
 	args := toStringSlice(content["args"])
 	assert.Contains(t, args[3], "bm_new_content")
 
-	// Prompts should be preserved from the first install
+	// Prompts should be preserved from the first configure
 	assert.Contains(t, servers, "tiddly_prompts", "prompts server should be preserved")
 	prompts := servers["tiddly_prompts"].(map[string]any)
 	promptArgs := toStringSlice(prompts["args"])
@@ -92,18 +92,18 @@ func TestConfigureClaudeDesktop__prompts_only_preserves_existing_content(t *test
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
-	// Install both servers first
+	// Configure both servers first
 	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	// Re-install with only prompts PAT (simulates --servers prompts)
+	// Re-configure with only prompts PAT (simulates --servers prompts)
 	err = configureClaudeDesktop(configPath, "", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
 
-	// Content should be preserved from the first install
+	// Content should be preserved from the first configure
 	assert.Contains(t, servers, "tiddly_notes_bookmarks", "content server should be preserved")
 	content := servers["tiddly_notes_bookmarks"].(map[string]any)
 	contentArgs := toStringSlice(content["args"])
@@ -119,7 +119,7 @@ func TestConfigureClaudeDesktop__idempotent(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
-	// Install twice
+	// Configure twice
 	require.NoError(t, configureClaudeDesktop(configPath, "bm_old", "bm_old"))
 	require.NoError(t, configureClaudeDesktop(configPath, "bm_new", "bm_new"))
 
@@ -183,7 +183,7 @@ func TestRemoveClaudeDesktop__no_tiddly_servers_skips_write(t *testing.T) {
 
 	// No backup should be created since nothing was removed
 	_, statErr := os.Stat(configPath + ".bak")
-	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op uninstall")
+	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op remove")
 }
 
 func TestStatusClaudeDesktop__configured(t *testing.T) {

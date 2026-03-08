@@ -42,7 +42,7 @@ func TestDetectAll__claude_code_in_path(t *testing.T) {
 	}
 
 	assert.NotNil(t, claudeCode)
-	assert.True(t, claudeCode.Installed)
+	assert.True(t, claudeCode.Detected)
 	assert.Equal(t, "binary in PATH", claudeCode.Reason)
 }
 
@@ -60,7 +60,7 @@ func TestDetectAll__codex_in_path(t *testing.T) {
 	}
 
 	assert.NotNil(t, codex)
-	assert.True(t, codex.Installed)
+	assert.True(t, codex.Detected)
 	assert.Equal(t, "binary in PATH", codex.Reason)
 }
 
@@ -83,7 +83,7 @@ func TestDetectAll__codex_config_dir_exists(t *testing.T) {
 	}
 
 	assert.NotNil(t, codex)
-	assert.True(t, codex.Installed)
+	assert.True(t, codex.Detected)
 	assert.Equal(t, "config directory exists", codex.Reason)
 }
 
@@ -96,7 +96,7 @@ func TestDetectAll__nothing_detected(t *testing.T) {
 	tools := DetectAll(DefaultHandlers(), looker)
 
 	for _, tool := range tools {
-		assert.False(t, tool.Installed, "expected %s to not be detected", tool.Name)
+		assert.False(t, tool.Detected, "expected %s to not be detected", tool.Name)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestDetectAll__npx_detected_for_desktop(t *testing.T) {
 }
 
 func TestDetectAll__tolerant_when_home_unavailable(t *testing.T) {
-	// When HOME is unset, detection should mark tools as not-installed
+	// When HOME is unset, detection should mark tools as not-detected
 	// rather than producing garbage paths or panicking.
 	t.Setenv("HOME", "")
 
@@ -132,11 +132,11 @@ func TestDetectAll__tolerant_when_home_unavailable(t *testing.T) {
 		switch tool.Name {
 		case "claude-code":
 			// claude-code is detected via binary, ConfigPath may be empty
-			assert.True(t, tool.Installed, "claude-code should still be detected via binary")
+			assert.True(t, tool.Detected, "claude-code should still be detected via binary")
 			assert.Empty(t, tool.ConfigPath, "config path should be empty when HOME is unset")
 		case "claude-desktop", "codex":
 			// These rely on config directory detection which needs HOME
-			assert.False(t, tool.Installed, "%s should not be detected without HOME", tool.Name)
+			assert.False(t, tool.Detected, "%s should not be detected without HOME", tool.Name)
 		}
 	}
 }

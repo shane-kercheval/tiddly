@@ -62,7 +62,7 @@ func TestExtractCodexPATs__project_scope(t *testing.T) {
 	projectPath := filepath.Join(cwd, ".codex", "config.toml")
 	rc := ResolvedConfig{Path: projectPath, Scope: "project", Cwd: cwd}
 
-	// Install to project scope
+	// Configure for project scope
 	err := configureCodex(rc, "bm_proj_content", "bm_proj_prompt")
 	require.NoError(t, err)
 
@@ -72,7 +72,7 @@ func TestExtractCodexPATs__project_scope(t *testing.T) {
 	assert.Equal(t, "bm_proj_prompt", promptPAT)
 }
 
-// Install/Uninstall/Status tests
+// Configure/Remove/Status tests
 
 func TestConfigureCodex__new_config(t *testing.T) {
 	dir := t.TempDir()
@@ -126,12 +126,12 @@ func TestConfigureCodex__content_only_preserves_existing_prompts(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
-	// Install both servers first
+	// Configure both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	// Re-install with only content PAT (simulates --servers content)
+	// Re-configure with only content PAT (simulates --servers content)
 	err = configureCodex(rc, "bm_new_content", "")
 	require.NoError(t, err)
 
@@ -143,7 +143,7 @@ func TestConfigureCodex__content_only_preserves_existing_prompts(t *testing.T) {
 	headers := content["http_headers"].(map[string]any)
 	assert.Equal(t, "Bearer bm_new_content", headers["Authorization"])
 
-	// Prompts should be preserved from the first install
+	// Prompts should be preserved from the first configure
 	assert.Contains(t, mcpServers, "tiddly_prompts", "prompts server should be preserved")
 	prompts := mcpServers["tiddly_prompts"].(map[string]any)
 	promptHeaders := prompts["http_headers"].(map[string]any)
@@ -154,19 +154,19 @@ func TestConfigureCodex__prompts_only_preserves_existing_content(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
-	// Install both servers first
+	// Configure both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	// Re-install with only prompts PAT (simulates --servers prompts)
+	// Re-configure with only prompts PAT (simulates --servers prompts)
 	err = configureCodex(rc, "", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestTOML(t, configPath)
 	mcpServers := config["mcp_servers"].(map[string]any)
 
-	// Content should be preserved from the first install
+	// Content should be preserved from the first configure
 	assert.Contains(t, mcpServers, "tiddly_notes_bookmarks", "content server should be preserved")
 	content := mcpServers["tiddly_notes_bookmarks"].(map[string]any)
 	headers := content["http_headers"].(map[string]any)
@@ -289,19 +289,19 @@ url = "https://other.example.com/mcp"
 
 	// No backup should be created since nothing was removed
 	_, statErr := os.Stat(configPath + ".bak")
-	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op uninstall")
+	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op remove")
 }
 
 func TestRemoveCodex__project_scope(t *testing.T) {
 	cwd := t.TempDir()
 	projectConfig := filepath.Join(cwd, ".codex", "config.toml")
 
-	// Install to project scope first
+	// Configure for project scope first
 	rc := ResolvedConfig{Path: projectConfig, Scope: "project", Cwd: cwd}
 	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	// Uninstall from project scope
+	// Remove from project scope
 	err = removeCodex(rc)
 	require.NoError(t, err)
 
@@ -360,7 +360,7 @@ func TestStatusCodex__project_scope(t *testing.T) {
 	cwd := t.TempDir()
 	projectConfig := filepath.Join(cwd, ".codex", "config.toml")
 
-	// Install to project scope
+	// Configure for project scope
 	rc := ResolvedConfig{Path: projectConfig, Scope: "project", Cwd: cwd}
 	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)

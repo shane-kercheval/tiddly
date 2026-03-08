@@ -58,7 +58,7 @@ func TestExtractClaudeCodePATs__malformed_file(t *testing.T) {
 	assert.Empty(t, promptPAT)
 }
 
-// Install/Uninstall/Status/DryRun tests
+// Configure/Remove/Status/DryRun tests
 
 func TestConfigureClaudeCode__user_scope_creates_config(t *testing.T) {
 	dir := t.TempDir()
@@ -138,11 +138,11 @@ func TestRemoveClaudeCode__removes_servers(t *testing.T) {
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 
-	// Install first
+	// Configure first
 	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	// Uninstall
+	// Remove
 	err = removeClaudeCode(rc)
 	require.NoError(t, err)
 
@@ -181,7 +181,7 @@ func TestRemoveClaudeCode__no_tiddly_servers_skips_write(t *testing.T) {
 
 	// No backup should be created since nothing was removed
 	_, statErr := os.Stat(configPath + ".bak")
-	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op uninstall")
+	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op remove")
 }
 
 func TestStatusClaudeCode__finds_servers(t *testing.T) {
@@ -618,12 +618,12 @@ func TestConfigureClaudeCode__content_only_preserves_existing_prompts(t *testing
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	// Install both servers first
+	// Configure both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	// Re-install with only content PAT (simulates --servers content)
+	// Re-configure with only content PAT (simulates --servers content)
 	err = configureClaudeCode(rc, "bm_new_content", "")
 	require.NoError(t, err)
 
@@ -635,7 +635,7 @@ func TestConfigureClaudeCode__content_only_preserves_existing_prompts(t *testing
 	headers := content["headers"].(map[string]any)
 	assert.Equal(t, "Bearer bm_new_content", headers["Authorization"])
 
-	// Prompts should be preserved from the first install
+	// Prompts should be preserved from the first configure
 	prompts := servers["tiddly_prompts"].(map[string]any)
 	assert.NotNil(t, prompts, "prompts server should be preserved")
 	promptHeaders := prompts["headers"].(map[string]any)
@@ -646,19 +646,19 @@ func TestConfigureClaudeCode__prompts_only_preserves_existing_content(t *testing
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	// Install both servers first
+	// Configure both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	// Re-install with only prompts PAT (simulates --servers prompts)
+	// Re-configure with only prompts PAT (simulates --servers prompts)
 	err = configureClaudeCode(rc, "", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
 
-	// Content should be preserved from the first install
+	// Content should be preserved from the first configure
 	content := servers["tiddly_notes_bookmarks"].(map[string]any)
 	assert.NotNil(t, content, "content server should be preserved")
 	headers := content["headers"].(map[string]any)

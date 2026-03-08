@@ -19,7 +19,7 @@ func (h *CodexHandler) Detect(looker ExecLooker) DetectedTool {
 	tool := DetectedTool{Name: h.Name()}
 
 	if _, err := looker.LookPath("codex"); err == nil {
-		tool.Installed = true
+		tool.Detected = true
 		tool.Reason = "binary in PATH"
 		if h.ConfigPathOverride != "" {
 			tool.ConfigPath = h.ConfigPathOverride
@@ -37,7 +37,7 @@ func (h *CodexHandler) Detect(looker ExecLooker) DetectedTool {
 	}
 	configDir := filepath.Dir(configPath)
 	if info, err := os.Stat(configDir); err == nil && info.IsDir() {
-		tool.Installed = true
+		tool.Detected = true
 		tool.ConfigPath = configPath
 		tool.Reason = "config directory exists"
 	}

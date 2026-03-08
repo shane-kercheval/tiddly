@@ -154,7 +154,7 @@ func buildClaudeCodeServers(contentPAT, promptPAT string) map[string]any {
 
 // buildClaudeCodeConfig reads the existing config and merges in the tiddly MCP server entries.
 // Removes any existing entries pointing to tiddly URLs (regardless of key name) before adding
-// new entries under canonical names. Used by both installClaudeCode and dryRunClaudeCode.
+// new entries under canonical names. Used by both configureClaudeCode and dryRunClaudeCode.
 func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map[string]any, error) {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
@@ -172,7 +172,7 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 		servers = make(map[string]any)
 	}
 
-	// Remove only the server types being installed (non-empty PAT means it's being installed)
+	// Remove only the server types being configured (non-empty PAT means it's being configured)
 	removeJSONServersByTiddlyURL(servers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	for k, v := range newServers {

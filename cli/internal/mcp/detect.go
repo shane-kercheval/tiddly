@@ -14,7 +14,7 @@ type ExecLooker interface {
 // DetectedTool represents an AI tool found on the system.
 type DetectedTool struct {
 	Name       string // "claude-desktop", "claude-code", "codex"
-	Installed  bool
+	Detected   bool
 	ConfigPath string // path to config file (if applicable)
 	Reason     string // how detected
 	HasNpx     bool   // for Claude Desktop: whether npx is available

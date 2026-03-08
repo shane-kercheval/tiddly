@@ -29,7 +29,7 @@ func (h *ClaudeDesktopHandler) Detect(looker ExecLooker) DetectedTool {
 	configDir := filepath.Dir(configPath)
 
 	if info, err := os.Stat(configDir); err == nil && info.IsDir() {
-		tool.Installed = true
+		tool.Detected = true
 		tool.ConfigPath = configPath
 		tool.Reason = "config directory exists"
 	}

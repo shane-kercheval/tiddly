@@ -95,7 +95,7 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 	}
 
 	for _, tool := range tools {
-		if !tool.Installed {
+		if !tool.Detected {
 			continue
 		}
 
@@ -176,7 +176,7 @@ func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool,
 func resolveServerPAT(opts ConfigureOpts, toolName, serverType, existingPAT string, result *ConfigureResult) (string, error) {
 	// Dry-run: skip network calls entirely — show placeholder for new tokens,
 	// optimistically reuse existing ones without validation. This previews
-	// the config as-is; a real install will validate and replace stale PATs.
+	// the config as-is; a real configure will validate and replace stale PATs.
 	if opts.DryRun {
 		if existingPAT != "" {
 			result.TokensReused = append(result.TokensReused,
@@ -290,7 +290,7 @@ func printDiff(w io.Writer, path, before, after string) {
 }
 
 // CheckOrphanedTokens checks for cli-mcp-{toolName}-* tokens that may be orphaned after removal.
-// Only returns tokens whose name matches the given tool, so uninstalling one tool
+// Only returns tokens whose name matches the given tool, so removing one tool
 // doesn't report another tool's tokens.
 func CheckOrphanedTokens(ctx context.Context, client *api.Client, toolName string) ([]string, error) {
 	tokens, err := client.ListTokens(ctx)

@@ -117,7 +117,7 @@ Examples:
 					}
 					for _, t := range allTools {
 						if t.Name == arg {
-							if !t.Installed {
+							if !t.Detected {
 								return fmt.Errorf("%s is not installed on this system", arg)
 							}
 							targetTools = append(targetTools, t)
@@ -125,9 +125,9 @@ Examples:
 					}
 				}
 			} else {
-				// Auto-detect: use all installed tools, skip those that don't support the scope
+				// Auto-detect: use all detected tools, skip those that don't support the scope
 				for _, t := range allTools {
-					if !t.Installed {
+					if !t.Detected {
 						continue
 					}
 					if !mcp.IsScopeSupported(t.Name, scope) {
@@ -140,7 +140,7 @@ Examples:
 				}
 			}
 
-			// Pre-validate scope for all explicit tools before any installs
+			// Pre-validate scope for all explicit tools before configuring
 			if len(args) > 0 {
 				var unsupported []string
 				for _, t := range targetTools {
@@ -248,7 +248,7 @@ Detects Tiddly MCP servers by URL, not by key name. Entries pointing to a Tiddly
 
 Shows all applicable scopes per tool in a tree-style layout:
   Not detected       — binary or config directory not found
-  Not configured     — tool is installed but no MCP server entries at that scope
+  Not configured     — tool is detected but no MCP server entries at that scope
   Configured         — lists which server entries are present (content, prompts)
 
 Use --project-path to specify which project directory to inspect for local/project scopes.
@@ -326,7 +326,7 @@ Examples:
 				}
 			}
 
-			if tool == nil || !tool.Installed {
+			if tool == nil || !tool.Detected {
 				return fmt.Errorf("%s is not installed on this system", toolName)
 			}
 

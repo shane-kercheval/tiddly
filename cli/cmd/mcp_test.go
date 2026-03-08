@@ -92,7 +92,7 @@ func TestMCPConfigure__happy_path_with_pat(t *testing.T) {
 
 	// PAT auth can't detect the temp config dir via the normal path, so the tool
 	// won't be found. This is expected because detection uses OS-specific paths.
-	// Instead, test the dry-run path via the install_test.go unit tests.
+	// Instead, test the dry-run path via the configure_test.go unit tests.
 	// This test just verifies the command wiring doesn't panic.
 	_ = result
 }
@@ -159,7 +159,7 @@ func TestMCPConfigure__dry_run_with_oauth_no_token_creation(t *testing.T) {
 
 func TestMCPConfigure__servers_flag_parsed(t *testing.T) {
 	// Test that the --servers flag is wired up and parsed correctly.
-	// The actual filtering behavior is tested in install_test.go.
+	// The actual filtering behavior is tested in configure_test.go.
 	store := testutil.CredsWithPAT("bm_test123")
 	setupTestDeps(t, store)
 
@@ -252,7 +252,7 @@ func TestMCPRemove__invalid_tool(t *testing.T) {
 }
 
 func TestMCPRemove__delete_tokens_flag(t *testing.T) {
-	// Write a temp config with tiddly MCP servers so uninstall has something to extract/remove.
+	// Write a temp config with tiddly MCP servers so remove has something to extract/remove.
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, ".claude.json")
 	configData := `{
@@ -383,9 +383,9 @@ func TestMCPConfigure__scope_local_with_codex_explicit_returns_error(t *testing.
 	assert.Contains(t, result.Err.Error(), "codex")
 }
 
-func TestMCPConfigure__scope_local_with_multiple_tools_fails_before_any_install(t *testing.T) {
+func TestMCPConfigure__scope_local_with_multiple_tools_fails_before_any_configure(t *testing.T) {
 	// When explicit tools are passed, scope is pre-validated for ALL tools before
-	// any installs happen. This prevents partial application (e.g. claude-code
+	// any configures happen. This prevents partial application (e.g. claude-code
 	// configured but codex fails).
 	store := testutil.CredsWithPAT("bm_test123")
 	viper.Reset()
@@ -417,14 +417,14 @@ func TestMCPConfigure__scope_local_with_multiple_tools_fails_before_any_install(
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "codex")
 
-	// Verify no config files were written (pre-validation failed before install)
+	// Verify no config files were written (pre-validation failed before configure)
 	_, err := os.Stat(filepath.Join(dir, "claude.json"))
 	assert.True(t, os.IsNotExist(err), "claude-code config should not have been written")
 }
 
 func TestMCPConfigure__auto_detect_skips_unsupported_scope(t *testing.T) {
 	// Auto-detect with --scope local should skip codex (doesn't support local)
-	// and install claude-code only, not abort.
+	// and configure claude-code only, not abort.
 	store := testutil.CredsWithPAT("bm_test123")
 	viper.Reset()
 	tm := auth.NewTokenManager(store, nil)
@@ -448,7 +448,7 @@ func TestMCPConfigure__auto_detect_skips_unsupported_scope(t *testing.T) {
 	// No tool arg = auto-detect. --scope local is unsupported by codex but fine for claude-code.
 	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "--scope", "local")
 
-	// Should succeed (claude-code installed), not fail because codex doesn't support local
+	// Should succeed (claude-code configured), not fail because codex doesn't support local
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "claude-code")
 	// Stderr should have skip message for codex
