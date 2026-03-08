@@ -2,7 +2,6 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { isDevMode } from '../config'
-import { PrefetchLink } from '../components/PrefetchLink'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { PublicHeader } from '../components/PublicHeader'
 import { Footer } from '../components/Footer'
@@ -11,9 +10,6 @@ import { NoteMCPAnimation } from '../components/NoteMCPAnimation'
 import { ChromeExtensionAnimation } from '../components/ChromeExtensionAnimation'
 import { VersionHistoryAnimation } from '../components/VersionHistoryAnimation'
 import {
-  AnthropicIcon,
-  OpenAIIcon,
-  GeminiIcon,
   SparklesIcon,
   TagIcon,
   SearchIcon,
@@ -92,56 +88,6 @@ function DevCard({
   )
 }
 
-interface SupportedClient {
-  name: string
-  maker: string
-  icon: ReactNode
-  environment: string
-  docsPath: string
-  comingSoon?: boolean
-}
-
-const SUPPORTED_CLIENTS: SupportedClient[] = [
-  { name: 'Claude Desktop', maker: 'Anthropic', icon: <AnthropicIcon className="h-5 w-5" />, environment: 'Desktop', docsPath: '/docs/ai' },
-  { name: 'Claude Code', maker: 'Anthropic', icon: <AnthropicIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai' },
-  { name: 'Codex', maker: 'OpenAI', icon: <OpenAIIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai' },
-  { name: 'ChatGPT', maker: 'OpenAI', icon: <OpenAIIcon className="h-5 w-5" />, environment: 'Cloud', docsPath: '/docs/ai', comingSoon: true },
-  { name: 'Gemini CLI', maker: 'Google', icon: <GeminiIcon className="h-5 w-5" />, environment: 'Terminal', docsPath: '/docs/ai', comingSoon: true },
-]
-
-function SupportedClientCard({ client }: { client: SupportedClient }): ReactNode {
-  if (client.comingSoon) {
-    return (
-      <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 opacity-50">
-        <div className="text-gray-400">{client.icon}</div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-gray-400">{client.name}</div>
-          <div className="text-xs text-gray-300">{client.maker}</div>
-        </div>
-        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400">
-          Soon
-        </span>
-      </div>
-    )
-  }
-
-  return (
-    <PrefetchLink
-      to={client.docsPath}
-      className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-[#f09040] hover:bg-[#fff7f0]"
-    >
-      {client.icon}
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-gray-900 group-hover:text-[#d97b3d]">{client.name}</div>
-        <div className="text-xs text-gray-400">{client.maker}</div>
-      </div>
-      <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
-        {client.environment}
-      </span>
-    </PrefetchLink>
-  )
-}
-
 function FeaturesContent({
   onSignup,
 }: {
@@ -211,15 +157,6 @@ function FeaturesContent({
             />
           </div>
 
-          {/* Supported clients */}
-          <div className="mt-12">
-            <h3 className="mb-4 text-center text-xl font-semibold text-gray-900">Supported Clients</h3>
-            <div className="mx-auto grid max-w-2xl gap-3 sm:grid-cols-2">
-              {SUPPORTED_CLIENTS.map((client) => (
-                <SupportedClientCard key={client.name} client={client} />
-              ))}
-            </div>
-          </div>
         </div>
       </section>
 
