@@ -25,8 +25,8 @@ describe('findMatchingRoute', () => {
     expect(findMatchingRoute('/docs/api')).toBe('/docs/api')
   })
 
-  it('should return exact match for /docs/api/bookmarks (not prefix /docs/api)', () => {
-    expect(findMatchingRoute('/docs/api/bookmarks')).toBe('/docs/api/bookmarks')
+  it('should return prefix match for /docs/api/bookmarks (redirects to /docs/api)', () => {
+    expect(findMatchingRoute('/docs/api/bookmarks')).toBe('/docs/api')
   })
 
   it('should return exact match for /docs/features/content-types (not prefix /docs/features)', () => {
@@ -67,8 +67,7 @@ describe('findMatchingRoute', () => {
   })
 
   it('should fall back to /docs/api prefix for unlisted endpoint slugs', () => {
-    // Unlisted slugs prefix-match to /docs/api (DocsAPI), not DocsAPIEndpoint.
-    // If a new endpoint is added to the router, add it to routePrefetch.ts too.
+    // API sub-pages were removed; all slugs prefix-match to /docs/api.
     expect(findMatchingRoute('/docs/api/unknown-endpoint')).toBe('/docs/api')
   })
 })

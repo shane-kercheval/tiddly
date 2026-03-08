@@ -28,12 +28,6 @@ const routeImports: Record<string, () => Promise<unknown>> = {
   '/docs/extensions/chrome': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsExtensionsChrome') },
   '/docs/extensions/safari': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsExtensionsSafari') },
   '/docs/api': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAPI') },
-  '/docs/api/bookmarks': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAPIEndpoint') },
-  '/docs/api/notes': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAPIEndpoint') },
-  '/docs/api/prompts': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAPIEndpoint') },
-  '/docs/api/content': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAPIEndpoint') },
-  '/docs/api/tags': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAPIEndpoint') },
-  '/docs/api/history': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAPIEndpoint') },
   '/docs/faq': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsFAQ') },
 
   // App detail pages (heavy — CodeMirror + Milkdown)

@@ -39,7 +39,6 @@ const DocsExtensionsHub = lazy(() => import('./pages/docs/DocsExtensionsHub').th
 const DocsExtensionsChrome = lazy(() => import('./pages/docs/DocsExtensionsChrome').then(m => ({ default: m.DocsExtensionsChrome })))
 const DocsExtensionsSafari = lazy(() => import('./pages/docs/DocsExtensionsSafari').then(m => ({ default: m.DocsExtensionsSafari })))
 const DocsAPI = lazy(() => import('./pages/docs/DocsAPI').then(m => ({ default: m.DocsAPI })))
-const DocsAPIEndpoint = lazy(() => import('./pages/docs/DocsAPIEndpoint').then(m => ({ default: m.DocsAPIEndpoint })))
 const DocsFeaturesHub = lazy(() => import('./pages/docs/DocsFeaturesHub').then(m => ({ default: m.DocsFeaturesHub })))
 const DocsContentTypes = lazy(() => import('./pages/docs/DocsContentTypes').then(m => ({ default: m.DocsContentTypes })))
 const DocsPrompts = lazy(() => import('./pages/docs/DocsPrompts').then(m => ({ default: m.DocsPrompts })))
@@ -113,7 +112,7 @@ const router = createBrowserRouter([
           { path: '/docs/extensions/chrome', element: <DocsExtensionsChrome /> },
           { path: '/docs/extensions/safari', element: <DocsExtensionsSafari /> },
           { path: '/docs/api', element: <DocsAPI /> },
-          { path: '/docs/api/:endpoint', element: <DocsAPIEndpoint /> },
+          { path: '/docs/api/:endpoint', element: <Navigate to="/docs/api" replace /> },
           { path: '/docs/faq', element: <DocsFAQ /> },
         ],
       },

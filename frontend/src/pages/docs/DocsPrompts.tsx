@@ -124,7 +124,7 @@ export function DocsPrompts(): ReactNode {
           <li>
             <strong>Via API</strong> — call <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">POST /prompts/&#123;id&#125;/render</code> with
             argument values. See{' '}
-            <Link to="/docs/api/prompts" className="text-[#d97b3d] hover:underline">API docs</Link>.
+            <Link to="/docs/api" className="text-[#d97b3d] hover:underline">API docs</Link>.
           </li>
         </ul>
         <InfoCallout variant="info">

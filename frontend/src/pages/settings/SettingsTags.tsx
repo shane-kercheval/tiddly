@@ -363,7 +363,7 @@ export function SettingsTags(): ReactNode {
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tags</h1>
-          <p className="mt-1 text-gray-500">
+          <p className="mt-1 text-sm text-gray-500">
             Manage your tags. Rename or delete tags across all content.
           </p>
         </div>

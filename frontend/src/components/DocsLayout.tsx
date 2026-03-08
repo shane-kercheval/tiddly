@@ -44,18 +44,7 @@ const docsNav: DocNavItem[] = [
       { label: 'Reference', path: '/docs/cli/reference' },
     ],
   },
-  {
-    label: 'API',
-    path: '/docs/api',
-    children: [
-      { label: 'Bookmarks', path: '/docs/api/bookmarks' },
-      { label: 'Notes', path: '/docs/api/notes' },
-      { label: 'Prompts', path: '/docs/api/prompts' },
-      { label: 'Content', path: '/docs/api/content' },
-      { label: 'Tags', path: '/docs/api/tags' },
-      { label: 'History', path: '/docs/api/history' },
-    ],
-  },
+  { label: 'API', path: '/docs/api' },
   { label: 'FAQ', path: '/docs/faq' },
 ]
 
