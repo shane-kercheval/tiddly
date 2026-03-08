@@ -58,6 +58,17 @@ async def test__api_post__success(mock_api) -> None:
 
 
 @pytest.mark.asyncio
+async def test__api_post__returns_none_for_204(mock_api) -> None:
+    """Test that api_post returns None for 204 No Content."""
+    mock_api.post("/items/123/track-usage").mock(return_value=Response(204))
+
+    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        result = await api_post(client, "/items/123/track-usage", "bm_test_token")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test__api_get__http_error(mock_api) -> None:
     """Test HTTP error handling."""
     mock_api.get("/bookmarks/999").mock(
