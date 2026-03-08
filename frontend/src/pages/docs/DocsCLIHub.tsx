@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
+import { CLIPromptAnimation } from '../../components/CLIPromptAnimation'
 import { CopyableCodeBlock } from './components/CopyableCodeBlock'
 import { StepSection } from './components/StepSection'
 
@@ -34,6 +35,10 @@ export function DocsCLIHub(): ReactNode {
         tool for authenticating with the Tiddly API, configuring MCP servers, syncing agent skills,
         and exporting content for AI tools like Claude Desktop, Claude Code, and Codex.
       </p>
+
+      <div className="mb-10">
+        <CLIPromptAnimation />
+      </div>
 
       {/* Quick Start */}
       <h2 className="text-lg font-bold text-gray-900 mb-4">Quick Start</h2>
