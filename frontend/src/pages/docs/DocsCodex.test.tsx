@@ -54,6 +54,6 @@ describe('DocsCodex', () => {
   it('should show CLI install command for skills', () => {
     renderPage()
     const text = document.body.textContent || ''
-    expect(text).toContain('tiddly skills install codex')
+    expect(text).toContain('tiddly skills configure codex')
   })
 })

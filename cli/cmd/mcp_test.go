@@ -16,52 +16,52 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMCPInstall__not_logged_in(t *testing.T) {
+func TestMCPConfigure__not_logged_in(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "not logged in")
 }
 
-func TestMCPInstall__invalid_tool(t *testing.T) {
+func TestMCPConfigure__invalid_tool(t *testing.T) {
 	store := testutil.CredsWithPAT("bm_test123")
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "invalid-tool")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "invalid-tool")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "unknown tool")
 }
 
-func TestMCPInstall__invalid_scope(t *testing.T) {
+func TestMCPConfigure__invalid_scope(t *testing.T) {
 	store := testutil.CredsWithPAT("bm_test123")
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "--scope", "bad-scope")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "--scope", "bad-scope")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "invalid scope")
 	assert.Contains(t, result.Err.Error(), "user, local, project")
 }
 
-func TestMCPInstall__invalid_servers_flag(t *testing.T) {
+func TestMCPConfigure__invalid_servers_flag(t *testing.T) {
 	store := testutil.CredsWithPAT("bm_test123")
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "--servers", "invalid")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "--servers", "invalid")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "invalid server")
 }
 
-func TestMCPInstall__happy_path_with_pat(t *testing.T) {
+func TestMCPConfigure__happy_path_with_pat(t *testing.T) {
 	// Set up a Claude Desktop config directory so the tool is "detected"
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "Claude", "claude_desktop_config.json")
@@ -88,7 +88,7 @@ func TestMCPInstall__happy_path_with_pat(t *testing.T) {
 	})
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "claude-desktop")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "claude-desktop")
 
 	// PAT auth can't detect the temp config dir via the normal path, so the tool
 	// won't be found. This is expected because detection uses OS-specific paths.
@@ -97,7 +97,7 @@ func TestMCPInstall__happy_path_with_pat(t *testing.T) {
 	_ = result
 }
 
-func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
+func TestMCPConfigure__dry_run_with_oauth_no_token_creation(t *testing.T) {
 	var tokenCreated int
 	mock := testutil.NewMockAPI(t)
 	var patValidationCalls int
@@ -123,6 +123,10 @@ func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 	viper.Reset()
 	tm := auth.NewTokenManager(store, nil)
 
+	// Use a temp dir so the test doesn't read the real ~/.claude.json
+	tmpDir := t.TempDir()
+	tmpConfig := filepath.Join(tmpDir, ".claude.json")
+
 	// A mock looker that finds claude-code
 	looker := testutil.NewMockExecLooker()
 	looker.Paths["claude"] = "/usr/bin/claude"
@@ -132,6 +136,9 @@ func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 		TokenManager: tm,
 		ConfigDir:    "",
 		ExecLooker:   looker,
+		ToolHandlers: []mcp.ToolHandler{
+			&mcp.ClaudeCodeHandler{ConfigPathOverride: tmpConfig},
+		},
 	})
 	t.Cleanup(func() {
 		appDeps = nil
@@ -139,7 +146,7 @@ func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 	})
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "claude-code", "--dry-run", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "claude-code", "--dry-run", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "tiddly_notes_bookmarks")
@@ -150,7 +157,7 @@ func TestMCPInstall__dry_run_with_oauth_no_token_creation(t *testing.T) {
 	assert.Contains(t, result.Stdout, "new-token-would-be-created")
 }
 
-func TestMCPInstall__servers_flag_parsed(t *testing.T) {
+func TestMCPConfigure__servers_flag_parsed(t *testing.T) {
 	// Test that the --servers flag is wired up and parsed correctly.
 	// The actual filtering behavior is tested in install_test.go.
 	store := testutil.CredsWithPAT("bm_test123")
@@ -158,7 +165,7 @@ func TestMCPInstall__servers_flag_parsed(t *testing.T) {
 
 	cmd := newRootCmd()
 	// Valid: should not error (may fail because no tools detected, that's fine)
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "--servers", "content")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "--servers", "content")
 	// No tool detection error is fine — the flag was parsed
 	if result.Err != nil {
 		assert.NotContains(t, result.Err.Error(), "invalid server")
@@ -223,28 +230,28 @@ func TestMCPStatus__shows_config_path_for_configured_tool(t *testing.T) {
 	assert.Contains(t, result.Stdout, "user")
 }
 
-func TestMCPUninstall__requires_tool_arg(t *testing.T) {
+func TestMCPRemove__requires_tool_arg(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "uninstall")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove")
 
 	require.Error(t, result.Err)
 }
 
-func TestMCPUninstall__invalid_tool(t *testing.T) {
+func TestMCPRemove__invalid_tool(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "uninstall", "invalid-tool")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "invalid-tool")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "unknown tool")
 }
 
-func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
+func TestMCPRemove__delete_tokens_flag(t *testing.T) {
 	// Write a temp config with tiddly MCP servers so uninstall has something to extract/remove.
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, ".claude.json")
@@ -306,7 +313,7 @@ func TestMCPUninstall__delete_tokens_flag(t *testing.T) {
 	})
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "uninstall", "claude-code", "--delete-tokens", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--delete-tokens", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "Removed Tiddly MCP servers from claude-code")
@@ -348,7 +355,7 @@ func TestParseServersFlag__invalid(t *testing.T) {
 	}
 }
 
-func TestMCPInstall__scope_local_with_codex_explicit_returns_error(t *testing.T) {
+func TestMCPConfigure__scope_local_with_codex_explicit_returns_error(t *testing.T) {
 	store := testutil.CredsWithPAT("bm_test123")
 	viper.Reset()
 	tm := auth.NewTokenManager(store, nil)
@@ -369,14 +376,14 @@ func TestMCPInstall__scope_local_with_codex_explicit_returns_error(t *testing.T)
 	})
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "codex", "--scope", "local")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "codex", "--scope", "local")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "not supported by")
 	assert.Contains(t, result.Err.Error(), "codex")
 }
 
-func TestMCPInstall__scope_local_with_multiple_tools_fails_before_any_install(t *testing.T) {
+func TestMCPConfigure__scope_local_with_multiple_tools_fails_before_any_install(t *testing.T) {
 	// When explicit tools are passed, scope is pre-validated for ALL tools before
 	// any installs happen. This prevents partial application (e.g. claude-code
 	// configured but codex fails).
@@ -405,7 +412,7 @@ func TestMCPInstall__scope_local_with_multiple_tools_fails_before_any_install(t 
 	})
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "claude-code", "codex", "--scope", "local")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "claude-code", "codex", "--scope", "local")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "codex")
@@ -415,7 +422,7 @@ func TestMCPInstall__scope_local_with_multiple_tools_fails_before_any_install(t 
 	assert.True(t, os.IsNotExist(err), "claude-code config should not have been written")
 }
 
-func TestMCPInstall__auto_detect_skips_unsupported_scope(t *testing.T) {
+func TestMCPConfigure__auto_detect_skips_unsupported_scope(t *testing.T) {
 	// Auto-detect with --scope local should skip codex (doesn't support local)
 	// and install claude-code only, not abort.
 	store := testutil.CredsWithPAT("bm_test123")
@@ -439,7 +446,7 @@ func TestMCPInstall__auto_detect_skips_unsupported_scope(t *testing.T) {
 
 	cmd := newRootCmd()
 	// No tool arg = auto-detect. --scope local is unsupported by codex but fine for claude-code.
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "install", "--scope", "local")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "--scope", "local")
 
 	// Should succeed (claude-code installed), not fail because codex doesn't support local
 	require.NoError(t, result.Err)
@@ -448,7 +455,7 @@ func TestMCPInstall__auto_detect_skips_unsupported_scope(t *testing.T) {
 	assert.Contains(t, result.Stderr, "Skipping codex")
 }
 
-func TestMCPUninstall__scope_local_with_codex_returns_error(t *testing.T) {
+func TestMCPRemove__scope_local_with_codex_returns_error(t *testing.T) {
 	store := testutil.CredsWithPAT("bm_test123")
 	viper.Reset()
 	tm := auth.NewTokenManager(store, nil)
@@ -468,7 +475,7 @@ func TestMCPUninstall__scope_local_with_codex_returns_error(t *testing.T) {
 	})
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "uninstall", "codex", "--scope", "local")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "codex", "--scope", "local")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "not supported by codex")
@@ -487,12 +494,12 @@ func TestMCPStatus__project_path_flag(t *testing.T) {
 	assert.Contains(t, result.Stdout, "MCP Servers (project: "+dir+")")
 }
 
-func TestMCPUninstall__invalid_scope_returns_error(t *testing.T) {
+func TestMCPRemove__invalid_scope_returns_error(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "uninstall", "claude-code", "--scope", "bogus")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--scope", "bogus")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "invalid scope")

@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSkillsInstall__with_mock_api(t *testing.T) {
+func TestSkillsConfigure__with_mock_api(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"code-review/SKILL.md": "---\nname: code-review\n---\nReview code",
 		"summarize/SKILL.md":   "---\nname: summarize\n---\nSummarize text",
@@ -41,13 +41,13 @@ func TestSkillsInstall__with_mock_api(t *testing.T) {
 	defer cleanup()
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "install", "claude-code", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "Installed 2 skill(s)")
 }
 
-func TestSkillsInstall__auto_detect_tools(t *testing.T) {
+func TestSkillsConfigure__auto_detect_tools(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -77,13 +77,13 @@ func TestSkillsInstall__auto_detect_tools(t *testing.T) {
 	defer cleanupSkills()
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "install", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "claude-code")
 }
 
-func TestSkillsInstall__no_tools_detected(t *testing.T) {
+func TestSkillsConfigure__no_tools_detected(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	_ = store.Set("pat", "bm_test123")
 
@@ -100,13 +100,13 @@ func TestSkillsInstall__no_tools_detected(t *testing.T) {
 	})
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "install", "--api-url", "http://unused")
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "--api-url", "http://unused")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "no supported AI tools detected")
 }
 
-func TestSkillsInstall__scope_project(t *testing.T) {
+func TestSkillsConfigure__scope_project(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -127,13 +127,13 @@ func TestSkillsInstall__scope_project(t *testing.T) {
 	defer cleanup()
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "install", "claude-code", "--scope", "project", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--scope", "project", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "Installed 1 skill(s)")
 }
 
-func TestSkillsInstall__scope_project_warns_outside_project(t *testing.T) {
+func TestSkillsConfigure__scope_project_warns_outside_project(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -161,36 +161,36 @@ func TestSkillsInstall__scope_project_warns_outside_project(t *testing.T) {
 	t.Cleanup(func() { os.Chdir(origDir) }) //nolint:errcheck
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "install", "claude-code", "--scope", "project", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--scope", "project", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stderr, "does not appear to be a project root")
 }
 
-func TestSkillsInstall__invalid_scope(t *testing.T) {
+func TestSkillsConfigure__invalid_scope(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	_ = store.Set("pat", "bm_test123")
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "install", "claude-code", "--scope", "invalid", "--api-url", "http://unused")
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--scope", "invalid", "--api-url", "http://unused")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "invalid scope")
 }
 
-func TestSkillsInstall__not_logged_in(t *testing.T) {
+func TestSkillsConfigure__not_logged_in(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "install", "claude-code", "--api-url", "http://unused")
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--api-url", "http://unused")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "not logged in")
 }
 
-func TestSkillsInstall__api_error_returns_nonzero(t *testing.T) {
+func TestSkillsConfigure__api_error_returns_nonzero(t *testing.T) {
 	mock := testutil.NewMockAPI(t)
 	mock.On("GET", "/prompts/export/skills").
 		RespondError(500, "internal server error")
@@ -204,13 +204,13 @@ func TestSkillsInstall__api_error_returns_nonzero(t *testing.T) {
 	defer cleanup()
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "install", "claude-code", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--api-url", mock.URL())
 
 	require.Error(t, result.Err)
-	assert.Contains(t, result.Err.Error(), "skills install failed")
+	assert.Contains(t, result.Err.Error(), "skills configure failed")
 }
 
-func TestSkillsInstall__empty_response(t *testing.T) {
+func TestSkillsConfigure__empty_response(t *testing.T) {
 	// Empty tar.gz
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
@@ -234,10 +234,10 @@ func TestSkillsInstall__empty_response(t *testing.T) {
 	defer cleanup()
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "install", "claude-code", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "No skills to install")
+	assert.Contains(t, result.Stdout, "No skills to configure")
 }
 
 func TestSkillsList__shows_prompts(t *testing.T) {
@@ -328,6 +328,6 @@ func TestSkillsHelp(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "skills", "--help")
 
 	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "install")
+	assert.Contains(t, result.Stdout, "configure")
 	assert.Contains(t, result.Stdout, "list")
 }

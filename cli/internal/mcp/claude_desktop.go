@@ -76,9 +76,9 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 	return config, nil
 }
 
-// installClaudeDesktop writes MCP server entries into the Claude Desktop config.
+// configureClaudeDesktop writes MCP server entries into the Claude Desktop config.
 // Preserves all existing config and servers.
-func installClaudeDesktop(configPath, contentPAT, promptPAT string) error {
+func configureClaudeDesktop(configPath, contentPAT, promptPAT string) error {
 	config, err := buildClaudeDesktopConfig(configPath, contentPAT, promptPAT)
 	if err != nil {
 		return err
@@ -86,9 +86,9 @@ func installClaudeDesktop(configPath, contentPAT, promptPAT string) error {
 	return writeJSONConfig(configPath, config)
 }
 
-// uninstallClaudeDesktop removes tiddly MCP server entries from the config.
+// removeClaudeDesktop removes tiddly MCP server entries from the config.
 // Identifies servers by URL in args, not by name, so custom-named entries are also removed.
-func uninstallClaudeDesktop(configPath string) error {
+func removeClaudeDesktop(configPath string) error {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {

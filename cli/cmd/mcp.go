@@ -28,21 +28,21 @@ func newMCPCmd() *cobra.Command {
 	mcpCmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Manage MCP server integrations",
-		Long: `Install, configure, and manage MCP (Model Context Protocol) servers for AI tools like Claude Desktop, Claude Code, and Codex.
+		Long: `Configure and manage MCP (Model Context Protocol) servers for AI tools like Claude Desktop, Claude Code, and Codex.
 
-  tiddly mcp install             Auto-detect tools and configure MCP servers
+  tiddly mcp configure           Auto-detect tools and configure MCP servers
   tiddly mcp status              Show MCP configuration for all tools
-  tiddly mcp uninstall <tool>    Remove MCP configuration from a tool`,
+  tiddly mcp remove <tool>       Remove MCP configuration from a tool`,
 	}
 
-	mcpCmd.AddCommand(newMCPInstallCmd())
+	mcpCmd.AddCommand(newMCPConfigureCmd())
 	mcpCmd.AddCommand(newMCPStatusCmd())
-	mcpCmd.AddCommand(newMCPUninstallCmd())
+	mcpCmd.AddCommand(newMCPRemoveCmd())
 
 	return mcpCmd
 }
 
-func newMCPInstallCmd() *cobra.Command {
+func newMCPConfigureCmd() *cobra.Command {
 	var (
 		dryRun    bool
 		scope     string
@@ -51,18 +51,18 @@ func newMCPInstallCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "install [tool...]",
-		Short: "Install MCP servers for AI tools",
-		Long: `Install Tiddly MCP servers for AI tools.
+		Use:   "configure [tool...]",
+		Short: "Configure MCP servers for AI tools",
+		Long: `Configure Tiddly MCP servers for AI tools.
 
-Servers are identified by URL, not by name. If an existing entry points to a Tiddly MCP URL (regardless of its key name), it is replaced with the canonical entry. This means re-installs and migrations from manual setups are safe.
+Servers are identified by URL, not by name. If an existing entry points to a Tiddly MCP URL (regardless of its key name), it is replaced with the canonical entry. This means re-configuring and migrations from manual setups are safe.
 
 Scope:
   The --scope flag controls where the MCP server config is written. The default is "user",
   which makes Tiddly servers available across all projects.
 
   Note: Claude Code's own "claude mcp add" command defaults to "local" scope (per-project).
-  Tiddly defaults to "user" scope so you don't need to re-install for each project.
+  Tiddly defaults to "user" scope so you don't need to re-configure for each project.
 
   Scopes for claude-code:
     user     ~/.claude.json top-level mcpServers (available in all projects)
@@ -77,11 +77,11 @@ Scope:
     project  <cwd>/.codex/config.toml
 
 Examples:
-  tiddly mcp install                                Auto-detect and install for all found tools
-  tiddly mcp install claude-code                    Install for a specific tool
-  tiddly mcp install claude-code --scope local      Install for current project only
-  tiddly mcp install --dry-run                      Preview changes without writing
-  tiddly mcp install --servers content              Install only the content server`,
+  tiddly mcp configure                                Auto-detect and configure for all found tools
+  tiddly mcp configure claude-code                    Configure for a specific tool
+  tiddly mcp configure claude-code --scope local      Configure for current project only
+  tiddly mcp configure --dry-run                      Preview changes without writing
+  tiddly mcp configure --servers content              Configure only the content server`,
 		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateScope(scope); err != nil {
@@ -170,7 +170,7 @@ Examples:
 				return err
 			}
 
-			opts := mcp.InstallOpts{
+			opts := mcp.ConfigureOpts{
 				Ctx:       cmd.Context(),
 				Client:    client,
 				Handlers:  handlers,
@@ -184,23 +184,23 @@ Examples:
 				ErrOutput: cmd.ErrOrStderr(),
 			}
 
-			installResult, err := mcp.RunInstall(opts, targetTools)
+			configureResult, err := mcp.RunConfigure(opts, targetTools)
 			if err != nil {
 				return err
 			}
 
 			if !dryRun {
 				// Print summary
-				if len(installResult.TokensCreated) > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "Created tokens: %s\n", strings.Join(installResult.TokensCreated, ", "))
+				if len(configureResult.TokensCreated) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "Created tokens: %s\n", strings.Join(configureResult.TokensCreated, ", "))
 				}
-				if len(installResult.TokensReused) > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "Reused tokens: %s\n", strings.Join(installResult.TokensReused, ", "))
+				if len(configureResult.TokensReused) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "Reused tokens: %s\n", strings.Join(configureResult.TokensReused, ", "))
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Configured: %s\n", strings.Join(installResult.ToolsConfigured, ", "))
+				fmt.Fprintf(cmd.OutOrStdout(), "Configured: %s\n", strings.Join(configureResult.ToolsConfigured, ", "))
 			}
 
-			for _, warning := range installResult.Warnings {
+			for _, warning := range configureResult.Warnings {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
 			}
 
@@ -211,7 +211,7 @@ Examples:
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")
 	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
 	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (1-365, or 0 for no expiration)")
-	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which MCP servers to install: content, prompts, or both")
+	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which MCP servers to configure: content, prompts, or both")
 
 	return cmd
 }
@@ -277,14 +277,14 @@ Examples:
 	return cmd
 }
 
-func newMCPUninstallCmd() *cobra.Command {
+func newMCPRemoveCmd() *cobra.Command {
 	var (
 		deleteTokens bool
 		scope        string
 	)
 
 	cmd := &cobra.Command{
-		Use:       "uninstall <tool>",
+		Use:       "remove <tool>",
 		Short:     "Remove MCP server configuration for a tool",
 		Long: `Remove Tiddly MCP server entries from a tool's config file. All other config keys are preserved.
 
@@ -292,12 +292,12 @@ Servers are identified by URL, not by name. Any entry pointing to a Tiddly MCP U
 
 With --delete-tokens (requires OAuth login), the CLI reads PATs from the tool's config before removing entries, then revokes those tokens from your account. Without --delete-tokens, warns about potentially orphaned tokens.
 
-Claude Desktop users: restart Claude Desktop after uninstalling.
+Claude Desktop users: restart Claude Desktop after removing.
 
 Examples:
-  tiddly mcp uninstall claude-code                   Remove MCP entries
-  tiddly mcp uninstall claude-code --delete-tokens   Remove entries and revoke PATs
-  tiddly mcp uninstall codex --scope project         Remove from project config`,
+  tiddly mcp remove claude-code                   Remove MCP entries
+  tiddly mcp remove claude-code --delete-tokens   Remove entries and revoke PATs
+  tiddly mcp remove codex --scope project         Remove from project config`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -353,7 +353,7 @@ Examples:
 			}
 
 			// Remove config entries
-			if err := handler.Uninstall(rc); err != nil {
+			if err := handler.Remove(rc); err != nil {
 				return err
 			}
 
@@ -378,7 +378,7 @@ Examples:
 						fmt.Fprintf(cmd.ErrOrStderr(),
 							"Warning: PATs created for %s may still exist: %s\n", toolName, strings.Join(orphaned, ", "))
 						fmt.Fprintf(cmd.ErrOrStderr(),
-							"Run 'tiddly mcp uninstall %s --delete-tokens' to revoke, or manage tokens at https://tiddly.me/settings.\n", toolName)
+							"Run 'tiddly mcp remove %s --delete-tokens' to revoke, or manage tokens at https://tiddly.me/settings.\n", toolName)
 					}
 				}
 			}
@@ -391,7 +391,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().BoolVar(&deleteTokens, "delete-tokens", false, "Revoke PATs extracted from config during uninstall")
+	cmd.Flags().BoolVar(&deleteTokens, "delete-tokens", false, "Revoke PATs extracted from config during removal")
 	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
 
 	return cmd

@@ -17,7 +17,7 @@ import (
 const dryRunPlaceholder = "<new-token-would-be-created>"
 
 // tiddlyURLMatcher returns a predicate that matches only the server types being
-// installed (indicated by non-empty PAT). When only one PAT is set, only that
+// configured (indicated by non-empty PAT). When only one PAT is set, only that
 // server type's URLs are matched, preserving the other. When both are set, all
 // tiddly URLs are matched. When neither is set, nothing is matched (no-op).
 func tiddlyURLMatcher(contentPAT, promptPAT string) func(string) bool {
@@ -38,8 +38,8 @@ func tiddlyURLMatcher(contentPAT, promptPAT string) func(string) bool {
 // tokenPrefixLen is the number of leading characters the API stores as token_prefix.
 const tokenPrefixLen = 12
 
-// InstallOpts configures the MCP install flow.
-type InstallOpts struct {
+// ConfigureOpts configures the MCP configure flow.
+type ConfigureOpts struct {
 	Ctx       context.Context
 	Client    *api.Client
 	Handlers  []ToolHandler // handler list for dispatch
@@ -47,14 +47,14 @@ type InstallOpts struct {
 	DryRun    bool
 	Scope     string   // config scope: "user" (default), "local", or "project"
 	Cwd       string   // working directory for "local"/"project" scope resolution
-	Servers   []string // which servers to install: "content", "prompts" (default: both)
+	Servers   []string // which servers to configure: "content", "prompts" (default: both)
 	ExpiresIn *int     // PAT expiration in days (nil = no expiration)
 	Output    io.Writer
 	ErrOutput io.Writer
 }
 
 // wantServer returns true if the given server name is in the requested servers list.
-func (o InstallOpts) wantServer(name string) bool {
+func (o ConfigureOpts) wantServer(name string) bool {
 	if len(o.Servers) == 0 {
 		return true // default: both
 	}
@@ -66,16 +66,16 @@ func (o InstallOpts) wantServer(name string) bool {
 	return false
 }
 
-// InstallResult captures what was done during install.
-type InstallResult struct {
+// ConfigureResult captures what was done during configure.
+type ConfigureResult struct {
 	ToolsConfigured []string
 	TokensCreated   []string
 	TokensReused    []string
 	Warnings        []string
 }
 
-// RunInstall orchestrates MCP server installation for the given tools.
-func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) {
+// RunConfigure orchestrates MCP server configuration for the given tools.
+func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, error) {
 	if opts.Output == nil {
 		opts.Output = os.Stdout
 	}
@@ -86,7 +86,7 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 		opts.Ctx = context.Background()
 	}
 
-	result := &InstallResult{}
+	result := &ConfigureResult{}
 
 	isPATAuth := opts.AuthType == "pat" || opts.AuthType == "flag" || opts.AuthType == "env"
 	if isPATAuth {
@@ -126,9 +126,9 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 			continue
 		}
 
-		warnings, err := handler.Install(rc, contentPAT, promptPAT, tool)
+		warnings, err := handler.Configure(rc, contentPAT, promptPAT, tool)
 		if err != nil {
-			return nil, fmt.Errorf("installing %s: %w", tool.Name, err)
+			return nil, fmt.Errorf("configuring %s: %w", tool.Name, err)
 		}
 		result.Warnings = append(result.Warnings, warnings...)
 		result.ToolsConfigured = append(result.ToolsConfigured, tool.Name)
@@ -140,7 +140,7 @@ func RunInstall(opts InstallOpts, tools []DetectedTool) (*InstallResult, error) 
 // resolveToolPATs determines the content and prompt PATs for a specific tool.
 // For PAT auth: reuses the login token. For OAuth: extracts existing PATs from the
 // tool's config, validates them, and creates new ones only if needed.
-func resolveToolPATs(opts InstallOpts, handler ToolHandler, tool DetectedTool, rc ResolvedConfig, isPATAuth bool, result *InstallResult) (contentPAT, promptPAT string, err error) {
+func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool, rc ResolvedConfig, isPATAuth bool, result *ConfigureResult) (contentPAT, promptPAT string, err error) {
 	if isPATAuth {
 		pat := opts.Client.Token
 		if opts.wantServer("content") {
@@ -173,7 +173,7 @@ func resolveToolPATs(opts InstallOpts, handler ToolHandler, tool DetectedTool, r
 
 // resolveServerPAT resolves a single PAT for a specific server.
 // If an existing PAT is found and valid, it's reused. Otherwise a new one is created.
-func resolveServerPAT(opts InstallOpts, toolName, serverType, existingPAT string, result *InstallResult) (string, error) {
+func resolveServerPAT(opts ConfigureOpts, toolName, serverType, existingPAT string, result *ConfigureResult) (string, error) {
 	// Dry-run: skip network calls entirely — show placeholder for new tokens,
 	// optimistically reuse existing ones without validation. This previews
 	// the config as-is; a real install will validate and replace stale PATs.
@@ -245,7 +245,7 @@ func validatePAT(ctx context.Context, baseURL, pat string) (bool, error) {
 // DeleteTokensByPrefix finds and deletes tokens that match a PAT's prefix.
 // Only deletes tokens whose name starts with tokenNamePrefix ("cli-mcp-") to avoid
 // accidentally deleting user-created tokens that share a token prefix.
-// Used by uninstall --delete-tokens. Returns the names of successfully deleted tokens
+// Used by remove --delete-tokens. Returns the names of successfully deleted tokens
 // and any errors encountered during individual deletions.
 func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string) ([]string, error) {
 	tokens, err := client.ListTokens(ctx)
@@ -289,7 +289,7 @@ func printDiff(w io.Writer, path, before, after string) {
 	fmt.Fprintln(w, after)
 }
 
-// CheckOrphanedTokens checks for cli-mcp-{toolName}-* tokens that may be orphaned after uninstall.
+// CheckOrphanedTokens checks for cli-mcp-{toolName}-* tokens that may be orphaned after removal.
 // Only returns tokens whose name matches the given tool, so uninstalling one tool
 // doesn't report another tool's tokens.
 func CheckOrphanedTokens(ctx context.Context, client *api.Client, toolName string) ([]string, error) {

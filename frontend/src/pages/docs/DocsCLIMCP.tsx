@@ -16,19 +16,19 @@ export function DocsCLIMCP(): ReactNode {
         Claude Desktop, Claude Code, and Codex.
       </p>
 
-      {/* tiddly mcp install */}
-      <h2 className="text-xl font-bold text-gray-900 mb-4">tiddly mcp install</h2>
+      {/* tiddly mcp configure */}
+      <h2 className="text-xl font-bold text-gray-900 mb-4">tiddly mcp configure</h2>
       <p className="text-gray-600 mb-3">
         Installs Tiddly MCP server entries into AI tool config files. Without arguments, it
         auto-detects all installed tools and installs both servers. Use{' '}
         <code className="bg-gray-100 px-1 rounded">--servers</code> to choose which servers to install:
       </p>
-      <CopyableCodeBlock code={`tiddly mcp install                               # all tools, both servers
-tiddly mcp install --servers content              # bookmarks & notes server only
-tiddly mcp install --servers prompts              # prompts server only
-tiddly mcp install claude-code                    # specific tool, both servers
-tiddly mcp install claude-code --servers content  # specific tool + server
-tiddly mcp install claude-code codex              # multiple tools`} />
+      <CopyableCodeBlock code={`tiddly mcp configure                               # all tools, both servers
+tiddly mcp configure --servers content              # bookmarks & notes server only
+tiddly mcp configure --servers prompts              # prompts server only
+tiddly mcp configure claude-code                    # specific tool, both servers
+tiddly mcp configure claude-code --servers content  # specific tool + server
+tiddly mcp configure claude-code codex              # multiple tools`} />
 
       {/* Server explanation */}
       <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Servers</h3>
@@ -76,13 +76,13 @@ tiddly mcp install claude-code codex              # multiple tools`} />
         Reads config files directly — no API calls or subprocesses.
       </p>
 
-      {/* tiddly mcp uninstall */}
-      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">tiddly mcp uninstall</h2>
+      {/* tiddly mcp remove */}
+      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">tiddly mcp remove</h2>
       <p className="text-gray-600 mb-3">
         Removes MCP server entries from a tool&apos;s config file. All other config keys are preserved.
       </p>
-      <CopyableCodeBlock code="tiddly mcp uninstall claude-code
-tiddly mcp uninstall claude-code --delete-tokens" />
+      <CopyableCodeBlock code="tiddly mcp remove claude-code
+tiddly mcp remove claude-code --delete-tokens" />
 
       <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">--delete-tokens</h3>
       <p className="text-gray-600 mb-3">
@@ -125,18 +125,18 @@ tiddly mcp uninstall claude-code --delete-tokens" />
       <p className="text-gray-600 mb-3">
         The CLI identifies Tiddly MCP servers by <strong>URL</strong>, not by config key name.
         Any entry whose URL points to a Tiddly MCP host is recognized, regardless of its key name.
-        This applies to all operations: <code className="bg-gray-100 px-1 rounded">install</code>,{' '}
-        <code className="bg-gray-100 px-1 rounded">uninstall</code>, and{' '}
+        This applies to all operations: <code className="bg-gray-100 px-1 rounded">configure</code>,{' '}
+        <code className="bg-gray-100 px-1 rounded">remove</code>, and{' '}
         <code className="bg-gray-100 px-1 rounded">status</code>.
       </p>
       <p className="text-gray-600 mb-3">
-        On <strong>install</strong>, existing entries pointing to Tiddly URLs are replaced with
+        On <strong>configure</strong>, existing entries pointing to Tiddly URLs are replaced with
         the canonical names (<code className="bg-gray-100 px-1 rounded">tiddly_notes_bookmarks</code>{' '}
         and <code className="bg-gray-100 px-1 rounded">tiddly_prompts</code>). This makes re-installs
         and migrations from manual setups safe.
       </p>
       <p className="text-gray-600 mb-4">
-        On <strong>uninstall</strong>, any entry pointing to a Tiddly URL is removed, even if it
+        On <strong>remove</strong>, any entry pointing to a Tiddly URL is removed, even if it
         was created manually with a different name.
       </p>
 
@@ -266,7 +266,7 @@ tiddly mcp uninstall claude-code --delete-tokens" />
       <InfoCallout variant="info" title="Default Scope vs Claude Code">
         <p>
           Tiddly defaults to <code className="bg-blue-100 px-1 rounded">user</code> scope so your
-          MCP servers are available across all projects without re-installing per project.
+          MCP servers are available across all projects without re-configuring per project.
           Claude Code&apos;s own <code className="bg-blue-100 px-1 rounded">claude mcp add</code> command
           defaults to <code className="bg-blue-100 px-1 rounded">local</code> scope (per-project).
           If you prefer per-project configuration, use{' '}

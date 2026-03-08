@@ -105,8 +105,8 @@ func removeCodexServersByTiddlyURL(servers map[string]codexMCPServer, match func
 	return removed
 }
 
-// installCodex writes MCP server entries into the Codex config.
-func installCodex(rc ResolvedConfig, contentPAT, promptPAT string) error {
+// configureCodex writes MCP server entries into the Codex config.
+func configureCodex(rc ResolvedConfig, contentPAT, promptPAT string) error {
 	config, err := buildCodexConfig(rc.Path, contentPAT, promptPAT)
 	if err != nil {
 		return err
@@ -114,9 +114,9 @@ func installCodex(rc ResolvedConfig, contentPAT, promptPAT string) error {
 	return writeCodexConfig(rc.Path, config)
 }
 
-// uninstallCodex removes tiddly MCP server entries from the config.
+// removeCodex removes tiddly MCP server entries from the config.
 // Identifies servers by URL, not by name, so custom-named entries are also removed.
-func uninstallCodex(rc ResolvedConfig) error {
+func removeCodex(rc ResolvedConfig) error {
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {

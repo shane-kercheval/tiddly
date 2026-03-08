@@ -34,7 +34,7 @@ export function DocsClaudeCode(): ReactNode {
 
       <InfoCallout variant="tip" title="Automatic Setup">
         <p>
-          Use <code className="bg-gray-100 px-1 rounded">tiddly mcp install</code> to configure
+          Use <code className="bg-gray-100 px-1 rounded">tiddly mcp configure</code> to configure
           this automatically. See{' '}
           <a href="/docs/cli/mcp" className="underline hover:text-gray-900">CLI &rarr; MCP Setup</a>.
         </p>

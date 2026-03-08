@@ -135,6 +135,6 @@ describe('DocsClaudeCode', () => {
   it('should show CLI install command for skills', () => {
     renderPage()
     const text = document.body.textContent || ''
-    expect(text).toContain('tiddly skills install claude-code')
+    expect(text).toContain('tiddly skills configure claude-code')
   })
 })

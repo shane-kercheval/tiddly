@@ -112,7 +112,7 @@ func TestCodexHandler__detect_config_dir_with_override(t *testing.T) {
 	assert.Equal(t, "config directory exists", tool.Reason)
 }
 
-func TestClaudeDesktopHandler__install_and_status(t *testing.T) {
+func TestClaudeDesktopHandler__configure_and_status(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
 
@@ -120,7 +120,7 @@ func TestClaudeDesktopHandler__install_and_status(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	tool := DetectedTool{Name: "claude-desktop", HasNpx: true}
 
-	warnings, err := h.Install(rc, "content-token", "prompt-token", tool)
+	warnings, err := h.Configure(rc, "content-token", "prompt-token", tool)
 	require.NoError(t, err)
 
 	// Should not have npx warning since HasNpx is true
@@ -137,7 +137,7 @@ func TestClaudeDesktopHandler__install_and_status(t *testing.T) {
 	assert.Len(t, result.Servers, 2)
 }
 
-func TestClaudeDesktopHandler__install_without_npx(t *testing.T) {
+func TestClaudeDesktopHandler__configure_without_npx(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
 
@@ -145,12 +145,12 @@ func TestClaudeDesktopHandler__install_without_npx(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	tool := DetectedTool{Name: "claude-desktop", HasNpx: false}
 
-	warnings, err := h.Install(rc, "content-token", "prompt-token", tool)
+	warnings, err := h.Configure(rc, "content-token", "prompt-token", tool)
 	require.NoError(t, err)
 	assert.Contains(t, warnings[0], "Node.js")
 }
 
-func TestClaudeCodeHandler__install_and_uninstall(t *testing.T) {
+func TestClaudeCodeHandler__configure_and_remove(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, ".claude.json")
 
@@ -158,7 +158,7 @@ func TestClaudeCodeHandler__install_and_uninstall(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	tool := DetectedTool{Name: "claude-code"}
 
-	warnings, err := h.Install(rc, "ct", "pt", tool)
+	warnings, err := h.Configure(rc, "ct", "pt", tool)
 	require.NoError(t, err)
 	assert.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "plaintext")
@@ -173,7 +173,7 @@ func TestClaudeCodeHandler__install_and_uninstall(t *testing.T) {
 	assert.Contains(t, servers, serverNamePrompts)
 
 	// Uninstall
-	require.NoError(t, h.Uninstall(rc))
+	require.NoError(t, h.Remove(rc))
 
 	data, err = os.ReadFile(configPath)
 	require.NoError(t, err)

@@ -56,14 +56,14 @@ export function DocsCLIHub(): ReactNode {
 
       <StepSection step={3} title="Set up MCP">
         <p className="text-gray-600 mb-3 text-sm">
-          By default, the install command configures both MCP servers (bookmarks/notes and prompts) for all
+          By default, the configure command configures both MCP servers (bookmarks/notes and prompts) for all
           detected AI tools. You can target specific tools and/or servers:
         </p>
-        <CopyableCodeBlock code={`tiddly mcp install                   # both servers, all detected tools
-tiddly mcp install claude-code       # specific tool only
-tiddly mcp install claude-code codex # multiple tools
-tiddly mcp install --servers content # bookmarks & notes server only
-tiddly mcp install --servers prompts # prompts server only`} />
+        <CopyableCodeBlock code={`tiddly mcp configure                   # both servers, all detected tools
+tiddly mcp configure claude-code       # specific tool only
+tiddly mcp configure claude-code codex # multiple tools
+tiddly mcp configure --servers content # bookmarks & notes server only
+tiddly mcp configure --servers prompts # prompts server only`} />
         <p className="text-gray-600 mt-2 text-sm">
           See{' '}
           <Link to="/docs/cli/mcp" className="underline hover:text-gray-900">MCP Setup</Link>{' '}
@@ -73,12 +73,12 @@ tiddly mcp install --servers prompts # prompts server only`} />
 
       <StepSection step={4} title="Install Skills">
         <p className="text-gray-600 mb-3 text-sm">
-          Export your prompt templates as agent skills. Without arguments, the install command
+          Export your prompt templates as agent skills. Without arguments, the configure command
           auto-detects installed AI tools and installs prompts tagged &quot;skill&quot;:
         </p>
-        <CopyableCodeBlock code={`tiddly skills install                   # auto-detect tools, install "skill"-tagged prompts
-tiddly skills install claude-code       # install for a specific tool
-tiddly skills install --tags ""         # install all prompts (no tag filter)`} />
+        <CopyableCodeBlock code={`tiddly skills configure                   # auto-detect tools, configure "skill"-tagged prompts
+tiddly skills configure claude-code       # configure for a specific tool
+tiddly skills configure --tags ""         # configure all prompts (no tag filter)`} />
         <p className="text-gray-600 mt-2 text-sm">
           See{' '}
           <Link to="/docs/cli/skills" className="underline hover:text-gray-900">Skills</Link>{' '}
