@@ -17,6 +17,7 @@ type ServerType = 'content' | 'prompts'
 type ClientType = 'claude-desktop' | 'claude-code' | 'gemini-cli' | 'chatgpt' | 'codex'
 type AuthType = 'bearer' | 'oauth'
 type IntegrationType = 'mcp' | 'skills'
+type SetupTab = 'cli' | 'manual'
 
 interface McpServerConfig {
   command: string
@@ -95,6 +96,611 @@ function SelectorRow<T extends string>({
     </div>
   )
 }
+
+// =============================================================================
+// CLI-First Setup Section
+// =============================================================================
+
+type CliToolType = 'claude-desktop' | 'claude-code' | 'codex'
+type McpScopeType = 'user' | 'local' | 'project'
+type SkillsScopeType = 'global' | 'project'
+type TagMatchType = 'all' | 'any'
+
+// Scope support matrix (matches CLI handler.SupportedScopes())
+const MCP_SCOPE_SUPPORT: Record<CliToolType, McpScopeType[]> = {
+  'claude-desktop': ['user'],
+  'claude-code': ['user', 'local', 'project'],
+  'codex': ['user', 'project'],
+}
+
+const SKILLS_SCOPE_SUPPORT: Record<CliToolType, SkillsScopeType[]> = {
+  'claude-desktop': ['global'],
+  'claude-code': ['global', 'project'],
+  'codex': ['global', 'project'],
+}
+
+interface PillOption<T extends string> {
+  value: T
+  label: string
+  disabled?: boolean
+  disabledLabel?: string
+}
+
+/**
+ * Info tooltip that shows on hover.
+ */
+function InfoTooltip({ text }: { text: string }): ReactNode {
+  return (
+    <span className="relative group inline-flex">
+      <svg className="w-3.5 h-3.5 text-gray-300 hover:text-gray-500 cursor-help transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M12 18h.01" />
+        <circle cx="12" cy="12" r="10" strokeWidth={2} />
+      </svg>
+      <span className="invisible group-hover:visible absolute left-0 bottom-full mb-2 w-64 rounded-lg bg-gray-800 text-white text-xs px-3 py-2 shadow-lg z-20 leading-relaxed">
+        {text}
+        <span className="absolute left-3 top-full border-4 border-transparent border-t-gray-800" />
+      </span>
+    </span>
+  )
+}
+
+/**
+ * Section divider with label and optional tooltip.
+ */
+function SectionDivider({ label, tooltip }: { label: string; tooltip?: string }): ReactNode {
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <span className="text-xs font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+        {label}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </span>
+      <div className="flex-1 border-t border-gray-200" />
+    </div>
+  )
+}
+
+/**
+ * Multi-select pill toggle group. Clicking a pill toggles it on/off.
+ */
+function PillToggleGroup<T extends string>({
+  options,
+  selected,
+  onChange,
+}: {
+  options: PillOption<T>[]
+  selected: Set<T>
+  onChange: (selected: Set<T>) => void
+}): ReactNode {
+  const toggle = (value: T): void => {
+    const next = new Set(selected)
+    if (next.has(value)) {
+      next.delete(value)
+    } else {
+      next.add(value)
+    }
+    onChange(next)
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((opt) => {
+        const isSelected = selected.has(opt.value)
+        const isDisabled = opt.disabled
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            disabled={isDisabled}
+            onClick={() => !isDisabled && toggle(opt.value)}
+            className={`
+              px-3 py-1 text-xs font-medium rounded-full border transition-all
+              ${
+                isDisabled
+                  ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+                  : isSelected
+                  ? 'border-[#f09040] bg-[#f09040] text-white'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-[#f09040] hover:text-[#d97b3d]'
+              }
+            `}
+          >
+            {opt.label}
+            {isDisabled && opt.disabledLabel && (
+              <span className="ml-1.5 text-xs opacity-60">{opt.disabledLabel}</span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Single-select pill group. Same visual as PillToggleGroup but mutually exclusive.
+ */
+function PillSelectGroup<T extends string>({
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  options: PillOption<T>[]
+  value: T
+  onChange: (value: T) => void
+  disabled?: boolean
+}): ReactNode {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((opt) => {
+        const isSelected = value === opt.value
+        const isDisabled = disabled || opt.disabled
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            disabled={isDisabled}
+            onClick={() => !isDisabled && onChange(opt.value)}
+            className={`
+              px-3 py-1 text-xs font-medium rounded-full border transition-all
+              ${
+                isDisabled
+                  ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+                  : isSelected
+                  ? 'border-[#f09040] bg-[#f09040] text-white'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-[#f09040] hover:text-[#d97b3d]'
+              }
+            `}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Numbered step card for setup instructions.
+ */
+function StepCard({ number, title, subtitle, children }: { number: number; title: string; subtitle?: string; children?: ReactNode }): ReactNode {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4">
+      <div className="flex gap-4">
+        <span className="text-lg font-semibold text-[#d97b3d] select-none">{number}</span>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Generate CLI command(s) based on selected options.
+ */
+function generateCLICommands(
+  selectedServers: Set<ServerType>,
+  installSkills: boolean,
+  selectedTools: Set<CliToolType>,
+  mcpScope: McpScopeType,
+  skillsScope: SkillsScopeType,
+  skillsTags: string[],
+  skillsTagMatch: TagMatchType,
+): string {
+  const allTools: CliToolType[] = ['claude-desktop', 'claude-code', 'codex']
+  const parts: string[] = []
+
+  if (selectedServers.size > 0 && selectedTools.size > 0) {
+    let cmd = 'tiddly mcp install'
+
+    // Add specific tools if not all selected
+    const mcpTools = allTools.filter((t) => selectedTools.has(t))
+    if (mcpTools.length < allTools.length) {
+      cmd += ' ' + mcpTools.join(' ')
+    }
+
+    // Add --servers if not both
+    if (selectedServers.size === 1) {
+      cmd += ` --servers ${[...selectedServers][0]}`
+    }
+
+    // Add --scope if not default
+    if (mcpScope !== 'user') {
+      cmd += ` --scope ${mcpScope}`
+    }
+
+    parts.push(cmd)
+  }
+
+  if (installSkills && selectedTools.size > 0) {
+    let cmd = 'tiddly skills install'
+
+    // Add specific tools if not all selected
+    const skillsTools = allTools.filter((t) => selectedTools.has(t))
+    if (skillsTools.length < allTools.length) {
+      cmd += ' ' + skillsTools.join(' ')
+    }
+
+    // Add --scope if not default
+    if (skillsScope !== 'global') {
+      cmd += ` --scope ${skillsScope}`
+    }
+
+    // Add --tags if not default ('skill')
+    if (skillsTags.length === 0) {
+      cmd += ' --tags ""'
+    } else if (skillsTags.length !== 1 || skillsTags[0] !== 'skill') {
+      cmd += ` --tags ${skillsTags.join(',')}`
+    }
+
+    // Add --tag-match if not default
+    if (skillsTagMatch === 'any') {
+      cmd += ' --tag-match any'
+    }
+
+    parts.push(cmd)
+  }
+
+  if (parts.length === 0) return ''
+  if (parts.length === 1) return parts[0]
+  return parts.join(' && \\\n')
+}
+
+/**
+ * Get scope warnings for tools that don't support the selected scope.
+ */
+const CLI_TOOL_LABELS: Record<CliToolType, string> = {
+  'claude-desktop': 'Claude Desktop',
+  'claude-code': 'Claude Code',
+  'codex': 'Codex',
+}
+
+function getMcpScopeWarnings(selectedTools: Set<CliToolType>, scope: McpScopeType): string[] {
+  const warnings: string[] = []
+  for (const tool of selectedTools) {
+    if (!MCP_SCOPE_SUPPORT[tool].includes(scope)) {
+      warnings.push(`${CLI_TOOL_LABELS[tool]} doesn't support "${scope}" scope and will be skipped`)
+    }
+  }
+  return warnings
+}
+
+function getSkillsScopeWarnings(selectedTools: Set<CliToolType>, scope: SkillsScopeType): string[] {
+  const warnings: string[] = []
+  for (const tool of selectedTools) {
+    if (!SKILLS_SCOPE_SUPPORT[tool].includes(scope)) {
+      warnings.push(`${CLI_TOOL_LABELS[tool]} doesn't support "${scope}" scope and will be skipped`)
+    }
+  }
+  return warnings
+}
+
+/**
+ * CLI-first setup section with toggle grid and live command generation.
+ */
+function CLISetupSection(): ReactNode {
+  // What to install
+  const [selectedServers, setSelectedServers] = useState<Set<ServerType>>(new Set(['content', 'prompts']))
+  const [installSkills, setInstallSkills] = useState(false)
+
+  // Where to install
+  const [selectedTools, setSelectedTools] = useState<Set<CliToolType>>(new Set(['claude-code', 'codex']))
+
+  // Scope
+  const [mcpScope, setMcpScope] = useState<McpScopeType>('user')
+  const [skillsScope, setSkillsScope] = useState<SkillsScopeType>('global')
+
+  // Skills tag filter
+  const [promptTags, setPromptTags] = useState<TagCount[]>([])
+  const [skillsTags, setSkillsTags] = useState<string[]>(['skill'])
+  const [skillsTagMatch, setSkillsTagMatch] = useState<TagMatchType>('all')
+
+  // Command copy state
+  const [copiedCommand, setCopiedCommand] = useState(false)
+  const [copiedInstall, setCopiedInstall] = useState(false)
+  const [copiedLogin, setCopiedLogin] = useState(false)
+
+  // Fetch prompt tags on mount
+  useEffect(() => {
+    let cancelled = false
+    const fetchPromptTags = async (): Promise<void> => {
+      try {
+        const response = await api.get<TagListResponse>('/tags/?content_types=prompt')
+        if (!cancelled) {
+          const tags = response.data.tags
+          setPromptTags(tags)
+          const defaultTags = getDefaultSkillTags(tags)
+          if (defaultTags.length > 0) {
+            setSkillsTags(defaultTags)
+          }
+        }
+      } catch {
+        // Silent fail
+      }
+    }
+    fetchPromptTags()
+    return () => { cancelled = true }
+  }, [])
+
+  const hasMcpServers = selectedServers.size > 0
+  const hasAnything = (hasMcpServers || installSkills) && selectedTools.size > 0
+  const command = generateCLICommands(selectedServers, installSkills, selectedTools, mcpScope, skillsScope, skillsTags, skillsTagMatch)
+
+  const mcpScopeWarnings = hasMcpServers ? getMcpScopeWarnings(selectedTools, mcpScope) : []
+  const skillsScopeWarnings = installSkills ? getSkillsScopeWarnings(selectedTools, skillsScope) : []
+
+  const handleCopyCommand = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(command)
+      setCopiedCommand(true)
+      setTimeout(() => setCopiedCommand(false), 2000)
+    } catch { /* Silent fail */ }
+  }
+
+  const installCommand = 'curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh'
+  const handleCopyInstall = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(installCommand)
+      setCopiedInstall(true)
+      setTimeout(() => setCopiedInstall(false), 2000)
+    } catch { /* Silent fail */ }
+  }
+
+  const loginCommand = 'tiddly login'
+  const handleCopyLogin = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(loginCommand)
+      setCopiedLogin(true)
+      setTimeout(() => setCopiedLogin(false), 2000)
+    } catch { /* Silent fail */ }
+  }
+
+  // Tool options
+  const toolOptions: PillOption<CliToolType>[] = [
+    { value: 'claude-desktop', label: 'Claude Desktop' },
+    { value: 'claude-code', label: 'Claude Code' },
+    { value: 'codex', label: 'Codex' },
+  ]
+
+  // Server options
+  const serverOptions: PillOption<ServerType>[] = [
+    { value: 'content', label: 'Bookmarks & Notes' },
+    { value: 'prompts', label: 'Prompts' },
+  ]
+
+  // MCP scope options
+  const mcpScopeOptions: PillOption<McpScopeType>[] = [
+    { value: 'user', label: 'User (global)' },
+    { value: 'local', label: 'Local' },
+    { value: 'project', label: 'Project' },
+  ]
+
+  // Skills scope options
+  const skillsScopeOptions: PillOption<SkillsScopeType>[] = [
+    { value: 'global', label: 'Global' },
+    { value: 'project', label: 'Project' },
+  ]
+
+  // Tag match options
+  const tagMatchOptions: PillOption<TagMatchType>[] = [
+    { value: 'all', label: 'All tags' },
+    { value: 'any', label: 'Any tag' },
+  ]
+
+  return (
+    <div data-testid="cli-setup-section">
+      <p className="text-sm text-gray-500 mb-6">
+        Use the Tiddly CLI to quickly configure MCP servers and skills for your AI tools.
+        Select what you'd like to install and follow the steps below.
+      </p>
+
+      {/* Where to install */}
+      <div className="mb-6">
+        <SectionDivider label="Where to install" tooltip="Tiddly MCP servers are compatible with any AI tool that supports the MCP protocol. If your tool isn't listed here, you can still configure it manually following your tool's MCP setup instructions." />
+        <PillToggleGroup options={toolOptions} selected={selectedTools} onChange={setSelectedTools} />
+      </div>
+
+      {/* What to install */}
+      <div className="mb-6">
+        <SectionDivider label="What to install" tooltip="MCP Servers give AI tools direct access to your bookmarks, notes, and prompts. Skills are reusable instruction files exported from your prompts that AI tools can auto-invoke. Each tool handles skills differently — for example, Claude Code uses slash commands while Claude Desktop uses natural language." />
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">MCP Servers</span>
+            <PillToggleGroup options={serverOptions} selected={selectedServers} onChange={setSelectedServers} />
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">Skills</span>
+            <PillSelectGroup<'yes' | 'no'>
+              options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
+              value={installSkills ? 'yes' : 'no'}
+              onChange={(v) => setInstallSkills(v === 'yes')}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Options - scope */}
+      {(hasMcpServers || installSkills) && (
+        <div className="mb-6">
+          <SectionDivider label="Options" tooltip="Scope controls where configurations are stored. User/Global scope makes integrations available everywhere, while Local/Project scope limits them to a specific project directory." />
+          <div className="space-y-4">
+            {hasMcpServers && (
+              <div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">MCP Scope</span>
+                  <PillSelectGroup options={mcpScopeOptions} value={mcpScope} onChange={setMcpScope} />
+                </div>
+                {mcpScopeWarnings.length > 0 && (
+                  <div className="mt-2 ml-0 sm:ml-28">
+                    {mcpScopeWarnings.map((w) => (
+                      <p key={w} className="text-xs text-amber-600">{w}</p>
+                    ))}
+                  </div>
+                )}
+                {selectedTools.has('claude-code') && mcpScope !== 'local' && (
+                  <div className="mt-2 ml-0 sm:ml-28">
+                    <p className="text-xs text-amber-600">
+                      Note: Claude Code defaults to local (per-project) scope. Using &quot;{mcpScope}&quot; scope
+                      will make MCP servers available across all projects.
+                      Use <span className="font-medium">Local</span> if you prefer per-project configuration.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            {installSkills && (
+              <div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">Skills Scope</span>
+                  <PillSelectGroup options={skillsScopeOptions} value={skillsScope} onChange={setSkillsScope} />
+                </div>
+                {skillsScopeWarnings.length > 0 && (
+                  <div className="mt-2 ml-0 sm:ml-28">
+                    {skillsScopeWarnings.map((w) => (
+                      <p key={w} className="text-xs text-amber-600">{w}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Skills tag filter */}
+      {installSkills && (
+        <div className="mb-6">
+          <SectionDivider label="Skills tag filter" tooltip="Filter which of your prompts get exported as skills by tag. Only prompts matching the selected tags will be installed. Leave empty to export all prompts." />
+          <p className="text-sm text-gray-500 mb-3">
+            Filter which prompts to export as skills. Leave empty to export all prompts.
+          </p>
+          <SkillsTagSelector
+            availableTags={promptTags}
+            selectedTags={skillsTags}
+            onChange={setSkillsTags}
+          />
+          <div className="flex items-center gap-2 mt-3">
+            <span className="text-sm font-medium text-gray-600">Match</span>
+            <PillSelectGroup options={tagMatchOptions} value={skillsTagMatch} onChange={setSkillsTagMatch} />
+          </div>
+        </div>
+      )}
+
+      {/* Steps */}
+      <SectionDivider label="Steps" />
+      <div className="space-y-3">
+        {/* Step 1: Install CLI */}
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex gap-4">
+            <span className="text-lg font-semibold text-[#d97b3d] select-none">1</span>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold text-gray-900">Install the CLI</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Skip if already installed.{' '}
+                <Link to="/docs/cli" className="text-[#d97b3d] hover:underline">CLI docs</Link>
+              </p>
+              <div className="relative mt-2">
+                <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14 overflow-x-auto">
+                  {installCommand}
+                </code>
+                <button
+                  onClick={handleCopyInstall}
+                  className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
+                    copiedInstall
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                  }`}
+                >
+                  {copiedInstall ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Step 2: Login */}
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex gap-4">
+            <span className="text-lg font-semibold text-[#d97b3d] select-none">2</span>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold text-gray-900">Log in</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Authenticate with your Tiddly account</p>
+              <div className="relative mt-2">
+                <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14 overflow-x-auto">
+                  {loginCommand}
+                </code>
+                <button
+                  onClick={handleCopyLogin}
+                  className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
+                    copiedLogin
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                  }`}
+                >
+                  {copiedLogin ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Step 3: Run install */}
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex gap-4">
+            <span className="text-lg font-semibold text-[#d97b3d] select-none">3</span>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold text-gray-900">Install your integrations</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Run this command to configure your selected integrations</p>
+              {hasAnything ? (
+                <div className="relative mt-2">
+                  <code data-testid="cli-install-command" className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14 whitespace-pre-wrap overflow-x-auto">
+                    {command}
+                  </code>
+                  <button
+                    onClick={handleCopyCommand}
+                    className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
+                      copiedCommand
+                        ? 'bg-green-600 text-white'
+                        : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                    }`}
+                  >
+                    {copiedCommand ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-gray-400 italic">Select at least one item to install and one target tool above.</p>
+              )}
+            </div>
+          </div>
+        </div>
+        {/* Step 4: Restart tools */}
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="flex gap-4">
+            <span className="text-lg font-semibold text-[#d97b3d] select-none">4</span>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold text-gray-900">Restart your tools</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Restart{' '}
+                {(() => {
+                  const names = [...selectedTools].map((t) => CLI_TOOL_LABELS[t])
+                  if (names.length === 0) return 'your tools'
+                  if (names.length === 1) return names[0]
+                  return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]
+                })()}{' '}
+                to pick up the new integrations.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// =============================================================================
+// Manual Setup Section (existing PyTorch-style selector, collapsed by default)
+// =============================================================================
 
 /**
  * Generate the Claude Desktop config JSON based on server selection.
@@ -200,49 +806,33 @@ function ClaudeDesktopInstructions({
   }
 
   return (
-    <>
-      {/* Step 1: Create PAT */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 1: Create a Personal Access Token
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Create a PAT to authenticate with the MCP server.
-        </p>
+    <div className="space-y-3">
+      <StepCard number={1} title="Create a Personal Access Token" subtitle="Authenticate with the MCP server">
         <Link
           to="/app/settings/tokens"
-          className="btn-primary inline-flex items-center gap-2"
+          className="btn-primary inline-flex items-center gap-2 mt-2"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Create Token
         </Link>
-      </div>
+      </StepCard>
 
-      {/* Step 2: Config file location */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 2: Locate Config File
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Create or edit the Claude Desktop configuration file at:
-        </p>
-        <div className="space-y-3">
+      <StepCard number={2} title="Locate Config File" subtitle="Create or edit the Claude Desktop configuration file">
+        <div className="space-y-3 mt-2">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-sm font-medium text-gray-700">macOS:</span>
-            </div>
-            <div className="relative">
-              <code className="block rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 pr-16">
+            <span className="text-xs font-medium text-gray-700">macOS:</span>
+            <div className="relative mt-1">
+              <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14">
                 {CONFIG_PATH_MAC}
               </code>
               <button
                 onClick={handleCopyPathMac}
-                className={`absolute top-1.5 right-2 rounded px-2 py-1 text-xs transition-colors ${
+                className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
                   copiedPathMac
                     ? 'bg-green-600 text-white'
-                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                    : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
                 }`}
               >
                 {copiedPathMac ? 'Copied!' : 'Copy'}
@@ -250,19 +840,17 @@ function ClaudeDesktopInstructions({
             </div>
           </div>
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-sm font-medium text-gray-700">Windows:</span>
-            </div>
-            <div className="relative">
-              <code className="block rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-800 pr-16">
+            <span className="text-xs font-medium text-gray-700">Windows:</span>
+            <div className="relative mt-1">
+              <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14">
                 {CONFIG_PATH_WINDOWS}
               </code>
               <button
                 onClick={handleCopyPathWin}
-                className={`absolute top-1.5 right-2 rounded px-2 py-1 text-xs transition-colors ${
+                className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
                   copiedPathWin
                     ? 'bg-green-600 text-white'
-                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                    : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
                 }`}
               >
                 {copiedPathWin ? 'Copied!' : 'Copy'}
@@ -270,47 +858,33 @@ function ClaudeDesktopInstructions({
             </div>
           </div>
         </div>
-      </div>
+      </StepCard>
 
-      {/* Step 3: Add config */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 3: Add Configuration
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Add the following to your config file:
-        </p>
-        <div className="relative">
-          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap break-all overflow-x-auto">
+      <StepCard number={3} title="Add Configuration" subtitle="Add the following to your config file">
+        <div className="relative mt-2">
+          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap break-all overflow-x-auto font-mono pr-14">
             <code>{exampleConfig}</code>
           </pre>
           <button
             onClick={handleCopyConfig}
-            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
               copiedConfig
                 ? 'bg-green-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
             }`}
           >
             {copiedConfig ? 'Copied!' : 'Copy'}
           </button>
         </div>
-        <p className="mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-xs text-gray-500">
           Replace <code className="bg-gray-100 px-1 rounded">YOUR_TOKEN_HERE</code> with
           your Personal Access Token from Step 1.
         </p>
-      </div>
+      </StepCard>
 
-      {/* Step 4: Restart */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 4: Restart Claude Desktop
-        </h3>
-        <p className="text-gray-600 mb-3">
-          After saving the config file, restart Claude Desktop to load the MCP server.
-        </p>
-        <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
-          <p className="text-sm text-blue-800">
+      <StepCard number={4} title="Restart Claude Desktop" subtitle="Load the MCP server">
+        <div className="mt-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
+          <p className="text-xs text-blue-800">
             <strong>Verify:</strong> Start a new conversation and try{' '}
             {server === 'content' ? (
               <em>&quot;Search my bookmarks&quot;</em>
@@ -320,10 +894,9 @@ function ClaudeDesktopInstructions({
             to confirm the integration is working.
           </p>
         </div>
-      </div>
+      </StepCard>
 
-      {/* Add Both Servers Tip */}
-      <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
+      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-2">Want to add both servers?</h3>
         <p className="text-sm text-gray-600">
           Switch between &quot;Content&quot; and &quot;Prompts&quot; in the selector above to see the configuration for each server.
@@ -331,7 +904,7 @@ function ClaudeDesktopInstructions({
           by combining them.
         </p>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -376,61 +949,43 @@ function ClaudeCodeInstructions({
   }
 
   return (
-    <>
-      {/* Step 1: Create PAT */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 1: Create a Personal Access Token
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Create a PAT to authenticate with the MCP server.
-        </p>
+    <div className="space-y-3">
+      <StepCard number={1} title="Create a Personal Access Token" subtitle="Authenticate with the MCP server">
         <Link
           to="/app/settings/tokens"
-          className="btn-primary inline-flex items-center gap-2"
+          className="btn-primary inline-flex items-center gap-2 mt-2"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Create Token
         </Link>
-      </div>
+      </StepCard>
 
-      {/* Step 2: Add MCP Server */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 2: Add MCP Server
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Run this command in your project directory:
-        </p>
-        <div className="relative">
-          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap overflow-x-auto">
+      <StepCard number={2} title="Add MCP Server" subtitle="Run this command in your project directory">
+        <div className="relative mt-2">
+          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
             <code>{command}</code>
           </pre>
           <button
             onClick={handleCopyCommand}
-            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
               copiedCommand
                 ? 'bg-green-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
             }`}
           >
             {copiedCommand ? 'Copied!' : 'Copy'}
           </button>
         </div>
-        <p className="mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-xs text-gray-500">
           Replace <code className="bg-gray-100 px-1 rounded">YOUR_TOKEN_HERE</code> with
           your Personal Access Token from Step 1.
         </p>
-      </div>
+      </StepCard>
 
-      {/* Step 3: Verify */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 3: Verify Installation
-        </h3>
-        <p className="text-gray-600 mb-3">
+      <StepCard number={3} title="Verify Installation">
+        <p className="text-xs text-gray-500 mt-1">
           The server is now configured for this project. Try asking Claude Code to{' '}
           {server === 'content' ? (
             <em>&quot;search my bookmarks&quot;</em>
@@ -439,30 +994,29 @@ function ClaudeCodeInstructions({
           )}{' '}
           to verify it&apos;s working.
         </p>
-        <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
-          <p className="text-sm text-blue-800">
+        <div className="mt-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
+          <p className="text-xs text-blue-800">
             <strong>Note:</strong> Claude Code MCP servers are configured per project/directory.
             Run the command in each project where you want access.
           </p>
         </div>
-      </div>
+      </StepCard>
 
-      {/* Alternative: Import from Claude Desktop */}
-      <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
+      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-2">Alternative: Import from Claude Desktop</h3>
         <p className="text-sm text-gray-600 mb-3">
           If you&apos;ve already configured Claude Desktop, you can import those servers:
         </p>
         <div className="relative">
-          <code className="block rounded bg-gray-200 px-3 py-2 text-sm text-gray-800 font-mono pr-16">
+          <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14">
             {importCommand}
           </code>
           <button
             onClick={handleCopyImport}
-            className={`absolute top-1.5 right-2 rounded px-2 py-1 text-xs transition-colors ${
+            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
               copiedImport
                 ? 'bg-green-600 text-white'
-                : 'bg-gray-300 text-gray-600 hover:bg-gray-400'
+                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
             }`}
           >
             {copiedImport ? 'Copied!' : 'Copy'}
@@ -470,15 +1024,14 @@ function ClaudeCodeInstructions({
         </div>
       </div>
 
-      {/* Add Both Servers Tip */}
-      <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
+      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-2">Want to add both servers?</h3>
         <p className="text-sm text-gray-600">
           Switch between &quot;Content&quot; and &quot;Prompts&quot; in the selector above to see the command for each server.
           Run both commands to add both MCP servers to your project.
         </p>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -530,79 +1083,52 @@ function CodexInstructions({
   }
 
   return (
-    <>
-      {/* Step 1: Create PAT */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 1: Create a Personal Access Token
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Create a PAT to authenticate with the MCP server.
-        </p>
+    <div className="space-y-3">
+      <StepCard number={1} title="Create a Personal Access Token" subtitle="Authenticate with the MCP server">
         <Link
           to="/app/settings/tokens"
-          className="btn-primary inline-flex items-center gap-2"
+          className="btn-primary inline-flex items-center gap-2 mt-2"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           Create Token
         </Link>
-      </div>
+      </StepCard>
 
-      {/* Step 2: Add to config */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 2: Add to Config File
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Open (or create) <code className="bg-gray-100 px-1 rounded">~/.codex/config.toml</code> and add:
-        </p>
-        <div className="relative">
-          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap overflow-x-auto">
+      <StepCard number={2} title="Add to Config File" subtitle={`Open (or create) ~/.codex/config.toml and add:`}>
+        <div className="relative mt-2">
+          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
             <code>{configContent}</code>
           </pre>
           <button
             onClick={handleCopyConfig}
-            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
               copiedConfig
                 ? 'bg-green-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
             }`}
           >
             {copiedConfig ? 'Copied!' : 'Copy'}
           </button>
         </div>
-        <p className="mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-xs text-gray-500">
           Replace <code className="bg-gray-100 px-1 rounded">YOUR_TOKEN_HERE</code> with
           your Personal Access Token from Step 1.
         </p>
-      </div>
+      </StepCard>
 
-      {/* Step 3: Restart */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 3: Restart Codex
-        </h3>
-        <p className="text-gray-600 mb-3">
-          If Codex is running, quit and restart it.
-        </p>
-      </div>
+      <StepCard number={3} title="Restart Codex" subtitle="If Codex is running, quit and restart it." />
 
-      {/* Step 4: Verify */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 4: Verify Installation
-        </h3>
-        <p className="text-gray-600 mb-3">
+      <StepCard number={4} title="Verify Installation">
+        <p className="text-xs text-gray-500 mt-1">
           In Codex, type <code className="bg-gray-100 px-1 rounded">/mcp</code> to confirm the server
           is connected and shows available tools.
         </p>
-      </div>
+      </StepCard>
 
-      {/* Using Prompts Note (only for prompt server) */}
       {server === 'prompts' && (
-        <div className="mb-8 rounded-lg bg-blue-50 border border-blue-200 p-4">
+        <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
           <h3 className="text-sm font-semibold text-blue-900 mb-2">Using Your Prompts</h3>
           <p className="text-sm text-blue-800 mb-3">
             <strong>Note:</strong> Codex does not support MCP Prompts directly (the{' '}
@@ -623,15 +1149,14 @@ function CodexInstructions({
         </div>
       )}
 
-      {/* Add Both Servers Tip */}
-      <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
+      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-2">Want to add both servers?</h3>
         <p className="text-sm text-gray-600">
           Switch between &quot;Bookmarks &amp; Notes&quot; and &quot;Prompts&quot; in the selector above to see the configuration for each server.
           You can add both configurations to your <code className="bg-gray-200 px-1 rounded text-xs">config.toml</code> file.
         </p>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -961,48 +1486,36 @@ function ClaudeCodeSkillsInstructions({ exportUrl }: ClaudeCodeSkillsInstruction
   }
 
   return (
-    <>
-      {/* Step 3: Install Command */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 3: Install Skills
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Run this command to install your skills:
-        </p>
-        <div className="relative">
-          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap overflow-x-auto">
+    <div className="space-y-3">
+      <StepCard number={3} title="Install Skills" subtitle="Run this command to install your skills">
+        <div className="relative mt-2">
+          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
             <code>{syncCommand}</code>
           </pre>
           <button
             onClick={handleCopyCommand}
-            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
               copiedCommand
                 ? 'bg-green-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
             }`}
           >
             {copiedCommand ? 'Copied!' : 'Copy'}
           </button>
         </div>
-      </div>
+      </StepCard>
 
-      {/* Step 4: Use Your Skills */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 4: Use Your Skills
-        </h3>
-        <p className="text-gray-600 mb-2">
+      <StepCard number={4} title="Use Your Skills">
+        <p className="text-xs text-gray-500 mt-1">
           After syncing, Claude auto-invokes skills when relevant to your task.
           You can also trigger them manually with <code className="bg-gray-100 px-1 rounded">/skill-name</code>.
         </p>
-        <p className="text-sm text-gray-500">
+        <p className="text-xs text-gray-400 mt-1">
           Tip: Add this command to a cron job or shell alias for regular syncing.
         </p>
-      </div>
+      </StepCard>
 
-      {/* Sync behavior note */}
-      <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
+      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-2">Sync Behavior</h3>
         <p className="text-sm text-gray-600">
           Syncing is <strong>additive</strong>: new skills are added and existing skills are updated,
@@ -1010,7 +1523,7 @@ function ClaudeCodeSkillsInstructions({ exportUrl }: ClaudeCodeSkillsInstruction
           <code className="bg-gray-200 px-1 rounded text-xs">~/.claude/skills/</code>.
         </p>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -1037,45 +1550,33 @@ function CodexSkillsInstructions({ exportUrl }: CodexSkillsInstructionsProps): R
   }
 
   return (
-    <>
-      {/* Step 3: Install Command */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 3: Install Skills
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Run this command to install your skills:
-        </p>
-        <div className="relative">
-          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap overflow-x-auto">
+    <div className="space-y-3">
+      <StepCard number={3} title="Install Skills" subtitle="Run this command to install your skills">
+        <div className="relative mt-2">
+          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
             <code>{syncCommand}</code>
           </pre>
           <button
             onClick={handleCopyCommand}
-            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
               copiedCommand
                 ? 'bg-green-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
             }`}
           >
             {copiedCommand ? 'Copied!' : 'Copy'}
           </button>
         </div>
-      </div>
+      </StepCard>
 
-      {/* Step 4: Use Your Skills */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 4: Use Your Skills
-        </h3>
-        <p className="text-gray-600">
+      <StepCard number={4} title="Use Your Skills">
+        <p className="text-xs text-gray-500 mt-1">
           After syncing, invoke skills by typing <code className="bg-gray-100 px-1 rounded">$skill-name</code> in your prompt.
           Codex will also auto-select skills based on your task context.
         </p>
-      </div>
+      </StepCard>
 
-      {/* Sync behavior note */}
-      <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
+      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
         <h3 className="text-sm font-semibold text-gray-900 mb-2">Sync Behavior</h3>
         <p className="text-sm text-gray-600">
           Syncing is <strong>additive</strong>: new skills are added and existing skills are updated,
@@ -1083,7 +1584,7 @@ function CodexSkillsInstructions({ exportUrl }: CodexSkillsInstructionsProps): R
           <code className="bg-gray-200 px-1 rounded text-xs">~/.codex/skills/</code>.
         </p>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -1110,61 +1611,46 @@ function ClaudeDesktopSkillsInstructions({ exportUrl }: ClaudeDesktopSkillsInstr
   }
 
   return (
-    <>
-      {/* Step 3: Download */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 3: Download Zip File
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Run this command to download your skills:
-        </p>
-        <div className="relative">
-          <pre className="rounded-lg bg-gray-900 p-3 text-sm text-gray-100 whitespace-pre-wrap overflow-x-auto">
+    <div className="space-y-3">
+      <StepCard number={3} title="Download Zip File" subtitle="Run this command to download your skills">
+        <div className="relative mt-2">
+          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
             <code>{downloadCommand}</code>
           </pre>
           <button
             onClick={handleCopyCommand}
-            className={`absolute top-2 right-2 rounded px-2 py-1 text-xs transition-colors ${
+            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
               copiedCommand
                 ? 'bg-green-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
             }`}
           >
             {copiedCommand ? 'Copied!' : 'Copy'}
           </button>
         </div>
-        <p className="mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-xs text-gray-500">
           Replace <code className="bg-gray-100 px-1 rounded">YOUR_PAT</code> with your Personal Access Token from Step 1.
         </p>
-      </div>
+      </StepCard>
 
-      {/* Step 4: Upload */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 4: Upload to Claude Desktop
-        </h3>
-        <ol className="list-decimal list-inside text-gray-600 space-y-2">
+      <StepCard number={4} title="Upload to Claude Desktop">
+        <ol className="list-decimal list-inside text-xs text-gray-500 space-y-2 mt-1">
           <li>Unzip the downloaded <code className="bg-gray-100 px-1 rounded">skills.zip</code> file</li>
           <li>Open Claude Desktop and go to <strong>Settings → Capabilities</strong></li>
           <li>Drag and drop <strong>individual</strong> <code className="bg-gray-100 px-1 rounded">.md</code> files from the unzipped folder onto the Capabilities screen, or click <strong>+ Add</strong> to select them one at a time</li>
         </ol>
-        <p className="mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-xs text-gray-400">
           Claude Desktop only accepts one skill per upload — repeat for each <code className="bg-gray-100 px-1 rounded">.md</code> file.
         </p>
-      </div>
+      </StepCard>
 
-      {/* Step 5: Use Your Skills */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 5: Use Your Skills
-        </h3>
-        <p className="text-gray-600">
+      <StepCard number={5} title="Use Your Skills">
+        <p className="text-xs text-gray-500 mt-1">
           Skills are invoked via natural language (e.g., &quot;use my code review skill&quot;).
           Claude will also auto-invoke them when relevant to your conversation.
         </p>
-      </div>
-    </>
+      </StepCard>
+    </div>
   )
 }
 
@@ -1247,53 +1733,43 @@ function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
         </div>
       )}
 
-      {/* Step 1: Create PAT */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 1: Create a Personal Access Token
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Create a PAT and set it as the <code className="bg-gray-100 px-1 rounded">PROMPTS_TOKEN</code> environment variable.
-        </p>
-        <Link
-          to="/app/settings/tokens"
-          className="btn-primary inline-flex items-center gap-2"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Create Token
-        </Link>
-      </div>
+      <div className="space-y-3">
+        <StepCard number={1} title="Create a Personal Access Token" subtitle={`Set it as the PROMPTS_TOKEN environment variable`}>
+          <Link
+            to="/app/settings/tokens"
+            className="btn-primary inline-flex items-center gap-2 mt-2"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Create Token
+          </Link>
+        </StepCard>
 
-      {/* Step 2: Filter by Tags */}
-      <div className="mb-8">
-        <h3 className="text-base font-semibold text-gray-900 mb-2">
-          Step 2: Filter by Tags (Optional)
-        </h3>
-        <p className="text-gray-600 mb-3">
-          Select which prompts to export. If no tags are selected, all prompts will be exported.
-        </p>
-        <SkillsTagSelector
-          availableTags={promptTags}
-          selectedTags={selectedTags}
-          onChange={setSelectedTags}
-        />
-      </div>
+        <StepCard number={2} title="Filter by Tags (Optional)" subtitle="Select which prompts to export. Leave empty to export all.">
+          <div className="mt-2">
+            <SkillsTagSelector
+              availableTags={promptTags}
+              selectedTags={selectedTags}
+              onChange={setSelectedTags}
+            />
+          </div>
+        </StepCard>
 
-      {/* Client-specific instructions */}
-      {client === 'claude-code' && <ClaudeCodeSkillsInstructions exportUrl={exportUrl} />}
-      {client === 'codex' && <CodexSkillsInstructions exportUrl={exportUrl} />}
-      {client === 'claude-desktop' && <ClaudeDesktopSkillsInstructions exportUrl={exportUrl} />}
+        {/* Client-specific instructions (steps 3+) */}
+        {client === 'claude-code' && <ClaudeCodeSkillsInstructions exportUrl={exportUrl} />}
+        {client === 'codex' && <CodexSkillsInstructions exportUrl={exportUrl} />}
+        {client === 'claude-desktop' && <ClaudeDesktopSkillsInstructions exportUrl={exportUrl} />}
+      </div>
     </>
   )
 }
 
 /**
- * MCP & Skills setup instructions settings page.
+ * Manual setup section — the existing PyTorch-style selector and step-by-step
+ * instructions using Personal Access Tokens and curl commands.
  */
-export function SettingsMCP(): ReactNode {
-  usePageTitle('Settings - MCP')
+function ManualSetupSection(): ReactNode {
   // Selector state
   const [server, setServer] = useState<ServerType>('content')
   const [client, setClient] = useState<ClientType>('claude-desktop')
@@ -1303,14 +1779,9 @@ export function SettingsMCP(): ReactNode {
   // Helper flags
   const isSkills = integration === 'skills'
   const isSkillsClient = client === 'claude-desktop' || client === 'claude-code' || client === 'codex'
-
-  // Determine what content to show for MCP mode
   const isMcpSupported = auth === 'bearer' && integration === 'mcp' && isSkillsClient
-
-  // Determine if skills export is supported (skills only work with prompts and certain clients)
   const isSkillsSupported = isSkills && isSkillsClient && server === 'prompts'
 
-  // Coming soon / not applicable scenarios
   const getComingSoonContent = (): { title: string; description: string } | null => {
     if (integration === 'mcp') {
       if (client === 'chatgpt') {
@@ -1332,14 +1803,12 @@ export function SettingsMCP(): ReactNode {
         }
       }
     }
-    // Skills mode: Bookmarks & Notes not applicable
     if (isSkills && server === 'content') {
       return {
         title: 'Skills Only Apply to Prompts',
         description: 'Skills are exported from your prompt templates. Select "Prompts" to export your prompt templates as skills.',
       }
     }
-    // Skills mode: unsupported clients
     if (isSkills && !isSkillsClient) {
       return {
         title: `${client === 'chatgpt' ? 'ChatGPT' : 'Gemini CLI'} Skills Coming Soon`,
@@ -1351,13 +1820,11 @@ export function SettingsMCP(): ReactNode {
 
   const comingSoonContent = getComingSoonContent()
 
-  // Server options - Bookmarks & Notes grayed out for skills (only prompts can be exported as skills)
-  const serverOptions: SelectorOption<ServerType>[] = [
+  const manualServerOptions: SelectorOption<ServerType>[] = [
     { value: 'content', label: 'Bookmarks & Notes', comingSoon: isSkills },
     { value: 'prompts', label: 'Prompts' },
   ]
 
-  // When switching to Skills mode, auto-select Prompts
   const handleIntegrationChange = (newIntegration: IntegrationType): void => {
     setIntegration(newIntegration)
     if (newIntegration === 'skills') {
@@ -1365,7 +1832,6 @@ export function SettingsMCP(): ReactNode {
     }
   }
 
-  // Client options - different coming soon logic for MCP vs Skills
   const clientOptions: SelectorOption<ClientType>[] = [
     { value: 'claude-desktop', label: 'Claude Desktop' },
     { value: 'claude-code', label: 'Claude Code' },
@@ -1374,39 +1840,37 @@ export function SettingsMCP(): ReactNode {
     { value: 'gemini-cli', label: 'Gemini CLI', comingSoon: true },
   ]
 
-  // Auth options - ChatGPT only supports OAuth, not Bearer (only relevant for MCP)
   const authOptions: SelectorOption<AuthType>[] = [
     { value: 'bearer', label: 'Bearer Token', comingSoon: client === 'chatgpt' },
     { value: 'oauth', label: 'OAuth', comingSoon: true },
   ]
 
-  // Integration options
   const integrationOptions: SelectorOption<IntegrationType>[] = [
     { value: 'mcp', label: 'MCP Server' },
     { value: 'skills', label: 'Skills' },
   ]
 
   return (
-    <div className="max-w-3xl pt-3">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">AI Integration</h1>
-      </div>
+    <div data-testid="manual-setup-section">
+      <p className="text-sm text-gray-500 mb-6">
+        Step-by-step instructions for configuring MCP servers and skills using Personal Access Tokens and curl commands.
+        Note: this approach requires manually creating PATs and setting up each server/tool individually.
+        For a faster setup, use the CLI tab above.
+      </p>
 
       {/* Config Selector */}
       <div className="mb-8">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Select Integration</h2>
+        <h3 className="text-base font-bold text-gray-900 mb-4">Select Integration</h3>
         <div className="md:border-l-4 md:border-l-[#f09040] bg-white py-1.5 flex flex-col gap-4 md:gap-1.5">
-          {/* Integration row first - controls visibility of other rows */}
           <SelectorRow
             label="Integration"
             options={integrationOptions}
             value={integration}
             onChange={handleIntegrationChange}
           />
-          {/* Content row - Bookmarks & Notes disabled for skills mode */}
           <SelectorRow
             label="Content"
-            options={serverOptions}
+            options={manualServerOptions}
             value={server}
             onChange={setServer}
           />
@@ -1416,7 +1880,6 @@ export function SettingsMCP(): ReactNode {
             value={client}
             onChange={setClient}
           />
-          {/* Auth row - only show for MCP mode (skills use PAT via curl) */}
           {!isSkills && (
             <SelectorRow
               label="Auth"
@@ -1428,10 +1891,10 @@ export function SettingsMCP(): ReactNode {
         </div>
       </div>
 
-      {/* Integration explanation - changes based on selection */}
+      {/* Integration explanation */}
       {integration === 'mcp' && (
         <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
-          <h2 className="text-sm font-semibold text-gray-900 mb-2">What is MCP?</h2>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">What is MCP?</h3>
           <p className="text-sm text-gray-600">
             The <a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Model Context Protocol (MCP)</a> is
             an open standard that allows AI assistants to securely access external tools and data.
@@ -1442,7 +1905,7 @@ export function SettingsMCP(): ReactNode {
       )}
       {integration === 'skills' && (
         <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
-          <h2 className="text-sm font-semibold text-gray-900 mb-2">What are Skills?</h2>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">What are Skills?</h3>
           <p className="text-sm text-gray-600">
             Skills are reusable instruction files that AI agents auto-invoke based on context
             or that you trigger manually. Export your prompts as skills and sync them to your AI client.
@@ -1453,44 +1916,73 @@ export function SettingsMCP(): ReactNode {
 
       {/* Setup Instructions */}
       <div className="mb-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Setup Instructions</h2>
+        <h3 className="text-base font-bold text-gray-900 mb-4">Setup Instructions</h3>
       </div>
 
-      {/* Conditional content based on selection */}
       {comingSoonContent && (
         <ComingSoon title={comingSoonContent.title} description={comingSoonContent.description} />
       )}
 
-      {/* MCP Instructions */}
       {isMcpSupported && client === 'claude-desktop' && (
-        <ClaudeDesktopInstructions
-          server={server}
-          mcpUrl={config.mcpUrl}
-          promptMcpUrl={config.promptMcpUrl}
-        />
+        <ClaudeDesktopInstructions server={server} mcpUrl={config.mcpUrl} promptMcpUrl={config.promptMcpUrl} />
       )}
       {isMcpSupported && client === 'claude-code' && (
-        <ClaudeCodeInstructions
-          server={server}
-          mcpUrl={config.mcpUrl}
-          promptMcpUrl={config.promptMcpUrl}
-        />
+        <ClaudeCodeInstructions server={server} mcpUrl={config.mcpUrl} promptMcpUrl={config.promptMcpUrl} />
       )}
       {isMcpSupported && client === 'codex' && (
-        <CodexInstructions
-          server={server}
-          mcpUrl={config.mcpUrl}
-          promptMcpUrl={config.promptMcpUrl}
-        />
+        <CodexInstructions server={server} mcpUrl={config.mcpUrl} promptMcpUrl={config.promptMcpUrl} />
       )}
 
-      {/* Skills Export Instructions */}
       {isSkillsSupported && (
         <SkillsExportSection client={client as SkillsClientType} />
       )}
 
-      {/* Available Tools - show when MCP setup is supported */}
-      {isMcpSupported && <AvailableTools server={server} />}
+      {isMcpSupported && <div className="mt-8"><AvailableTools server={server} /></div>}
+    </div>
+  )
+}
+
+/**
+ * MCP & Skills setup instructions settings page.
+ */
+export function SettingsMCP(): ReactNode {
+  usePageTitle('Settings - MCP')
+  const [activeTab, setActiveTab] = useState<SetupTab>('cli')
+
+  return (
+    <div className="max-w-3xl pt-3">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">AI Integration</h1>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex border-b border-gray-200 mb-6">
+        <button
+          type="button"
+          onClick={() => setActiveTab('cli')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'cli'
+              ? 'border-[#f09040] text-[#d97b3d]'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          Setup via CLI (Recommended)
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('manual')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === 'manual'
+              ? 'border-[#f09040] text-[#d97b3d]'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          Setup via Curl/PAT
+        </button>
+      </div>
+
+      {activeTab === 'cli' && <CLISetupSection />}
+      {activeTab === 'manual' && <ManualSetupSection />}
     </div>
   )
 }
