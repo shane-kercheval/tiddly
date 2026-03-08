@@ -6,7 +6,7 @@ A structured checklist for an AI agent to systematically test all CLI command, t
 
 - [ ] CLI is built: `make cli-build` (verify `bin/tiddly` exists)
 - [ ] Local API and MCP servers are running (tests run against local services, not production)
-- [ ] Authenticated via OAuth: `bin/tiddly login` (required — token creation/deletion tests need OAuth)
+- [ ] Authenticated via OAuth (see below — the engineer must run the login command manually)
 - [ ] API is reachable: `bin/tiddly status` shows API status "ok"
 - [ ] Note platform-specific config paths:
   - **Linux** (assumed): `~/.config/Claude/claude_desktop_config.json`, `~/.claude.json`, `~/.codex/config.toml`
@@ -43,6 +43,13 @@ export TIDDLY_API_URL=http://localhost:8000
 export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
 export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
 
+# Point CLI at the dev Auth0 tenant (required for local OAuth)
+# The CLI defaults to production Auth0. For local testing, the CLI must use the
+# same Auth0 tenant as the local API (configured via VITE_AUTH0_* in .env).
+export TIDDLY_AUTH0_DOMAIN=kercheval-dev.us.auth0.com
+export TIDDLY_AUTH0_CLIENT_ID=upLOqYelIdJIv7yZ8AnULA6VGklzak18
+export TIDDLY_AUTH0_AUDIENCE=bookmarks-api
+
 # Record which tools are detected
 bin/tiddly mcp status
 
@@ -64,6 +71,33 @@ bin/tiddly tokens list 2>/dev/null > "$BACKUP_DIR/tokens-before.txt" || true
 TEST_PROJECT=$(mktemp -d)
 echo "Test project dir: $TEST_PROJECT"
 ```
+
+### OAuth Login (engineer must do this manually)
+
+The agent **cannot** complete the OAuth device flow — it requires opening a browser and entering a code. Prompt the engineer to run the following in their terminal:
+
+```bash
+export TIDDLY_API_URL=http://localhost:8000
+export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
+export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
+export TIDDLY_AUTH0_DOMAIN=kercheval-dev.us.auth0.com
+export TIDDLY_AUTH0_CLIENT_ID=upLOqYelIdJIv7yZ8AnULA6VGklzak18
+export TIDDLY_AUTH0_AUDIENCE=bookmarks-api
+bin/tiddly login
+```
+
+The exports only persist for the current shell session and won't affect future `tiddly` usage.
+
+Verify login succeeded:
+
+```bash
+bin/tiddly auth status
+# Should show: Auth method: oauth, User: <email>
+bin/tiddly tokens list
+# Should succeed (may show "No tokens found." — that's fine)
+```
+
+If `auth status` shows "Session expired" or `tokens list` fails with 401, the Auth0 env vars may not match the local API's `.env` settings (`VITE_AUTH0_DOMAIN`, `VITE_AUTH0_CLIENT_ID`, `VITE_AUTH0_AUDIENCE`). Ask the engineer to verify these match.
 
 ---
 
@@ -700,10 +734,13 @@ bin/tiddly skills install claude-code
 # Re-login
 bin/tiddly login  # OAuth, or: bin/tiddly login --token bm_<your-token>
 
-# Restore production URLs (only needed if local env vars were set)
+# Restore production URLs and Auth0 defaults (only needed if local env vars were set)
 unset TIDDLY_API_URL
 unset TIDDLY_CONTENT_MCP_URL
 unset TIDDLY_PROMPT_MCP_URL
+unset TIDDLY_AUTH0_DOMAIN
+unset TIDDLY_AUTH0_CLIENT_ID
+unset TIDDLY_AUTH0_AUDIENCE
 
 # Remove temp directories
 rm -rf "$TEST_PROJECT"

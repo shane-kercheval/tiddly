@@ -225,39 +225,58 @@ For CLI usage, commands, and configuration, see the [CLI documentation](https://
 
 ## Auth0 Setup (Required for OAuth)
 
-The `tiddly login` command (without `--token`) uses the OAuth Device Code flow, which requires a Native application in Auth0.
+The `tiddly login` command (without `--token`) uses the OAuth Device Code flow, which requires a Native application in Auth0. This is separate from the SPA application used by the frontend.
 
-### Steps
+### Step 1: Create a Native Application
 
-1. Auth0 Dashboard → Applications → Create Application → **Native**
-2. Settings → Advanced → Grant Types → enable **Device Code**
-3. Enable **Refresh Token Rotation** (Settings → Refresh Token Rotation → Enabled)
-4. Note the **Client ID** and **Domain**
+1. Auth0 Dashboard → **Applications** → **Applications** → **+ Create Application**
+2. Name: e.g., "Tiddly CLI"
+3. Type: **Native**
+4. Click **Create**
+5. Note the **Domain** and **Client ID** from the Settings tab
+
+### Step 2: Configure Grant Types
+
+In the app's **Settings** → **Advanced Settings** → **Grant Types** tab, enable:
+- **Device Code** (for the login flow)
+- **Refresh Token** (for automatic token renewal)
+
+### Step 3: Enable Refresh Token Rotation
+
+In **Settings** → **Refresh Token Rotation**:
+- Toggle **Rotation** ON
+- Leave overlap period at `0` seconds
+
+### Step 4: Ensure the API allows offline access
+
+Go to **Applications** → **APIs** → select your API → **Settings**:
+- Toggle ON **Allow Offline Access**
+- Note the **Identifier** (this is the audience value)
+
+Without this, Auth0 won't issue refresh tokens even when the CLI requests the `offline_access` scope.
 
 ### Files to Update
 
-Once the Auth0 app is created, update the hardcoded values in:
-
-**`cli/internal/auth/device_flow.go`** — `DefaultAuth0Config()`:
+Update the hardcoded defaults in **`cli/internal/auth/device_flow.go`** — `DefaultAuth0Config()`:
 ```go
 cfg := Auth0Config{
-    Domain:   "auth.tiddly.me",                   // ← your Auth0 domain
-    ClientID: "REPLACE_WITH_REAL_CLIENT_ID",       // ← your Client ID
-    Audience: "https://api.tiddly.me",             // ← your API audience
+    Domain:   "your-tenant.us.auth0.com",          // ← your Auth0 domain
+    ClientID: "REPLACE_WITH_REAL_CLIENT_ID",       // ← Native app Client ID
+    Audience: "your-api-identifier",               // ← API Identifier (audience)
 }
 ```
 
-These are not secrets — they're public values for a first-party native app (same as the frontend's Auth0 config).
+These are not secrets — they're public values for a first-party native app (same as the frontend's Auth0 config). No callback URLs are needed; the device flow doesn't use redirects.
 
-### Testing Without Auth0
+### Local Development
 
-For local development without Auth0 configured:
+For local development against a dev/staging Auth0 tenant:
 
-- **PAT auth works immediately**: `tiddly login --token bm_xxx` validates against the API and stores the PAT
-- **OAuth env overrides**: Hidden env vars let you point at a dev/staging Auth0 tenant:
+- **PAT auth** (no Auth0 needed): `tiddly login --token bm_xxx` validates against the API and stores the PAT
+- **OAuth env overrides**: Point the CLI at a different Auth0 tenant without changing code:
   ```bash
-  TIDDLY_AUTH0_DOMAIN=dev-xxx.auth0.com \
-  TIDDLY_AUTH0_CLIENT_ID=your-dev-client-id \
-  TIDDLY_AUTH0_AUDIENCE=https://localhost:8000 \
+  TIDDLY_AUTH0_DOMAIN=kercheval-dev.us.auth0.com \
+  TIDDLY_AUTH0_CLIENT_ID=upLOqYelIdJIv7yZ8AnULA6VGklzak18 \
+  TIDDLY_AUTH0_AUDIENCE=bookmarks-api \
   tiddly login
   ```
