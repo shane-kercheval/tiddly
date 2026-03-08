@@ -49,8 +49,8 @@ func (h *CodexHandler) ResolvePath(configPath, scope, cwd string) (string, error
 	return resolveCodexPath(configPath, scope, cwd)
 }
 
-func (h *CodexHandler) Install(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, error) {
-	if err := installCodex(rc, contentPAT, promptPAT); err != nil {
+func (h *CodexHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, error) {
+	if err := configureCodex(rc, contentPAT, promptPAT); err != nil {
 		return nil, err
 	}
 	warnings := []string{
@@ -59,8 +59,8 @@ func (h *CodexHandler) Install(rc ResolvedConfig, contentPAT, promptPAT string, 
 	return warnings, nil
 }
 
-func (h *CodexHandler) Uninstall(rc ResolvedConfig) error {
-	return uninstallCodex(rc)
+func (h *CodexHandler) Remove(rc ResolvedConfig) error {
+	return removeCodex(rc)
 }
 
 func (h *CodexHandler) Status(rc ResolvedConfig) (StatusResult, error) {

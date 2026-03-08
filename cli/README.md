@@ -1,6 +1,6 @@
 # Tiddly CLI
 
-Go CLI tool for managing Tiddly integrations — authentication, MCP server installation, skills install, data export, and self-updating.
+Go CLI tool for managing Tiddly integrations — authentication, MCP server configuration, skills configuration, data export, and self-updating.
 
 ## Prerequisites
 
@@ -71,8 +71,8 @@ cli/
     logout.go                 # tiddly logout
     auth.go                   # tiddly auth status
     status.go                 # tiddly status (overview)
-    mcp.go                    # tiddly mcp install/status/uninstall
-    skills.go                 # tiddly skills install/list
+    mcp.go                    # tiddly mcp configure/status/remove
+    skills.go                 # tiddly skills configure/list
     tokens.go                 # tiddly tokens list/create/delete
     export.go                 # tiddly export
     completion.go             # tiddly completion bash/zsh/fish

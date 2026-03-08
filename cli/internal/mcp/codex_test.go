@@ -17,7 +17,7 @@ func TestExtractCodexPATs__valid_config(t *testing.T) {
 	configPath := filepath.Join(dir, "config.toml")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installCodex(rc, "bm_content123", "bm_prompt456")
+	err := configureCodex(rc, "bm_content123", "bm_prompt456")
 	require.NoError(t, err)
 
 	contentPAT, promptPAT := extractCodexPATs(rc)
@@ -63,7 +63,7 @@ func TestExtractCodexPATs__project_scope(t *testing.T) {
 	rc := ResolvedConfig{Path: projectPath, Scope: "project", Cwd: cwd}
 
 	// Install to project scope
-	err := installCodex(rc, "bm_proj_content", "bm_proj_prompt")
+	err := configureCodex(rc, "bm_proj_content", "bm_proj_prompt")
 	require.NoError(t, err)
 
 	// Extract from project scope
@@ -74,12 +74,12 @@ func TestExtractCodexPATs__project_scope(t *testing.T) {
 
 // Install/Uninstall/Status tests
 
-func TestInstallCodex__new_config(t *testing.T) {
+func TestConfigureCodex__new_config(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installCodex(rc, "bm_content", "bm_prompts")
+	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestTOML(t, configPath)
@@ -94,7 +94,7 @@ func TestInstallCodex__new_config(t *testing.T) {
 	assert.Equal(t, PromptMCPURL(), prompts["url"])
 }
 
-func TestInstallCodex__preserves_existing(t *testing.T) {
+func TestConfigureCodex__preserves_existing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
@@ -107,7 +107,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installCodex(rc, "bm_content", "bm_prompts")
+	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestTOML(t, configPath)
@@ -122,17 +122,17 @@ url = "https://other.example.com/mcp"
 	assert.Contains(t, mcpServers, "tiddly_prompts")
 }
 
-func TestInstallCodex__content_only_preserves_existing_prompts(t *testing.T) {
+func TestConfigureCodex__content_only_preserves_existing_prompts(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
 	// Install both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installCodex(rc, "bm_content", "bm_prompts")
+	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Re-install with only content PAT (simulates --servers content)
-	err = installCodex(rc, "bm_new_content", "")
+	err = configureCodex(rc, "bm_new_content", "")
 	require.NoError(t, err)
 
 	config := readTestTOML(t, configPath)
@@ -150,17 +150,17 @@ func TestInstallCodex__content_only_preserves_existing_prompts(t *testing.T) {
 	assert.Equal(t, "Bearer bm_prompts", promptHeaders["Authorization"])
 }
 
-func TestInstallCodex__prompts_only_preserves_existing_content(t *testing.T) {
+func TestConfigureCodex__prompts_only_preserves_existing_content(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
 	// Install both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installCodex(rc, "bm_content", "bm_prompts")
+	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Re-install with only prompts PAT (simulates --servers prompts)
-	err = installCodex(rc, "", "bm_new_prompts")
+	err = configureCodex(rc, "", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestTOML(t, configPath)
@@ -178,13 +178,13 @@ func TestInstallCodex__prompts_only_preserves_existing_content(t *testing.T) {
 	assert.Equal(t, "Bearer bm_new_prompts", promptHeaders["Authorization"])
 }
 
-func TestInstallCodex__idempotent(t *testing.T) {
+func TestConfigureCodex__idempotent(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	require.NoError(t, installCodex(rc, "bm_old", "bm_old"))
-	require.NoError(t, installCodex(rc, "bm_new", "bm_new"))
+	require.NoError(t, configureCodex(rc, "bm_old", "bm_old"))
+	require.NoError(t, configureCodex(rc, "bm_new", "bm_new"))
 
 	config := readTestTOML(t, configPath)
 	mcpServers := config["mcp_servers"].(map[string]any)
@@ -194,12 +194,12 @@ func TestInstallCodex__idempotent(t *testing.T) {
 	assert.Equal(t, "Bearer bm_new", headers["Authorization"])
 }
 
-func TestInstallCodex__project_scope_creates_config(t *testing.T) {
+func TestConfigureCodex__project_scope_creates_config(t *testing.T) {
 	cwd := t.TempDir()
 	projectConfig := filepath.Join(cwd, ".codex", "config.toml")
 
 	rc := ResolvedConfig{Path: projectConfig, Scope: "project", Cwd: cwd}
-	err := installCodex(rc, "bm_content", "bm_prompts")
+	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestTOML(t, projectConfig)
@@ -212,7 +212,7 @@ func TestInstallCodex__project_scope_creates_config(t *testing.T) {
 	assert.Equal(t, PromptMCPURL(), prompts["url"])
 }
 
-func TestInstallCodex__project_scope_preserves_existing(t *testing.T) {
+func TestConfigureCodex__project_scope_preserves_existing(t *testing.T) {
 	cwd := t.TempDir()
 	codexDir := filepath.Join(cwd, ".codex")
 	require.NoError(t, os.MkdirAll(codexDir, 0700))
@@ -227,7 +227,7 @@ url = "https://other.example.com/mcp"
 
 	projectConfig := filepath.Join(cwd, ".codex", "config.toml")
 	rc := ResolvedConfig{Path: projectConfig, Scope: "project", Cwd: cwd}
-	err := installCodex(rc, "bm_content", "bm_prompts")
+	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestTOML(t, filepath.Join(codexDir, "config.toml"))
@@ -239,7 +239,7 @@ url = "https://other.example.com/mcp"
 	assert.Contains(t, mcpServers, "tiddly_prompts")
 }
 
-func TestUninstallCodex__removes_tiddly_servers(t *testing.T) {
+func TestRemoveCodex__removes_tiddly_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
@@ -256,7 +256,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := uninstallCodex(rc)
+	err := removeCodex(rc)
 	require.NoError(t, err)
 
 	config := readTestTOML(t, configPath)
@@ -267,13 +267,13 @@ url = "https://other.example.com/mcp"
 	assert.Contains(t, mcpServers, "other")
 }
 
-func TestUninstallCodex__missing_file_is_noop(t *testing.T) {
+func TestRemoveCodex__missing_file_is_noop(t *testing.T) {
 	rc := ResolvedConfig{Path: "/nonexistent/config.toml", Scope: "user"}
-	err := uninstallCodex(rc)
+	err := removeCodex(rc)
 	assert.NoError(t, err)
 }
 
-func TestUninstallCodex__no_tiddly_servers_skips_write(t *testing.T) {
+func TestRemoveCodex__no_tiddly_servers_skips_write(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
@@ -284,7 +284,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := uninstallCodex(rc)
+	err := removeCodex(rc)
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
@@ -292,17 +292,17 @@ url = "https://other.example.com/mcp"
 	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op uninstall")
 }
 
-func TestUninstallCodex__project_scope(t *testing.T) {
+func TestRemoveCodex__project_scope(t *testing.T) {
 	cwd := t.TempDir()
 	projectConfig := filepath.Join(cwd, ".codex", "config.toml")
 
 	// Install to project scope first
 	rc := ResolvedConfig{Path: projectConfig, Scope: "project", Cwd: cwd}
-	err := installCodex(rc, "bm_content", "bm_prompts")
+	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Uninstall from project scope
-	err = uninstallCodex(rc)
+	err = removeCodex(rc)
 	require.NoError(t, err)
 
 	config := readTestTOML(t, projectConfig)
@@ -362,7 +362,7 @@ func TestStatusCodex__project_scope(t *testing.T) {
 
 	// Install to project scope
 	rc := ResolvedConfig{Path: projectConfig, Scope: "project", Cwd: cwd}
-	err := installCodex(rc, "bm_content", "bm_prompts")
+	err := configureCodex(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Status from project scope
@@ -402,7 +402,7 @@ func TestStatusCodex__includes_url_on_tiddly_servers(t *testing.T) {
 	configPath := filepath.Join(dir, "config.toml")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	require.NoError(t, installCodex(rc, "bm_content", "bm_prompts"))
+	require.NoError(t, configureCodex(rc, "bm_content", "bm_prompts"))
 
 	sr, err := statusCodex(rc)
 	require.NoError(t, err)
@@ -458,7 +458,7 @@ url = "https://my-tool.example.com/mcp"
 	assert.Equal(t, "http", sr.OtherServers[0].Transport)
 }
 
-func TestUninstallCodex__removes_custom_named_servers(t *testing.T) {
+func TestRemoveCodex__removes_custom_named_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
@@ -475,7 +475,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(config), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := uninstallCodex(rc)
+	err := removeCodex(rc)
 	require.NoError(t, err)
 
 	result := readTestTOML(t, configPath)
@@ -485,7 +485,7 @@ url = "https://other.example.com/mcp"
 	assert.Contains(t, mcpServers, "other")
 }
 
-func TestInstallCodex__replaces_custom_named_servers(t *testing.T) {
+func TestConfigureCodex__replaces_custom_named_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
@@ -499,7 +499,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(config), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installCodex(rc, "bm_new_content", "bm_new_prompts")
+	err := configureCodex(rc, "bm_new_content", "bm_new_prompts")
 	require.NoError(t, err)
 
 	result := readTestTOML(t, configPath)
@@ -535,13 +535,13 @@ Authorization = "Bearer bm_custom_prompts"
 	assert.Equal(t, "bm_custom_prompts", promptPAT)
 }
 
-func TestInstallCodex__malformed_toml_returns_error(t *testing.T) {
+func TestConfigureCodex__malformed_toml_returns_error(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 	require.NoError(t, os.WriteFile(configPath, []byte("not valid toml [[["), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := installCodex(rc, "bm_test", "bm_test")
+	err := configureCodex(rc, "bm_test", "bm_test")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parsing")
 }

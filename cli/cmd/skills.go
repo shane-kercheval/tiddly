@@ -21,17 +21,17 @@ func newSkillsCmd() *cobra.Command {
 		Short: "Manage AI tool skills from your prompts",
 		Long: `Export prompt templates as agent skills for AI tools.
 
-  tiddly skills install          Auto-detect tools and install skills
+  tiddly skills configure        Auto-detect tools and configure skills
   tiddly skills list             List available skills (prompts)`,
 	}
 
-	skillsCmd.AddCommand(newSkillsInstallCmd())
+	skillsCmd.AddCommand(newSkillsConfigureCmd())
 	skillsCmd.AddCommand(newSkillsListCmd())
 
 	return skillsCmd
 }
 
-func newSkillsInstallCmd() *cobra.Command {
+func newSkillsConfigureCmd() *cobra.Command {
 	var (
 		scope    string
 		tags     string
@@ -39,25 +39,25 @@ func newSkillsInstallCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "install [tool...]",
-		Short: "Install skills for AI tools",
-		Long: `Install your Tiddly prompts as agent skills.
+		Use:   "configure [tool...]",
+		Short: "Configure skills for AI tools",
+		Long: `Configure your Tiddly prompts as agent skills.
 
 Each prompt is written as a Markdown skill file ({skill-name}/SKILL.md) to the tool's skills directory. The destination varies by tool and scope:
   claude-code (global)  — ~/.claude/skills/
   claude-code (project) — .claude/skills/
   codex (global)        — ~/.codex/skills/
 
-Re-installing overwrites existing skill files but does not remove skills whose prompts have been deleted. For Claude Desktop, a .zip file is exported instead — upload it manually via Settings > Skills.
+Re-configuring overwrites existing skill files but does not remove skills whose prompts have been deleted. For Claude Desktop, a .zip file is exported instead — upload it manually via Settings > Skills.
 
-By default, only prompts tagged "skill" are installed (matching the frontend default). Use --tags "" to install all prompts.
+By default, only prompts tagged "skill" are configured (matching the frontend default). Use --tags "" to configure all prompts.
 
 Examples:
-  tiddly skills install                         Auto-detect tools and install skills
-  tiddly skills install claude-code             Install skills for a specific tool
-  tiddly skills install --scope project         Install to project-level paths
-  tiddly skills install --tags python,skill     Only install prompts with these tags
-  tiddly skills install --tags ""               Install all prompts (no tag filter)`,
+  tiddly skills configure                         Auto-detect tools and configure skills
+  tiddly skills configure claude-code             Configure skills for a specific tool
+  tiddly skills configure --scope project         Configure to project-level paths
+  tiddly skills configure --tags python,skill     Only configure prompts with these tags
+  tiddly skills configure --tags ""               Configure all prompts (no tag filter)`,
 		ValidArgs: validSkillsTools,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate scope
@@ -111,15 +111,15 @@ Examples:
 			var instErrors []string
 			installed := 0
 			for _, tool := range tools {
-				instResult, err := skills.Install(ctx, client, tool, tagList, tagMatch, scope)
+				instResult, err := skills.Configure(ctx, client, tool, tagList, tagMatch, scope)
 				if err != nil {
-					fmt.Fprintf(errW, "Error installing %s: %v\n", tool, err)
+					fmt.Fprintf(errW, "Error configuring %s: %v\n", tool, err)
 					instErrors = append(instErrors, tool)
 					continue
 				}
 
 				if instResult.SkillCount == 0 {
-					fmt.Fprintf(w, "%s: No skills to install.\n", tool)
+					fmt.Fprintf(w, "%s: No skills to configure.\n", tool)
 					if len(tagList) > 0 {
 						fmt.Fprintf(errW, "  No prompts match tags: %s\n", strings.Join(tagList, ", "))
 					}
@@ -138,7 +138,7 @@ Examples:
 
 			// Return error if all tools failed with errors
 			if len(instErrors) > 0 && installed == 0 {
-				return fmt.Errorf("skills install failed for: %s", strings.Join(instErrors, ", "))
+				return fmt.Errorf("skills configure failed for: %s", strings.Join(instErrors, ", "))
 			}
 
 			return nil

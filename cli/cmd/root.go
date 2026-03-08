@@ -55,7 +55,7 @@ func newRootCmd() *cobra.Command {
 		Short: "Tiddly CLI — manage your bookmarks, notes, and AI integrations",
 		Long: `Tiddly CLI automates setup for AI tool integrations.
 
-Authenticate, install MCP servers, sync skills, export data, and manage tokens.`,
+Authenticate, configure MCP servers, sync skills, export data, and manage tokens.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

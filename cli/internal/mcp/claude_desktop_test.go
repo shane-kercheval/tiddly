@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInstallClaudeDesktop__new_config(t *testing.T) {
+func TestConfigureClaudeDesktop__new_config(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
-	err := installClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -30,7 +30,7 @@ func TestInstallClaudeDesktop__new_config(t *testing.T) {
 	assert.Contains(t, args[3], "bm_content")
 }
 
-func TestInstallClaudeDesktop__preserves_existing(t *testing.T) {
+func TestConfigureClaudeDesktop__preserves_existing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -46,7 +46,7 @@ func TestInstallClaudeDesktop__preserves_existing(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := installClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -61,16 +61,16 @@ func TestInstallClaudeDesktop__preserves_existing(t *testing.T) {
 	assert.Equal(t, true, config["someOtherSetting"])
 }
 
-func TestInstallClaudeDesktop__content_only_preserves_existing_prompts(t *testing.T) {
+func TestConfigureClaudeDesktop__content_only_preserves_existing_prompts(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
 	// Install both servers first
-	err := installClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Re-install with only content PAT (simulates --servers content)
-	err = installClaudeDesktop(configPath, "bm_new_content", "")
+	err = configureClaudeDesktop(configPath, "bm_new_content", "")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -88,16 +88,16 @@ func TestInstallClaudeDesktop__content_only_preserves_existing_prompts(t *testin
 	assert.Contains(t, promptArgs[3], "bm_prompts")
 }
 
-func TestInstallClaudeDesktop__prompts_only_preserves_existing_content(t *testing.T) {
+func TestConfigureClaudeDesktop__prompts_only_preserves_existing_content(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
 	// Install both servers first
-	err := installClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Re-install with only prompts PAT (simulates --servers prompts)
-	err = installClaudeDesktop(configPath, "", "bm_new_prompts")
+	err = configureClaudeDesktop(configPath, "", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -115,13 +115,13 @@ func TestInstallClaudeDesktop__prompts_only_preserves_existing_content(t *testin
 	assert.Contains(t, promptArgs[3], "bm_new_prompts")
 }
 
-func TestInstallClaudeDesktop__idempotent(t *testing.T) {
+func TestConfigureClaudeDesktop__idempotent(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
 	// Install twice
-	require.NoError(t, installClaudeDesktop(configPath, "bm_old", "bm_old"))
-	require.NoError(t, installClaudeDesktop(configPath, "bm_new", "bm_new"))
+	require.NoError(t, configureClaudeDesktop(configPath, "bm_old", "bm_old"))
+	require.NoError(t, configureClaudeDesktop(configPath, "bm_new", "bm_new"))
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
@@ -132,7 +132,7 @@ func TestInstallClaudeDesktop__idempotent(t *testing.T) {
 	assert.Contains(t, args[3], "bm_new")
 }
 
-func TestUninstallClaudeDesktop__removes_tiddly_servers(t *testing.T) {
+func TestRemoveClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -151,7 +151,7 @@ func TestUninstallClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := uninstallClaudeDesktop(configPath)
+	err := removeClaudeDesktop(configPath)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -162,12 +162,12 @@ func TestUninstallClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 	assert.Contains(t, servers, "other-server")
 }
 
-func TestUninstallClaudeDesktop__missing_file_is_noop(t *testing.T) {
-	err := uninstallClaudeDesktop("/nonexistent/path.json")
+func TestRemoveClaudeDesktop__missing_file_is_noop(t *testing.T) {
+	err := removeClaudeDesktop("/nonexistent/path.json")
 	assert.NoError(t, err)
 }
 
-func TestUninstallClaudeDesktop__no_tiddly_servers_skips_write(t *testing.T) {
+func TestRemoveClaudeDesktop__no_tiddly_servers_skips_write(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -178,7 +178,7 @@ func TestUninstallClaudeDesktop__no_tiddly_servers_skips_write(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := uninstallClaudeDesktop(configPath)
+	err := removeClaudeDesktop(configPath)
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
@@ -263,7 +263,7 @@ func TestStatusClaudeDesktop__includes_url_on_tiddly_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
-	require.NoError(t, installClaudeDesktop(configPath, "bm_content", "bm_prompts"))
+	require.NoError(t, configureClaudeDesktop(configPath, "bm_content", "bm_prompts"))
 
 	sr, err := statusClaudeDesktop(configPath)
 	require.NoError(t, err)
@@ -323,7 +323,7 @@ func TestStatusClaudeDesktop__only_other_servers(t *testing.T) {
 	assert.Equal(t, "my-tool", sr.OtherServers[0].Name)
 }
 
-func TestUninstallClaudeDesktop__removes_custom_named_servers(t *testing.T) {
+func TestRemoveClaudeDesktop__removes_custom_named_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -341,7 +341,7 @@ func TestUninstallClaudeDesktop__removes_custom_named_servers(t *testing.T) {
 		},
 	})
 
-	err := uninstallClaudeDesktop(configPath)
+	err := removeClaudeDesktop(configPath)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -351,7 +351,7 @@ func TestUninstallClaudeDesktop__removes_custom_named_servers(t *testing.T) {
 	assert.Contains(t, servers, "other-server")
 }
 
-func TestInstallClaudeDesktop__replaces_custom_named_servers(t *testing.T) {
+func TestConfigureClaudeDesktop__replaces_custom_named_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -365,7 +365,7 @@ func TestInstallClaudeDesktop__replaces_custom_named_servers(t *testing.T) {
 		},
 	})
 
-	err := installClaudeDesktop(configPath, "bm_new_content", "bm_new_prompts")
+	err := configureClaudeDesktop(configPath, "bm_new_content", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -399,12 +399,12 @@ func TestExtractClaudeDesktopPATs__custom_named_servers(t *testing.T) {
 	assert.Equal(t, "bm_custom_prompts", promptPAT)
 }
 
-func TestInstallClaudeDesktop__malformed_json_returns_error(t *testing.T) {
+func TestConfigureClaudeDesktop__malformed_json_returns_error(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
 
-	err := installClaudeDesktop(configPath, "bm_test", "bm_test")
+	err := configureClaudeDesktop(configPath, "bm_test", "bm_test")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parsing")
 }

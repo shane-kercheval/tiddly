@@ -24,8 +24,8 @@ const (
 // ValidScopes is the list of valid scope values.
 var ValidScopes = []string{ScopeGlobal, ScopeProject}
 
-// InstallResult holds the outcome of a skills install operation.
-type InstallResult struct {
+// ConfigureResult holds the outcome of a skills configure operation.
+type ConfigureResult struct {
 	SkillCount int
 	DestPath   string
 	// ZipPath is set for claude-desktop when the zip is saved to a temp file.
@@ -90,8 +90,8 @@ func resolveToolPath(tool, scope string) (string, error) {
 	return toolPath(tool, scope)
 }
 
-// Install downloads skills from the API and extracts them to the correct directory.
-func Install(ctx context.Context, client *api.Client, tool string, tags []string, tagMatch string, scope string) (*InstallResult, error) {
+// Configure downloads skills from the API and extracts them to the correct directory.
+func Configure(ctx context.Context, client *api.Client, tool string, tags []string, tagMatch string, scope string) (*ConfigureResult, error) {
 	// Validate scope
 	if scope == "" {
 		scope = ScopeGlobal
@@ -105,7 +105,7 @@ func Install(ctx context.Context, client *api.Client, tool string, tags []string
 	// Download archive
 	resp, err := client.ExportSkills(ctx, tool, tags, tagMatch)
 	if err != nil {
-		return nil, fmt.Errorf("installing skills: %w", err)
+		return nil, fmt.Errorf("configuring skills: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -123,7 +123,7 @@ func Install(ctx context.Context, client *api.Client, tool string, tags []string
 	}
 
 	if len(data) == 0 {
-		return &InstallResult{SkillCount: 0, DestPath: destPath}, nil
+		return &ConfigureResult{SkillCount: 0, DestPath: destPath}, nil
 	}
 
 	// Extract based on content type.
@@ -136,7 +136,7 @@ func Install(ctx context.Context, client *api.Client, tool string, tags []string
 		if err != nil {
 			return nil, err
 		}
-		return &InstallResult{SkillCount: count, DestPath: destPath}, nil
+		return &ConfigureResult{SkillCount: count, DestPath: destPath}, nil
 	}
 
 	if strings.Contains(contentType, "zip") {
@@ -150,13 +150,13 @@ func Install(ctx context.Context, client *api.Client, tool string, tags []string
 			if err != nil {
 				return nil, err
 			}
-			return &InstallResult{SkillCount: count, ZipPath: zipPath}, nil
+			return &ConfigureResult{SkillCount: count, ZipPath: zipPath}, nil
 		}
 		count, err := extractZip(data, destPath)
 		if err != nil {
 			return nil, err
 		}
-		return &InstallResult{SkillCount: count, DestPath: destPath}, nil
+		return &ConfigureResult{SkillCount: count, DestPath: destPath}, nil
 	}
 
 	return nil, fmt.Errorf("unexpected content type: %s", contentType)
