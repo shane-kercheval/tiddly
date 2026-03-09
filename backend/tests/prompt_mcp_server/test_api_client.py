@@ -49,6 +49,17 @@ async def test__api_patch__request_source_header_set(mock_api: respx.MockRouter)
 
 
 @pytest.mark.asyncio
+async def test__api_post__returns_none_for_204(mock_api: respx.MockRouter) -> None:
+    """Test that api_post returns None for 204 No Content (e.g. track-usage)."""
+    mock_api.post("/prompts/123/track-usage").mock(return_value=Response(204))
+
+    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+        result = await api_post(client, "/prompts/123/track-usage", "bm_test_token")
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test__api_get__authorization_header_set(mock_api: respx.MockRouter) -> None:
     """Test that Authorization header is correctly set."""
     mock_api.get("/test").mock(return_value=Response(200, json={}))

@@ -26,18 +26,7 @@ const docsNav: DocNavItem[] = [
       { label: 'Keyboard Shortcuts', path: '/docs/features/shortcuts' },
     ],
   },
-  {
-    label: 'AI Integration',
-    path: '/docs/ai',
-    children: [
-      { label: 'Claude Desktop', path: '/docs/ai/claude-desktop' },
-      { label: 'Claude Code', path: '/docs/ai/claude-code' },
-      { label: 'Codex', path: '/docs/ai/codex' },
-      { label: 'ChatGPT', path: '/docs/ai/chatgpt' },
-      { label: 'Gemini CLI', path: '/docs/ai/gemini-cli' },
-      { label: 'MCP Tools', path: '/docs/ai/mcp-tools' },
-    ],
-  },
+  { label: 'AI Integration', path: '/docs/ai' },
   {
     label: 'Extensions',
     path: '/docs/extensions',
@@ -55,18 +44,7 @@ const docsNav: DocNavItem[] = [
       { label: 'Reference', path: '/docs/cli/reference' },
     ],
   },
-  {
-    label: 'API',
-    path: '/docs/api',
-    children: [
-      { label: 'Bookmarks', path: '/docs/api/bookmarks' },
-      { label: 'Notes', path: '/docs/api/notes' },
-      { label: 'Prompts', path: '/docs/api/prompts' },
-      { label: 'Content', path: '/docs/api/content' },
-      { label: 'Tags', path: '/docs/api/tags' },
-      { label: 'History', path: '/docs/api/history' },
-    ],
-  },
+  { label: 'API', path: '/docs/api' },
   { label: 'FAQ', path: '/docs/faq' },
 ]
 

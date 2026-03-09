@@ -45,7 +45,7 @@ async def api_post(
     path: str,
     token: str,
     json: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """Make an authenticated POST request to the API."""
     response = await client.post(
         path,
@@ -53,6 +53,8 @@ async def api_post(
         headers=_get_headers(token),
     )
     response.raise_for_status()
+    if response.status_code == 204:
+        return None
     return response.json()
 
 

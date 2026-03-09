@@ -7,15 +7,15 @@ export function DocsVersioning(): ReactNode {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-4">Versioning</h1>
-      <p className="text-gray-600 mb-10">
+      <h1 className="text-2xl font-bold text-gray-900 mb-4">Versioning</h1>
+      <p className="text-sm text-gray-600 mb-10">
         Every change to your bookmarks, notes, and prompts is tracked. You can view the full
         history of an item, see what changed between versions, and restore to any previous version.
       </p>
 
       {/* What Gets Tracked */}
-      <h2 className="text-xl font-bold text-gray-900 mb-4">What Gets Tracked</h2>
-      <p className="text-gray-600 mb-4">
+      <h2 className="text-lg font-bold text-gray-900 mb-4">What Gets Tracked</h2>
+      <p className="text-sm text-gray-600 mb-4">
         Two types of actions are recorded:
       </p>
 
@@ -46,13 +46,13 @@ export function DocsVersioning(): ReactNode {
 
       {/* History Sidebar */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-3">History Sidebar</h2>
-        <p className="text-gray-600 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">History Sidebar</h2>
+        <p className="text-sm text-gray-600 mb-4">
           Open the history sidebar with{' '}
           <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">Cmd+Shift+\</code>{' '}
           while viewing any item to see its full version history:
         </p>
-        <ul className="space-y-2 text-gray-600">
+        <ul className="space-y-2 text-sm text-gray-600">
           <li><strong>Version list</strong> — all versions with timestamps and action types</li>
           <li><strong>Change indicators</strong> — see which fields changed in each version (title, content, tags, etc.)</li>
           <li><strong>Source tracking</strong> — see where each change came from (web, MCP, API)</li>
@@ -62,8 +62,8 @@ export function DocsVersioning(): ReactNode {
 
       {/* Restoring */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-3">Restoring a Version</h2>
-        <p className="text-gray-600 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Restoring a Version</h2>
+        <p className="text-sm text-gray-600 mb-4">
           Click the restore button on any content version in the history sidebar. Restoring
           creates a <em>new</em> version — no history is lost. The restored content becomes the
           current version, and the restore action itself is recorded in the history.
@@ -76,8 +76,8 @@ export function DocsVersioning(): ReactNode {
 
       {/* Source Tracking */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-3">Source Tracking</h2>
-        <p className="text-gray-600 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Source Tracking</h2>
+        <p className="text-sm text-gray-600 mb-4">
           Each history entry records where the change originated:
         </p>
         <div className="overflow-x-auto">
@@ -88,7 +88,7 @@ export function DocsVersioning(): ReactNode {
                 <th className="py-2 font-semibold text-gray-900">Description</th>
               </tr>
             </thead>
-            <tbody className="text-gray-600">
+            <tbody className="text-sm text-gray-600">
               <tr className="border-b border-gray-100">
                 <td className="py-2 pr-4 font-medium">Web</td>
                 <td className="py-2">Changes made through the Tiddly web app</td>
@@ -112,8 +112,8 @@ export function DocsVersioning(): ReactNode {
 
       {/* Retention */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-3">Retention</h2>
-        <p className="text-gray-600 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Retention</h2>
+        <p className="text-sm text-gray-600 mb-4">
           Version history is retained based on your plan:
         </p>
         <div className="overflow-x-auto mb-5">
@@ -125,7 +125,7 @@ export function DocsVersioning(): ReactNode {
                 <th className="py-2 font-semibold text-gray-900">Max Versions per Item</th>
               </tr>
             </thead>
-            <tbody className="text-gray-600">
+            <tbody className="text-sm text-gray-600">
               <tr className="border-b border-gray-100">
                 <td className="py-2 pr-4">Free</td>
                 <td className="py-2 pr-4">3 days</td>

@@ -1,10 +1,10 @@
 /**
  * Tests for SettingsMCP settings page.
  *
- * Tests MCP & Skills configuration selector and conditional instruction rendering.
+ * Tests both the CLI setup section (default tab) and the manual setup section (Curl/PAT tab).
  */
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { SettingsMCP } from './SettingsMCP'
@@ -26,7 +26,7 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
-// Mock tags store (still needed for other parts of the app)
+// Mock tags store
 vi.mock('../../stores/tagsStore', () => ({
   useTagsStore: () => ({
     tags: [
@@ -43,7 +43,6 @@ vi.mock('../../stores/tagsStore', () => ({
 const mockWriteText = vi.fn().mockResolvedValue(undefined)
 
 beforeAll(() => {
-  // Set up clipboard mock before tests run
   Object.defineProperty(navigator, 'clipboard', {
     value: {
       writeText: mockWriteText,
@@ -61,10 +60,16 @@ function renderWithRouter(): void {
   )
 }
 
+/** Switch to manual setup tab and return the manual section container. */
+async function openManualSection(): Promise<HTMLElement> {
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: 'Setup via Curl/PAT' }))
+  return screen.getByTestId('manual-setup-section')
+}
+
 describe('SettingsMCP', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Default mock for tags API - returns tags including 'skill'
     mockApiGet.mockResolvedValue({
       data: {
         tags: [
@@ -78,542 +83,594 @@ describe('SettingsMCP', () => {
   describe('page rendering', () => {
     it('should render page title', () => {
       renderWithRouter()
-
       expect(screen.getByText('AI Integration')).toBeInTheDocument()
     })
 
-    it('should render What is MCP section when MCP is selected', () => {
+    it('should render tab buttons', () => {
       renderWithRouter()
-
-      // MCP is selected by default
-      expect(screen.getByText('What is MCP?')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Setup via CLI (Recommended)' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Setup via Curl/PAT' })).toBeInTheDocument()
     })
 
-    it('should render What are Skills section when Skills is selected', async () => {
-      const user = userEvent.setup()
+    it('should show CLI section by default', () => {
       renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Skills' }))
-
-      expect(screen.getByText('What are Skills?')).toBeInTheDocument()
+      expect(screen.getByTestId('cli-setup-section')).toBeInTheDocument()
+      expect(screen.queryByTestId('manual-setup-section')).not.toBeInTheDocument()
     })
 
-    it('should render Select Integration section', () => {
+    it('should switch to manual section when tab clicked', async () => {
       renderWithRouter()
-
-      expect(screen.getByText('Select Integration')).toBeInTheDocument()
-    })
-
-    it('should render Setup Instructions section', () => {
-      renderWithRouter()
-
-      expect(screen.getByText('Setup Instructions')).toBeInTheDocument()
+      await openManualSection()
+      expect(screen.getByTestId('manual-setup-section')).toBeInTheDocument()
+      expect(screen.queryByTestId('cli-setup-section')).not.toBeInTheDocument()
     })
   })
 
-  describe('selector rows', () => {
-    it('should render all selector row labels', () => {
+  // ===========================================================================
+  // CLI Setup Section
+  // ===========================================================================
+  describe('CLI setup section', () => {
+    it('should render "what to install" toggles', () => {
       renderWithRouter()
-
-      expect(screen.getByText('Content')).toBeInTheDocument()
-      expect(screen.getByText('Client')).toBeInTheDocument()
-      expect(screen.getByText('Auth')).toBeInTheDocument()
-      expect(screen.getByText('Integration')).toBeInTheDocument()
+      const cli = screen.getByTestId('cli-setup-section')
+      expect(within(cli).getByText('MCP Servers')).toBeInTheDocument()
+      expect(within(cli).getByText('Skills')).toBeInTheDocument()
+      expect(within(cli).getByRole('button', { name: 'Bookmarks & Notes' })).toBeInTheDocument()
+      expect(within(cli).getByRole('button', { name: 'Prompts' })).toBeInTheDocument()
+      // Skills Yes/No toggle
+      expect(within(cli).getByRole('button', { name: 'Yes' })).toBeInTheDocument()
+      expect(within(cli).getByRole('button', { name: 'No' })).toBeInTheDocument()
     })
 
-    it('should render server options', () => {
+    it('should render "where to install" tool toggles', () => {
       renderWithRouter()
-
-      expect(screen.getByRole('button', { name: 'Bookmarks & Notes' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Prompts' })).toBeInTheDocument()
+      const cli = screen.getByTestId('cli-setup-section')
+      expect(within(cli).getByRole('button', { name: 'Claude Desktop' })).toBeInTheDocument()
+      expect(within(cli).getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
+      expect(within(cli).getByRole('button', { name: 'Codex' })).toBeInTheDocument()
     })
 
-    it('should render client options', () => {
+    it('should have servers and tools selected by default with skills off', () => {
       renderWithRouter()
-
-      expect(screen.getByRole('button', { name: 'Claude Desktop' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Gemini CLI' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'ChatGPT' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Codex' })).toBeInTheDocument()
+      const cli = screen.getByTestId('cli-setup-section')
+      // Server and tool pills should be selected (orange), except Claude Desktop
+      for (const name of ['Bookmarks & Notes', 'Prompts', 'Claude Code', 'Codex']) {
+        expect(within(cli).getByRole('button', { name }).className).toContain('bg-[#f09040]')
+      }
+      // Claude Desktop should be off by default
+      expect(within(cli).getByRole('button', { name: 'Claude Desktop' }).className).not.toContain('bg-[#f09040]')
+      // Skills should default to No
+      expect(within(cli).getByRole('button', { name: 'No' }).className).toContain('bg-[#f09040]')
+      expect(within(cli).getByRole('button', { name: 'Yes' }).className).not.toContain('bg-[#f09040]')
     })
 
-    it('should render auth options', () => {
+    it('should generate default command with mcp only (skills off, Claude Desktop off)', () => {
       renderWithRouter()
-
-      expect(screen.getByRole('button', { name: 'Bearer Token' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'OAuth' })).toBeInTheDocument()
+      const cli = screen.getByTestId('cli-setup-section')
+      const pre = within(cli).getByTestId('cli-install-command')
+      expect(pre.textContent).toContain('tiddly mcp configure claude-code codex')
+      expect(pre.textContent).not.toContain('tiddly skills configure')
     })
 
-    it('should render integration options', () => {
-      renderWithRouter()
-
-      expect(screen.getByRole('button', { name: 'MCP Server' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Skills' })).toBeInTheDocument()
-    })
-
-    it('should have Bookmarks & Notes server selected by default', () => {
-      renderWithRouter()
-
-      const contentButton = screen.getByRole('button', { name: 'Bookmarks & Notes' })
-      expect(contentButton).toHaveClass('bg-[#f09040]')
-    })
-
-    it('should have Claude Desktop selected by default', () => {
-      renderWithRouter()
-
-      const claudeDesktopButton = screen.getByRole('button', { name: 'Claude Desktop' })
-      expect(claudeDesktopButton).toHaveClass('bg-[#f09040]')
-    })
-  })
-
-  describe('server selection', () => {
-    it('should switch to Prompts server when clicked', async () => {
+    it('should add skills command when skills enabled', async () => {
       const user = userEvent.setup()
       renderWithRouter()
+      const cli = screen.getByTestId('cli-setup-section')
 
-      await user.click(screen.getByRole('button', { name: 'Prompts' }))
+      await user.click(within(cli).getByRole('button', { name: 'Yes' }))
 
-      const promptsButton = screen.getByRole('button', { name: 'Prompts' })
-      expect(promptsButton).toHaveClass('bg-[#f09040]')
+      const pre = within(cli).getByTestId('cli-install-command')
+      expect(pre.textContent).toContain('tiddly mcp configure')
+      expect(pre.textContent).toContain('tiddly skills configure')
     })
 
-    it('should show content server config when Content is selected', () => {
-      renderWithRouter()
-
-      const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('tiddly_notes_bookmarks')
-      expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
-    })
-
-    it('should show prompt server config when Prompts is selected', async () => {
+    it('should omit mcp command when no servers selected', async () => {
       const user = userEvent.setup()
       renderWithRouter()
+      const cli = screen.getByTestId('cli-setup-section')
 
-      await user.click(screen.getByRole('button', { name: 'Prompts' }))
+      // Enable skills first, then deselect both servers
+      await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+      await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
+      await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
 
-      const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('"tiddly_prompts"')
-      expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
-    })
-  })
-
-  describe('client selection', () => {
-    it('should show Claude Desktop instructions by default', () => {
-      renderWithRouter()
-
-      expect(screen.getByText('Step 2: Locate Config File')).toBeInTheDocument()
-      expect(screen.getByText(/macOS:/)).toBeInTheDocument()
-      expect(screen.getByText(/Windows:/)).toBeInTheDocument()
+      const pre = within(cli).getByTestId('cli-install-command')
+      expect(pre.textContent).not.toContain('tiddly mcp configure')
+      expect(pre.textContent).toContain('tiddly skills configure')
     })
 
-    it('should show Claude Code instructions when Claude Code is selected', async () => {
+    it('should omit skills command when skills set to No', async () => {
       const user = userEvent.setup()
       renderWithRouter()
+      const cli = screen.getByTestId('cli-setup-section')
 
-      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
+      // Enable then disable skills
+      await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+      await user.click(within(cli).getByRole('button', { name: 'No' }))
 
-      expect(screen.getByText('Step 2: Add MCP Server')).toBeInTheDocument()
-      // Check for the main command in the pre block
-      const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('claude mcp add --transport http tiddly_notes_bookmarks')
+      const pre = within(cli).getByTestId('cli-install-command')
+      expect(pre.textContent).toContain('tiddly mcp configure')
+      expect(pre.textContent).not.toContain('tiddly skills configure')
     })
 
-    it('should show coming soon for ChatGPT (requires OAuth)', async () => {
+    it('should add --servers flag when only one server selected', async () => {
       const user = userEvent.setup()
       renderWithRouter()
+      const cli = screen.getByTestId('cli-setup-section')
 
-      await user.click(screen.getByRole('button', { name: 'ChatGPT' }))
+      await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
 
-      expect(screen.getByText('ChatGPT Integration Coming Soon')).toBeInTheDocument()
+      const pre = within(cli).getByTestId('cli-install-command')
+      expect(pre.textContent).toContain('--servers content')
     })
 
-    it('should show Codex instructions when Codex is selected', async () => {
+    it('should add tool names when not all tools selected', async () => {
       const user = userEvent.setup()
       renderWithRouter()
+      const cli = screen.getByTestId('cli-setup-section')
 
-      await user.click(screen.getByRole('button', { name: 'Codex' }))
+      // Codex is on by default; deselect it so only claude-code remains
+      await user.click(within(cli).getByRole('button', { name: 'Codex' }))
 
-      expect(screen.getByText('Step 2: Add to Config File')).toBeInTheDocument()
-      // Check for the config file path
-      expect(screen.getByText('~/.codex/config.toml')).toBeInTheDocument()
-    })
-  })
-
-  describe('coming soon features', () => {
-    it('should show skills export section when Skills is selected (auto-selects Prompts)', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Skills' }))
-      // Skills auto-selects Prompts, so skills export section should be visible
-
-      // Skills export section should be visible with tag selector
-      expect(screen.getByText('Step 2: Filter by Tags (Optional)')).toBeInTheDocument()
-      // Should show the warning about name truncation for Claude Desktop (default client)
-      expect(screen.getByText(/Prompt names longer than 64 characters/)).toBeInTheDocument()
+      const pre = within(cli).getByTestId('cli-install-command')
+      expect(pre.textContent).toContain('tiddly mcp configure claude-code')
+      expect(pre.textContent).not.toContain('codex')
     })
 
-    it('should show CLI tip when Skills is selected', async () => {
+    it('should show empty state when nothing selected', async () => {
       const user = userEvent.setup()
       renderWithRouter()
+      const cli = screen.getByTestId('cli-setup-section')
 
-      await user.click(screen.getByRole('button', { name: 'Skills' }))
+      // Deselect all servers (skills already off by default)
+      await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
+      await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
 
-      expect(screen.getByText(/tiddly skills configure/)).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: /CLI docs/ })).toHaveAttribute('href', '/docs/cli/skills')
+      expect(within(cli).getByText(/Select at least one item and one target tool above/)).toBeInTheDocument()
     })
 
-    it('should show not applicable message when Skills and Bookmarks & Notes are selected', async () => {
-      const user = userEvent.setup()
+    it('should show numbered steps with install, login, and command', () => {
       renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Skills' }))
-      // Skills auto-selects Prompts, so we need to click Bookmarks & Notes
-      await user.click(screen.getByRole('button', { name: 'Bookmarks & Notes' }))
-
-      expect(screen.getByText('Skills Only Apply to Prompts')).toBeInTheDocument()
-      expect(screen.getByText(/Skills are exported from your prompt templates/)).toBeInTheDocument()
+      const cli = screen.getByTestId('cli-setup-section')
+      expect(within(cli).getByText('Install the CLI')).toBeInTheDocument()
+      expect(within(cli).getByText('Log in')).toBeInTheDocument()
+      expect(within(cli).getByText('Install your integrations')).toBeInTheDocument()
+      expect(within(cli).getByText('tiddly login')).toBeInTheDocument()
+      expect(within(cli).getByRole('link', { name: /CLI docs/ })).toHaveAttribute('href', '/docs/cli')
     })
 
-    it('should show coming soon message for OAuth', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
+    describe('scope options', () => {
+      it('should show MCP scope when servers selected', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        expect(within(cli).getByText('MCP Scope')).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'User (global)' })).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'Local' })).toBeInTheDocument()
+        // "Project" appears in both MCP Scope and Skills Scope
+        expect(within(cli).getAllByRole('button', { name: 'Project' }).length).toBeGreaterThanOrEqual(1)
+      })
 
-      await user.click(screen.getByRole('button', { name: 'OAuth' }))
+      it('should show Skills scope when skills enabled', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
 
-      expect(screen.getByText('OAuth Coming Soon')).toBeInTheDocument()
-    })
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
 
-    it('should show coming soon message for ChatGPT (requires OAuth)', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
+        expect(within(cli).getByText('Skills Scope')).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'Global' })).toBeInTheDocument()
+      })
 
-      await user.click(screen.getByRole('button', { name: 'ChatGPT' }))
+      it('should hide MCP scope when no servers selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
 
-      expect(screen.getByText('ChatGPT Integration Coming Soon')).toBeInTheDocument()
-      expect(screen.getByText(/OAuth authentication/)).toBeInTheDocument()
-    })
+        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
+        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
 
-    it('should show Codex config generation for content server', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
+        expect(within(cli).queryByText('MCP Scope')).not.toBeInTheDocument()
+      })
 
-      await user.click(screen.getByRole('button', { name: 'Codex' }))
+      it('should hide Skills scope when skills off', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        // Skills default to No, so Skills Scope should not appear
+        expect(within(cli).queryByText('Skills Scope')).not.toBeInTheDocument()
+      })
 
-      const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('[mcp_servers.tiddly_notes_bookmarks]')
-      expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
-    })
-  })
+      it('should add --scope to command when non-default scope selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
 
-  describe('skills export tag selection', () => {
-    it('should fetch prompt-only tags when Skills is selected', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
 
-      await user.click(screen.getByRole('button', { name: 'Skills' }))
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('--scope local')
+      })
 
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalledWith('/tags/?content_types=prompt')
+      it('should show warning when scope not supported by selected tool', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        // Claude Desktop is off by default, so only Codex warning shows
+        expect(within(cli).queryByText(/Claude Desktop doesn't support "local" scope/)).not.toBeInTheDocument()
+        expect(within(cli).getByText(/Codex doesn't support "local" scope/)).toBeInTheDocument()
+      })
+
+      it('should not show warning for user scope (all tools support it)', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        expect(within(cli).queryByText(/doesn't support/)).not.toBeInTheDocument()
       })
     })
 
-    it('should auto-select "skill" tag when it exists in available tags', async () => {
-      mockApiGet.mockResolvedValue({
-        data: {
-          tags: [
-            { name: 'skill', content_count: 5, filter_count: 0 },
-            { name: 'other', content_count: 3, filter_count: 0 },
-          ],
-        },
-      })
-      const user = userEvent.setup()
-      renderWithRouter()
+    describe('skills tag filter', () => {
+      it('should show tag filter when skills enabled', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
 
-      await user.click(screen.getByRole('button', { name: 'Skills' }))
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
 
-      // Wait for tags to load and default selection to be applied
-      await waitFor(() => {
-        // The "skill" tag should be shown as selected (in the tag chips area)
-        expect(screen.getByText('skill')).toBeInTheDocument()
-      })
-    })
-
-    it('should auto-select "skills" tag when "skill" does not exist', async () => {
-      mockApiGet.mockResolvedValue({
-        data: {
-          tags: [
-            { name: 'skills', content_count: 5, filter_count: 0 },
-            { name: 'other', content_count: 3, filter_count: 0 },
-          ],
-        },
-      })
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Skills' }))
-
-      await waitFor(() => {
-        expect(screen.getByText('skills')).toBeInTheDocument()
-      })
-    })
-
-    it('should not auto-select any tag when neither "skill" nor "skills" exists', async () => {
-      mockApiGet.mockResolvedValue({
-        data: {
-          tags: [
-            { name: 'coding', content_count: 5, filter_count: 0 },
-            { name: 'other', content_count: 3, filter_count: 0 },
-          ],
-        },
-      })
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Skills' }))
-
-      await waitFor(() => {
-        expect(mockApiGet).toHaveBeenCalled()
+        expect(within(cli).getByText(/Filter which prompts to export/)).toBeInTheDocument()
       })
 
-      // Tag selector should be present but no tags auto-selected
-      // (no 'coding' or 'other' tag chips should be visible as selected)
-      expect(screen.getByText('Step 2: Filter by Tags (Optional)')).toBeInTheDocument()
-    })
-
-    it('should handle API error gracefully', async () => {
-      mockApiGet.mockRejectedValue(new Error('Network error'))
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Skills' }))
-
-      // Should still render the tag selector section (with no tags)
-      await waitFor(() => {
-        expect(screen.getByText('Step 2: Filter by Tags (Optional)')).toBeInTheDocument()
+      it('should hide tag filter when skills off', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        expect(within(cli).queryByText(/Filter which prompts to export/)).not.toBeInTheDocument()
       })
-    })
-  })
 
-  describe('config generation', () => {
-    // Helper to get the JSON config block (the one inside the <pre> tag)
-    const getConfigText = (): string => {
-      const preElement = document.querySelector('pre code')
-      return preElement?.textContent || ''
-    }
+      it('should fetch prompt tags on mount', async () => {
+        renderWithRouter()
+        await waitFor(() => {
+          expect(mockApiGet).toHaveBeenCalledWith('/tags/?content_types=prompt')
+        })
+      })
 
-    it('should generate config with tiddly_notes_bookmarks for content server', () => {
-      renderWithRouter()
+      it('should auto-select "skill" tag when it exists and skills enabled', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
 
-      const configText = getConfigText()
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
 
-      expect(configText).toContain('tiddly_notes_bookmarks')
-      expect(configText).toContain('http://localhost:8001/mcp')
-      expect(configText).not.toContain('"tiddly_prompts"')
-    })
+        await waitFor(() => {
+          expect(within(cli).getByText('skill')).toBeInTheDocument()
+        })
+      })
 
-    it('should generate config with prompts for prompt server', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
+      it('should auto-select "skills" tag when "skill" does not exist', async () => {
+        mockApiGet.mockResolvedValue({
+          data: {
+            tags: [
+              { name: 'skills', content_count: 5, filter_count: 0 },
+              { name: 'other', content_count: 3, filter_count: 0 },
+            ],
+          },
+        })
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
 
-      await user.click(screen.getByRole('button', { name: 'Prompts' }))
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
 
-      const configText = getConfigText()
+        await waitFor(() => {
+          expect(within(cli).getByText('skills')).toBeInTheDocument()
+        })
+      })
 
-      expect(configText).toContain('"tiddly_prompts"')
-      expect(configText).toContain('http://localhost:8002/mcp')
-      expect(configText).not.toContain('tiddly_notes_bookmarks')
-    })
+      it('should show tag match selector when skills enabled', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
 
-    it('should always use YOUR_TOKEN_HERE placeholder', () => {
-      renderWithRouter()
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
 
-      const configText = getConfigText()
+        expect(within(cli).getByText('Match')).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'All tags' })).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'Any tag' })).toBeInTheDocument()
+      })
 
-      expect(configText).toContain('YOUR_TOKEN_HERE')
-    })
-  })
+      it('should add --tag-match any to command when any tag match selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
 
-  describe('Claude Code config generation', () => {
-    it('should generate correct command for content server', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
+        // Enable skills first
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+        await user.click(within(cli).getByRole('button', { name: 'Any tag' }))
 
-      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
-
-      const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('claude mcp add --transport http tiddly_notes_bookmarks')
-      expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
-    })
-
-    it('should generate correct command for prompt server', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
-      await user.click(screen.getByRole('button', { name: 'Prompts' }))
-
-      const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('claude mcp add --transport http tiddly_prompts')
-      expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
-    })
-
-    it('should show import from Claude Desktop option', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
-
-      expect(screen.getByText('Alternative: Import from Claude Desktop')).toBeInTheDocument()
-      expect(screen.getByText('claude mcp add-from-claude-desktop')).toBeInTheDocument()
-    })
-  })
-
-  describe('Codex config generation', () => {
-    it('should generate correct config for content server', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Codex' }))
-
-      const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('[mcp_servers.tiddly_notes_bookmarks]')
-      expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
-    })
-
-    it('should generate correct config for prompt server', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Codex' }))
-      await user.click(screen.getByRole('button', { name: 'Prompts' }))
-
-      const preElement = document.querySelector('pre code')
-      expect(preElement?.textContent).toContain('[mcp_servers.tiddly_prompts]')
-      expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
-    })
-
-    it('should show prompts usage note when prompts server selected', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Codex' }))
-      await user.click(screen.getByRole('button', { name: 'Prompts' }))
-
-      expect(screen.getByText('Using Your Prompts')).toBeInTheDocument()
-      expect(screen.getByText(/Codex does not support MCP Prompts directly/)).toBeInTheDocument()
-    })
-
-    it('should not show prompts usage note when content server selected', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Codex' }))
-
-      expect(screen.queryByText('Using Your Prompts')).not.toBeInTheDocument()
-    })
-  })
-
-  describe('copy functionality', () => {
-    it('should show "Copied!" after clicking macOS path copy button', async () => {
-      renderWithRouter()
-
-      const copyButtons = screen.getAllByText('Copy')
-      fireEvent.click(copyButtons[0]) // First copy button is for macOS path
-
-      await waitFor(() => {
-        expect(screen.getAllByText('Copied!').length).toBeGreaterThan(0)
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('--tag-match any')
       })
     })
 
-    it('should show "Copied!" after clicking config copy button', async () => {
-      renderWithRouter()
+    describe('copy functionality', () => {
+      it('should show Copied! after clicking copy button', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
 
-      const copyButtons = screen.getAllByText('Copy')
-      fireEvent.click(copyButtons[2]) // Third copy button is for the config
+        const copyButtons = within(cli).getAllByText('Copy')
+        await user.click(copyButtons[0])
 
-      await waitFor(() => {
-        expect(screen.getAllByText('Copied!').length).toBeGreaterThan(0)
+        await waitFor(() => {
+          expect(within(cli).getAllByText('Copied!').length).toBeGreaterThan(0)
+        })
       })
     })
   })
 
-  describe('available tools section', () => {
-    it('should show content server tools when content server selected', () => {
+  // ===========================================================================
+  // Manual Setup Section (Curl/PAT tab)
+  // ===========================================================================
+  describe('manual setup section', () => {
+    it('should not be visible on default CLI tab', () => {
       renderWithRouter()
-
-      expect(screen.getByText('Available MCP Tools')).toBeInTheDocument()
-      // Tools appear twice (mobile + desktop views)
-      expect(screen.getAllByText('search_items').length).toBeGreaterThan(0)
-      expect(screen.getAllByText('get_item').length).toBeGreaterThan(0)
-      expect(screen.getAllByText('create_bookmark').length).toBeGreaterThan(0)
-      expect(screen.getAllByText('create_note').length).toBeGreaterThan(0)
+      expect(screen.queryByTestId('manual-setup-section')).not.toBeInTheDocument()
     })
 
-    it('should show prompt server tools when prompt server selected', async () => {
-      const user = userEvent.setup()
+    it('should show when Curl/PAT tab clicked', async () => {
       renderWithRouter()
-
-      await user.click(screen.getByRole('button', { name: 'Prompts' }))
-
-      expect(screen.getByText('Available MCP Tools')).toBeInTheDocument()
-      // Tools appear twice (mobile + desktop views)
-      expect(screen.getAllByText('search_prompts').length).toBeGreaterThan(0)
-      expect(screen.getAllByText('get_prompt_content').length).toBeGreaterThan(0)
-      expect(screen.getAllByText('create_prompt').length).toBeGreaterThan(0)
+      const manual = await openManualSection()
+      expect(manual).toBeInTheDocument()
+      expect(within(manual).getByText('Select Integration')).toBeInTheDocument()
     })
 
-    it('should not show available tools for unsupported clients', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
+    describe('selector rows', () => {
+      it('should render all selector row labels', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
 
-      await user.click(screen.getByRole('button', { name: 'Gemini CLI' }))
+        expect(within(manual).getByText('Content')).toBeInTheDocument()
+        expect(within(manual).getByText('Client')).toBeInTheDocument()
+        expect(within(manual).getByText('Auth')).toBeInTheDocument()
+        expect(within(manual).getByText('Integration')).toBeInTheDocument()
+      })
 
-      expect(screen.queryByText('Available MCP Tools')).not.toBeInTheDocument()
+      it('should render integration options', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        expect(within(manual).getByRole('button', { name: 'MCP Server' })).toBeInTheDocument()
+        expect(within(manual).getByRole('button', { name: 'Skills' })).toBeInTheDocument()
+      })
+
+      it('should render client options', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        expect(within(manual).getByRole('button', { name: 'Claude Desktop' })).toBeInTheDocument()
+        expect(within(manual).getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
+        expect(within(manual).getByRole('button', { name: 'Gemini CLI' })).toBeInTheDocument()
+        expect(within(manual).getByRole('button', { name: 'ChatGPT' })).toBeInTheDocument()
+        expect(within(manual).getByRole('button', { name: 'Codex' })).toBeInTheDocument()
+      })
+
+      it('should render auth options', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        expect(within(manual).getByRole('button', { name: 'Bearer Token' })).toBeInTheDocument()
+        expect(within(manual).getByRole('button', { name: 'OAuth' })).toBeInTheDocument()
+      })
     })
 
-    it('should show available tools for Codex', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
+    describe('MCP instructions', () => {
+      it('should show What is MCP section when MCP is selected', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
+        expect(within(manual).getByText('What is MCP?')).toBeInTheDocument()
+      })
 
-      await user.click(screen.getByRole('button', { name: 'Codex' }))
+      it('should show Claude Desktop instructions by default', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
 
-      expect(screen.getByText('Available MCP Tools')).toBeInTheDocument()
+        expect(within(manual).getByText('Locate Config File')).toBeInTheDocument()
+        expect(within(manual).getByText(/macOS:/)).toBeInTheDocument()
+        expect(within(manual).getByText(/Windows:/)).toBeInTheDocument()
+      })
+
+      it('should generate config with tiddly_notes_bookmarks for content server', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        const preElement = manual.querySelector('pre code')
+        expect(preElement?.textContent).toContain('tiddly_notes_bookmarks')
+        expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
+      })
+
+      it('should show Claude Code instructions when Claude Code is selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'Claude Code' }))
+
+        expect(within(manual).getByText('Add MCP Server')).toBeInTheDocument()
+        const preElement = manual.querySelector('pre code')
+        expect(preElement?.textContent).toContain('claude mcp add --transport http tiddly_notes_bookmarks')
+      })
+
+      it('should show Claude Code import from desktop option', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'Claude Code' }))
+
+        expect(within(manual).getByText('Alternative: Import from Claude Desktop')).toBeInTheDocument()
+        expect(within(manual).getByText('claude mcp add-from-claude-desktop')).toBeInTheDocument()
+      })
+
+      it('should show Codex instructions when Codex is selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'Codex' }))
+
+        expect(within(manual).getByText('Add to Config File')).toBeInTheDocument()
+        expect(within(manual).getByText(/~\/\.codex\/config\.toml/)).toBeInTheDocument()
+      })
+
+      it('should show prompt server config when Prompts is selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'Prompts' }))
+
+        const preElement = manual.querySelector('pre code')
+        expect(preElement?.textContent).toContain('"tiddly_prompts"')
+        expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
+      })
     })
-  })
 
-  describe('links', () => {
-    it('should have link to create token page', () => {
-      renderWithRouter()
+    describe('coming soon features', () => {
+      it('should show coming soon for ChatGPT', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
 
-      const createTokenLink = screen.getByRole('link', { name: /create token/i })
-      expect(createTokenLink).toHaveAttribute('href', '/app/settings/tokens')
+        await user.click(within(manual).getByRole('button', { name: 'ChatGPT' }))
+
+        expect(within(manual).getByText('ChatGPT Integration Coming Soon')).toBeInTheDocument()
+      })
+
+      it('should show coming soon for OAuth', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'OAuth' }))
+
+        expect(within(manual).getByText('OAuth Coming Soon')).toBeInTheDocument()
+      })
+
+      it('should show skills not applicable for Bookmarks & Notes', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'Skills' }))
+        await user.click(within(manual).getByRole('button', { name: 'Bookmarks & Notes' }))
+
+        expect(within(manual).getByText('Skills Only Apply to Prompts')).toBeInTheDocument()
+      })
     })
 
-    it('should have link to MCP documentation', () => {
-      renderWithRouter()
+    describe('skills export', () => {
+      it('should show skills export section when Skills + Prompts selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
 
-      const mcpLink = screen.getByRole('link', { name: /model context protocol/i })
-      expect(mcpLink).toHaveAttribute('href', 'https://modelcontextprotocol.io/')
-      expect(mcpLink).toHaveAttribute('target', '_blank')
+        await user.click(within(manual).getByRole('button', { name: 'Skills' }))
+
+        expect(within(manual).getByText('Filter by Tags (Optional)')).toBeInTheDocument()
+      })
+
+      it('should show What are Skills section', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'Skills' }))
+
+        expect(within(manual).getByText('What are Skills?')).toBeInTheDocument()
+      })
     })
-  })
 
-  describe('add both servers tip', () => {
-    it('should show tip about adding both servers for Claude Desktop', () => {
-      renderWithRouter()
+    describe('available tools', () => {
+      it('should show content tools for content server', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
 
-      expect(screen.getByText('Want to add both servers?')).toBeInTheDocument()
+        expect(within(manual).getByText('Available MCP Tools')).toBeInTheDocument()
+        expect(within(manual).getAllByText('search_items').length).toBeGreaterThan(0)
+        expect(within(manual).getAllByText('create_bookmark').length).toBeGreaterThan(0)
+      })
+
+      it('should show prompt tools for prompt server', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'Prompts' }))
+
+        expect(within(manual).getAllByText('search_prompts').length).toBeGreaterThan(0)
+        expect(within(manual).getAllByText('create_prompt').length).toBeGreaterThan(0)
+      })
+
+      it('should not show tools for unsupported clients', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'Gemini CLI' }))
+
+        expect(within(manual).queryByText('Available MCP Tools')).not.toBeInTheDocument()
+      })
     })
 
-    it('should show tip about adding both servers for Claude Code', async () => {
-      const user = userEvent.setup()
-      renderWithRouter()
+    describe('links', () => {
+      it('should have link to create token page', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
 
-      await user.click(screen.getByRole('button', { name: 'Claude Code' }))
+        const createTokenLink = within(manual).getByRole('link', { name: /create token/i })
+        expect(createTokenLink).toHaveAttribute('href', '/app/settings/tokens')
+      })
 
-      expect(screen.getByText('Want to add both servers?')).toBeInTheDocument()
+      it('should have link to MCP documentation', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        const mcpLink = within(manual).getByRole('link', { name: /model context protocol/i })
+        expect(mcpLink).toHaveAttribute('href', 'https://modelcontextprotocol.io/')
+        expect(mcpLink).toHaveAttribute('target', '_blank')
+      })
+    })
+
+    describe('both servers tip', () => {
+      it('should show tip for Claude Desktop', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
+        expect(within(manual).getByText('Want to add both servers?')).toBeInTheDocument()
+      })
+
+      it('should show tip for Claude Code', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        await user.click(within(manual).getByRole('button', { name: 'Claude Code' }))
+
+        expect(within(manual).getByText('Want to add both servers?')).toBeInTheDocument()
+      })
+    })
+
+    describe('copy functionality', () => {
+      it('should copy config when copy button clicked', async () => {
+        renderWithRouter()
+        const manual = await openManualSection()
+
+        const copyButtons = within(manual).getAllByText('Copy')
+        const user = userEvent.setup()
+        await user.click(copyButtons[0])
+
+        await waitFor(() => {
+          expect(within(manual).getAllByText('Copied!').length).toBeGreaterThan(0)
+        })
+      })
     })
   })
 })

@@ -28,6 +28,10 @@ const CHANGELOG: ChangelogMonth[] = [
         emoji: '🚀',
         entries: [
           {
+            title: 'Tiddly CLI',
+            description: 'Command-line tool for configuring MCP servers and syncing agent skills for Claude Code, Codex, and other AI tools.',
+          },
+          {
             title: 'Public docs site',
             description:
               'Sidebar navigation, AI integration guides, content types, search, versioning, and keyboard shortcuts.',

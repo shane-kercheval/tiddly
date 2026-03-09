@@ -48,8 +48,8 @@ export function DocsOverview(): ReactNode {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-4">Documentation</h1>
-      <p className="text-gray-600 mb-8">
+      <h1 className="text-2xl font-bold text-gray-900 mb-4">Documentation</h1>
+      <p className="text-sm text-gray-600 mb-8">
         Welcome to the Tiddly documentation. Find guides, feature references, and integration
         instructions for getting the most out of your bookmarks, notes, and prompts.
       </p>

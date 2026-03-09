@@ -9,16 +9,16 @@ export function DocsCLIMCP(): ReactNode {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-2">CLI MCP Setup</h1>
-      <p className="text-gray-600 mb-8">
+      <h1 className="text-2xl font-bold text-gray-900 mb-2">CLI MCP Setup</h1>
+      <p className="text-sm text-gray-600 mb-8">
         The <code className="bg-gray-100 px-1 rounded">tiddly mcp</code> commands auto-detect
         installed AI tools and configure MCP servers with dedicated tokens. Supported tools:
         Claude Desktop, Claude Code, and Codex.
       </p>
 
       {/* tiddly mcp configure */}
-      <h2 className="text-xl font-bold text-gray-900 mb-4">tiddly mcp configure</h2>
-      <p className="text-gray-600 mb-3">
+      <h2 className="text-lg font-bold text-gray-900 mb-4">tiddly mcp configure</h2>
+      <p className="text-sm text-gray-600 mb-3">
         Installs Tiddly MCP server entries into AI tool config files. Without arguments, it
         auto-detects all installed tools and installs both servers. Use{' '}
         <code className="bg-gray-100 px-1 rounded">--servers</code> to choose which servers to install:
@@ -31,11 +31,11 @@ tiddly mcp configure claude-code --servers content  # specific tool + server
 tiddly mcp configure claude-code codex              # multiple tools`} />
 
       {/* Server explanation */}
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Servers</h3>
-      <p className="text-gray-600 mb-2">
+      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">Servers</h3>
+      <p className="text-sm text-gray-600 mb-2">
         Tiddly exposes two MCP servers, each with its own set of tools:
       </p>
-      <ul className="list-disc list-inside space-y-1 text-gray-600 mb-6">
+      <ul className="list-disc list-inside space-y-1 text-sm text-gray-600 mb-6">
         <li>
           <code className="bg-gray-100 px-1 rounded">tiddly_notes_bookmarks</code> (content server) —
           search, create, and edit bookmarks and notes
@@ -58,15 +58,15 @@ tiddly mcp configure claude-code codex              # multiple tools`} />
       </InfoCallout>
 
       {/* tiddly mcp status */}
-      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">tiddly mcp status</h2>
-      <p className="text-gray-600 mb-3">
+      <h2 className="text-lg font-bold text-gray-900 mt-10 mb-4">tiddly mcp status</h2>
+      <p className="text-sm text-gray-600 mb-3">
         Shows MCP server configuration status for each supported tool:
       </p>
       <CopyableCodeBlock code="tiddly mcp status" />
-      <p className="text-gray-600 mt-3 mb-4">
+      <p className="text-sm text-gray-600 mt-3 mb-4">
         For each tool and scope, shows:
       </p>
-      <ul className="list-disc list-inside space-y-1 text-gray-600 mb-6">
+      <ul className="list-disc list-inside space-y-1 text-sm text-gray-600 mb-6">
         <li><strong>Not detected</strong> — binary or config directory not found</li>
         <li><strong>Tiddly servers</strong> — lists configured Tiddly MCP servers with their URLs</li>
         <li><strong>Other servers</strong> — lists non-Tiddly MCP servers with their transport type (http/stdio)</li>
@@ -77,71 +77,71 @@ tiddly mcp configure claude-code codex              # multiple tools`} />
       </p>
 
       {/* tiddly mcp remove */}
-      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">tiddly mcp remove</h2>
-      <p className="text-gray-600 mb-3">
+      <h2 className="text-lg font-bold text-gray-900 mt-10 mb-4">tiddly mcp remove</h2>
+      <p className="text-sm text-gray-600 mb-3">
         Removes MCP server entries from a tool&apos;s config file. All other config keys are preserved.
       </p>
       <CopyableCodeBlock code="tiddly mcp remove claude-code
 tiddly mcp remove claude-code --delete-tokens" />
 
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">--delete-tokens</h3>
-      <p className="text-gray-600 mb-3">
+      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">--delete-tokens</h3>
+      <p className="text-sm text-gray-600 mb-3">
         With <code className="bg-gray-100 px-1 rounded">--delete-tokens</code> (requires OAuth
         auth), the CLI:
       </p>
-      <ol className="list-decimal list-inside space-y-1 text-gray-600 mb-4">
+      <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600 mb-4">
         <li>Reads PATs from the tool&apos;s config before removing server entries</li>
         <li>Removes the server entries from the config file</li>
         <li>Deletes matching tokens from your account (matched by prefix and{' '}
           <code className="bg-gray-100 px-1 rounded">cli-mcp-</code> name pattern)</li>
       </ol>
-      <p className="text-gray-600 mb-8">
+      <p className="text-sm text-gray-600 mb-8">
         Without <code className="bg-gray-100 px-1 rounded">--delete-tokens</code>, the CLI warns
         about potentially orphaned tokens and suggests cleanup options.
       </p>
 
       {/* Reference */}
-      <h2 className="text-xl font-bold text-gray-900 mt-10 mb-4">Reference</h2>
+      <h2 className="text-lg font-bold text-gray-900 mt-10 mb-4">Reference</h2>
 
       {/* Token Management */}
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Token Management</h3>
-      <p className="text-gray-600 mb-3">
+      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">Token Management</h3>
+      <p className="text-sm text-gray-600 mb-3">
         <strong>OAuth users:</strong> The CLI creates a dedicated PAT per tool per server (e.g.,
         Claude Code gets separate tokens for the content and prompt servers). Tokens are named{' '}
         <code className="bg-gray-100 px-1 rounded">cli-mcp-&#123;tool&#125;-&#123;server&#125;-&#123;hex&#125;</code>{' '}
         (e.g., <code className="bg-gray-100 px-1 rounded">cli-mcp-claude-code-content-a1b2c3</code>).
       </p>
-      <p className="text-gray-600 mb-3">
+      <p className="text-sm text-gray-600 mb-3">
         <strong>Re-installs</strong> are safe — the CLI reads existing PATs from config files, validates
         them, and only creates new tokens when needed.
       </p>
-      <p className="text-gray-600 mb-4">
+      <p className="text-sm text-gray-600 mb-4">
         <strong>PAT users:</strong> The CLI reuses your login PAT for both servers since it cannot
         create new tokens via the API when authenticated with a PAT. A warning is displayed.
       </p>
 
       {/* Server Identification */}
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Server Identification</h3>
-      <p className="text-gray-600 mb-3">
+      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">Server Identification</h3>
+      <p className="text-sm text-gray-600 mb-3">
         The CLI identifies Tiddly MCP servers by <strong>URL</strong>, not by config key name.
         Any entry whose URL points to a Tiddly MCP host is recognized, regardless of its key name.
         This applies to all operations: <code className="bg-gray-100 px-1 rounded">configure</code>,{' '}
         <code className="bg-gray-100 px-1 rounded">remove</code>, and{' '}
         <code className="bg-gray-100 px-1 rounded">status</code>.
       </p>
-      <p className="text-gray-600 mb-3">
+      <p className="text-sm text-gray-600 mb-3">
         On <strong>configure</strong>, existing entries pointing to Tiddly URLs are replaced with
         the canonical names (<code className="bg-gray-100 px-1 rounded">tiddly_notes_bookmarks</code>{' '}
         and <code className="bg-gray-100 px-1 rounded">tiddly_prompts</code>). This makes re-installs
         and migrations from manual setups safe.
       </p>
-      <p className="text-gray-600 mb-4">
+      <p className="text-sm text-gray-600 mb-4">
         On <strong>remove</strong>, any entry pointing to a Tiddly URL is removed, even if it
         was created manually with a different name.
       </p>
 
       {/* Tool Detection */}
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Tool Detection</h3>
+      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">Tool Detection</h3>
       <div className="overflow-x-auto mb-4">
         <table className="min-w-full text-sm">
           <thead>
@@ -150,7 +150,7 @@ tiddly mcp remove claude-code --delete-tokens" />
               <th className="py-2 text-left font-semibold text-gray-900">Detection Method</th>
             </tr>
           </thead>
-          <tbody className="text-gray-600">
+          <tbody className="text-sm text-gray-600">
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4">Claude Desktop</td>
               <td className="py-2">Config directory exists + <code className="bg-gray-100 px-1 rounded">npx</code> in PATH</td>
@@ -168,7 +168,7 @@ tiddly mcp remove claude-code --delete-tokens" />
       </div>
 
       {/* Config Files */}
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Config Files Written</h3>
+      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">Config Files Written</h3>
       <div className="overflow-x-auto mb-4">
         <table className="min-w-full text-sm">
           <thead>
@@ -178,7 +178,7 @@ tiddly mcp remove claude-code --delete-tokens" />
               <th className="py-2 text-left font-semibold text-gray-900">Format</th>
             </tr>
           </thead>
-          <tbody className="text-gray-600">
+          <tbody className="text-sm text-gray-600">
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4">Claude Desktop</td>
               <td className="py-2 pr-4">
@@ -210,12 +210,12 @@ tiddly mcp remove claude-code --delete-tokens" />
       </p>
 
       {/* Scopes */}
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">Scopes</h3>
-      <p className="text-gray-600 mb-3">
+      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">Scopes</h3>
+      <p className="text-sm text-gray-600 mb-3">
         Use <code className="bg-gray-100 px-1 rounded">--scope</code> to control which config
         level is written. Support varies by tool:
       </p>
-      <ul className="list-disc list-inside space-y-2 text-gray-600 mb-4">
+      <ul className="list-disc list-inside space-y-2 text-sm text-gray-600 mb-4">
         <li>
           <strong>user</strong> — applies globally to all projects. Stored in your home directory.
         </li>
@@ -240,7 +240,7 @@ tiddly mcp remove claude-code --delete-tokens" />
               <th className="py-2 text-left font-semibold text-gray-900">Codex</th>
             </tr>
           </thead>
-          <tbody className="text-gray-600">
+          <tbody className="text-sm text-gray-600">
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">user</code> (default)</td>
               <td className="py-2 pr-4">Global config</td>
@@ -275,7 +275,7 @@ tiddly mcp remove claude-code --delete-tokens" />
       </InfoCallout>
 
       {/* All Flags */}
-      <h3 className="text-lg font-semibold text-gray-900 mt-6 mb-3">All Flags</h3>
+      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">All Flags</h3>
       <div className="overflow-x-auto mb-6">
         <table className="min-w-full text-sm">
           <thead>
@@ -284,7 +284,7 @@ tiddly mcp remove claude-code --delete-tokens" />
               <th className="py-2 text-left font-semibold text-gray-900">Description</th>
             </tr>
           </thead>
-          <tbody className="text-gray-600">
+          <tbody className="text-sm text-gray-600">
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--servers content,prompts</code></td>
               <td className="py-2">Install only specific servers (default: both)</td>
@@ -308,10 +308,9 @@ tiddly mcp remove claude-code --delete-tokens" />
       {/* Cross-link to AI Integration */}
       <InfoCallout variant="tip" title="Manual Setup">
         <p>
-          Prefer configuring MCP servers manually? See the step-by-step guides for{' '}
-          <Link to="/docs/ai/claude-desktop" className="underline hover:text-gray-900">Claude Desktop</Link>,{' '}
-          <Link to="/docs/ai/claude-code" className="underline hover:text-gray-900">Claude Code</Link>, and{' '}
-          <Link to="/docs/ai/codex" className="underline hover:text-gray-900">Codex</Link>.
+          Prefer configuring MCP servers manually? See the{' '}
+          <Link to="/docs/ai" className="underline hover:text-gray-900">AI Integration</Link>{' '}
+          docs for step-by-step guides.
         </p>
       </InfoCallout>
     </div>

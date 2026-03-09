@@ -15,7 +15,7 @@ export function ExamplePrompts(): ReactNode {
   return (
     <div className="mt-8">
       <h3 className="text-base font-semibold text-gray-900 mb-3">Example Prompts</h3>
-      <p className="text-gray-600 mb-4 text-sm">
+      <p className="text-sm text-gray-600 mb-4 text-sm">
         Try asking your AI assistant:
       </p>
       <div className="flex flex-wrap gap-2">

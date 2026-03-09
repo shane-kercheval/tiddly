@@ -60,7 +60,7 @@ export function SettingsTokens(): ReactNode {
     <div className="max-w-3xl pt-3">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Personal Access Tokens</h1>
-        <p className="mt-1 text-gray-500">
+        <p className="mt-1 text-sm text-gray-500">
           Create tokens for API access. Tokens are shown only once when created.
         </p>
       </div>

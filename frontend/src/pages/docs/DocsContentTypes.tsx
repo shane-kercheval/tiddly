@@ -18,15 +18,15 @@ export function DocsContentTypes(): ReactNode {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-4">Content Types</h1>
-      <p className="text-gray-600 mb-10">
+      <h1 className="text-2xl font-bold text-gray-900 mb-4">Content Types</h1>
+      <p className="text-sm text-gray-600 mb-10">
         Tiddly manages three content types — bookmarks, notes, and prompts — all organized
         with a shared tagging system and accessible from a unified interface.
       </p>
 
       {/* Bookmarks */}
-      <h2 className="text-xl font-bold text-gray-900 mb-3">Bookmarks</h2>
-      <p className="text-gray-600 mb-4">
+      <h2 className="text-lg font-bold text-gray-900 mb-3">Bookmarks</h2>
+      <p className="text-sm text-gray-600 mb-4">
         Save URLs with automatically scraped metadata. When you add a URL, Tiddly fetches the
         page title, description, and full article content so your bookmarks are searchable.
       </p>
@@ -38,7 +38,7 @@ export function DocsContentTypes(): ReactNode {
         <li><strong>Tags</strong> — for organizing and filtering</li>
       </FieldList>
 
-      <div className="mt-5 space-y-4 text-gray-600">
+      <div className="mt-5 space-y-4 text-sm text-gray-600">
         <p>
           <strong className="text-gray-900">Quick Add:</strong>{' '}
           Copy a URL and press{' '}
@@ -57,8 +57,8 @@ export function DocsContentTypes(): ReactNode {
 
       {/* Notes */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-3">Notes</h2>
-        <p className="text-gray-600 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Notes</h2>
+        <p className="text-sm text-gray-600 mb-4">
           Freeform markdown documents for capturing ideas, documentation, meeting notes, or
           anything else. Notes use a full-featured editor with formatting shortcuts and
           a rendered reading mode.
@@ -71,7 +71,7 @@ export function DocsContentTypes(): ReactNode {
         </FieldList>
 
         <h3 className="mt-5 text-base font-semibold text-gray-900 mb-2">Editor Features</h3>
-        <ul className="space-y-2 text-gray-600">
+        <ul className="space-y-2 text-sm text-gray-600">
           <li>
             <strong>Slash commands</strong> — type{' '}
             <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">/</code> at the start
@@ -92,7 +92,7 @@ export function DocsContentTypes(): ReactNode {
             and table of contents sidebar
           </li>
         </ul>
-        <p className="mt-3 text-gray-600">
+        <p className="mt-3 text-sm text-gray-600">
           See{' '}
           <Link to="/docs/features/shortcuts" className="text-[#d97b3d] hover:underline">
             Keyboard Shortcuts
@@ -103,8 +103,8 @@ export function DocsContentTypes(): ReactNode {
 
       {/* Prompts */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-3">Prompts</h2>
-        <p className="text-gray-600 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Prompts</h2>
+        <p className="text-sm text-gray-600 mb-4">
           Jinja2 templates designed for AI assistants. Define reusable prompt templates with
           typed arguments that can be rendered with different values, shared via MCP, or exported
           as agent skills.
@@ -117,7 +117,7 @@ export function DocsContentTypes(): ReactNode {
           <li><strong>Arguments</strong> — typed parameters with names, descriptions, and required flags</li>
           <li><strong>Tags</strong> — for organizing and filtering</li>
         </FieldList>
-        <p className="mt-4 text-gray-600">
+        <p className="mt-4 text-sm text-gray-600">
           See{' '}
           <Link to="/docs/features/prompts" className="text-[#d97b3d] hover:underline">
             Prompts & Templates
@@ -128,11 +128,11 @@ export function DocsContentTypes(): ReactNode {
 
       {/* Shared Features */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Shared Features</h2>
-        <p className="text-gray-600 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-4">Shared Features</h2>
+        <p className="text-sm text-gray-600 mb-4">
           All three content types share these capabilities:
         </p>
-        <ul className="space-y-2 text-gray-600 mb-6">
+        <ul className="space-y-2 text-sm text-gray-600 mb-6">
           <li>
             <strong>Tags</strong> — a global tag system shared across all content types.
             See{' '}

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
+import { CLIPromptAnimation } from '../../components/CLIPromptAnimation'
 import { CopyableCodeBlock } from './components/CopyableCodeBlock'
 import { StepSection } from './components/StepSection'
 
@@ -28,26 +29,30 @@ export function DocsCLIHub(): ReactNode {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-900 mb-2">Tiddly CLI</h1>
-      <p className="text-gray-600 mb-8">
+      <h1 className="text-2xl font-bold text-gray-900 mb-2">Tiddly CLI</h1>
+      <p className="text-sm text-gray-600 mb-8">
         The Tiddly CLI (<code className="bg-gray-100 px-1 rounded">tiddly</code>) is a command-line
         tool for authenticating with the Tiddly API, configuring MCP servers, syncing agent skills,
         and exporting content for AI tools like Claude Desktop, Claude Code, and Codex.
       </p>
 
+      <div className="mb-10">
+        <CLIPromptAnimation />
+      </div>
+
       {/* Quick Start */}
-      <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Start</h2>
+      <h2 className="text-lg font-bold text-gray-900 mb-4">Quick Start</h2>
 
       <StepSection step={1} title="Install">
         <CopyableCodeBlock code="curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh" />
-        <p className="text-gray-600 mt-2 text-sm">
+        <p className="text-sm text-gray-600 mt-2 text-sm">
           To update later, run <code className="bg-gray-100 px-1 rounded">tiddly upgrade</code>.
         </p>
       </StepSection>
 
       <StepSection step={2} title="Log in">
         <CopyableCodeBlock code="tiddly login" />
-        <p className="text-gray-600 mt-2 text-sm">
+        <p className="text-sm text-gray-600 mt-2 text-sm">
           Opens your browser for OAuth login. See{' '}
           <Link to="/docs/cli/reference" className="underline hover:text-gray-900">Reference</Link>{' '}
           for details and PAT login.
@@ -55,7 +60,7 @@ export function DocsCLIHub(): ReactNode {
       </StepSection>
 
       <StepSection step={3} title="Set up MCP">
-        <p className="text-gray-600 mb-3 text-sm">
+        <p className="text-sm text-gray-600 mb-3 text-sm">
           By default, the configure command configures both MCP servers (bookmarks/notes and prompts) for all
           detected AI tools. You can target specific tools and/or servers:
         </p>
@@ -64,7 +69,7 @@ tiddly mcp configure claude-code       # specific tool only
 tiddly mcp configure claude-code codex # multiple tools
 tiddly mcp configure --servers content # bookmarks & notes server only
 tiddly mcp configure --servers prompts # prompts server only`} />
-        <p className="text-gray-600 mt-2 text-sm">
+        <p className="text-sm text-gray-600 mt-2 text-sm">
           See{' '}
           <Link to="/docs/cli/mcp" className="underline hover:text-gray-900">MCP Setup</Link>{' '}
           for targeting specific tools, scopes, and other options.
@@ -72,14 +77,14 @@ tiddly mcp configure --servers prompts # prompts server only`} />
       </StepSection>
 
       <StepSection step={4} title="Install Skills">
-        <p className="text-gray-600 mb-3 text-sm">
+        <p className="text-sm text-gray-600 mb-3 text-sm">
           Export your prompt templates as agent skills. Without arguments, the configure command
           auto-detects installed AI tools and installs prompts tagged &quot;skill&quot;:
         </p>
         <CopyableCodeBlock code={`tiddly skills configure                   # auto-detect tools, configure "skill"-tagged prompts
 tiddly skills configure claude-code       # configure for a specific tool
 tiddly skills configure --tags ""         # configure all prompts (no tag filter)`} />
-        <p className="text-gray-600 mt-2 text-sm">
+        <p className="text-sm text-gray-600 mt-2 text-sm">
           See{' '}
           <Link to="/docs/cli/skills" className="underline hover:text-gray-900">Skills</Link>{' '}
           for tag filtering, scopes, and other options.
@@ -87,7 +92,7 @@ tiddly skills configure --tags ""         # configure all prompts (no tag filter
       </StepSection>
 
       {/* Sub-page cards */}
-      <h2 className="text-xl font-bold text-gray-900 mb-4">Guides</h2>
+      <h2 className="text-lg font-bold text-gray-900 mb-4">Guides</h2>
       <div className="grid gap-4 sm:grid-cols-2 mb-10">
         {PAGES.map((page) => (
           <Link
@@ -108,7 +113,7 @@ tiddly skills configure --tags ""         # configure all prompts (no tag filter
         ))}
       </div>
 
-      <p className="text-gray-600 text-sm">
+      <p className="text-sm text-gray-600 text-sm">
         For tokens, export, config, and other commands, see{' '}
         <Link to="/docs/cli/reference" className="underline hover:text-gray-900">Reference</Link>.
       </p>
