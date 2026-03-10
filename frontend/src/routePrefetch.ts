@@ -29,6 +29,7 @@ const routeImports: Record<string, () => Promise<unknown>> = {
   '/docs/extensions/safari': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsExtensionsSafari') },
   '/docs/api': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAPI') },
   '/docs/faq': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsFAQ') },
+  '/docs/known-issues': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsKnownIssues') },
 
   // App detail pages (heavy — CodeMirror + Milkdown)
   '/app/bookmarks': () => import('./pages/BookmarkDetail'),

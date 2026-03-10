@@ -46,6 +46,7 @@ const docsNav: DocNavItem[] = [
   },
   { label: 'API', path: '/docs/api' },
   { label: 'FAQ', path: '/docs/faq' },
+  { label: 'Known Issues', path: '/docs/known-issues' },
 ]
 
 function isNavItemActive(item: DocNavItem, pathname: string): boolean {

@@ -7,6 +7,7 @@ import type { ReactNode, KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { config } from '../config'
 import { api } from '../services/api'
+import { useAuthStatus } from '../hooks/useAuthStatus'
 import type { TagCount, TagListResponse } from '../types'
 
 const CONFIG_PATH_MAC = '~/Library/Application\\ Support/Claude/claude_desktop_config.json'
@@ -429,6 +430,8 @@ function getSkillsScopeWarnings(selectedTools: Set<CliToolType>, scope: SkillsSc
  * CLI-first setup section with toggle grid and live command generation.
  */
 function CLISetupSection(): ReactNode {
+  const { isAuthenticated } = useAuthStatus()
+
   // Action: configure or remove
   const [cliAction, setCliAction] = useState<CliActionType>('configure')
   const isRemove = cliAction === 'remove'
@@ -455,8 +458,9 @@ function CLISetupSection(): ReactNode {
   const [copiedInstall, setCopiedInstall] = useState(false)
   const [copiedLogin, setCopiedLogin] = useState(false)
 
-  // Fetch prompt tags on mount
+  // Fetch prompt tags on mount (only when authenticated to avoid 401 redirect)
   useEffect(() => {
+    if (!isAuthenticated) return
     let cancelled = false
     const fetchPromptTags = async (): Promise<void> => {
       try {
@@ -475,7 +479,7 @@ function CLISetupSection(): ReactNode {
     }
     fetchPromptTags()
     return () => { cancelled = true }
-  }, [])
+  }, [isAuthenticated])
 
   const hasMcpServers = selectedServers.size > 0
   const hasAnything = (hasMcpServers || installSkills) && selectedTools.size > 0
@@ -1761,12 +1765,15 @@ function getDefaultSkillTags(availableTags: TagCount[]): string[] {
 }
 
 function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
+  const { isAuthenticated } = useAuthStatus()
+
   // Local state for prompt-only tags (don't use global store which has all tags)
   const [promptTags, setPromptTags] = useState<TagCount[]>([])
   const [selectedTags, setSelectedTags] = useState<string[]>([])
 
-  // Fetch prompt tags on mount and apply default selection
+  // Fetch prompt tags on mount and apply default selection (only when authenticated to avoid 401 redirect)
   useEffect(() => {
+    if (!isAuthenticated) return
     let cancelled = false
 
     const fetchPromptTags = async (): Promise<void> => {
@@ -1790,7 +1797,7 @@ function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isAuthenticated])
 
   const exportUrl = buildSkillsExportUrl(client, selectedTags)
 
