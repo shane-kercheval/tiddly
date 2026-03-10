@@ -390,21 +390,22 @@ async def test_rename_token_other_users_token(
     db_session: AsyncSession,
 ) -> None:
     """Test that renaming another user's token returns 404."""
-    # Create a token owned by a different user
+    # Create a token owned by a different user directly at model level
     other_user = User(auth0_id="other-rename-user", email="other-rename@example.com")
     db_session.add(other_user)
     await db_session.flush()
 
-    from services.token_service import create_token as svc_create_token  # noqa: PLC0415
-    from schemas.token import TokenCreate as TokenCreateSchema  # noqa: PLC0415
-
-    api_token, _ = await svc_create_token(
-        db_session, other_user.id, TokenCreateSchema(name="Other's Token"),
+    other_token = ApiToken(
+        user_id=other_user.id,
+        name="Other's Token",
+        token_hash="fake_hash_for_test",
+        token_prefix="bm_fake12345",
     )
+    db_session.add(other_token)
     await db_session.flush()
 
     response = await client.patch(
-        f"/tokens/{api_token.id}",
+        f"/tokens/{other_token.id}",
         json={"new_name": "Hijacked Name"},
     )
     assert response.status_code == 404
