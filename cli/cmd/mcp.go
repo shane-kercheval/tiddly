@@ -365,7 +365,7 @@ Examples:
 					extractedPATs = append(extractedPATs, contentPAT)
 				}
 				// Dedup: only skip if contentPAT was already added (wantContent && same value)
-				if wantPrompts && promptPAT != "" && !(wantContent && promptPAT == contentPAT) {
+				if wantPrompts && promptPAT != "" && (!wantContent || promptPAT != contentPAT) {
 					extractedPATs = append(extractedPATs, promptPAT)
 				}
 				// Warn when a shared PAT is being revoked while the other server is retained
