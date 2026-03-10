@@ -337,6 +337,9 @@ func TestParseServersFlag__valid(t *testing.T) {
 		{"content", []string{"content"}},
 		{"prompts", []string{"prompts"}},
 		{" content , prompts ", []string{"content", "prompts"}},
+		{"content,content", []string{"content"}},
+		{"prompts,prompts", []string{"prompts"}},
+		{"content,prompts,content", []string{"content", "prompts"}},
 	}
 
 	for _, tc := range tests {
@@ -492,6 +495,371 @@ func TestMCPStatus__project_path_flag(t *testing.T) {
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "MCP Servers (project: "+dir+")")
+}
+
+func TestMCPRemove__servers_flag_content_only(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {
+				"type": "http",
+				"url": "https://content-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_content_token_abc"}
+			},
+			"tiddly_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_promptsx_token_xyz"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--servers", "content")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stdout, "Removed Tiddly MCP servers from claude-code")
+
+	// Verify content removed but prompts preserved
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "tiddly_notes_bookmarks")
+	assert.Contains(t, string(data), "tiddly_prompts")
+}
+
+func TestMCPRemove__servers_flag_default_removes_both(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {
+				"type": "http",
+				"url": "https://content-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_content_token_abc"}
+			},
+			"tiddly_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_promptsx_token_xyz"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	// No --servers flag = default "content,prompts" = removes both
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code")
+
+	require.NoError(t, result.Err)
+
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "tiddly_notes_bookmarks")
+	assert.NotContains(t, string(data), "tiddly_prompts")
+}
+
+func TestMCPRemove__servers_content_delete_tokens_only_revokes_content_pat(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {
+				"type": "http",
+				"url": "https://content-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_content_token_abc"}
+			},
+			"tiddly_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_promptsx_token_xyz"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	var deletedTokenIDs []string
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/tokens/").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-content", Name: "cli-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_content_t"},
+				{ID: "tok-prompts", Name: "cli-mcp-claude-code-prompts-d4e5f6", TokenPrefix: "bm_promptsx_"},
+			})
+		})
+	mock.On("DELETE", "/tokens/tok-content").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-content")
+			w.WriteHeader(http.StatusNoContent)
+		})
+	mock.On("DELETE", "/tokens/tok-prompts").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-prompts")
+			w.WriteHeader(http.StatusNoContent)
+		})
+
+	store := testutil.NewMockCredStore()
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--servers", "content", "--delete-tokens", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	// Should only delete the content token, not the prompts token
+	assert.Equal(t, []string{"tok-content"}, deletedTokenIDs)
+}
+
+func TestMCPRemove__servers_content_orphan_warning_includes_servers_flag(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {
+				"type": "http",
+				"url": "https://content-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_content_token_abc"}
+			},
+			"tiddly_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_promptsx_token_xyz"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/tokens/").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-content", Name: "cli-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_content_t"},
+			})
+		})
+
+	store := testutil.NewMockCredStore()
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--servers", "content", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	// Orphan warning should suggest --servers content --delete-tokens
+	assert.Contains(t, result.Stderr, "--delete-tokens --servers content")
+}
+
+func TestMCPRemove__shared_pat_content_only_revokes_and_warns(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	// Both servers use the same PAT (shared token from PAT auth)
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {
+				"type": "http",
+				"url": "https://content-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_shared_token"}
+			},
+			"tiddly_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_shared_token"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	var deletedTokenIDs []string
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/tokens/").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-shared", Name: "cli-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_shared_to"},
+			})
+		})
+	mock.On("DELETE", "/tokens/tok-shared").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-shared")
+			w.WriteHeader(http.StatusNoContent)
+		})
+
+	store := testutil.NewMockCredStore()
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--servers", "content", "--delete-tokens", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	// Should revoke the shared token
+	assert.Len(t, deletedTokenIDs, 1)
+	// Should warn about retained server losing access
+	assert.Contains(t, result.Stderr, "shared with prompts server")
+}
+
+func TestMCPRemove__shared_pat_prompts_only_revokes_and_warns(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {
+				"type": "http",
+				"url": "https://content-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_shared_token"}
+			},
+			"tiddly_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_shared_token"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	var deletedTokenIDs []string
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/tokens/").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-shared", Name: "cli-mcp-claude-code-content-a1b2c3", TokenPrefix: "bm_shared_to"},
+			})
+		})
+	mock.On("DELETE", "/tokens/tok-shared").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-shared")
+			w.WriteHeader(http.StatusNoContent)
+		})
+
+	store := testutil.NewMockCredStore()
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--servers", "prompts", "--delete-tokens", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	// Should revoke the shared token (not silently skip)
+	assert.Len(t, deletedTokenIDs, 1)
+	// Should warn about retained server losing access
+	assert.Contains(t, result.Stderr, "shared with content server")
+}
+
+func TestMCPRemove__invalid_servers_flag(t *testing.T) {
+	store := testutil.NewMockCredStore()
+	setupTestDeps(t, store)
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--servers", "invalid")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "invalid server")
 }
 
 func TestMCPRemove__invalid_scope_returns_error(t *testing.T) {

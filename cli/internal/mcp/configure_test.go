@@ -582,15 +582,15 @@ func TestCheckOrphanedTokens__finds_mcp_tokens_for_tool(t *testing.T) {
 
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
 
-	// Should only return claude-code tokens
-	orphaned, err := CheckOrphanedTokens(context.Background(), client, "claude-code")
+	// Should only return claude-code tokens (both server types)
+	orphaned, err := CheckOrphanedTokens(context.Background(), client, "claude-code", []string{"content", "prompts"})
 	require.NoError(t, err)
 	assert.Len(t, orphaned, 2)
 	assert.Contains(t, orphaned[0], "cli-mcp-claude-code-")
 	assert.Contains(t, orphaned[1], "cli-mcp-claude-code-")
 
 	// Should only return codex tokens
-	orphaned, err = CheckOrphanedTokens(context.Background(), client, "codex")
+	orphaned, err = CheckOrphanedTokens(context.Background(), client, "codex", []string{"content", "prompts"})
 	require.NoError(t, err)
 	assert.Len(t, orphaned, 1)
 	assert.Contains(t, orphaned[0], "cli-mcp-codex-")
@@ -607,10 +607,35 @@ func TestCheckOrphanedTokens__no_orphans(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
-	orphaned, err := CheckOrphanedTokens(context.Background(), client, "claude-code")
+	orphaned, err := CheckOrphanedTokens(context.Background(), client, "claude-code", []string{"content", "prompts"})
 
 	require.NoError(t, err)
 	assert.Nil(t, orphaned)
+}
+
+func TestCheckOrphanedTokens__filters_by_server_type(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+			{ID: "tok-1", Name: "cli-mcp-claude-code-content-a1b2c3"},
+			{ID: "tok-2", Name: "cli-mcp-claude-code-prompts-d4e5f6"},
+		})
+	}))
+	defer server.Close()
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+
+	// Content only — should only find content token
+	orphaned, err := CheckOrphanedTokens(context.Background(), client, "claude-code", []string{"content"})
+	require.NoError(t, err)
+	require.Len(t, orphaned, 1)
+	assert.Contains(t, orphaned[0], "content")
+
+	// Prompts only — should only find prompts token
+	orphaned, err = CheckOrphanedTokens(context.Background(), client, "claude-code", []string{"prompts"})
+	require.NoError(t, err)
+	require.Len(t, orphaned, 1)
+	assert.Contains(t, orphaned[0], "prompts")
 }
 
 func TestGenerateTokenName__format(t *testing.T) {
@@ -943,7 +968,7 @@ func TestRunRemove__valid_config_creates_backup_before_writing(t *testing.T) {
 	writeTestJSON(t, configPath, existingConfig)
 
 	h := &ClaudeDesktopHandler{}
-	err := h.Remove(ResolvedConfig{Path: configPath, Scope: "user"})
+	err := h.Remove(ResolvedConfig{Path: configPath, Scope: "user"}, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	// Backup should exist with the original content (including the tiddly server)

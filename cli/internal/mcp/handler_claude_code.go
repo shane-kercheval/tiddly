@@ -41,8 +41,8 @@ func (h *ClaudeCodeHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT s
 	return warnings, nil
 }
 
-func (h *ClaudeCodeHandler) Remove(rc ResolvedConfig) error {
-	return removeClaudeCode(rc)
+func (h *ClaudeCodeHandler) Remove(rc ResolvedConfig, servers []string) error {
+	return removeClaudeCode(rc, servers)
 }
 
 func (h *ClaudeCodeHandler) Status(rc ResolvedConfig) (StatusResult, error) {

@@ -290,19 +290,32 @@ func printDiff(w io.Writer, path, before, after string) {
 }
 
 // CheckOrphanedTokens checks for cli-mcp-{toolName}-* tokens that may be orphaned after removal.
-// Only returns tokens whose name matches the given tool, so removing one tool
-// doesn't report another tool's tokens.
-func CheckOrphanedTokens(ctx context.Context, client *api.Client, toolName string) ([]string, error) {
+// Only returns tokens whose name matches the given tool and server types, so removing one
+// server type doesn't report tokens for the other.
+// Token names follow the pattern "cli-mcp-{tool}-{serverType}-{suffix}".
+func CheckOrphanedTokens(ctx context.Context, client *api.Client, toolName string, serverTypes []string) ([]string, error) {
 	tokens, err := client.ListTokens(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	prefix := fmt.Sprintf("%s%s-", tokenNamePrefix, toolName)
+	// Build prefixes for the server types being removed
+	var prefixes []string
+	for _, st := range serverTypes {
+		prefixes = append(prefixes, fmt.Sprintf("%s%s-%s-", tokenNamePrefix, toolName, st))
+	}
+	// Fallback: if no server types specified, match all tokens for this tool
+	if len(prefixes) == 0 {
+		prefixes = []string{fmt.Sprintf("%s%s-", tokenNamePrefix, toolName)}
+	}
+
 	var orphaned []string
 	for _, t := range tokens {
-		if strings.HasPrefix(t.Name, prefix) {
-			orphaned = append(orphaned, t.Name)
+		for _, p := range prefixes {
+			if strings.HasPrefix(t.Name, p) {
+				orphaned = append(orphaned, t.Name)
+				break
+			}
 		}
 	}
 	return orphaned, nil
