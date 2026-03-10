@@ -27,6 +27,8 @@ interface InlineEditableTitleProps {
   onEnter?: () => void
   /** Error message to display */
   error?: string
+  /** Maximum character length */
+  maxLength?: number
 }
 
 /**
@@ -50,13 +52,23 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
       className = '',
       onEnter,
       error,
+      maxLength,
     },
     ref
   ) {
     const errorId = useId()
 
+    // Show "Character limit reached" when at or over maxLength, but parent errors take priority
+    const limitReached = maxLength !== undefined && value.length >= maxLength
+    const displayError = error || (limitReached ? 'Character limit reached' : undefined)
+
     const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
-      onChange(e.target.value)
+      const newValue = e.target.value
+      // Enforce maxLength if specified
+      if (maxLength !== undefined && newValue.length > maxLength) {
+        return
+      }
+      onChange(newValue)
     }
 
     const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -70,16 +82,16 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
     const inputClasses = [
       // Remove default input appearance
       'bg-transparent border-none outline-none w-full',
-      // Subtle hover/focus indicator
-      'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
+      // Subtle hover/focus indicator (overridden by error state)
+      displayError
+        ? 'ring-2 ring-red-200 hover:ring-red-200 focus:ring-red-200 rounded px-1 -mx-1'
+        : 'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
       // Placeholder styling
       'placeholder:text-gray-400',
       // Typography based on variant
       variant === 'name'
         ? 'font-mono text-lg text-gray-900'
         : 'text-2xl font-bold text-gray-900',
-      // Error state
-      error ? 'ring-2 ring-red-200' : '',
       // Disabled state
       disabled ? 'cursor-not-allowed opacity-60' : '',
       // Custom classes
@@ -100,11 +112,12 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
           disabled={disabled}
           required={required}
           aria-required={required}
+          maxLength={maxLength}
           aria-invalid={!!error}
-          aria-describedby={error ? errorId : undefined}
+          aria-describedby={displayError ? errorId : undefined}
           className={inputClasses}
         />
-        {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
+        {displayError && <p id={errorId} className="mt-1 text-sm text-red-500">{displayError}</p>}
       </div>
     )
   }

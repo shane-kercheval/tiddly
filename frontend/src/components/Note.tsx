@@ -433,15 +433,15 @@ export function Note({
     if (!current.title.trim()) {
       newErrors.title = 'Title is required'
     } else if (current.title.length > limits.max_title_length) {
-      newErrors.title = `Title exceeds ${limits.max_title_length.toLocaleString()} characters`
+      newErrors.title = 'Character limit reached'
     }
 
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = `Description exceeds ${limits.max_description_length.toLocaleString()} characters`
+      newErrors.description = 'Character limit reached'
     }
 
     if (current.content.length > limits.max_note_content_length) {
-      newErrors.content = `Content exceeds ${limits.max_note_content_length.toLocaleString()} characters`
+      newErrors.content = 'Character limit reached'
     }
 
     setErrors(newErrors)
@@ -779,6 +779,7 @@ export function Note({
             required
             disabled={isSaving || isReadOnly}
             error={errors.title}
+            maxLength={limits.max_title_length}
           />
 
           {/* Description */}

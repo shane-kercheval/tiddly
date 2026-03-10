@@ -197,6 +197,10 @@ export function ContentEditor({
   scrollToLineRef,
   showTocToggle,
 }: ContentEditorProps): ReactNode {
+  // Show "Character limit reached" when at or over maxLength, but parent errors take priority
+  const limitReached = maxLength !== undefined && value.length >= maxLength
+  const contentDisplayError = errorMessage || (limitReached ? 'Character limit reached' : undefined)
+
   // Mode state commented out - now always using CodeMirror
   // const [mode, setMode] = useState<EditorMode>(loadModePreference)
   // const [modeKey, setModeKey] = useState(0)
@@ -253,12 +257,12 @@ export function ContentEditor({
 
     if (subtleBorder) {
       // Ring style that appears on focus (matches title/description)
-      const ringColor = hasError ? 'ring-red-200 ring-2' : 'ring-gray-900/5'
+      const ringColor = (hasError || limitReached) ? 'ring-red-200 ring-2' : 'ring-gray-900/5'
       return `group-focus-within/editor:ring-2 ${ringColor}`
     }
 
     // Solid border style
-    const borderColor = hasError ? 'border-red-300' : 'border-gray-200'
+    const borderColor = (hasError || limitReached) ? 'border-red-300' : 'border-gray-200'
     return `border ${borderColor}`
   }
 
@@ -364,15 +368,15 @@ export function ContentEditor({
         />
       </div>
 
-      {/* Footer with helper text and character count - hidden until focused, but always visible when error */}
-      <div className={`flex justify-between items-center mt-1 transition-opacity ${errorMessage ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'}`}>
-        {errorMessage ? (
-          <p className="error-text">{errorMessage}</p>
+      {/* Footer with helper text and character count - hidden until focused, but always visible when error or limit reached */}
+      <div className={`flex justify-between items-center mt-1 transition-opacity ${contentDisplayError ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'}`}>
+        {contentDisplayError ? (
+          <p className="error-text">{contentDisplayError}</p>
         ) : helperText ? (
           <p className="helper-text">{helperText}</p>
         ) : null}
         {maxLength && (
-          <span className="helper-text">
+          <span className={limitReached ? 'text-xs text-red-500' : 'helper-text'}>
             {value.length.toLocaleString()}/{maxLength.toLocaleString()}
           </span>
         )}

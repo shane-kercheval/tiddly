@@ -59,6 +59,10 @@ export function InlineEditableText({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const errorId = useId()
 
+  // Show "Character limit reached" when at or over maxLength, but parent errors take priority
+  const limitReached = maxLength !== undefined && value.length >= maxLength
+  const displayError = error || (limitReached ? 'Character limit reached' : undefined)
+
   // Auto-resize textarea to fit content
   useEffect(() => {
     const textarea = textareaRef.current
@@ -83,16 +87,16 @@ export function InlineEditableText({
   const textareaClasses = [
     // Remove default textarea appearance
     'bg-transparent border-none outline-none w-full resize-none',
-    // Subtle hover/focus indicator
-    'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
+    // Subtle hover/focus indicator (overridden by error state)
+    displayError
+      ? 'ring-2 ring-red-200 hover:ring-red-200 focus:ring-red-200 rounded px-1 -mx-1'
+      : 'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
     // Placeholder styling
     'placeholder:text-gray-400',
     // Typography based on variant
     variant === 'description'
       ? 'text-sm text-gray-600 italic'
       : 'text-sm text-gray-900',
-    // Error state
-    error ? 'ring-2 ring-red-200' : '',
     // Disabled state
     disabled ? 'cursor-not-allowed opacity-60' : '',
     // Custom classes
@@ -112,10 +116,10 @@ export function InlineEditableText({
         rows={1}
         maxLength={maxLength}
         aria-invalid={!!error}
-        aria-describedby={error ? errorId : undefined}
+        aria-describedby={displayError ? errorId : undefined}
         className={textareaClasses}
       />
-      {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
+      {displayError && <p id={errorId} className="mt-1 text-sm text-red-500">{displayError}</p>}
     </div>
   )
 }

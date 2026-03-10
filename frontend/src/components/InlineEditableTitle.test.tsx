@@ -160,6 +160,68 @@ describe('InlineEditableTitle', () => {
     })
   })
 
+  describe('maxLength', () => {
+    it('should set maxLength attribute on input', () => {
+      render(<InlineEditableTitle value="" onChange={vi.fn()} maxLength={10} />)
+
+      const input = screen.getByRole('textbox')
+      expect(input).toHaveAttribute('maxLength', '10')
+    })
+
+    it('should not call onChange when input exceeds maxLength', async () => {
+      const user = userEvent.setup()
+      const mockOnChange = vi.fn()
+      render(<InlineEditableTitle value="12345" onChange={mockOnChange} maxLength={5} />)
+
+      const input = screen.getByRole('textbox')
+      await user.type(input, 'x')
+
+      expect(mockOnChange).not.toHaveBeenCalled()
+    })
+
+    it('should show "Character limit reached" when value is at maxLength', () => {
+      render(<InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} />)
+
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+    })
+
+    it('should show red border when at maxLength', () => {
+      render(<InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} />)
+
+      const input = screen.getByRole('textbox')
+      expect(input.className).toContain('ring-red-200')
+    })
+
+    it('should not show limit message when under maxLength', () => {
+      render(<InlineEditableTitle value="1234" onChange={vi.fn()} maxLength={5} />)
+
+      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+    })
+
+    it('should show parent error instead of limit message when both apply', () => {
+      render(
+        <InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} error="Name format invalid" />
+      )
+
+      expect(screen.getByText('Name format invalid')).toBeInTheDocument()
+      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+    })
+
+    it('should not set aria-invalid for limit reached without parent error', () => {
+      render(<InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} />)
+
+      const input = screen.getByRole('textbox')
+      expect(input).not.toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('should set aria-invalid only when parent error is present', () => {
+      render(<InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} error="Error" />)
+
+      const input = screen.getByRole('textbox')
+      expect(input).toHaveAttribute('aria-invalid', 'true')
+    })
+  })
+
   describe('custom className', () => {
     it('should apply custom className', () => {
       render(<InlineEditableTitle value="Title" onChange={vi.fn()} className="custom-class" />)

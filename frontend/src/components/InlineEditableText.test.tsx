@@ -93,6 +93,50 @@ describe('InlineEditableText', () => {
     })
   })
 
+  describe('character limit feedback', () => {
+    it('should show "Character limit reached" when value is at maxLength', () => {
+      render(<InlineEditableText value="12345" onChange={vi.fn()} maxLength={5} />)
+
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+    })
+
+    it('should show red border when at maxLength', () => {
+      render(<InlineEditableText value="12345" onChange={vi.fn()} maxLength={5} />)
+
+      const textarea = screen.getByRole('textbox')
+      expect(textarea.className).toContain('ring-red-200')
+    })
+
+    it('should not show limit message when under maxLength', () => {
+      render(<InlineEditableText value="1234" onChange={vi.fn()} maxLength={5} />)
+
+      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+    })
+
+    it('should show parent error instead of limit message when both apply', () => {
+      render(
+        <InlineEditableText value="12345" onChange={vi.fn()} maxLength={5} error="Description too long" />
+      )
+
+      expect(screen.getByText('Description too long')).toBeInTheDocument()
+      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+    })
+
+    it('should not set aria-invalid for limit reached without parent error', () => {
+      render(<InlineEditableText value="12345" onChange={vi.fn()} maxLength={5} />)
+
+      const textarea = screen.getByRole('textbox')
+      expect(textarea).not.toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('should set aria-invalid only when parent error is present', () => {
+      render(<InlineEditableText value="12345" onChange={vi.fn()} maxLength={5} error="Error" />)
+
+      const textarea = screen.getByRole('textbox')
+      expect(textarea).toHaveAttribute('aria-invalid', 'true')
+    })
+  })
+
   describe('disabled state', () => {
     it('should disable the textarea when disabled is true', () => {
       render(<InlineEditableText value="Text" onChange={vi.fn()} disabled />)

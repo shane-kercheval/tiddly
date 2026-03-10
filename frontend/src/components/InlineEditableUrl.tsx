@@ -37,6 +37,8 @@ interface InlineEditableUrlProps {
   showFetchSuccess?: boolean
   /** Error message from a failed metadata fetch */
   fetchError?: string
+  /** Maximum character length */
+  maxLength?: number
 }
 
 /**
@@ -56,14 +58,24 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
       isFetchingMetadata = false,
       showFetchSuccess = false,
       fetchError,
+      maxLength,
     },
     ref
   ) {
     const errorId = useId()
     const [isFocused, setIsFocused] = useState(false)
 
+    // Show "Character limit reached" when at or over maxLength, but parent errors take priority
+    const limitReached = maxLength !== undefined && value.length >= maxLength
+    const displayError = error || (limitReached ? 'Character limit reached' : undefined)
+
     const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
-      onChange(e.target.value)
+      const newValue = e.target.value
+      // Enforce maxLength if specified
+      if (maxLength !== undefined && newValue.length > maxLength) {
+        return
+      }
+      onChange(newValue)
     }
 
     const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -96,11 +108,11 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
     // Container styling for the whole URL row
     const containerClasses = [
       'flex items-center gap-2 w-full',
-      // Subtle hover/focus indicator on the container
+      // Subtle hover/focus indicator on the container (overridden by error state)
       'rounded px-1 -mx-1',
-      isFocused ? 'ring-2 ring-gray-900/5' : 'hover:ring-2 hover:ring-gray-900/5',
-      // Error state
-      error ? 'ring-2 ring-red-200' : '',
+      displayError
+        ? 'ring-2 ring-red-200'
+        : isFocused ? 'ring-2 ring-gray-900/5' : 'hover:ring-2 hover:ring-gray-900/5',
     ]
       .filter(Boolean)
       .join(' ')
@@ -153,12 +165,13 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
             disabled={disabled}
             required={required}
             aria-required={required}
+            maxLength={maxLength}
             aria-invalid={!!error}
-            aria-describedby={error ? errorId : undefined}
+            aria-describedby={displayError ? errorId : undefined}
             className={inputClasses}
           />
         </div>
-        {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
+        {displayError && <p id={errorId} className="mt-1 text-sm text-red-500">{displayError}</p>}
       </div>
     )
   }

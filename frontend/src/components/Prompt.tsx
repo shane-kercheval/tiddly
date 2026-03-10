@@ -344,9 +344,14 @@ export function Prompt({
     const contentValid =
       current.content.trim().length > 0 &&
       current.content.length <= (limits?.max_prompt_content_length ?? Infinity)
+    const argsValid = current.arguments.every((arg) =>
+      (!arg.name || ARG_NAME_PATTERN.test(arg.name)) &&
+      arg.name.length <= (limits?.max_argument_name_length ?? Infinity) &&
+      (arg.description?.length ?? 0) <= (limits?.max_argument_description_length ?? Infinity)
+    )
 
-    return nameValid && titleValid && descriptionValid && contentValid
-  }, [current.name, current.title, current.description, current.content, limits])
+    return nameValid && titleValid && descriptionValid && contentValid && argsValid
+  }, [current.name, current.title, current.description, current.content, current.arguments, limits])
 
   // Can save when form is dirty and valid
   const canSave = isDirty && isValid
@@ -514,7 +519,7 @@ export function Prompt({
     if (!current.name.trim()) {
       newErrors.name = 'Name is required'
     } else if (current.name.length > limits.max_prompt_name_length) {
-      newErrors.name = `Name must be ${limits.max_prompt_name_length} characters or less`
+      newErrors.name = 'Character limit reached'
     } else if (!PROMPT_NAME_PATTERN.test(current.name)) {
       newErrors.name =
         'Name must use lowercase letters, numbers, and hyphens only. Must start and end with a letter or number (e.g., code-review)'
@@ -522,19 +527,19 @@ export function Prompt({
 
     // Title validation
     if (current.title && current.title.length > limits.max_title_length) {
-      newErrors.title = `Title exceeds ${limits.max_title_length.toLocaleString()} characters`
+      newErrors.title = 'Character limit reached'
     }
 
     // Description validation
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = `Description exceeds ${limits.max_description_length.toLocaleString()} characters`
+      newErrors.description = 'Character limit reached'
     }
 
     // Content validation
     if (!current.content.trim()) {
       newErrors.content = 'Template content is required'
     } else if (current.content.length > limits.max_prompt_content_length) {
-      newErrors.content = `Content exceeds ${limits.max_prompt_content_length.toLocaleString()} characters`
+      newErrors.content = 'Character limit reached'
     }
 
     // Arguments validation
@@ -546,11 +551,15 @@ export function Prompt({
         break
       }
       if (arg.name.length > limits.max_argument_name_length) {
-        newErrors.arguments = `Argument "${arg.name}" exceeds ${limits.max_argument_name_length} characters`
+        newErrors.arguments = 'Character limit reached'
         break
       }
       if (!ARG_NAME_PATTERN.test(arg.name)) {
         newErrors.arguments = `Argument "${arg.name}" must start with a letter and contain only lowercase letters, numbers, and underscores`
+        break
+      }
+      if (arg.description && arg.description.length > limits.max_argument_description_length) {
+        newErrors.arguments = 'Character limit reached'
         break
       }
       if (argNames.has(arg.name)) {
@@ -702,8 +711,17 @@ export function Prompt({
   // Update handlers - memoized to prevent unnecessary child re-renders
   const handleNameChange = useCallback((name: string): void => {
     // Auto-lowercase the name
-    setCurrent((prev) => ({ ...prev, name: name.toLowerCase() }))
-    setErrors((prev) => (prev.name ? { ...prev, name: undefined } : prev))
+    const lowered = name.toLowerCase()
+    setCurrent((prev) => ({ ...prev, name: lowered }))
+    // Real-time pattern validation (clear error if valid, set if invalid and non-empty)
+    if (lowered && !PROMPT_NAME_PATTERN.test(lowered)) {
+      setErrors((prev) => ({
+        ...prev,
+        name: 'Name must use lowercase letters, numbers, and hyphens only. Must start and end with a letter or number (e.g., code-review)',
+      }))
+    } else {
+      setErrors((prev) => (prev.name ? { ...prev, name: undefined } : prev))
+    }
   }, [])
 
   const handleTitleChange = useCallback((title: string): void => {
@@ -984,6 +1002,7 @@ export function Prompt({
             required
             disabled={isSaving || isReadOnly}
             error={errors.name}
+            maxLength={limits.max_prompt_name_length}
           />
 
           {/* Title (optional display name) */}
@@ -993,6 +1012,7 @@ export function Prompt({
             placeholder="Display title (optional)"
             disabled={isSaving || isReadOnly}
             error={errors.title}
+            maxLength={limits.max_title_length}
             className="text-lg text-gray-600 placeholder:!text-[#b5bac2]"
           />
 
@@ -1098,6 +1118,8 @@ export function Prompt({
             onChange={handleArgumentsChange}
             disabled={isSaving || isReadOnly}
             error={errors.arguments}
+            maxNameLength={limits.max_argument_name_length}
+            maxDescriptionLength={limits.max_argument_description_length}
           />
         </div>
 

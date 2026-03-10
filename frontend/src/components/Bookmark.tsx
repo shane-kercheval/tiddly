@@ -294,6 +294,7 @@ export function Bookmark({
     // URL is required for new bookmarks
     if (isCreate && !current.url.trim()) return false
     if (current.url.trim() && !isValidUrl(current.url)) return false
+    if (current.url.length > limits.max_url_length) return false
     if (current.title.length > limits.max_title_length) return false
     if (current.description.length > limits.max_description_length) return false
     if (current.content.length > limits.max_bookmark_content_length) return false
@@ -579,16 +580,20 @@ export function Bookmark({
       newErrors.url = 'Please enter a valid URL'
     }
 
+    if (!newErrors.url && current.url.length > limits.max_url_length) {
+      newErrors.url = 'Character limit reached'
+    }
+
     if (current.title.length > limits.max_title_length) {
-      newErrors.title = `Title exceeds ${limits.max_title_length.toLocaleString()} characters`
+      newErrors.title = 'Character limit reached'
     }
 
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = `Description exceeds ${limits.max_description_length.toLocaleString()} characters`
+      newErrors.description = 'Character limit reached'
     }
 
     if (current.content.length > limits.max_bookmark_content_length) {
-      newErrors.content = `Content exceeds ${limits.max_bookmark_content_length.toLocaleString()} characters`
+      newErrors.content = 'Character limit reached'
     }
 
     setErrors(newErrors)
@@ -931,6 +936,7 @@ export function Bookmark({
             required={isCreate}
             disabled={isSaving || isReadOnly}
             error={errors.url}
+            maxLength={limits.max_url_length}
             onFetchMetadata={onFetchMetadata ? handleFetchMetadata : undefined}
             isFetchingMetadata={isFetchingMetadata}
             showFetchSuccess={showFetchSuccess}
@@ -944,6 +950,7 @@ export function Bookmark({
             placeholder="Page title"
             disabled={isSaving || isReadOnly}
             error={errors.title}
+            maxLength={limits.max_title_length}
           />
 
           {/* Description */}

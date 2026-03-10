@@ -197,6 +197,63 @@ describe('ContentEditor', () => {
     })
   })
 
+  describe('character limit feedback', () => {
+    it('should show "Character limit reached" when value meets maxLength', () => {
+      render(<ContentEditor {...defaultProps} value="12345" maxLength={5} />)
+
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+    })
+
+    it('should show "Character limit reached" when value exceeds maxLength', () => {
+      render(<ContentEditor {...defaultProps} value="123456" maxLength={5} />)
+
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+    })
+
+    it('should show parent errorMessage instead of limit message when both apply', () => {
+      render(
+        <ContentEditor {...defaultProps} value="12345" maxLength={5} errorMessage="Template syntax error" />
+      )
+
+      expect(screen.getByText('Template syntax error')).toBeInTheDocument()
+      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+    })
+
+    it('should not show limit message when under maxLength', () => {
+      render(<ContentEditor {...defaultProps} value="1234" maxLength={5} />)
+
+      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+    })
+
+    it('should apply red styling to counter when at limit', () => {
+      render(<ContentEditor {...defaultProps} value="12345" maxLength={5} />)
+
+      const counter = screen.getByText('5/5')
+      expect(counter.className).toContain('text-red-500')
+    })
+
+    it('should apply normal styling to counter when under limit', () => {
+      render(<ContentEditor {...defaultProps} value="1234" maxLength={5} />)
+
+      const counter = screen.getByText('4/5')
+      expect(counter.className).toContain('helper-text')
+    })
+
+    it('should apply error border when at limit with subtleBorder', () => {
+      render(<ContentEditor {...defaultProps} value="12345" maxLength={5} showBorder subtleBorder />)
+
+      const container = screen.getByTestId('codemirror-mock').parentElement
+      expect(container?.className).toContain('ring-red-200')
+    })
+
+    it('should apply error border when at limit with solid border', () => {
+      render(<ContentEditor {...defaultProps} value="12345" maxLength={5} showBorder />)
+
+      const container = screen.getByTestId('codemirror-mock').parentElement
+      expect(container?.className).toContain('border-red-300')
+    })
+  })
+
   describe('label', () => {
     it('should show default label', () => {
       render(<ContentEditor {...defaultProps} />)
