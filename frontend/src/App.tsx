@@ -156,7 +156,7 @@ const router = createBrowserRouter([
                   { path: '/app/settings', element: <Navigate to="/app/settings/general" replace /> },
                   { path: '/app/settings/general', element: <SettingsGeneral /> },
                   { path: '/app/settings/tokens', element: <SettingsTokens /> },
-                  { path: '/app/settings/mcp', element: <SettingsMCP /> },
+                  { path: '/app/settings/ai-integration', element: <SettingsMCP /> },
                   { path: '/app/settings/tags', element: <SettingsTags /> },
                   { path: '/app/settings/history', element: <SettingsVersionHistory /> },
                   { path: '/app/settings/faq', element: <SettingsFAQ /> },
@@ -197,7 +197,7 @@ const router = createBrowserRouter([
  *   - /app/settings : Redirects to /app/settings/general
  *   - /app/settings/general : General UI preferences
  *   - /app/settings/tokens : Personal access tokens
- *   - /app/settings/mcp : MCP integration setup
+ *   - /app/settings/ai-integration : MCP integration setup
  *   - /app/settings/tags : Tag management
  *   - /app/settings/faq : Frequently asked questions
  */

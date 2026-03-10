@@ -634,7 +634,7 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
                 icon={<KeyIcon className="h-[18px] w-[18px] text-gray-500" />}
               />
               <SidebarNavItem
-                to="/app/settings/mcp"
+                to="/app/settings/ai-integration"
                 label="AI Integration"
                 isCollapsed={isCollapsed}
                 onClick={onNavClick}

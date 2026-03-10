@@ -43,7 +43,7 @@ describe('findMatchingRoute', () => {
 
   it('should return exact match for settings paths', () => {
     expect(findMatchingRoute('/app/settings/general')).toBe('/app/settings/general')
-    expect(findMatchingRoute('/app/settings/mcp')).toBe('/app/settings/mcp')
+    expect(findMatchingRoute('/app/settings/ai-integration')).toBe('/app/settings/ai-integration')
   })
 
   it('should strip query string before matching', () => {

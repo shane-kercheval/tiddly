@@ -2,6 +2,46 @@
  * Tests for SettingsMCP settings page.
  *
  * Tests both the CLI setup section (default tab) and the manual setup section (Curl/PAT tab).
+ *
+ * == CLI Remove Flow: Scenario Matrix ==
+ *
+ * Scope selector:
+ *   - MCP servers selected    → scope selector visible (user/local/project)
+ *   - Skills only (no MCP)    → scope selector hidden, Options section hidden
+ *   - Default scope           → "user", no --scope in command
+ *   - Local scope             → --scope local in command, cd prepended, unsupported tools skipped
+ *   - Project scope           → --scope project in command, cd prepended, unsupported tools skipped
+ *   - Scope warning           → shown for tools that don't support the selected scope
+ *
+ * Delete tokens:
+ *   - Defaults to no          → no --delete-tokens, no login step
+ *   - Enabled                 → --delete-tokens in command, login step shown
+ *   - Enabled + incompatible  → login step hidden (no runnable commands)
+ *   - Skills only (no MCP)    → Delete Tokens option hidden
+ *
+ * --servers flag:
+ *   - Both servers selected   → no --servers flag
+ *   - One server selected     → --servers content or --servers prompts
+ *
+ * Skills removal:
+ *   - Skills=yes in remove    → warning callout shown, commented-out rm -rf commands
+ *   - Skills=yes in configure → no warning
+ *   - Claude Desktop          → manual instruction (no rm command)
+ *   - Local/project scope     → project-level skill paths (# rm -rf .claude/skills/)
+ *   - User scope              → no project-level skill paths
+ *
+ * Empty state:
+ *   - Nothing selected        → "Select at least one item..." message, no steps
+ *   - Incompatible scope      → "don't support the chosen scope" message, no steps
+ *
+ * cd step:
+ *   - Local/project scope     → cd /path/to/your/project prepended (both configure and remove)
+ *   - User scope              → no cd line
+ *   - Skills-only project     → cd prepended when skills scope is project (configure only)
+ *
+ * Command join (configure):
+ *   - User scope + MCP+skills → commands joined with && (stop on failure)
+ *   - Local/project + MCP+skills → commands joined with \n (cd on separate line)
  */
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -670,6 +710,352 @@ describe('SettingsMCP', () => {
         await waitFor(() => {
           expect(within(manual).getAllByText('Copied!').length).toBeGreaterThan(0)
         })
+      })
+    })
+  })
+
+  // ===========================================================================
+  // Remove Flow
+  // ===========================================================================
+  describe('remove flow', () => {
+    /** Switch to Remove action and return the CLI section. */
+    async function switchToRemove(): Promise<{ user: ReturnType<typeof userEvent.setup>; cli: HTMLElement }> {
+      const user = userEvent.setup()
+      renderWithRouter()
+      const cli = screen.getByTestId('cli-setup-section')
+      await user.click(within(cli).getByRole('button', { name: 'Remove' }))
+      return { user, cli }
+    }
+
+    describe('scope selector', () => {
+      it('should show MCP scope when action=remove and MCP servers selected', async () => {
+        const { cli } = await switchToRemove()
+        expect(within(cli).getByText('MCP Scope')).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'User (global)' })).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'Local' })).toBeInTheDocument()
+      })
+
+      it('should hide MCP scope when action=remove and only skills selected', async () => {
+        const { user, cli } = await switchToRemove()
+        // Deselect both servers, enable skills
+        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
+        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+
+        expect(within(cli).queryByText('MCP Scope')).not.toBeInTheDocument()
+      })
+
+      it('should default remove scope to user', async () => {
+        const { cli } = await switchToRemove()
+        // "User (global)" pill should be selected (orange)
+        expect(within(cli).getByRole('button', { name: 'User (global)' }).className).toContain('bg-[#f09040]')
+      })
+
+      it('should add --scope local to remove command when local selected', async () => {
+        const { user, cli } = await switchToRemove()
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('--scope local')
+      })
+
+      it('should show scope warning for unsupported tool/scope pairs', async () => {
+        const { user, cli } = await switchToRemove()
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        expect(within(cli).getByText(/Codex doesn't support "local" scope/)).toBeInTheDocument()
+      })
+
+      it('should add --scope project to remove command when project selected', async () => {
+        const { user, cli } = await switchToRemove()
+        await user.click(within(cli).getByRole('button', { name: 'Project' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('--scope project')
+      })
+
+      it('should not add --scope when user scope selected', async () => {
+        const { cli } = await switchToRemove()
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).not.toContain('--scope')
+      })
+
+      it('should skip unsupported tools in generated remove commands', async () => {
+        const { user, cli } = await switchToRemove()
+        // Select local scope — Codex doesn't support it
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('tiddly mcp remove claude-code')
+        expect(pre.textContent).not.toContain('tiddly mcp remove codex')
+      })
+    })
+
+    describe('cd step', () => {
+      it('should prepend cd when local scope selected for remove', async () => {
+        const { user, cli } = await switchToRemove()
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
+      })
+
+      it('should prepend cd when project scope selected for remove', async () => {
+        const { user, cli } = await switchToRemove()
+        await user.click(within(cli).getByRole('button', { name: 'Project' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
+      })
+
+      it('should not have cd line when user scope selected for remove', async () => {
+        const { cli } = await switchToRemove()
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).not.toContain('cd /path/to/your/project')
+      })
+
+      it('should prepend cd when local scope selected for configure', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
+      })
+
+      it('should prepend cd when project scope selected for configure', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        // Click the first "Project" button (MCP Scope)
+        const projectButtons = within(cli).getAllByRole('button', { name: 'Project' })
+        await user.click(projectButtons[0])
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
+      })
+
+      it('should not have cd line when user scope selected for configure', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).not.toContain('cd /path/to/your/project')
+      })
+    })
+
+    describe('skills removal warning', () => {
+      /** Enable skills in remove mode — clicks the first "Yes" button (Skills toggle, not Delete Tokens). */
+      async function enableSkills(user: ReturnType<typeof userEvent.setup>, cli: HTMLElement): Promise<void> {
+        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
+        // Skills Yes is the first Yes button (Delete Tokens Yes comes after in the Options section)
+        await user.click(yesButtons[0])
+      }
+
+      it('should show warning when action=remove and skills=yes', async () => {
+        const { user, cli } = await switchToRemove()
+        await enableSkills(user, cli)
+
+        expect(within(cli).getByTestId('skills-remove-warning')).toBeInTheDocument()
+        expect(within(cli).getByText(/cannot distinguish Tiddly skills from other skills/)).toBeInTheDocument()
+      })
+
+      it('should hide warning when action=configure', async () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        expect(within(cli).queryByTestId('skills-remove-warning')).not.toBeInTheDocument()
+      })
+
+      it('should generate commented-out rm commands for skills', async () => {
+        const { user, cli } = await switchToRemove()
+        await enableSkills(user, cli)
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('# rm -rf ~/.claude/skills/')
+        expect(pre.textContent).toContain('# rm -rf ~/.codex/skills/')
+        expect(pre.textContent).not.toContain('\nrm -rf')
+      })
+
+      it('should show manual instruction for Claude Desktop skills', async () => {
+        const { user, cli } = await switchToRemove()
+        // Enable Claude Desktop and skills
+        await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
+        await enableSkills(user, cli)
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('Claude Desktop: manually remove skills')
+      })
+
+      it('should include project-level skill paths when local/project scope selected', async () => {
+        const { user, cli } = await switchToRemove()
+        await enableSkills(user, cli)
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('# rm -rf .claude/skills/')
+        expect(pre.textContent).toContain('# rm -rf .codex/skills/')
+      })
+
+      it('should not include project-level skill paths when user scope selected', async () => {
+        const { user, cli } = await switchToRemove()
+        await enableSkills(user, cli)
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).not.toContain('# rm -rf .claude/skills/')
+        expect(pre.textContent).not.toContain('# rm -rf .codex/skills/')
+      })
+    })
+
+    describe('delete tokens', () => {
+      it('should default delete tokens to no', async () => {
+        const { cli } = await switchToRemove()
+        // The second "No" button (Delete Tokens) should be selected
+        const noButtons = within(cli).getAllByRole('button', { name: 'No' })
+        // Delete Tokens No should be selected (orange)
+        expect(noButtons[noButtons.length - 1].className).toContain('bg-[#f09040]')
+      })
+
+      it('should hide login step when delete tokens is no', async () => {
+        const { cli } = await switchToRemove()
+        // Delete tokens defaults to No, so login step should not be shown
+        expect(within(cli).queryByText('Log in')).not.toBeInTheDocument()
+      })
+
+      it('should show login step when delete tokens is yes', async () => {
+        const { user, cli } = await switchToRemove()
+        // Enable delete tokens — click the last "Yes" button (Delete Tokens)
+        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
+        await user.click(yesButtons[yesButtons.length - 1])
+
+        expect(within(cli).getByText('Log in')).toBeInTheDocument()
+      })
+
+      it('should add --delete-tokens to generated command when enabled', async () => {
+        const { user, cli } = await switchToRemove()
+        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
+        await user.click(yesButtons[yesButtons.length - 1])
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('--delete-tokens')
+      })
+
+      it('should not add --delete-tokens when disabled', async () => {
+        const { cli } = await switchToRemove()
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).not.toContain('--delete-tokens')
+      })
+
+      it('should hide delete tokens option when only skills selected', async () => {
+        const { user, cli } = await switchToRemove()
+        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
+        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
+        // Enable skills
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+
+        expect(within(cli).queryByText('Delete Tokens')).not.toBeInTheDocument()
+      })
+
+      it('should not show login step when delete tokens is yes but scope is incompatible', async () => {
+        const { user, cli } = await switchToRemove()
+        // Select only Claude Desktop
+        await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
+        await user.click(within(cli).getByRole('button', { name: 'Codex' }))
+        await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
+        // Enable delete tokens
+        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
+        await user.click(yesButtons[yesButtons.length - 1])
+        // Select local scope (CD doesn't support it)
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        // Login step should not appear since there are no commands
+        expect(within(cli).queryByText('Log in')).not.toBeInTheDocument()
+      })
+    })
+
+    describe('--servers flag in remove', () => {
+      it('should add --servers when only one server selected', async () => {
+        const { user, cli } = await switchToRemove()
+        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('--servers content')
+      })
+
+      it('should not add --servers when both servers selected', async () => {
+        const { cli } = await switchToRemove()
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).not.toContain('--servers')
+      })
+    })
+
+    describe('configure command join behavior', () => {
+      it('should join configure commands with && when user scope', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        // Enable skills
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('&& \\')
+      })
+
+      it('should join configure commands with newlines when local scope', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        // Enable skills and select local scope
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).not.toContain('&&')
+        expect(pre.textContent).toContain('cd /path/to/your/project')
+      })
+
+      it('should prepend cd when only skills scope is project and MCP scope is user', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        // Enable skills
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+        // Set skills scope to project (MCP scope stays at default user)
+        const projectButtons = within(cli).getAllByRole('button', { name: 'Project' })
+        // Skills scope Project is the second Project button (first is MCP scope)
+        await user.click(projectButtons[projectButtons.length - 1])
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
+      })
+    })
+
+    describe('empty command handling', () => {
+      it('should show incompatible scope message when all tools unsupported for scope', async () => {
+        const { user, cli } = await switchToRemove()
+        // Select only Claude Desktop, then choose local scope (which CD doesn't support)
+        await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
+        await user.click(within(cli).getByRole('button', { name: 'Codex' }))
+        await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
+        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+
+        expect(within(cli).getByText(/don't support the chosen scope/)).toBeInTheDocument()
+        // Steps should not be rendered
+        expect(within(cli).queryByText('Install the CLI')).not.toBeInTheDocument()
+        expect(within(cli).queryByText('Log in')).not.toBeInTheDocument()
+      })
+
+      it('should show nothing-selected message when nothing selected', async () => {
+        const { user, cli } = await switchToRemove()
+        // Deselect all servers and tools
+        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
+        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
+
+        expect(within(cli).getByText(/Select at least one item and one target tool above/)).toBeInTheDocument()
       })
     })
   })
