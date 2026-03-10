@@ -370,7 +370,7 @@ createContentComponentTests({
       )
 
       // The fetch metadata button should be visible
-      expect(screen.getByLabelText(/fetch metadata/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/retrieve info/i)).toBeInTheDocument()
     })
 
     it('test__manual_fetch__error_response_preserves_existing_fields', async () => {
@@ -395,10 +395,12 @@ createContentComponentTests({
       // Verify existing values are rendered
       expect(screen.getByDisplayValue('Test Bookmark')).toBeInTheDocument()
       expect(screen.getByDisplayValue('Test description')).toBeInTheDocument()
+      // Expand content section to verify content
+      await user.click(screen.getByRole('button', { name: /page content/i }))
       expect(screen.getByTestId('content-editor-text')).toHaveValue(mockBookmark.content)
 
       // Click fetch metadata button
-      const fetchButton = screen.getByLabelText(/fetch metadata/i)
+      const fetchButton = screen.getByLabelText(/retrieve info/i)
       await user.click(fetchButton)
 
       // Wait for the fetch to complete (warning icon appears)
@@ -432,14 +434,50 @@ createContentComponentTests({
       )
 
       // Click fetch metadata button
-      const fetchButton = screen.getByLabelText(/fetch metadata/i)
+      const fetchButton = screen.getByLabelText(/retrieve info/i)
       await user.click(fetchButton)
 
       await waitFor(() => {
         expect(screen.getByDisplayValue('Fetched Title')).toBeInTheDocument()
       })
       expect(screen.getByDisplayValue('Fetched description')).toBeInTheDocument()
+      // Expand content section to verify fetched content
+      await user.click(screen.getByRole('button', { name: /page content/i }))
       expect(screen.getByTestId('content-editor-text')).toHaveValue('# Fetched content')
+    })
+
+    it('test__manual_fetch__content_exceeding_limit_is_truncated', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      // Create content that exceeds max_bookmark_content_length (512000)
+      const oversizedContent = 'x'.repeat(512000 + 100)
+      mockOnFetchMetadata.mockResolvedValue({
+        title: 'Title',
+        description: 'Desc',
+        content: oversizedContent,
+        error: null,
+      })
+
+      renderWithRouter(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onFetchMetadata={mockOnFetchMetadata}
+        />
+      )
+
+      const fetchButton = screen.getByLabelText(/retrieve info/i)
+      await user.click(fetchButton)
+
+      await waitFor(() => {
+        expect(mockOnFetchMetadata).toHaveBeenCalled()
+      })
+
+      // Expand content section to verify truncated content
+      await user.click(screen.getByRole('button', { name: /page content/i }))
+      const editor = screen.getByTestId('content-editor-text')
+      expect(editor).toHaveValue('x'.repeat(512000))
     })
   })
 
@@ -639,6 +677,8 @@ createContentComponentTests({
         />
       )
 
+      // Expand content section to access editor
+      await user.click(screen.getByRole('button', { name: /page content/i }))
       const initialEditor = screen.getByTestId('content-editor-text')
       const initialInstance = initialEditor.getAttribute('data-editor-instance')
 
@@ -676,6 +716,8 @@ createContentComponentTests({
         />
       )
 
+      // Expand content section to access editor
+      await user.click(screen.getByRole('button', { name: /page content/i }))
       const editor = screen.getByTestId('content-editor-text')
       editor.focus()
       expect(document.activeElement).toBe(editor)

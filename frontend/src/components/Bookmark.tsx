@@ -26,7 +26,7 @@ import { ContentEditor } from './ContentEditor'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
 import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip, ContentAreaSpinner } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
-import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon } from './icons'
+import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon, ChevronRightIcon, ChevronDownIcon, HelpIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { useLimits } from '../hooks/useLimits'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
@@ -192,6 +192,7 @@ export function Bookmark({
   const [current, setCurrent] = useState<BookmarkState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isContentExpanded, setIsContentExpanded] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
@@ -392,18 +393,23 @@ export function Bookmark({
       onFetchMetadata(normalizeUrl(initialUrl))
         .then((metadata) => {
           if (metadata.error) {
-            setFetchError(`Could not fetch metadata: ${metadata.error}`)
+            setFetchError(`Could not retrieve info: ${metadata.error}`)
           }
+
+          // Truncate fetched content to limit — scraped text beyond the max is not useful
+          const fetchedContent = metadata.content != null && limits
+            ? metadata.content.slice(0, limits.max_bookmark_content_length)
+            : metadata.content
 
           setCurrent((prev) => ({
             ...prev,
             ...(metadata.title != null && { title: metadata.title }),
             ...(metadata.description != null && { description: metadata.description }),
-            ...(metadata.content != null && { content: metadata.content }),
+            ...(fetchedContent != null && { content: fetchedContent }),
           }))
 
-          // Force editor remount to display fetched content
-          if (metadata.content != null) {
+          // Force editor remount when content is fetched
+          if (fetchedContent != null) {
             setContentKey((prev) => prev + 1)
           }
 
@@ -417,13 +423,13 @@ export function Bookmark({
         })
         .catch(() => {
           setShowFetchSuccess(false)
-          setFetchError('Failed to fetch metadata. You can still save the bookmark.')
+          setFetchError('Failed to retrieve URL info. You can still save the bookmark.')
         })
         .finally(() => {
           setIsFetchingMetadata(false)
         })
     }
-  }, [initialUrl, onFetchMetadata])
+  }, [initialUrl, onFetchMetadata, limits])
 
   // Clean up any orphaned drafts from previous versions
   useEffect(() => {
@@ -535,18 +541,23 @@ export function Bookmark({
       const metadata = await onFetchMetadata(normalizeUrl(current.url))
 
       if (metadata.error) {
-        setFetchError(`Could not fetch metadata: ${metadata.error}`)
+        setFetchError(`Could not retrieve info: ${metadata.error}`)
       }
+
+      // Truncate fetched content to limit — scraped text beyond the max is not useful
+      const fetchedContent = metadata.content != null && limits
+        ? metadata.content.slice(0, limits.max_bookmark_content_length)
+        : metadata.content
 
       setCurrent((prev) => ({
         ...prev,
         ...(metadata.title != null && { title: metadata.title }),
         ...(metadata.description != null && { description: metadata.description }),
-        ...(metadata.content != null && { content: metadata.content }),
+        ...(fetchedContent != null && { content: fetchedContent }),
       }))
 
-      // Force editor remount to display fetched content
-      if (metadata.content != null) {
+      // Force editor remount when content is fetched
+      if (fetchedContent != null) {
         setContentKey((prev) => prev + 1)
       }
 
@@ -559,7 +570,7 @@ export function Bookmark({
       }
     } catch {
       setShowFetchSuccess(false)
-      setFetchError('Failed to fetch metadata. You can still save the bookmark.')
+      setFetchError('Failed to retrieve URL info. You can still save the bookmark.')
     } finally {
       setIsFetchingMetadata(false)
     }
@@ -1049,26 +1060,49 @@ export function Bookmark({
           </div>
         </div>
 
-        {/* Content editor */}
-        <ContentEditor
-          key={`${bookmark?.id ?? 'new'}-${contentKey}`}
-          value={current.content}
-          onChange={handleContentChange}
-          disabled={isSaving || isReadOnly}
-          hasError={!!errors.content}
-          minHeight="200px"
-          placeholder="Content can be either auto-filled from public URLs or manually entered for private pages or custom notes. Content is used in search results."
-          maxLength={limits.max_bookmark_content_length}
-          errorMessage={errors.content}
-          label=""
-          showBorder={true}
-          subtleBorder={true}
-          onModalStateChange={setIsModalOpen}
-          onSaveAndClose={!isReadOnly ? () => { requestSaveAndClose(); formRef.current?.requestSubmit() } : undefined}
-          onDiscard={!isReadOnly ? () => { setCurrent(original); resetConfirmation() } : undefined}
-          originalContent={original.content}
-          isDirty={isDirty}
-        />
+        {/* Collapsible search content section */}
+        <div className="mt-2">
+          <div className="flex items-center gap-1.5 py-1.5 text-xs text-gray-400">
+            <button
+              type="button"
+              onClick={() => setIsContentExpanded((prev) => !prev)}
+              aria-expanded={isContentExpanded}
+              className="flex items-center gap-1.5 hover:text-gray-500 transition-colors"
+            >
+              {isContentExpanded
+                ? <ChevronDownIcon className="h-3.5 w-3.5" />
+                : <ChevronRightIcon className="h-3.5 w-3.5" />
+              }
+              <span>Page Content</span>
+            </button>
+            <Tooltip
+              content={<>Page content is auto-filled using the <svg className="inline h-3 w-3 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> button above or can be added manually. This content helps Tiddly find the bookmark when searching. It is optimized for search and scraped without retaining formatting.</>}
+            >
+              <HelpIcon className="h-3.5 w-3.5" />
+            </Tooltip>
+          </div>
+          {isContentExpanded && (
+            <ContentEditor
+              key={`${bookmark?.id ?? 'new'}-${contentKey}`}
+              value={current.content}
+              onChange={handleContentChange}
+              disabled={isSaving || isReadOnly}
+              hasError={!!errors.content}
+              minHeight="200px"
+              placeholder="Paste or type content to make this bookmark searchable. Auto-filled when you retrieve URL info."
+              maxLength={limits.max_bookmark_content_length}
+              errorMessage={errors.content}
+              label=""
+              showBorder={true}
+              subtleBorder={true}
+              onModalStateChange={setIsModalOpen}
+              onSaveAndClose={!isReadOnly ? () => { requestSaveAndClose(); formRef.current?.requestSubmit() } : undefined}
+              onDiscard={!isReadOnly ? () => { setCurrent(original); resetConfirmation() } : undefined}
+              originalContent={original.content}
+              isDirty={isDirty}
+            />
+          )}
+        </div>
       </div>
 
       {/* Unsaved changes warning dialog */}

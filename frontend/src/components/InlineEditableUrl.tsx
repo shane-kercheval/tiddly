@@ -121,18 +121,19 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
     return (
       <div className="w-full">
         <div className={containerClasses}>
-          {/* Fetch Metadata button */}
+          {/* Fetch URL info button */}
           {onFetchMetadata && (
             <Tooltip
-              content={fetchError && !isFetchingMetadata && !showFetchSuccess ? fetchError : 'Fetch metadata from URL'}
+              content={fetchError && !isFetchingMetadata && !showFetchSuccess ? fetchError : 'Retrieve info from URL'}
               compact={!fetchError || isFetchingMetadata || showFetchSuccess}
+              position="right"
             >
               <button
                 type="button"
                 onClick={handleFetchClick}
                 disabled={disabled || isFetchingMetadata || !value.trim()}
                 className="shrink-0 p-1.5 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                aria-label="Fetch metadata from URL"
+                aria-label="Retrieve info from URL"
               >
                 {isFetchingMetadata ? (
                   <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
