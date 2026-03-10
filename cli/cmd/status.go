@@ -375,8 +375,8 @@ func getToolStatus(tool mcp.DetectedTool, scope, cwd string) (mcp.StatusResult, 
 
 // serverDisplayName maps internal server type to a user-friendly label.
 var serverDisplayName = map[string]string{
-	"content": "bookmarks/notes",
-	"prompts": "prompts",
+	mcp.ServerContent: "bookmarks/notes",
+	mcp.ServerPrompts: "prompts",
 }
 
 // serverDisplayLabel returns the user-friendly label for a tiddly server match.

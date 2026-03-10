@@ -59,8 +59,8 @@ func (h *CodexHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT string
 	return warnings, nil
 }
 
-func (h *CodexHandler) Remove(rc ResolvedConfig) error {
-	return removeCodex(rc)
+func (h *CodexHandler) Remove(rc ResolvedConfig, servers []string) error {
+	return removeCodex(rc, servers)
 }
 
 func (h *CodexHandler) Status(rc ResolvedConfig) (StatusResult, error) {

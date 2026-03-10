@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
@@ -219,16 +220,20 @@ Examples:
 // parseServersFlag validates and parses the --servers flag value.
 func parseServersFlag(value string) ([]string, error) {
 	parts := strings.Split(value, ",")
+	seen := make(map[string]bool)
 	var result []string
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
 		}
-		if p != "content" && p != "prompts" {
-			return nil, fmt.Errorf("invalid server %q in --servers flag. Valid values: content, prompts", p)
+		if p != mcp.ServerContent && p != mcp.ServerPrompts {
+			return nil, fmt.Errorf("invalid server %q in --servers flag. Valid values: %s, %s", p, mcp.ServerContent, mcp.ServerPrompts)
 		}
-		result = append(result, p)
+		if !seen[p] {
+			seen[p] = true
+			result = append(result, p)
+		}
 	}
 	if len(result) == 0 {
 		return nil, fmt.Errorf("--servers flag requires at least one value: content, prompts")
@@ -281,6 +286,7 @@ func newMCPRemoveCmd() *cobra.Command {
 	var (
 		deleteTokens bool
 		scope        string
+		servers      string
 	)
 
 	cmd := &cobra.Command{
@@ -294,14 +300,23 @@ With --delete-tokens (requires OAuth login), the CLI reads PATs from the tool's 
 
 Claude Desktop users: restart Claude Desktop after removing.
 
+Use --servers to selectively remove only the content or prompts server, preserving the other.
+
 Examples:
-  tiddly mcp remove claude-code                   Remove MCP entries
-  tiddly mcp remove claude-code --delete-tokens   Remove entries and revoke PATs
-  tiddly mcp remove codex --scope project         Remove from project config`,
+  tiddly mcp remove claude-code                          Remove MCP entries
+  tiddly mcp remove claude-code --delete-tokens          Remove entries and revoke PATs
+  tiddly mcp remove codex --scope project                Remove from project config
+  tiddly mcp remove claude-code --servers content        Remove only the content server
+  tiddly mcp remove claude-code --servers content --delete-tokens  Remove content server and revoke its PAT`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateScope(scope); err != nil {
+				return err
+			}
+
+			serverList, err := parseServersFlag(servers)
+			if err != nil {
 				return err
 			}
 
@@ -340,20 +355,32 @@ Examples:
 				return err
 			}
 
-			// Extract PATs from config BEFORE removing entries
+			// Extract PATs from config BEFORE removing entries, filtered by serverList
 			var extractedPATs []string
 			if deleteTokens {
 				contentPAT, promptPAT := handler.ExtractPATs(rc)
-				if contentPAT != "" {
+				wantContent := slices.Contains(serverList, mcp.ServerContent)
+				wantPrompts := slices.Contains(serverList, mcp.ServerPrompts)
+				if wantContent && contentPAT != "" {
 					extractedPATs = append(extractedPATs, contentPAT)
 				}
-				if promptPAT != "" && promptPAT != contentPAT {
+				// Dedup: only skip if contentPAT was already added (wantContent && same value)
+				if wantPrompts && promptPAT != "" && (!wantContent || promptPAT != contentPAT) {
 					extractedPATs = append(extractedPATs, promptPAT)
+				}
+				// Warn when a shared PAT is being revoked while the other server is retained
+				if contentPAT != "" && contentPAT == promptPAT && wantContent != wantPrompts {
+					retained := mcp.ServerPrompts
+					if wantPrompts {
+						retained = mcp.ServerContent
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"Warning: token is shared with %s server (still configured); it will also lose access.\n", retained)
 				}
 			}
 
 			// Remove config entries
-			if err := handler.Remove(rc); err != nil {
+			if err := handler.Remove(rc, serverList); err != nil {
 				return err
 			}
 
@@ -373,12 +400,16 @@ Examples:
 						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Some tokens could not be deleted: %v\n", delErr)
 					}
 				} else if !deleteTokens {
-					orphaned, orphanErr := mcp.CheckOrphanedTokens(cmd.Context(), client, toolName)
+					orphaned, orphanErr := mcp.CheckOrphanedTokens(cmd.Context(), client, toolName, serverList)
 					if orphanErr == nil && len(orphaned) > 0 {
 						fmt.Fprintf(cmd.ErrOrStderr(),
 							"Warning: PATs created for %s may still exist: %s\n", toolName, strings.Join(orphaned, ", "))
+						suggestedCmd := fmt.Sprintf("tiddly mcp remove %s --delete-tokens", toolName)
+						if len(serverList) == 1 {
+							suggestedCmd += fmt.Sprintf(" --servers %s", serverList[0])
+						}
 						fmt.Fprintf(cmd.ErrOrStderr(),
-							"Run 'tiddly mcp remove %s --delete-tokens' to revoke, or manage tokens at https://tiddly.me/settings.\n", toolName)
+							"Run '%s' to revoke, or manage tokens at https://tiddly.me/settings.\n", suggestedCmd)
 					}
 				}
 			}
@@ -393,6 +424,7 @@ Examples:
 
 	cmd.Flags().BoolVar(&deleteTokens, "delete-tokens", false, "Revoke PATs extracted from config during removal")
 	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
+	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which servers to remove: content, prompts, or both")
 
 	return cmd
 }

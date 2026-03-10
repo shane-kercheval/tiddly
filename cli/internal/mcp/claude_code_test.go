@@ -143,7 +143,7 @@ func TestRemoveClaudeCode__removes_servers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove
-	err = removeClaudeCode(rc)
+	err = removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -157,7 +157,7 @@ func TestRemoveClaudeCode__no_file_is_noop(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeClaudeCode(rc)
+	err := removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 }
 
@@ -176,7 +176,7 @@ func TestRemoveClaudeCode__no_tiddly_servers_skips_write(t *testing.T) {
 	writeTestJSON(t, configPath, existing)
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeClaudeCode(rc)
+	err := removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
@@ -519,7 +519,7 @@ func TestRemoveClaudeCode__removes_stdio_npx_servers(t *testing.T) {
 	})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeClaudeCode(rc)
+	err := removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -549,7 +549,7 @@ func TestRemoveClaudeCode__removes_custom_named_servers(t *testing.T) {
 	})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeClaudeCode(rc)
+	err := removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -557,6 +557,40 @@ func TestRemoveClaudeCode__removes_custom_named_servers(t *testing.T) {
 	assert.NotContains(t, servers, "my_content")
 	assert.NotContains(t, servers, "my_prompts")
 	assert.Contains(t, servers, "other-server")
+}
+
+func TestRemoveClaudeCode__content_only_preserves_prompts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	err = removeClaudeCode(rc, []string{"content"})
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.NotContains(t, servers, serverNameContent)
+	assert.Contains(t, servers, serverNamePrompts)
+}
+
+func TestRemoveClaudeCode__prompts_only_preserves_content(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	err = removeClaudeCode(rc, []string{"prompts"})
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.Contains(t, servers, serverNameContent)
+	assert.NotContains(t, servers, serverNamePrompts)
 }
 
 func TestConfigureClaudeCode__replaces_custom_named_servers(t *testing.T) {

@@ -62,8 +62,8 @@ func (h *ClaudeDesktopHandler) Configure(rc ResolvedConfig, contentPAT, promptPA
 	return warnings, nil
 }
 
-func (h *ClaudeDesktopHandler) Remove(rc ResolvedConfig) error {
-	return removeClaudeDesktop(rc.Path)
+func (h *ClaudeDesktopHandler) Remove(rc ResolvedConfig, servers []string) error {
+	return removeClaudeDesktop(rc.Path, servers)
 }
 
 func (h *ClaudeDesktopHandler) Status(rc ResolvedConfig) (StatusResult, error) {

@@ -379,7 +379,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
       { label: 'Settings: General', path: '/app/settings/general', icon: <AdjustmentsIcon className="h-4 w-4" /> },
       { label: 'Settings: Tags', path: '/app/settings/tags', icon: <TagIcon className="h-4 w-4" /> },
       { label: 'Settings: Personal Access Tokens', path: '/app/settings/tokens', icon: <KeyIcon className="h-4 w-4" /> },
-      { label: 'Settings: AI Integration', path: '/app/settings/mcp', icon: <SparklesIcon className="h-4 w-4" /> },
+      { label: 'Settings: AI Integration', path: '/app/settings/ai-integration', icon: <SparklesIcon className="h-4 w-4" /> },
       { label: 'Settings: Version History', path: '/app/settings/history', icon: <HistoryIcon className="h-4 w-4" /> },
       { label: 'Settings: FAQ', path: '/app/settings/faq', icon: <HelpIcon className="h-4 w-4" /> },
     ]

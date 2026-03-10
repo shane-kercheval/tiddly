@@ -88,7 +88,7 @@ func configureClaudeDesktop(configPath, contentPAT, promptPAT string) error {
 
 // removeClaudeDesktop removes tiddly MCP server entries from the config.
 // Identifies servers by URL in args, not by name, so custom-named entries are also removed.
-func removeClaudeDesktop(configPath string) error {
+func removeClaudeDesktop(configPath string, serverFilter []string) error {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -102,7 +102,7 @@ func removeClaudeDesktop(configPath string) error {
 		return nil
 	}
 
-	if !removeJSONServersByTiddlyURL(servers, isTiddlyURL) {
+	if !removeJSONServersByTiddlyURL(servers, serverURLMatcher(serverFilter)) {
 		return nil
 	}
 
@@ -154,14 +154,14 @@ func statusClaudeDesktop(configPath string) (StatusResult, error) {
 		matched := false
 		if !foundContent && isTiddlyContentURL(urlStr) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "content", Name: name, MatchMethod: method, URL: urlStr,
+				ServerType: ServerContent, Name: name, MatchMethod: method, URL: urlStr,
 			})
 			foundContent = true
 			matched = true
 		}
 		if !foundPrompts && isTiddlyPromptURL(urlStr) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "prompts", Name: name, MatchMethod: method, URL: urlStr,
+				ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr,
 			})
 			foundPrompts = true
 			matched = true

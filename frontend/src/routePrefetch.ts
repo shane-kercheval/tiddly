@@ -39,7 +39,7 @@ const routeImports: Record<string, () => Promise<unknown>> = {
   // App settings pages
   '/app/settings/general': () => import('./pages/settings/SettingsGeneral'),
   '/app/settings/tokens': () => import('./pages/settings/SettingsTokens'),
-  '/app/settings/mcp': () => import('./pages/settings/SettingsMCP'),
+  '/app/settings/ai-integration': () => import('./pages/settings/SettingsMCP'),
   '/app/settings/tags': () => import('./pages/settings/SettingsTags'),
   '/app/settings/faq': () => import('./pages/settings/SettingsFAQ'),
   '/app/settings/history': () => import('./pages/settings/SettingsVersionHistory'),

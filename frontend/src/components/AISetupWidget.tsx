@@ -291,12 +291,14 @@ function generateCLICommands(
   skillsTags: string[],
   skillsTagMatch: TagMatchType,
   deleteTokens: boolean,
+  removeMcpScope: McpScopeType,
 ): string {
   if (action === 'remove') {
-    return generateRemoveCommands(selectedServers, installSkills, selectedTools, deleteTokens)
+    return generateRemoveCommands(selectedServers, installSkills, selectedTools, deleteTokens, removeMcpScope)
   }
 
   const allTools: CliToolType[] = ['claude-desktop', 'claude-code', 'codex']
+  const needsCd = (mcpScope === 'local' || mcpScope === 'project') || (installSkills && skillsScope === 'project')
   const parts: string[] = []
 
   if (selectedServers.size > 0 && selectedTools.size > 0) {
@@ -351,8 +353,15 @@ function generateCLICommands(
   }
 
   if (parts.length === 0) return ''
+
+  // Prepend cd when local/project scope requires a project directory
+  if (needsCd) {
+    parts.unshift('cd /path/to/your/project')
+  }
+
   if (parts.length === 1) return parts[0]
-  return parts.join(' && \\\n')
+  // Use && chaining when no cd is prepended (single copy-pasteable command that stops on failure)
+  return parts.join(needsCd ? '\n' : ' && \\\n')
 }
 
 /**
@@ -363,16 +372,22 @@ function generateRemoveCommands(
   removeSkills: boolean,
   selectedTools: Set<CliToolType>,
   deleteTokens: boolean,
+  mcpScope: McpScopeType,
 ): string {
   const allTools: CliToolType[] = ['claude-desktop', 'claude-code', 'codex']
+  const needsCd = mcpScope === 'local' || mcpScope === 'project'
   const parts: string[] = []
 
   if (selectedServers.size > 0 && selectedTools.size > 0) {
-    const mcpTools = allTools.filter((t) => selectedTools.has(t))
+    // Skip tools that don't support the selected scope
+    const mcpTools = allTools.filter((t) => selectedTools.has(t) && MCP_SCOPE_SUPPORT[t].includes(mcpScope))
     for (const tool of mcpTools) {
       let cmd = `tiddly mcp remove ${tool}`
       if (selectedServers.size === 1) {
         cmd += ` --servers ${[...selectedServers][0]}`
+      }
+      if (mcpScope !== 'user') {
+        cmd += ` --scope ${mcpScope}`
       }
       if (deleteTokens) {
         cmd += ' --delete-tokens'
@@ -383,17 +398,34 @@ function generateRemoveCommands(
 
   if (removeSkills && selectedTools.size > 0) {
     const skillsTools = allTools.filter((t) => selectedTools.has(t))
-    const skillsDirs: Record<CliToolType, string> = {
-      'claude-code': '~/.claude/skills/',
-      'codex': '~/.codex/skills/',
-      'claude-desktop': '(manually remove from Settings → Capabilities)',
-    }
     for (const tool of skillsTools) {
-      parts.push(`# Remove ${CLI_TOOL_LABELS[tool]} skills: ${skillsDirs[tool]}`)
+      if (tool === 'claude-desktop') {
+        parts.push('# Claude Desktop: manually remove skills from Settings > Capabilities')
+      } else {
+        const dir = tool === 'claude-code' ? '~/.claude/skills/' : '~/.codex/skills/'
+        parts.push(`# WARNING: Removes ALL skills including non-Tiddly ones`)
+        parts.push(`# rm -rf ${dir}`)
+      }
+    }
+    // Project-level skill paths when local/project scope
+    if (needsCd) {
+      parts.push('# WARNING: Removes ALL project-level skills including non-Tiddly ones')
+      if (selectedTools.has('claude-code')) {
+        parts.push('# rm -rf .claude/skills/')
+      }
+      if (selectedTools.has('codex')) {
+        parts.push('# rm -rf .codex/skills/')
+      }
     }
   }
 
   if (parts.length === 0) return ''
+
+  // Prepend cd when local/project scope requires a project directory
+  if (needsCd) {
+    parts.unshift('cd /path/to/your/project')
+  }
+
   return parts.join('\n')
 }
 
@@ -439,13 +471,14 @@ function CLISetupSection(): ReactNode {
   // What to configure/remove
   const [selectedServers, setSelectedServers] = useState<Set<ServerType>>(new Set(['content', 'prompts']))
   const [installSkills, setInstallSkills] = useState(false)
-  const [deleteTokens, setDeleteTokens] = useState(true)
+  const [deleteTokens, setDeleteTokens] = useState(false)
 
   // Where to configure/remove
   const [selectedTools, setSelectedTools] = useState<Set<CliToolType>>(new Set(['claude-code', 'codex']))
 
   // Scope
   const [mcpScope, setMcpScope] = useState<McpScopeType>('user')
+  const [removeMcpScope, setRemoveMcpScope] = useState<McpScopeType>('user')
   const [skillsScope, setSkillsScope] = useState<SkillsScopeType>('global')
 
   // Skills tag filter
@@ -482,10 +515,12 @@ function CLISetupSection(): ReactNode {
   }, [isAuthenticated])
 
   const hasMcpServers = selectedServers.size > 0
-  const hasAnything = (hasMcpServers || installSkills) && selectedTools.size > 0
-  const command = generateCLICommands(cliAction, selectedServers, installSkills, selectedTools, mcpScope, skillsScope, skillsTags, skillsTagMatch, deleteTokens)
+  const hasSelections = (hasMcpServers || installSkills) && selectedTools.size > 0
+  const command = generateCLICommands(cliAction, selectedServers, installSkills, selectedTools, mcpScope, skillsScope, skillsTags, skillsTagMatch, deleteTokens, removeMcpScope)
+  const hasAnything = hasSelections && command !== ''
 
-  const mcpScopeWarnings = hasMcpServers ? getMcpScopeWarnings(selectedTools, mcpScope) : []
+  const activeMcpScope = isRemove ? removeMcpScope : mcpScope
+  const mcpScopeWarnings = hasMcpServers ? getMcpScopeWarnings(selectedTools, activeMcpScope) : []
   const skillsScopeWarnings = installSkills ? getSkillsScopeWarnings(selectedTools, skillsScope) : []
 
   const handleCopyCommand = async (): Promise<void> => {
@@ -590,23 +625,56 @@ function CLISetupSection(): ReactNode {
         </div>
       </div>
 
-      {/* Options - delete tokens (shown when removing MCP servers) */}
+      {/* Options - remove flow (scope + delete tokens) */}
       {isRemove && hasMcpServers && (
         <div className="mb-6">
-          <SectionDivider label="Options" tooltip="Choose whether to also delete the Personal Access Tokens that were embedded in the tool configurations. This requires logging in first." />
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">Delete Tokens</span>
-            <PillSelectGroup<'yes' | 'no'>
-              options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
-              value={deleteTokens ? 'yes' : 'no'}
-              onChange={(v) => setDeleteTokens(v === 'yes')}
-            />
+          <SectionDivider label="Options" tooltip="Scope controls which config location to remove from. Delete Tokens revokes the PATs embedded in the tool configurations." />
+          <div className="space-y-4">
+            {hasMcpServers && (
+              <div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">MCP Scope</span>
+                  <PillSelectGroup options={mcpScopeOptions} value={removeMcpScope} onChange={setRemoveMcpScope} />
+                </div>
+                {mcpScopeWarnings.length > 0 && (
+                  <div className="mt-2 ml-0 sm:ml-28">
+                    {mcpScopeWarnings.map((w) => (
+                      <p key={w} className="text-xs text-amber-600">{w}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {hasMcpServers && (
+              <div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">Delete Tokens</span>
+                  <PillSelectGroup<'yes' | 'no'>
+                    options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
+                    value={deleteTokens ? 'yes' : 'no'}
+                    onChange={(v) => setDeleteTokens(v === 'yes')}
+                  />
+                </div>
+                {deleteTokens && (
+                  <p className="text-xs text-amber-600 mt-2 ml-0 sm:ml-28">
+                    Requires <code className="rounded bg-amber-50 px-1 py-0.5 text-xs">tiddly login</code> — the CLI needs to authenticate to revoke tokens via the API.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
-          {deleteTokens && (
-            <p className="text-xs text-amber-600 mt-2 ml-0 sm:ml-28">
-              Requires <code className="rounded bg-amber-50 px-1 py-0.5 text-xs">tiddly login</code> — the CLI needs to authenticate to revoke tokens via the API.
+        </div>
+      )}
+
+      {/* Skills removal warning */}
+      {isRemove && installSkills && (
+        <div className="mb-6" data-testid="skills-remove-warning">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <h4 className="text-sm font-semibold text-amber-800 mb-2">Warning</h4>
+            <p className="text-sm text-amber-800">
+              The CLI cannot distinguish Tiddly skills from other skills. The commands below will delete <em>all</em> skill files in the skills directories, including any non-Tiddly skills. Uncomment the commands to execute them.
             </p>
-          )}
+          </div>
         </div>
       )}
 
@@ -679,72 +747,76 @@ function CLISetupSection(): ReactNode {
 
       {/* Steps */}
       <SectionDivider label="Steps" />
-      <div className="space-y-3">
-        {/* Step 1: Install CLI */}
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex gap-4">
-            <span className="text-lg font-semibold text-[#d97b3d] select-none">1</span>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-semibold text-gray-900">Install the CLI</h3>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Skip if already installed.{' '}
-                <Link to="/docs/cli" className="text-[#d97b3d] hover:underline">CLI docs</Link>
-              </p>
-              <div className="relative mt-2">
-                <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14 overflow-x-auto">
-                  {installCommand}
-                </code>
-                <button
-                  onClick={handleCopyInstall}
-                  className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-                    copiedInstall
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-                  }`}
-                >
-                  {copiedInstall ? 'Copied!' : 'Copy'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Step 2: Login (not needed for remove unless --delete-tokens with MCP servers) */}
-        {(!isRemove || (deleteTokens && hasMcpServers)) && (
+      {!hasSelections ? (
+        <p className="text-sm text-gray-400 italic">Select at least one item and one target tool above.</p>
+      ) : !hasAnything ? (
+        <p className="text-sm text-gray-400 italic">No commands to run — the selected tools don&apos;t support the chosen scope.</p>
+      ) : (
+        <div className="space-y-3">
+          {/* Step 1: Install CLI */}
           <div className="rounded-lg border border-gray-200 bg-white p-4">
             <div className="flex gap-4">
-              <span className="text-lg font-semibold text-[#d97b3d] select-none">2</span>
+              <span className="text-lg font-semibold text-[#d97b3d] select-none">1</span>
               <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-semibold text-gray-900">Log in</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Authenticate with your Tiddly account</p>
+                <h3 className="text-sm font-semibold text-gray-900">Install the CLI</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Skip if already installed.{' '}
+                  <Link to="/docs/cli" className="text-[#d97b3d] hover:underline">CLI docs</Link>
+                </p>
                 <div className="relative mt-2">
                   <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14 overflow-x-auto">
-                    {loginCommand}
+                    {installCommand}
                   </code>
                   <button
-                    onClick={handleCopyLogin}
+                    onClick={handleCopyInstall}
                     className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-                      copiedLogin
+                      copiedInstall
                         ? 'bg-green-600 text-white'
                         : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
                     }`}
                   >
-                    {copiedLogin ? 'Copied!' : 'Copy'}
+                    {copiedInstall ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
               </div>
             </div>
           </div>
-        )}
 
-        {/* Step 3 (or 2 for remove without delete-tokens): Run command */}
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex gap-4">
-            <span className="text-lg font-semibold text-[#d97b3d] select-none">{isRemove && !(deleteTokens && hasMcpServers) ? 2 : 3}</span>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-semibold text-gray-900">{isRemove ? 'Remove your integrations' : 'Install your integrations'}</h3>
-              <p className="text-xs text-gray-500 mt-0.5">{isRemove ? 'Run this command to remove your selected integrations' : 'Run this command to configure your selected integrations'}</p>
-              {hasAnything ? (
+          {/* Step 2: Login (not needed for remove unless --delete-tokens with MCP servers) */}
+          {(!isRemove || (deleteTokens && hasMcpServers)) && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <div className="flex gap-4">
+                <span className="text-lg font-semibold text-[#d97b3d] select-none">2</span>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-semibold text-gray-900">Log in</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Authenticate with your Tiddly account</p>
+                  <div className="relative mt-2">
+                    <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14 overflow-x-auto">
+                      {loginCommand}
+                    </code>
+                    <button
+                      onClick={handleCopyLogin}
+                      className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
+                        copiedLogin
+                          ? 'bg-green-600 text-white'
+                          : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                      }`}
+                    >
+                      {copiedLogin ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3 (or 2 for remove without delete-tokens): Run command */}
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="flex gap-4">
+              <span className="text-lg font-semibold text-[#d97b3d] select-none">{isRemove && !(deleteTokens && hasMcpServers) ? 2 : 3}</span>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-gray-900">{isRemove ? 'Remove your integrations' : 'Install your integrations'}</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{isRemove ? 'Run this command to remove your selected integrations' : 'Run this command to configure your selected integrations'}</p>
                 <div className="relative mt-2">
                   <code data-testid="cli-install-command" className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14 whitespace-pre-wrap overflow-x-auto">
                     {command}
@@ -760,32 +832,30 @@ function CLISetupSection(): ReactNode {
                     {copiedCommand ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
-              ) : (
-                <p className="mt-2 text-xs text-gray-400 italic">Select at least one item and one target tool above.</p>
-              )}
+              </div>
+            </div>
+          </div>
+          {/* Step 4 (or 3 for remove without delete-tokens): Restart tools */}
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="flex gap-4">
+              <span className="text-lg font-semibold text-[#d97b3d] select-none">{isRemove && !(deleteTokens && hasMcpServers) ? 3 : 4}</span>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-gray-900">Restart your tools</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Restart{' '}
+                  {(() => {
+                    const names = [...selectedTools].map((t) => CLI_TOOL_LABELS[t])
+                    if (names.length === 0) return 'your tools'
+                    if (names.length === 1) return names[0]
+                    return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]
+                  })()}{' '}
+                  to pick up the new integrations.
+                </p>
+              </div>
             </div>
           </div>
         </div>
-        {/* Step 4 (or 3 for remove without delete-tokens): Restart tools */}
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="flex gap-4">
-            <span className="text-lg font-semibold text-[#d97b3d] select-none">{isRemove && !(deleteTokens && hasMcpServers) ? 3 : 4}</span>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-semibold text-gray-900">Restart your tools</h3>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Restart{' '}
-                {(() => {
-                  const names = [...selectedTools].map((t) => CLI_TOOL_LABELS[t])
-                  if (names.length === 0) return 'your tools'
-                  if (names.length === 1) return names[0]
-                  return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]
-                })()}{' '}
-                to pick up the new integrations.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   )
 }

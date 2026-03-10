@@ -151,7 +151,7 @@ func TestRemoveClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := removeClaudeDesktop(configPath)
+	err := removeClaudeDesktop(configPath, nil)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -163,7 +163,7 @@ func TestRemoveClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 }
 
 func TestRemoveClaudeDesktop__missing_file_is_noop(t *testing.T) {
-	err := removeClaudeDesktop("/nonexistent/path.json")
+	err := removeClaudeDesktop("/nonexistent/path.json", nil)
 	assert.NoError(t, err)
 }
 
@@ -178,7 +178,7 @@ func TestRemoveClaudeDesktop__no_tiddly_servers_skips_write(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := removeClaudeDesktop(configPath)
+	err := removeClaudeDesktop(configPath, nil)
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
@@ -341,7 +341,7 @@ func TestRemoveClaudeDesktop__removes_custom_named_servers(t *testing.T) {
 		},
 	})
 
-	err := removeClaudeDesktop(configPath)
+	err := removeClaudeDesktop(configPath, nil)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -349,6 +349,58 @@ func TestRemoveClaudeDesktop__removes_custom_named_servers(t *testing.T) {
 	assert.NotContains(t, servers, "my_content")
 	assert.NotContains(t, servers, "my_prompts")
 	assert.Contains(t, servers, "other-server")
+}
+
+func TestRemoveClaudeDesktop__content_only_preserves_prompts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL(), "--header", "Authorization: Bearer tok"},
+			},
+			serverNamePrompts: map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer tok"},
+			},
+		},
+	})
+
+	err := removeClaudeDesktop(configPath, []string{"content"})
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.NotContains(t, servers, serverNameContent)
+	assert.Contains(t, servers, serverNamePrompts)
+}
+
+func TestRemoveClaudeDesktop__prompts_only_preserves_content(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL(), "--header", "Authorization: Bearer tok"},
+			},
+			serverNamePrompts: map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer tok"},
+			},
+		},
+	})
+
+	err := removeClaudeDesktop(configPath, []string{"prompts"})
+	require.NoError(t, err)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.Contains(t, servers, serverNameContent)
+	assert.NotContains(t, servers, serverNamePrompts)
 }
 
 func TestConfigureClaudeDesktop__replaces_custom_named_servers(t *testing.T) {

@@ -173,7 +173,7 @@ func TestClaudeCodeHandler__configure_and_remove(t *testing.T) {
 	assert.Contains(t, servers, serverNamePrompts)
 
 	// Remove
-	require.NoError(t, h.Remove(rc))
+	require.NoError(t, h.Remove(rc, []string{"content", "prompts"}))
 
 	data, err = os.ReadFile(configPath)
 	require.NoError(t, err)

@@ -256,7 +256,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeCodex(rc)
+	err := removeCodex(rc, nil)
 	require.NoError(t, err)
 
 	config := readTestTOML(t, configPath)
@@ -269,7 +269,7 @@ url = "https://other.example.com/mcp"
 
 func TestRemoveCodex__missing_file_is_noop(t *testing.T) {
 	rc := ResolvedConfig{Path: "/nonexistent/config.toml", Scope: "user"}
-	err := removeCodex(rc)
+	err := removeCodex(rc, nil)
 	assert.NoError(t, err)
 }
 
@@ -284,7 +284,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeCodex(rc)
+	err := removeCodex(rc, nil)
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
@@ -302,7 +302,7 @@ func TestRemoveCodex__project_scope(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove from project scope
-	err = removeCodex(rc)
+	err = removeCodex(rc, nil)
 	require.NoError(t, err)
 
 	config := readTestTOML(t, projectConfig)
@@ -475,7 +475,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(config), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeCodex(rc)
+	err := removeCodex(rc, nil)
 	require.NoError(t, err)
 
 	result := readTestTOML(t, configPath)
@@ -483,6 +483,40 @@ url = "https://other.example.com/mcp"
 	assert.NotContains(t, mcpServers, "my_content")
 	assert.NotContains(t, mcpServers, "my_prompts")
 	assert.Contains(t, mcpServers, "other")
+}
+
+func TestRemoveCodex__content_only_preserves_prompts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := configureCodex(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	err = removeCodex(rc, []string{"content"})
+	require.NoError(t, err)
+
+	result := readTestTOML(t, configPath)
+	mcpServers := result["mcp_servers"].(map[string]any)
+	assert.NotContains(t, mcpServers, serverNameContent)
+	assert.Contains(t, mcpServers, serverNamePrompts)
+}
+
+func TestRemoveCodex__prompts_only_preserves_content(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	err := configureCodex(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	err = removeCodex(rc, []string{"prompts"})
+	require.NoError(t, err)
+
+	result := readTestTOML(t, configPath)
+	mcpServers := result["mcp_servers"].(map[string]any)
+	assert.Contains(t, mcpServers, serverNameContent)
+	assert.NotContains(t, mcpServers, serverNamePrompts)
 }
 
 func TestConfigureCodex__replaces_custom_named_servers(t *testing.T) {

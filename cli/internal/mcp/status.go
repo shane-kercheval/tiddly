@@ -6,6 +6,12 @@ import (
 	"strings"
 )
 
+// Server name constants used across CLI flags, config keys, and token naming.
+const (
+	ServerContent = "content"
+	ServerPrompts = "prompts"
+)
+
 // MatchMethod indicates how a server entry was identified as a tiddly MCP server.
 type MatchMethod int
 
@@ -119,6 +125,31 @@ func detectTransport(serverMap map[string]any) string {
 		return "stdio"
 	}
 	return ""
+}
+
+// serverURLMatcher returns a predicate that matches tiddly MCP URLs based on
+// the requested server names. Used by Remove to selectively remove content,
+// prompts, or both servers.
+func serverURLMatcher(servers []string) func(string) bool {
+	wantContent, wantPrompts := false, false
+	for _, s := range servers {
+		switch s {
+		case ServerContent:
+			wantContent = true
+		case ServerPrompts:
+			wantPrompts = true
+		}
+	}
+	switch {
+	case wantContent && wantPrompts:
+		return isTiddlyURL
+	case wantContent:
+		return isTiddlyContentURL
+	case wantPrompts:
+		return isTiddlyPromptURL
+	default:
+		return isTiddlyURL // empty/nil = match all (safe zero value)
+	}
 }
 
 // removeJSONServersByTiddlyURL removes entries from a JSON mcpServers map

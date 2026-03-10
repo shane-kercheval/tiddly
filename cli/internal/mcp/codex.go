@@ -116,7 +116,7 @@ func configureCodex(rc ResolvedConfig, contentPAT, promptPAT string) error {
 
 // removeCodex removes tiddly MCP server entries from the config.
 // Identifies servers by URL, not by name, so custom-named entries are also removed.
-func removeCodex(rc ResolvedConfig) error {
+func removeCodex(rc ResolvedConfig, serverFilter []string) error {
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -129,7 +129,7 @@ func removeCodex(rc ResolvedConfig) error {
 		return nil
 	}
 
-	if !removeCodexServersByTiddlyURL(config.MCPServers, isTiddlyURL) {
+	if !removeCodexServersByTiddlyURL(config.MCPServers, serverURLMatcher(serverFilter)) {
 		return nil
 	}
 
@@ -170,14 +170,14 @@ func statusCodex(rc ResolvedConfig) (StatusResult, error) {
 		matched := false
 		if !foundContent && isTiddlyContentURL(server.URL) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "content", Name: name, MatchMethod: method, URL: server.URL,
+				ServerType: ServerContent, Name: name, MatchMethod: method, URL: server.URL,
 			})
 			foundContent = true
 			matched = true
 		}
 		if !foundPrompts && isTiddlyPromptURL(server.URL) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "prompts", Name: name, MatchMethod: method, URL: server.URL,
+				ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: server.URL,
 			})
 			foundPrompts = true
 			matched = true
