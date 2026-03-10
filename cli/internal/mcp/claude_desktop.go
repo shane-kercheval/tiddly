@@ -154,14 +154,14 @@ func statusClaudeDesktop(configPath string) (StatusResult, error) {
 		matched := false
 		if !foundContent && isTiddlyContentURL(urlStr) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "content", Name: name, MatchMethod: method, URL: urlStr,
+				ServerType: ServerContent, Name: name, MatchMethod: method, URL: urlStr,
 			})
 			foundContent = true
 			matched = true
 		}
 		if !foundPrompts && isTiddlyPromptURL(urlStr) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "prompts", Name: name, MatchMethod: method, URL: urlStr,
+				ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr,
 			})
 			foundPrompts = true
 			matched = true

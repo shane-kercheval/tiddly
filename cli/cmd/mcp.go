@@ -227,8 +227,8 @@ func parseServersFlag(value string) ([]string, error) {
 		if p == "" {
 			continue
 		}
-		if p != "content" && p != "prompts" {
-			return nil, fmt.Errorf("invalid server %q in --servers flag. Valid values: content, prompts", p)
+		if p != mcp.ServerContent && p != mcp.ServerPrompts {
+			return nil, fmt.Errorf("invalid server %q in --servers flag. Valid values: %s, %s", p, mcp.ServerContent, mcp.ServerPrompts)
 		}
 		if !seen[p] {
 			seen[p] = true
@@ -359,8 +359,8 @@ Examples:
 			var extractedPATs []string
 			if deleteTokens {
 				contentPAT, promptPAT := handler.ExtractPATs(rc)
-				wantContent := slices.Contains(serverList, "content")
-				wantPrompts := slices.Contains(serverList, "prompts")
+				wantContent := slices.Contains(serverList, mcp.ServerContent)
+				wantPrompts := slices.Contains(serverList, mcp.ServerPrompts)
 				if wantContent && contentPAT != "" {
 					extractedPATs = append(extractedPATs, contentPAT)
 				}
@@ -370,9 +370,9 @@ Examples:
 				}
 				// Warn when a shared PAT is being revoked while the other server is retained
 				if contentPAT != "" && contentPAT == promptPAT && wantContent != wantPrompts {
-					retained := "prompts"
+					retained := mcp.ServerPrompts
 					if wantPrompts {
-						retained = "content"
+						retained = mcp.ServerContent
 					}
 					fmt.Fprintf(cmd.ErrOrStderr(),
 						"Warning: token is shared with %s server (still configured); it will also lose access.\n", retained)

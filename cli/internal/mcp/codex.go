@@ -170,14 +170,14 @@ func statusCodex(rc ResolvedConfig) (StatusResult, error) {
 		matched := false
 		if !foundContent && isTiddlyContentURL(server.URL) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "content", Name: name, MatchMethod: method, URL: server.URL,
+				ServerType: ServerContent, Name: name, MatchMethod: method, URL: server.URL,
 			})
 			foundContent = true
 			matched = true
 		}
 		if !foundPrompts && isTiddlyPromptURL(server.URL) {
 			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: "prompts", Name: name, MatchMethod: method, URL: server.URL,
+				ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: server.URL,
 			})
 			foundPrompts = true
 			matched = true

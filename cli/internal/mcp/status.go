@@ -6,6 +6,12 @@ import (
 	"strings"
 )
 
+// Server name constants used across CLI flags, config keys, and token naming.
+const (
+	ServerContent = "content"
+	ServerPrompts = "prompts"
+)
+
 // MatchMethod indicates how a server entry was identified as a tiddly MCP server.
 type MatchMethod int
 
@@ -128,9 +134,9 @@ func serverURLMatcher(servers []string) func(string) bool {
 	wantContent, wantPrompts := false, false
 	for _, s := range servers {
 		switch s {
-		case "content":
+		case ServerContent:
 			wantContent = true
-		case "prompts":
+		case ServerPrompts:
 			wantPrompts = true
 		}
 	}

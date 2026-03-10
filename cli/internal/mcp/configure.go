@@ -143,10 +143,10 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool, rc ResolvedConfig, isPATAuth bool, result *ConfigureResult) (contentPAT, promptPAT string, err error) {
 	if isPATAuth {
 		pat := opts.Client.Token
-		if opts.wantServer("content") {
+		if opts.wantServer(ServerContent) {
 			contentPAT = pat
 		}
-		if opts.wantServer("prompts") {
+		if opts.wantServer(ServerPrompts) {
 			promptPAT = pat
 		}
 		return contentPAT, promptPAT, nil
@@ -155,14 +155,14 @@ func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool,
 	// OAuth: try to reuse existing PATs from the tool's config
 	existingContent, existingPrompt := handler.ExtractPATs(rc)
 
-	if opts.wantServer("content") {
-		contentPAT, err = resolveServerPAT(opts, tool.Name, "content", existingContent, result)
+	if opts.wantServer(ServerContent) {
+		contentPAT, err = resolveServerPAT(opts, tool.Name, ServerContent, existingContent, result)
 		if err != nil {
 			return "", "", err
 		}
 	}
-	if opts.wantServer("prompts") {
-		promptPAT, err = resolveServerPAT(opts, tool.Name, "prompts", existingPrompt, result)
+	if opts.wantServer(ServerPrompts) {
+		promptPAT, err = resolveServerPAT(opts, tool.Name, ServerPrompts, existingPrompt, result)
 		if err != nil {
 			return "", "", err
 		}
