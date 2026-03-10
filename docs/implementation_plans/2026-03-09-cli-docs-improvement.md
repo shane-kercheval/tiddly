@@ -46,7 +46,7 @@ func serverURLMatcher(servers []string) func(string) bool {
     case wantContent && wantPrompts: return isTiddlyURL
     case wantContent:                return isTiddlyContentURL
     case wantPrompts:                return isTiddlyPromptURL
-    default:                         return func(string) bool { return false }
+    default:                         return isTiddlyURL // empty/nil = match all (safe zero value)
     }
 }
 ```
@@ -100,6 +100,20 @@ if deleteTokens {
 }
 ```
 
+**Important — update orphan-token warning to include `--servers`**: The orphan warning (lines 376-382) currently suggests `tiddly mcp remove <tool> --delete-tokens` without `--servers`. After partial remove (`--servers content`), this would lead users to revoke the PAT for the server they deliberately kept. Update the warning to preserve the server scope:
+
+```go
+// Build the suggested follow-up command with matching --servers flag
+suggestedCmd := fmt.Sprintf("tiddly mcp remove %s --delete-tokens", toolName)
+if len(serverList) == 1 {
+    suggestedCmd += fmt.Sprintf(" --servers %s", serverList[0])
+}
+fmt.Fprintf(cmd.ErrOrStderr(),
+    "Run '%s' to revoke, or manage tokens at https://tiddly.me/settings.\n", suggestedCmd)
+```
+
+Also filter `CheckOrphanedTokens` results to only report tokens matching the removed server types. Token names follow the pattern `cli-mcp-{tool}-{serverType}-{suffix}`, so filter by checking for `cli-mcp-{tool}-content-` or `cli-mcp-{tool}-prompts-` substrings matching `serverList`.
+
 ### Testing Strategy
 
 **Update all `.Remove(` call sites** — add `[]string{"content", "prompts"}` param. Find all sites via `rg '\.Remove\(' cli/internal/mcp cli/cmd/mcp.go`. Known call sites:
@@ -114,7 +128,7 @@ if deleteTokens {
 - `["content"]` — matches content URL, not prompts URL
 - `["prompts"]` — matches prompts URL, not content URL
 - `["content", "prompts"]` — matches both
-- Empty slice — matches nothing
+- `nil` / empty slice — matches all tiddly URLs (safe zero value)
 - Non-tiddly URL — never matches
 
 **New per-handler tests** (add to each handler's test file):
@@ -126,6 +140,7 @@ if deleteTokens {
 - `--servers prompts` flag parsed correctly
 - Default (no flag) removes both
 - `--servers content --delete-tokens` only revokes content PAT
+- `--servers content` without `--delete-tokens` → orphan warning suggests `--servers content --delete-tokens` (not bare `--delete-tokens`)
 
 **Verification**: `cd cli && go test ./internal/mcp/... ./cmd/...`
 
@@ -139,10 +154,10 @@ Fix the frontend AI Integration page route and improve the remove flow UX.
 
 After this milestone:
 - Route is `/app/settings/ai-integration` instead of `/app/settings/mcp`
-- Remove flow shows MCP scope selector (multi-select) so users can target specific scopes
+- Remove flow shows MCP scope selector (single-select, matching configure) so users can target a specific scope
 - Amber callout appears when local/project scope is selected, reminding users to `cd` first
-- Skills removal shows a destructive-action warning and actual `rm -rf` commands
-- Generated remove commands include `--scope` when not default, and one command per tool per scope
+- Skills removal shows a destructive-action warning and commented-out `rm -rf` commands (requiring user to consciously uncomment)
+- Generated remove commands include `--scope` when not default, and skip unsupported tool/scope pairs
 
 ### Implementation Outline
 
@@ -162,69 +177,73 @@ No redirect needed — this is a settings page with no external links.
 
 **File: `frontend/src/components/AISetupWidget.tsx`**
 
-Add new state for remove scopes:
+Add new state for remove scope (single-select, matching configure flow):
 ```ts
-const [removeMcpScopes, setRemoveMcpScopes] = useState<Set<McpScopeType>>(new Set(['user']))
+const [removeMcpScope, setRemoveMcpScope] = useState<McpScopeType>('user')
 ```
 
 Restructure the remove Options section (currently lines 593-611 — only shows delete tokens):
 - Single "Options" `<div>` containing:
-  - **MCP Scope** — `PillToggleGroup` multi-select (user, local, project) — only shown when `isRemove && hasMcpServers`
+  - **MCP Scope** — `PillSelectGroup` single-select (user, local, project) — only shown when `isRemove && hasMcpServers`
   - **Delete Tokens** — existing yes/no toggle
-- Show scope warnings per selected scope (reuse `getMcpScopeWarnings`, iterate over each scope in `removeMcpScopes`)
-- Keep scope hidden when only skills are selected (no scope needed for `rm -rf`)
+- Show scope warnings (reuse `getMcpScopeWarnings` with `removeMcpScope`)
+- Keep scope hidden when only skills are selected (no scope needed for skills removal)
 
-Update `generateRemoveCommands` signature to accept `mcpScopes: Set<McpScopeType>`:
-- Generate one `tiddly mcp remove <tool>` command per tool per scope
+Update `generateRemoveCommands` signature to accept `mcpScope: McpScopeType`:
+- Generate one `tiddly mcp remove <tool>` command per tool
+- **Skip tools that don't support the selected scope** (don't generate known-to-fail commands; warnings from `getMcpScopeWarnings` inform the user)
 - Add `--scope X` when scope is not `'user'`
 - Add `--servers` when not both selected
 - Add `--delete-tokens` when enabled
 
-Update `generateCLICommands` to forward `removeMcpScopes`.
+Update `generateCLICommands` to forward `removeMcpScope`.
 
-#### 3. `cd` instructions for project/local scopes
+#### 3. `cd` step for project/local scopes
 
 **File: `frontend/src/components/AISetupWidget.tsx`**
 
-Add an amber callout (`data-testid="cd-note"`) below the command code block when:
-- **Configure**: `mcpScope` is `'local'` or `'project'`, or `skillsScope` is `'project'`
-- **Remove**: any scope in `removeMcpScopes` is `'local'` or `'project'`
+When the selected scope requires a project directory, prepend a `cd` command as a separate step in the generated output. This keeps it visually distinct (users can copy/paste the tiddly command separately) while making it part of the natural flow rather than a callout they might miss.
 
-Content:
+**In `generateConfigureCommands`**: When `mcpScope` is `'local'` or `'project'`, or `skillsScope` is `'project'`, prepend as the first line:
+```sh
+cd /path/to/your/project
 ```
-Note: Local and project scopes are resolved from your current working directory.
-Run `cd /path/to/your/project` before running the command above.
+
+**In `generateRemoveCommands`**: When `removeMcpScope` is `'local'` or `'project'`, prepend as the first line:
+```sh
+cd /path/to/your/project
 ```
+
+The `cd` is a separate line (not chained with `&&`) so users copy/paste each step independently. The tiddly commands follow on subsequent lines as normal.
 
 #### 4. Skills removal warning + commands
 
 **File: `frontend/src/components/AISetupWidget.tsx`**
 
-**Warning** (`data-testid="skills-remove-warning"`) when `isRemove && installSkills`:
-> **Warning:** The CLI cannot distinguish Tiddly skills from other skills. The commands below will delete *all* skill files in the skills directories, including any non-Tiddly skills.
+**Warning** (`data-testid="skills-remove-warning"`) when `isRemove && installSkills`, using `warning` variant `InfoCallout`:
+> **Warning:** The CLI cannot distinguish Tiddly skills from other skills. The commands below will delete *all* skill files in the skills directories, including any non-Tiddly skills. Uncomment the commands to execute them.
 
-**Commands** in `generateRemoveCommands` — when `removeSkills` is true, generate actual executable commands per selected tool:
+**Commands** in `generateRemoveCommands` — when `removeSkills` is true, generate **commented-out** commands per selected tool (requires user to consciously uncomment before executing):
 
 For Claude Code:
 ```sh
-# Remove Claude Code skills (includes non-Tiddly skills)
-rm -rf ~/.claude/skills/
+# WARNING: Removes ALL skills including non-Tiddly ones
+# rm -rf ~/.claude/skills/
 ```
 
 For Codex:
 ```sh
-# Remove Codex skills (includes non-Tiddly skills)
-rm -rf ~/.codex/skills/
+# WARNING: Removes ALL skills including non-Tiddly ones
+# rm -rf ~/.codex/skills/
 ```
 
 For Claude Desktop: `# Claude Desktop: manually remove skills from Settings → Capabilities`
 
-When any remove scope includes `'local'` or `'project'`, also include project-level paths:
+When `removeMcpScope` is `'local'` or `'project'`, also include project-level paths:
 ```sh
-# Remove project-level Claude Code skills (includes non-Tiddly skills)
-rm -rf .claude/skills/
-# Remove project-level Codex skills (includes non-Tiddly skills)
-rm -rf .codex/skills/
+# WARNING: Removes ALL project-level skills including non-Tiddly ones
+# rm -rf .claude/skills/
+# rm -rf .codex/skills/
 ```
 
 These replace the current comment-only output (lines 384-394).
@@ -233,13 +252,10 @@ These replace the current comment-only output (lines 384-394).
 
 #### 5. Empty selection handling
 
-The current `hasAnything` (line 485) checks servers/skills + tools but not scopes. When all remove scopes are deselected, `generateRemoveCommands` produces an empty string but `hasAnything` is still `true`, rendering an empty code block.
+No special empty-selection handling needed — single-select scope always has a value (default `'user'`), so the existing `hasAnything` logic remains correct. The only edge case is when all selected tools are unsupported for the chosen scope and skills are not selected — `generateRemoveCommands` returns empty. Handle this by checking if the generated command string is empty and hiding the code block:
 
-Update `hasAnything` to account for remove scopes:
 ```ts
-const hasAnything = isRemove
-  ? ((hasMcpServers && removeMcpScopes.size > 0) || installSkills) && selectedTools.size > 0
-  : (hasMcpServers || installSkills) && selectedTools.size > 0
+const hasAnything = (hasMcpServers || installSkills) && selectedTools.size > 0 && command !== ''
 ```
 
 ### Testing Strategy
@@ -254,25 +270,27 @@ Read the existing test file first to understand patterns, then add:
 **Remove flow scope tests:**
 - Scope selector appears when action=remove and MCP servers selected
 - Scope selector hidden when action=remove and only skills selected
-- Selecting multiple scopes generates one command per tool per scope
+- Scope selector is single-select (matches configure flow)
+- Generated remove command includes `--scope local` when local selected
+- Unsupported tool/scope pairs are skipped in command generation (e.g., Claude Desktop + local scope generates no command for Claude Desktop)
 - Scope warnings appear for unsupported tool/scope combinations
-- Default scope is `user` only
+- Default scope is `user`
 
-**`cd` instruction tests:**
-- `cd` note appears when configure with local scope
-- `cd` note appears when configure with project scope
-- `cd` note appears when remove with local/project scope in set
-- `cd` note hidden when only user scope selected
+**`cd` step tests:**
+- Generated configure command starts with `cd /path/to/your/project` when local scope selected
+- Generated configure command starts with `cd /path/to/your/project` when project scope selected
+- Generated remove command starts with `cd /path/to/your/project` when local/project scope selected
+- No `cd` line present when user scope selected
 
 **Skills removal tests:**
-- Warning appears when action=remove and skills=yes
+- Warning `InfoCallout` (warning variant) appears when action=remove and skills=yes
 - Warning hidden when action=configure
-- Actual `rm -rf` commands generated for skills removal
+- Generated skills commands are commented out (contain `# rm`, not bare `rm`)
 - Claude Desktop skills show manual instruction
 - Project-level skill paths included when local/project scope selected
 
-**Empty selection tests:**
-- Deselecting all remove scopes hides the command block (no empty code block rendered)
+**Empty command tests:**
+- When all selected tools are unsupported for chosen scope and no skills, command block is hidden
 
 **Verification**: `cd frontend && npx vitest run src/pages/settings/SettingsMCP.test.tsx`
 
@@ -283,12 +301,15 @@ Read the existing test file first to understand patterns, then add:
 ### Important Concerns
 
 1. **`--delete-tokens` + `--servers` filtering (Milestone 1)**: `ExtractPATs` returns both `(contentPAT, promptPAT)`. Must gate extraction on `serverList` to avoid revoking the wrong PAT when only removing one server. This is the most critical correctness issue.
+2. **Orphan-token warning must preserve `--servers` scope (Milestone 1)**: After partial remove, the follow-up suggestion must include `--servers` to avoid leading users to revoke the wrong PAT.
 
 ### Manual Verification
 
 1. `tiddly mcp remove claude-code --servers content` removes only content server
 2. `tiddly mcp remove claude-code --servers content --delete-tokens` revokes only content PAT
 3. `tiddly mcp remove claude-code` removes both (backward compatible)
-4. UI remove flow shows scope selector with multi-select
-5. UI shows `cd` note when local/project scope selected
-6. UI shows skills warning when removing skills
+4. `tiddly mcp remove claude-code --servers content` (no `--delete-tokens`) → orphan warning suggests `--servers content --delete-tokens`
+5. UI remove flow shows scope selector with single-select
+6. UI shows `cd /path/to/your/project` as first line when local/project scope selected
+7. UI shows skills warning (InfoCallout) when removing skills, commands are commented out
+8. UI skips unsupported tool/scope pairs in generated commands
