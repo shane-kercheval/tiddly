@@ -145,6 +145,37 @@ async def delete_token(
     return True
 
 
+async def rename_token(
+    db: AsyncSession,
+    user_id: UUID,
+    token_id: UUID,
+    new_name: str,
+) -> ApiToken | None:
+    """
+    Rename an API token.
+
+    Args:
+        db: Database session.
+        user_id: ID of the user.
+        token_id: ID of the token to rename.
+        new_name: New name for the token.
+
+    Returns:
+        Updated ApiToken if found, None if not found or not owned by user.
+
+    Note:
+        Does not commit. Caller (session generator) handles commit at request end.
+    """
+    token = await get_token_by_id(db, user_id, token_id)
+    if token is None:
+        return None
+
+    token.name = new_name
+    await db.flush()
+    await db.refresh(token)
+    return token
+
+
 async def validate_token(
     db: AsyncSession,
     plaintext_token: str,

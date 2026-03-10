@@ -4,7 +4,7 @@
  */
 import { create } from 'zustand'
 import { api } from '../services/api'
-import type { Token, TokenCreate, TokenCreateResponse } from '../types'
+import type { Token, TokenCreate, TokenCreateResponse, TokenRenameRequest } from '../types'
 
 interface TokensState {
   tokens: Token[]
@@ -15,6 +15,7 @@ interface TokensState {
 interface TokensActions {
   fetchTokens: () => Promise<void>
   createToken: (data: TokenCreate) => Promise<TokenCreateResponse>
+  renameToken: (id: string, newName: string) => Promise<Token>
   deleteToken: (id: string) => Promise<void>
   clearError: () => void
 }
@@ -47,12 +48,20 @@ export const useTokensStore = create<TokensStore>((set, get) => ({
       id: newToken.id,
       name: newToken.name,
       token_prefix: newToken.token_prefix,
-      last_used_at: newToken.last_used_at,
+      last_used_at: null,
       expires_at: newToken.expires_at,
       created_at: newToken.created_at,
     }
     set({ tokens: [...get().tokens, tokenForList] })
     return newToken
+  },
+
+  renameToken: async (id: string, newName: string) => {
+    const body: TokenRenameRequest = { new_name: newName }
+    const response = await api.patch<Token>(`/tokens/${id}`, body)
+    const { tokens } = get()
+    set({ tokens: tokens.map((t) => t.id === id ? { ...t, name: response.data.name } : t) })
+    return response.data
   },
 
   deleteToken: async (id: string) => {

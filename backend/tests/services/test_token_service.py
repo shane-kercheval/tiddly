@@ -15,6 +15,7 @@ from services.token_service import (
     get_token_by_id,
     get_tokens,
     hash_token,
+    rename_token,
     validate_token,
 )
 from schemas.token import TokenCreate
@@ -305,6 +306,58 @@ async def test__delete_token__enforces_user_scope(
     # Token should still exist
     check = await get_token_by_id(db_session, other_user.id, api_token.id)
     assert check is not None
+
+
+# =============================================================================
+# rename_token Tests
+# =============================================================================
+
+
+async def test__rename_token__updates_name(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that rename_token updates the token name in the database."""
+    api_token, _ = await create_token(
+        db_session, test_user.id, TokenCreate(name="Old Name"),
+    )
+    await db_session.flush()
+
+    result = await rename_token(db_session, test_user.id, api_token.id, "New Name")
+
+    assert result is not None
+    assert result.name == "New Name"
+    assert result.id == api_token.id
+
+
+async def test__rename_token__returns_none_for_missing(
+    db_session: AsyncSession,
+    test_user: User,
+) -> None:
+    """Test that rename_token returns None for non-existent token."""
+    result = await rename_token(db_session, test_user.id, uuid4(), "New Name")
+
+    assert result is None
+
+
+async def test__rename_token__user_scoping(
+    db_session: AsyncSession,
+    test_user: User,
+    other_user: User,
+) -> None:
+    """Test that rename_token only renames tokens owned by the user."""
+    api_token, _ = await create_token(
+        db_session, other_user.id, TokenCreate(name="Other's Token"),
+    )
+    await db_session.flush()
+
+    result = await rename_token(db_session, test_user.id, api_token.id, "Hijacked")
+
+    assert result is None
+    # Verify original name unchanged
+    check = await get_token_by_id(db_session, other_user.id, api_token.id)
+    assert check is not None
+    assert check.name == "Other's Token"
 
 
 # =============================================================================

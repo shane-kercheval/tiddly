@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class TokenCreate(BaseModel):
     """Schema for creating a new API token."""
 
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     name: str = Field(
         ...,
         min_length=1,
@@ -41,6 +43,18 @@ class TokenCreateResponse(BaseModel):
     token_prefix: str
     expires_at: datetime | None
     created_at: datetime
+
+
+class TokenRenameRequest(BaseModel):
+    """Schema for renaming an API token."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    new_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
 
 
 class TokenResponse(BaseModel):

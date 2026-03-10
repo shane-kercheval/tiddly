@@ -345,6 +345,215 @@ async def test_pat_updates_last_used_at(
     app.dependency_overrides.clear()
 
 
+# =============================================================================
+# Rename Token Tests
+# =============================================================================
+
+
+async def test_rename_token_success(client: AsyncClient) -> None:
+    """Test renaming a token updates the name."""
+    create_response = await client.post(
+        "/tokens/",
+        json={"name": "Original Name"},
+    )
+    token_id = create_response.json()["id"]
+
+    response = await client.patch(
+        f"/tokens/{token_id}",
+        json={"new_name": "Updated Name"},
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["name"] == "Updated Name"
+    assert data["id"] == token_id
+    assert "token" not in data  # Should not expose plaintext
+
+    # Verify via list endpoint
+    list_response = await client.get("/tokens/")
+    token = next(t for t in list_response.json() if t["id"] == token_id)
+    assert token["name"] == "Updated Name"
+
+
+async def test_rename_token_not_found(client: AsyncClient) -> None:
+    """Test renaming a non-existent token returns 404."""
+    response = await client.patch(
+        "/tokens/00000000-0000-0000-0000-000000000000",
+        json={"new_name": "New Name"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Token not found"
+
+
+async def test_rename_token_other_users_token(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that renaming another user's token returns 404."""
+    # Create a token owned by a different user directly at model level
+    other_user = User(auth0_id="other-rename-user", email="other-rename@example.com")
+    db_session.add(other_user)
+    await db_session.flush()
+
+    other_token = ApiToken(
+        user_id=other_user.id,
+        name="Other's Token",
+        token_hash="fake_hash_for_test",
+        token_prefix="bm_fake12345",
+    )
+    db_session.add(other_token)
+    await db_session.flush()
+
+    response = await client.patch(
+        f"/tokens/{other_token.id}",
+        json={"new_name": "Hijacked Name"},
+    )
+    assert response.status_code == 404
+
+
+async def test_rename_token_validates_name(client: AsyncClient) -> None:
+    """Test that rename validates the new name."""
+    create_response = await client.post(
+        "/tokens/",
+        json={"name": "Test Token"},
+    )
+    token_id = create_response.json()["id"]
+
+    # Empty name
+    response = await client.patch(
+        f"/tokens/{token_id}",
+        json={"new_name": ""},
+    )
+    assert response.status_code == 422
+
+    # Whitespace-only name (stripped to empty)
+    response = await client.patch(
+        f"/tokens/{token_id}",
+        json={"new_name": "   "},
+    )
+    assert response.status_code == 422
+
+    # Name too long
+    response = await client.patch(
+        f"/tokens/{token_id}",
+        json={"new_name": "x" * 101},
+    )
+    assert response.status_code == 422
+
+
+async def test_rename_token_strips_whitespace(client: AsyncClient) -> None:
+    """Test that rename strips leading/trailing whitespace."""
+    create_response = await client.post(
+        "/tokens/",
+        json={"name": "Test Token"},
+    )
+    token_id = create_response.json()["id"]
+
+    response = await client.patch(
+        f"/tokens/{token_id}",
+        json={"new_name": "  Trimmed Name  "},
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == "Trimmed Name"
+
+
+async def test_rename_token_same_name(client: AsyncClient) -> None:
+    """Test that renaming to the same name succeeds (no-op)."""
+    create_response = await client.post(
+        "/tokens/",
+        json={"name": "Same Name"},
+    )
+    token_id = create_response.json()["id"]
+
+    response = await client.patch(
+        f"/tokens/{token_id}",
+        json={"new_name": "Same Name"},
+    )
+    assert response.status_code == 200
+    assert response.json()["name"] == "Same Name"
+
+
+async def test_rename_token_rejects_pat_auth(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Test that PAT authentication is rejected for the rename endpoint."""
+    # Create a token
+    create_response = await client.post(
+        "/tokens/",
+        json={"name": "PAT Auth Test"},
+    )
+    token_id = create_response.json()["id"]
+    plaintext_token = create_response.json()["token"]
+
+    # Get the dev user and add consent (required when dev_mode=False)
+    dev_user = await db_session.execute(
+        select(User).where(User.auth0_id == "dev|local-development-user"),
+    )
+    user = dev_user.scalar_one()
+    await add_consent_for_user(db_session, user)
+
+    from api.main import app  # noqa: PLC0415
+
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(
+            database_url="postgresql://test",
+            dev_mode=False,
+        )
+
+    from db.session import get_async_session  # noqa: PLC0415
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {plaintext_token}"},
+    ) as pat_client:
+        response = await pat_client.patch(
+            f"/tokens/{token_id}",
+            json={"new_name": "Should Fail"},
+        )
+        assert response.status_code == 403
+
+    app.dependency_overrides.clear()
+
+
+# =============================================================================
+# Create Token Whitespace Validation Tests
+# =============================================================================
+
+
+async def test_create_token_strips_whitespace(client: AsyncClient) -> None:
+    """Test that token creation strips leading/trailing whitespace from name."""
+    response = await client.post(
+        "/tokens/",
+        json={"name": "  Padded Name  "},
+    )
+    assert response.status_code == 201
+    assert response.json()["name"] == "Padded Name"
+
+
+async def test_create_token_rejects_whitespace_only(client: AsyncClient) -> None:
+    """Test that whitespace-only names are rejected on create."""
+    response = await client.post(
+        "/tokens/",
+        json={"name": "   "},
+    )
+    assert response.status_code == 422
+
+
+# =============================================================================
+# User Scoping Tests
+# =============================================================================
+
+
 async def test_tokens_are_user_scoped(client: AsyncClient) -> None:
     """Test that users can only see/delete their own tokens."""
     # Create a token as the dev user

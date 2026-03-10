@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_async_session, get_current_user_auth0_only
 from models.user import User
-from schemas.token import TokenCreate, TokenCreateResponse, TokenResponse
+from schemas.token import TokenCreate, TokenCreateResponse, TokenRenameRequest, TokenResponse
 from services import token_service
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
@@ -50,6 +50,26 @@ async def list_tokens(
     """
     tokens = await token_service.get_tokens(db, current_user.id)
     return [TokenResponse.model_validate(t) for t in tokens]
+
+
+@router.patch("/{token_id}", response_model=TokenResponse)
+async def rename_token(
+    token_id: UUID,
+    rename_request: TokenRenameRequest,
+    current_user: User = Depends(get_current_user_auth0_only),
+    db: AsyncSession = Depends(get_async_session),
+) -> TokenResponse:
+    """
+    Rename an API token.
+
+    **Authentication: Auth0 only (PATs not accepted - returns 403)**
+    """
+    token = await token_service.rename_token(
+        db, current_user.id, token_id, rename_request.new_name,
+    )
+    if token is None:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return TokenResponse.model_validate(token)
 
 
 @router.delete("/{token_id}", status_code=204)

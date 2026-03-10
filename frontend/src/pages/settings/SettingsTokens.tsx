@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 import toast from 'react-hot-toast'
 import { useTokensStore } from '../../stores/tokensStore'
 import { TokenList } from '../../components/TokenList'
+import type { TokenEditingState } from '../../components/TokenList'
 import { CreateTokenModal } from '../../components/CreateTokenModal'
 import { config } from '../../config'
 import type { TokenCreate, TokenCreateResponse } from '../../types'
@@ -15,16 +16,21 @@ const EXAMPLE_CURL = `curl \\
   -H "Authorization: Bearer bm_xxx" \\
   ${config.apiUrl}/bookmarks/`
 
+const MAX_TOKEN_NAME_LENGTH = 100
+
 /**
  * Personal Access Tokens settings page.
  */
 export function SettingsTokens(): ReactNode {
   usePageTitle('Settings - Tokens')
-  const { tokens, isLoading, fetchTokens, createToken, deleteToken } = useTokensStore()
+  const { tokens, isLoading, fetchTokens, createToken, renameToken, deleteToken } = useTokensStore()
 
   // Modal state
   const [showCreateToken, setShowCreateToken] = useState(false)
   const [copiedCurl, setCopiedCurl] = useState(false)
+
+  // Editing state (page owns this, TokenList is presentational)
+  const [editingState, setEditingState] = useState<TokenEditingState | null>(null)
 
   const handleCopyCurl = async (): Promise<void> => {
     try {
@@ -53,6 +59,57 @@ export function SettingsTokens(): ReactNode {
     } catch {
       toast.error('Failed to delete token')
       throw new Error('Failed to delete token')
+    }
+  }
+
+  // Editing handlers
+  const handleStartEdit = (tokenId: string, currentName: string): void => {
+    setEditingState({ tokenId, newName: currentName, error: null })
+  }
+
+  const handleCancelEdit = (): void => {
+    setEditingState(null)
+  }
+
+  const handleEditChange = (value: string): void => {
+    if (!editingState) return
+    const trimmed = value.trim()
+    let error: string | null = null
+    if (trimmed.length === 0) {
+      error = 'Name cannot be empty'
+    } else if (trimmed.length > MAX_TOKEN_NAME_LENGTH) {
+      error = `Name must be ${MAX_TOKEN_NAME_LENGTH} characters or less`
+    }
+    setEditingState({ ...editingState, newName: value, error })
+  }
+
+  const handleSaveEdit = async (): Promise<void> => {
+    if (!editingState) return
+    const trimmed = editingState.newName.trim()
+
+    // Validate
+    if (trimmed.length === 0) {
+      setEditingState({ ...editingState, error: 'Name cannot be empty' })
+      return
+    }
+    if (trimmed.length > MAX_TOKEN_NAME_LENGTH) {
+      setEditingState({ ...editingState, error: `Name must be ${MAX_TOKEN_NAME_LENGTH} characters or less` })
+      return
+    }
+
+    // Find the current token to check for no-op
+    const currentToken = tokens.find((t) => t.id === editingState.tokenId)
+    if (currentToken && trimmed === currentToken.name) {
+      setEditingState(null)
+      return
+    }
+
+    try {
+      await renameToken(editingState.tokenId, trimmed)
+      setEditingState(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to rename token'
+      toast.error(message)
     }
   }
 
@@ -98,6 +155,11 @@ export function SettingsTokens(): ReactNode {
       <TokenList
         tokens={tokens}
         isLoading={isLoading}
+        editingState={editingState}
+        onStartEdit={handleStartEdit}
+        onCancelEdit={handleCancelEdit}
+        onSaveEdit={handleSaveEdit}
+        onEditChange={handleEditChange}
         onDelete={handleDeleteToken}
         onCreateClick={() => setShowCreateToken(true)}
       />

@@ -395,15 +395,25 @@ export interface Token {
   created_at: string
 }
 
-/** Token creation response includes the plaintext token */
-export interface TokenCreateResponse extends Token {
+/** Token creation response - standalone since backend doesn't return last_used_at */
+export interface TokenCreateResponse {
+  id: string
+  name: string
   token: string
+  token_prefix: string
+  expires_at: string | null
+  created_at: string
 }
 
 /** Data for creating a new token */
 export interface TokenCreate {
   name: string
   expires_in_days?: number
+}
+
+/** Data for renaming a token */
+export interface TokenRenameRequest {
+  new_name: string
 }
 
 // =============================================================================
