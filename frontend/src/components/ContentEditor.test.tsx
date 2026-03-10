@@ -198,16 +198,16 @@ describe('ContentEditor', () => {
   })
 
   describe('character limit feedback', () => {
-    it('should show "Character limit reached" when value meets maxLength', () => {
+    it('should show "Character limit reached" with limit when value meets maxLength', () => {
       render(<ContentEditor {...defaultProps} value="12345" maxLength={5} />)
 
-      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
     })
 
-    it('should show "Character limit reached" when value exceeds maxLength', () => {
+    it('should show "Character limit reached" with limit when value exceeds maxLength', () => {
       render(<ContentEditor {...defaultProps} value="123456" maxLength={5} />)
 
-      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
     })
 
     it('should show parent errorMessage instead of limit message when both apply', () => {
@@ -216,13 +216,13 @@ describe('ContentEditor', () => {
       )
 
       expect(screen.getByText('Template syntax error')).toBeInTheDocument()
-      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
     })
 
     it('should not show limit message when under maxLength', () => {
       render(<ContentEditor {...defaultProps} value="1234" maxLength={5} />)
 
-      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
     })
 
     it('should apply red styling to counter when at limit', () => {

@@ -25,6 +25,7 @@ import type { ReactNode } from 'react'
 // MilkdownEditor now used inside CodeMirrorEditor for reading mode
 // import { MilkdownEditor } from './MilkdownEditor'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
+import { characterLimitMessage } from '../constants/validation'
 // wasEditorFocused no longer needed - mode toggle commented out
 // import { wasEditorFocused } from '../utils/editorUtils'
 
@@ -199,7 +200,7 @@ export function ContentEditor({
 }: ContentEditorProps): ReactNode {
   // Show "Character limit reached" when at or over maxLength, but parent errors take priority
   const limitReached = maxLength !== undefined && value.length >= maxLength
-  const contentDisplayError = errorMessage || (limitReached ? 'Character limit reached' : undefined)
+  const contentDisplayError = errorMessage || (limitReached ? characterLimitMessage(maxLength!) : undefined)
 
   // Mode state commented out - now always using CodeMirror
   // const [mode, setMode] = useState<EditorMode>(loadModePreference)

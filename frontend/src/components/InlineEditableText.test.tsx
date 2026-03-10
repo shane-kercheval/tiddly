@@ -94,10 +94,10 @@ describe('InlineEditableText', () => {
   })
 
   describe('character limit feedback', () => {
-    it('should show "Character limit reached" when value is at maxLength', () => {
+    it('should show "Character limit reached" with limit when value is at maxLength', () => {
       render(<InlineEditableText value="12345" onChange={vi.fn()} maxLength={5} />)
 
-      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
     })
 
     it('should show red border when at maxLength', () => {
@@ -110,7 +110,7 @@ describe('InlineEditableText', () => {
     it('should not show limit message when under maxLength', () => {
       render(<InlineEditableText value="1234" onChange={vi.fn()} maxLength={5} />)
 
-      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
     })
 
     it('should show parent error instead of limit message when both apply', () => {
@@ -119,7 +119,7 @@ describe('InlineEditableText', () => {
       )
 
       expect(screen.getByText('Description too long')).toBeInTheDocument()
-      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
     })
 
     it('should not set aria-invalid for limit reached without parent error', () => {

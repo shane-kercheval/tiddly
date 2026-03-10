@@ -38,6 +38,7 @@ import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedConte
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
+import { characterLimitMessage } from '../constants/validation'
 import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload, TagCount } from '../types'
 
@@ -433,15 +434,15 @@ export function Note({
     if (!current.title.trim()) {
       newErrors.title = 'Title is required'
     } else if (current.title.length > limits.max_title_length) {
-      newErrors.title = 'Character limit reached'
+      newErrors.title = characterLimitMessage(limits.max_title_length)
     }
 
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = 'Character limit reached'
+      newErrors.description = characterLimitMessage(limits.max_description_length)
     }
 
     if (current.content.length > limits.max_note_content_length) {
-      newErrors.content = 'Character limit reached'
+      newErrors.content = characterLimitMessage(limits.max_note_content_length)
     }
 
     setErrors(newErrors)

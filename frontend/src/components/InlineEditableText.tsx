@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useId } from 'react'
 import type { ReactNode, ChangeEvent } from 'react'
+import { characterLimitMessage } from '../constants/validation'
 
 interface InlineEditableTextProps {
   /** Current value */
@@ -61,7 +62,7 @@ export function InlineEditableText({
 
   // Show "Character limit reached" when at or over maxLength, but parent errors take priority
   const limitReached = maxLength !== undefined && value.length >= maxLength
-  const displayError = error || (limitReached ? 'Character limit reached' : undefined)
+  const displayError = error || (limitReached ? characterLimitMessage(maxLength!) : undefined)
 
   // Auto-resize textarea to fit content
   useEffect(() => {
@@ -77,7 +78,7 @@ export function InlineEditableText({
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
     const newValue = e.target.value
     // Enforce maxLength if specified
-    if (maxLength && newValue.length > maxLength) {
+    if (maxLength !== undefined && newValue.length > maxLength) {
       return
     }
     onChange(newValue)

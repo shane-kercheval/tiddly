@@ -7,6 +7,7 @@
  */
 import { useId, forwardRef } from 'react'
 import type { ChangeEvent, KeyboardEvent } from 'react'
+import { characterLimitMessage } from '../constants/validation'
 
 interface InlineEditableTitleProps {
   /** Current value */
@@ -60,7 +61,7 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
 
     // Show "Character limit reached" when at or over maxLength, but parent errors take priority
     const limitReached = maxLength !== undefined && value.length >= maxLength
-    const displayError = error || (limitReached ? 'Character limit reached' : undefined)
+    const displayError = error || (limitReached ? characterLimitMessage(maxLength!) : undefined)
 
     const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
       const newValue = e.target.value

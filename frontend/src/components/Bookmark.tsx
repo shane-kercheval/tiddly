@@ -38,6 +38,7 @@ import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
+import { characterLimitMessage } from '../constants/validation'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount } from '../types'
 import type { ArchivePreset } from '../utils'
 
@@ -581,19 +582,19 @@ export function Bookmark({
     }
 
     if (!newErrors.url && current.url.length > limits.max_url_length) {
-      newErrors.url = 'Character limit reached'
+      newErrors.url = characterLimitMessage(limits.max_url_length)
     }
 
     if (current.title.length > limits.max_title_length) {
-      newErrors.title = 'Character limit reached'
+      newErrors.title = characterLimitMessage(limits.max_title_length)
     }
 
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = 'Character limit reached'
+      newErrors.description = characterLimitMessage(limits.max_description_length)
     }
 
     if (current.content.length > limits.max_bookmark_content_length) {
-      newErrors.content = 'Character limit reached'
+      newErrors.content = characterLimitMessage(limits.max_bookmark_content_length)
     }
 
     setErrors(newErrors)

@@ -23,7 +23,7 @@ describe('ArgumentsBuilder', () => {
         />
       )
 
-      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
     })
 
     it('should show red border on arg name input when at limit', () => {
@@ -65,7 +65,7 @@ describe('ArgumentsBuilder', () => {
         />
       )
 
-      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
     })
 
     it('should show red border on arg description input when at limit', () => {
@@ -91,7 +91,7 @@ describe('ArgumentsBuilder', () => {
         />
       )
 
-      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
     })
   })
 
@@ -141,6 +141,19 @@ describe('ArgumentsBuilder', () => {
       expect(screen.queryByText(/Must start with a letter/)).not.toBeInTheDocument()
     })
 
+    it('should show both name and description errors simultaneously', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          arguments={[{ name: 'invalid;name', description: '12345', required: false }]}
+          maxDescriptionLength={5}
+        />
+      )
+
+      expect(screen.getByText(/Must start with a letter/)).toBeInTheDocument()
+      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
+    })
+
     it('should prioritize pattern error over limit message', () => {
       render(
         <ArgumentsBuilder
@@ -151,7 +164,7 @@ describe('ArgumentsBuilder', () => {
       )
 
       expect(screen.getByText(/Must start with a letter/)).toBeInTheDocument()
-      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
     })
   })
 })

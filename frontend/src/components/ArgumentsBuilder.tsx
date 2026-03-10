@@ -4,9 +4,91 @@
 import type { ReactNode } from 'react'
 import type { PromptArgument } from '../types'
 import { PlusIcon, ChevronUpIcon, ChevronDownIcon, CloseIcon } from './icons'
+import { ARG_NAME_PATTERN, characterLimitMessage } from '../constants/validation'
 
-/** Regex for validating argument names (lowercase with underscores) */
-const ARG_NAME_PATTERN = /^[a-z][a-z0-9_]*$/
+interface ArgumentRowProps {
+  arg: PromptArgument
+  index: number
+  disabled: boolean
+  maxNameLength?: number
+  maxDescriptionLength?: number
+  onUpdate: (index: number, field: keyof PromptArgument, value: string | boolean | null) => void
+  onRemove: (index: number) => void
+}
+
+function ArgumentRow({
+  arg,
+  index,
+  disabled,
+  maxNameLength,
+  maxDescriptionLength,
+  onUpdate,
+  onRemove,
+}: ArgumentRowProps): ReactNode {
+  const nameLimitReached = maxNameLength !== undefined && arg.name.length >= maxNameLength
+  const namePatternError = arg.name && !ARG_NAME_PATTERN.test(arg.name)
+    ? 'Must start with a letter, use only lowercase letters, numbers, and underscores'
+    : undefined
+  const nameError = namePatternError || (nameLimitReached && maxNameLength !== undefined ? characterLimitMessage(maxNameLength) : undefined)
+  const descLimitReached = maxDescriptionLength !== undefined && (arg.description?.length ?? 0) >= maxDescriptionLength
+  const descError = descLimitReached && maxDescriptionLength !== undefined ? characterLimitMessage(maxDescriptionLength) : undefined
+
+  return (
+    <div className="flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={arg.name}
+          onChange={(e) => {
+            const newValue = e.target.value.toLowerCase()
+            if (maxNameLength !== undefined && newValue.length > maxNameLength) return
+            onUpdate(index, 'name', newValue)
+          }}
+          maxLength={maxNameLength}
+          placeholder="argument_name"
+          disabled={disabled}
+          className={`input py-1.5 font-mono text-sm min-w-[140px] flex-[1] ${nameError ? 'ring-2 ring-red-200' : ''}`}
+          aria-label={`Argument ${index + 1} name`}
+        />
+        <input
+          type="text"
+          value={arg.description || ''}
+          onChange={(e) => {
+            const newValue = e.target.value
+            if (maxDescriptionLength !== undefined && newValue.length > maxDescriptionLength) return
+            onUpdate(index, 'description', newValue || null)
+          }}
+          maxLength={maxDescriptionLength}
+          placeholder="Description (optional). This description helps users/agents understand how to use the argument."
+          disabled={disabled}
+          className={`input py-1.5 text-sm min-w-[220px] flex-[4] ${descError ? 'ring-2 ring-red-200' : ''}`}
+          aria-label={`Argument ${index + 1} description`}
+        />
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={arg.required ?? false}
+            onChange={(e) => onUpdate(index, 'required', e.target.checked)}
+            disabled={disabled}
+            className="rounded border-gray-300"
+          />
+          Required
+        </label>
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          disabled={disabled}
+          className="btn-icon-danger"
+          aria-label={`Remove argument ${index + 1}`}
+        >
+          <CloseIcon className="h-4 w-4" />
+        </button>
+      </div>
+      {nameError && <p className="mt-0.5 text-xs text-red-500">{nameError}</p>}
+      {descError && <p className="mt-0.5 text-xs text-red-500">{descError}</p>}
+    </div>
+  )
+}
 
 interface ArgumentsBuilderProps {
   /** Current list of arguments */
@@ -110,72 +192,15 @@ export function ArgumentsBuilder({
                   </button>
                 </div>
 
-                {/* Argument fields */}
-                {(() => {
-                  const nameLimitReached = maxNameLength !== undefined && arg.name.length >= maxNameLength
-                  const namePatternError = arg.name && !ARG_NAME_PATTERN.test(arg.name)
-                    ? 'Must start with a letter, use only lowercase letters, numbers, and underscores'
-                    : undefined
-                  const nameError = namePatternError || (nameLimitReached ? 'Character limit reached' : undefined)
-                  const descLimitReached = maxDescriptionLength !== undefined && (arg.description?.length ?? 0) >= maxDescriptionLength
-                  const descError = descLimitReached ? 'Character limit reached' : undefined
-                  return (
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          type="text"
-                          value={arg.name}
-                          onChange={(e) => {
-                            const newValue = e.target.value.toLowerCase()
-                            if (maxNameLength !== undefined && newValue.length > maxNameLength) return
-                            updateArgument(index, 'name', newValue)
-                          }}
-                          maxLength={maxNameLength}
-                          placeholder="argument_name"
-                          disabled={disabled}
-                          className={`input py-1.5 font-mono text-sm min-w-[140px] flex-[1] ${nameError ? 'ring-2 ring-red-200' : ''}`}
-                          aria-label={`Argument ${index + 1} name`}
-                        />
-                        <input
-                          type="text"
-                          value={arg.description || ''}
-                          onChange={(e) => {
-                            const newValue = e.target.value
-                            if (maxDescriptionLength !== undefined && newValue.length > maxDescriptionLength) return
-                            updateArgument(index, 'description', newValue || null)
-                          }}
-                          maxLength={maxDescriptionLength}
-                          placeholder="Description (optional). This description helps users/agents understand how to use the argument."
-                          disabled={disabled}
-                          className={`input py-1.5 text-sm min-w-[220px] flex-[4] ${descError ? 'ring-2 ring-red-200' : ''}`}
-                          aria-label={`Argument ${index + 1} description`}
-                        />
-                        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={arg.required ?? false}
-                            onChange={(e) => updateArgument(index, 'required', e.target.checked)}
-                            disabled={disabled}
-                            className="rounded border-gray-300"
-                          />
-                          Required
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => removeArgument(index)}
-                          disabled={disabled}
-                          className="btn-icon-danger"
-                          aria-label={`Remove argument ${index + 1}`}
-                        >
-                          <CloseIcon className="h-4 w-4" />
-                        </button>
-                      </div>
-                      {(nameError || descError) && (
-                        <p className="mt-0.5 text-xs text-red-500">{nameError || descError}</p>
-                      )}
-                    </div>
-                  )
-                })()}
+                <ArgumentRow
+                  arg={arg}
+                  index={index}
+                  disabled={disabled}
+                  maxNameLength={maxNameLength}
+                  maxDescriptionLength={maxDescriptionLength}
+                  onUpdate={updateArgument}
+                  onRemove={removeArgument}
+                />
               </div>
             </div>
           ))}

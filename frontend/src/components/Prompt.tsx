@@ -42,6 +42,7 @@ import { usePrompts } from '../hooks/usePrompts'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
+import { PROMPT_NAME_PATTERN, ARG_NAME_PATTERN, characterLimitMessage } from '../constants/validation'
 import type { LinkedItem } from '../utils/relationships'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, RelationshipInputPayload, TagCount } from '../types'
 
@@ -82,16 +83,6 @@ Context: {{ context }}
 {%- endif %}
 
 Delete this template and write your own prompt!`
-
-/**
- * Regex for validating prompt names.
- * Must start and end with alphanumeric, hyphens only between segments.
- * Matches backend: ^[a-z0-9]+(-[a-z0-9]+)*$
- */
-const PROMPT_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
-
-/** Regex for validating argument names (lowercase with underscores) */
-const ARG_NAME_PATTERN = /^[a-z][a-z0-9_]*$/
 
 /** Form state for the prompt */
 interface PromptState {
@@ -519,7 +510,7 @@ export function Prompt({
     if (!current.name.trim()) {
       newErrors.name = 'Name is required'
     } else if (current.name.length > limits.max_prompt_name_length) {
-      newErrors.name = 'Character limit reached'
+      newErrors.name = characterLimitMessage(limits.max_prompt_name_length)
     } else if (!PROMPT_NAME_PATTERN.test(current.name)) {
       newErrors.name =
         'Name must use lowercase letters, numbers, and hyphens only. Must start and end with a letter or number (e.g., code-review)'
@@ -527,19 +518,19 @@ export function Prompt({
 
     // Title validation
     if (current.title && current.title.length > limits.max_title_length) {
-      newErrors.title = 'Character limit reached'
+      newErrors.title = characterLimitMessage(limits.max_title_length)
     }
 
     // Description validation
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = 'Character limit reached'
+      newErrors.description = characterLimitMessage(limits.max_description_length)
     }
 
     // Content validation
     if (!current.content.trim()) {
       newErrors.content = 'Template content is required'
     } else if (current.content.length > limits.max_prompt_content_length) {
-      newErrors.content = 'Character limit reached'
+      newErrors.content = characterLimitMessage(limits.max_prompt_content_length)
     }
 
     // Arguments validation
@@ -551,7 +542,7 @@ export function Prompt({
         break
       }
       if (arg.name.length > limits.max_argument_name_length) {
-        newErrors.arguments = 'Character limit reached'
+        newErrors.arguments = characterLimitMessage(limits.max_argument_name_length)
         break
       }
       if (!ARG_NAME_PATTERN.test(arg.name)) {
@@ -559,7 +550,7 @@ export function Prompt({
         break
       }
       if (arg.description && arg.description.length > limits.max_argument_description_length) {
-        newErrors.arguments = 'Character limit reached'
+        newErrors.arguments = characterLimitMessage(limits.max_argument_description_length)
         break
       }
       if (argNames.has(arg.name)) {
