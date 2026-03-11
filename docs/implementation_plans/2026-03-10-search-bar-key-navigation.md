@@ -11,6 +11,15 @@ The CommandPalette commands view (`CommandPalette.tsx`) already implements the e
 
 ## Architecture
 
+### Relationship to `useContentSearch`
+
+`useContentSearch.ts` already manages its own `highlightedIndex`, `moveHighlight`, and `selectHighlighted` for the search dropdown. This is intentionally separate from `useListKeyboardNavigation`:
+
+- **`useContentSearch`**: Dropdown-scoped navigation, tightly coupled to search/dropdown open/close state. Used for the inline search results dropdown.
+- **`useListKeyboardNavigation`**: Page-level list navigation for full result sets. Used by AllContent and CommandPalette views.
+
+These hooks serve different scopes and should not be merged.
+
 ### Shared hook: `useListKeyboardNavigation`
 
 Extract from CommandPalette's existing logic into `frontend/src/hooks/useListKeyboardNavigation.ts`.
@@ -51,8 +60,9 @@ The hook manages:
 - `selectedIndex` state with clamping to `[0, itemCount - 1]`
 - `scrollIntoView({ block: 'nearest' })` effect when selection changes
 - `mouseMoved` gate (false on reset, true on first mouse move)
-- ArrowDown/ArrowUp/Enter keyboard handling
+- ArrowDown/ArrowUp/Enter keyboard handling (navigation keys only — consumers can layer additional key handlers on top)
 - `onExitTop` callback when ArrowUp is pressed at index 0
+- Ignoring key events from nested interactive elements (buttons, links, inputs other than the bound search input) to avoid conflicts with card action controls
 
 ---
 
@@ -76,8 +86,9 @@ The hook manages:
    - Replace with hook call, wiring `onSelect` to execute the command action
    - Rename `data-command-item` → `data-nav-item` on command buttons
    - `onExitTop` not needed here (commands view doesn't have a search-to-list flow for ArrowUp)
+   - **Preserve Tab handling**: The hook only handles navigation keys (Arrow/Enter). CommandPalette must compose a wrapper `handleKeyDown` that delegates Arrow/Enter to the hook's handler and handles Tab separately (current behavior: Tab moves focus into the selected list item at line 429). This is CommandPalette-specific behavior — other consumers don't need it.
 
-3. **Update `CommandPalette.tsx` tests** to verify behavior is preserved (no new tests needed, existing tests should pass)
+3. **Update `CommandPalette.tsx` tests** to verify behavior is preserved
 
 ### Testing Strategy
 
@@ -94,7 +105,11 @@ The hook manages:
 - Keyboard events are preventDefault'd
 - Does nothing when `enabled` is false
 
-**`CommandPalette.test.tsx`**: Existing tests should pass unchanged (verify arrow nav, Enter execution, scroll behavior in commands view)
+**`CommandPalette.test.tsx`**: Audit existing tests for keyboard navigation coverage. Existing tests primarily check list composition, not keyboard behavior. Add integration tests if not already covered:
+- ArrowDown/ArrowUp navigates between commands
+- Enter executes the selected command
+- Tab moves focus into the selected command item (regression guard for Tab preservation)
+- Scroll behavior when navigating long command lists
 
 ---
 
@@ -109,34 +124,54 @@ The hook manages:
 - Escape returns focus to search input (already works)
 - Mouse hover updates selection (with ghost-highlight prevention)
 
+### DOM Structure Note
+
+In AllContent, `SearchFilterBar` and the content list are **sibling containers** (not parent-child). SearchFilterBar is inside `.mb-3.md:mb-5.space-y-3` while the content list is in a separate `<div>` below. Key events from the search input do **not** bubble to the list container. This means:
+- `handleKeyDown` must be attached to **both** the search input and the list container — these are separate event paths with no double-fire risk.
+- The search input attachment requires adding an `onKeyDown` prop to `SearchFilterBar`.
+
 ### Implementation Outline
 
-1. **Wire `useListKeyboardNavigation` in `AllContent.tsx`**
+1. **Add `onKeyDown` prop to `SearchFilterBar`**
+   - Add `onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void` to `SearchFilterBarProps`
+   - Forward it to the search `<input>` element's `onKeyDown`
+   - This is needed because the search input is inside SearchFilterBar's DOM subtree, not directly accessible from AllContent
+
+2. **Wire `useListKeyboardNavigation` in `AllContent.tsx`**
    - Call the hook with `itemCount` from the current items array length
    - `onSelect(index)`: look up `items[index]`, call the same navigation logic as the card's click handler (navigate to `/app/bookmarks/{id}`, `/app/notes/{id}`, or `/app/prompts/{id}`)
    - `onExitTop`: focus the search input ref
-   - Attach `handleKeyDown` to the search input's `onKeyDown` AND to the list container's `onKeyDown`
+   - Attach `handleKeyDown` to SearchFilterBar's `onKeyDown` prop (for when focus is in the search input) **and** to the list container's `onKeyDown` (for when focus is in the list area). These are sibling containers — no bubbling overlap, no double-fire risk.
    - Attach `handleMouseMove` and mouse enter with `setSelectedIndex` to card wrappers
-   - Reset selection when search query, tags, sort, or page changes
+   - Reset selection when the items array identity changes (see reset strategy below)
 
-2. **Add `data-nav-item` attribute to cards** in AllContent's item rendering
+3. **Add `data-nav-item` attribute to cards** in AllContent's item rendering
    - Add the attribute to each card's wrapper element so the hook can query them for scrollIntoView
 
-3. **Visual highlight for selected item**
+4. **Visual highlight for selected item**
    - Pass `isSelected` prop (or use a wrapper div with conditional styling) to indicate the currently selected item
    - Use a subtle highlight style consistent with CommandPalette's `bg-gray-100` pattern
    - Consider: a simple wrapper `<div>` around each card with conditional class is likely simpler than threading a prop through BookmarkCard/NoteCard/PromptCard
 
-4. **Reset selection** when results change (query change, tag change, pagination, sort change) — call `resetSelection`
+5. **Reset selection on data changes**
+   - Rather than enumerating individual filter triggers (query, tags, sort, page), reset based on items identity — e.g., a `useEffect` keyed on `items.length` + first item ID, or a `resetKey` derived from the dataset.
+   - This automatically covers all filter changes (search query, tags, sort, page, content-type chips, route/view switches, async refreshes) without needing to add reset calls every time a new filter is introduced.
+
+6. **Arrow navigation stops at page boundaries**
+   - ArrowDown when at the last item stays at the last item (clamped by the hook). Pagination is not auto-advanced — this would be surprising and over-engineered.
 
 ### Testing Strategy
 
 **`AllContent.test.tsx`** (new tests):
 - ArrowDown from search input highlights first item
+- Single ArrowDown press moves selection by exactly one item (no double-fire)
 - ArrowDown/ArrowUp navigates between items
 - ArrowUp on first item returns focus to search input
+- ArrowDown on last item stays at last item (does not advance page)
 - Enter on selected item navigates to the correct route (bookmark, note, prompt)
+- Enter on a focused card action button (delete, archive) does NOT trigger item navigation
 - Selection resets when search query changes
+- Selection resets when content-type filter changes
 - Selection resets when page changes
 - Mouse enter on item updates selection
 - No navigation occurs on Enter when item list is empty
@@ -160,8 +195,8 @@ The hook manages:
    - Call the hook with `itemCount` from search results length
    - `onSelect(index)`: call the existing `handleViewBookmark`/`handleViewNote`/`handleViewPrompt` based on item type
    - `onExitTop`: focus the search input
-   - Attach `handleKeyDown` to the search input's `onKeyDown`
-   - Reset selection when search query or results change
+   - Attach `handleKeyDown` to the search input's `onKeyDown` and to the results list container's `onKeyDown` (sibling containers, same pattern as AllContent — no double-fire risk)
+   - Reset selection when items identity changes (same pattern as Milestone 2)
 
 2. **Add `data-nav-item` and selection highlight** to search result cards
    - Same pattern as AllContent (Milestone 2)
