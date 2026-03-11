@@ -821,9 +821,33 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       // Search bar stays mounted (stable shell pattern)
-      expect(screen.getByPlaceholderText('Search all content...')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Search All Content...')).toBeInTheDocument()
       // Spinner in content area
       expect(screen.getByText('Loading content...')).toBeInTheDocument()
+    })
+
+    it('shows dynamic search placeholder for archived view', async () => {
+      mockContentQueryLoading = true
+      mockContentQueryFetching = true
+      renderAtRoute('/app/content/archived')
+
+      expect(screen.getByPlaceholderText('Search Archived...')).toBeInTheDocument()
+    })
+
+    it('shows dynamic search placeholder for trash view', async () => {
+      mockContentQueryLoading = true
+      mockContentQueryFetching = true
+      renderAtRoute('/app/content/trash')
+
+      expect(screen.getByPlaceholderText('Search Trash...')).toBeInTheDocument()
+    })
+
+    it('shows dynamic search placeholder for custom filter', async () => {
+      mockContentQueryLoading = true
+      mockContentQueryFetching = true
+      renderAtRoute('/app/content/filters/1')
+
+      expect(screen.getByPlaceholderText('Search Reading List...')).toBeInTheDocument()
     })
 
     it('shows fetching indicator in search bar during refetch', async () => {

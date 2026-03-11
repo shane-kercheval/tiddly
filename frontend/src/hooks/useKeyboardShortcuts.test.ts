@@ -135,6 +135,16 @@ describe('useKeyboardShortcuts', () => {
       expect(onFocusSearch).toHaveBeenCalled()
     })
 
+    it('should call onFocusFilterSearch when f is pressed outside input fields', () => {
+      const onFocusFilterSearch = vi.fn()
+      renderHook(() => useKeyboardShortcuts({ onFocusFilterSearch }))
+
+      const keyEvent = new KeyboardEvent('keydown', { key: 'f' })
+      document.dispatchEvent(keyEvent)
+
+      expect(onFocusFilterSearch).toHaveBeenCalled()
+    })
+
     it('should call onShowShortcuts when Cmd+Shift+/ is pressed', () => {
       const onShowShortcuts = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onShowShortcuts }))

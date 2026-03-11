@@ -158,7 +158,7 @@ export function AllContent(): ReactNode {
 
   // Page title based on view/filter
   const pageTitle = currentFilter?.name
-    ?? (currentView === 'archived' ? 'Archived' : currentView === 'deleted' ? 'Trash' : 'All')
+    ?? (currentView === 'archived' ? 'Archived' : currentView === 'deleted' ? 'Trash' : 'All Content')
   usePageTitle(pageTitle)
 
   // Content type filter - builtin views always, filters only when multiple types exist
@@ -205,6 +205,9 @@ export function AllContent(): ReactNode {
       if (document.activeElement === searchInputRef.current) {
         searchInputRef.current?.blur()
       }
+    },
+    onFocusFilterSearch: () => {
+      searchInputRef.current?.focus()
     },
     onPasteUrl: (url) => {
       if (currentView === 'active') {
@@ -872,7 +875,7 @@ export function AllContent(): ReactNode {
           searchInputRef={searchInputRef}
           searchQuery={searchQuery}
           onSearchChange={handleSearchChange}
-          searchPlaceholder="Search all content..."
+          searchPlaceholder={`Search ${pageTitle}...`}
           tagSuggestions={tagSuggestions}
           selectedTags={selectedTags}
           onTagSelect={handleTagClick}
