@@ -206,7 +206,7 @@ export function AllContent(): ReactNode {
         searchInputRef.current?.blur()
       }
     },
-    onFocusFilterSearch: () => {
+    onFocusPageSearch: () => {
       searchInputRef.current?.focus()
     },
     onPasteUrl: (url) => {
