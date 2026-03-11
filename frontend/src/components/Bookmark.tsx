@@ -39,8 +39,26 @@ import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import { characterLimitMessage } from '../constants/validation'
-import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount } from '../types'
+import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount, UserLimits } from '../types'
 import type { ArchivePreset } from '../utils'
+
+/** Truncate fetched metadata fields to configured limits */
+function truncateMetadata(
+  metadata: { title: string | null; description: string | null; content: string | null },
+  limits: UserLimits | undefined,
+): { title?: string; description?: string; content?: string } {
+  const result: { title?: string; description?: string; content?: string } = {}
+  if (metadata.title != null) {
+    result.title = limits ? metadata.title.slice(0, limits.max_title_length) : metadata.title
+  }
+  if (metadata.description != null) {
+    result.description = limits ? metadata.description.slice(0, limits.max_description_length) : metadata.description
+  }
+  if (metadata.content != null) {
+    result.content = limits ? metadata.content.slice(0, limits.max_bookmark_content_length) : metadata.content
+  }
+  return result
+}
 
 /** Conflict state for 409 responses */
 interface ConflictState {
@@ -396,20 +414,15 @@ export function Bookmark({
             setFetchError(`Could not retrieve info: ${metadata.error}`)
           }
 
-          // Truncate fetched content to limit — scraped text beyond the max is not useful
-          const fetchedContent = metadata.content != null && limits
-            ? metadata.content.slice(0, limits.max_bookmark_content_length)
-            : metadata.content
+          const truncated = truncateMetadata(metadata, limits)
 
           setCurrent((prev) => ({
             ...prev,
-            ...(metadata.title != null && { title: metadata.title }),
-            ...(metadata.description != null && { description: metadata.description }),
-            ...(fetchedContent != null && { content: fetchedContent }),
+            ...truncated,
           }))
 
           // Force editor remount when content is fetched
-          if (fetchedContent != null) {
+          if (truncated.content != null) {
             setContentKey((prev) => prev + 1)
           }
 
@@ -544,20 +557,15 @@ export function Bookmark({
         setFetchError(`Could not retrieve info: ${metadata.error}`)
       }
 
-      // Truncate fetched content to limit — scraped text beyond the max is not useful
-      const fetchedContent = metadata.content != null && limits
-        ? metadata.content.slice(0, limits.max_bookmark_content_length)
-        : metadata.content
+      const truncated = truncateMetadata(metadata, limits)
 
       setCurrent((prev) => ({
         ...prev,
-        ...(metadata.title != null && { title: metadata.title }),
-        ...(metadata.description != null && { description: metadata.description }),
-        ...(fetchedContent != null && { content: fetchedContent }),
+        ...truncated,
       }))
 
       // Force editor remount when content is fetched
-      if (fetchedContent != null) {
+      if (truncated.content != null) {
         setContentKey((prev) => prev + 1)
       }
 
@@ -574,7 +582,7 @@ export function Bookmark({
     } finally {
       setIsFetchingMetadata(false)
     }
-  }, [current.url, onFetchMetadata])
+  }, [current.url, onFetchMetadata, limits])
 
   // Validation (only called after loading guard, so limits is guaranteed to exist)
   const validate = (): boolean => {

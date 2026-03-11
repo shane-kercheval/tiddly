@@ -479,6 +479,68 @@ createContentComponentTests({
       const editor = screen.getByTestId('content-editor-text')
       expect(editor).toHaveValue('x'.repeat(512000))
     })
+
+    it('test__manual_fetch__title_exceeding_limit_is_truncated', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const oversizedTitle = 'T'.repeat(500 + 100)
+      mockOnFetchMetadata.mockResolvedValue({
+        title: oversizedTitle,
+        description: 'Desc',
+        content: 'Content',
+        error: null,
+      })
+
+      renderWithRouter(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onFetchMetadata={mockOnFetchMetadata}
+        />
+      )
+
+      const fetchButton = screen.getByLabelText(/retrieve info/i)
+      await user.click(fetchButton)
+
+      await waitFor(() => {
+        expect(mockOnFetchMetadata).toHaveBeenCalled()
+      })
+
+      const titleInput = screen.getByDisplayValue('T'.repeat(500))
+      expect(titleInput).toBeInTheDocument()
+    })
+
+    it('test__manual_fetch__description_exceeding_limit_is_truncated', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const oversizedDescription = 'D'.repeat(1000 + 100)
+      mockOnFetchMetadata.mockResolvedValue({
+        title: 'Title',
+        description: oversizedDescription,
+        content: 'Content',
+        error: null,
+      })
+
+      renderWithRouter(
+        <Bookmark
+          bookmark={mockBookmark}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          onFetchMetadata={mockOnFetchMetadata}
+        />
+      )
+
+      const fetchButton = screen.getByLabelText(/retrieve info/i)
+      await user.click(fetchButton)
+
+      await waitFor(() => {
+        expect(mockOnFetchMetadata).toHaveBeenCalled()
+      })
+
+      const descriptionInput = screen.getByDisplayValue('D'.repeat(1000))
+      expect(descriptionInput).toBeInTheDocument()
+    })
   })
 
   describe('archive scheduling', () => {
