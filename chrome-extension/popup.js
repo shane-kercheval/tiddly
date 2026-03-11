@@ -45,7 +45,7 @@ document.getElementById('search-settings-link')?.addEventListener('click', () =>
 // --- Save form ---
 
 const MAX_CONTENT_LENGTH = 25000;
-const MAX_TITLE_LENGTH = 100;
+const MAX_TITLE_LENGTH = 500;
 const MAX_DESCRIPTION_LENGTH = 1000;
 const INITIAL_CHIPS_COUNT = 8;
 
@@ -66,6 +66,23 @@ let allTags = [];
 let selectedTags = new Set();
 let defaultTagSet = new Set();
 let showingAllTags = false;
+
+const DRAFT_KEY = 'draft';
+
+function saveDraft() {
+  chrome.storage.local.set({
+    [DRAFT_KEY]: {
+      url: urlInput.value,
+      title: titleInput.value,
+      description: descriptionInput.value,
+      tags: [...selectedTags],
+    }
+  });
+}
+
+function clearDraft() {
+  chrome.storage.local.remove(DRAFT_KEY);
+}
 
 async function getPageData(tab) {
   try {
@@ -91,18 +108,30 @@ async function initSaveForm(tab) {
   const [pageData, tagsResult, storage] = await Promise.all([
     getPageData(tab),
     chrome.runtime.sendMessage({ type: 'GET_TAGS' }),
-    chrome.storage.local.get(['defaultTags', 'lastUsedTags'])
+    chrome.storage.local.get(['defaultTags', 'lastUsedTags', DRAFT_KEY])
   ]);
 
+  const draft = storage[DRAFT_KEY];
+  const hasDraftForUrl = draft && draft.url === pageData.url;
+
   urlInput.value = pageData.url;
-  titleInput.value = (pageData.title || '').substring(0, MAX_TITLE_LENGTH);
-  descriptionInput.value = (pageData.description || '').substring(0, MAX_DESCRIPTION_LENGTH);
+  titleInput.value = hasDraftForUrl
+    ? draft.title
+    : (pageData.title || '').substring(0, MAX_TITLE_LENGTH);
+  descriptionInput.value = hasDraftForUrl
+    ? draft.description
+    : (pageData.description || '').substring(0, MAX_DESCRIPTION_LENGTH);
   pageContent = pageData.content || '';
 
   const defaultTags = storage.defaultTags || [];
   const lastUsedTags = storage.lastUsedTags || [];
   defaultTagSet = new Set(defaultTags);
-  [...new Set([...defaultTags, ...lastUsedTags])].forEach(t => selectedTags.add(t));
+
+  if (hasDraftForUrl) {
+    (draft.tags || []).forEach(t => selectedTags.add(t));
+  } else {
+    [...new Set([...defaultTags, ...lastUsedTags])].forEach(t => selectedTags.add(t));
+  }
 
   if (tagsResult?.success && Array.isArray(tagsResult.data?.tags)) {
     allTags = tagsResult.data.tags.map(t => t.name);
@@ -113,6 +142,9 @@ async function initSaveForm(tab) {
   loadingIndicator.hidden = true;
   saveForm.hidden = false;
 
+  titleInput.addEventListener('input', saveDraft);
+  descriptionInput.addEventListener('input', saveDraft);
+
   tagsInput.addEventListener('input', () => {
     renderTagChips();
   });
@@ -121,6 +153,7 @@ async function initSaveForm(tab) {
     selectedTags = new Set(defaultTagSet);
     tagsInput.value = '';
     renderTagChips();
+    saveDraft();
   });
 
   tagsInput.addEventListener('keydown', (e) => {
@@ -131,6 +164,7 @@ async function initSaveForm(tab) {
         selectedTags.add(newTag);
         tagsInput.value = '';
         renderTagChips();
+        saveDraft();
       }
     }
   });
@@ -176,6 +210,7 @@ function renderTagChips() {
       // Clear filter text when selecting via chip (#1)
       tagsInput.value = '';
       renderTagChips();
+      saveDraft();
     });
     tagChipsContainer.appendChild(chip);
   });
@@ -232,6 +267,7 @@ async function handleSave(e) {
       success = true;
       flashButtonSuccess(saveBtn, 'Save Bookmark');
       chrome.storage.local.set({ lastUsedTags: tags });
+      clearDraft();
     } else if (response) {
       handleSaveError(response);
     } else {
