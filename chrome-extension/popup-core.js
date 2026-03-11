@@ -216,7 +216,7 @@ export async function initSaveForm(tab) {
     descriptionInput.value = draft.description;
     pageContent = typeof immutable.pageContent === 'string' ? immutable.pageContent : '';
     allTags = immutable.allTags;
-    (draft.tags || []).forEach(t => selectedTags.add(t));
+    (Array.isArray(draft.tags) ? draft.tags : []).forEach(t => selectedTags.add(t));
     applyLimits(immutable.limits);
   } else {
     // Fresh fetch — fire page scrape, GET_LIMITS, and GET_TAGS in parallel
