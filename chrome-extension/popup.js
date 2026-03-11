@@ -161,7 +161,7 @@ async function initSaveForm(tab) {
     urlInput.value = tab.url;
     titleInput.value = draft.title;
     descriptionInput.value = draft.description;
-    pageContent = immutable.pageContent || '';
+    pageContent = typeof immutable.pageContent === 'string' ? immutable.pageContent : '';
     allTags = immutable.allTags;
     (draft.tags || []).forEach(t => selectedTags.add(t));
     applyLimits(immutable.limits);

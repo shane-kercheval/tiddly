@@ -176,7 +176,7 @@ The draft is split into two storage keys scoped to the current URL. When the pop
 
 1. Load both `DRAFT_KEY` and `DRAFT_IMMUTABLE_KEY` from `chrome.storage.local` alongside `defaultTags`/`lastUsedTags`
 2. Use `tab.url` for the draft match check (available immediately, no scraping needed). Check if both draft and immutable cache exist, both have `url === tab.url`, immutable cache has `allTags`, and `isValidLimits(immutableCache.limits)` passes
-3. **If draft matches current URL with valid cached data** → skip `getPageData`, `GET_TAGS`, and `GET_LIMITS` entirely. Restore form fields from `DRAFT_KEY`, and `pageContent`, `allTags`, `limits` from `DRAFT_IMMUTABLE_KEY`. Set `urlInput.value = tab.url`.
+3. **If draft matches current URL with valid cached data** → skip `getPageData`, `GET_TAGS`, and `GET_LIMITS` entirely. Restore form fields from `DRAFT_KEY`, and `pageContent`, `allTags`, `limits` from `DRAFT_IMMUTABLE_KEY`. Use a `typeof` guard when restoring `pageContent`: `pageContent = typeof immutable.pageContent === 'string' ? immutable.pageContent : ''` — the `|| ''` fallback doesn't protect against non-string truthy values from corrupted storage. Set `urlInput.value = tab.url`.
 4. **If no matching draft** → set `urlInput.value = tab.url`, fire `getPageData`, `GET_LIMITS`, and `GET_TAGS` in parallel
    - Validate the limits response using `isValidLimits()`. If invalid, treat as a failed fetch.
    - If fresh limits fetch succeeds and is valid → use fresh limits
@@ -278,12 +278,13 @@ export {
   saveDraft, clearDraft, getPageData,
   initSaveForm, handleSave, renderTagChips,
   showView, showSaveStatus, handleSaveError,
+  setupDOM, resetState,
 };
 ```
 
 Functions that currently reference module-level DOM element variables (e.g. `titleInput`, `descriptionInput`, `saveForm`, `loadingIndicator`) need those references passed in or initialized via an explicit setup call. Two approaches:
 
-**Option A — `init` function receives DOM refs:** Add a `setupDOM(elements)` function that stores DOM references in module-level variables. The entry point calls it once; tests call it with mock/real elements from jsdom.
+**Option A — `init` function receives DOM refs:** Add a `setupDOM(elements)` function that stores DOM references in module-level variables. The entry point calls it once; tests call it with mock/real elements from jsdom. Add a `resetState()` function that resets all module-level mutable state (business state *and* DOM refs) to initial values — this is called in `beforeEach` to prevent state leaking between tests.
 
 ```js
 // popup-core.js
@@ -293,6 +294,20 @@ export function setupDOM(elements) {
   titleInput = elements.titleInput;
   descriptionInput = elements.descriptionInput;
   // ...etc
+}
+
+export function resetState() {
+  limits = null;
+  pageContent = '';
+  allTags = [];
+  selectedTags = new Set();
+  defaultTagSet = new Set();
+  showingAllTags = false;
+  // Also clear DOM refs to prevent stale handles leaking across tests
+  titleInput = null;
+  descriptionInput = null;
+  urlInput = null;
+  // ...etc — all DOM refs set by setupDOM()
 }
 ```
 
@@ -334,7 +349,19 @@ init().catch(...);
 }
 ```
 
-#### 2. Add test infrastructure
+#### 2. Manual smoke test gate
+
+The ESM conversion changes how Chrome loads and executes the extension code (`<script type="module">` is deferred, strict mode; module service workers have different lifecycle semantics). Before writing any tests, manually verify the extension still works:
+
+1. Load the unpacked extension in Chrome (`chrome://extensions` → Load unpacked)
+2. Open the popup on a normal page — verify it opens without console/import errors
+3. Check `chrome://extensions` — verify the background service worker is running (no errors)
+4. Verify `GET_LIMITS` and `GET_TAGS` messages resolve (form loads with correct limits and tag chips)
+5. Save a bookmark end-to-end — verify it succeeds
+
+Do not proceed to test infrastructure until this passes. If the module conversion causes issues, fix them before writing tests on a broken foundation.
+
+#### 3. Add test infrastructure
 
 **`chrome-extension/package.json`:**
 ```json
@@ -373,17 +400,17 @@ Sets up `globalThis.chrome` with mock implementations of the APIs used by the ex
 - `chrome.tabs.query` — vi.fn()
 - `chrome.scripting.executeScript` — vi.fn()
 
-Provide a helper function `setupPopupDOM()` that populates `document.body.innerHTML` with the popup HTML structure and calls `setupDOM()` from `popup-core.js` with the resulting elements.
+Provide a helper function `setupPopupDOM()` that reads the actual `popup.html` file via `fs.readFileSync`, sets `document.body.innerHTML` to its content, and calls `setupDOM()` from `popup-core.js` with the resulting elements. Reading the real HTML file (rather than duplicating the structure in test code) guarantees the test DOM matches production and eliminates a maintenance burden when popup.html changes.
 
 A `resetChromeStorage()` helper clears the in-memory storage between tests.
 
-#### 3. Test files
+#### 4. Test files
 
 **`chrome-extension/test/popup-core.test.js`** — Tests for popup-core.js logic:
 
 **Pure function tests:**
 - `isValidLimits`: valid object, missing fields, zero values, negative values, non-number types, null/undefined input
-- `characterLimitMessage`: formats number with locale separators (e.g. `1,000`)
+- `characterLimitMessage`: returns expected message structure. Note: `toLocaleString()` output is locale-dependent — test with small numbers for exact match (no thousands separator), and for large numbers assert structural pattern (contains the number, starts with "Character limit reached") rather than exact formatted output
 - `isRestrictedPage`: chrome://, about:, data:, normal URLs, null/undefined
 
 **`updateLimitFeedback` tests:**
@@ -414,6 +441,7 @@ A `resetChromeStorage()` helper clears the in-memory storage between tests.
 - Fetches fresh data when draft URL doesn't match `tab.url`
 - Fetches fresh data when immutable cache has invalid limits
 - Fetches fresh data when immutable cache has non-array `allTags`
+- Fetches fresh data when DRAFT_KEY exists but DRAFT_IMMUTABLE_KEY is missing (orphaned draft from failed tags fetch — user draft edits are not preserved)
 
 **`initSaveForm` — error handling tests:**
 - Shows "Invalid token." with settings link on 401 from GET_LIMITS
@@ -428,6 +456,20 @@ A `resetChromeStorage()` helper clears the in-memory storage between tests.
 - Calls `clearDraft()` (both keys) on successful save
 - Sends correct bookmark payload via `CREATE_BOOKMARK` message
 
+**`handleSaveError` tests:**
+- 400/422 with `detail` array: joins messages with "; "
+- 400/422 with string `detail`: shows the string directly
+- 400/422 with no `detail`: shows "Invalid bookmark data"
+- 401: shows "Invalid token." with "Update in settings" link that opens options page
+- 402: shows `body.detail` message with "Manage bookmarks" link
+- 402 with no `detail`: falls back to "Bookmark limit reached."
+- 409 with `ARCHIVED_URL_EXISTS`: shows "This bookmark is archived." with "View it" link containing the bookmark ID
+- 409 without `ARCHIVED_URL_EXISTS`: shows "Already saved"
+- 429: shows rate limit message with retry seconds from `retryAfter`
+- 451: shows "Accept terms first." with "Open Tiddly" link
+- Unknown status: shows `response.error` or "Unexpected error (status)"
+- No status: shows "Unexpected error (network)"
+
 **`saveDraft` / `clearDraft` tests:**
 - `saveDraft` writes `DRAFT_KEY` with url, title, description, tags
 - `clearDraft` removes both `DRAFT_KEY` and `DRAFT_IMMUTABLE_KEY`
@@ -439,12 +481,71 @@ A `resetChromeStorage()` helper clears the in-memory storage between tests.
 - `handleCreateBookmark`: sends correct payload, handles success/error responses
 - All handlers throw on missing token
 
-#### 4. Testing notes
+#### 5. Testing notes
 
 Since `popup-core.js` has no top-level side effects, tests import it directly — no `vi.resetModules()` or dynamic imports needed for pure function tests.
 
-For integration tests (`initSaveForm`, `handleSave`), call `setupPopupDOM()` in `beforeEach` to populate the DOM and initialize module-level element references via `setupDOM()`. Mock `chrome.runtime.sendMessage` to return appropriate responses for `GET_LIMITS` and `GET_TAGS`, and mock `chrome.scripting.executeScript` to return page data. Each test scenario configures the mocks before calling the function under test.
+For integration tests (`initSaveForm`, `handleSave`), call `resetState()` and `setupPopupDOM()` in `beforeEach` to clear all module-level state (business state + DOM refs), repopulate the DOM, and reinitialize element references via `setupDOM()`. Also call `resetChromeStorage()` to clear the in-memory Chrome storage mock. Mock `chrome.runtime.sendMessage` to return appropriate responses for `GET_LIMITS` and `GET_TAGS`, and mock `chrome.scripting.executeScript` to return page data. Each test scenario configures the mocks before calling the function under test.
+
+Consider a `mockMessages({ GET_LIMITS: {...}, GET_TAGS: {...} })` helper that configures `chrome.runtime.sendMessage` to route responses by message type, reducing boilerplate across integration tests.
 
 For `background-core.js` tests, mock `globalThis.fetch` (or the imported `fetchWithTimeout`) and `chrome.storage.local.get` for token retrieval.
 
+**Implementation order:** Start with integration tests (`initSaveForm` flows, `handleSave`) — these cover the highest-risk, hardest-to-manually-test paths and are where most regressions will occur. Write pure helper tests (`isValidLimits`, `characterLimitMessage`, `isRestrictedPage`) last — they're fast to write but test simple functions unlikely to break.
+
 Add `chrome-extension/node_modules` to the root `.gitignore`.
+
+#### 6. Makefile targets and CI workflow
+
+Follow the existing frontend pattern.
+
+**Makefile** — Add targets mirroring `frontend-tests` / `frontend-install` / `frontend-verify`:
+
+```makefile
+extension-install:  ## Install chrome extension test dependencies
+	$(check_node_version)
+	cd chrome-extension && npm install
+
+extension-tests:  ## Run chrome extension tests
+	$(check_node_version)
+	cd chrome-extension && npm test
+
+extension-verify: extension-tests
+```
+
+Add `extension-verify` to the `tests` target alongside `cli-verify`, `backend-verify`, `frontend-verify`.
+
+**`.github/workflows/extension-tests.yaml`** — Path-filtered workflow matching `frontend-tests.yaml`:
+
+```yaml
+name: extension-tests
+
+on:
+  push:
+    branches: ["main", "staging"]
+    paths:
+      - 'chrome-extension/**'
+      - '.github/workflows/extension-tests.yaml'
+  pull_request:
+    branches: ["main", "staging"]
+    paths:
+      - 'chrome-extension/**'
+      - '.github/workflows/extension-tests.yaml'
+  workflow_dispatch:
+
+jobs:
+  extension:
+    name: Extension Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'frontend/.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: chrome-extension/package-lock.json
+      - run: make extension-install
+      - run: make extension-tests
+```
+
+Add `chrome-extension/.nvmrc` with the same Node version as `frontend/.nvmrc` (currently `22`).
