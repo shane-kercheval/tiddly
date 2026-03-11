@@ -1,0 +1,629 @@
+// --- Constants ---
+
+export const SCRAPE_CAP = 200000;
+export const INITIAL_CHIPS_COUNT = 8;
+export const DRAFT_KEY = 'draft';
+export const DRAFT_IMMUTABLE_KEY = 'draftImmutable';
+
+// --- DOM refs (set via setupDOM) ---
+
+let setupView, saveView, searchView;
+let saveForm, loadingIndicator, urlInput, titleInput, descriptionInput;
+let titleLimit, descriptionLimit;
+let tagsInput, tagChipsContainer, tagSuggestions, saveBtn, saveStatus, clearTagsBtn;
+let searchInput, searchResults, searchLoading, loadMoreBtn;
+
+// --- Mutable state ---
+
+let pageContent = '';
+let allTags = [];
+let selectedTags = new Set();
+let defaultTagSet = new Set();
+let showingAllTags = false;
+let limits = null;
+let flashTimerId = null;
+let searchOffset = 0;
+let searchDebounceTimer = null;
+let searchRequestId = 0;
+
+// --- Setup / Reset ---
+
+export function setupDOM(elements) {
+  setupView = elements.setupView;
+  saveView = elements.saveView;
+  searchView = elements.searchView;
+  saveForm = elements.saveForm;
+  loadingIndicator = elements.loadingIndicator;
+  urlInput = elements.urlInput;
+  titleInput = elements.titleInput;
+  descriptionInput = elements.descriptionInput;
+  titleLimit = elements.titleLimit;
+  descriptionLimit = elements.descriptionLimit;
+  tagsInput = elements.tagsInput;
+  tagChipsContainer = elements.tagChipsContainer;
+  tagSuggestions = elements.tagSuggestions;
+  saveBtn = elements.saveBtn;
+  saveStatus = elements.saveStatus;
+  clearTagsBtn = elements.clearTagsBtn;
+  searchInput = elements.searchInput;
+  searchResults = elements.searchResults;
+  searchLoading = elements.searchLoading;
+  loadMoreBtn = elements.loadMoreBtn;
+}
+
+export function resetState() {
+  pageContent = '';
+  allTags = [];
+  selectedTags = new Set();
+  defaultTagSet = new Set();
+  showingAllTags = false;
+  limits = null;
+  clearTimeout(flashTimerId);
+  flashTimerId = null;
+  searchOffset = 0;
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = null;
+  searchRequestId = 0;
+  // Clear DOM refs
+  setupView = null;
+  saveView = null;
+  searchView = null;
+  saveForm = null;
+  loadingIndicator = null;
+  urlInput = null;
+  titleInput = null;
+  descriptionInput = null;
+  titleLimit = null;
+  descriptionLimit = null;
+  tagsInput = null;
+  tagChipsContainer = null;
+  tagSuggestions = null;
+  saveBtn = null;
+  saveStatus = null;
+  clearTagsBtn = null;
+  searchInput = null;
+  searchResults = null;
+  searchLoading = null;
+  loadMoreBtn = null;
+}
+
+// --- Pure helpers ---
+
+export function isRestrictedPage(url) {
+  return !url || /^(chrome|about|chrome-extension|devtools|edge|data|blob|view-source):/.test(url);
+}
+
+export function characterLimitMessage(limit) {
+  return `Character limit reached (${limit.toLocaleString()})`;
+}
+
+export function isValidLimits(obj) {
+  return obj
+    && typeof obj.max_title_length === 'number' && obj.max_title_length > 0
+    && typeof obj.max_description_length === 'number' && obj.max_description_length > 0
+    && typeof obj.max_bookmark_content_length === 'number' && obj.max_bookmark_content_length > 0;
+}
+
+// --- DOM helpers ---
+
+export function showView(name) {
+  setupView.hidden = name !== 'setup';
+  saveView.hidden = name !== 'save';
+  searchView.hidden = name !== 'search';
+}
+
+export function updateLimitFeedback(input, feedbackEl, maxLength) {
+  if (input.value.length >= maxLength) {
+    feedbackEl.textContent = characterLimitMessage(maxLength);
+    feedbackEl.hidden = false;
+  } else {
+    feedbackEl.hidden = true;
+  }
+}
+
+export function showSaveStatus(message, type, link) {
+  saveStatus.replaceChildren();
+  saveStatus.appendChild(document.createTextNode(message));
+  if (link) {
+    const a = document.createElement('a');
+    a.textContent = link.text;
+    if (link.href) {
+      a.href = link.href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+    }
+    if (link.onClick) {
+      a.addEventListener('click', link.onClick);
+    }
+    saveStatus.appendChild(document.createTextNode(' '));
+    saveStatus.appendChild(a);
+  }
+  saveStatus.className = `status ${type}`;
+  saveStatus.hidden = false;
+}
+
+export function applyLimits(limitsObj) {
+  limits = limitsObj;
+  titleInput.maxLength = limitsObj.max_title_length;
+  descriptionInput.maxLength = limitsObj.max_description_length;
+  if (pageContent.length > limitsObj.max_bookmark_content_length) {
+    pageContent = pageContent.substring(0, limitsObj.max_bookmark_content_length);
+  }
+}
+
+// --- Draft management ---
+
+export function saveDraft() {
+  chrome.storage.local.set({
+    [DRAFT_KEY]: {
+      url: urlInput.value,
+      title: titleInput.value,
+      description: descriptionInput.value,
+      tags: [...selectedTags],
+    }
+  });
+}
+
+export function clearDraft() {
+  chrome.storage.local.remove([DRAFT_KEY, DRAFT_IMMUTABLE_KEY]);
+}
+
+// --- Page data ---
+
+export async function getPageData(tab) {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (maxLen) => ({
+        title: document.title,
+        description: document.querySelector('meta[name="description"]')?.content
+          || document.querySelector('meta[property="og:description"]')?.content
+          || '',
+        content: document.body.innerText.substring(0, maxLen)
+      }),
+      args: [SCRAPE_CAP]
+    });
+    return result.result;
+  } catch {
+    return { title: tab.title || '', description: '', content: '' };
+  }
+}
+
+// --- Save form ---
+
+export async function initSaveForm(tab) {
+  const storage = await chrome.storage.local.get([
+    'defaultTags', 'lastUsedTags', DRAFT_KEY, DRAFT_IMMUTABLE_KEY
+  ]);
+
+  const draft = storage[DRAFT_KEY];
+  const immutable = storage[DRAFT_IMMUTABLE_KEY];
+  const hasCachedData = draft
+    && immutable
+    && draft.url === tab.url
+    && immutable.url === tab.url
+    && Array.isArray(immutable.allTags)
+    && isValidLimits(immutable.limits);
+
+  const defaultTags = storage.defaultTags || [];
+  const lastUsedTags = storage.lastUsedTags || [];
+  defaultTagSet = new Set(defaultTags);
+
+  if (hasCachedData) {
+    // Restore from cache — skip all API calls and page scraping
+    urlInput.value = tab.url;
+    titleInput.value = draft.title;
+    descriptionInput.value = draft.description;
+    pageContent = typeof immutable.pageContent === 'string' ? immutable.pageContent : '';
+    allTags = immutable.allTags;
+    (draft.tags || []).forEach(t => selectedTags.add(t));
+    applyLimits(immutable.limits);
+  } else {
+    // Fresh fetch — fire page scrape, GET_LIMITS, and GET_TAGS in parallel
+    urlInput.value = tab.url;
+
+    const [pageData, limitsResult, tagsResult] = await Promise.all([
+      getPageData(tab),
+      chrome.runtime.sendMessage({ type: 'GET_LIMITS' }).catch(() => null),
+      chrome.runtime.sendMessage({ type: 'GET_TAGS' }).catch(() => null),
+    ]);
+
+    // Validate limits
+    if (!limitsResult?.success || !isValidLimits(limitsResult.data)) {
+      loadingIndicator.hidden = true;
+      if (limitsResult?.status === 401) {
+        showSaveStatus('Invalid token.', 'error', {
+          text: 'Update in settings',
+          onClick: () => chrome.runtime.openOptionsPage()
+        });
+      } else {
+        showSaveStatus("Can't load account limits", 'error');
+      }
+      return;
+    }
+
+    pageContent = pageData.content || '';
+    applyLimits(limitsResult.data);
+
+    titleInput.value = (pageData.title || '').substring(0, limits.max_title_length);
+    descriptionInput.value = (pageData.description || '').substring(0, limits.max_description_length);
+
+    let tagsSuccess = false;
+    if (tagsResult?.success && Array.isArray(tagsResult.data?.tags)) {
+      allTags = tagsResult.data.tags.map(t => t.name);
+      tagsSuccess = true;
+    }
+
+    [...new Set([...defaultTags, ...lastUsedTags])].forEach(t => selectedTags.add(t));
+
+    // Cache immutable data only if both limits and tags succeeded
+    if (tagsSuccess) {
+      chrome.storage.local.set({
+        [DRAFT_IMMUTABLE_KEY]: {
+          url: tab.url,
+          pageContent,
+          allTags,
+          limits: limitsResult.data,
+        }
+      });
+    }
+
+    saveDraft();
+  }
+
+  renderTagChips();
+
+  loadingIndicator.hidden = true;
+  saveForm.hidden = false;
+
+  titleInput.addEventListener('input', () => {
+    saveDraft();
+    updateLimitFeedback(titleInput, titleLimit, limits.max_title_length);
+  });
+  descriptionInput.addEventListener('input', () => {
+    saveDraft();
+    updateLimitFeedback(descriptionInput, descriptionLimit, limits.max_description_length);
+  });
+
+  // Show feedback if pre-populated values are at the limit
+  updateLimitFeedback(titleInput, titleLimit, limits.max_title_length);
+  updateLimitFeedback(descriptionInput, descriptionLimit, limits.max_description_length);
+
+  tagsInput.addEventListener('input', () => {
+    renderTagChips();
+  });
+
+  clearTagsBtn.addEventListener('click', () => {
+    selectedTags = new Set(defaultTagSet);
+    tagsInput.value = '';
+    renderTagChips();
+    saveDraft();
+  });
+
+  tagsInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const newTag = tagsInput.value.trim().toLowerCase().replace(/_/g, '-');
+      if (newTag) {
+        selectedTags.add(newTag);
+        tagsInput.value = '';
+        renderTagChips();
+        saveDraft();
+      }
+    }
+  });
+
+  saveForm.addEventListener('submit', handleSave);
+}
+
+// --- Tag rendering ---
+
+export function renderTagChips() {
+  const filterText = tagsInput.value.trim().toLowerCase();
+  tagChipsContainer.replaceChildren();
+  tagSuggestions.replaceChildren();
+
+  let visibleTags = allTags;
+  if (filterText) {
+    visibleTags = allTags.filter(t => t.includes(filterText));
+  }
+
+  const customSelected = [...selectedTags].filter(t => !allTags.includes(t));
+  let tagsToShow;
+  if (showingAllTags || filterText) {
+    tagsToShow = [...visibleTags, ...customSelected.filter(t => !filterText || t.includes(filterText))];
+  } else {
+    const topTags = visibleTags.slice(0, INITIAL_CHIPS_COUNT);
+    const selectedNotInTop = [...selectedTags].filter(
+      t => !topTags.includes(t)
+    );
+    tagsToShow = [...topTags, ...selectedNotInTop];
+  }
+
+  tagsToShow.forEach(tag => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'tag-chip' + (selectedTags.has(tag) ? ' selected' : '');
+    chip.textContent = tag;
+    chip.addEventListener('click', () => {
+      if (selectedTags.has(tag)) {
+        selectedTags.delete(tag);
+      } else {
+        selectedTags.add(tag);
+      }
+      tagsInput.value = '';
+      renderTagChips();
+      saveDraft();
+    });
+    tagChipsContainer.appendChild(chip);
+  });
+
+  if (!filterText && !showingAllTags && visibleTags.length > INITIAL_CHIPS_COUNT) {
+    tagSuggestions.hidden = false;
+    const link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'show-all-link';
+    link.textContent = `Show all (${visibleTags.length})`;
+    link.addEventListener('click', () => {
+      showingAllTags = true;
+      renderTagChips();
+    });
+    tagSuggestions.appendChild(link);
+  } else {
+    tagSuggestions.hidden = true;
+  }
+
+  if (showingAllTags && !filterText && tagsToShow.length > INITIAL_CHIPS_COUNT) {
+    tagChipsContainer.classList.add('all-tags');
+  } else {
+    tagChipsContainer.classList.remove('all-tags');
+  }
+
+  const hasNonDefaultSelected = [...selectedTags].some(t => !defaultTagSet.has(t));
+  clearTagsBtn.hidden = !hasNonDefaultSelected;
+}
+
+// --- Save handling ---
+
+function getSelectedTags() {
+  return [...selectedTags];
+}
+
+function flashButtonSuccess(btn, originalText) {
+  clearTimeout(flashTimerId);
+  btn.textContent = '\u2713 Saved';
+  btn.classList.add('btn-success');
+  btn.disabled = false;
+  flashTimerId = setTimeout(() => {
+    btn.textContent = originalText;
+    btn.classList.remove('btn-success');
+  }, 2000);
+}
+
+export async function handleSave(e) {
+  e.preventDefault();
+  if (!limits) {
+    showSaveStatus("Can't load account limits", 'error');
+    return;
+  }
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving...';
+  saveStatus.hidden = true;
+
+  const tags = getSelectedTags();
+  const bookmark = {
+    url: urlInput.value,
+    title: titleInput.value.substring(0, limits.max_title_length),
+    description: descriptionInput.value.substring(0, limits.max_description_length),
+    content: pageContent.substring(0, limits.max_bookmark_content_length),
+    tags
+  };
+
+  let success = false;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'CREATE_BOOKMARK', bookmark });
+
+    if (response?.success) {
+      success = true;
+      flashButtonSuccess(saveBtn, 'Save Bookmark');
+      chrome.storage.local.set({ lastUsedTags: tags });
+      clearDraft();
+    } else if (response) {
+      handleSaveError(response);
+    } else {
+      showSaveStatus("Can't reach extension — try reloading", 'error');
+    }
+  } catch {
+    showSaveStatus("Can't reach extension — try reloading", 'error');
+  } finally {
+    if (!success) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Bookmark';
+    }
+  }
+}
+
+export function handleSaveError(response) {
+  const { status, body, retryAfter } = response;
+
+  if (status === 400 || status === 422) {
+    let message = 'Invalid bookmark data';
+    if (Array.isArray(body?.detail)) {
+      message = body.detail.map(e => e.msg).join('; ');
+    } else if (typeof body?.detail === 'string') {
+      message = body.detail;
+    }
+    showSaveStatus(message, 'error');
+    return;
+  }
+
+  if (status === 401) {
+    showSaveStatus('Invalid token.', 'error', {
+      text: 'Update in settings',
+      onClick: () => chrome.runtime.openOptionsPage()
+    });
+    return;
+  }
+
+  if (status === 402) {
+    showSaveStatus(body?.detail || 'Bookmark limit reached.', 'error', {
+      text: 'Manage bookmarks',
+      href: 'https://tiddly.me/app/bookmarks'
+    });
+    return;
+  }
+
+  if (status === 409) {
+    if (body?.error_code === 'ARCHIVED_URL_EXISTS' && body?.existing_bookmark_id) {
+      showSaveStatus('This bookmark is archived.', 'info', {
+        text: 'View it',
+        href: `https://tiddly.me/app/bookmarks/${encodeURIComponent(body.existing_bookmark_id)}`
+      });
+    } else {
+      showSaveStatus('Already saved', 'info');
+    }
+    return;
+  }
+
+  if (status === 429) {
+    const seconds = retryAfter || '?';
+    showSaveStatus(`Rate limited — try again in ${seconds}s`, 'error');
+    return;
+  }
+
+  if (status === 451) {
+    showSaveStatus('Accept terms first.', 'error', {
+      text: 'Open Tiddly',
+      href: 'https://tiddly.me'
+    });
+    return;
+  }
+
+  showSaveStatus(
+    response.error || `Unexpected error (${status || 'network'})`,
+    'error'
+  );
+}
+
+// --- Search view ---
+
+export async function initSearchView() {
+  showView('search');
+  loadBookmarks('', 0, false);
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      searchOffset = 0;
+      loadBookmarks(searchInput.value.trim(), 0, false);
+    }, 300);
+  });
+
+  loadMoreBtn.addEventListener('click', () => {
+    loadBookmarks(searchInput.value.trim(), searchOffset, true);
+  });
+}
+
+export async function loadBookmarks(query, offset, append) {
+  const requestId = ++searchRequestId;
+  loadMoreBtn.hidden = true;
+  if (!append) {
+    loadMoreBtn.disabled = true;
+    searchLoading.hidden = false;
+    searchResults.replaceChildren();
+  }
+
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage(
+      { type: 'SEARCH_BOOKMARKS', query, offset, limit: 10 }
+    );
+  } catch {
+    response = null;
+  }
+
+  if (requestId !== searchRequestId) return;
+
+  searchLoading.hidden = true;
+  loadMoreBtn.disabled = false;
+
+  if (!response?.success) {
+    const msg = document.createElement('p');
+    msg.className = 'empty-state';
+    if (response?.status === 401) {
+      msg.textContent = 'Invalid token — update in settings';
+    } else {
+      msg.textContent = "Can't reach server — check your connection";
+    }
+    searchResults.appendChild(msg);
+    if (append) loadMoreBtn.hidden = false;
+    return;
+  }
+
+  const items = response.data?.items ?? [];
+  const has_more = response.data?.has_more ?? false;
+
+  if (items.length === 0 && !append) {
+    const msg = document.createElement('p');
+    msg.className = 'empty-state';
+    msg.textContent = query ? 'No results' : 'No bookmarks yet';
+    searchResults.appendChild(msg);
+    return;
+  }
+
+  items.forEach(item => {
+    const el = document.createElement('div');
+    el.className = 'search-result';
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'search-result-title-row';
+
+    const favicon = document.createElement('img');
+    favicon.className = 'search-result-favicon';
+    favicon.width = 16;
+    favicon.height = 16;
+    favicon.src = `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(item.url)}&size=32`;
+    favicon.alt = '';
+    favicon.onerror = () => favicon.remove();
+    titleRow.appendChild(favicon);
+
+    const title = document.createElement('a');
+    title.className = 'search-result-title';
+    title.textContent = item.title || item.url;
+    title.href = item.url;
+    title.target = '_blank';
+    title.rel = 'noopener noreferrer';
+    title.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: item.url });
+    });
+    titleRow.appendChild(title);
+    el.appendChild(titleRow);
+
+    const url = document.createElement('div');
+    url.className = 'search-result-url';
+    url.textContent = item.url;
+    el.appendChild(url);
+
+    const meta = document.createElement('div');
+    meta.className = 'search-result-meta';
+
+    if (item.tags && item.tags.length > 0) {
+      item.tags.forEach(t => {
+        const tag = document.createElement('span');
+        tag.className = 'search-result-tag';
+        tag.textContent = t;
+        meta.appendChild(tag);
+      });
+    }
+
+    if (meta.childNodes.length > 0) {
+      el.appendChild(meta);
+    }
+
+    searchResults.appendChild(el);
+  });
+
+  searchOffset = offset + items.length;
+  loadMoreBtn.hidden = !has_more;
+}

@@ -1,0 +1,107 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { setupDOM } from '../popup-core.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// --- In-memory Chrome storage ---
+
+let storageData = {};
+
+function resetChromeStorage() {
+  storageData = {};
+}
+
+// --- Chrome API mock ---
+
+function createChromeMock() {
+  return {
+    storage: {
+      local: {
+        get: vi.fn((keys) => {
+          const result = {};
+          for (const key of keys) {
+            if (key in storageData) {
+              result[key] = structuredClone(storageData[key]);
+            }
+          }
+          return Promise.resolve(result);
+        }),
+        set: vi.fn((items) => {
+          Object.assign(storageData, structuredClone(items));
+          return Promise.resolve();
+        }),
+        remove: vi.fn((keys) => {
+          for (const key of keys) {
+            delete storageData[key];
+          }
+          return Promise.resolve();
+        }),
+      },
+    },
+    runtime: {
+      sendMessage: vi.fn(),
+      openOptionsPage: vi.fn(),
+      id: 'test-extension-id',
+    },
+    tabs: {
+      query: vi.fn(),
+      create: vi.fn(),
+    },
+    scripting: {
+      executeScript: vi.fn(),
+    },
+  };
+}
+
+// --- setupPopupDOM: reads real popup.html and calls setupDOM ---
+
+function setupPopupDOM() {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'popup.html'), 'utf-8');
+  document.body.innerHTML = html;
+
+  setupDOM({
+    setupView: document.getElementById('setup-view'),
+    saveView: document.getElementById('save-view'),
+    searchView: document.getElementById('search-view'),
+    saveForm: document.getElementById('save-form'),
+    loadingIndicator: document.getElementById('loading-indicator'),
+    urlInput: document.getElementById('url'),
+    titleInput: document.getElementById('title'),
+    descriptionInput: document.getElementById('description'),
+    titleLimit: document.getElementById('title-limit'),
+    descriptionLimit: document.getElementById('description-limit'),
+    tagsInput: document.getElementById('tags-input'),
+    tagChipsContainer: document.getElementById('tag-chips'),
+    tagSuggestions: document.getElementById('tag-suggestions'),
+    saveBtn: document.getElementById('save-btn'),
+    saveStatus: document.getElementById('save-status'),
+    clearTagsBtn: document.getElementById('clear-tags'),
+    searchInput: document.getElementById('search-input'),
+    searchResults: document.getElementById('search-results'),
+    searchLoading: document.getElementById('search-loading'),
+    loadMoreBtn: document.getElementById('load-more'),
+  });
+}
+
+// --- mockMessages helper ---
+
+function mockMessages(responses) {
+  globalThis.chrome.runtime.sendMessage.mockImplementation((msg) => {
+    const response = responses[msg.type];
+    if (response instanceof Error) {
+      return Promise.reject(response);
+    }
+    return Promise.resolve(response ?? null);
+  });
+}
+
+// --- Install Chrome mock globally before each test ---
+
+beforeEach(() => {
+  resetChromeStorage();
+  globalThis.chrome = createChromeMock();
+});
+
+export { resetChromeStorage, setupPopupDOM, mockMessages };

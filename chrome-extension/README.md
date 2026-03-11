@@ -38,10 +38,25 @@ Save bookmarks to [tiddly.me](https://tiddly.me) with one click. Search your boo
 
 **Searching bookmarks:** Click the extension icon on a new tab or restricted page. Type to search, or browse your recent bookmarks.
 
+## Testing
+
+```bash
+make extension-install   # Install test dependencies (vitest + jsdom)
+make extension-tests     # Run tests
+```
+
+## Packaging
+
+To produce a clean zip for distribution and uploading to Chrome Extensions Store (excludes tests, node_modules, etc.):
+
+```bash
+make extension-zip       # Creates dist/chrome-extension.zip
+```
+
 ## Local Development
 
 To develop against a local API server:
 
-1. In `background.js`, change `API_URL` to `http://localhost:8000`
+1. In `background-core.js`, change `API_URL` to `http://localhost:8000`
 2. In `manifest.json`, add `http://localhost:8000/*` to `host_permissions`
 3. Reload the extension in `chrome://extensions/`
