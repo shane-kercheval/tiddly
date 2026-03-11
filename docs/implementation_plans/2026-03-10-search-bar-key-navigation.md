@@ -88,7 +88,9 @@ The hook manages:
    - `onExitTop` not needed here (commands view doesn't have a search-to-list flow for ArrowUp)
    - **Preserve Tab handling**: The hook only handles navigation keys (Arrow/Enter). CommandPalette must compose a wrapper `handleKeyDown` that delegates Arrow/Enter to the hook's handler and handles Tab separately (current behavior: Tab moves focus into the selected list item at line 429). This is CommandPalette-specific behavior — other consumers don't need it.
 
-3. **Update `CommandPalette.tsx` tests** to verify behavior is preserved
+3. **Write CommandPalette keyboard integration tests _before_ extracting the hook**
+   - These tests serve as a regression suite during the refactor — if extraction breaks anything, the tests catch it immediately
+   - Only proceed with extraction once these tests pass against the current inline implementation
 
 ### Testing Strategy
 
@@ -104,8 +106,10 @@ The hook manages:
 - `scrollIntoView` is called when selectedIndex changes
 - Keyboard events are preventDefault'd
 - Does nothing when `enabled` is false
+- `handleKeyDown` is a no-op when `e.target` is a nested interactive element (`<button>`, `<a>`, `<select>`)
+- Items going from N → 0 → N (e.g., query matches nothing then cleared) clamps correctly and doesn't leave stale selection
 
-**`CommandPalette.test.tsx`**: Audit existing tests for keyboard navigation coverage. Existing tests primarily check list composition, not keyboard behavior. Add integration tests if not already covered:
+**`CommandPalette.test.tsx`**: Write these _before_ extraction (step 3 above). Existing tests primarily check list composition, not keyboard behavior. Add integration tests if not already covered:
 - ArrowDown/ArrowUp navigates between commands
 - Enter executes the selected command
 - Tab moves focus into the selected command item (regression guard for Tab preservation)
