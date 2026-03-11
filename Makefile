@@ -74,15 +74,15 @@ frontend-verify: frontend-lint frontend-typecheck frontend-tests
 ####
 # Chrome Extension
 ####
-extension-install:  ## Install chrome extension test dependencies
+chrome-ext-install:  ## Install chrome extension test dependencies
 	$(check_node_version)
 	cd chrome-extension && npm install
 
-extension-tests:  ## Run chrome extension tests
+chrome-ext-tests:  ## Run chrome extension tests
 	$(check_node_version)
 	cd chrome-extension && npm test
 
-extension-zip:  ## Package chrome extension for distribution
+chrome-ext-zip:  ## Package chrome extension for distribution
 	@mkdir -p dist
 	cd chrome-extension && zip -r ../dist/chrome-extension.zip \
 		manifest.json \
@@ -92,7 +92,7 @@ extension-zip:  ## Package chrome extension for distribution
 		icons/ \
 		-x '*.DS_Store'
 
-extension-verify: extension-tests
+chrome-ext-verify: chrome-ext-tests
 
 ####
 # Docker (PostgreSQL + Redis)
@@ -161,7 +161,7 @@ backend-verify: backend-lint backend-tests
 
 lint: backend-lint frontend-lint
 
-tests: cli-verify backend-verify frontend-verify extension-verify
+tests: cli-verify backend-verify frontend-verify chrome-ext-verify
 
 pen_tests:  ## Run deployed security tests (requires SECURITY_TEST_* env vars in .env)
 	uv run pytest backend/tests/security/deployed -v

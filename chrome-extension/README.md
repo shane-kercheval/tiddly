@@ -41,8 +41,8 @@ Save bookmarks to [tiddly.me](https://tiddly.me) with one click. Search your boo
 ## Testing
 
 ```bash
-make extension-install   # Install test dependencies (vitest + jsdom)
-make extension-tests     # Run tests
+make chrome-ext-install   # Install test dependencies (vitest + jsdom)
+make chrome-ext-tests     # Run tests
 ```
 
 ## Packaging
@@ -50,7 +50,7 @@ make extension-tests     # Run tests
 To produce a clean zip for distribution and uploading to Chrome Extensions Store (excludes tests, node_modules, etc.):
 
 ```bash
-make extension-zip       # Creates dist/chrome-extension.zip
+make chrome-ext-zip       # Creates dist/chrome-extension.zip
 ```
 
 ## Local Development
