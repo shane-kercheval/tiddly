@@ -32,6 +32,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'GET_LIMITS') {
+    handleGetLimits().then(sendResponse).catch(err =>
+      sendResponse({ success: false, error: err.message })
+    );
+    return true;
+  }
+
   if (message.type === 'SEARCH_BOOKMARKS') {
     handleSearchBookmarks(message).then(sendResponse).catch(err =>
       sendResponse({ success: false, error: err.message })
@@ -68,6 +75,20 @@ async function handleCreateBookmark(message) {
 async function handleGetTags() {
   const token = await getToken();
   const res = await fetchWithTimeout(`${API_URL}/tags/`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'X-Request-Source': 'chrome-extension'
+    }
+  });
+  if (res.ok) {
+    return { success: true, data: await res.json() };
+  }
+  return { success: false, status: res.status };
+}
+
+async function handleGetLimits() {
+  const token = await getToken();
+  const res = await fetchWithTimeout(`${API_URL}/users/me/limits`, {
     headers: {
       'Authorization': `Bearer ${token}`,
       'X-Request-Source': 'chrome-extension'

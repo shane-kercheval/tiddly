@@ -44,9 +44,11 @@ document.getElementById('search-settings-link')?.addEventListener('click', () =>
 
 // --- Save form ---
 
-const MAX_CONTENT_LENGTH = 25000;
-const MAX_TITLE_LENGTH = 500;
-const MAX_DESCRIPTION_LENGTH = 1000;
+// Practical cap for DOM text extraction to avoid freezing the page. The server's
+// max_bookmark_content_length may exceed this for higher tiers (e.g. PRO = 1,000,000),
+// meaning some page content may not be captured via the extension. This is an accepted
+// limitation — the extension is a convenience tool, not the primary interface.
+const SCRAPE_CAP = 200000;
 const INITIAL_CHIPS_COUNT = 8;
 
 const saveForm = document.getElementById('save-form');
@@ -54,6 +56,8 @@ const loadingIndicator = document.getElementById('loading-indicator');
 const urlInput = document.getElementById('url');
 const titleInput = document.getElementById('title');
 const descriptionInput = document.getElementById('description');
+const titleLimit = document.getElementById('title-limit');
+const descriptionLimit = document.getElementById('description-limit');
 const tagsInput = document.getElementById('tags-input');
 const tagChipsContainer = document.getElementById('tag-chips');
 const tagSuggestions = document.getElementById('tag-suggestions');
@@ -66,8 +70,39 @@ let allTags = [];
 let selectedTags = new Set();
 let defaultTagSet = new Set();
 let showingAllTags = false;
+let limits = null;
 
 const DRAFT_KEY = 'draft';
+const DRAFT_IMMUTABLE_KEY = 'draftImmutable';
+
+function characterLimitMessage(limit) {
+  return `Character limit reached (${limit.toLocaleString()})`;
+}
+
+function updateLimitFeedback(input, feedbackEl, maxLength) {
+  if (input.value.length >= maxLength) {
+    feedbackEl.textContent = characterLimitMessage(maxLength);
+    feedbackEl.hidden = false;
+  } else {
+    feedbackEl.hidden = true;
+  }
+}
+
+function applyLimits(limitsObj) {
+  limits = limitsObj;
+  titleInput.maxLength = limitsObj.max_title_length;
+  descriptionInput.maxLength = limitsObj.max_description_length;
+  if (pageContent.length > limitsObj.max_bookmark_content_length) {
+    pageContent = pageContent.substring(0, limitsObj.max_bookmark_content_length);
+  }
+}
+
+function isValidLimits(obj) {
+  return obj
+    && typeof obj.max_title_length === 'number' && obj.max_title_length > 0
+    && typeof obj.max_description_length === 'number' && obj.max_description_length > 0
+    && typeof obj.max_bookmark_content_length === 'number' && obj.max_bookmark_content_length > 0;
+}
 
 function saveDraft() {
   chrome.storage.local.set({
@@ -81,7 +116,7 @@ function saveDraft() {
 }
 
 function clearDraft() {
-  chrome.storage.local.remove(DRAFT_KEY);
+  chrome.storage.local.remove([DRAFT_KEY, DRAFT_IMMUTABLE_KEY]);
 }
 
 async function getPageData(tab) {
@@ -89,52 +124,98 @@ async function getPageData(tab) {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: (maxLen) => ({
-        url: window.location.href,
         title: document.title,
         description: document.querySelector('meta[name="description"]')?.content
           || document.querySelector('meta[property="og:description"]')?.content
           || '',
         content: document.body.innerText.substring(0, maxLen)
       }),
-      args: [MAX_CONTENT_LENGTH]
+      args: [SCRAPE_CAP]
     });
     return result.result;
   } catch {
-    return { url: tab.url, title: tab.title || '', description: '', content: '' };
+    return { title: tab.title || '', description: '', content: '' };
   }
 }
 
 async function initSaveForm(tab) {
-  const [pageData, tagsResult, storage] = await Promise.all([
-    getPageData(tab),
-    chrome.runtime.sendMessage({ type: 'GET_TAGS' }),
-    chrome.storage.local.get(['defaultTags', 'lastUsedTags', DRAFT_KEY])
+  const storage = await chrome.storage.local.get([
+    'defaultTags', 'lastUsedTags', DRAFT_KEY, DRAFT_IMMUTABLE_KEY
   ]);
 
   const draft = storage[DRAFT_KEY];
-  const hasDraftForUrl = draft && draft.url === pageData.url;
-
-  urlInput.value = pageData.url;
-  titleInput.value = hasDraftForUrl
-    ? draft.title
-    : (pageData.title || '').substring(0, MAX_TITLE_LENGTH);
-  descriptionInput.value = hasDraftForUrl
-    ? draft.description
-    : (pageData.description || '').substring(0, MAX_DESCRIPTION_LENGTH);
-  pageContent = pageData.content || '';
+  const immutable = storage[DRAFT_IMMUTABLE_KEY];
+  const hasCachedData = draft
+    && immutable
+    && draft.url === tab.url
+    && immutable.url === tab.url
+    && Array.isArray(immutable.allTags)
+    && isValidLimits(immutable.limits);
 
   const defaultTags = storage.defaultTags || [];
   const lastUsedTags = storage.lastUsedTags || [];
   defaultTagSet = new Set(defaultTags);
 
-  if (hasDraftForUrl) {
+  if (hasCachedData) {
+    // Restore from cache — skip all API calls and page scraping
+    urlInput.value = tab.url;
+    titleInput.value = draft.title;
+    descriptionInput.value = draft.description;
+    pageContent = immutable.pageContent || '';
+    allTags = immutable.allTags;
     (draft.tags || []).forEach(t => selectedTags.add(t));
+    applyLimits(immutable.limits);
   } else {
-    [...new Set([...defaultTags, ...lastUsedTags])].forEach(t => selectedTags.add(t));
-  }
+    // Fresh fetch — fire page scrape, GET_LIMITS, and GET_TAGS in parallel
+    urlInput.value = tab.url;
 
-  if (tagsResult?.success && Array.isArray(tagsResult.data?.tags)) {
-    allTags = tagsResult.data.tags.map(t => t.name);
+    const [pageData, limitsResult, tagsResult] = await Promise.all([
+      getPageData(tab),
+      chrome.runtime.sendMessage({ type: 'GET_LIMITS' }).catch(() => null),
+      chrome.runtime.sendMessage({ type: 'GET_TAGS' }).catch(() => null),
+    ]);
+
+    // Validate limits
+    if (!limitsResult?.success || !isValidLimits(limitsResult.data)) {
+      loadingIndicator.hidden = true;
+      if (limitsResult?.status === 401) {
+        showSaveStatus('Invalid token.', 'error', {
+          text: 'Update in settings',
+          onClick: () => chrome.runtime.openOptionsPage()
+        });
+      } else {
+        showSaveStatus("Can't load account limits", 'error');
+      }
+      return;
+    }
+
+    pageContent = pageData.content || '';
+    applyLimits(limitsResult.data);
+
+    titleInput.value = (pageData.title || '').substring(0, limits.max_title_length);
+    descriptionInput.value = (pageData.description || '').substring(0, limits.max_description_length);
+
+    let tagsSuccess = false;
+    if (tagsResult?.success && Array.isArray(tagsResult.data?.tags)) {
+      allTags = tagsResult.data.tags.map(t => t.name);
+      tagsSuccess = true;
+    }
+
+    [...new Set([...defaultTags, ...lastUsedTags])].forEach(t => selectedTags.add(t));
+
+    // Cache immutable data only if both limits and tags succeeded
+    if (tagsSuccess) {
+      chrome.storage.local.set({
+        [DRAFT_IMMUTABLE_KEY]: {
+          url: tab.url,
+          pageContent,
+          allTags,
+          limits: limitsResult.data,
+        }
+      });
+    }
+
+    saveDraft();
   }
 
   renderTagChips();
@@ -142,8 +223,18 @@ async function initSaveForm(tab) {
   loadingIndicator.hidden = true;
   saveForm.hidden = false;
 
-  titleInput.addEventListener('input', saveDraft);
-  descriptionInput.addEventListener('input', saveDraft);
+  titleInput.addEventListener('input', () => {
+    saveDraft();
+    updateLimitFeedback(titleInput, titleLimit, limits.max_title_length);
+  });
+  descriptionInput.addEventListener('input', () => {
+    saveDraft();
+    updateLimitFeedback(descriptionInput, descriptionLimit, limits.max_description_length);
+  });
+
+  // Show feedback if pre-populated values are at the limit
+  updateLimitFeedback(titleInput, titleLimit, limits.max_title_length);
+  updateLimitFeedback(descriptionInput, descriptionLimit, limits.max_description_length);
 
   tagsInput.addEventListener('input', () => {
     renderTagChips();
@@ -246,6 +337,10 @@ function getSelectedTags() {
 
 async function handleSave(e) {
   e.preventDefault();
+  if (!limits) {
+    showSaveStatus("Can't load account limits", 'error');
+    return;
+  }
   saveBtn.disabled = true;
   saveBtn.textContent = 'Saving...';
   saveStatus.hidden = true;
@@ -253,9 +348,9 @@ async function handleSave(e) {
   const tags = getSelectedTags();
   const bookmark = {
     url: urlInput.value,
-    title: titleInput.value.substring(0, MAX_TITLE_LENGTH),
-    description: descriptionInput.value.substring(0, MAX_DESCRIPTION_LENGTH),
-    content: pageContent,
+    title: titleInput.value.substring(0, limits.max_title_length),
+    description: descriptionInput.value.substring(0, limits.max_description_length),
+    content: pageContent.substring(0, limits.max_bookmark_content_length),
     tags
   };
 

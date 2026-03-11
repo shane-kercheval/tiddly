@@ -278,6 +278,19 @@ textarea {
   min-height: 40px;
 }
 
+.field-limit {
+  display: block;
+  font-size: 11px;
+  color: #dc2626;
+  margin-top: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .field-limit {
+    color: #fca5a5;
+  }
+}
+
 /* Tag chips */
 .tag-chips {
   display: flex;

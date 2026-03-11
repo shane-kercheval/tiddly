@@ -248,3 +248,203 @@ This is a Chrome extension with no automated test infrastructure — all testing
 
 20. **GET_TAGS failure not cached:** If GET_TAGS fails but GET_LIMITS succeeds, form renders without tag chips. Close and reopen on same page → GET_TAGS is retried (not cached as empty), tag chips appear if retry succeeds
 21. **Malformed limits response:** If `GET_LIMITS` returns data missing required fields (e.g. no `max_title_length`), treat as a failed fetch — show error if no draft cache, use draft cache if available
+
+---
+
+## Milestone 2: Test Infrastructure & Automated Tests
+
+### Goal & Outcome
+
+Add vitest + jsdom test infrastructure for the Chrome extension and write automated tests covering the critical logic introduced in Milestone 1. After this milestone:
+
+- `chrome-extension/` has its own `package.json` with vitest + jsdom as dev dependencies
+- Logic is split into side-effect-free core modules (`popup-core.js`, `background-core.js`) that tests import directly, with thin entry points (`popup.js`, `background.js`) that handle DOM wiring and initialization
+- Tests cover pure helpers, limit validation, draft caching logic, `initSaveForm` flows, and `handleSave` behavior
+- Tests run via `npm test` from the `chrome-extension/` directory
+
+### Implementation Outline
+
+#### 1. Split into core modules + entry points
+
+ESM `import()` executes all top-level code in the imported module. Since `popup.js` has top-level DOM lookups (`document.getElementById`), event listener registrations, and an `init()` call, importing it in tests would trigger side effects requiring full DOM and Chrome API setup just to survive the import. The clean solution: separate pure/testable logic from side effects.
+
+**`chrome-extension/popup-core.js`** (new file) — All functions, constants, and state. No top-level DOM lookups, no `init()` call, no event listener registration. Exports everything tests need:
+
+```js
+export {
+  SCRAPE_CAP, DRAFT_KEY, DRAFT_IMMUTABLE_KEY, INITIAL_CHIPS_COUNT,
+  isRestrictedPage, isValidLimits, characterLimitMessage,
+  updateLimitFeedback, applyLimits,
+  saveDraft, clearDraft, getPageData,
+  initSaveForm, handleSave, renderTagChips,
+  showView, showSaveStatus, handleSaveError,
+};
+```
+
+Functions that currently reference module-level DOM element variables (e.g. `titleInput`, `descriptionInput`, `saveForm`, `loadingIndicator`) need those references passed in or initialized via an explicit setup call. Two approaches:
+
+**Option A — `init` function receives DOM refs:** Add a `setupDOM(elements)` function that stores DOM references in module-level variables. The entry point calls it once; tests call it with mock/real elements from jsdom.
+
+```js
+// popup-core.js
+let titleInput, descriptionInput, urlInput, ...;
+
+export function setupDOM(elements) {
+  titleInput = elements.titleInput;
+  descriptionInput = elements.descriptionInput;
+  // ...etc
+}
+```
+
+**Option B — Lazy lookup:** Replace direct references with getter functions that call `document.getElementById` on first access. Less explicit but requires no parameter passing.
+
+**Recommendation:** Option A — explicit dependency passing is clearer and more testable. The entry point does the DOM lookups and passes them in; tests create elements directly or use `document.body.innerHTML` and call `setupDOM()`.
+
+**`chrome-extension/popup.js`** (entry point) — Thin wrapper. Imports from `popup-core.js`, does DOM lookups, calls `setupDOM()`, wires event listeners, calls `init()`:
+
+```js
+import { setupDOM, initSaveForm, ... } from './popup-core.js';
+
+const elements = {
+  titleInput: document.getElementById('title'),
+  descriptionInput: document.getElementById('description'),
+  // ...all DOM refs
+};
+setupDOM(elements);
+
+// Wire settings links, init logic, etc.
+async function init() { ... }
+init().catch(...);
+```
+
+**`popup.html`** — Change the script tag:
+```html
+<script type="module" src="popup.js"></script>
+```
+
+**`chrome-extension/background-core.js`** (new file) — Exports handler functions (`handleGetLimits`, `handleGetTags`, `handleCreateBookmark`, `handleSearchBookmarks`) and helpers (`fetchWithTimeout`, `getToken`). No `chrome.runtime.onMessage` listener registration.
+
+**`chrome-extension/background.js`** (entry point) — Imports handlers from `background-core.js`, registers the `onMessage` listener.
+
+**`manifest.json`** — Add `"type": "module"` to the background service worker:
+```json
+"background": {
+  "service_worker": "background.js",
+  "type": "module"
+}
+```
+
+#### 2. Add test infrastructure
+
+**`chrome-extension/package.json`:**
+```json
+{
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4",
+    "jsdom": "^27.0.1"
+  }
+}
+```
+
+**`chrome-extension/vitest.config.js`:**
+```js
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './test/setup.js',
+  },
+});
+```
+
+**`chrome-extension/test/setup.js`** — Global Chrome API mock:
+
+Sets up `globalThis.chrome` with mock implementations of the APIs used by the extension:
+- `chrome.storage.local.get` / `set` / `remove` — backed by an in-memory object, returns Promises
+- `chrome.runtime.sendMessage` — vi.fn() (configured per-test)
+- `chrome.runtime.openOptionsPage` — vi.fn()
+- `chrome.tabs.query` — vi.fn()
+- `chrome.scripting.executeScript` — vi.fn()
+
+Provide a helper function `setupPopupDOM()` that populates `document.body.innerHTML` with the popup HTML structure and calls `setupDOM()` from `popup-core.js` with the resulting elements.
+
+A `resetChromeStorage()` helper clears the in-memory storage between tests.
+
+#### 3. Test files
+
+**`chrome-extension/test/popup-core.test.js`** — Tests for popup-core.js logic:
+
+**Pure function tests:**
+- `isValidLimits`: valid object, missing fields, zero values, negative values, non-number types, null/undefined input
+- `characterLimitMessage`: formats number with locale separators (e.g. `1,000`)
+- `isRestrictedPage`: chrome://, about:, data:, normal URLs, null/undefined
+
+**`updateLimitFeedback` tests:**
+- Shows feedback when input length >= maxLength
+- Hides feedback when input length < maxLength
+- Correct message text in feedback element
+
+**`applyLimits` tests:**
+- Sets `maxLength` on title and description inputs
+- Truncates `pageContent` when it exceeds `max_bookmark_content_length`
+- Does not truncate when content is under the limit
+
+**`initSaveForm` — fresh fetch (no cache) tests:**
+- Fetches limits, tags, and page data in parallel; populates form fields; shows form
+- Truncates scraped title/description to server limits
+- Writes immutable cache when both limits and tags succeed
+- Does NOT write immutable cache when tags fail (but form still renders)
+- Calls `saveDraft()` to persist mutable form fields
+- Shows limit feedback if pre-populated values are at the limit
+- URL comes from `tab.url`, not from content script
+
+**`initSaveForm` — cache hit tests:**
+- Restores form from draft + immutable cache when URL matches `tab.url`
+- Skips `GET_TAGS`, `GET_LIMITS`, and `getPageData` when cache is valid
+- Applies cached limits (sets `maxLength` on inputs)
+
+**`initSaveForm` — cache miss tests:**
+- Fetches fresh data when draft URL doesn't match `tab.url`
+- Fetches fresh data when immutable cache has invalid limits
+- Fetches fresh data when immutable cache has non-array `allTags`
+
+**`initSaveForm` — error handling tests:**
+- Shows "Invalid token." with settings link on 401 from GET_LIMITS
+- Shows "Can't load account limits" on network failure
+- Shows "Can't load account limits" on malformed limits response
+- Hides loading indicator and keeps form hidden on error
+
+**`handleSave` tests:**
+- Truncates title/description using `limits.max_title_length` / `limits.max_description_length`
+- Truncates content using `limits.max_bookmark_content_length`
+- Shows error if `limits` is null (guard)
+- Calls `clearDraft()` (both keys) on successful save
+- Sends correct bookmark payload via `CREATE_BOOKMARK` message
+
+**`saveDraft` / `clearDraft` tests:**
+- `saveDraft` writes `DRAFT_KEY` with url, title, description, tags
+- `clearDraft` removes both `DRAFT_KEY` and `DRAFT_IMMUTABLE_KEY`
+
+**`chrome-extension/test/background-core.test.js`** — Tests for background-core.js:
+
+- `handleGetLimits`: calls correct endpoint, returns `{ success: true, data }` on 200, returns `{ success: false, status }` on non-200
+- `handleGetTags`: same pattern
+- `handleCreateBookmark`: sends correct payload, handles success/error responses
+- All handlers throw on missing token
+
+#### 4. Testing notes
+
+Since `popup-core.js` has no top-level side effects, tests import it directly — no `vi.resetModules()` or dynamic imports needed for pure function tests.
+
+For integration tests (`initSaveForm`, `handleSave`), call `setupPopupDOM()` in `beforeEach` to populate the DOM and initialize module-level element references via `setupDOM()`. Mock `chrome.runtime.sendMessage` to return appropriate responses for `GET_LIMITS` and `GET_TAGS`, and mock `chrome.scripting.executeScript` to return page data. Each test scenario configures the mocks before calling the function under test.
+
+For `background-core.js` tests, mock `globalThis.fetch` (or the imported `fetchWithTimeout`) and `chrome.storage.local.get` for token retrieval.
+
+Add `chrome-extension/node_modules` to the root `.gitignore`.
