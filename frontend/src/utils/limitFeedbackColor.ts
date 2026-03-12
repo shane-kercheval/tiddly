@@ -54,7 +54,7 @@ export function getLimitColor(ratio: number, isDark: boolean, alwaysShow: boolea
   if (alwaysShow) {
     // Content fields: gray below 85%, orange→red from 85%+
     if (ratio < 0.85) {
-      return lerpColor(LIMIT_COLORS.grayContent, LIMIT_COLORS.grayContent, 0) // static gray-400
+      return '#9ca3af' // gray-400
     }
     const t = (ratio - 0.85) / 0.15
     const from = isDark ? LIMIT_COLORS.orangeDark : LIMIT_COLORS.orangeLight

@@ -480,7 +480,7 @@ createContentComponentTests({
       expect(editor).toHaveValue('x'.repeat(512000))
     })
 
-    it('test__manual_fetch__title_exceeding_limit_is_truncated', async () => {
+    it('test__manual_fetch__title_exceeding_limit_is_not_truncated', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       const oversizedTitle = 'T'.repeat(500 + 100)
       mockOnFetchMetadata.mockResolvedValue({
@@ -507,11 +507,11 @@ createContentComponentTests({
         expect(mockOnFetchMetadata).toHaveBeenCalled()
       })
 
-      const titleInput = screen.getByDisplayValue('T'.repeat(500))
+      const titleInput = screen.getByDisplayValue(oversizedTitle)
       expect(titleInput).toBeInTheDocument()
     })
 
-    it('test__manual_fetch__description_exceeding_limit_is_truncated', async () => {
+    it('test__manual_fetch__description_exceeding_limit_is_not_truncated', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       const oversizedDescription = 'D'.repeat(1000 + 100)
       mockOnFetchMetadata.mockResolvedValue({
@@ -538,7 +538,7 @@ createContentComponentTests({
         expect(mockOnFetchMetadata).toHaveBeenCalled()
       })
 
-      const descriptionInput = screen.getByDisplayValue('D'.repeat(1000))
+      const descriptionInput = screen.getByDisplayValue(oversizedDescription)
       expect(descriptionInput).toBeInTheDocument()
     })
   })

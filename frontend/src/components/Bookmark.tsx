@@ -41,17 +41,17 @@ import type { LinkedItem } from '../utils/relationships'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount, UserLimits } from '../types'
 import type { ArchivePreset } from '../utils'
 
-/** Truncate fetched metadata fields to configured limits */
-function truncateMetadata(
+/** Prepare fetched metadata for form state. Content is truncated to tier limits; title/description pass through so the exceeded UI can surface. */
+function prepareMetadata(
   metadata: { title: string | null; description: string | null; content: string | null },
   limits: UserLimits | undefined,
 ): { title?: string; description?: string; content?: string } {
   const result: { title?: string; description?: string; content?: string } = {}
   if (metadata.title != null) {
-    result.title = limits ? metadata.title.slice(0, limits.max_title_length) : metadata.title
+    result.title = metadata.title
   }
   if (metadata.description != null) {
-    result.description = limits ? metadata.description.slice(0, limits.max_description_length) : metadata.description
+    result.description = metadata.description
   }
   if (metadata.content != null) {
     result.content = limits ? metadata.content.slice(0, limits.max_bookmark_content_length) : metadata.content
@@ -413,15 +413,15 @@ export function Bookmark({
             setFetchError(`Could not retrieve info: ${metadata.error}`)
           }
 
-          const truncated = truncateMetadata(metadata, limits)
+          const prepared = prepareMetadata(metadata, limits)
 
           setCurrent((prev) => ({
             ...prev,
-            ...truncated,
+            ...prepared,
           }))
 
           // Force editor remount when content is fetched
-          if (truncated.content != null) {
+          if (prepared.content != null) {
             setContentKey((prev) => prev + 1)
           }
 
@@ -556,15 +556,15 @@ export function Bookmark({
         setFetchError(`Could not retrieve info: ${metadata.error}`)
       }
 
-      const truncated = truncateMetadata(metadata, limits)
+      const prepared = prepareMetadata(metadata, limits)
 
       setCurrent((prev) => ({
         ...prev,
-        ...truncated,
+        ...prepared,
       }))
 
       // Force editor remount when content is fetched
-      if (truncated.content != null) {
+      if (prepared.content != null) {
         setContentKey((prev) => prev + 1)
       }
 

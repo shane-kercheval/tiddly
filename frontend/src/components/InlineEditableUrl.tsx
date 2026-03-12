@@ -104,11 +104,9 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
       'flex items-center gap-2 w-full',
       // Subtle hover/focus indicator on the container (overridden by error/exceeded state)
       'rounded px-1 -mx-1',
-      error
+      (error || limit.exceeded)
         ? 'ring-2 ring-red-200'
-        : limit.exceeded
-          ? 'ring-2 ring-red-200'
-          : isFocused ? 'ring-2 ring-gray-900/5' : 'hover:ring-2 hover:ring-gray-900/5',
+        : isFocused ? 'ring-2 ring-gray-900/5' : 'hover:ring-2 hover:ring-gray-900/5',
     ]
       .filter(Boolean)
       .join(' ')
@@ -168,7 +166,7 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
           />
         </div>
         {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
-        <CharacterLimitFeedback limit={limit} />
+        {maxLength !== undefined && <CharacterLimitFeedback limit={limit} />}
       </div>
     )
   }

@@ -26,7 +26,6 @@ import type { ReactNode } from 'react'
 // import { MilkdownEditor } from './MilkdownEditor'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
 import { useCharacterLimit } from '../hooks/useCharacterLimit'
-import { CharacterLimitFeedback } from './CharacterLimitFeedback'
 // wasEditorFocused no longer needed - mode toggle commented out
 // import { wasEditorFocused } from '../utils/editorUtils'
 
@@ -382,7 +381,7 @@ export function ContentEditor({
           <span />
         )}
         {maxLength !== undefined && (
-          <span className="text-xs" style={{ color: limit.showCounter ? limit.color : undefined }}>
+          <span className="text-xs" style={{ color: limit.color }}>
             {limit.counterText}
           </span>
         )}

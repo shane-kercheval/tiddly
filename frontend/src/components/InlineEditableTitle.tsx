@@ -77,11 +77,9 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
       // Remove default input appearance
       'bg-transparent border-none outline-none w-full',
       // Subtle hover/focus indicator (overridden by error/exceeded state)
-      error
+      (error || limit.exceeded)
         ? 'ring-2 ring-red-200 hover:ring-red-200 focus:ring-red-200 rounded px-1 -mx-1'
-        : limit.exceeded
-          ? 'ring-2 ring-red-200 hover:ring-red-200 focus:ring-red-200 rounded px-1 -mx-1'
-          : 'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
+        : 'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
       // Placeholder styling
       'placeholder:text-gray-400',
       // Typography based on variant
@@ -113,7 +111,7 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
           className={inputClasses}
         />
         {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
-        <CharacterLimitFeedback limit={limit} />
+        {maxLength !== undefined && <CharacterLimitFeedback limit={limit} />}
       </div>
     )
   }
