@@ -144,12 +144,12 @@ const router = createBrowserRouter([
                   { path: '/app/bookmarks/new', element: <BookmarkDetail /> },
                   { path: '/app/bookmarks/:id', element: <BookmarkDetail /> },
 
-                  // Note detail routes
-                  { path: '/app/notes/new', element: <NoteDetail /> },
+                  // Single route handles both create (id="new") and edit (id=UUID).
+                  // This is intentional — separate routes cause React Router to unmount/remount
+                  // the component when navigating from /new to /:id, destroying editor state.
                   { path: '/app/notes/:id', element: <NoteDetail /> },
 
-                  // Prompt detail routes
-                  { path: '/app/prompts/new', element: <PromptDetail /> },
+                  // Single route for prompts — same reason as notes above.
                   { path: '/app/prompts/:id', element: <PromptDetail /> },
 
                   // Settings routes

@@ -151,11 +151,11 @@ vi.mock('../components/ContentEditor', () => ({
 }))
 
 // Helper to render NoteDetail with router
+// Single route entry matches actual App.tsx — separate entries would mask remount bugs
 function renderWithRouter(initialRoute: string): void {
   render(
     <MemoryRouter initialEntries={[initialRoute]}>
       <Routes>
-        <Route path="/app/notes/new" element={<NoteDetail />} />
         <Route path="/app/notes/:id" element={<NoteDetail />} />
         <Route path="/app/notes" element={<div>Notes List</div>} />
       </Routes>

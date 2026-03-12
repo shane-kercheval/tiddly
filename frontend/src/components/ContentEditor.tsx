@@ -123,8 +123,10 @@ interface ContentEditorProps {
   value: string
   /** Called when content changes */
   onChange: (value: string) => void
-  /** Whether the editor is disabled */
+  /** Whether the editor is disabled (not focusable, for deleted/non-interactive items) */
   disabled?: boolean
+  /** Whether the editor is read-only (focusable but not editable, e.g. during save) */
+  readOnly?: boolean
   /** Whether there's an error */
   hasError?: boolean
   /** Minimum height for the editor */
@@ -167,19 +169,21 @@ interface ContentEditorProps {
  * Usage:
  * ```tsx
  * <ContentEditor
- *   key={note?.id ?? 'new'}  // Force remount on document change
+ *   key={contentKey}  // Increment to force remount (document switch, version restore)
  *   value={content}
  *   onChange={setContent}
  * />
  * ```
  *
- * Note: Pass a `key` prop based on the document ID to force remount when
- * switching documents. This ensures fresh undo history per document.
+ * Note: The parent component manages `contentKey` and increments it when the editor
+ * needs a full reset (document switch, version restore). Do NOT include a document ID
+ * in the key — that would destroy editor state during create→edit transitions.
  */
 export function ContentEditor({
   value,
   onChange,
   disabled = false,
+  readOnly = false,
   hasError = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
@@ -346,6 +350,7 @@ export function ContentEditor({
           value={value}
           onChange={onChange}
           disabled={disabled}
+          readOnly={readOnly}
           minHeight={minHeight}
           placeholder={placeholder}
           wrapText={wrapText}

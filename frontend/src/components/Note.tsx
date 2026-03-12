@@ -187,6 +187,10 @@ export function Note({
   // Using a ref avoids stale closure issues and doesn't need to be in the effect's dependency array.
   const currentContentRef = useRef(current.content)
   currentContentRef.current = current.content
+  // Track previous note ID to distinguish create→edit transitions (which should
+  // preserve editor state) from document switches (which must reset the editor).
+  // See the sync effect below for how this is used.
+  const previousNoteIdRef = useRef<string | undefined>(note?.id)
 
   // Relationship state management (display items, add/remove handlers, cache)
   // Must be called before syncStateFromNote which depends on clearNewItemsCache
@@ -234,20 +238,54 @@ export function Note({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    // Reset editor if content changed externally (e.g., version restore from history sidebar).
-    // After normal saves, currentContentRef already matches note.content so no reset occurs.
-    const needsEditorReset = (note.content ?? '') !== currentContentRef.current
+    // Detect document switch: navigating between two existing notes (UUID A → UUID B).
+    // This forces an editor reset even when content is identical, because undo history
+    // and cursor position belong to the previous document.
+    // Create→edit (undefined → UUID) is NOT a document switch — the user just saved
+    // what they were typing, so editor state (focus, cursor, scroll, undo) is preserved.
+    const isDocumentSwitch = previousNoteIdRef.current !== undefined && note.id !== previousNoteIdRef.current
+    const needsEditorReset = isDocumentSwitch || (note.content ?? '') !== currentContentRef.current
+    previousNoteIdRef.current = note.id
     syncStateFromNote(note, needsEditorReset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.id, note?.updated_at, syncStateFromNote])
+
+  // Reset form state when transitioning from edit mode to create mode.
+  // Without this, navigating from /notes/:id to /notes/new would keep the
+  // previous note's state because useState(getInitialState) only runs on mount
+  // and the sync effect skips when note is undefined.
+  // Dependencies include initialTags and initialRelationships so that
+  // prepopulation from quick-create flows (sidebar, linked content) works correctly.
+  useEffect(() => {
+    if (note) {
+      // In edit mode — nothing to reset. The sync effect handles edit→edit.
+      return
+    }
+    if (previousNoteIdRef.current === undefined) {
+      // Was already in create mode (or initial mount) — no transition to handle.
+      return
+    }
+    // Edit → create transition: reset form to fresh create-mode state.
+    previousNoteIdRef.current = undefined
+    const freshState: NoteState = {
+      title: '',
+      description: '',
+      content: '',
+      tags: initialTags ?? [],
+      relationships: initialRelationships ?? [],
+      archivedAt: '',
+      archivePreset: 'none',
+    }
+    setOriginal(freshState)
+    setCurrent(freshState)
+    setErrors({})
+    setContentKey(prev => prev + 1)
+  }, [note, initialTags, initialRelationships])
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
-  // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
-  const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
-
   // ToC sidebar state
   const scrollToLineRef = useRef<((line: number) => void) | null>(null)
   const showToc = useRightSidebarStore((state) => state.activePanel === 'toc')
@@ -392,11 +430,6 @@ export function Note({
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         if (!isReadOnly && isDirty) {
-          // Save active element to restore focus after save (CodeMirror loses focus during save)
-          const activeElement = document.activeElement as HTMLElement | null
-          if (activeElement?.closest('.cm-editor')) {
-            refocusAfterSaveRef.current = activeElement
-          }
           formRef.current?.requestSubmit()
         }
       }
@@ -505,15 +538,6 @@ export function Note({
 
       // Close if requested (Cmd+Shift+S)
       if (checkAndClose()) return
-
-      // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
-      if (refocusAfterSaveRef.current) {
-        // Small delay to ensure React has finished updating
-        setTimeout(() => {
-          refocusAfterSaveRef.current?.focus()
-          refocusAfterSaveRef.current = null
-        }, 0)
-      }
     } catch (err) {
       // Check for 409 Conflict (version mismatch)
       if (axios.isAxiosError(err) && err.response?.status === 409) {
@@ -522,14 +546,12 @@ export function Note({
           setConflictState({
             serverUpdatedAt: detail.server_state.updated_at,
           })
-          // Clear refs but don't propagate error - we're handling it with the dialog
-          refocusAfterSaveRef.current = null
+          // Don't propagate error - we're handling it with the dialog
           clearSaveAndClose()
           return
         }
       }
-      // Other errors: clear refs and let parent handle
-      refocusAfterSaveRef.current = null
+      // Other errors: let parent handle
       clearSaveAndClose()
       throw err
     }
@@ -878,11 +900,17 @@ export function Note({
         </div>
 
         {/* Content editor */}
+        {/* Key uses contentKey only (not note?.id) so that the create→edit transition
+          * does NOT remount CodeMirror. The sync effect above handles incrementing
+          * contentKey for all cases that need a remount: document switch between
+          * existing notes, version restore, and conflict resolution.
+          * DO NOT add note?.id back to this key — it would destroy editor state on save. */}
         <ContentEditor
-          key={`${note?.id ?? 'new'}-${contentKey}`}
+          key={contentKey}
           value={current.content}
           onChange={handleContentChange}
-          disabled={isSaving || isReadOnly}
+          disabled={isReadOnly}
+          readOnly={isSaving}
           hasError={!!errors.content}
           minHeight="200px"
           placeholder="Write your note in markdown..."

@@ -81,8 +81,10 @@ interface CodeMirrorEditorProps {
   value: string
   /** Called when content changes */
   onChange: (value: string) => void
-  /** Whether the editor is disabled */
+  /** Whether the editor is disabled (not focusable, for deleted/non-interactive items) */
   disabled?: boolean
+  /** Whether the editor is read-only (focusable but not editable, e.g. during save) */
+  readOnly?: boolean
   /** Minimum height for the editor */
   minHeight?: string
   /** Placeholder text shown when empty */
@@ -101,8 +103,6 @@ interface CodeMirrorEditorProps {
   onMonoFontChange?: (mono: boolean) => void
   /** Remove padding to align text with other elements */
   noPadding?: boolean
-  /** Whether to auto-focus on mount */
-  autoFocus?: boolean
   /** Content for the copy button (if provided, copy button is shown) */
   copyContent?: string
   /** Show Jinja2 template tools in toolbar (for prompts) */
@@ -227,6 +227,7 @@ export function CodeMirrorEditor({
   value,
   onChange,
   disabled = false,
+  readOnly = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   wrapText = false,
@@ -236,7 +237,6 @@ export function CodeMirrorEditor({
   monoFont = false,
   onMonoFontChange,
   noPadding = false,
-  autoFocus = false,
   copyContent,
   showJinjaTools = false,
   onModalStateChange: _onModalStateChange, // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -484,10 +484,9 @@ export function CodeMirrorEditor({
   // - Subsequent value prop changes are ignored (initialValue never updates)
   //
   // This is safe because:
-  // - Document switching uses key prop (e.g., key={note?.id}) which forces remount
-  // - On remount, useState captures the new document's content fresh
-  // - Programmatic content changes (e.g., version restore) increment contentKey in the
-  //   parent, which changes the key prop and forces remount with the new value
+  // - Document switching and programmatic content changes (e.g., version restore)
+  //   increment contentKey in the parent, which changes the key prop and forces
+  //   remount with the new value via fresh useState
   const [initialValue] = useState(value)
 
   // Keep ref in sync so CM extension and document-level handler use latest callback
@@ -787,7 +786,7 @@ export function CodeMirrorEditor({
             minHeight={minHeight}
             placeholder={placeholder}
             editable={!disabled}
-            autoFocus={autoFocus}
+            readOnly={readOnly}
             basicSetup={{
               lineNumbers: showLineNumbers,
               foldGutter: false,

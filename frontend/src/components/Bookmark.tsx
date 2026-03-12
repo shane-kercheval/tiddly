@@ -286,9 +286,6 @@ export function Bookmark({
   const linkedChipsRef = useRef<LinkedContentChipsHandle>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
-  // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
-  const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
-
   // Read-only mode for deleted bookmarks
   const isReadOnly = viewState === 'deleted'
 
@@ -495,11 +492,6 @@ export function Bookmark({
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         if (!isReadOnly && isDirty) {
-          // Save active element to restore focus after save (CodeMirror loses focus during save)
-          const activeElement = document.activeElement as HTMLElement | null
-          if (activeElement?.closest('.cm-editor')) {
-            refocusAfterSaveRef.current = activeElement
-          }
           formRef.current?.requestSubmit()
         }
       }
@@ -677,15 +669,6 @@ export function Bookmark({
 
       // Close if requested (Cmd+Shift+S)
       if (checkAndClose()) return
-
-      // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
-      if (refocusAfterSaveRef.current) {
-        // Small delay to ensure React has finished updating
-        setTimeout(() => {
-          refocusAfterSaveRef.current?.focus()
-          refocusAfterSaveRef.current = null
-        }, 0)
-      }
     } catch (err) {
       // Check for 409 Conflict (version mismatch)
       if (axios.isAxiosError(err) && err.response?.status === 409) {
@@ -694,13 +677,11 @@ export function Bookmark({
           setConflictState({
             serverUpdatedAt: detail.server_state.updated_at,
           })
-          refocusAfterSaveRef.current = null
           clearSaveAndClose()
           return
         }
       }
-      // Other errors: clear refs and let parent handle
-      refocusAfterSaveRef.current = null
+      // Other errors: let parent handle
       clearSaveAndClose()
       throw err
     }
@@ -1093,7 +1074,8 @@ export function Bookmark({
               key={`${bookmark?.id ?? 'new'}-${contentKey}`}
               value={current.content}
               onChange={handleContentChange}
-              disabled={isSaving || isReadOnly}
+              disabled={isReadOnly}
+              readOnly={isSaving}
               hasError={!!errors.content}
               minHeight="200px"
               placeholder="Paste or type content to make this bookmark searchable. Auto-filled when you retrieve URL info."

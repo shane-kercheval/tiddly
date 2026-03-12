@@ -159,12 +159,11 @@ vi.mock('../components/ContentEditor', () => ({
   ),
 }))
 
-// Helper to render PromptDetail with router
+// Single route entry matches actual App.tsx — separate entries would mask remount bugs
 function renderWithRouter(initialRoute: string): void {
   render(
     <MemoryRouter initialEntries={[initialRoute]}>
       <Routes>
-        <Route path="/app/prompts/new" element={<PromptDetail />} />
         <Route path="/app/prompts/:id" element={<PromptDetail />} />
         <Route path="/app/prompts" element={<div>Prompts List</div>} />
       </Routes>
