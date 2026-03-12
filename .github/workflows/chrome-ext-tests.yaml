@@ -1,0 +1,28 @@
+name: chrome-ext-tests
+
+on:
+  push:
+    branches: ["main", "staging"]
+    paths:
+      - 'chrome-extension/**'
+      - '.github/workflows/chrome-ext-tests.yaml'
+  pull_request:
+    branches: ["main", "staging"]
+    paths:
+      - 'chrome-extension/**'
+      - '.github/workflows/chrome-ext-tests.yaml'
+  workflow_dispatch:
+
+jobs:
+  chrome-ext:
+    name: Chrome Extension Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: 'chrome-extension/.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: chrome-extension/package-lock.json
+      - run: make chrome-ext-install
+      - run: make chrome-ext-tests

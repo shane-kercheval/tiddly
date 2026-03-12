@@ -65,8 +65,8 @@ const CHANGELOG: ChangelogMonth[] = [
             description: 'Scroll-triggered animations for a smoother first impression.',
           },
           {
-            title: 'Chrome extension UI',
-            description: 'Visual polish and consistency improvements.',
+            title: 'Chrome extension',
+            description: 'Tag filtering, sort options, character limit feedback, draft persistence, and search results open in the current tab.',
           },
         ],
       },
