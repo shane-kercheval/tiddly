@@ -18,6 +18,10 @@ interface SearchFilterBarProps {
   searchQuery: string
   /** Called when search query changes */
   onSearchChange: (e: ChangeEvent<HTMLInputElement>) => void
+  /** Keyboard handler for the search input (e.g., for arrow key navigation) */
+  onSearchKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
+  /** ARIA attribute linking input to the active item in a listbox */
+  searchAriaActiveDescendant?: string
   /** Placeholder text for search input */
   searchPlaceholder?: string
   /** Available tags for the tag filter autocomplete */
@@ -57,6 +61,8 @@ export function SearchFilterBar({
   searchInputRef,
   searchQuery,
   onSearchChange,
+  onSearchKeyDown,
+  searchAriaActiveDescendant,
   searchPlaceholder = 'Search...',
   tagSuggestions,
   selectedTags,
@@ -84,6 +90,8 @@ export function SearchFilterBar({
             type="text"
             value={searchQuery}
             onChange={onSearchChange}
+            onKeyDown={onSearchKeyDown}
+            aria-activedescendant={searchAriaActiveDescendant}
             placeholder={searchPlaceholder}
             className="input pl-10"
           />

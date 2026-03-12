@@ -235,20 +235,29 @@ In AllContent, `SearchFilterBar` and the content list are **sibling containers**
 - Enter on selected result navigates to it and closes the palette
 - Mouse hover updates selection with ghost-highlight prevention
 
+### Learnings from Milestone 2
+
+These patterns emerged during AllContent implementation and should be followed here:
+
+- **`data-mouse-moved` attribute on list container**: AllContent sets `data-mouse-moved={contentMouseMoved || undefined}` on the list container. This drives the ghost-hover CSS suppression rules in `index.css`. The search view needs the same attribute, using `mouseMoved` from the hook return.
+- **CSS handles selection highlight automatically**: The existing `[aria-selected="true"] > .card` rule in `index.css` applies `bg-gray-100`. No inline conditional classes needed — just wrap each card in `<div {...itemProps}>` and the CSS takes care of it.
+- **`SearchFilterBar` already has the needed props**: `onSearchKeyDown` and `searchAriaActiveDescendant` already exist on `SearchFilterBar`. Destructure `getInputProps()` and pass these two values as separate props (same as AllContent).
+- **`idPrefix` is required**: Use a distinct prefix (e.g., `'search-item'`) to avoid ID collisions with the commands view's `'cmd-item'` prefix.
+- **`resetKey` pattern for selection reset**: Derive a string from all filter/sort/pagination state (`debouncedSearchQuery`, `selectedTags`, sort, offset, `pageSize`, `selectedContentTypes`, `selectedViews`) and call `resetSelection` in a `useEffect` keyed on it.
+
 ### Implementation Outline
 
 1. **Wire `useListKeyboardNavigation` in CommandPalette search view**
    - The search view already renders BookmarkCard/NoteCard/PromptCard (lines ~692-756)
-   - Call the hook with `itemCount` from search results length (default `initialIndex: -1`, no preselection)
+   - Call the hook with `itemCount` from search results length (default `initialIndex: -1`, no preselection), `idPrefix: 'search-item'`, `enabled: view === 'search'`
    - `onSelect(index)`: call the existing `handleViewBookmark`/`handleViewNote`/`handleViewPrompt` based on item type — same handlers the card click uses
    - `onExitTop`: focus the search input
-   - Spread `getInputProps()` onto the search input, `getListProps()` onto the results container, `getItemProps(index)` onto each card wrapper (sibling containers, same pattern as AllContent — no double-fire risk)
-   - Reset selection via `resetKey` derived from search query (same pattern as Milestone 2)
+   - Destructure `getInputProps()` and pass `onKeyDown` / `aria-activedescendant` to `SearchFilterBar` via `onSearchKeyDown` / `searchAriaActiveDescendant` props
+   - Spread `getListProps()` onto the results container, set `data-mouse-moved={searchMouseMoved || undefined}` on it
+   - Wrap each card in `<div key={...} {...getItemProps(index)}>` — the existing CSS rules handle the selection highlight
+   - Reset selection via `resetKey` derived from `debouncedSearchQuery`, `selectedTags`, `sortValue`, `offset`, `pageSize`, `selectedContentTypes`, `selectedViews`
 
-2. **Add selection highlight** to search result cards
-   - Use `selectedIndex` + `getItemProps(index)` wrapper pattern from Milestone 2
-
-3. **Coordinate with existing keyboard handling**
+2. **Coordinate with existing keyboard handling**
    - The commands view already uses the hook (from Milestone 1)
    - The search view needs its own separate hook instance since it's a different list with different items
    - Only one view is active at a time (`view` state), so no conflicts

@@ -38,6 +38,7 @@ import {
   useUpdatePrompt,
 } from '../hooks/usePromptMutations'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { useListKeyboardNavigation } from '../hooks/useListKeyboardNavigation'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
 import { useTagsStore } from '../stores/tagsStore'
@@ -366,7 +367,7 @@ export function AllContent(): ReactNode {
 
   // Bookmark action handlers
   const handleEditClick = (bookmark: BookmarkListItem): void => {
-    navigate(`/app/bookmarks/${bookmark.id}`, { state: createReturnState() })
+    navigate(`/app/bookmarks/${bookmark.id}`, { state: { ...createReturnState(), selectedContentIndex: selectedIndexRef.current } })
   }
 
   const handleDeleteBookmark = async (bookmark: BookmarkListItem): Promise<void> => {
@@ -438,7 +439,7 @@ export function AllContent(): ReactNode {
 
   // Note action handlers
   const handleViewNote = (note: NoteListItem): void => {
-    navigate(`/app/notes/${note.id}`, { state: createReturnState() })
+    navigate(`/app/notes/${note.id}`, { state: { ...createReturnState(), selectedContentIndex: selectedIndexRef.current } })
   }
 
   const handleDeleteNote = async (note: NoteListItem): Promise<void> => {
@@ -510,7 +511,7 @@ export function AllContent(): ReactNode {
 
   // Prompt action handlers
   const handleViewPrompt = (prompt: PromptListItem): void => {
-    navigate(`/app/prompts/${prompt.id}`, { state: createReturnState() })
+    navigate(`/app/prompts/${prompt.id}`, { state: { ...createReturnState(), selectedContentIndex: selectedIndexRef.current } })
   }
 
   const handleDeletePrompt = async (prompt: PromptListItem): Promise<void> => {
@@ -665,6 +666,69 @@ export function AllContent(): ReactNode {
     },
   }), [handleQuickAddBookmark, handleQuickAddNote, handleQuickAddPrompt])
 
+  // Keyboard navigation for content list
+  // Restore selection from return navigation (e.g. after viewing a note and pressing back)
+  const restoredIndex = (location.state as { selectedContentIndex?: number } | null)?.selectedContentIndex
+  const initialContentIndex = restoredIndex ?? -1
+  // Ref tracks current selection so navigation handlers (defined earlier) can include it in state
+  const selectedIndexRef = useRef(initialContentIndex)
+
+  // Auto-focus search input on mount and when navigating between views/filters
+  // so keyboard navigation works immediately
+  useEffect(() => {
+    searchInputRef.current?.focus()
+  }, [location.pathname])
+
+  const handleItemSelect = (index: number): void => {
+    const item = items[index]
+    if (!item) return
+    if (item.type === 'bookmark') {
+      if (currentView !== 'deleted') handleEditClick(toBookmarkListItem(item))
+    } else if (item.type === 'note') {
+      handleViewNote(toNoteListItem(item))
+    } else if (item.type === 'prompt') {
+      handleViewPrompt(toPromptListItem(item))
+    }
+  }
+
+  const handleExitTop = useCallback(() => {
+    searchInputRef.current?.focus()
+  }, [])
+
+  const {
+    selectedIndex,
+    mouseMoved: contentMouseMoved,
+    resetSelection,
+    getInputProps: getContentInputProps,
+    getListProps: getContentListProps,
+    getItemProps: getContentItemProps,
+  } = useListKeyboardNavigation({
+    itemCount: items.length,
+    onSelect: handleItemSelect,
+    onExitTop: handleExitTop,
+    initialIndex: initialContentIndex,
+    resetIndex: -1,
+    idPrefix: 'content-item',
+  })
+
+  useEffect(() => {
+    selectedIndexRef.current = selectedIndex
+  }, [selectedIndex])
+
+  // Reset selection when filters change, but not on initial mount (to preserve restored selection).
+  // Comparing against the previous value (instead of a boolean flag) survives StrictMode's
+  // double-effect execution where a simple "skip first" ref would be set to false on the
+  // first invocation and then fail to skip the second.
+  const resetKey = `${currentView}:${currentFilterId}:${effectiveSearchQuery}:${selectedTags.join(',')}:${tagMatch}:${sortBy}:${sortOrder}:${offset}:${pageSize}:${selectedContentTypes?.join(',')}`
+  const prevResetKeyRef = useRef(resetKey)
+  useEffect(() => {
+    if (prevResetKeyRef.current === resetKey) return
+    prevResetKeyRef.current = resetKey
+    resetSelection()
+  }, [resetKey, resetSelection])
+
+  const contentInputProps = getContentInputProps()
+
   // Render content based on state
   const renderContent = (): ReactNode => {
     if (error) {
@@ -760,66 +824,70 @@ export function AllContent(): ReactNode {
     return (
       <>
         {/* Content list - reduce side padding on mobile for more card space */}
-        <div className="-mx-2 md:mx-0">
-          {items.map((item) => {
+        <div className="-mx-2 md:mx-0" {...getContentListProps()} data-mouse-moved={contentMouseMoved || undefined}>
+          {items.map((item, index) => {
+            const itemProps = getContentItemProps(index)
             if (item.type === 'bookmark') {
               return (
-                <BookmarkCard
-                  key={`bookmark-${item.id}`}
-                  bookmark={toBookmarkListItem(item)}
-                  view={currentView}
-                  sortBy={sortBy}
-                  onEdit={currentView !== 'deleted' ? handleEditClick : undefined}
-                  onDelete={handleDeleteBookmark}
-                  onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
-                  onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
-                  onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
-                  onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveBookmark : undefined}
-                  onTagClick={handleTagClick}
-                  onTagRemove={currentView !== 'deleted' ? handleTagRemoveBookmark : undefined}
-                  onTagAdd={currentView !== 'deleted' ? handleTagAddBookmark : undefined}
-                  tagSuggestions={tagSuggestions}
-                  onLinkClick={(b) => trackBookmarkUsage(b.id)}
-                />
+                <div key={`bookmark-${item.id}`} {...itemProps} >
+                  <BookmarkCard
+                    bookmark={toBookmarkListItem(item)}
+                    view={currentView}
+                    sortBy={sortBy}
+                    onEdit={currentView !== 'deleted' ? handleEditClick : undefined}
+                    onDelete={handleDeleteBookmark}
+                    onArchive={currentView === 'active' ? handleArchiveBookmark : undefined}
+                    onUnarchive={currentView === 'archived' ? handleUnarchiveBookmark : undefined}
+                    onRestore={currentView === 'deleted' ? handleRestoreBookmark : undefined}
+                    onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveBookmark : undefined}
+                    onTagClick={handleTagClick}
+                    onTagRemove={currentView !== 'deleted' ? handleTagRemoveBookmark : undefined}
+                    onTagAdd={currentView !== 'deleted' ? handleTagAddBookmark : undefined}
+                    tagSuggestions={tagSuggestions}
+                    onLinkClick={(b) => trackBookmarkUsage(b.id)}
+                  />
+                </div>
               )
             }
             if (item.type === 'prompt') {
               return (
-                <PromptCard
-                  key={`prompt-${item.id}`}
-                  prompt={toPromptListItem(item)}
-                  view={currentView}
-                  sortBy={sortBy}
-                  onView={handleViewPrompt}
-                  onDelete={handleDeletePrompt}
-                  onArchive={currentView === 'active' ? handleArchivePrompt : undefined}
-                  onUnarchive={currentView === 'archived' ? handleUnarchivePrompt : undefined}
-                  onRestore={currentView === 'deleted' ? handleRestorePrompt : undefined}
-                  onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchivePrompt : undefined}
-                  onTagClick={handleTagClick}
-                  onTagRemove={currentView !== 'deleted' ? handleTagRemovePrompt : undefined}
-                  onTagAdd={currentView !== 'deleted' ? handleTagAddPrompt : undefined}
-                  tagSuggestions={tagSuggestions}
-                />
+                <div key={`prompt-${item.id}`} {...itemProps} >
+                  <PromptCard
+                    prompt={toPromptListItem(item)}
+                    view={currentView}
+                    sortBy={sortBy}
+                    onView={handleViewPrompt}
+                    onDelete={handleDeletePrompt}
+                    onArchive={currentView === 'active' ? handleArchivePrompt : undefined}
+                    onUnarchive={currentView === 'archived' ? handleUnarchivePrompt : undefined}
+                    onRestore={currentView === 'deleted' ? handleRestorePrompt : undefined}
+                    onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchivePrompt : undefined}
+                    onTagClick={handleTagClick}
+                    onTagRemove={currentView !== 'deleted' ? handleTagRemovePrompt : undefined}
+                    onTagAdd={currentView !== 'deleted' ? handleTagAddPrompt : undefined}
+                    tagSuggestions={tagSuggestions}
+                  />
+                </div>
               )
             }
             return (
-              <NoteCard
-                key={`note-${item.id}`}
-                note={toNoteListItem(item)}
-                view={currentView}
-                sortBy={sortBy}
-                onView={handleViewNote}
-                onDelete={handleDeleteNote}
-                onArchive={currentView === 'active' ? handleArchiveNote : undefined}
-                onUnarchive={currentView === 'archived' ? handleUnarchiveNote : undefined}
-                onRestore={currentView === 'deleted' ? handleRestoreNote : undefined}
-                onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveNote : undefined}
-                onTagClick={handleTagClick}
-                onTagRemove={currentView !== 'deleted' ? handleTagRemoveNote : undefined}
-                onTagAdd={currentView !== 'deleted' ? handleTagAddNote : undefined}
-                tagSuggestions={tagSuggestions}
-              />
+              <div key={`note-${item.id}`} {...itemProps} >
+                <NoteCard
+                  note={toNoteListItem(item)}
+                  view={currentView}
+                  sortBy={sortBy}
+                  onView={handleViewNote}
+                  onDelete={handleDeleteNote}
+                  onArchive={currentView === 'active' ? handleArchiveNote : undefined}
+                  onUnarchive={currentView === 'archived' ? handleUnarchiveNote : undefined}
+                  onRestore={currentView === 'deleted' ? handleRestoreNote : undefined}
+                  onCancelScheduledArchive={currentView === 'active' ? handleCancelScheduledArchiveNote : undefined}
+                  onTagClick={handleTagClick}
+                  onTagRemove={currentView !== 'deleted' ? handleTagRemoveNote : undefined}
+                  onTagAdd={currentView !== 'deleted' ? handleTagAddNote : undefined}
+                  tagSuggestions={tagSuggestions}
+                />
+              </div>
             )
           })}
         </div>
@@ -875,6 +943,8 @@ export function AllContent(): ReactNode {
           searchInputRef={searchInputRef}
           searchQuery={searchQuery}
           onSearchChange={handleSearchChange}
+          onSearchKeyDown={contentInputProps.onKeyDown}
+          searchAriaActiveDescendant={contentInputProps['aria-activedescendant']}
           searchPlaceholder={`Search ${pageTitle}...`}
           tagSuggestions={tagSuggestions}
           selectedTags={selectedTags}

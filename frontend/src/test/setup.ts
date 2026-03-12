@@ -7,6 +7,9 @@ if (!Range.prototype.getClientRects) {
   Range.prototype.getClientRects = () => ([] as unknown as DOMRectList)
 }
 
+// jsdom doesn't implement scrollIntoView
+Element.prototype.scrollIntoView = vi.fn()
+
 // Mock react-diff-viewer-continued to avoid ESM module resolution issues in tests
 vi.mock('react-diff-viewer-continued', () => ({
   default: ({ oldValue, newValue }: { oldValue: string; newValue: string }) =>

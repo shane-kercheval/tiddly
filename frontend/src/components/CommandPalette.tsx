@@ -8,7 +8,7 @@
  * - /: Opens palette directly into search sub-view
  * - Escape: Closes palette from any view
  */
-import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect, type KeyboardEvent } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useContentQuery } from '../hooks/useContentQuery'
@@ -48,6 +48,7 @@ import {
   HelpIcon,
   AdjustmentsIcon,
 } from './icons'
+import { useListKeyboardNavigation } from '../hooks/useListKeyboardNavigation'
 import { isEffectivelyArchived } from '../utils'
 import { getFilterRoute, getBuiltinRoute } from './sidebar/routes'
 import { getFilterIcon, getBuiltinIcon } from './sidebar/sidebarDndUtils'
@@ -177,13 +178,9 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   const navigate = useNavigate()
   const [view, setView] = useState<PaletteView>(initialView)
   const [commandFilter, setCommandFilter] = useState('')
-  const [selectedIndex, setSelectedIndex] = useState(0)
   const commandInputRef = useRef<HTMLInputElement>(null)
-  const commandListRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const previousActiveElement = useRef<HTMLElement | null>(null)
-  // Track real mouse movement to avoid selecting items under cursor on open
-  const [mouseMoved, setMouseMoved] = useState(false)
 
   // Search state (local, not URL-based since this is a modal)
   const [searchQuery, setSearchQuery] = useState('')
@@ -285,7 +282,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
 
   // Handle escape with capture phase
   useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent): void {
+    function handleKeyDown(e: globalThis.KeyboardEvent): void {
       if (e.key === 'Escape') {
         e.stopImmediatePropagation()
         e.preventDefault()
@@ -402,41 +399,44 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     return commands.filter((cmd) => cmd.label.toLowerCase().includes(lower))
   }, [commands, commandFilter])
 
-  // Clamp selectedIndex to valid range (list may shrink when commands/sidebar changes)
-  const clampedIndex = Math.min(selectedIndex, Math.max(filteredCommands.length - 1, 0))
+  // Keyboard navigation for command list
+  const handleCommandSelect = useCallback(
+    (index: number) => { filteredCommands[index]?.action() },
+    [filteredCommands],
+  )
 
-  // Scroll selected item into view
-  useEffect(() => {
-    if (view !== 'commands') return
-    const list = commandListRef.current
-    if (!list) return
-    const items = list.querySelectorAll('[data-command-item]')
-    items[clampedIndex]?.scrollIntoView({ block: 'nearest' })
-  }, [clampedIndex, view])
+  const {
+    selectedIndex: commandSelectedIndex,
+    mouseMoved: commandMouseMoved,
+    listRef: commandListRef,
+    resetSelection: resetCommandSelection,
+    getInputProps: getCommandInputProps,
+    getListProps: getCommandListProps,
+    getItemProps: getCommandItemProps,
+  } = useListKeyboardNavigation({
+    itemCount: filteredCommands.length,
+    onSelect: handleCommandSelect,
+    initialIndex: 0,
+    enabled: view === 'commands',
+    idPrefix: 'cmd-item',
+  })
 
-  // Command list keyboard navigation
+  // Compose wrapper onKeyDown that adds Tab handling (CommandPalette-specific)
+  const { onKeyDown: commandHookKeyDown, 'aria-activedescendant': commandActiveDescendant } = getCommandInputProps()
   const handleCommandKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setSelectedIndex((i) => Math.min(i + 1, filteredCommands.length - 1))
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setSelectedIndex((i) => Math.max(i - 1, 0))
-      } else if (e.key === 'Enter') {
-        e.preventDefault()
-        filteredCommands[clampedIndex]?.action()
-      } else if (e.key === 'Tab') {
-        // Tab moves focus into the list; prevent default browser tab
+    (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
         e.preventDefault()
         const list = commandListRef.current
         if (!list) return
-        const items = list.querySelectorAll('[data-command-item]')
-        const target = items[clampedIndex] as HTMLElement | undefined
+        const items = list.querySelectorAll('[data-nav-item]')
+        const target = items[commandSelectedIndex] as HTMLElement | undefined
         target?.focus()
+        return
       }
+      commandHookKeyDown(e)
     },
-    [filteredCommands, clampedIndex]
+    [commandHookKeyDown, commandListRef, commandSelectedIndex],
   )
 
   // Search handlers
@@ -549,6 +549,45 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     [navigateAndClose]
   )
 
+  // Keyboard navigation for search results
+  const handleSearchSelect = useCallback(
+    (index: number) => {
+      const item = items[index]
+      if (!item) return
+      if (item.type === 'bookmark') handleViewBookmark(toBookmarkListItem(item))
+      else if (item.type === 'note') handleViewNote(toNoteListItem(item))
+      else if (item.type === 'prompt') handleViewPrompt(toPromptListItem(item))
+    },
+    [items, handleViewBookmark, handleViewNote, handleViewPrompt],
+  )
+
+  const handleSearchExitTop = useCallback(() => {
+    searchInputRef.current?.focus()
+  }, [])
+
+  const {
+    mouseMoved: searchMouseMoved,
+    resetSelection: resetSearchSelection,
+    getInputProps: getSearchInputProps,
+    getListProps: getSearchListProps,
+    getItemProps: getSearchItemProps,
+  } = useListKeyboardNavigation({
+    itemCount: items.length,
+    onSelect: handleSearchSelect,
+    onExitTop: handleSearchExitTop,
+    initialIndex: -1,
+    enabled: view === 'search',
+    idPrefix: 'search-item',
+  })
+
+  const searchInputNavProps = getSearchInputProps()
+
+  // Reset search selection when filters/data change
+  const searchResetKey = `${debouncedSearchQuery}:${selectedTags.join(',')}:${tagMatch}:${sortValue}:${offset}:${pageSize}:${selectedContentTypes?.join(',')}:${selectedViews?.join(',')}`
+  useEffect(() => {
+    resetSearchSelection()
+  }, [searchResetKey, resetSearchSelection])
+
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>): void => {
     if (e.target === e.currentTarget) {
       onClose()
@@ -582,32 +621,32 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                 ref={commandInputRef}
                 type="text"
                 value={commandFilter}
-                onChange={(e) => { setCommandFilter(e.target.value); setSelectedIndex(0) }}
+                onChange={(e) => { setCommandFilter(e.target.value); resetCommandSelection() }}
                 onKeyDown={handleCommandKeyDown}
+                aria-activedescendant={commandActiveDescendant}
                 placeholder="Type a command..."
                 className="w-full text-sm bg-transparent outline-none text-gray-900 placeholder-gray-400"
               />
             </div>
 
             {/* Command list */}
-            <div ref={commandListRef} className="flex-1 overflow-y-auto py-1 px-1" onMouseMove={() => { if (!mouseMoved) setMouseMoved(true) }}>
+            <div {...getCommandListProps()} className="flex-1 overflow-y-auto py-1 px-1">
               {filteredCommands.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm text-gray-400">No matching commands</div>
               ) : (
                 filteredCommands.map((cmd, index) => (
                   <button
                     key={cmd.id}
-                    data-command-item
+                    {...getCommandItemProps(index)}
                     onClick={cmd.action}
-                    onMouseEnter={() => { if (mouseMoved) setSelectedIndex(index) }}
                     style={{ height: 30 }}
                     className={`flex items-center gap-3 w-full px-3 text-left text-sm rounded-lg transition-colors ${
-                      index === clampedIndex
+                      index === commandSelectedIndex
                         ? 'bg-gray-100 text-gray-900'
-                        : `text-gray-700 ${mouseMoved ? 'hover:bg-gray-50' : ''}`
+                        : `text-gray-700 ${commandMouseMoved ? 'hover:bg-gray-50' : ''}`
                     }`}
                   >
-                    <span className={`shrink-0 ${index === clampedIndex ? 'text-gray-600' : 'text-gray-400'}`}>{cmd.icon}</span>
+                    <span className={`shrink-0 ${index === commandSelectedIndex ? 'text-gray-600' : 'text-gray-400'}`}>{cmd.icon}</span>
                     <span className="truncate flex-1">{cmd.label}</span>
                     {cmd.shortcut && (
                       <span className="hidden sm:flex items-center gap-0.5 shrink-0 ml-2">
@@ -632,6 +671,8 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                 searchInputRef={searchInputRef}
                 searchQuery={searchQuery}
                 onSearchChange={handleSearchChange}
+                onSearchKeyDown={searchInputNavProps.onKeyDown}
+                searchAriaActiveDescendant={searchInputNavProps['aria-activedescendant']}
                 searchPlaceholder="Search all content..."
                 tagSuggestions={tagSuggestions}
                 selectedTags={selectedTags}
@@ -691,50 +732,54 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                 </div>
               ) : (
                 <div className="pb-2 px-3 [&_.card]:rounded-none">
-                  <div>
-                    {items.map((item) => {
+                  <div {...getSearchListProps()} data-mouse-moved={searchMouseMoved || undefined}>
+                    {items.map((item, index) => {
                       const isArchived = isEffectivelyArchived(item.archived_at)
                       const itemView = isArchived ? 'archived' as const : 'active' as const
+                      const itemProps = getSearchItemProps(index)
 
                       if (item.type === 'bookmark') {
                         return (
-                          <BookmarkCard
-                            key={`bookmark-${item.id}`}
-                            bookmark={toBookmarkListItem(item)}
-                            view={itemView}
-                            sortBy={displaySortBy}
-                            showDate={showDates}
-                            showArchivedIndicator={isArchived}
-                            onClick={handleViewBookmark}
-                            onTagClick={handleTagClick}
-                          />
+                          <div key={`bookmark-${item.id}`} {...itemProps}>
+                            <BookmarkCard
+                              bookmark={toBookmarkListItem(item)}
+                              view={itemView}
+                              sortBy={displaySortBy}
+                              showDate={showDates}
+                              showArchivedIndicator={isArchived}
+                              onClick={handleViewBookmark}
+                              onTagClick={handleTagClick}
+                            />
+                          </div>
                         )
                       }
                       if (item.type === 'prompt') {
                         return (
-                          <PromptCard
-                            key={`prompt-${item.id}`}
-                            prompt={toPromptListItem(item)}
+                          <div key={`prompt-${item.id}`} {...itemProps}>
+                            <PromptCard
+                              prompt={toPromptListItem(item)}
+                              view={itemView}
+                              sortBy={displaySortBy}
+                              showDate={showDates}
+                              showArchivedIndicator={isArchived}
+                              onClick={handleViewPrompt}
+                              onTagClick={handleTagClick}
+                            />
+                          </div>
+                        )
+                      }
+                      return (
+                        <div key={`note-${item.id}`} {...itemProps}>
+                          <NoteCard
+                            note={toNoteListItem(item)}
                             view={itemView}
                             sortBy={displaySortBy}
                             showDate={showDates}
                             showArchivedIndicator={isArchived}
-                            onClick={handleViewPrompt}
+                            onClick={handleViewNote}
                             onTagClick={handleTagClick}
                           />
-                        )
-                      }
-                      return (
-                        <NoteCard
-                          key={`note-${item.id}`}
-                          note={toNoteListItem(item)}
-                          view={itemView}
-                          sortBy={displaySortBy}
-                          showDate={showDates}
-                          showArchivedIndicator={isArchived}
-                          onClick={handleViewNote}
-                          onTagClick={handleTagClick}
-                        />
+                        </div>
                       )
                     })}
                   </div>

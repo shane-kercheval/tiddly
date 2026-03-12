@@ -157,6 +157,26 @@ body {
     @apply hover:bg-gray-100;
   }
 
+  /* Keyboard selection highlight in navigable lists — applied via ARIA attributes
+     from useListKeyboardNavigation */
+  [role="listbox"] > [aria-selected="true"] > .card {
+    @apply bg-gray-100;
+  }
+
+  /* Suppress ghost hover highlights before any mouse movement in navigable lists.
+     Prevents the confusing "selected-looking" item when cursor happens to rest over
+     a card after page load or navigation. Once the user moves the mouse, the
+     data-mouse-moved attribute is added and normal hover resumes. */
+  [role="listbox"]:not([data-mouse-moved]) > [aria-selected="false"] > .card-interactive {
+    @apply hover:bg-transparent;
+  }
+
+  /* When keyboard selection is active, suppress hover on non-selected items
+     to avoid two items appearing highlighted simultaneously. */
+  [role="listbox"]:has([aria-selected="true"]) > [aria-selected="false"] > .card-interactive {
+    @apply hover:bg-transparent;
+  }
+
   .card::after {
     content: '';
     @apply absolute bottom-0 h-px bg-gray-100;
