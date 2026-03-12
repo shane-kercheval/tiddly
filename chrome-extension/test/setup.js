@@ -102,6 +102,7 @@ function mockMessages(responses) {
 beforeEach(() => {
   resetChromeStorage();
   globalThis.chrome = createChromeMock();
+  window.matchMedia = vi.fn((query) => ({ matches: false, media: query }));
 });
 
 export { resetChromeStorage, setupPopupDOM, mockMessages };

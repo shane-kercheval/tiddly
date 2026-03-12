@@ -1,8 +1,8 @@
 import { resetChromeStorage, setupPopupDOM, mockMessages } from './setup.js';
 import {
   SCRAPE_CAP, DRAFT_KEY, DRAFT_IMMUTABLE_KEY,
-  isRestrictedPage, isValidLimits, characterLimitMessage,
-  updateLimitFeedback, applyLimits,
+  isRestrictedPage, isValidLimits, counterText,
+  updateLimitFeedback, updateSaveButtonState, applyLimits,
   setupDOM, resetState,
   saveDraft, clearDraft, getPageData,
   initSaveForm, handleSave, handleSaveError,
@@ -104,16 +104,16 @@ describe('isValidLimits', () => {
   });
 });
 
-describe('characterLimitMessage', () => {
-  it('returns expected message for small numbers', () => {
-    expect(characterLimitMessage(100)).toBe('Character limit reached (100)');
+describe('counterText', () => {
+  it('formats small numbers', () => {
+    expect(counterText(70, 100)).toBe('70 / 100');
   });
 
-  it('returns message containing the number for large values', () => {
-    const msg = characterLimitMessage(1000);
-    expect(msg).toContain('Character limit reached');
-    expect(msg).toContain('1');
-    expect(msg).toContain('000');
+  it('uses toLocaleString for large numbers', () => {
+    const text = counterText(1000, 5000);
+    expect(text).toContain('1');
+    expect(text).toContain('000');
+    expect(text).toContain('5');
   });
 });
 
@@ -125,27 +125,86 @@ describe('updateLimitFeedback', () => {
   beforeEach(() => {
     input = document.createElement('input');
     feedback = document.createElement('span');
-    feedback.hidden = true;
   });
 
-  it('shows feedback when input length >= maxLength', () => {
+  it('hides feedback below 70%', () => {
+    input.value = 'a'.repeat(69);
+    const result = updateLimitFeedback(input, feedback, 100);
+    expect(feedback.style.visibility).toBe('hidden');
+    expect(feedback.children.length).toBe(0);
+    expect(feedback.style.color).toBe('');
+    expect(result).toBe(false);
+  });
+
+  it('shows count at 70% with color set', () => {
+    input.value = 'a'.repeat(70);
+    const result = updateLimitFeedback(input, feedback, 100);
+    expect(feedback.style.visibility).toBe('visible');
+    expect(feedback.children.length).toBe(1);
+    expect(feedback.children[0].textContent).toBe('70 / 100');
+    expect(feedback.style.color).not.toBe('');
+    expect(result).toBe(false);
+  });
+
+  it('shows count at 85% with different color than 70%', () => {
+    input.value = 'a'.repeat(70);
+    updateLimitFeedback(input, feedback, 100);
+    const colorAt70 = feedback.style.color;
+
+    input.value = 'a'.repeat(85);
+    updateLimitFeedback(input, feedback, 100);
+    const colorAt85 = feedback.style.color;
+
+    expect(colorAt85).not.toBe(colorAt70);
+    expect(feedback.children[0].textContent).toBe('85 / 100');
+  });
+
+  it('shows "Character limit reached" at exactly 100%', () => {
     input.value = 'a'.repeat(100);
-    updateLimitFeedback(input, feedback, 100);
-    expect(feedback.hidden).toBe(false);
-    expect(feedback.textContent).toBe('Character limit reached (100)');
+    const result = updateLimitFeedback(input, feedback, 100);
+    expect(feedback.style.visibility).toBe('visible');
+    expect(feedback.children.length).toBe(2);
+    expect(feedback.children[0].textContent).toBe('Character limit reached');
+    expect(feedback.children[1].textContent).toBe('100 / 100');
+    expect(result).toBe(false);
   });
 
-  it('hides feedback when input length < maxLength', () => {
-    input.value = 'short';
-    feedback.hidden = false;
-    updateLimitFeedback(input, feedback, 100);
-    expect(feedback.hidden).toBe(true);
+  it('shows exceeded message above 100% and returns true', () => {
+    input.value = 'a'.repeat(105);
+    const result = updateLimitFeedback(input, feedback, 100);
+    expect(feedback.style.visibility).toBe('visible');
+    expect(feedback.children.length).toBe(2);
+    expect(feedback.children[0].textContent).toBe('Character limit exceeded - saving is disabled');
+    expect(feedback.children[1].textContent).toBe('105 / 100');
+    expect(input.classList.contains('input-exceeded')).toBe(true);
+    expect(result).toBe(true);
   });
 
-  it('shows feedback when input length exceeds maxLength', () => {
-    input.value = 'a'.repeat(150);
+  it('clears exceeded state when transitioning back below 70%', () => {
+    input.value = 'a'.repeat(105);
     updateLimitFeedback(input, feedback, 100);
-    expect(feedback.hidden).toBe(false);
+    expect(input.classList.contains('input-exceeded')).toBe(true);
+
+    input.value = 'a'.repeat(50);
+    updateLimitFeedback(input, feedback, 100);
+    expect(input.classList.contains('input-exceeded')).toBe(false);
+    expect(feedback.style.visibility).toBe('hidden');
+    expect(feedback.children.length).toBe(0);
+    expect(feedback.style.color).toBe('');
+  });
+
+  it('uses dark mode colors when prefers-color-scheme is dark', () => {
+    window.matchMedia = vi.fn(() => ({ matches: true }));
+
+    input.value = 'a'.repeat(85);
+    updateLimitFeedback(input, feedback, 100);
+    const darkColor = feedback.style.color;
+
+    window.matchMedia = vi.fn(() => ({ matches: false }));
+    updateLimitFeedback(input, feedback, 100);
+    const lightColor = feedback.style.color;
+
+    expect(darkColor).not.toBe(lightColor);
   });
 });
 
@@ -156,16 +215,15 @@ describe('applyLimits', () => {
     resetChromeStorage();
   });
 
-  it('sets maxLength on title and description inputs', () => {
+  it('does not set maxLength on inputs', () => {
     const titleInput = document.getElementById('title');
     const descInput = document.getElementById('description');
+    const titleMaxBefore = titleInput.maxLength;
+    const descMaxBefore = descInput.maxLength;
     applyLimits(VALID_LIMITS);
-    expect(titleInput.maxLength).toBe(100);
-    expect(descInput.maxLength).toBe(1000);
+    expect(titleInput.maxLength).toBe(titleMaxBefore);
+    expect(descInput.maxLength).toBe(descMaxBefore);
   });
-
-  // pageContent truncation by applyLimits is tested indirectly through
-  // handleSave's content truncation test (initSaveForm → applyLimits → handleSave).
 });
 
 // --- Integration tests ---
@@ -194,7 +252,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
     expect(document.getElementById('loading-indicator').hidden).toBe(true);
   });
 
-  it('truncates scraped title/description to server limits', async () => {
+  it('does not truncate scraped title/description and disables save when exceeded', async () => {
     const tab = makeTab();
     const longTitle = 'a'.repeat(200);
     const longDesc = 'b'.repeat(2000);
@@ -206,8 +264,12 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
 
     await initSaveForm(tab);
 
-    expect(document.getElementById('title').value.length).toBe(100);
-    expect(document.getElementById('description').value.length).toBe(1000);
+    expect(document.getElementById('title').value.length).toBe(200);
+    expect(document.getElementById('description').value.length).toBe(2000);
+    expect(document.getElementById('save-btn').disabled).toBe(true);
+    const titleFeedback = document.getElementById('title-limit');
+    expect(titleFeedback.style.visibility).toBe('visible');
+    expect(titleFeedback.textContent).toContain('Character limit exceeded');
   });
 
   it('writes immutable cache when both limits and tags succeed', async () => {
@@ -275,8 +337,10 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
 
     await initSaveForm(tab);
 
-    expect(document.getElementById('title-limit').hidden).toBe(false);
-    expect(document.getElementById('title-limit').textContent).toContain('Character limit reached');
+    const titleFeedback = document.getElementById('title-limit');
+    expect(titleFeedback.style.visibility).toBe('visible');
+    expect(titleFeedback.children[0].textContent).toBe('Character limit reached');
+    expect(titleFeedback.children[1].textContent).toBe('100 / 100');
   });
 
   it('URL comes from tab.url, not from content script', async () => {
@@ -327,17 +391,20 @@ describe('initSaveForm — cache hit', () => {
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
   });
 
-  it('applies cached limits (sets maxLength on inputs)', async () => {
+  it('applies cached limits without setting maxLength', async () => {
     const tab = makeTab();
     chrome.storage.local.set({
       [DRAFT_KEY]: { url: 'https://example.com', title: 'T', description: 'D', tags: [] },
       [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: '', allTags: ['a'], limits: VALID_LIMITS },
     });
 
+    const titleInput = document.getElementById('title');
+    const maxBefore = titleInput.maxLength;
+
     await initSaveForm(tab);
 
-    expect(document.getElementById('title').maxLength).toBe(100);
-    expect(document.getElementById('description').maxLength).toBe(1000);
+    expect(titleInput.maxLength).toBe(maxBefore);
+    expect(document.getElementById('save-form').hidden).toBe(false);
   });
 });
 
@@ -505,17 +572,17 @@ describe('handleSave', () => {
     chrome.runtime.sendMessage.mockReset();
   }
 
-  it('truncates title/description using dynamic limits', async () => {
-    await setupFormWithLimits({ max_title_length: 10, max_description_length: 20 });
-    document.getElementById('title').value = 'a'.repeat(50);
-    document.getElementById('description').value = 'b'.repeat(50);
+  it('sends title/description without truncation', async () => {
+    await setupFormWithLimits();
+    document.getElementById('title').value = 'Test Title';
+    document.getElementById('description').value = 'Test Description';
     chrome.runtime.sendMessage.mockResolvedValue({ success: true });
 
     await handleSave(new Event('submit', { cancelable: true }));
 
     const sentBookmark = chrome.runtime.sendMessage.mock.calls[0][0].bookmark;
-    expect(sentBookmark.title.length).toBe(10);
-    expect(sentBookmark.description.length).toBe(20);
+    expect(sentBookmark.title).toBe('Test Title');
+    expect(sentBookmark.description).toBe('Test Description');
   });
 
   it('truncates content using limits.max_bookmark_content_length', async () => {
@@ -645,6 +712,53 @@ describe('handleSaveError', () => {
   it('no status: shows "Unexpected error (network)"', () => {
     handleSaveError({ error: null });
     expect(getStatusText()).toContain('Unexpected error (network)');
+  });
+});
+
+describe('updateSaveButtonState', () => {
+  beforeEach(() => {
+    resetState();
+    setupPopupDOM();
+    resetChromeStorage();
+  });
+
+  async function setupWithLimits(limitsOverrides = {}) {
+    const tab = makeTab();
+    mockPageData({ title: 'Short', description: 'Short' });
+    mockMessages({
+      GET_LIMITS: { success: true, data: { ...VALID_LIMITS, ...limitsOverrides } },
+      GET_TAGS: validTagsResponse(),
+    });
+    await initSaveForm(tab);
+  }
+
+  it('disables save when title exceeds limit', async () => {
+    await setupWithLimits({ max_title_length: 10 });
+    document.getElementById('title').value = 'a'.repeat(11);
+    updateSaveButtonState();
+    expect(document.getElementById('save-btn').disabled).toBe(true);
+  });
+
+  it('disables save when description exceeds limit', async () => {
+    await setupWithLimits({ max_description_length: 10 });
+    document.getElementById('description').value = 'a'.repeat(11);
+    updateSaveButtonState();
+    expect(document.getElementById('save-btn').disabled).toBe(true);
+  });
+
+  it('re-enables save when both fields are within limits', async () => {
+    await setupWithLimits({ max_title_length: 10 });
+    document.getElementById('title').value = 'a'.repeat(11);
+    updateSaveButtonState();
+    expect(document.getElementById('save-btn').disabled).toBe(true);
+
+    document.getElementById('title').value = 'a'.repeat(5);
+    updateSaveButtonState();
+    expect(document.getElementById('save-btn').disabled).toBe(false);
+  });
+
+  it('does not throw when limits is null', () => {
+    expect(() => updateSaveButtonState()).not.toThrow();
   });
 });
 

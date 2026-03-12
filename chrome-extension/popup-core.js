@@ -22,6 +22,7 @@ let defaultTagSet = new Set();
 let showingAllTags = false;
 let limits = null;
 let flashTimerId = null;
+let saving = false;
 let searchOffset = 0;
 let searchDebounceTimer = null;
 let searchRequestId = 0;
@@ -60,6 +61,7 @@ export function resetState() {
   limits = null;
   clearTimeout(flashTimerId);
   flashTimerId = null;
+  saving = false;
   searchOffset = 0;
   clearTimeout(searchDebounceTimer);
   searchDebounceTimer = null;
@@ -93,8 +95,50 @@ export function isRestrictedPage(url) {
   return !url || /^(chrome|about|chrome-extension|devtools|edge|data|blob|view-source):/.test(url);
 }
 
-export function characterLimitMessage(limit) {
-  return `Character limit reached (${limit.toLocaleString()})`;
+export function counterText(current, max) {
+  return `${current.toLocaleString()} / ${max.toLocaleString()}`;
+}
+
+function lerpColor(c1, c2, t) {
+  return '#' + c1.map((v, i) =>
+    Math.round(v + (c2[i] - v) * t).toString(16).padStart(2, '0')
+  ).join('');
+}
+
+const COLORS = {
+  gray:        [156, 163, 175],
+  textLight:   [17, 24, 39],
+  textDark:    [224, 224, 224],
+  orangeLight: [217, 119, 6],
+  orangeDark:  [251, 191, 36],
+  redLight:    [220, 38, 38],
+  redDark:     [252, 165, 165],
+};
+
+function getLimitColor(ratio) {
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if (ratio <= 0.85) {
+    const t = (ratio - 0.7) / 0.15;
+    return lerpColor(COLORS.gray, dark ? COLORS.textDark : COLORS.textLight, t);
+  }
+  const t = (ratio - 0.85) / 0.15;
+  const from = dark ? COLORS.orangeDark : COLORS.orangeLight;
+  const to = dark ? COLORS.redDark : COLORS.redLight;
+  return lerpColor(from, to, Math.min(t, 1));
+}
+
+function setFeedbackContent(feedbackEl, { message, count }) {
+  feedbackEl.replaceChildren();
+  if (message) {
+    const msg = document.createElement('span');
+    msg.textContent = message;
+    feedbackEl.appendChild(msg);
+  }
+  if (count) {
+    const cnt = document.createElement('span');
+    cnt.textContent = count;
+    feedbackEl.appendChild(cnt);
+  }
 }
 
 export function isValidLimits(obj) {
@@ -113,12 +157,48 @@ export function showView(name) {
 }
 
 export function updateLimitFeedback(input, feedbackEl, maxLength) {
-  if (input.value.length >= maxLength) {
-    feedbackEl.textContent = characterLimitMessage(maxLength);
-    feedbackEl.hidden = false;
-  } else {
-    feedbackEl.hidden = true;
+  const len = input.value.length;
+  const ratio = len / maxLength;
+  const count = counterText(len, maxLength);
+
+  input.classList.remove('input-exceeded');
+
+  if (ratio < 0.7) {
+    feedbackEl.style.visibility = 'hidden';
+    feedbackEl.replaceChildren();
+    feedbackEl.style.color = '';
+    return false;
   }
+
+  feedbackEl.style.visibility = 'visible';
+  feedbackEl.style.color = getLimitColor(ratio);
+
+  if (ratio > 1) {
+    setFeedbackContent(feedbackEl, {
+      message: 'Character limit exceeded - saving is disabled',
+      count,
+    });
+    input.classList.add('input-exceeded');
+    return true;
+  }
+
+  if (ratio >= 1) {
+    setFeedbackContent(feedbackEl, {
+      message: 'Character limit reached',
+      count,
+    });
+    return false;
+  }
+
+  setFeedbackContent(feedbackEl, { count });
+  return false;
+}
+
+export function updateSaveButtonState() {
+  if (!limits || saving) return;
+  const titleExceeded = updateLimitFeedback(titleInput, titleLimit, limits.max_title_length);
+  const descExceeded = updateLimitFeedback(descriptionInput, descriptionLimit, limits.max_description_length);
+  saveBtn.disabled = titleExceeded || descExceeded;
 }
 
 export function showSaveStatus(message, type, link) {
@@ -144,8 +224,6 @@ export function showSaveStatus(message, type, link) {
 
 export function applyLimits(limitsObj) {
   limits = limitsObj;
-  titleInput.maxLength = limitsObj.max_title_length;
-  descriptionInput.maxLength = limitsObj.max_description_length;
   if (pageContent.length > limitsObj.max_bookmark_content_length) {
     pageContent = pageContent.substring(0, limitsObj.max_bookmark_content_length);
   }
@@ -245,8 +323,8 @@ export async function initSaveForm(tab) {
     pageContent = pageData.content || '';
     applyLimits(limitsResult.data);
 
-    titleInput.value = (pageData.title || '').substring(0, limits.max_title_length);
-    descriptionInput.value = (pageData.description || '').substring(0, limits.max_description_length);
+    titleInput.value = pageData.title || '';
+    descriptionInput.value = pageData.description || '';
 
     let tagsSuccess = false;
     if (tagsResult?.success && Array.isArray(tagsResult.data?.tags)) {
@@ -278,16 +356,14 @@ export async function initSaveForm(tab) {
 
   titleInput.addEventListener('input', () => {
     saveDraft();
-    updateLimitFeedback(titleInput, titleLimit, limits.max_title_length);
+    updateSaveButtonState();
   });
   descriptionInput.addEventListener('input', () => {
     saveDraft();
-    updateLimitFeedback(descriptionInput, descriptionLimit, limits.max_description_length);
+    updateSaveButtonState();
   });
 
-  // Show feedback if pre-populated values are at the limit
-  updateLimitFeedback(titleInput, titleLimit, limits.max_title_length);
-  updateLimitFeedback(descriptionInput, descriptionLimit, limits.max_description_length);
+  updateSaveButtonState();
 
   tagsInput.addEventListener('input', () => {
     renderTagChips();
@@ -406,6 +482,7 @@ export async function handleSave(e) {
     showSaveStatus("Can't load account limits", 'error');
     return;
   }
+  saving = true;
   saveBtn.disabled = true;
   saveBtn.textContent = 'Saving...';
   saveStatus.hidden = true;
@@ -413,8 +490,8 @@ export async function handleSave(e) {
   const tags = getSelectedTags();
   const bookmark = {
     url: urlInput.value,
-    title: titleInput.value.substring(0, limits.max_title_length),
-    description: descriptionInput.value.substring(0, limits.max_description_length),
+    title: titleInput.value,
+    description: descriptionInput.value,
     content: pageContent.substring(0, limits.max_bookmark_content_length),
     tags
   };
@@ -436,9 +513,10 @@ export async function handleSave(e) {
   } catch {
     showSaveStatus("Can't reach extension — try reloading", 'error');
   } finally {
+    saving = false;
     if (!success) {
-      saveBtn.disabled = false;
       saveBtn.textContent = 'Save Bookmark';
+      updateSaveButtonState();
     }
   }
 }

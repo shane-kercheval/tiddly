@@ -279,15 +279,23 @@ textarea {
 }
 
 .field-limit {
-  display: block;
+  display: flex;
+  justify-content: space-between;
   font-size: 11px;
-  color: #dc2626;
+  min-height: 14px;
   margin-top: 2px;
+  visibility: hidden;
+}
+
+input.input-exceeded,
+textarea.input-exceeded {
+  border-color: #dc2626;
 }
 
 @media (prefers-color-scheme: dark) {
-  .field-limit {
-    color: #fca5a5;
+  input.input-exceeded,
+  textarea.input-exceeded {
+    border-color: #fca5a5;
   }
 }
 
