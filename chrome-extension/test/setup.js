@@ -82,6 +82,10 @@ function setupPopupDOM() {
     searchResults: document.getElementById('search-results'),
     searchLoading: document.getElementById('search-loading'),
     loadMoreBtn: document.getElementById('load-more'),
+    searchTagInput: document.getElementById('search-tag-input'),
+    searchTagDropdown: document.getElementById('search-tag-dropdown'),
+    searchSortSelect: document.getElementById('search-sort-select'),
+    searchActiveTags: document.getElementById('search-active-tags'),
   });
 }
 

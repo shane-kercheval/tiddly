@@ -75,12 +75,21 @@ export async function handleSearchBookmarks(message) {
   const params = new URLSearchParams({
     limit: String(message.limit || 10),
     offset: String(message.offset || 0),
-    sort_order: 'desc'
   });
   if (message.query) {
     params.set('q', message.query);
-  } else {
-    params.set('sort_by', 'created_at');
+  }
+  if (message.sort_by) {
+    params.set('sort_by', message.sort_by);
+  }
+  if (message.sort_order) {
+    params.set('sort_order', message.sort_order);
+  }
+  if (Array.isArray(message.tags) && message.tags.length > 0) {
+    for (const tag of message.tags) {
+      params.append('tags', tag);
+    }
+    params.set('tag_match', message.tag_match || 'all');
   }
   const res = await fetchWithTimeout(`${API_URL}/bookmarks/?${params}`, {
     headers: {

@@ -7,6 +7,7 @@ import {
   saveDraft, clearDraft, getPageData,
   initSaveForm, handleSave, handleSaveError,
   showSaveStatus,
+  initSearchView, loadBookmarks,
 } from '../popup-core.js';
 
 // --- Test fixtures ---
@@ -789,5 +790,284 @@ describe('saveDraft / clearDraft', () => {
     clearDraft();
 
     expect(chrome.storage.local.remove).toHaveBeenCalledWith([DRAFT_KEY, DRAFT_IMMUTABLE_KEY]);
+  });
+});
+
+// --- Search view tests ---
+
+function searchResponse(items = [], has_more = false) {
+  return { success: true, data: { items, has_more } };
+}
+
+describe('initSearchView', () => {
+  beforeEach(() => {
+    resetState();
+    setupPopupDOM();
+    resetChromeStorage();
+  });
+
+  it('fetches tags and shows them in dropdown on focus', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    const tagInput = document.getElementById('search-tag-input');
+    tagInput.dispatchEvent(new Event('focus'));
+
+    const dropdown = document.getElementById('search-tag-dropdown');
+    expect(dropdown.hidden).toBe(false);
+    expect(dropdown.querySelectorAll('.search-tag-dropdown-item').length).toBe(VALID_TAGS.length);
+  });
+
+  it('filters tags by text input', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    const tagInput = document.getElementById('search-tag-input');
+    tagInput.value = 'py';
+    tagInput.dispatchEvent(new Event('input'));
+
+    const dropdown = document.getElementById('search-tag-dropdown');
+    const items = dropdown.querySelectorAll('.search-tag-dropdown-item');
+    expect(items.length).toBe(1);
+    expect(items[0].textContent).toBe('python');
+  });
+
+  it('still works if GET_TAGS fails', async () => {
+    mockMessages({
+      GET_TAGS: { success: false, status: 500 },
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    const tagInput = document.getElementById('search-tag-input');
+    tagInput.dispatchEvent(new Event('focus'));
+
+    const dropdown = document.getElementById('search-tag-dropdown');
+    expect(dropdown.querySelectorAll('.search-tag-dropdown-item').length).toBe(0);
+  });
+
+  it('sends initial search with default sort_by=created_at and sort_order=desc', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+
+    const searchCall = chrome.runtime.sendMessage.mock.calls.find(
+      c => c[0].type === 'SEARCH_BOOKMARKS'
+    );
+    expect(searchCall).toBeTruthy();
+    expect(searchCall[0].sort_by).toBe('created_at');
+    expect(searchCall[0].sort_order).toBe('desc');
+  });
+});
+
+describe('search tag filtering', () => {
+  beforeEach(() => {
+    resetState();
+    setupPopupDOM();
+    resetChromeStorage();
+  });
+
+  function selectTagFromDropdown(tagName) {
+    const tagInput = document.getElementById('search-tag-input');
+    tagInput.dispatchEvent(new Event('focus'));
+    const items = document.querySelectorAll('.search-tag-dropdown-item');
+    const item = [...items].find(i => i.textContent === tagName);
+    item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  }
+
+  it('selecting a tag adds a chip and triggers search with tags param', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    chrome.runtime.sendMessage.mockReset();
+    mockMessages({ SEARCH_BOOKMARKS: searchResponse() });
+
+    selectTagFromDropdown('python');
+    await new Promise(r => setTimeout(r, 0));
+
+    // Chip should appear
+    const chips = document.getElementById('search-active-tags');
+    expect(chips.children.length).toBe(1);
+    expect(chips.children[0].textContent).toContain('python');
+
+    // Input should be cleared
+    expect(document.getElementById('search-tag-input').value).toBe('');
+
+    // Search should include tags
+    const searchCall = chrome.runtime.sendMessage.mock.calls.find(
+      c => c[0].type === 'SEARCH_BOOKMARKS'
+    );
+    expect(searchCall[0].tags).toEqual(['python']);
+  });
+
+  it('selecting multiple tags passes all tags to search', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    chrome.runtime.sendMessage.mockReset();
+    mockMessages({ SEARCH_BOOKMARKS: searchResponse() });
+    selectTagFromDropdown('python');
+    await new Promise(r => setTimeout(r, 0));
+
+    chrome.runtime.sendMessage.mockReset();
+    mockMessages({ SEARCH_BOOKMARKS: searchResponse() });
+    selectTagFromDropdown('rust');
+    await new Promise(r => setTimeout(r, 0));
+
+    const searchCall = chrome.runtime.sendMessage.mock.calls.find(
+      c => c[0].type === 'SEARCH_BOOKMARKS'
+    );
+    expect(searchCall[0].tags).toEqual(expect.arrayContaining(['python', 'rust']));
+    expect(searchCall[0].tags.length).toBe(2);
+  });
+
+  it('selected tags are excluded from dropdown', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    chrome.runtime.sendMessage.mockReset();
+    mockMessages({ SEARCH_BOOKMARKS: searchResponse() });
+    selectTagFromDropdown('python');
+    await new Promise(r => setTimeout(r, 0));
+
+    // Open dropdown again — python should not appear
+    const tagInput = document.getElementById('search-tag-input');
+    tagInput.dispatchEvent(new Event('focus'));
+    const items = document.querySelectorAll('.search-tag-dropdown-item');
+    const itemTexts = [...items].map(i => i.textContent);
+    expect(itemTexts).not.toContain('python');
+    expect(items.length).toBe(VALID_TAGS.length - 1);
+  });
+
+  it('removing a tag chip removes it from filter and re-triggers search', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    chrome.runtime.sendMessage.mockReset();
+    mockMessages({ SEARCH_BOOKMARKS: searchResponse() });
+    selectTagFromDropdown('python');
+    await new Promise(r => setTimeout(r, 0));
+
+    // Remove the tag
+    chrome.runtime.sendMessage.mockReset();
+    mockMessages({ SEARCH_BOOKMARKS: searchResponse() });
+    const removeBtn = document.querySelector('.search-active-tag .remove-tag');
+    removeBtn.click();
+    await new Promise(r => setTimeout(r, 0));
+
+    // Chips should be empty
+    expect(document.getElementById('search-active-tags').children.length).toBe(0);
+
+    // Search should not have tags
+    const searchCall = chrome.runtime.sendMessage.mock.calls.find(
+      c => c[0].type === 'SEARCH_BOOKMARKS'
+    );
+    expect(searchCall[0].tags).toBeUndefined();
+  });
+});
+
+describe('search sort', () => {
+  beforeEach(() => {
+    resetState();
+    setupPopupDOM();
+    resetChromeStorage();
+  });
+
+  it('changing sort triggers search with correct sort_by', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    chrome.runtime.sendMessage.mockReset();
+    mockMessages({ SEARCH_BOOKMARKS: searchResponse() });
+
+    const sortSelect = document.getElementById('search-sort-select');
+    sortSelect.value = 'last_used_at';
+    sortSelect.dispatchEvent(new Event('change'));
+    await new Promise(r => setTimeout(r, 0));
+
+    const searchCall = chrome.runtime.sendMessage.mock.calls.find(
+      c => c[0].type === 'SEARCH_BOOKMARKS'
+    );
+    expect(searchCall[0].sort_by).toBe('last_used_at');
+    expect(searchCall[0].sort_order).toBe('desc');
+  });
+
+  it('title sort uses asc order', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    chrome.runtime.sendMessage.mockReset();
+    mockMessages({ SEARCH_BOOKMARKS: searchResponse() });
+
+    const sortSelect = document.getElementById('search-sort-select');
+    sortSelect.value = 'title';
+    sortSelect.dispatchEvent(new Event('change'));
+    await new Promise(r => setTimeout(r, 0));
+
+    const searchCall = chrome.runtime.sendMessage.mock.calls.find(
+      c => c[0].type === 'SEARCH_BOOKMARKS'
+    );
+    expect(searchCall[0].sort_by).toBe('title');
+    expect(searchCall[0].sort_order).toBe('asc');
+  });
+
+  it('relevance option is always visible in sort dropdown', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+    await new Promise(r => setTimeout(r, 0));
+
+    const sortSelect = document.getElementById('search-sort-select');
+    const relevanceOption = sortSelect.querySelector('option[value="relevance"]');
+    expect(relevanceOption).not.toBeNull();
+    expect(relevanceOption.hidden).toBe(false);
   });
 });

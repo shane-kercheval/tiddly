@@ -12,6 +12,7 @@ let saveForm, loadingIndicator, urlInput, titleInput, descriptionInput;
 let titleLimit, descriptionLimit;
 let tagsInput, tagChipsContainer, tagSuggestions, saveBtn, saveStatus, clearTagsBtn;
 let searchInput, searchResults, searchLoading, loadMoreBtn;
+let searchTagInput, searchTagDropdown, searchSortSelect, searchActiveTags;
 
 // --- Mutable state ---
 
@@ -26,6 +27,9 @@ let saving = false;
 let searchOffset = 0;
 let searchDebounceTimer = null;
 let searchRequestId = 0;
+let searchFilterTags = new Set();
+let searchSort = 'created_at';
+let searchAvailableTags = [];
 
 // --- Setup / Reset ---
 
@@ -50,6 +54,10 @@ export function setupDOM(elements) {
   searchResults = elements.searchResults;
   searchLoading = elements.searchLoading;
   loadMoreBtn = elements.loadMoreBtn;
+  searchTagInput = elements.searchTagInput;
+  searchTagDropdown = elements.searchTagDropdown;
+  searchSortSelect = elements.searchSortSelect;
+  searchActiveTags = elements.searchActiveTags;
 }
 
 export function resetState() {
@@ -66,6 +74,9 @@ export function resetState() {
   clearTimeout(searchDebounceTimer);
   searchDebounceTimer = null;
   searchRequestId = 0;
+  searchFilterTags = new Set();
+  searchSort = 'created_at';
+  searchAvailableTags = [];
   // Clear DOM refs
   setupView = null;
   saveView = null;
@@ -87,6 +98,10 @@ export function resetState() {
   searchResults = null;
   searchLoading = null;
   loadMoreBtn = null;
+  searchTagInput = null;
+  searchTagDropdown = null;
+  searchSortSelect = null;
+  searchActiveTags = null;
 }
 
 // --- Pure helpers ---
@@ -587,16 +602,103 @@ export function handleSaveError(response) {
 
 // --- Search view ---
 
+function triggerSearch() {
+  searchOffset = 0;
+  loadBookmarks(searchInput.value.trim(), 0, false);
+}
+
+function renderTagDropdown() {
+  const filter = searchTagInput.value.trim().toLowerCase();
+  const available = searchAvailableTags.filter(
+    t => !searchFilterTags.has(t) && (!filter || t.includes(filter))
+  );
+
+  searchTagDropdown.replaceChildren();
+
+  if (available.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'search-tag-dropdown-empty';
+    empty.textContent = filter ? 'No matching tags' : 'No more tags';
+    searchTagDropdown.appendChild(empty);
+  } else {
+    for (const tag of available) {
+      const item = document.createElement('div');
+      item.className = 'search-tag-dropdown-item';
+      item.textContent = tag;
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // prevent blur
+        searchFilterTags.add(tag);
+        searchTagInput.value = '';
+        searchTagDropdown.hidden = true;
+        searchTagInput.blur();
+        refreshActiveTags();
+        triggerSearch();
+      });
+      searchTagDropdown.appendChild(item);
+    }
+  }
+}
+
+function showTagDropdown() {
+  renderTagDropdown();
+  searchTagDropdown.hidden = false;
+}
+
+function refreshActiveTags() {
+  searchActiveTags.replaceChildren();
+  for (const tag of searchFilterTags) {
+    const chip = document.createElement('span');
+    chip.className = 'search-active-tag';
+    chip.textContent = tag;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'remove-tag';
+    removeBtn.textContent = '\u00d7';
+    removeBtn.addEventListener('click', () => {
+      searchFilterTags.delete(tag);
+      refreshActiveTags();
+      triggerSearch();
+    });
+    chip.appendChild(removeBtn);
+    searchActiveTags.appendChild(chip);
+  }
+}
+
 export async function initSearchView() {
   showView('search');
+
+  // Fetch tags for the filter dropdown
+  chrome.runtime.sendMessage({ type: 'GET_TAGS' }).then(result => {
+    if (result?.success && Array.isArray(result.data?.tags)) {
+      searchAvailableTags = result.data.tags.map(t => t.name);
+    }
+  }).catch(() => {});
+
+  // Initial search
   loadBookmarks('', 0, false);
 
   searchInput.addEventListener('input', () => {
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = setTimeout(() => {
-      searchOffset = 0;
-      loadBookmarks(searchInput.value.trim(), 0, false);
+      triggerSearch();
     }, 300);
+  });
+
+  searchTagInput.addEventListener('focus', () => {
+    showTagDropdown();
+  });
+
+  searchTagInput.addEventListener('input', () => {
+    showTagDropdown();
+  });
+
+  searchTagInput.addEventListener('blur', () => {
+    searchTagDropdown.hidden = true;
+  });
+
+  searchSortSelect.addEventListener('change', () => {
+    searchSort = searchSortSelect.value;
+    triggerSearch();
   });
 
   loadMoreBtn.addEventListener('click', () => {
@@ -613,11 +715,22 @@ export async function loadBookmarks(query, offset, append) {
     searchResults.replaceChildren();
   }
 
+  const sortOrder = searchSort === 'title' ? 'asc' : 'desc';
+  const message = {
+    type: 'SEARCH_BOOKMARKS',
+    query,
+    offset,
+    limit: 10,
+    sort_by: searchSort,
+    sort_order: sortOrder,
+  };
+  if (searchFilterTags.size > 0) {
+    message.tags = [...searchFilterTags];
+  }
+
   let response;
   try {
-    response = await chrome.runtime.sendMessage(
-      { type: 'SEARCH_BOOKMARKS', query, offset, limit: 10 }
-    );
+    response = await chrome.runtime.sendMessage(message);
   } catch {
     response = null;
   }

@@ -174,13 +174,67 @@ describe('handleSearchBookmarks', () => {
     expect(url).toContain('offset=10');
   });
 
-  it('uses sort_by=created_at when no query', async () => {
+  it('does not set sort_by or sort_order when not provided', async () => {
     mockFetch(200, { items: [] });
 
     await handleSearchBookmarks({ limit: 10, offset: 0 });
 
     const url = globalThis.fetch.mock.calls[0][0];
-    expect(url).toContain('sort_by=created_at');
+    expect(url).not.toContain('sort_by=');
+    expect(url).not.toContain('sort_order=');
     expect(url).not.toContain('q=');
+  });
+
+  it('passes sort_by and sort_order when provided', async () => {
+    mockFetch(200, { items: [] });
+
+    await handleSearchBookmarks({ query: 'test', limit: 10, offset: 0, sort_by: 'title', sort_order: 'asc' });
+
+    const url = globalThis.fetch.mock.calls[0][0];
+    expect(url).toContain('sort_by=title');
+    expect(url).toContain('sort_order=asc');
+  });
+
+  it('passes tags as repeated params with tag_match', async () => {
+    mockFetch(200, { items: [] });
+
+    await handleSearchBookmarks({ limit: 10, offset: 0, tags: ['python', 'rust'] });
+
+    const url = globalThis.fetch.mock.calls[0][0];
+    const params = new URL(url).searchParams;
+    expect(params.getAll('tags')).toEqual(['python', 'rust']);
+    expect(params.get('tag_match')).toBe('all');
+  });
+
+  it('uses custom tag_match when provided', async () => {
+    mockFetch(200, { items: [] });
+
+    await handleSearchBookmarks({ limit: 10, offset: 0, tags: ['python'], tag_match: 'any' });
+
+    const url = globalThis.fetch.mock.calls[0][0];
+    const params = new URL(url).searchParams;
+    expect(params.get('tag_match')).toBe('any');
+  });
+
+  it('does not add tags params when tags array is empty', async () => {
+    mockFetch(200, { items: [] });
+
+    await handleSearchBookmarks({ limit: 10, offset: 0, tags: [] });
+
+    const url = globalThis.fetch.mock.calls[0][0];
+    expect(url).not.toContain('tags=');
+    expect(url).not.toContain('tag_match=');
+  });
+
+  it('backward compat: message without tags/sort still works', async () => {
+    const data = { items: [{ id: '1' }], has_more: false };
+    mockFetch(200, data);
+
+    const result = await handleSearchBookmarks({ query: 'test', limit: 10, offset: 0 });
+
+    expect(result).toEqual({ success: true, data });
+    const url = globalThis.fetch.mock.calls[0][0];
+    expect(url).toContain('q=test');
+    expect(url).toContain('limit=10');
   });
 });
