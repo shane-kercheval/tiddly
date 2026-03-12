@@ -33,6 +33,12 @@ Counter is **always visible** on the right side (not gated by 70% threshold).
 | = 100% | `Character limit reached` | `5,000 / 5,000` | red | normal | enabled |
 | > 100% | `Character limit exceeded - saving is disabled` | `5,100 / 5,000` | red | **red** | **disabled** |
 
+### Save-disable approach
+
+Save gating uses **direct computation** in parent entity forms' existing `isValid` memos. The parent already has `current.*` values and `limits` — it checks `field.length <= limit`. This existing pattern is kept as-is; we just remove the `maxLength` enforcement that previously prevented users from ever exceeding the limit.
+
+No `onExceededChange` callbacks are needed. Child components handle visual feedback only (via `useCharacterLimit` hook). Parent forms handle save enablement (via `isValid` memo).
+
 ### Affected Components
 
 These components currently enforce character limits:
@@ -189,7 +195,6 @@ Wire up the new progressive character limit to `InlineEditableTitle`, `InlineEdi
 - `maxLength` HTML attribute is removed (users can type/paste beyond the limit)
 - The JS `handleChange` rejection (`if (newValue.length > maxLength) return`) is removed — text beyond the limit is allowed
 - Red border (ring) appears only when exceeded (> 100%), not at exactly 100%
-- Each component exposes an `exceeded` state so parent forms can use it
 - `characterLimitMessage` is removed from `constants/validation.ts` (no more imports)
 
 ### Implementation Outline
@@ -200,7 +205,6 @@ Wire up the new progressive character limit to `InlineEditableTitle`, `InlineEdi
 - Remove the `handleChange` length rejection
 - Remove `limitReached` / `displayError` logic for character limits (keep `error` prop for parent-provided errors like "Title is required")
 - Add `useCharacterLimit(value.length, maxLength)` hook
-- Add `onExceededChange?: (exceeded: boolean) => void` callback prop — called when exceeded state changes, so parent forms can track it
 - Replace the error paragraph for limit messages with `<CharacterLimitFeedback>`
 - Red ring/border: apply when `limit.exceeded` (not when `limitReached` which was at >= 100%)
 - Keep parent `error` prop rendering separate from character limit feedback
@@ -211,7 +215,6 @@ Same pattern as `InlineEditableTitle`:
 - Remove `maxLength` from `<textarea>`
 - Remove `handleChange` length rejection
 - Use `useCharacterLimit` + `CharacterLimitFeedback`
-- Add `onExceededChange` callback
 - Red ring only when exceeded
 
 #### 3. Update `InlineEditableUrl`
@@ -220,12 +223,11 @@ Same pattern:
 - Remove `maxLength` from `<input>`
 - Remove `handleChange` length rejection
 - Use `useCharacterLimit` + `CharacterLimitFeedback`
-- Add `onExceededChange` callback
 - Red ring only when exceeded
 
 #### 4. Remove `characterLimitMessage` from `constants/validation.ts`
 
-Delete the function and its imports from all components. At this point all consumers use the new hook.
+Delete the function and its imports from all components (including `ArgumentsBuilder` which will be updated in Milestone 4). At this point the function has no consumers.
 
 ### Testing Strategy
 
@@ -239,8 +241,6 @@ For each of the three components, test:
 - Shows "Character limit reached" at exactly 100%
 - Shows "Character limit exceeded - saving is disabled" above 100%
 - Shows red ring/border only when exceeded (> 100%), not at exactly 100%
-- Calls `onExceededChange(true)` when going from within-limit to exceeded
-- Calls `onExceededChange(false)` when going from exceeded back to within-limit
 
 **Interaction with parent errors:**
 - Parent `error` prop still displays correctly alongside/independent of character limit feedback
@@ -259,7 +259,6 @@ Update `ContentEditor` to use the new progressive character limit system. After 
 - Content editor footer always shows the counter on the right (not gated by focus or 70%)
 - Counter color is gray/helper below 85%, transitions orange→red from 85%+
 - Red border on editor container only when exceeded (> 100%)
-- `onExceededChange` callback for parent form integration
 - `limitReached` logic removed from ContentEditor
 
 ### Implementation Outline
@@ -272,7 +271,6 @@ Update `ContentEditor` to use the new progressive character limit system. After 
 Changes:
 - Remove `limitReached` / `contentDisplayError` logic
 - Add `useCharacterLimit(value.length, maxLength, { alwaysShow: true })` hook — counter always visible, gray below 85%
-- Add `onExceededChange?: (exceeded: boolean) => void` prop
 - Update footer to use `CharacterLimitFeedback` component instead of the custom counter/error layout
 - The counter is always visible (not gated by focus), so the footer opacity logic should ensure the counter is always shown when `maxLength` is provided. Helper text can still use the focus-based opacity.
 - Red border on container: only when `limit.exceeded`, not when `limitReached`
@@ -285,7 +283,6 @@ Changes:
 - Counter transitions orange→red from 85% to 100%
 - "Character limit reached" at 100% without red border
 - "Character limit exceeded" above 100% with red border on container
-- Calls `onExceededChange` when exceeded state changes
 - Helper text still displays on the left when no limit message is showing
 - No counter shown when `maxLength` is not provided (existing behavior)
 
@@ -299,19 +296,13 @@ Update `ArgumentsBuilder` to use the new progressive character limit for argumen
 
 - Argument name and description fields show progressive counter
 - Users can type beyond limits
-- Parent form can detect when any argument field is exceeded
 
 ### Implementation Outline
 
-`ArgumentsBuilder` is trickier because it has multiple rows, each with two limited fields (name, description). The component needs to communicate whether ANY argument field is exceeded.
-
-- Add `onExceededChange?: (exceeded: boolean) => void` prop to `ArgumentsBuilder`
 - In `ArgumentRow`, use `useCharacterLimit` for both name and description fields
 - Remove `maxLength` from both inputs
 - Remove the `handleChange` length rejection for both fields
 - Remove the inline limit error paragraphs, replace with `CharacterLimitFeedback`
-- `ArgumentRow` reports its exceeded state up to `ArgumentsBuilder` via callback
-- `ArgumentsBuilder` aggregates: any row exceeded → call `onExceededChange(true)`
 - Keep the pattern validation error for argument names (the `ARG_NAME_PATTERN` check) — that's separate from character limits
 
 ### Testing Strategy
@@ -320,10 +311,7 @@ Update `ArgumentsBuilder` to use the new progressive character limit for argumen
 - Argument description input does not have `maxLength` attribute
 - Progressive counter appears at 70% for both name and description
 - "Character limit exceeded" shown when either name or description exceeds limit
-- `onExceededChange(true)` called when any argument field exceeds
-- `onExceededChange(false)` called when all argument fields are back within limits
 - Pattern validation error for names still works independently of character limits
-- Adding/removing arguments correctly updates exceeded state
 
 ---
 
@@ -331,30 +319,23 @@ Update `ArgumentsBuilder` to use the new progressive character limit for argumen
 
 ### Goal & Outcome
 
-Update the entity form components to use the `onExceededChange` callbacks from their child components to disable save when any field is exceeded. After this milestone:
+The entity forms' existing `isValid` memos already check `field.length <= limit`. Since we've removed `maxLength` enforcement (users can now type beyond limits), these checks now serve as the save-disable mechanism. No changes needed to the validation logic itself — just verify the existing `<=` checks correctly disable save when fields exceed limits.
 
-- Save button is disabled when any field exceeds its character limit
-- The `isValid` computation no longer needs to check `field.length <= limit` for character limits (the exceeded state is tracked via callbacks)
-- All entity forms (Bookmark, Note, Prompt) have consistent behavior
+After this milestone:
+
+- Save button is disabled when any field exceeds its character limit (existing `isValid` logic handles this)
 - Full end-to-end flow works: type beyond limit → counter turns red → exceeded message shows → save disabled → delete characters → counter goes orange → save re-enabled
+- All entity forms (Bookmark, Note, Prompt) have consistent behavior
 
 ### Implementation Outline
 
 In each entity component (`Bookmark.tsx`, `Note.tsx`, `Prompt.tsx`):
 
-1. Add state to track exceeded status for each field: e.g., `const [fieldsExceeded, setFieldsExceeded] = useState<Record<string, boolean>>({})`. Use a helper like `const anyExceeded = Object.values(fieldsExceeded).some(Boolean)`.
+1. Verify the existing `isValid` memo already catches overlength fields. The current checks like `current.title.length <= (limits?.max_title_length ?? Infinity)` already return `false` when length exceeds the limit — this is exactly what we need.
 
-2. Pass `onExceededChange` callbacks to each child component:
-   ```tsx
-   <InlineEditableTitle
-     maxLength={limits?.max_title_length}
-     onExceededChange={(exceeded) => setFieldsExceeded(prev => ({ ...prev, title: exceeded }))}
-   />
-   ```
+2. No new state management or callbacks needed. The `isValid` computation is derived directly from `current.*` values and `limits`, which is the single source of truth.
 
-3. Update `canSave`: incorporate `anyExceeded` into the save disable logic. The `isValid` useMemo can remove the `field.length <= limit` checks for character-limited fields since that's now handled by the exceeded tracking. Keep other validation (e.g., URL format, required fields, name pattern).
-
-4. Pass `onExceededChange` from `ContentEditor` and `ArgumentsBuilder` similarly.
+3. Remove any remaining references to the old `characterLimitMessage` if not already cleaned up.
 
 ### Testing Strategy
 

@@ -1,12 +1,16 @@
 /**
  * Tests for InlineEditableUrl component.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { InlineEditableUrl } from './InlineEditableUrl'
 
 describe('InlineEditableUrl', () => {
+  beforeEach(() => {
+    window.matchMedia = vi.fn((query: string) => ({ matches: false, media: query })) as unknown as typeof window.matchMedia
+  })
+
   describe('rendering', () => {
     it('should render an input with the value', () => {
       render(<InlineEditableUrl value="https://example.com" onChange={vi.fn()} />)
@@ -43,15 +47,15 @@ describe('InlineEditableUrl', () => {
     })
   })
 
-  describe('maxLength', () => {
-    it('should set maxLength attribute on input', () => {
+  describe('progressive character limit', () => {
+    it('should not set maxLength attribute on input', () => {
       render(<InlineEditableUrl value="" onChange={vi.fn()} maxLength={100} />)
 
       const input = screen.getByRole('textbox')
-      expect(input).toHaveAttribute('maxLength', '100')
+      expect(input).not.toHaveAttribute('maxLength')
     })
 
-    it('should not call onChange when input exceeds maxLength', async () => {
+    it('should allow input beyond maxLength', async () => {
       const user = userEvent.setup()
       const mockOnChange = vi.fn()
       render(<InlineEditableUrl value="12345" onChange={mockOnChange} maxLength={5} />)
@@ -59,38 +63,57 @@ describe('InlineEditableUrl', () => {
       const input = screen.getByRole('textbox')
       await user.type(input, 'x')
 
-      expect(mockOnChange).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('character limit feedback', () => {
-    it('should show "Character limit reached" with limit when value is at maxLength', () => {
-      render(<InlineEditableUrl value="12345" onChange={vi.fn()} maxLength={5} />)
-
-      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
+      expect(mockOnChange).toHaveBeenCalled()
     })
 
-    it('should show red border when at maxLength', () => {
+    it('should show "Character limit reached" at exactly 100%', () => {
       render(<InlineEditableUrl value="12345" onChange={vi.fn()} maxLength={5} />)
+
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+    })
+
+    it('should show exceeded message above 100%', () => {
+      render(<InlineEditableUrl value="123456" onChange={vi.fn()} maxLength={5} />)
+
+      expect(screen.getByText('Character limit exceeded - saving is disabled')).toBeInTheDocument()
+    })
+
+    it('should show red border only when exceeded (> 100%)', () => {
+      render(<InlineEditableUrl value="123456" onChange={vi.fn()} maxLength={5} />)
 
       const input = screen.getByRole('textbox')
       const container = input.closest('.flex.items-center')
       expect(container?.className).toContain('ring-red-200')
     })
 
-    it('should not show limit message when under maxLength', () => {
-      render(<InlineEditableUrl value="1234" onChange={vi.fn()} maxLength={5} />)
+    it('should not show red border at exactly 100%', () => {
+      render(<InlineEditableUrl value="12345" onChange={vi.fn()} maxLength={5} />)
 
-      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
+      const input = screen.getByRole('textbox')
+      const container = input.closest('.flex.items-center')
+      expect(container?.className).not.toContain('ring-red-200')
     })
 
-    it('should show parent error instead of limit message when both apply', () => {
+    it('should not show limit message when under 70%', () => {
+      render(<InlineEditableUrl value="12" onChange={vi.fn()} maxLength={10} />)
+
+      const feedback = screen.getByTestId('character-limit-feedback')
+      expect(feedback.style.visibility).toBe('hidden')
+    })
+
+    it('should show counter at 70%+ of max', () => {
+      render(<InlineEditableUrl value="1234567" onChange={vi.fn()} maxLength={10} />)
+
+      expect(screen.getByText('7 / 10')).toBeInTheDocument()
+    })
+
+    it('should show parent error alongside limit feedback', () => {
       render(
-        <InlineEditableUrl value="12345" onChange={vi.fn()} maxLength={5} error="Invalid URL" />
+        <InlineEditableUrl value="123456" onChange={vi.fn()} maxLength={5} error="Invalid URL" />
       )
 
       expect(screen.getByText('Invalid URL')).toBeInTheDocument()
-      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
+      expect(screen.getByText('Character limit exceeded - saving is disabled')).toBeInTheDocument()
     })
 
     it('should not set aria-invalid for limit reached without parent error', () => {

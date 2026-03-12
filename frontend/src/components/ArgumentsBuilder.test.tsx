@@ -1,7 +1,7 @@
 /**
  * Tests for ArgumentsBuilder component.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ArgumentsBuilder } from './ArgumentsBuilder'
@@ -13,33 +13,38 @@ describe('ArgumentsBuilder', () => {
     onChange: vi.fn(),
   }
 
-  describe('character limit feedback', () => {
-    it('should show "Character limit reached" when arg name is at maxNameLength', () => {
+  beforeEach(() => {
+    window.matchMedia = vi.fn((query: string) => ({ matches: false, media: query })) as unknown as typeof window.matchMedia
+  })
+
+  describe('progressive character limit', () => {
+    it('should not set maxLength on arg name input', () => {
       render(
         <ArgumentsBuilder
           {...defaultProps}
-          arguments={[{ name: 'abcde', description: null, required: false }]}
-          maxNameLength={5}
-        />
-      )
-
-      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
-    })
-
-    it('should show red border on arg name input when at limit', () => {
-      render(
-        <ArgumentsBuilder
-          {...defaultProps}
-          arguments={[{ name: 'abcde', description: null, required: false }]}
-          maxNameLength={5}
+          arguments={[{ name: 'arg', description: null, required: false }]}
+          maxNameLength={10}
         />
       )
 
       const nameInput = screen.getByLabelText('Argument 1 name')
-      expect(nameInput.className).toContain('ring-red-200')
+      expect(nameInput).not.toHaveAttribute('maxLength')
     })
 
-    it('should not call onChange when arg name exceeds maxNameLength', async () => {
+    it('should not set maxLength on arg description input', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          arguments={[{ name: 'arg', description: 'desc', required: false }]}
+          maxDescriptionLength={10}
+        />
+      )
+
+      const descInput = screen.getByLabelText('Argument 1 description')
+      expect(descInput).not.toHaveAttribute('maxLength')
+    })
+
+    it('should allow typing beyond the limit', async () => {
       const user = userEvent.setup()
       const mockOnChange = vi.fn()
       render(
@@ -53,7 +58,56 @@ describe('ArgumentsBuilder', () => {
       const nameInput = screen.getByLabelText('Argument 1 name')
       await user.type(nameInput, 'x')
 
-      expect(mockOnChange).not.toHaveBeenCalled()
+      expect(mockOnChange).toHaveBeenCalled()
+    })
+
+    it('should show "Character limit reached" when arg name is at maxNameLength', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          arguments={[{ name: 'abcde', description: null, required: false }]}
+          maxNameLength={5}
+        />
+      )
+
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+    })
+
+    it('should show exceeded message when arg name exceeds maxNameLength', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          arguments={[{ name: 'abcdef', description: null, required: false }]}
+          maxNameLength={5}
+        />
+      )
+
+      expect(screen.getByText('Character limit exceeded - saving is disabled')).toBeInTheDocument()
+    })
+
+    it('should show red border on arg name input only when exceeded', () => {
+      // At exactly limit - no red border
+      const { unmount } = render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          arguments={[{ name: 'abcde', description: null, required: false }]}
+          maxNameLength={5}
+        />
+      )
+      let nameInput = screen.getByLabelText('Argument 1 name')
+      expect(nameInput.className).not.toContain('ring-red-200')
+      unmount()
+
+      // Above limit - red border
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          arguments={[{ name: 'abcdef', description: null, required: false }]}
+          maxNameLength={5}
+        />
+      )
+      nameInput = screen.getByLabelText('Argument 1 name')
+      expect(nameInput.className).toContain('ring-red-200')
     })
 
     it('should show "Character limit reached" when arg description is at maxDescriptionLength', () => {
@@ -65,20 +119,7 @@ describe('ArgumentsBuilder', () => {
         />
       )
 
-      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
-    })
-
-    it('should show red border on arg description input when at limit', () => {
-      render(
-        <ArgumentsBuilder
-          {...defaultProps}
-          arguments={[{ name: 'arg', description: '12345', required: false }]}
-          maxDescriptionLength={5}
-        />
-      )
-
-      const descInput = screen.getByLabelText('Argument 1 description')
-      expect(descInput.className).toContain('ring-red-200')
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
     })
 
     it('should not show limit feedback when under limits', () => {
@@ -86,12 +127,28 @@ describe('ArgumentsBuilder', () => {
         <ArgumentsBuilder
           {...defaultProps}
           arguments={[{ name: 'arg', description: 'desc', required: false }]}
-          maxNameLength={10}
-          maxDescriptionLength={10}
+          maxNameLength={100}
+          maxDescriptionLength={100}
         />
       )
 
-      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
+      // All feedback elements should be hidden (below 70%)
+      const feedbacks = screen.getAllByTestId('character-limit-feedback')
+      feedbacks.forEach(feedback => {
+        expect(feedback.style.visibility).toBe('hidden')
+      })
+    })
+
+    it('should show counter at 70%+ for arg name', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          arguments={[{ name: 'abcdefg', description: null, required: false }]}
+          maxNameLength={10}
+        />
+      )
+
+      expect(screen.getByText('7 / 10')).toBeInTheDocument()
     })
   })
 
@@ -141,7 +198,7 @@ describe('ArgumentsBuilder', () => {
       expect(screen.queryByText(/Must start with a letter/)).not.toBeInTheDocument()
     })
 
-    it('should show both name and description errors simultaneously', () => {
+    it('should show pattern error alongside limit feedback', () => {
       render(
         <ArgumentsBuilder
           {...defaultProps}
@@ -151,20 +208,7 @@ describe('ArgumentsBuilder', () => {
       )
 
       expect(screen.getByText(/Must start with a letter/)).toBeInTheDocument()
-      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
-    })
-
-    it('should prioritize pattern error over limit message', () => {
-      render(
-        <ArgumentsBuilder
-          {...defaultProps}
-          arguments={[{ name: 'a;b', description: null, required: false }]}
-          maxNameLength={3}
-        />
-      )
-
-      expect(screen.getByText(/Must start with a letter/)).toBeInTheDocument()
-      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
     })
   })
 })

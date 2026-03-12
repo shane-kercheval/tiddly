@@ -42,7 +42,7 @@ import { usePrompts } from '../hooks/usePrompts'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
-import { PROMPT_NAME_PATTERN, ARG_NAME_PATTERN, characterLimitMessage } from '../constants/validation'
+import { PROMPT_NAME_PATTERN, ARG_NAME_PATTERN } from '../constants/validation'
 import type { LinkedItem } from '../utils/relationships'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, RelationshipInputPayload, TagCount } from '../types'
 
@@ -510,7 +510,7 @@ export function Prompt({
     if (!current.name.trim()) {
       newErrors.name = 'Name is required'
     } else if (current.name.length > limits.max_prompt_name_length) {
-      newErrors.name = characterLimitMessage(limits.max_prompt_name_length)
+      newErrors.name = 'Character limit exceeded'
     } else if (!PROMPT_NAME_PATTERN.test(current.name)) {
       newErrors.name =
         'Name must use lowercase letters, numbers, and hyphens only. Must start and end with a letter or number (e.g., code-review)'
@@ -518,19 +518,19 @@ export function Prompt({
 
     // Title validation
     if (current.title && current.title.length > limits.max_title_length) {
-      newErrors.title = characterLimitMessage(limits.max_title_length)
+      newErrors.title = 'Character limit exceeded'
     }
 
     // Description validation
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = characterLimitMessage(limits.max_description_length)
+      newErrors.description = 'Character limit exceeded'
     }
 
     // Content validation
     if (!current.content.trim()) {
       newErrors.content = 'Template content is required'
     } else if (current.content.length > limits.max_prompt_content_length) {
-      newErrors.content = characterLimitMessage(limits.max_prompt_content_length)
+      newErrors.content = 'Character limit exceeded'
     }
 
     // Arguments validation
@@ -542,7 +542,7 @@ export function Prompt({
         break
       }
       if (arg.name.length > limits.max_argument_name_length) {
-        newErrors.arguments = characterLimitMessage(limits.max_argument_name_length)
+        newErrors.arguments = 'Character limit exceeded'
         break
       }
       if (!ARG_NAME_PATTERN.test(arg.name)) {
@@ -550,7 +550,7 @@ export function Prompt({
         break
       }
       if (arg.description && arg.description.length > limits.max_argument_description_length) {
-        newErrors.arguments = characterLimitMessage(limits.max_argument_description_length)
+        newErrors.arguments = 'Character limit exceeded'
         break
       }
       if (argNames.has(arg.name)) {
@@ -973,7 +973,7 @@ export function Prompt({
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 -mr-2 pt-5 -mt-1">
         {/* Header section: banners, name, title, description, metadata */}
-        <div className="space-y-4">
+        <div className="space-y-1">
           {/* Read-only banner for deleted prompts */}
           {isReadOnly && (
             <div className="alert-warning">

@@ -25,7 +25,8 @@ import type { ReactNode } from 'react'
 // MilkdownEditor now used inside CodeMirrorEditor for reading mode
 // import { MilkdownEditor } from './MilkdownEditor'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
-import { characterLimitMessage } from '../constants/validation'
+import { useCharacterLimit } from '../hooks/useCharacterLimit'
+import { CharacterLimitFeedback } from './CharacterLimitFeedback'
 // wasEditorFocused no longer needed - mode toggle commented out
 // import { wasEditorFocused } from '../utils/editorUtils'
 
@@ -198,9 +199,7 @@ export function ContentEditor({
   scrollToLineRef,
   showTocToggle,
 }: ContentEditorProps): ReactNode {
-  // Show "Character limit reached" when at or over maxLength, but parent errors take priority
-  const limitReached = maxLength !== undefined && value.length >= maxLength
-  const contentDisplayError = errorMessage || (limitReached ? characterLimitMessage(maxLength!) : undefined)
+  const limit = useCharacterLimit(value.length, maxLength, { alwaysShow: true })
 
   // Mode state commented out - now always using CodeMirror
   // const [mode, setMode] = useState<EditorMode>(loadModePreference)
@@ -258,12 +257,12 @@ export function ContentEditor({
 
     if (subtleBorder) {
       // Ring style that appears on focus (matches title/description)
-      const ringColor = (hasError || limitReached) ? 'ring-red-200 ring-2' : 'ring-gray-900/5'
+      const ringColor = (hasError || limit.exceeded) ? 'ring-red-200 ring-2' : 'ring-gray-900/5'
       return `group-focus-within/editor:ring-2 ${ringColor}`
     }
 
     // Solid border style
-    const borderColor = (hasError || limitReached) ? 'border-red-300' : 'border-gray-200'
+    const borderColor = (hasError || limit.exceeded) ? 'border-red-300' : 'border-gray-200'
     return `border ${borderColor}`
   }
 
@@ -369,16 +368,22 @@ export function ContentEditor({
         />
       </div>
 
-      {/* Footer with helper text and character count - hidden until focused, but always visible when error or limit reached */}
-      <div className={`flex justify-between items-center mt-1 transition-opacity ${contentDisplayError ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'}`}>
-        {contentDisplayError ? (
-          <p className="error-text">{contentDisplayError}</p>
+      {/* Footer with helper text, error message, and character limit feedback */}
+      <div className={`flex justify-between items-center mt-1 transition-opacity ${
+        errorMessage || helperText || limit.showCounter ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'
+      }`}>
+        {errorMessage ? (
+          <p className="error-text">{errorMessage}</p>
+        ) : limit.message ? (
+          <span className="text-xs" style={{ color: limit.color }}>{limit.message}</span>
         ) : helperText ? (
           <p className="helper-text">{helperText}</p>
-        ) : null}
-        {maxLength && (
-          <span className={limitReached ? 'text-xs text-red-500' : 'helper-text'}>
-            {value.length.toLocaleString()}/{maxLength.toLocaleString()}
+        ) : (
+          <span />
+        )}
+        {maxLength !== undefined && (
+          <span className="text-xs" style={{ color: limit.showCounter ? limit.color : undefined }}>
+            {limit.counterText}
           </span>
         )}
       </div>

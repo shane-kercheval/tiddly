@@ -64,6 +64,7 @@ describe('ContentEditor', () => {
     vi.clearAllMocks()
     localStorageStore = {}
     localStorageMock.getItem.mockImplementation((key: string) => localStorageStore[key] ?? null)
+    window.matchMedia = vi.fn((query: string) => ({ matches: false, media: query })) as unknown as typeof window.matchMedia
   })
 
   describe('editor rendering', () => {
@@ -183,31 +184,37 @@ describe('ContentEditor', () => {
     })
   })
 
-  describe('character counter', () => {
-    it('should show character counter when maxLength is provided', () => {
+  describe('progressive character counter', () => {
+    it('should always show character counter when maxLength is provided', () => {
       render(<ContentEditor {...defaultProps} value="Hello" maxLength={1000} />)
 
-      expect(screen.getByText('5/1,000')).toBeInTheDocument()
+      expect(screen.getByText('5 / 1,000')).toBeInTheDocument()
     })
 
     it('should not show character counter when maxLength is not provided', () => {
       render(<ContentEditor {...defaultProps} value="Hello" />)
 
-      expect(screen.queryByText(/\/1,000/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/\/.*1,000/)).not.toBeInTheDocument()
     })
-  })
 
-  describe('character limit feedback', () => {
-    it('should show "Character limit reached" with limit when value meets maxLength', () => {
+    it('should show counter even when content is short (alwaysShow mode)', () => {
+      render(<ContentEditor {...defaultProps} value="Hi" maxLength={10000} />)
+
+      expect(screen.getByText('2 / 10,000')).toBeInTheDocument()
+    })
+
+    it('should show "Character limit reached" at exactly 100%', () => {
       render(<ContentEditor {...defaultProps} value="12345" maxLength={5} />)
 
-      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+      expect(screen.getByText('5 / 5')).toBeInTheDocument()
     })
 
-    it('should show "Character limit reached" with limit when value exceeds maxLength', () => {
+    it('should show exceeded message above 100%', () => {
       render(<ContentEditor {...defaultProps} value="123456" maxLength={5} />)
 
-      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
+      expect(screen.getByText('Character limit exceeded - saving is disabled')).toBeInTheDocument()
+      expect(screen.getByText('6 / 5')).toBeInTheDocument()
     })
 
     it('should show parent errorMessage instead of limit message when both apply', () => {
@@ -216,41 +223,36 @@ describe('ContentEditor', () => {
       )
 
       expect(screen.getByText('Template syntax error')).toBeInTheDocument()
-      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
+      expect(screen.queryByText('Character limit reached')).not.toBeInTheDocument()
     })
 
-    it('should not show limit message when under maxLength', () => {
-      render(<ContentEditor {...defaultProps} value="1234" maxLength={5} />)
+    it('should not show limit message when under 85% (alwaysShow mode)', () => {
+      render(<ContentEditor {...defaultProps} value="1234" maxLength={10} />)
 
-      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Character limit/)).not.toBeInTheDocument()
+      // But counter should still be visible
+      expect(screen.getByText('4 / 10')).toBeInTheDocument()
     })
 
-    it('should apply red styling to counter when at limit', () => {
-      render(<ContentEditor {...defaultProps} value="12345" maxLength={5} />)
-
-      const counter = screen.getByText('5/5')
-      expect(counter.className).toContain('text-red-500')
-    })
-
-    it('should apply normal styling to counter when under limit', () => {
-      render(<ContentEditor {...defaultProps} value="1234" maxLength={5} />)
-
-      const counter = screen.getByText('4/5')
-      expect(counter.className).toContain('helper-text')
-    })
-
-    it('should apply error border when at limit with subtleBorder', () => {
-      render(<ContentEditor {...defaultProps} value="12345" maxLength={5} showBorder subtleBorder />)
+    it('should apply error border when exceeded with subtleBorder', () => {
+      render(<ContentEditor {...defaultProps} value="123456" maxLength={5} showBorder subtleBorder />)
 
       const container = screen.getByTestId('codemirror-mock').parentElement
       expect(container?.className).toContain('ring-red-200')
     })
 
-    it('should apply error border when at limit with solid border', () => {
-      render(<ContentEditor {...defaultProps} value="12345" maxLength={5} showBorder />)
+    it('should apply error border when exceeded with solid border', () => {
+      render(<ContentEditor {...defaultProps} value="123456" maxLength={5} showBorder />)
 
       const container = screen.getByTestId('codemirror-mock').parentElement
       expect(container?.className).toContain('border-red-300')
+    })
+
+    it('should not apply error border at exactly 100%', () => {
+      render(<ContentEditor {...defaultProps} value="12345" maxLength={5} showBorder />)
+
+      const container = screen.getByTestId('codemirror-mock').parentElement
+      expect(container?.className).not.toContain('border-red-300')
     })
   })
 

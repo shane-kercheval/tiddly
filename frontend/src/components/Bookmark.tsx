@@ -38,7 +38,6 @@ import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
-import { characterLimitMessage } from '../constants/validation'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount, UserLimits } from '../types'
 import type { ArchivePreset } from '../utils'
 
@@ -601,19 +600,19 @@ export function Bookmark({
     }
 
     if (!newErrors.url && current.url.length > limits.max_url_length) {
-      newErrors.url = characterLimitMessage(limits.max_url_length)
+      newErrors.url = 'Character limit exceeded'
     }
 
     if (current.title.length > limits.max_title_length) {
-      newErrors.title = characterLimitMessage(limits.max_title_length)
+      newErrors.title = 'Character limit exceeded'
     }
 
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = characterLimitMessage(limits.max_description_length)
+      newErrors.description = 'Character limit exceeded'
     }
 
     if (current.content.length > limits.max_bookmark_content_length) {
-      newErrors.content = characterLimitMessage(limits.max_bookmark_content_length)
+      newErrors.content = 'Character limit exceeded'
     }
 
     setErrors(newErrors)
@@ -939,7 +938,7 @@ export function Bookmark({
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 -mr-2 pt-5 -mt-1">
         {/* Header section: banners, URL, title, description, metadata */}
-        <div className="space-y-4">
+        <div className="space-y-1">
           {/* Read-only banner for deleted bookmarks */}
           {isReadOnly && (
             <div className="alert-warning">

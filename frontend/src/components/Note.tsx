@@ -38,7 +38,6 @@ import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedConte
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
-import { characterLimitMessage } from '../constants/validation'
 import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload, TagCount } from '../types'
 
@@ -434,15 +433,15 @@ export function Note({
     if (!current.title.trim()) {
       newErrors.title = 'Title is required'
     } else if (current.title.length > limits.max_title_length) {
-      newErrors.title = characterLimitMessage(limits.max_title_length)
+      newErrors.title = 'Character limit exceeded'
     }
 
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = characterLimitMessage(limits.max_description_length)
+      newErrors.description = 'Character limit exceeded'
     }
 
     if (current.content.length > limits.max_note_content_length) {
-      newErrors.content = characterLimitMessage(limits.max_note_content_length)
+      newErrors.content = 'Character limit exceeded'
     }
 
     setErrors(newErrors)
@@ -763,7 +762,7 @@ export function Note({
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 -mr-2 pt-5 -mt-1">
         {/* Header section: banners, title, description, metadata */}
-        <div className="space-y-4">
+        <div className="space-y-1">
           {/* Read-only banner for deleted notes */}
           {isReadOnly && (
             <div className="alert-warning">

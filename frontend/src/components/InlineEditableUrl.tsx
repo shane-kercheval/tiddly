@@ -13,7 +13,8 @@
 import { useState, forwardRef, useId } from 'react'
 import type { ChangeEvent, KeyboardEvent } from 'react'
 import { Tooltip } from './ui'
-import { characterLimitMessage } from '../constants/validation'
+import { useCharacterLimit } from '../hooks/useCharacterLimit'
+import { CharacterLimitFeedback } from './CharacterLimitFeedback'
 
 interface InlineEditableUrlProps {
   /** Current URL value */
@@ -65,18 +66,10 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
   ) {
     const errorId = useId()
     const [isFocused, setIsFocused] = useState(false)
-
-    // Show "Character limit reached" when at or over maxLength, but parent errors take priority
-    const limitReached = maxLength !== undefined && value.length >= maxLength
-    const displayError = error || (limitReached ? characterLimitMessage(maxLength!) : undefined)
+    const limit = useCharacterLimit(value.length, maxLength)
 
     const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
-      const newValue = e.target.value
-      // Enforce maxLength if specified
-      if (maxLength !== undefined && newValue.length > maxLength) {
-        return
-      }
-      onChange(newValue)
+      onChange(e.target.value)
     }
 
     const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -109,11 +102,13 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
     // Container styling for the whole URL row
     const containerClasses = [
       'flex items-center gap-2 w-full',
-      // Subtle hover/focus indicator on the container (overridden by error state)
+      // Subtle hover/focus indicator on the container (overridden by error/exceeded state)
       'rounded px-1 -mx-1',
-      displayError
+      error
         ? 'ring-2 ring-red-200'
-        : isFocused ? 'ring-2 ring-gray-900/5' : 'hover:ring-2 hover:ring-gray-900/5',
+        : limit.exceeded
+          ? 'ring-2 ring-red-200'
+          : isFocused ? 'ring-2 ring-gray-900/5' : 'hover:ring-2 hover:ring-gray-900/5',
     ]
       .filter(Boolean)
       .join(' ')
@@ -167,13 +162,13 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
             disabled={disabled}
             required={required}
             aria-required={required}
-            maxLength={maxLength}
             aria-invalid={!!error}
-            aria-describedby={displayError ? errorId : undefined}
+            aria-describedby={error ? errorId : undefined}
             className={inputClasses}
           />
         </div>
-        {displayError && <p id={errorId} className="mt-1 text-sm text-red-500">{displayError}</p>}
+        {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
+        <CharacterLimitFeedback limit={limit} />
       </div>
     )
   }

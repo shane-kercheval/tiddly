@@ -1,12 +1,16 @@
 /**
  * Tests for InlineEditableTitle component.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { InlineEditableTitle } from './InlineEditableTitle'
 
 describe('InlineEditableTitle', () => {
+  beforeEach(() => {
+    window.matchMedia = vi.fn((query: string) => ({ matches: false, media: query })) as unknown as typeof window.matchMedia
+  })
+
   describe('rendering', () => {
     it('should render an input with the value', () => {
       render(<InlineEditableTitle value="Test Title" onChange={vi.fn()} />)
@@ -160,15 +164,15 @@ describe('InlineEditableTitle', () => {
     })
   })
 
-  describe('maxLength', () => {
-    it('should set maxLength attribute on input', () => {
+  describe('progressive character limit', () => {
+    it('should not set maxLength attribute on input', () => {
       render(<InlineEditableTitle value="" onChange={vi.fn()} maxLength={10} />)
 
       const input = screen.getByRole('textbox')
-      expect(input).toHaveAttribute('maxLength', '10')
+      expect(input).not.toHaveAttribute('maxLength')
     })
 
-    it('should not call onChange when input exceeds maxLength', async () => {
+    it('should allow typing beyond the limit', async () => {
       const user = userEvent.setup()
       const mockOnChange = vi.fn()
       render(<InlineEditableTitle value="12345" onChange={mockOnChange} maxLength={5} />)
@@ -176,49 +180,73 @@ describe('InlineEditableTitle', () => {
       const input = screen.getByRole('textbox')
       await user.type(input, 'x')
 
-      expect(mockOnChange).not.toHaveBeenCalled()
+      expect(mockOnChange).toHaveBeenCalled()
     })
 
-    it('should show "Character limit reached" with limit when value is at maxLength', () => {
-      render(<InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} />)
+    it('should not show feedback below 70% of max', () => {
+      render(<InlineEditableTitle value="123" onChange={vi.fn()} maxLength={10} />)
 
-      expect(screen.getByText('Character limit reached (5)')).toBeInTheDocument()
+      const feedback = screen.getByTestId('character-limit-feedback')
+      expect(feedback.style.visibility).toBe('hidden')
     })
 
-    it('should show red border when at maxLength', () => {
-      render(<InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} />)
+    it('should show counter at 70% of max', () => {
+      render(<InlineEditableTitle value="1234567" onChange={vi.fn()} maxLength={10} />)
+
+      const feedback = screen.getByTestId('character-limit-feedback')
+      expect(feedback.style.visibility).toBe('visible')
+      expect(screen.getByText('7 / 10')).toBeInTheDocument()
+    })
+
+    it('should show "Character limit reached" at exactly 100%', () => {
+      render(<InlineEditableTitle value="1234567890" onChange={vi.fn()} maxLength={10} />)
+
+      expect(screen.getByText('Character limit reached')).toBeInTheDocument()
+      expect(screen.getByText('10 / 10')).toBeInTheDocument()
+    })
+
+    it('should not show red border at exactly 100%', () => {
+      render(<InlineEditableTitle value="1234567890" onChange={vi.fn()} maxLength={10} />)
+
+      const input = screen.getByRole('textbox')
+      expect(input.className).not.toContain('ring-red-200')
+    })
+
+    it('should show exceeded message above 100%', () => {
+      render(<InlineEditableTitle value="12345678901" onChange={vi.fn()} maxLength={10} />)
+
+      expect(screen.getByText('Character limit exceeded - saving is disabled')).toBeInTheDocument()
+      expect(screen.getByText('11 / 10')).toBeInTheDocument()
+    })
+
+    it('should show red border when exceeded (> 100%)', () => {
+      render(<InlineEditableTitle value="12345678901" onChange={vi.fn()} maxLength={10} />)
 
       const input = screen.getByRole('textbox')
       expect(input.className).toContain('ring-red-200')
     })
 
-    it('should not show limit message when under maxLength', () => {
-      render(<InlineEditableTitle value="1234" onChange={vi.fn()} maxLength={5} />)
-
-      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
-    })
-
-    it('should show parent error instead of limit message when both apply', () => {
-      render(
-        <InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} error="Name format invalid" />
-      )
-
-      expect(screen.getByText('Name format invalid')).toBeInTheDocument()
-      expect(screen.queryByText(/Character limit reached/)).not.toBeInTheDocument()
-    })
-
-    it('should not set aria-invalid for limit reached without parent error', () => {
-      render(<InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} />)
+    it('should not set aria-invalid for limit feedback', () => {
+      render(<InlineEditableTitle value="1234567890" onChange={vi.fn()} maxLength={10} />)
 
       const input = screen.getByRole('textbox')
       expect(input).not.toHaveAttribute('aria-invalid', 'true')
     })
 
     it('should set aria-invalid only when parent error is present', () => {
-      render(<InlineEditableTitle value="12345" onChange={vi.fn()} maxLength={5} error="Error" />)
+      render(<InlineEditableTitle value="12345678901" onChange={vi.fn()} maxLength={10} error="Error" />)
 
       const input = screen.getByRole('textbox')
       expect(input).toHaveAttribute('aria-invalid', 'true')
+    })
+
+    it('should show parent error alongside limit feedback', () => {
+      render(
+        <InlineEditableTitle value="12345678901" onChange={vi.fn()} maxLength={10} error="Name format invalid" />
+      )
+
+      expect(screen.getByText('Name format invalid')).toBeInTheDocument()
+      expect(screen.getByText('Character limit exceeded - saving is disabled')).toBeInTheDocument()
     })
   })
 
