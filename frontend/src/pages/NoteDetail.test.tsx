@@ -449,7 +449,7 @@ describe('NoteDetail page', () => {
           '/app/notes/new-note-id',
           {
             replace: true,
-            state: { note: createdNote },
+            state: { note: createdNote, fromCreate: true },
           }
         )
       })
@@ -570,6 +570,40 @@ describe('NoteDetail page', () => {
       // Should show Create button (not Save), confirming we're in create mode
       // Form is clean so Create button won't appear until dirty — just verify no Save button
       expect(screen.queryByText('Save')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('create to existing transition without fromCreate', () => {
+    it('should load existing note when navigating from /new to /:id without fromCreate', async () => {
+      const user = userEvent.setup()
+
+      // Navigate from /new to an existing note (e.g., via browser back) without
+      // the fromCreate flag — this is NOT a create-save transition, so state should reset.
+      render(
+        <MemoryRouter initialEntries={['/app/notes/new']}>
+          <Routes>
+            <Route path="/app/notes/:id" element={
+              <>
+                <NoteDetail />
+                <Link to="/app/notes/1">Existing Note</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for create form
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Note title')).toHaveValue('')
+      })
+
+      // Navigate to existing note (no fromCreate in location state)
+      await user.click(screen.getByText('Existing Note'))
+
+      // Should load the existing note's data
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Test Note')).toBeInTheDocument()
+      })
     })
   })
 })

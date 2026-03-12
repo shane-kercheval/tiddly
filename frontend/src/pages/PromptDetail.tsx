@@ -69,6 +69,7 @@ export function PromptDetail(): ReactNode {
   const locationState = location.state as {
     initialTags?: string[]
     prompt?: PromptType
+    fromCreate?: boolean
     initialRelationships?: RelationshipInputPayload[]
     initialLinkedItems?: LinkedItem[]
     returnTo?: string
@@ -186,7 +187,7 @@ export function PromptDetail(): ReactNode {
           // Preserve returnTo so Close still navigates back to the source entity (e.g. quick-create flow)
           navigate(`/app/prompts/${createdPrompt.id}`, {
             replace: true,
-            state: { prompt: createdPrompt, returnTo: locationState?.returnTo },
+            state: { prompt: createdPrompt, fromCreate: true, returnTo: locationState?.returnTo },
           })
         } catch (err) {
           handleNameConflict(err)
@@ -329,6 +330,7 @@ export function PromptDetail(): ReactNode {
         initialRelationships={locationState?.initialRelationships}
         initialLinkedItems={locationState?.initialLinkedItems}
         showTocToggle={!isCreate}
+        fromCreate={locationState?.fromCreate}
       />
       {showHistory && promptId && (
         <HistorySidebar

@@ -70,6 +70,7 @@ export function NoteDetail(): ReactNode {
   const locationState = location.state as {
     initialTags?: string[]
     note?: NoteType
+    fromCreate?: boolean
     initialRelationships?: RelationshipInputPayload[]
     initialLinkedItems?: LinkedItem[]
     returnTo?: string
@@ -156,7 +157,7 @@ export function NoteDetail(): ReactNode {
           // Preserve returnTo so Close still navigates back to the source entity (e.g. quick-create flow)
           navigate(`/app/notes/${createdNote.id}`, {
             replace: true,
-            state: { note: createdNote, returnTo: locationState?.returnTo },
+            state: { note: createdNote, fromCreate: true, returnTo: locationState?.returnTo },
           })
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Failed to create note'
@@ -298,6 +299,7 @@ export function NoteDetail(): ReactNode {
         initialRelationships={locationState?.initialRelationships}
         initialLinkedItems={locationState?.initialLinkedItems}
         showTocToggle={!isCreate}
+        fromCreate={locationState?.fromCreate}
       />
       {showHistory && noteId && (
         <HistorySidebar

@@ -581,7 +581,7 @@ describe('PromptDetail page', () => {
           '/app/prompts/new-prompt-id',
           {
             replace: true,
-            state: { prompt: createdPrompt },
+            state: { prompt: createdPrompt, fromCreate: true },
           }
         )
       })
@@ -702,6 +702,40 @@ describe('PromptDetail page', () => {
       // Should show Create button (not Save), confirming we're in create mode
       // Form is clean so Create button won't appear until dirty — just verify no Save button
       expect(screen.queryByText('Save')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('create to existing transition without fromCreate', () => {
+    it('should load existing prompt when navigating from /new to /:id without fromCreate', async () => {
+      const user = userEvent.setup()
+
+      // Navigate from /new to an existing prompt (e.g., via browser back) without
+      // the fromCreate flag — this is NOT a create-save transition, so state should reset.
+      render(
+        <MemoryRouter initialEntries={['/app/prompts/new']}>
+          <Routes>
+            <Route path="/app/prompts/:id" element={
+              <>
+                <PromptDetail />
+                <Link to="/app/prompts/1">Existing Prompt</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for create form
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('prompt-name')).toHaveValue('')
+      })
+
+      // Navigate to existing prompt (no fromCreate in location state)
+      await user.click(screen.getByText('Existing Prompt'))
+
+      // Should load the existing prompt's data
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('code-review')).toBeInTheDocument()
+      })
     })
   })
 })

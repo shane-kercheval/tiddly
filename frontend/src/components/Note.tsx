@@ -107,6 +107,8 @@ interface NoteProps {
   initialLinkedItems?: LinkedItem[]
   /** Whether to show the Table of Contents toggle in the toolbar */
   showTocToggle?: boolean
+  /** Whether this is a create→edit transition (preserves editor state) */
+  fromCreate?: boolean
 }
 
 /**
@@ -131,6 +133,7 @@ export function Note({
   initialRelationships,
   initialLinkedItems,
   showTocToggle = false,
+  fromCreate = false,
 }: NoteProps): ReactNode {
   const isCreate = !note
 
@@ -238,12 +241,15 @@ export function Note({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    // Detect document switch: navigating between two existing notes (UUID A → UUID B).
+    // Detect document switch: navigating to a different note than the one currently loaded.
     // This forces an editor reset even when content is identical, because undo history
     // and cursor position belong to the previous document.
-    // Create→edit (undefined → UUID) is NOT a document switch — the user just saved
-    // what they were typing, so editor state (focus, cursor, scroll, undo) is preserved.
-    const isDocumentSwitch = previousNoteIdRef.current !== undefined && note.id !== previousNoteIdRef.current
+    // The only exception is the create→edit transition (fromCreate), where the user just
+    // saved what they were typing — editor state (focus, cursor, scroll, undo) is preserved.
+    // All other undefined→UUID transitions (e.g., browser back from /new to /:id) ARE
+    // document switches and must reset the editor.
+    const isCreateToEdit = previousNoteIdRef.current === undefined && fromCreate
+    const isDocumentSwitch = !isCreateToEdit && note.id !== previousNoteIdRef.current
     const needsEditorReset = isDocumentSwitch || (note.content ?? '') !== currentContentRef.current
     previousNoteIdRef.current = note.id
     syncStateFromNote(note, needsEditorReset)
