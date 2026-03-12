@@ -14,7 +14,7 @@ import { keymap, EditorView } from '@codemirror/view'
 import { markdownStyleExtension, createFontTheme } from '../utils/markdownStyleExtension'
 import type { KeyBinding } from '@codemirror/view'
 import { autocompletion, completionStatus } from '@codemirror/autocomplete'
-import { Prec } from '@codemirror/state'
+import { Prec, Compartment, EditorState } from '@codemirror/state'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
 import { Tooltip } from './ui/Tooltip'
 import { MilkdownEditor } from './MilkdownEditor'
@@ -495,6 +495,22 @@ export function CodeMirrorEditor({
   //   remount with the new value via fresh useState
   const [initialValue] = useState(value)
 
+  // Manage readOnly via our own Compartment so toggling it doesn't trigger
+  // @uiw/react-codemirror's full extension reconfigure (which recreates
+  // basicSetup including history(), destroying undo history).
+  const [readOnlyCompartment] = useState(() => new Compartment())
+
+  useEffect(() => {
+    const view = editorRef.current?.view
+    if (view) {
+      view.dispatch({
+        effects: readOnlyCompartment.reconfigure(
+          readOnly ? EditorState.readOnly.of(true) : []
+        ),
+      })
+    }
+  }, [readOnly, readOnlyCompartment])
+
   // Keep ref in sync so CM extension and document-level handler use latest callback
   useEffect(() => {
     openCommandMenuRef.current = openCommandMenu
@@ -533,6 +549,8 @@ export function CodeMirrorEditor({
       Prec.highest(keymap.of(bindings)),
       markdownStyleExtension,
       createFontTheme(monoFont),
+      // readOnly managed via Compartment — see useEffect above
+      readOnlyCompartment.of(readOnly ? EditorState.readOnly.of(true) : []),
       autocompletion({
         override: [slashSource],
         icons: false,
@@ -559,7 +577,8 @@ export function CodeMirrorEditor({
       exts.push(EditorView.lineWrapping)
     }
     return exts
-  }, [wrapText, monoFont, showJinjaTools])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wrapText, monoFont, showJinjaTools, readOnlyCompartment])
 
   return (
     <div ref={containerRef} className={`w-full ${noPadding ? 'codemirror-no-padding' : ''}`}>
@@ -792,7 +811,6 @@ export function CodeMirrorEditor({
             minHeight={minHeight}
             placeholder={placeholder}
             editable={!disabled}
-            readOnly={readOnly}
             basicSetup={{
               lineNumbers: showLineNumbers,
               foldGutter: false,
