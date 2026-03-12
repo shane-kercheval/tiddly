@@ -789,7 +789,12 @@ export async function loadBookmarks(query, offset, append) {
     title.rel = 'noopener noreferrer';
     title.addEventListener('click', (e) => {
       e.preventDefault();
-      chrome.tabs.create({ url: item.url });
+      chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        if (tab?.id) {
+          chrome.tabs.update(tab.id, { url: item.url });
+        }
+        window.close();
+      });
     });
     titleRow.appendChild(title);
     el.appendChild(titleRow);
