@@ -654,6 +654,7 @@ function refreshActiveTags() {
     removeBtn.type = 'button';
     removeBtn.className = 'remove-tag';
     removeBtn.textContent = '\u00d7';
+    removeBtn.setAttribute('aria-label', `Remove tag ${tag}`);
     removeBtn.addEventListener('click', () => {
       searchFilterTags.delete(tag);
       refreshActiveTags();
