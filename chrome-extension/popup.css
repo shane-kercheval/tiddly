@@ -46,14 +46,14 @@ body {
   margin-bottom: 0;
 }
 
-#save-view {
-  position: relative;
+#save-view > .view-header {
+  margin-bottom: 6px;
+  gap: 4px;
+  margin-right: -8px;
 }
 
-#save-view > .settings-link {
-  position: absolute;
-  top: -12px;
-  right: -8px;
+#url {
+  flex: 1;
 }
 
 #search-input {
@@ -525,7 +525,7 @@ button.show-all-link {
 
 #search-view .view-header {
   padding-left: 16px;
-  padding-right: 16px;
+  padding-right: 8px;
   padding-bottom: 10px;
   border-bottom: 1px solid #f3f4f6;
 }

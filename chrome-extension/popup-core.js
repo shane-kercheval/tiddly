@@ -107,7 +107,7 @@ function lerpColor(c1, c2, t) {
 }
 
 const COLORS = {
-  gray:        [156, 163, 175],
+  gray:        [209, 213, 219],
   textLight:   [17, 24, 39],
   textDark:    [224, 224, 224],
   orangeLight: [217, 119, 6],
