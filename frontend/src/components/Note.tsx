@@ -254,8 +254,9 @@ export function Note({
   // Without this, navigating from /notes/:id to /notes/new would keep the
   // previous note's state because useState(getInitialState) only runs on mount
   // and the sync effect skips when note is undefined.
-  // Dependencies include initialTags and initialRelationships so that
-  // prepopulation from quick-create flows (sidebar, linked content) works correctly.
+  // Dependencies use note?.id (not note) to avoid re-running on every save where
+  // setNote(updatedNote) creates a new reference. The effect only cares about
+  // the defined→undefined transition, which note?.id captures.
   useEffect(() => {
     if (note) {
       // In edit mode — nothing to reset. The sync effect handles edit→edit.
@@ -266,21 +267,17 @@ export function Note({
       return
     }
     // Edit → create transition: reset form to fresh create-mode state.
+    // Uses getInitialState() to stay in sync with initial mount behavior.
     previousNoteIdRef.current = undefined
-    const freshState: NoteState = {
-      title: '',
-      description: '',
-      content: '',
-      tags: initialTags ?? [],
-      relationships: initialRelationships ?? [],
-      archivedAt: '',
-      archivePreset: 'none',
-    }
+    const freshState = getInitialState()
     setOriginal(freshState)
     setCurrent(freshState)
     setErrors({})
+    setConflictState(null)
+    clearNewItemsCache()
     setContentKey(prev => prev + 1)
-  }, [note, initialTags, initialRelationships])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.id, initialTags, initialRelationships])
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)

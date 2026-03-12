@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, Link } from 'react-router-dom'
 import { PromptDetail } from './PromptDetail'
 import type { Prompt } from '../types'
 
@@ -629,6 +629,79 @@ describe('PromptDetail page', () => {
       await waitFor(() => {
         expect(mockFetchPrompt).toHaveBeenCalledWith('123')
       })
+    })
+  })
+
+  describe('error to create transition', () => {
+    it('should clear error state when navigating from failed load to /new', async () => {
+      const user = userEvent.setup()
+      mockFetchPrompt.mockRejectedValue(new Error('Network error'))
+
+      // Use Link to navigate — useNavigate is mocked to a spy
+      render(
+        <MemoryRouter initialEntries={['/app/prompts/bad-id']}>
+          <Routes>
+            <Route path="/app/prompts/:id" element={
+              <>
+                <PromptDetail />
+                <Link to="/app/prompts/new">New Prompt</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for error state to appear
+      await waitFor(() => {
+        expect(screen.getByText('Network error')).toBeInTheDocument()
+      })
+
+      // Navigate to create mode
+      await user.click(screen.getByText('New Prompt'))
+
+      // Should show create form, not stale error
+      await waitFor(() => {
+        expect(screen.queryByText('Network error')).not.toBeInTheDocument()
+        expect(screen.getByPlaceholderText('prompt-name')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('edit to create transition', () => {
+    it('should reset to create mode when navigating from existing prompt to /new', async () => {
+      const user = userEvent.setup()
+
+      // Use Link (not useNavigate) because useNavigate is mocked to a spy.
+      // Link uses real React Router internals and triggers actual navigation.
+      render(
+        <MemoryRouter initialEntries={['/app/prompts/1']}>
+          <Routes>
+            <Route path="/app/prompts/:id" element={
+              <>
+                <PromptDetail />
+                <Link to="/app/prompts/new">New Prompt</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for existing prompt to load
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('code-review')).toBeInTheDocument()
+      })
+
+      // Navigate to create mode
+      await user.click(screen.getByText('New Prompt'))
+
+      // Should show create mode — empty name, no stale data
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('prompt-name')).toHaveValue('')
+      })
+
+      // Should show Create button (not Save), confirming we're in create mode
+      // Form is clean so Create button won't appear until dirty — just verify no Save button
+      expect(screen.queryByText('Save')).not.toBeInTheDocument()
     })
   })
 })

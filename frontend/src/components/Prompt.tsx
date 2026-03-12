@@ -304,8 +304,9 @@ export function Prompt({
   // Without this, navigating from /prompts/:id to /prompts/new would keep the
   // previous prompt's state because useState(getInitialState) only runs on mount
   // and the sync effect skips when prompt is undefined.
-  // Dependencies include initialTags and initialRelationships so that
-  // prepopulation from quick-create flows (sidebar, linked content) works correctly.
+  // Dependencies use prompt?.id (not prompt) to avoid re-running on every save where
+  // setPrompt(updatedPrompt) creates a new reference. The effect only cares about
+  // the defined→undefined transition, which prompt?.id captures.
   useEffect(() => {
     if (prompt) {
       // In edit mode — nothing to reset. The sync effect handles edit→edit.
@@ -316,23 +317,17 @@ export function Prompt({
       return
     }
     // Edit → create transition: reset form to fresh create-mode state.
+    // Uses getInitialState() to stay in sync with initial mount behavior.
     previousPromptIdRef.current = undefined
-    const freshState: PromptState = {
-      name: '',
-      title: '',
-      description: '',
-      content: DEFAULT_PROMPT_CONTENT,
-      arguments: [],
-      tags: initialTags ?? [],
-      relationships: initialRelationships ?? [],
-      archivedAt: '',
-      archivePreset: 'none',
-    }
+    const freshState = getInitialState()
     setOriginal(freshState)
     setCurrent(freshState)
     setErrors({})
+    setConflictState(null)
+    clearNewItemsCache()
     setContentKey(prev => prev + 1)
-  }, [prompt, initialTags, initialRelationships])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt?.id, initialTags, initialRelationships])
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)

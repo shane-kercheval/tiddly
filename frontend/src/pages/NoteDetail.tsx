@@ -104,6 +104,8 @@ export function NoteDetail(): ReactNode {
   // Fetch note on mount (for existing notes)
   useEffect(() => {
     if (isCreate) {
+      setNote(null)
+      setError(null)
       setIsLoading(false)
       return
     }

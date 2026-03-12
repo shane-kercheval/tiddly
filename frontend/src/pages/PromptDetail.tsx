@@ -103,6 +103,8 @@ export function PromptDetail(): ReactNode {
   // Fetch prompt on mount (for existing prompts)
   useEffect(() => {
     if (isCreate) {
+      setPrompt(null)
+      setError(null)
       setIsLoading(false)
       return
     }
