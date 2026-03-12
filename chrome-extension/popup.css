@@ -285,7 +285,8 @@ textarea {
   font-size: 11px;
   line-height: 1;
   min-height: 11px;
-  margin-top: 1px;
+  margin-top: 2px;
+  margin-left: 2px;
   visibility: hidden;
 }
 
