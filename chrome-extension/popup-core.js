@@ -100,6 +100,7 @@ export function counterText(current, max) {
 }
 
 function lerpColor(c1, c2, t) {
+  t = Math.max(0, Math.min(1, t));
   return '#' + c1.map((v, i) =>
     Math.round(v + (c2[i] - v) * t).toString(16).padStart(2, '0')
   ).join('');
@@ -137,6 +138,7 @@ function setFeedbackContent(feedbackEl, { message, count }) {
   if (count) {
     const cnt = document.createElement('span');
     cnt.textContent = count;
+    cnt.style.marginLeft = 'auto';
     feedbackEl.appendChild(cnt);
   }
 }
