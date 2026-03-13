@@ -30,7 +30,7 @@ import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
-import { isEffectivelyArchived } from '../utils'
+import { isEffectivelyArchived, isNotFoundError } from '../utils'
 
 type PromptViewState = 'active' | 'archived' | 'deleted'
 
@@ -111,7 +111,7 @@ export function PromptDetail(): ReactNode {
     }
 
     if (!isValidId) {
-      setError('Invalid prompt ID')
+      setError('This prompt does not exist')
       setIsLoading(false)
       return
     }
@@ -132,7 +132,7 @@ export function PromptDetail(): ReactNode {
         setPrompt(fetchedPrompt)
         trackPromptUsage(promptId!)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load prompt')
+        setError(isNotFoundError(err) ? 'This prompt does not exist' : (err instanceof Error ? err.message : 'Something went wrong'))
       } finally {
         setIsLoading(false)
       }

@@ -321,11 +321,12 @@ describe('NoteDetail page', () => {
     })
 
     it('should show error when API returns not found', async () => {
-      mockFetchNote.mockRejectedValue(new Error('Note not found'))
+      const notFoundError = { response: { status: 404 } }
+      mockFetchNote.mockRejectedValue(notFoundError)
       renderWithRouter('/app/notes/invalid-uuid')
 
       await waitFor(() => {
-        expect(screen.getByText('Note not found')).toBeInTheDocument()
+        expect(screen.getByText('This note does not exist')).toBeInTheDocument()
       })
     })
   })

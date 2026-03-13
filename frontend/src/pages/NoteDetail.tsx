@@ -31,7 +31,7 @@ import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
-import { isEffectivelyArchived } from '../utils'
+import { isEffectivelyArchived, isNotFoundError } from '../utils'
 
 type NoteViewState = 'active' | 'archived' | 'deleted'
 
@@ -112,7 +112,7 @@ export function NoteDetail(): ReactNode {
     }
 
     if (!isValidId) {
-      setError('Invalid note ID')
+      setError('This note does not exist')
       setIsLoading(false)
       return
     }
@@ -133,7 +133,7 @@ export function NoteDetail(): ReactNode {
         setNote(fetchedNote)
         trackNoteUsage(noteId!)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load note')
+        setError(isNotFoundError(err) ? 'This note does not exist' : (err instanceof Error ? err.message : 'Something went wrong'))
       } finally {
         setIsLoading(false)
       }

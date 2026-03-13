@@ -408,11 +408,12 @@ describe('PromptDetail page', () => {
     })
 
     it('should show error when API returns not found', async () => {
-      mockFetchPrompt.mockRejectedValue(new Error('Prompt not found'))
+      const notFoundError = { response: { status: 404 } }
+      mockFetchPrompt.mockRejectedValue(notFoundError)
       renderWithRouter('/app/prompts/invalid-uuid')
 
       await waitFor(() => {
-        expect(screen.getByText('Prompt not found')).toBeInTheDocument()
+        expect(screen.getByText('This prompt does not exist')).toBeInTheDocument()
       })
     })
 

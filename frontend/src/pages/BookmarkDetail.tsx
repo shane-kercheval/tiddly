@@ -30,7 +30,7 @@ import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
-import { getApiErrorMessage, getDomain, isEffectivelyArchived } from '../utils'
+import { getApiErrorMessage, getDomain, isEffectivelyArchived, isNotFoundError } from '../utils'
 
 type BookmarkViewState = 'active' | 'archived' | 'deleted'
 
@@ -110,7 +110,7 @@ export function BookmarkDetail(): ReactNode {
     }
 
     if (!bookmarkId) {
-      setError('Invalid bookmark ID')
+      setError('This bookmark does not exist')
       setIsLoading(false)
       return
     }
@@ -122,7 +122,7 @@ export function BookmarkDetail(): ReactNode {
         const fetchedBookmark = await fetchBookmark(bookmarkId)
         setBookmark(fetchedBookmark)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load bookmark')
+        setError(isNotFoundError(err) ? 'This bookmark does not exist' : (err instanceof Error ? err.message : 'Something went wrong'))
       } finally {
         setIsLoading(false)
       }
