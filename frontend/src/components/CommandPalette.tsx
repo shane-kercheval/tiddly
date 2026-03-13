@@ -554,11 +554,13 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     (index: number) => {
       const item = items[index]
       if (!item) return
-      if (item.type === 'bookmark') handleViewBookmark(toBookmarkListItem(item))
-      else if (item.type === 'note') handleViewNote(toNoteListItem(item))
+      if (item.type === 'bookmark' && item.url) {
+        window.open(item.url, '_blank', 'noopener,noreferrer')
+        onClose()
+      } else if (item.type === 'note') handleViewNote(toNoteListItem(item))
       else if (item.type === 'prompt') handleViewPrompt(toPromptListItem(item))
     },
-    [items, handleViewBookmark, handleViewNote, handleViewPrompt],
+    [items, onClose, handleViewNote, handleViewPrompt],
   )
 
   const handleSearchExitTop = useCallback(() => {
