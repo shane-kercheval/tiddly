@@ -31,7 +31,10 @@ Auth0 access tokens for custom APIs only include `sub` by default — no profile
    - **Trailing slash normalization**: strip trailing `/` from the namespace value (e.g. `https://tiddly.me/` → `https://tiddly.me`). Otherwise `f"{namespace}/email"` produces `https://tiddly.me//email` which silently misses the claim.
 
 2. **Add `email_verified` column to `users` table**
-   - New Alembic migration: add `email_verified` column (`Boolean`, nullable, default `NULL`)
+   - **Never create migration files manually.** Use: `make migration message="add email_verified to users"`
+   - This runs `uv run alembic revision --autogenerate -m "..."` which generates the migration from model changes
+   - So: update the `User` model first, then run the make command to auto-generate the migration
+   - The migration should add `email_verified` column (`Boolean`, nullable, default `NULL`)
    - Nullable because existing users won't have this data until their next login after the Auth0 Action is deployed
    - After all users log in once, `null` means "we haven't received this claim from Auth0 yet"
    - `true` = Auth0 confirmed the email is verified; `false` = Auth0 says it's not verified
