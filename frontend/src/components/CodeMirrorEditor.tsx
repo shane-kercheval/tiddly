@@ -15,6 +15,7 @@ import { markdownStyleExtension, createFontTheme } from '../utils/markdownStyleE
 import type { KeyBinding } from '@codemirror/view'
 import { autocompletion, completionStatus } from '@codemirror/autocomplete'
 import { Prec, Compartment, EditorState } from '@codemirror/state'
+import { indentUnit } from '@codemirror/language'
 import { search } from '@codemirror/search'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
 import { Tooltip } from './ui/Tooltip'
@@ -547,6 +548,8 @@ export function CodeMirrorEditor({
     const bindings = createMarkdownKeyBindings()
     const slashSource = createSlashCommandSource(showJinjaTools)
     const exts = [
+      indentUnit.of('    '),
+      EditorState.tabSize.of(4),
       markdown({ codeLanguages: languages }),
       Prec.highest(keymap.of(bindings)),
       markdownStyleExtension,
