@@ -344,8 +344,8 @@ export function ContentEditor({
       <div className="h-0.5 bg-gray-100 mx-2 group-focus-within/editor:opacity-0 transition-opacity" />
 
       {/* Editor container - always CodeMirror with Reading/Wrap toggles in toolbar */}
-      {/* Note: overflow-hidden removed to allow toolbar wrapping on mobile; editor handles its own overflow */}
-      <div className={`rounded-lg transition-shadow ${getContainerBorderClasses()}`}>
+      {/* overflow-hidden clips child content to rounded corners */}
+      <div className={`rounded-lg overflow-hidden transition-shadow ${getContainerBorderClasses()}`}>
         <CodeMirrorEditor
           value={value}
           onChange={onChange}
