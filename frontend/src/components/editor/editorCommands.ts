@@ -32,6 +32,7 @@ export interface EditorCommand {
 export interface MenuCallbacks {
   onSaveAndClose?: () => void
   onDiscard?: () => void
+  onToggleReadingMode?: () => void
 }
 
 /** Icon factory type - commands receive icon-building functions to avoid importing React components here. */
@@ -58,6 +59,7 @@ interface IconFactories {
   close: () => ReactNode
   tableOfContents: () => ReactNode
   versionHistory: () => ReactNode
+  readingMode: () => ReactNode
 }
 
 interface BuildOptions {
@@ -117,6 +119,17 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
     shortcut: ['⌘', '⇧', '\\'],
     action: () => { useRightSidebarStore.getState().togglePanel('history') },
   })
+  if (callbacks.onToggleReadingMode) {
+    const onToggleReadingMode = callbacks.onToggleReadingMode
+    commands.push({
+      id: 'toggle-reading-mode',
+      label: 'Toggle Reading Mode',
+      section: 'Actions',
+      icon: icons.readingMode(),
+      shortcut: ['⌘', '⇧', 'M'],
+      action: () => { onToggleReadingMode() },
+    })
+  }
 
   // --- Jinja2 section (prompt pages only, before Format for quick access) ---
   if (showJinja) {

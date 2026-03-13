@@ -398,7 +398,8 @@ export function CodeMirrorEditor({
   const menuCallbacks: MenuCallbacks = useMemo(() => ({
     onSaveAndClose,
     onDiscard: onDiscard ? handleDiscard : undefined,
-  }), [onSaveAndClose, onDiscard, handleDiscard])
+    onToggleReadingMode: toggleReadingMode,
+  }), [onSaveAndClose, onDiscard, handleDiscard, toggleReadingMode])
 
   const editorCommands = useMemo(() => buildEditorCommands({
     showJinja: showJinjaTools,
@@ -428,6 +429,7 @@ export function CodeMirrorEditor({
       close: () => <CloseIcon className="h-4 w-4" />,
       tableOfContents: () => <TableOfContentsIcon />,
       versionHistory: () => <HistoryIcon className="w-4 h-4" />,
+      readingMode: () => <ReadingIcon />,
     },
   }), [showJinjaTools, menuCallbacks, isDirty, showTocToggle])
 
