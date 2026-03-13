@@ -252,7 +252,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     refetch,
   } = useContentQuery(currentParams, { enabled: view === 'search' && hasSearchCriteria })
 
-  const items = queryData?.items ?? []
+  const items = useMemo(() => queryData?.items ?? [], [queryData?.items])
   const total = queryData?.total ?? 0
   const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to fetch content') : null
 

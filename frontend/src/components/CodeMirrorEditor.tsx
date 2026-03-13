@@ -400,7 +400,6 @@ export function CodeMirrorEditor({
     onDiscard: onDiscard ? handleDiscard : undefined,
   }), [onSaveAndClose, onDiscard, handleDiscard])
 
-  // eslint-disable-next-line react-hooks/refs -- callbacks capture refs but only read them when invoked, not during render
   const editorCommands = useMemo(() => buildEditorCommands({
     showJinja: showJinjaTools,
     callbacks: menuCallbacks,
