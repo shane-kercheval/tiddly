@@ -305,7 +305,7 @@ function FeaturesContent({
             />
             <DevCard
               icon={<ExternalLinkIcon />}
-              title="Open source"
+              title="Self-hostable"
               description="Self-host with FastAPI, React, and PostgreSQL. Full control over your data."
             />
           </div>

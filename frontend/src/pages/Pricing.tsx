@@ -268,16 +268,16 @@ export function Pricing(): ReactNode {
 
           <FAQItem question="Is there a self-hosted option?">
             <p>
-              Yes! Tiddly is{' '}
+              Yes! Tiddly's code is{' '}
               <a
                 href="https://github.com/shane-kercheval/tiddly"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blue-600 hover:underline"
               >
-                open source
+                publicly available
               </a>
-              . Self-host for complete control over your data with no tier limits.
+              {' '}and can be self-hosted for complete control over your data with no tier limits.
             </p>
           </FAQItem>
         </div>

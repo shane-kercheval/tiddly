@@ -194,7 +194,7 @@ function LandingContent({
               <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
                 <ExternalLinkIcon className="h-5 w-5 text-gray-600" />
               </div>
-              <h3 className="mb-1 text-base font-semibold text-gray-900">Open source</h3>
+              <h3 className="mb-1 text-base font-semibold text-gray-900">Self-hostable</h3>
               <p className="text-sm leading-relaxed text-gray-600">
                 Self-host for full control. FastAPI, React, and PostgreSQL.
               </p>

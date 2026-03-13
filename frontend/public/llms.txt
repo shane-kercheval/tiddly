@@ -271,7 +271,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 ## Platform
 
 - **Pricing**: Free tier with all features included. Pro tier ($5/month or $4/month billed annually) removes capacity limits — unlimited bookmarks, notes, and prompts, more API tokens, and longer version history retention. All features are available on both tiers; Pro only increases capacity.
-- **Open source**: The codebase is available at https://github.com/shane-kercheval/tiddly and can be self-hosted with no tier limits.
+- **Self-hostable**: The codebase is publicly available at https://github.com/shane-kercheval/tiddly and can be self-hosted with no tier limits.
 - **Infrastructure**: FastAPI backend, React frontend, PostgreSQL database (encryption at rest), Redis for caching and rate limiting. Hosted on Railway's Pro tier which includes SOC 2 compliance, DDoS protection, automatic daily database backups, and manual snapshots before major updates.
 - **Authentication**: Auth0.
 - **Multi-tenant**: All content is isolated by user ID. There is no sharing functionality.
