@@ -43,7 +43,7 @@ interface ChangelogMonth {
 const CHANGELOG: ChangelogMonth[] = [
   {
     month: 'March 2026',
-    theme: 'Documentation & Polish',
+    theme: 'CLI, Extensions, & Polish',
     categories: [
       {
         label: 'New',
@@ -142,7 +142,7 @@ const CHANGELOG: ChangelogMonth[] = [
   },
   {
     month: 'February 2026',
-    theme: 'Extensions, Versioning & Search',
+    theme: 'Extensions, Versioning, & Search',
     categories: [
       {
         label: 'New',
@@ -220,7 +220,7 @@ const CHANGELOG: ChangelogMonth[] = [
   },
   {
     month: 'January 2026',
-    theme: 'AI Tools, Editor & Foundations',
+    theme: 'AI Tools, Editor, & Foundations',
     categories: [
       {
         label: 'New',
