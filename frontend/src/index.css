@@ -608,4 +608,12 @@ body {
   .scrollbar-none::-webkit-scrollbar {
     display: none; /* Chrome/Safari */
   }
+
+  /* Hide action buttons on non-selected items when keyboard selection is active,
+     so they don't remain visible when the mouse is still over the card.
+     Must be in utilities layer to override group-hover:visible/opacity Tailwind utilities. */
+  [role="listbox"]:has([aria-selected="true"]) > [aria-selected="false"] .card-actions {
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
 }
