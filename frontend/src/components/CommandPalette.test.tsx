@@ -200,22 +200,6 @@ describe('CommandPalette', () => {
       expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
     })
 
-    it('Tab moves focus into the selected command item', async () => {
-      const user = userEvent.setup()
-      render(
-        <CommandPalette isOpen onClose={vi.fn()} />,
-        { wrapper: Wrapper },
-      )
-
-      const input = screen.getByPlaceholderText('Type a command...')
-      await user.click(input)
-      // Move to second command, then Tab to focus it
-      await user.keyboard('{ArrowDown}')
-      await user.tab()
-
-      const options = screen.getAllByRole('option')
-      expect(document.activeElement).toBe(options[1])
-    })
   })
 
   describe('search view keyboard navigation', () => {

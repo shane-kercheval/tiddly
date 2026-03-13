@@ -8,7 +8,7 @@
  * - /: Opens palette directly into search sub-view
  * - Escape: Closes palette from any view
  */
-import { useState, useCallback, useRef, useMemo, useEffect, type KeyboardEvent } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useContentQuery } from '../hooks/useContentQuery'
@@ -408,7 +408,6 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   const {
     selectedIndex: commandSelectedIndex,
     mouseMoved: commandMouseMoved,
-    listRef: commandListRef,
     resetSelection: resetCommandSelection,
     getInputProps: getCommandInputProps,
     getListProps: getCommandListProps,
@@ -421,23 +420,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     idPrefix: 'cmd-item',
   })
 
-  // Compose wrapper onKeyDown that adds Tab handling (CommandPalette-specific)
-  const { onKeyDown: commandHookKeyDown, 'aria-activedescendant': commandActiveDescendant } = getCommandInputProps()
-  const handleCommandKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Tab') {
-        e.preventDefault()
-        const list = commandListRef.current
-        if (!list) return
-        const items = list.querySelectorAll('[data-nav-item]')
-        const target = items[commandSelectedIndex] as HTMLElement | undefined
-        target?.focus()
-        return
-      }
-      commandHookKeyDown(e)
-    },
-    [commandHookKeyDown, commandListRef, commandSelectedIndex],
-  )
+  const { onKeyDown: handleCommandKeyDown, 'aria-activedescendant': commandActiveDescendant } = getCommandInputProps()
 
   // Search handlers
   const handleSearchChange = useCallback(
