@@ -683,7 +683,9 @@ export function AllContent(): ReactNode {
     const item = items[index]
     if (!item) return
     if (item.type === 'bookmark') {
-      if (currentView !== 'deleted') handleEditClick(toBookmarkListItem(item))
+      if (item.url) {
+        window.open(item.url, '_blank', 'noopener,noreferrer')
+      }
     } else if (item.type === 'note') {
       handleViewNote(toNoteListItem(item))
     } else if (item.type === 'prompt') {
