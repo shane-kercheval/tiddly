@@ -1,5 +1,7 @@
 # CLI Chrome Extension Install Command
 
+> **Status: ON HOLD** — See Appendix A for findings that question whether a CLI command adds meaningful value over manual installation. Revisit later.
+
 ## Overview
 
 Add a `tiddly chrome-ext install` command that installs the Tiddly Chrome extension via Chrome's external extension mechanism and optionally generates a PAT for the user to paste into the extension settings.
@@ -133,3 +135,48 @@ Follow the existing test patterns in `tokens_test.go` — use `testutil.NewMockA
 - `TestChromeExtUninstall__removes_file` — Verify JSON file is deleted
 - `TestChromeExtUninstall__file_not_found` — Graceful handling when file doesn't exist (already uninstalled)
 - `TestChromeExtUninstall__warns_about_pats` — Verify warning about potential orphaned PATs
+
+---
+
+## Appendix A: Review Findings — Is This Worth Building?
+
+Research into Chrome's external extension mechanism revealed several issues that significantly reduce the value of a CLI install command.
+
+### Finding 1: macOS Requires Manual Confirmation
+
+Chrome's docs state: "Windows and macOS users will have to enable the extension using the following confirmation dialog." The JSON file triggers Chrome to show a prompt, but the user must still manually confirm. The planned message "Restart Chrome to complete installation" is misleading — the actual flow is:
+
+1. CLI writes JSON file
+2. User restarts Chrome
+3. Chrome shows confirmation dialog
+4. User clicks "Enable"
+
+This is roughly the same number of user actions as just opening the Chrome Web Store page and clicking "Add to Chrome."
+
+### Finding 2: Linux Paths Require Root
+
+Chrome's documented Linux paths for external extensions are:
+- `/opt/google/chrome/extensions/`
+- `/usr/share/google-chrome/extensions/`
+
+Both are system-level and require root/sudo. The plan's `~/.config/google-chrome/External Extensions/` path does not exist in Chrome's documentation and would not be read by Chrome. This means Linux support either requires `sudo` (bad UX) or doesn't work.
+
+Source: https://developer.chrome.com/docs/extensions/how-to/distribute/install-extensions
+
+### Finding 3: Uninstalled Extensions Get Blocklisted
+
+If a user manually uninstalls an externally installed extension, Chrome blocklists it and will not reinstall it via the JSON file mechanism. Running `tiddly chrome-ext install` again would silently fail.
+
+### Finding 4: PAT Naming Convention
+
+The existing MCP flow uses a `cli-mcp-` prefix for generated PATs (e.g., `cli-mcp-claude-code-content-a1b2c3`) with safety guards in `DeleteTokensByPrefix()` that check for this prefix. If this command is built, PAT names should follow a similar convention (e.g., `cli-chrome-ext-<hex>`) for consistent orphan detection.
+
+### Conclusion
+
+Given that macOS requires manual confirmation anyway, the JSON file approach provides almost no UX advantage over simply opening the Chrome Web Store page. The CLI command's real value reduces to "open a URL + generate a PAT" — which may or may not justify a dedicated command.
+
+**Options if revisited:**
+
+1. **Drop it** — document "install from Chrome Web Store, run `tiddly tokens create`"
+2. **Minimal command** — `tiddly chrome-ext install` opens the store page via `open`/`xdg-open` + offers PAT generation (~20 lines of logic)
+3. **Full JSON approach** — as planned above, but with corrected Linux paths (requiring sudo) and corrected macOS messaging
