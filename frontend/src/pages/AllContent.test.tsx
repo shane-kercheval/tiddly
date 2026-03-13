@@ -821,9 +821,33 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       // Search bar stays mounted (stable shell pattern)
-      expect(screen.getByPlaceholderText('Search all content...')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Search All Content...')).toBeInTheDocument()
       // Spinner in content area
       expect(screen.getByText('Loading content...')).toBeInTheDocument()
+    })
+
+    it('shows dynamic search placeholder for archived view', async () => {
+      mockContentQueryLoading = true
+      mockContentQueryFetching = true
+      renderAtRoute('/app/content/archived')
+
+      expect(screen.getByPlaceholderText('Search Archived...')).toBeInTheDocument()
+    })
+
+    it('shows dynamic search placeholder for trash view', async () => {
+      mockContentQueryLoading = true
+      mockContentQueryFetching = true
+      renderAtRoute('/app/content/trash')
+
+      expect(screen.getByPlaceholderText('Search Trash...')).toBeInTheDocument()
+    })
+
+    it('shows dynamic search placeholder for custom filter', async () => {
+      mockContentQueryLoading = true
+      mockContentQueryFetching = true
+      renderAtRoute('/app/content/filters/1')
+
+      expect(screen.getByPlaceholderText('Search Reading List...')).toBeInTheDocument()
     })
 
     it('shows fetching indicator in search bar during refetch', async () => {
@@ -1240,6 +1264,342 @@ describe('AllContent', () => {
         expect(screen.getByText('Loading content...')).toBeInTheDocument()
       })
       expect(screen.queryByText('Test Bookmark')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('keyboard navigation', () => {
+    const threeItems = [mockBookmark, mockNote, mockPrompt]
+
+    it('no selection before first arrow keypress', async () => {
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      // No item should be selected
+      const items = document.querySelectorAll('[data-nav-item]')
+      items.forEach((el) => {
+        expect(el.getAttribute('aria-selected')).toBe('false')
+      })
+    })
+
+    it('ArrowDown from search input selects first item', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}')
+
+      const items = document.querySelectorAll('[data-nav-item]')
+      expect(items[0].getAttribute('aria-selected')).toBe('true')
+    })
+
+    it('focus stays on search input after ArrowDown', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}')
+
+      expect(document.activeElement).toBe(searchInput)
+    })
+
+    it('ArrowDown/ArrowUp navigates between items', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}{ArrowDown}')
+
+      const items = document.querySelectorAll('[data-nav-item]')
+      // Second item (note) should be selected
+      expect(items[1].getAttribute('aria-selected')).toBe('true')
+      expect(items[0].getAttribute('aria-selected')).toBe('false')
+
+      // ArrowUp back to first
+      await user.keyboard('{ArrowUp}')
+      expect(items[0].getAttribute('aria-selected')).toBe('true')
+      expect(items[1].getAttribute('aria-selected')).toBe('false')
+    })
+
+    it('ArrowUp on first item returns focus to search input', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      // Navigate down to first item, then up to exit
+      await user.keyboard('{ArrowDown}{ArrowUp}')
+
+      // No item should be selected (back to -1)
+      const items = document.querySelectorAll('[data-nav-item]')
+      items.forEach((el) => {
+        expect(el.getAttribute('aria-selected')).toBe('false')
+      })
+      expect(document.activeElement).toBe(searchInput)
+    })
+
+    it('ArrowDown on last item stays at last item', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      // Navigate past the end
+      await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}')
+
+      const items = document.querySelectorAll('[data-nav-item]')
+      // Last item (prompt) should be selected
+      expect(items[2].getAttribute('aria-selected')).toBe('true')
+    })
+
+    it('Enter on selected bookmark navigates to edit', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse([mockBookmark])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}{Enter}')
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/bookmarks/1', expect.objectContaining({ state: expect.any(Object) }))
+    })
+
+    it('Enter on selected note navigates to view', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse([mockNote])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Note').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}{Enter}')
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/notes/2', expect.objectContaining({ state: expect.any(Object) }))
+    })
+
+    it('Enter on selected prompt navigates to view', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse([mockPrompt])
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Prompt').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}{Enter}')
+
+      expect(mockNavigate).toHaveBeenCalledWith('/app/prompts/5', expect.objectContaining({ state: expect.any(Object) }))
+    })
+
+    it('Enter on bookmark in deleted view is a no-op', async () => {
+      const user = userEvent.setup()
+      const deletedBookmark: ContentListItem = {
+        ...mockBookmark,
+        id: '99',
+        title: 'Deleted Bookmark',
+        deleted_at: '2024-01-06T00:00:00Z',
+      }
+      mockContentQueryData = createMockResponse([deletedBookmark])
+      renderAtRoute('/app/content/trash')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Deleted Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search Trash...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}{Enter}')
+
+      expect(mockNavigate).not.toHaveBeenCalled()
+    })
+
+    it('aria-activedescendant on search input matches selected item', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      // No selection — no aria-activedescendant
+      expect(searchInput).not.toHaveAttribute('aria-activedescendant')
+
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}')
+
+      expect(searchInput).toHaveAttribute('aria-activedescendant', 'content-item-0')
+    })
+
+    it('content list has role="listbox"', async () => {
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      expect(screen.getByRole('listbox')).toBeInTheDocument()
+    })
+
+    it('no navigation occurs on Enter when item list is empty', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse([])
+      mockSelectedTags = ['nonexistent']
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getByText('No content found')).toBeInTheDocument()
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}{Enter}')
+
+      expect(mockNavigate).not.toHaveBeenCalled()
+    })
+
+    it('selection resets when search query changes', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}{ArrowDown}')
+
+      // Second item should be selected
+      const items = document.querySelectorAll('[data-nav-item]')
+      expect(items[1].getAttribute('aria-selected')).toBe('true')
+
+      // Type a search query (2+ chars triggers effectiveSearchQuery change)
+      await user.type(searchInput, 'te')
+
+      // Selection should reset — all items deselected
+      const updatedItems = document.querySelectorAll('[data-nav-item]')
+      updatedItems.forEach((el) => {
+        expect(el.getAttribute('aria-selected')).toBe('false')
+      })
+    })
+
+    it('Enter navigates with selectedContentIndex in state for return restoration', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse(threeItems)
+      renderAtRoute('/app/content')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.click(searchInput)
+      await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+
+      // Should navigate to note with selectedContentIndex in state
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/app/notes/2',
+        expect.objectContaining({
+          state: expect.objectContaining({ selectedContentIndex: 1 }),
+        }),
+      )
+    })
+
+    it('restores selection from location state on mount', async () => {
+      mockContentQueryData = createMockResponse(threeItems)
+      render(
+        <MemoryRouter initialEntries={[{ pathname: '/app/content', state: { selectedContentIndex: 2 } }]}>
+          <Routes>
+            <Route path="/app/content" element={<AllContent />} />
+          </Routes>
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      // Third item (prompt) should be selected from restored state
+      const items = document.querySelectorAll('[data-nav-item]')
+      expect(items[2].getAttribute('aria-selected')).toBe('true')
+
+      // Search input should be auto-focused on return navigation
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      expect(document.activeElement).toBe(searchInput)
+    })
+
+    it('restored selection resets to -1 on subsequent filter changes', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse(threeItems)
+      render(
+        <MemoryRouter initialEntries={[{ pathname: '/app/content', state: { selectedContentIndex: 2 } }]}>
+          <Routes>
+            <Route path="/app/content" element={<AllContent />} />
+          </Routes>
+        </MemoryRouter>,
+      )
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+
+      // Item 2 should be selected from restored state
+      const items = document.querySelectorAll('[data-nav-item]')
+      expect(items[2].getAttribute('aria-selected')).toBe('true')
+
+      // Type a search query to trigger a filter change
+      const searchInput = screen.getByPlaceholderText('Search All Content...')
+      await user.type(searchInput, 'te')
+
+      // Selection should reset to -1 (no selection), not back to restored index 2
+      const updatedItems = document.querySelectorAll('[data-nav-item]')
+      updatedItems.forEach((el) => {
+        expect(el.getAttribute('aria-selected')).toBe('false')
+      })
     })
   })
 })

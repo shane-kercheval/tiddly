@@ -14,7 +14,9 @@ import { keymap, EditorView } from '@codemirror/view'
 import { markdownStyleExtension, createFontTheme } from '../utils/markdownStyleExtension'
 import type { KeyBinding } from '@codemirror/view'
 import { autocompletion, completionStatus } from '@codemirror/autocomplete'
-import { Prec } from '@codemirror/state'
+import { Prec, Compartment, EditorState } from '@codemirror/state'
+import { indentUnit } from '@codemirror/language'
+import { search } from '@codemirror/search'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
 import { Tooltip } from './ui/Tooltip'
 import { MilkdownEditor } from './MilkdownEditor'
@@ -81,8 +83,10 @@ interface CodeMirrorEditorProps {
   value: string
   /** Called when content changes */
   onChange: (value: string) => void
-  /** Whether the editor is disabled */
+  /** Whether the editor is disabled (not focusable, for deleted/non-interactive items) */
   disabled?: boolean
+  /** Whether the editor is read-only (focusable but not editable, e.g. during save) */
+  readOnly?: boolean
   /** Minimum height for the editor */
   minHeight?: string
   /** Placeholder text shown when empty */
@@ -101,8 +105,6 @@ interface CodeMirrorEditorProps {
   onMonoFontChange?: (mono: boolean) => void
   /** Remove padding to align text with other elements */
   noPadding?: boolean
-  /** Whether to auto-focus on mount */
-  autoFocus?: boolean
   /** Content for the copy button (if provided, copy button is shown) */
   copyContent?: string
   /** Show Jinja2 template tools in toolbar (for prompts) */
@@ -147,24 +149,29 @@ function dispatchGlobalShortcut(key: string, metaKey: boolean, shiftKey = false)
 /**
  * Create CodeMirror keybindings for markdown formatting.
  */
+/** Wrap a command so it no-ops when the editor is readOnly. */
+function ifWritable(cmd: (view: EditorView) => boolean): (view: EditorView) => boolean {
+  return (view) => view.state.readOnly ? false : cmd(view)
+}
+
 function createMarkdownKeyBindings(): KeyBinding[] {
   return [
     // Text formatting
-    { key: 'Mod-b', run: (view) => toggleWrapMarkers(view, MARKERS.bold.before, MARKERS.bold.after) },
-    { key: 'Mod-i', run: (view) => toggleWrapMarkers(view, MARKERS.italic.before, MARKERS.italic.after) },
-    { key: 'Mod-Shift-x', run: (view) => toggleWrapMarkers(view, MARKERS.strikethrough.before, MARKERS.strikethrough.after) },
-    { key: 'Mod-Shift-h', run: (view) => toggleWrapMarkers(view, MARKERS.highlight.before, MARKERS.highlight.after) },
-    { key: 'Mod-Shift-.', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.blockquote) },
+    { key: 'Mod-b', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.bold.before, MARKERS.bold.after)) },
+    { key: 'Mod-i', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.italic.before, MARKERS.italic.after)) },
+    { key: 'Mod-Shift-x', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.strikethrough.before, MARKERS.strikethrough.after)) },
+    { key: 'Mod-Shift-h', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.highlight.before, MARKERS.highlight.after)) },
+    { key: 'Mod-Shift-.', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.blockquote)) },
     // Code
-    { key: 'Mod-e', run: (view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after) },
-    { key: 'Mod-Shift-e', run: (view) => insertCodeBlock(view) },
+    { key: 'Mod-e', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after)) },
+    { key: 'Mod-Shift-e', run: ifWritable((view) => insertCodeBlock(view)) },
     // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
-    { key: 'Mod-Shift-7', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList) },
-    { key: 'Mod-Shift-8', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList) },
-    { key: 'Mod-Shift-9', run: (view) => toggleLinePrefix(view, LINE_PREFIXES.taskList) },
+    { key: 'Mod-Shift-7', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList)) },
+    { key: 'Mod-Shift-8', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList)) },
+    { key: 'Mod-Shift-9', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.taskList)) },
     // Links and other
-    { key: 'Mod-k', run: (view) => insertLink(view) },
-    { key: 'Mod-Shift--', run: (view) => insertHorizontalRule(view) },
+    { key: 'Mod-k', run: ifWritable((view) => insertLink(view)) },
+    { key: 'Mod-Shift--', run: ifWritable((view) => insertHorizontalRule(view)) },
     // Pass through to global handlers (consume event, then dispatch globally)
     {
       key: 'Mod-Shift-/',
@@ -227,6 +234,7 @@ export function CodeMirrorEditor({
   value,
   onChange,
   disabled = false,
+  readOnly = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   wrapText = false,
@@ -236,7 +244,6 @@ export function CodeMirrorEditor({
   monoFont = false,
   onMonoFontChange,
   noPadding = false,
-  autoFocus = false,
   copyContent,
   showJinjaTools = false,
   onModalStateChange: _onModalStateChange, // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -343,7 +350,7 @@ export function CodeMirrorEditor({
       // Cmd+/ - open command menu (works whether editor has focus or not)
       // Uses capture phase so it runs before CM's keymap handler.
       // Uses ref to avoid dependency ordering issues (openCommandMenu defined later).
-      if (isMod && !e.shiftKey && e.code === 'Slash' && !effectiveReadingMode && !disabled) {
+      if (isMod && !e.shiftKey && e.code === 'Slash' && !effectiveReadingMode && !disabled && !readOnly) {
         e.preventDefault()
         e.stopPropagation()
         openCommandMenuRef.current()
@@ -352,7 +359,7 @@ export function CodeMirrorEditor({
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange, monoFont, onMonoFontChange, disabled, showTocToggle, togglePanel])
+  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange, monoFont, onMonoFontChange, disabled, readOnly, showTocToggle, togglePanel])
 
   // Get the EditorView from ref
   const getView = useCallback((): EditorView | undefined => {
@@ -365,7 +372,7 @@ export function CodeMirrorEditor({
    */
   const runAction = useCallback((action: (view: EditorView) => boolean): void => {
     const view = getView()
-    if (view) {
+    if (view && !view.state.readOnly) {
       action(view)
       view.focus()
     }
@@ -393,9 +400,9 @@ export function CodeMirrorEditor({
   const menuCallbacks: MenuCallbacks = useMemo(() => ({
     onSaveAndClose,
     onDiscard: onDiscard ? handleDiscard : undefined,
-  }), [onSaveAndClose, onDiscard, handleDiscard])
+    onToggleReadingMode: toggleReadingMode,
+  }), [onSaveAndClose, onDiscard, handleDiscard, toggleReadingMode])
 
-  // eslint-disable-next-line react-hooks/refs -- callbacks capture refs but only read them when invoked, not during render
   const editorCommands = useMemo(() => buildEditorCommands({
     showJinja: showJinjaTools,
     callbacks: menuCallbacks,
@@ -424,6 +431,7 @@ export function CodeMirrorEditor({
       close: () => <CloseIcon className="h-4 w-4" />,
       tableOfContents: () => <TableOfContentsIcon />,
       versionHistory: () => <HistoryIcon className="w-4 h-4" />,
+      readingMode: () => <ReadingIcon />,
     },
   }), [showJinjaTools, menuCallbacks, isDirty, showTocToggle])
 
@@ -463,6 +471,7 @@ export function CodeMirrorEditor({
     const view = getView()
     if (view) {
       view.focus()
+      if (view.state.readOnly) return
       // Restore saved selection before running the command
       if (savedSelection) {
         view.dispatch({
@@ -484,11 +493,26 @@ export function CodeMirrorEditor({
   // - Subsequent value prop changes are ignored (initialValue never updates)
   //
   // This is safe because:
-  // - Document switching uses key prop (e.g., key={note?.id}) which forces remount
-  // - On remount, useState captures the new document's content fresh
-  // - Programmatic content changes (e.g., version restore) increment contentKey in the
-  //   parent, which changes the key prop and forces remount with the new value
+  // - Document switching and programmatic content changes (e.g., version restore)
+  //   increment contentKey in the parent, which changes the key prop and forces
+  //   remount with the new value via fresh useState
   const [initialValue] = useState(value)
+
+  // Manage readOnly via our own Compartment so toggling it doesn't trigger
+  // @uiw/react-codemirror's full extension reconfigure (which recreates
+  // basicSetup including history(), destroying undo history).
+  const [readOnlyCompartment] = useState(() => new Compartment())
+
+  useEffect(() => {
+    const view = editorRef.current?.view
+    if (view) {
+      view.dispatch({
+        effects: readOnlyCompartment.reconfigure(
+          readOnly ? EditorState.readOnly.of(true) : []
+        ),
+      })
+    }
+  }, [readOnly, readOnlyCompartment])
 
   // Keep ref in sync so CM extension and document-level handler use latest callback
   useEffect(() => {
@@ -524,16 +548,21 @@ export function CodeMirrorEditor({
     const bindings = createMarkdownKeyBindings()
     const slashSource = createSlashCommandSource(showJinjaTools)
     const exts = [
+      indentUnit.of('    '),
+      EditorState.tabSize.of(4),
       markdown({ codeLanguages: languages }),
       Prec.highest(keymap.of(bindings)),
       markdownStyleExtension,
       createFontTheme(monoFont),
+      // readOnly managed via Compartment — see useEffect above
+      readOnlyCompartment.of(readOnly ? EditorState.readOnly.of(true) : []),
       autocompletion({
         override: [slashSource],
         icons: false,
         selectOnOpen: true,
         addToOptions: slashCommandAddToOptions,
       }),
+      search({ top: true }),
       scrollFadePlugin,
       // Prevent Escape from bubbling to parent handlers (e.g. discard confirmation)
       // when closing the autocomplete dropdown. Prec.highest ensures this runs
@@ -542,10 +571,14 @@ export function CodeMirrorEditor({
       Prec.highest(
         EditorView.domEventHandlers({
           keydown(event, view) {
-            if (event.key === 'Escape' && completionStatus(view.state) !== null) {
-              event.stopPropagation()
+            if (event.key === 'Escape') {
+              // Stop Escape from bubbling to parent handlers (e.g. discard confirmation)
+              // when CM has a UI element that consumes it (autocomplete or search panel)
+              if (completionStatus(view.state) !== null || view.dom.querySelector('.cm-search')) {
+                event.stopPropagation()
+              }
             }
-            return false // let CM's keymap close the dropdown normally
+            return false // let CM's keymap handle the event normally
           },
         }),
       ),
@@ -554,7 +587,8 @@ export function CodeMirrorEditor({
       exts.push(EditorView.lineWrapping)
     }
     return exts
-  }, [wrapText, monoFont, showJinjaTools])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wrapText, monoFont, showJinjaTools, readOnlyCompartment])
 
   return (
     <div ref={containerRef} className={`w-full ${noPadding ? 'codemirror-no-padding' : ''}`}>
@@ -565,7 +599,7 @@ export function CodeMirrorEditor({
       <div className="flex items-center flex-wrap md:flex-nowrap gap-0.5 md:gap-0 md:justify-between px-2 py-1 min-h-[34px] transform-gpu border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
         {/* Left: formatting buttons - visible on mobile, fade in on focus on desktop */}
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
-        <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:pointer-events-none md:group-focus-within/editor:opacity-100 md:group-focus-within/editor:pointer-events-auto transition-opacity ${disabled ? 'pointer-events-none' : ''}`}>
+        <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:pointer-events-none md:group-focus-within/editor:opacity-100 md:group-focus-within/editor:pointer-events-auto transition-opacity ${disabled || readOnly ? 'pointer-events-none' : ''}`}>
           {/* Text formatting */}
           <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title="Bold (⌘B)">
             <BoldIcon />
@@ -762,41 +796,37 @@ export function CodeMirrorEditor({
           )}
         </div>
       </div>
-      {/* Editor area - overflow-hidden for content clipping (rounded corners handled by parent) */}
-      <div className="overflow-hidden">
-        {/* Reading mode: show Milkdown preview */}
-        {effectiveReadingMode && (
-          <MilkdownEditor
-            value={value}
-            onChange={() => {}} // Read-only: ignore changes
-            disabled={false}
-            readOnly={true}
-            minHeight={minHeight}
-            placeholder={placeholder}
-            noPadding={noPadding}
-          />
-        )}
-        {/* CodeMirror: always mounted to preserve state, hidden when in reading mode */}
-        {/* This prevents loss of edits when toggling modes (initialValue pattern) */}
-        <div className={effectiveReadingMode ? 'hidden' : ''}>
-          <CodeMirror
-            ref={editorRef}
-            value={initialValue}
-            onChange={onChange}
-            extensions={extensions}
-            minHeight={minHeight}
-            placeholder={placeholder}
-            editable={!disabled}
-            autoFocus={autoFocus}
-            basicSetup={{
-              lineNumbers: showLineNumbers,
-              foldGutter: false,
-              highlightActiveLine: false,
-              autocompletion: false,
-            }}
+      {/* Reading mode: show Milkdown preview */}
+      {effectiveReadingMode && (
+        <MilkdownEditor
+          value={value}
+          onChange={() => {}} // Read-only: ignore changes
+          disabled={false}
+          readOnly={true}
+          minHeight={minHeight}
+          placeholder={placeholder}
+          noPadding={noPadding}
+        />
+      )}
+      {/* CodeMirror: always mounted to preserve state, hidden when in reading mode */}
+      {/* This prevents loss of edits when toggling modes (initialValue pattern) */}
+      <div className={`overflow-hidden ${effectiveReadingMode ? 'hidden' : ''}`}>
+        <CodeMirror
+          ref={editorRef}
+          value={initialValue}
+          onChange={onChange}
+          extensions={extensions}
+          minHeight={minHeight}
+          placeholder={placeholder}
+          editable={!disabled}
+          basicSetup={{
+            lineNumbers: showLineNumbers,
+            foldGutter: false,
+            highlightActiveLine: false,
+            autocompletion: false,
+          }}
 
-          />
-        </div>
+        />
       </div>
 
       {/* Editor command menu (Cmd+/) — conditionally rendered so

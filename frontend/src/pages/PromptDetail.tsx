@@ -1,9 +1,8 @@
 /**
  * Prompt detail page - handles create and edit modes.
  *
- * Routes:
- * - /app/prompts/:id - View/edit prompt (unified component)
- * - /app/prompts/new - Create new prompt
+ * Route: /app/prompts/:id (where id="new" for create, UUID for edit)
+ * A single route entry is used intentionally — see App.tsx comment.
  */
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
@@ -31,7 +30,7 @@ import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
-import { isEffectivelyArchived } from '../utils'
+import { isEffectivelyArchived, isNotFoundError } from '../utils'
 
 type PromptViewState = 'active' | 'archived' | 'deleted'
 
@@ -70,6 +69,7 @@ export function PromptDetail(): ReactNode {
   const locationState = location.state as {
     initialTags?: string[]
     prompt?: PromptType
+    fromCreate?: boolean
     initialRelationships?: RelationshipInputPayload[]
     initialLinkedItems?: LinkedItem[]
     returnTo?: string
@@ -104,12 +104,14 @@ export function PromptDetail(): ReactNode {
   // Fetch prompt on mount (for existing prompts)
   useEffect(() => {
     if (isCreate) {
+      setPrompt(null)
+      setError(null)
       setIsLoading(false)
       return
     }
 
     if (!isValidId) {
-      setError('Invalid prompt ID')
+      setError('This prompt does not exist')
       setIsLoading(false)
       return
     }
@@ -130,7 +132,7 @@ export function PromptDetail(): ReactNode {
         setPrompt(fetchedPrompt)
         trackPromptUsage(promptId!)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load prompt')
+        setError(isNotFoundError(err) ? 'This prompt does not exist' : (err instanceof Error ? err.message : 'Something went wrong'))
       } finally {
         setIsLoading(false)
       }
@@ -185,7 +187,7 @@ export function PromptDetail(): ReactNode {
           // Preserve returnTo so Close still navigates back to the source entity (e.g. quick-create flow)
           navigate(`/app/prompts/${createdPrompt.id}`, {
             replace: true,
-            state: { prompt: createdPrompt, returnTo: locationState?.returnTo },
+            state: { prompt: createdPrompt, fromCreate: true, returnTo: locationState?.returnTo },
           })
         } catch (err) {
           handleNameConflict(err)
@@ -296,49 +298,39 @@ export function PromptDetail(): ReactNode {
     return <ErrorState message={error} onRetry={() => navigate(0)} />
   }
 
-  // Render create mode
-  if (isCreate) {
-    return (
-      <PromptComponent
-        key="new"
-        tagSuggestions={tagSuggestions}
-        onSave={handleSave}
-        onClose={handleBack}
-        isSaving={createMutation.isPending}
-        initialTags={initialTags}
-        fullWidth={fullWidthLayout}
-        initialRelationships={locationState?.initialRelationships}
-        initialLinkedItems={locationState?.initialLinkedItems}
-      />
-    )
-  }
-
-  // Render existing prompt (requires prompt to be loaded)
   // Use passedPrompt if prompt state hasn't been set yet (avoids flash during navigation)
   const effectivePrompt = prompt ?? passedPrompt
-  if (!effectivePrompt) {
+  if (!isCreate && !effectivePrompt) {
     return <ErrorState message="Prompt not found" />
   }
 
+  // Single render path for both create and edit modes.
+  // No key prop — the component stays mounted across the create→edit transition
+  // (when onSave navigates from /prompts/new to /prompts/:id), preserving CodeMirror
+  // state (focus, cursor, scroll, undo). Document switching between different
+  // existing prompts is handled by the sync effect + ContentEditor key inside Prompt.tsx.
   return (
     <>
       <PromptComponent
-        key={effectivePrompt.id}
-        prompt={effectivePrompt}
+        prompt={effectivePrompt ?? undefined}
         tagSuggestions={tagSuggestions}
         onSave={handleSave}
         onClose={handleBack}
-        isSaving={updateMutation.isPending}
-        onArchive={viewState === 'active' ? handleArchive : undefined}
-        onUnarchive={viewState === 'archived' ? handleUnarchive : undefined}
-        onDelete={handleDelete}
-        onRestore={viewState === 'deleted' ? handleRestore : undefined}
+        isSaving={createMutation.isPending || updateMutation.isPending}
+        initialTags={initialTags}
+        onArchive={!isCreate && viewState === 'active' ? handleArchive : undefined}
+        onUnarchive={!isCreate && viewState === 'archived' ? handleUnarchive : undefined}
+        onDelete={!isCreate ? handleDelete : undefined}
+        onRestore={!isCreate && viewState === 'deleted' ? handleRestore : undefined}
         viewState={viewState}
         fullWidth={fullWidthLayout}
-        onRefresh={handleRefresh}
-        onShowHistory={handleShowHistory}
+        onRefresh={!isCreate ? handleRefresh : undefined}
+        onShowHistory={!isCreate ? handleShowHistory : undefined}
         onNavigateToLinked={handleNavigateToLinked}
-        showTocToggle
+        initialRelationships={locationState?.initialRelationships}
+        initialLinkedItems={locationState?.initialLinkedItems}
+        showTocToggle={!isCreate}
+        fromCreate={locationState?.fromCreate}
       />
       {showHistory && promptId && (
         <HistorySidebar

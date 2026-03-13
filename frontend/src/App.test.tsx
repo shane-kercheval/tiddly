@@ -161,7 +161,7 @@ describe('App', () => {
     // Wait for the redirect and content page to appear
     await waitFor(
       () => {
-        expect(screen.getByPlaceholderText('Search all content...')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Search All Content...')).toBeInTheDocument()
       },
       { timeout: 3000 }
     )

@@ -9,11 +9,13 @@
  * - Auto-resizes to fit content when multiline
  * - Styled to look like plain text (no visible border/background)
  * - Supports placeholder text
- * - Optional character limit with counter
+ * - Optional character limit with progressive counter
  * - Error state with accessible error message
  */
 import { useEffect, useRef, useId } from 'react'
 import type { ReactNode, ChangeEvent } from 'react'
+import { useCharacterLimit } from '../hooks/useCharacterLimit'
+import { CharacterLimitFeedback } from './CharacterLimitFeedback'
 
 interface InlineEditableTextProps {
   /** Current value */
@@ -58,6 +60,7 @@ export function InlineEditableText({
 }: InlineEditableTextProps): ReactNode {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const errorId = useId()
+  const limit = useCharacterLimit(value.length, maxLength)
 
   // Auto-resize textarea to fit content
   useEffect(() => {
@@ -71,28 +74,23 @@ export function InlineEditableText({
   }, [value, multiline])
 
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
-    const newValue = e.target.value
-    // Enforce maxLength if specified
-    if (maxLength && newValue.length > maxLength) {
-      return
-    }
-    onChange(newValue)
+    onChange(e.target.value)
   }
 
   // Build class string based on variant and state
   const textareaClasses = [
     // Remove default textarea appearance
     'bg-transparent border-none outline-none w-full resize-none',
-    // Subtle hover/focus indicator
-    'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
+    // Subtle hover/focus indicator (overridden by error/exceeded state)
+    (error || limit.exceeded)
+      ? 'ring-2 ring-red-200 hover:ring-red-200 focus:ring-red-200 rounded px-1 -mx-1'
+      : 'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
     // Placeholder styling
     'placeholder:text-gray-400',
     // Typography based on variant
     variant === 'description'
       ? 'text-sm text-gray-600 italic'
       : 'text-sm text-gray-900',
-    // Error state
-    error ? 'ring-2 ring-red-200' : '',
     // Disabled state
     disabled ? 'cursor-not-allowed opacity-60' : '',
     // Custom classes
@@ -110,12 +108,12 @@ export function InlineEditableText({
         placeholder={placeholder}
         disabled={disabled}
         rows={1}
-        maxLength={maxLength}
         aria-invalid={!!error}
         aria-describedby={error ? errorId : undefined}
         className={textareaClasses}
       />
       {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
+      {maxLength !== undefined && <CharacterLimitFeedback limit={limit} />}
     </div>
   )
 }

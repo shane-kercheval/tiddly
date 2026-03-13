@@ -42,6 +42,7 @@ import { usePrompts } from '../hooks/usePrompts'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
+import { PROMPT_NAME_PATTERN, ARG_NAME_PATTERN } from '../constants/validation'
 import type { LinkedItem } from '../utils/relationships'
 import type { Prompt as PromptType, PromptCreate, PromptUpdate, PromptArgument, RelationshipInputPayload, TagCount } from '../types'
 
@@ -82,16 +83,6 @@ Context: {{ context }}
 {%- endif %}
 
 Delete this template and write your own prompt!`
-
-/**
- * Regex for validating prompt names.
- * Must start and end with alphanumeric, hyphens only between segments.
- * Matches backend: ^[a-z0-9]+(-[a-z0-9]+)*$
- */
-const PROMPT_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
-
-/** Regex for validating argument names (lowercase with underscores) */
-const ARG_NAME_PATTERN = /^[a-z][a-z0-9_]*$/
 
 /** Form state for the prompt */
 interface PromptState {
@@ -163,6 +154,8 @@ interface PromptProps {
   initialLinkedItems?: LinkedItem[]
   /** Whether to show the Table of Contents toggle in the toolbar */
   showTocToggle?: boolean
+  /** Whether this is a create→edit transition (preserves editor state) */
+  fromCreate?: boolean
 }
 
 /**
@@ -187,6 +180,7 @@ export function Prompt({
   initialRelationships,
   initialLinkedItems,
   showTocToggle = false,
+  fromCreate = false,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
@@ -244,6 +238,10 @@ export function Prompt({
   // Using a ref avoids stale closure issues and doesn't need to be in the effect's dependency array.
   const currentContentRef = useRef(current.content)
   currentContentRef.current = current.content
+  // Track previous prompt ID to distinguish create→edit transitions (which should
+  // preserve editor state) from document switches (which must reset the editor).
+  // See the sync effect below for how this is used.
+  const previousPromptIdRef = useRef<string | undefined>(prompt?.id)
 
   // Relationship state management (display items, add/remove handlers, cache)
   // Must be called before syncStateFromPrompt which depends on clearNewItemsCache
@@ -293,21 +291,55 @@ export function Prompt({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    // Reset editor if content changed externally (e.g., version restore from history sidebar).
-    // After normal saves, currentContentRef already matches prompt.content so no reset occurs.
-    const needsEditorReset = (prompt.content ?? '') !== currentContentRef.current
+    // Detect document switch: navigating to a different prompt than the one currently loaded.
+    // This forces an editor reset even when content is identical, because undo history
+    // and cursor position belong to the previous document.
+    // The only exception is the create→edit transition (fromCreate), where the user just
+    // saved what they were typing — editor state (focus, cursor, scroll, undo) is preserved.
+    // All other undefined→UUID transitions (e.g., browser back from /new to /:id) ARE
+    // document switches and must reset the editor.
+    const isCreateToEdit = previousPromptIdRef.current === undefined && fromCreate
+    const isDocumentSwitch = !isCreateToEdit && prompt.id !== previousPromptIdRef.current
+    const needsEditorReset = isDocumentSwitch || (prompt.content ?? '') !== currentContentRef.current
+    previousPromptIdRef.current = prompt.id
     syncStateFromPrompt(prompt, needsEditorReset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt?.id, prompt?.updated_at, syncStateFromPrompt])
+
+  // Reset form state when transitioning from edit mode to create mode.
+  // Without this, navigating from /prompts/:id to /prompts/new would keep the
+  // previous prompt's state because useState(getInitialState) only runs on mount
+  // and the sync effect skips when prompt is undefined.
+  // Dependencies use prompt?.id (not prompt) to avoid re-running on every save where
+  // setPrompt(updatedPrompt) creates a new reference. The effect only cares about
+  // the defined→undefined transition, which prompt?.id captures.
+  useEffect(() => {
+    if (prompt) {
+      // In edit mode — nothing to reset. The sync effect handles edit→edit.
+      return
+    }
+    if (previousPromptIdRef.current === undefined) {
+      // Was already in create mode (or initial mount) — no transition to handle.
+      return
+    }
+    // Edit → create transition: reset form to fresh create-mode state.
+    // Uses getInitialState() to stay in sync with initial mount behavior.
+    previousPromptIdRef.current = undefined
+    const freshState = getInitialState()
+    setOriginal(freshState)
+    setCurrent(freshState)
+    setErrors({})
+    setConflictState(null)
+    clearNewItemsCache()
+    setContentKey(prev => prev + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt?.id, initialTags, initialRelationships])
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
   const linkedChipsRef = useRef<LinkedContentChipsHandle>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
-  // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
-  const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
-
   // ToC sidebar state
   const scrollToLineRef = useRef<((line: number) => void) | null>(null)
   const showToc = useRightSidebarStore((state) => state.activePanel === 'toc')
@@ -344,9 +376,14 @@ export function Prompt({
     const contentValid =
       current.content.trim().length > 0 &&
       current.content.length <= (limits?.max_prompt_content_length ?? Infinity)
+    const argsValid = current.arguments.every((arg) =>
+      (!arg.name || ARG_NAME_PATTERN.test(arg.name)) &&
+      arg.name.length <= (limits?.max_argument_name_length ?? Infinity) &&
+      (arg.description?.length ?? 0) <= (limits?.max_argument_description_length ?? Infinity)
+    )
 
-    return nameValid && titleValid && descriptionValid && contentValid
-  }, [current.name, current.title, current.description, current.content, limits])
+    return nameValid && titleValid && descriptionValid && contentValid && argsValid
+  }, [current.name, current.title, current.description, current.content, current.arguments, limits])
 
   // Can save when form is dirty and valid
   const canSave = isDirty && isValid
@@ -472,13 +509,15 @@ export function Prompt({
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         if (!isReadOnly && isDirty) {
-          // Save active element to restore focus after save (CodeMirror loses focus during save)
-          const activeElement = document.activeElement as HTMLElement | null
-          if (activeElement?.closest('.cm-editor')) {
-            refocusAfterSaveRef.current = activeElement
-          }
           formRef.current?.requestSubmit()
         }
+      }
+
+      // Don't intercept Escape when CM search panel is open — let CM handle it
+      // (CM's domEventHandlers only fires for .cm-scroller events, not .cm-panels,
+      // so the search panel Escape must be guarded here at the document level)
+      if (e.key === 'Escape' && (e.target as HTMLElement)?.closest?.('.cm-search')) {
+        return
       }
 
       // When confirming discard: Escape backs out, Enter confirms
@@ -514,7 +553,7 @@ export function Prompt({
     if (!current.name.trim()) {
       newErrors.name = 'Name is required'
     } else if (current.name.length > limits.max_prompt_name_length) {
-      newErrors.name = `Name must be ${limits.max_prompt_name_length} characters or less`
+      newErrors.name = 'Character limit exceeded'
     } else if (!PROMPT_NAME_PATTERN.test(current.name)) {
       newErrors.name =
         'Name must use lowercase letters, numbers, and hyphens only. Must start and end with a letter or number (e.g., code-review)'
@@ -522,19 +561,19 @@ export function Prompt({
 
     // Title validation
     if (current.title && current.title.length > limits.max_title_length) {
-      newErrors.title = `Title exceeds ${limits.max_title_length.toLocaleString()} characters`
+      newErrors.title = 'Character limit exceeded'
     }
 
     // Description validation
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = `Description exceeds ${limits.max_description_length.toLocaleString()} characters`
+      newErrors.description = 'Character limit exceeded'
     }
 
     // Content validation
     if (!current.content.trim()) {
       newErrors.content = 'Template content is required'
     } else if (current.content.length > limits.max_prompt_content_length) {
-      newErrors.content = `Content exceeds ${limits.max_prompt_content_length.toLocaleString()} characters`
+      newErrors.content = 'Character limit exceeded'
     }
 
     // Arguments validation
@@ -546,11 +585,15 @@ export function Prompt({
         break
       }
       if (arg.name.length > limits.max_argument_name_length) {
-        newErrors.arguments = `Argument "${arg.name}" exceeds ${limits.max_argument_name_length} characters`
+        newErrors.arguments = 'Character limit exceeded'
         break
       }
       if (!ARG_NAME_PATTERN.test(arg.name)) {
         newErrors.arguments = `Argument "${arg.name}" must start with a letter and contain only lowercase letters, numbers, and underscores`
+        break
+      }
+      if (arg.description && arg.description.length > limits.max_argument_description_length) {
+        newErrors.arguments = 'Character limit exceeded'
         break
       }
       if (argNames.has(arg.name)) {
@@ -663,15 +706,6 @@ export function Prompt({
 
       // Close if requested (Cmd+Shift+S)
       if (checkAndClose()) return
-
-      // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
-      if (refocusAfterSaveRef.current) {
-        // Small delay to ensure React has finished updating
-        setTimeout(() => {
-          refocusAfterSaveRef.current?.focus()
-          refocusAfterSaveRef.current = null
-        }, 0)
-      }
     } catch (err) {
       // Check for 409 Conflict (version mismatch)
       if (axios.isAxiosError(err) && err.response?.status === 409) {
@@ -680,7 +714,6 @@ export function Prompt({
           setConflictState({
             serverUpdatedAt: detail.server_state.updated_at,
           })
-          refocusAfterSaveRef.current = null
           clearSaveAndClose()
           return
         }
@@ -688,12 +721,10 @@ export function Prompt({
       // Handle field-specific errors from parent (e.g., NAME_CONFLICT)
       if (err instanceof SaveError) {
         setErrors((prev) => ({ ...prev, ...err.fieldErrors }))
-        refocusAfterSaveRef.current = null
         clearSaveAndClose()
         return  // SaveError is handled - don't propagate
       }
-      // Other errors: clear refs and let parent handle
-      refocusAfterSaveRef.current = null
+      // Other errors: let parent handle
       clearSaveAndClose()
       throw err
     }
@@ -702,8 +733,17 @@ export function Prompt({
   // Update handlers - memoized to prevent unnecessary child re-renders
   const handleNameChange = useCallback((name: string): void => {
     // Auto-lowercase the name
-    setCurrent((prev) => ({ ...prev, name: name.toLowerCase() }))
-    setErrors((prev) => (prev.name ? { ...prev, name: undefined } : prev))
+    const lowered = name.toLowerCase()
+    setCurrent((prev) => ({ ...prev, name: lowered }))
+    // Real-time pattern validation (clear error if valid, set if invalid and non-empty)
+    if (lowered && !PROMPT_NAME_PATTERN.test(lowered)) {
+      setErrors((prev) => ({
+        ...prev,
+        name: 'Name must use lowercase letters, numbers, and hyphens only. Must start and end with a letter or number (e.g., code-review)',
+      }))
+    } else {
+      setErrors((prev) => (prev.name ? { ...prev, name: undefined } : prev))
+    }
   }, [])
 
   const handleTitleChange = useCallback((title: string): void => {
@@ -964,7 +1004,7 @@ export function Prompt({
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 -mr-2 pt-5 -mt-1">
         {/* Header section: banners, name, title, description, metadata */}
-        <div className="space-y-4">
+        <div className="space-y-1">
           {/* Read-only banner for deleted prompts */}
           {isReadOnly && (
             <div className="alert-warning">
@@ -984,6 +1024,7 @@ export function Prompt({
             required
             disabled={isSaving || isReadOnly}
             error={errors.name}
+            maxLength={limits.max_prompt_name_length}
           />
 
           {/* Title (optional display name) */}
@@ -993,6 +1034,7 @@ export function Prompt({
             placeholder="Display title (optional)"
             disabled={isSaving || isReadOnly}
             error={errors.title}
+            maxLength={limits.max_title_length}
             className="text-lg text-gray-600 placeholder:!text-[#b5bac2]"
           />
 
@@ -1098,16 +1140,24 @@ export function Prompt({
             onChange={handleArgumentsChange}
             disabled={isSaving || isReadOnly}
             error={errors.arguments}
+            maxNameLength={limits.max_argument_name_length}
+            maxDescriptionLength={limits.max_argument_description_length}
           />
         </div>
 
         {/* Content editor */}
         <div className="mt-3">
+          {/* Key uses contentKey only (not prompt?.id) so that the create→edit transition
+            * does NOT remount CodeMirror. The sync effect above handles incrementing
+            * contentKey for all cases that need a remount: document switch between
+            * existing prompts, version restore, and conflict resolution.
+            * DO NOT add prompt?.id back to this key — it would destroy editor state on save. */}
           <ContentEditor
-            key={`${prompt?.id ?? 'new'}-${contentKey}`}
+            key={contentKey}
             value={current.content}
             onChange={handleContentChange}
-            disabled={isSaving || isReadOnly}
+            disabled={isReadOnly}
+            readOnly={isSaving}
             hasError={!!errors.content}
             minHeight="300px"
             placeholder="Write your template in markdown with Jinja2 syntax..."

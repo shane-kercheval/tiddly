@@ -40,8 +40,17 @@ export function useReturnNavigation(): UseReturnNavigationResult {
   const returnTo = locationState?.returnTo
 
   const navigateBack = useCallback((): void => {
-    navigate(returnTo ?? '/app/content')
-  }, [navigate, returnTo])
+    // Forward any extra state (e.g. selectedContentIndex) back to the list page
+    const restState = Object.fromEntries(
+      Object.entries((locationState ?? {}) as Record<string, unknown>).filter(([k]) => k !== 'returnTo')
+    )
+    const destination = returnTo ?? '/app/content'
+    if (Object.keys(restState).length > 0) {
+      navigate(destination, { state: restState })
+    } else {
+      navigate(destination)
+    }
+  }, [navigate, returnTo, locationState])
 
   const createReturnState = useCallback((): ReturnNavigationState => ({
     returnTo: location.pathname + location.search,

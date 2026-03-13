@@ -7,6 +7,8 @@
  */
 import { useId, forwardRef } from 'react'
 import type { ChangeEvent, KeyboardEvent } from 'react'
+import { useCharacterLimit } from '../hooks/useCharacterLimit'
+import { CharacterLimitFeedback } from './CharacterLimitFeedback'
 
 interface InlineEditableTitleProps {
   /** Current value */
@@ -27,6 +29,8 @@ interface InlineEditableTitleProps {
   onEnter?: () => void
   /** Error message to display */
   error?: string
+  /** Maximum character length */
+  maxLength?: number
 }
 
 /**
@@ -50,10 +54,12 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
       className = '',
       onEnter,
       error,
+      maxLength,
     },
     ref
   ) {
     const errorId = useId()
+    const limit = useCharacterLimit(value.length, maxLength)
 
     const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
       onChange(e.target.value)
@@ -70,16 +76,16 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
     const inputClasses = [
       // Remove default input appearance
       'bg-transparent border-none outline-none w-full',
-      // Subtle hover/focus indicator
-      'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
+      // Subtle hover/focus indicator (overridden by error/exceeded state)
+      (error || limit.exceeded)
+        ? 'ring-2 ring-red-200 hover:ring-red-200 focus:ring-red-200 rounded px-1 -mx-1'
+        : 'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
       // Placeholder styling
       'placeholder:text-gray-400',
       // Typography based on variant
       variant === 'name'
         ? 'font-mono text-lg text-gray-900'
         : 'text-2xl font-bold text-gray-900',
-      // Error state
-      error ? 'ring-2 ring-red-200' : '',
       // Disabled state
       disabled ? 'cursor-not-allowed opacity-60' : '',
       // Custom classes
@@ -105,6 +111,7 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
           className={inputClasses}
         />
         {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
+        {maxLength !== undefined && <CharacterLimitFeedback limit={limit} />}
       </div>
     )
   }

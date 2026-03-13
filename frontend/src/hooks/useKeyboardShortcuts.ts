@@ -8,6 +8,8 @@ import { isValidUrl } from '../utils'
 interface KeyboardShortcutHandlers {
   /** Called when '/' is pressed (focus search) */
   onFocusSearch?: () => void
+  /** Called when 'f' is pressed (focus page search bar) */
+  onFocusPageSearch?: () => void
   /** Called when Escape is pressed (close modal) */
   onEscape?: () => void
   /** Called when Cmd/Ctrl + Shift + / is pressed (show shortcuts) */
@@ -45,6 +47,7 @@ function isInputFocused(): boolean {
  *
  * Shortcuts:
  * - `/` - Focus search (when not typing)
+ * - `f` - Focus page search bar (when not typing)
  * - `w` - Toggle content width (when not typing)
  * - `Escape` - Close modal
  * - `Cmd/Ctrl + Shift + /` - Show shortcuts dialog
@@ -112,6 +115,13 @@ export function useKeyboardShortcuts(handlers: KeyboardShortcutHandlers): void {
       if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault()
         handlers.onFocusSearch?.()
+        return
+      }
+
+      // f - Focus page search bar (only when handler is registered)
+      if (event.key === 'f' && !event.metaKey && !event.ctrlKey && !event.altKey && handlers.onFocusPageSearch) {
+        event.preventDefault()
+        handlers.onFocusPageSearch()
         return
       }
 

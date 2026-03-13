@@ -8,6 +8,17 @@ import type { AxiosError } from 'axios'
 // ============================================================================
 
 /**
+ * Check if an API error represents a "not found" condition (404 or 422 invalid ID).
+ */
+export function isNotFoundError(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const status = (error as AxiosError).response?.status
+    return status === 404 || status === 422
+  }
+  return false
+}
+
+/**
  * Extract a user-friendly error message from an API error.
  * Handles axios errors with response.data.detail format (FastAPI standard).
  *

@@ -26,7 +26,7 @@ import { ContentEditor } from './ContentEditor'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
 import { UnsavedChangesDialog, StaleDialog, DeletedDialog, ConflictDialog, Tooltip, ContentAreaSpinner } from './ui'
 import { SaveOverlay } from './ui/SaveOverlay'
-import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon } from './icons'
+import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon, ChevronRightIcon, ChevronDownIcon, HelpIcon } from './icons'
 import { formatDate, normalizeUrl, isValidUrl, TAG_PATTERN } from '../utils'
 import { useLimits } from '../hooks/useLimits'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
@@ -38,8 +38,26 @@ import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
-import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount } from '../types'
+import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount, UserLimits } from '../types'
 import type { ArchivePreset } from '../utils'
+
+/** Prepare fetched metadata for form state. Content is truncated to tier limits; title/description pass through so the exceeded UI can surface. */
+function prepareMetadata(
+  metadata: { title: string | null; description: string | null; content: string | null },
+  limits: UserLimits | undefined,
+): { title?: string; description?: string; content?: string } {
+  const result: { title?: string; description?: string; content?: string } = {}
+  if (metadata.title != null) {
+    result.title = metadata.title
+  }
+  if (metadata.description != null) {
+    result.description = metadata.description
+  }
+  if (metadata.content != null) {
+    result.content = limits ? metadata.content.slice(0, limits.max_bookmark_content_length) : metadata.content
+  }
+  return result
+}
 
 /** Conflict state for 409 responses */
 interface ConflictState {
@@ -191,6 +209,7 @@ export function Bookmark({
   const [current, setCurrent] = useState<BookmarkState>(getInitialState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isContentExpanded, setIsContentExpanded] = useState(false)
   const [conflictState, setConflictState] = useState<ConflictState | null>(null)
   // Skip useEffect sync for a specific updated_at when manually handling refresh (e.g., from StaleDialog)
   const skipSyncForUpdatedAtRef = useRef<string | null>(null)
@@ -267,9 +286,6 @@ export function Bookmark({
   const linkedChipsRef = useRef<LinkedContentChipsHandle>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
-  // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
-  const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
-
   // Read-only mode for deleted bookmarks
   const isReadOnly = viewState === 'deleted'
 
@@ -294,6 +310,7 @@ export function Bookmark({
     // URL is required for new bookmarks
     if (isCreate && !current.url.trim()) return false
     if (current.url.trim() && !isValidUrl(current.url)) return false
+    if (current.url.length > limits.max_url_length) return false
     if (current.title.length > limits.max_title_length) return false
     if (current.description.length > limits.max_description_length) return false
     if (current.content.length > limits.max_bookmark_content_length) return false
@@ -390,18 +407,18 @@ export function Bookmark({
       onFetchMetadata(normalizeUrl(initialUrl))
         .then((metadata) => {
           if (metadata.error) {
-            setFetchError(`Could not fetch metadata: ${metadata.error}`)
+            setFetchError(`Could not retrieve info: ${metadata.error}`)
           }
+
+          const prepared = prepareMetadata(metadata, limits)
 
           setCurrent((prev) => ({
             ...prev,
-            ...(metadata.title != null && { title: metadata.title }),
-            ...(metadata.description != null && { description: metadata.description }),
-            ...(metadata.content != null && { content: metadata.content }),
+            ...prepared,
           }))
 
-          // Force editor remount to display fetched content
-          if (metadata.content != null) {
+          // Force editor remount when content is fetched
+          if (prepared.content != null) {
             setContentKey((prev) => prev + 1)
           }
 
@@ -415,13 +432,13 @@ export function Bookmark({
         })
         .catch(() => {
           setShowFetchSuccess(false)
-          setFetchError('Failed to fetch metadata. You can still save the bookmark.')
+          setFetchError('Failed to retrieve URL info. You can still save the bookmark.')
         })
         .finally(() => {
           setIsFetchingMetadata(false)
         })
     }
-  }, [initialUrl, onFetchMetadata])
+  }, [initialUrl, onFetchMetadata, limits])
 
   // Clean up any orphaned drafts from previous versions
   useEffect(() => {
@@ -475,13 +492,15 @@ export function Bookmark({
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         if (!isReadOnly && isDirty) {
-          // Save active element to restore focus after save (CodeMirror loses focus during save)
-          const activeElement = document.activeElement as HTMLElement | null
-          if (activeElement?.closest('.cm-editor')) {
-            refocusAfterSaveRef.current = activeElement
-          }
           formRef.current?.requestSubmit()
         }
+      }
+
+      // Don't intercept Escape when CM search panel is open — let CM handle it
+      // (CM's domEventHandlers only fires for .cm-scroller events, not .cm-panels,
+      // so the search panel Escape must be guarded here at the document level)
+      if (e.key === 'Escape' && (e.target as HTMLElement)?.closest?.('.cm-search')) {
+        return
       }
 
       // When confirming discard: Escape backs out, Enter confirms
@@ -533,18 +552,18 @@ export function Bookmark({
       const metadata = await onFetchMetadata(normalizeUrl(current.url))
 
       if (metadata.error) {
-        setFetchError(`Could not fetch metadata: ${metadata.error}`)
+        setFetchError(`Could not retrieve info: ${metadata.error}`)
       }
+
+      const prepared = prepareMetadata(metadata, limits)
 
       setCurrent((prev) => ({
         ...prev,
-        ...(metadata.title != null && { title: metadata.title }),
-        ...(metadata.description != null && { description: metadata.description }),
-        ...(metadata.content != null && { content: metadata.content }),
+        ...prepared,
       }))
 
-      // Force editor remount to display fetched content
-      if (metadata.content != null) {
+      // Force editor remount when content is fetched
+      if (prepared.content != null) {
         setContentKey((prev) => prev + 1)
       }
 
@@ -557,11 +576,11 @@ export function Bookmark({
       }
     } catch {
       setShowFetchSuccess(false)
-      setFetchError('Failed to fetch metadata. You can still save the bookmark.')
+      setFetchError('Failed to retrieve URL info. You can still save the bookmark.')
     } finally {
       setIsFetchingMetadata(false)
     }
-  }, [current.url, onFetchMetadata])
+  }, [current.url, onFetchMetadata, limits])
 
   // Validation (only called after loading guard, so limits is guaranteed to exist)
   const validate = (): boolean => {
@@ -579,16 +598,20 @@ export function Bookmark({
       newErrors.url = 'Please enter a valid URL'
     }
 
+    if (!newErrors.url && current.url.length > limits.max_url_length) {
+      newErrors.url = 'Character limit exceeded'
+    }
+
     if (current.title.length > limits.max_title_length) {
-      newErrors.title = `Title exceeds ${limits.max_title_length.toLocaleString()} characters`
+      newErrors.title = 'Character limit exceeded'
     }
 
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = `Description exceeds ${limits.max_description_length.toLocaleString()} characters`
+      newErrors.description = 'Character limit exceeded'
     }
 
     if (current.content.length > limits.max_bookmark_content_length) {
-      newErrors.content = `Content exceeds ${limits.max_bookmark_content_length.toLocaleString()} characters`
+      newErrors.content = 'Character limit exceeded'
     }
 
     setErrors(newErrors)
@@ -653,15 +676,6 @@ export function Bookmark({
 
       // Close if requested (Cmd+Shift+S)
       if (checkAndClose()) return
-
-      // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
-      if (refocusAfterSaveRef.current) {
-        // Small delay to ensure React has finished updating
-        setTimeout(() => {
-          refocusAfterSaveRef.current?.focus()
-          refocusAfterSaveRef.current = null
-        }, 0)
-      }
     } catch (err) {
       // Check for 409 Conflict (version mismatch)
       if (axios.isAxiosError(err) && err.response?.status === 409) {
@@ -670,13 +684,11 @@ export function Bookmark({
           setConflictState({
             serverUpdatedAt: detail.server_state.updated_at,
           })
-          refocusAfterSaveRef.current = null
           clearSaveAndClose()
           return
         }
       }
-      // Other errors: clear refs and let parent handle
-      refocusAfterSaveRef.current = null
+      // Other errors: let parent handle
       clearSaveAndClose()
       throw err
     }
@@ -914,7 +926,7 @@ export function Bookmark({
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 -mr-2 pt-5 -mt-1">
         {/* Header section: banners, URL, title, description, metadata */}
-        <div className="space-y-4">
+        <div className="space-y-1">
           {/* Read-only banner for deleted bookmarks */}
           {isReadOnly && (
             <div className="alert-warning">
@@ -931,6 +943,7 @@ export function Bookmark({
             required={isCreate}
             disabled={isSaving || isReadOnly}
             error={errors.url}
+            maxLength={limits.max_url_length}
             onFetchMetadata={onFetchMetadata ? handleFetchMetadata : undefined}
             isFetchingMetadata={isFetchingMetadata}
             showFetchSuccess={showFetchSuccess}
@@ -944,6 +957,7 @@ export function Bookmark({
             placeholder="Page title"
             disabled={isSaving || isReadOnly}
             error={errors.title}
+            maxLength={limits.max_title_length}
           />
 
           {/* Description */}
@@ -1041,26 +1055,50 @@ export function Bookmark({
           </div>
         </div>
 
-        {/* Content editor */}
-        <ContentEditor
-          key={`${bookmark?.id ?? 'new'}-${contentKey}`}
-          value={current.content}
-          onChange={handleContentChange}
-          disabled={isSaving || isReadOnly}
-          hasError={!!errors.content}
-          minHeight="200px"
-          placeholder="Content can be either auto-filled from public URLs or manually entered for private pages or custom notes. Content is used in search results."
-          maxLength={limits.max_bookmark_content_length}
-          errorMessage={errors.content}
-          label=""
-          showBorder={true}
-          subtleBorder={true}
-          onModalStateChange={setIsModalOpen}
-          onSaveAndClose={!isReadOnly ? () => { requestSaveAndClose(); formRef.current?.requestSubmit() } : undefined}
-          onDiscard={!isReadOnly ? () => { setCurrent(original); resetConfirmation() } : undefined}
-          originalContent={original.content}
-          isDirty={isDirty}
-        />
+        {/* Collapsible search content section */}
+        <div className="mt-2">
+          <div className="flex items-center gap-1.5 py-1.5 text-xs text-gray-400">
+            <button
+              type="button"
+              onClick={() => setIsContentExpanded((prev) => !prev)}
+              aria-expanded={isContentExpanded}
+              className="flex items-center gap-1.5 hover:text-gray-500 transition-colors"
+            >
+              {isContentExpanded
+                ? <ChevronDownIcon className="h-3.5 w-3.5" />
+                : <ChevronRightIcon className="h-3.5 w-3.5" />
+              }
+              <span>Page Content</span>
+            </button>
+            <Tooltip
+              content={<>Page content is auto-filled using the <svg className="inline h-3 w-3 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> button above or can be added manually. This content helps Tiddly find the bookmark when searching. It is optimized for search and scraped without retaining formatting.</>}
+            >
+              <HelpIcon className="h-3.5 w-3.5" />
+            </Tooltip>
+          </div>
+          {isContentExpanded && (
+            <ContentEditor
+              key={`${bookmark?.id ?? 'new'}-${contentKey}`}
+              value={current.content}
+              onChange={handleContentChange}
+              disabled={isReadOnly}
+              readOnly={isSaving}
+              hasError={!!errors.content}
+              minHeight="200px"
+              placeholder="Paste or type content to make this bookmark searchable. Auto-filled when you retrieve URL info."
+              maxLength={limits.max_bookmark_content_length}
+              errorMessage={errors.content}
+              label=""
+              showBorder={true}
+              subtleBorder={true}
+              onModalStateChange={setIsModalOpen}
+              onSaveAndClose={!isReadOnly ? () => { requestSaveAndClose(); formRef.current?.requestSubmit() } : undefined}
+              onDiscard={!isReadOnly ? () => { setCurrent(original); resetConfirmation() } : undefined}
+              originalContent={original.content}
+              isDirty={isDirty}
+            />
+          )}
+        </div>
       </div>
 
       {/* Unsaved changes warning dialog */}

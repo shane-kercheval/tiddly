@@ -25,6 +25,7 @@ import type { ReactNode } from 'react'
 // MilkdownEditor now used inside CodeMirrorEditor for reading mode
 // import { MilkdownEditor } from './MilkdownEditor'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
+import { useCharacterLimit } from '../hooks/useCharacterLimit'
 // wasEditorFocused no longer needed - mode toggle commented out
 // import { wasEditorFocused } from '../utils/editorUtils'
 
@@ -122,8 +123,10 @@ interface ContentEditorProps {
   value: string
   /** Called when content changes */
   onChange: (value: string) => void
-  /** Whether the editor is disabled */
+  /** Whether the editor is disabled (not focusable, for deleted/non-interactive items) */
   disabled?: boolean
+  /** Whether the editor is read-only (focusable but not editable, e.g. during save) */
+  readOnly?: boolean
   /** Whether there's an error */
   hasError?: boolean
   /** Minimum height for the editor */
@@ -166,19 +169,21 @@ interface ContentEditorProps {
  * Usage:
  * ```tsx
  * <ContentEditor
- *   key={note?.id ?? 'new'}  // Force remount on document change
+ *   key={contentKey}  // Increment to force remount (document switch, version restore)
  *   value={content}
  *   onChange={setContent}
  * />
  * ```
  *
- * Note: Pass a `key` prop based on the document ID to force remount when
- * switching documents. This ensures fresh undo history per document.
+ * Note: The parent component manages `contentKey` and increments it when the editor
+ * needs a full reset (document switch, version restore). Do NOT include a document ID
+ * in the key — that would destroy editor state during create→edit transitions.
  */
 export function ContentEditor({
   value,
   onChange,
   disabled = false,
+  readOnly = false,
   hasError = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
@@ -197,6 +202,8 @@ export function ContentEditor({
   scrollToLineRef,
   showTocToggle,
 }: ContentEditorProps): ReactNode {
+  const limit = useCharacterLimit(value.length, maxLength, { alwaysShow: true })
+
   // Mode state commented out - now always using CodeMirror
   // const [mode, setMode] = useState<EditorMode>(loadModePreference)
   // const [modeKey, setModeKey] = useState(0)
@@ -253,12 +260,12 @@ export function ContentEditor({
 
     if (subtleBorder) {
       // Ring style that appears on focus (matches title/description)
-      const ringColor = hasError ? 'ring-red-200 ring-2' : 'ring-gray-900/5'
+      const ringColor = (hasError || limit.exceeded) ? 'ring-red-200 ring-2' : 'ring-gray-900/5'
       return `group-focus-within/editor:ring-2 ${ringColor}`
     }
 
     // Solid border style
-    const borderColor = hasError ? 'border-red-300' : 'border-gray-200'
+    const borderColor = (hasError || limit.exceeded) ? 'border-red-300' : 'border-gray-200'
     return `border ${borderColor}`
   }
 
@@ -337,12 +344,13 @@ export function ContentEditor({
       <div className="h-0.5 bg-gray-100 mx-2 group-focus-within/editor:opacity-0 transition-opacity" />
 
       {/* Editor container - always CodeMirror with Reading/Wrap toggles in toolbar */}
-      {/* Note: overflow-hidden removed to allow toolbar wrapping on mobile; editor handles its own overflow */}
-      <div className={`rounded-lg transition-shadow ${getContainerBorderClasses()}`}>
+      {/* overflow-hidden clips child content to rounded corners */}
+      <div className={`rounded-lg overflow-hidden transition-shadow ${getContainerBorderClasses()}`}>
         <CodeMirrorEditor
           value={value}
           onChange={onChange}
           disabled={disabled}
+          readOnly={readOnly}
           minHeight={minHeight}
           placeholder={placeholder}
           wrapText={wrapText}
@@ -364,16 +372,22 @@ export function ContentEditor({
         />
       </div>
 
-      {/* Footer with helper text and character count - hidden until focused, but always visible when error */}
-      <div className={`flex justify-between items-center mt-1 transition-opacity ${errorMessage ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'}`}>
+      {/* Footer with helper text, error message, and character limit feedback */}
+      <div className={`flex justify-between items-center mt-1 transition-opacity ${
+        errorMessage || helperText || limit.showCounter ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'
+      }`}>
         {errorMessage ? (
           <p className="error-text">{errorMessage}</p>
+        ) : limit.message ? (
+          <span className="text-xs" style={{ color: limit.color }}>{limit.message}</span>
         ) : helperText ? (
           <p className="helper-text">{helperText}</p>
-        ) : null}
-        {maxLength && (
-          <span className="helper-text">
-            {value.length.toLocaleString()}/{maxLength.toLocaleString()}
+        ) : (
+          <span />
+        )}
+        {maxLength !== undefined && (
+          <span className="text-xs" style={{ color: limit.color }}>
+            {limit.counterText}
           </span>
         )}
       </div>

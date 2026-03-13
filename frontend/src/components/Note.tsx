@@ -107,6 +107,8 @@ interface NoteProps {
   initialLinkedItems?: LinkedItem[]
   /** Whether to show the Table of Contents toggle in the toolbar */
   showTocToggle?: boolean
+  /** Whether this is a create→edit transition (preserves editor state) */
+  fromCreate?: boolean
 }
 
 /**
@@ -131,6 +133,7 @@ export function Note({
   initialRelationships,
   initialLinkedItems,
   showTocToggle = false,
+  fromCreate = false,
 }: NoteProps): ReactNode {
   const isCreate = !note
 
@@ -187,6 +190,10 @@ export function Note({
   // Using a ref avoids stale closure issues and doesn't need to be in the effect's dependency array.
   const currentContentRef = useRef(current.content)
   currentContentRef.current = current.content
+  // Track previous note ID to distinguish create→edit transitions (which should
+  // preserve editor state) from document switches (which must reset the editor).
+  // See the sync effect below for how this is used.
+  const previousNoteIdRef = useRef<string | undefined>(note?.id)
 
   // Relationship state management (display items, add/remove handlers, cache)
   // Must be called before syncStateFromNote which depends on clearNewItemsCache
@@ -234,20 +241,54 @@ export function Note({
       skipSyncForUpdatedAtRef.current = null
       return
     }
-    // Reset editor if content changed externally (e.g., version restore from history sidebar).
-    // After normal saves, currentContentRef already matches note.content so no reset occurs.
-    const needsEditorReset = (note.content ?? '') !== currentContentRef.current
+    // Detect document switch: navigating to a different note than the one currently loaded.
+    // This forces an editor reset even when content is identical, because undo history
+    // and cursor position belong to the previous document.
+    // The only exception is the create→edit transition (fromCreate), where the user just
+    // saved what they were typing — editor state (focus, cursor, scroll, undo) is preserved.
+    // All other undefined→UUID transitions (e.g., browser back from /new to /:id) ARE
+    // document switches and must reset the editor.
+    const isCreateToEdit = previousNoteIdRef.current === undefined && fromCreate
+    const isDocumentSwitch = !isCreateToEdit && note.id !== previousNoteIdRef.current
+    const needsEditorReset = isDocumentSwitch || (note.content ?? '') !== currentContentRef.current
+    previousNoteIdRef.current = note.id
     syncStateFromNote(note, needsEditorReset)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.id, note?.updated_at, syncStateFromNote])
+
+  // Reset form state when transitioning from edit mode to create mode.
+  // Without this, navigating from /notes/:id to /notes/new would keep the
+  // previous note's state because useState(getInitialState) only runs on mount
+  // and the sync effect skips when note is undefined.
+  // Dependencies use note?.id (not note) to avoid re-running on every save where
+  // setNote(updatedNote) creates a new reference. The effect only cares about
+  // the defined→undefined transition, which note?.id captures.
+  useEffect(() => {
+    if (note) {
+      // In edit mode — nothing to reset. The sync effect handles edit→edit.
+      return
+    }
+    if (previousNoteIdRef.current === undefined) {
+      // Was already in create mode (or initial mount) — no transition to handle.
+      return
+    }
+    // Edit → create transition: reset form to fresh create-mode state.
+    // Uses getInitialState() to stay in sync with initial mount behavior.
+    previousNoteIdRef.current = undefined
+    const freshState = getInitialState()
+    setOriginal(freshState)
+    setCurrent(freshState)
+    setErrors({})
+    setConflictState(null)
+    clearNewItemsCache()
+    setContentKey(prev => prev + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.id, initialTags, initialRelationships])
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
-  // Track element to refocus after Cmd+S save (for CodeMirror which loses focus)
-  const refocusAfterSaveRef = useRef<HTMLElement | null>(null)
-
   // ToC sidebar state
   const scrollToLineRef = useRef<((line: number) => void) | null>(null)
   const showToc = useRightSidebarStore((state) => state.activePanel === 'toc')
@@ -392,13 +433,15 @@ export function Note({
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         if (!isReadOnly && isDirty) {
-          // Save active element to restore focus after save (CodeMirror loses focus during save)
-          const activeElement = document.activeElement as HTMLElement | null
-          if (activeElement?.closest('.cm-editor')) {
-            refocusAfterSaveRef.current = activeElement
-          }
           formRef.current?.requestSubmit()
         }
+      }
+
+      // Don't intercept Escape when CM search panel is open — let CM handle it
+      // (CM's domEventHandlers only fires for .cm-scroller events, not .cm-panels,
+      // so the search panel Escape must be guarded here at the document level)
+      if (e.key === 'Escape' && (e.target as HTMLElement)?.closest?.('.cm-search')) {
+        return
       }
 
       // When confirming discard: Escape backs out, Enter confirms
@@ -433,15 +476,15 @@ export function Note({
     if (!current.title.trim()) {
       newErrors.title = 'Title is required'
     } else if (current.title.length > limits.max_title_length) {
-      newErrors.title = `Title exceeds ${limits.max_title_length.toLocaleString()} characters`
+      newErrors.title = 'Character limit exceeded'
     }
 
     if (current.description.length > limits.max_description_length) {
-      newErrors.description = `Description exceeds ${limits.max_description_length.toLocaleString()} characters`
+      newErrors.description = 'Character limit exceeded'
     }
 
     if (current.content.length > limits.max_note_content_length) {
-      newErrors.content = `Content exceeds ${limits.max_note_content_length.toLocaleString()} characters`
+      newErrors.content = 'Character limit exceeded'
     }
 
     setErrors(newErrors)
@@ -505,15 +548,6 @@ export function Note({
 
       // Close if requested (Cmd+Shift+S)
       if (checkAndClose()) return
-
-      // Restore focus if we saved via Cmd+S from CodeMirror (which loses focus during save)
-      if (refocusAfterSaveRef.current) {
-        // Small delay to ensure React has finished updating
-        setTimeout(() => {
-          refocusAfterSaveRef.current?.focus()
-          refocusAfterSaveRef.current = null
-        }, 0)
-      }
     } catch (err) {
       // Check for 409 Conflict (version mismatch)
       if (axios.isAxiosError(err) && err.response?.status === 409) {
@@ -522,14 +556,12 @@ export function Note({
           setConflictState({
             serverUpdatedAt: detail.server_state.updated_at,
           })
-          // Clear refs but don't propagate error - we're handling it with the dialog
-          refocusAfterSaveRef.current = null
+          // Don't propagate error - we're handling it with the dialog
           clearSaveAndClose()
           return
         }
       }
-      // Other errors: clear refs and let parent handle
-      refocusAfterSaveRef.current = null
+      // Other errors: let parent handle
       clearSaveAndClose()
       throw err
     }
@@ -762,7 +794,7 @@ export function Note({
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 -mr-2 pt-5 -mt-1">
         {/* Header section: banners, title, description, metadata */}
-        <div className="space-y-4">
+        <div className="space-y-1">
           {/* Read-only banner for deleted notes */}
           {isReadOnly && (
             <div className="alert-warning">
@@ -779,6 +811,7 @@ export function Note({
             required
             disabled={isSaving || isReadOnly}
             error={errors.title}
+            maxLength={limits.max_title_length}
           />
 
           {/* Description */}
@@ -877,11 +910,17 @@ export function Note({
         </div>
 
         {/* Content editor */}
+        {/* Key uses contentKey only (not note?.id) so that the create→edit transition
+          * does NOT remount CodeMirror. The sync effect above handles incrementing
+          * contentKey for all cases that need a remount: document switch between
+          * existing notes, version restore, and conflict resolution.
+          * DO NOT add note?.id back to this key — it would destroy editor state on save. */}
         <ContentEditor
-          key={`${note?.id ?? 'new'}-${contentKey}`}
+          key={contentKey}
           value={current.content}
           onChange={handleContentChange}
-          disabled={isSaving || isReadOnly}
+          disabled={isReadOnly}
+          readOnly={isSaving}
           hasError={!!errors.content}
           minHeight="200px"
           placeholder="Write your note in markdown..."

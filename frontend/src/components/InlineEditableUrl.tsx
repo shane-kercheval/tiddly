@@ -13,6 +13,8 @@
 import { useState, forwardRef, useId } from 'react'
 import type { ChangeEvent, KeyboardEvent } from 'react'
 import { Tooltip } from './ui'
+import { useCharacterLimit } from '../hooks/useCharacterLimit'
+import { CharacterLimitFeedback } from './CharacterLimitFeedback'
 
 interface InlineEditableUrlProps {
   /** Current URL value */
@@ -37,6 +39,8 @@ interface InlineEditableUrlProps {
   showFetchSuccess?: boolean
   /** Error message from a failed metadata fetch */
   fetchError?: string
+  /** Maximum character length */
+  maxLength?: number
 }
 
 /**
@@ -56,11 +60,13 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
       isFetchingMetadata = false,
       showFetchSuccess = false,
       fetchError,
+      maxLength,
     },
     ref
   ) {
     const errorId = useId()
     const [isFocused, setIsFocused] = useState(false)
+    const limit = useCharacterLimit(value.length, maxLength)
 
     const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
       onChange(e.target.value)
@@ -96,11 +102,11 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
     // Container styling for the whole URL row
     const containerClasses = [
       'flex items-center gap-2 w-full',
-      // Subtle hover/focus indicator on the container
+      // Subtle hover/focus indicator on the container (overridden by error/exceeded state)
       'rounded px-1 -mx-1',
-      isFocused ? 'ring-2 ring-gray-900/5' : 'hover:ring-2 hover:ring-gray-900/5',
-      // Error state
-      error ? 'ring-2 ring-red-200' : '',
+      (error || limit.exceeded)
+        ? 'ring-2 ring-red-200'
+        : isFocused ? 'ring-2 ring-gray-900/5' : 'hover:ring-2 hover:ring-gray-900/5',
     ]
       .filter(Boolean)
       .join(' ')
@@ -108,18 +114,19 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
     return (
       <div className="w-full">
         <div className={containerClasses}>
-          {/* Fetch Metadata button */}
+          {/* Fetch URL info button */}
           {onFetchMetadata && (
             <Tooltip
-              content={fetchError && !isFetchingMetadata && !showFetchSuccess ? fetchError : 'Fetch metadata from URL'}
+              content={fetchError && !isFetchingMetadata && !showFetchSuccess ? fetchError : 'Retrieve info from URL'}
               compact={!fetchError || isFetchingMetadata || showFetchSuccess}
+              position="right"
             >
               <button
                 type="button"
                 onClick={handleFetchClick}
                 disabled={disabled || isFetchingMetadata || !value.trim()}
                 className="shrink-0 p-1.5 rounded hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                aria-label="Fetch metadata from URL"
+                aria-label="Retrieve info from URL"
               >
                 {isFetchingMetadata ? (
                   <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
@@ -159,6 +166,7 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
           />
         </div>
         {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
+        {maxLength !== undefined && <CharacterLimitFeedback limit={limit} />}
       </div>
     )
   }

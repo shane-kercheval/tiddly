@@ -8,7 +8,7 @@ import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { DocsSection } from './components/DocsSection'
 
-type IssueStatus = 'expected-behavior' | 'limitation' | 'planned'
+type IssueStatus = 'expected-behavior' | 'bug' | 'limitation'
 
 interface StatusBadgeProps {
   status: IssueStatus
@@ -19,13 +19,13 @@ const statusConfig: Record<IssueStatus, { label: string; className: string }> = 
     label: 'Expected Behavior',
     className: 'bg-blue-50 text-blue-700 border-blue-200',
   },
+  'bug': {
+    label: 'Bug',
+    className: 'bg-red-50 text-red-700 border-red-200',
+  },
   'limitation': {
     label: 'Current Limitation',
     className: 'bg-amber-50 text-amber-700 border-amber-200',
-  },
-  'planned': {
-    label: 'Planned Improvement',
-    className: 'bg-green-50 text-green-700 border-green-200',
   },
 }
 
@@ -63,13 +63,15 @@ export function DocsKnownIssues(): ReactNode {
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-4">Known Issues</h1>
       <p className="text-sm text-gray-600 mb-4">
-        Documented behaviors, limitations, and planned improvements. Each item is classified to set expectations:
+        Documented behaviors and known bugs. Each item is classified to set expectations:
       </p>
-      <div className="flex flex-wrap gap-3 mb-8 text-sm text-gray-600">
-        <span className="flex items-center gap-1.5"><StatusBadge status="expected-behavior" /> Working as designed, not a bug</span>
-        <span className="flex items-center gap-1.5"><StatusBadge status="limitation" /> Known constraint we plan to address</span>
-        <span className="flex items-center gap-1.5"><StatusBadge status="planned" /> Improvement already in progress</span>
-      </div>
+      <table className="text-sm text-gray-600 mb-8 border-separate border-spacing-y-1.5">
+        <tbody>
+          <tr><td className="pr-3"><StatusBadge status="expected-behavior" /></td><td>Working as designed, not a bug</td></tr>
+          <tr><td className="pr-3"><StatusBadge status="limitation" /></td><td>Known constraint, not a bug</td></tr>
+          <tr><td className="pr-3"><StatusBadge status="bug" /></td><td>Known bug</td></tr>
+        </tbody>
+      </table>
 
       <DocsSection title="Content">
         <KnownIssue title="Text-only content — no image or file attachments" status="limitation">
@@ -102,6 +104,25 @@ export function DocsKnownIssues(): ReactNode {
             Pressing Enter after "First item" will add a new checkbox with a blank line above it,
             matching the loose list style. To avoid this, keep list items on consecutive lines without
             blank lines between them.
+          </p>
+        </KnownIssue>
+
+        <KnownIssue title="Shift+Arrow selection gets stuck on wrapped lines" status="bug">
+          <p>
+            When word wrap is enabled and a line wraps to multiple visual lines, using Shift+Down or
+            Shift+Up to extend the selection can get stuck at the visual line boundary. Regular arrow
+            keys (without Shift) are not affected.
+          </p>
+          <p>
+            <strong>Workaround:</strong> Press Shift+Right to advance past the stuck point, then
+            continue with Shift+Down. Alternatively, toggle word wrap off (Alt+Z) to avoid the issue.
+          </p>
+        </KnownIssue>
+
+        <KnownIssue title="Toolbar flickers when interacting with Find &amp; Replace checkboxes" status="bug">
+          <p>
+            Clicking the checkboxes (e.g., &quot;match case&quot;, &quot;regexp&quot;) in the editor&apos;s
+            Find &amp; Replace panel can cause the formatting toolbar to briefly appear and disappear.
           </p>
         </KnownIssue>
       </DocsSection>

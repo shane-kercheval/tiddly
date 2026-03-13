@@ -4,6 +4,93 @@
 import type { ReactNode } from 'react'
 import type { PromptArgument } from '../types'
 import { PlusIcon, ChevronUpIcon, ChevronDownIcon, CloseIcon } from './icons'
+import { ARG_NAME_PATTERN } from '../constants/validation'
+import { useCharacterLimit } from '../hooks/useCharacterLimit'
+import { CharacterLimitFeedback } from './CharacterLimitFeedback'
+
+interface ArgumentRowProps {
+  arg: PromptArgument
+  index: number
+  disabled: boolean
+  maxNameLength?: number
+  maxDescriptionLength?: number
+  onUpdate: (index: number, field: keyof PromptArgument, value: string | boolean | null) => void
+  onRemove: (index: number) => void
+}
+
+function ArgumentRow({
+  arg,
+  index,
+  disabled,
+  maxNameLength,
+  maxDescriptionLength,
+  onUpdate,
+  onRemove,
+}: ArgumentRowProps): ReactNode {
+  const nameLimit = useCharacterLimit(arg.name.length, maxNameLength)
+  const descLimit = useCharacterLimit(arg.description?.length ?? 0, maxDescriptionLength)
+
+  const namePatternError = arg.name && !ARG_NAME_PATTERN.test(arg.name)
+    ? 'Must start with a letter, use only lowercase letters, numbers, and underscores'
+    : undefined
+
+  return (
+    <div className="flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex-[1] min-w-[140px]">
+          <input
+            type="text"
+            value={arg.name}
+            onChange={(e) => {
+              const newValue = e.target.value.toLowerCase()
+              onUpdate(index, 'name', newValue)
+            }}
+            placeholder="argument_name"
+            disabled={disabled}
+            className={`input py-1.5 font-mono text-sm w-full ${namePatternError || nameLimit.exceeded ? 'ring-2 ring-red-200' : ''}`}
+            aria-label={`Argument ${index + 1} name`}
+          />
+          {namePatternError && <p className="mt-0.5 text-xs text-red-500">{namePatternError}</p>}
+          <CharacterLimitFeedback limit={nameLimit} />
+        </div>
+        <div className="flex-[4] min-w-[220px]">
+          <input
+            type="text"
+            value={arg.description || ''}
+            onChange={(e) => {
+              const newValue = e.target.value
+              onUpdate(index, 'description', newValue || null)
+            }}
+            placeholder="Description (optional). This description helps users/agents understand how to use the argument."
+            disabled={disabled}
+            className={`input py-1.5 text-sm w-full ${descLimit.exceeded ? 'ring-2 ring-red-200' : ''}`}
+            aria-label={`Argument ${index + 1} description`}
+          />
+          <CharacterLimitFeedback limit={descLimit} />
+        </div>
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={arg.required ?? false}
+            onChange={(e) => onUpdate(index, 'required', e.target.checked)}
+            disabled={disabled}
+            className="rounded border-gray-300"
+          />
+          Required
+        </label>
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          disabled={disabled}
+          className="btn-icon-danger"
+          aria-label={`Remove argument ${index + 1}`}
+        >
+          <CloseIcon className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
 
 interface ArgumentsBuilderProps {
   /** Current list of arguments */
@@ -14,6 +101,10 @@ interface ArgumentsBuilderProps {
   disabled?: boolean
   /** Error message to display */
   error?: string
+  /** Maximum length for argument names */
+  maxNameLength?: number
+  /** Maximum length for argument descriptions */
+  maxDescriptionLength?: number
 }
 
 /**
@@ -30,6 +121,8 @@ export function ArgumentsBuilder({
   onChange,
   disabled = false,
   error,
+  maxNameLength,
+  maxDescriptionLength,
 }: ArgumentsBuilderProps): ReactNode {
   const addArgument = (): void => {
     onChange([...args, { name: '', description: null, required: false }])
@@ -101,46 +194,15 @@ export function ArgumentsBuilder({
                   </button>
                 </div>
 
-                {/* Argument fields */}
-                <div className="flex-1 flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    value={arg.name}
-                    onChange={(e) => updateArgument(index, 'name', e.target.value.toLowerCase())}
-                    placeholder="argument_name"
-                    disabled={disabled}
-                    className="input py-1.5 font-mono text-sm min-w-[140px] flex-[1]"
-                    aria-label={`Argument ${index + 1} name`}
-                  />
-                  <input
-                    type="text"
-                    value={arg.description || ''}
-                    onChange={(e) => updateArgument(index, 'description', e.target.value || null)}
-                    placeholder="Description (optional). This description helps users/agents understand how to use the argument."
-                    disabled={disabled}
-                    className="input py-1.5 text-sm min-w-[220px] flex-[4]"
-                    aria-label={`Argument ${index + 1} description`}
-                  />
-                  <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={arg.required ?? false}
-                      onChange={(e) => updateArgument(index, 'required', e.target.checked)}
-                      disabled={disabled}
-                      className="rounded border-gray-300"
-                    />
-                    Required
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => removeArgument(index)}
-                    disabled={disabled}
-                    className="btn-icon-danger"
-                    aria-label={`Remove argument ${index + 1}`}
-                  >
-                    <CloseIcon className="h-4 w-4" />
-                  </button>
-                </div>
+                <ArgumentRow
+                  arg={arg}
+                  index={index}
+                  disabled={disabled}
+                  maxNameLength={maxNameLength}
+                  maxDescriptionLength={maxDescriptionLength}
+                  onUpdate={updateArgument}
+                  onRemove={removeArgument}
+                />
               </div>
             </div>
           ))}

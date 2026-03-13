@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, Link } from 'react-router-dom'
 import { NoteDetail } from './NoteDetail'
 import type { Note } from '../types'
 
@@ -151,11 +151,11 @@ vi.mock('../components/ContentEditor', () => ({
 }))
 
 // Helper to render NoteDetail with router
+// Single route entry matches actual App.tsx — separate entries would mask remount bugs
 function renderWithRouter(initialRoute: string): void {
   render(
     <MemoryRouter initialEntries={[initialRoute]}>
       <Routes>
-        <Route path="/app/notes/new" element={<NoteDetail />} />
         <Route path="/app/notes/:id" element={<NoteDetail />} />
         <Route path="/app/notes" element={<div>Notes List</div>} />
       </Routes>
@@ -321,11 +321,12 @@ describe('NoteDetail page', () => {
     })
 
     it('should show error when API returns not found', async () => {
-      mockFetchNote.mockRejectedValue(new Error('Note not found'))
+      const notFoundError = { response: { status: 404 } }
+      mockFetchNote.mockRejectedValue(notFoundError)
       renderWithRouter('/app/notes/invalid-uuid')
 
       await waitFor(() => {
-        expect(screen.getByText('Note not found')).toBeInTheDocument()
+        expect(screen.getByText('This note does not exist')).toBeInTheDocument()
       })
     })
   })
@@ -449,7 +450,7 @@ describe('NoteDetail page', () => {
           '/app/notes/new-note-id',
           {
             replace: true,
-            state: { note: createdNote },
+            state: { note: createdNote, fromCreate: true },
           }
         )
       })
@@ -496,6 +497,113 @@ describe('NoteDetail page', () => {
       // Should fetch since IDs don't match
       await waitFor(() => {
         expect(mockFetchNote).toHaveBeenCalledWith('123')
+      })
+    })
+  })
+
+  describe('error to create transition', () => {
+    it('should clear error state when navigating from failed load to /new', async () => {
+      const user = userEvent.setup()
+      mockFetchNote.mockRejectedValue(new Error('Network error'))
+
+      // Use Link to navigate — useNavigate is mocked to a spy
+      render(
+        <MemoryRouter initialEntries={['/app/notes/bad-id']}>
+          <Routes>
+            <Route path="/app/notes/:id" element={
+              <>
+                <NoteDetail />
+                <Link to="/app/notes/new">New Note</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for error state to appear
+      await waitFor(() => {
+        expect(screen.getByText('Network error')).toBeInTheDocument()
+      })
+
+      // Navigate to create mode
+      await user.click(screen.getByText('New Note'))
+
+      // Should show create form, not stale error
+      await waitFor(() => {
+        expect(screen.queryByText('Network error')).not.toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Note title')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('edit to create transition', () => {
+    it('should reset to create mode when navigating from existing note to /new', async () => {
+      const user = userEvent.setup()
+
+      // Use Link (not useNavigate) because useNavigate is mocked to a spy.
+      // Link uses real React Router internals and triggers actual navigation.
+      render(
+        <MemoryRouter initialEntries={['/app/notes/1']}>
+          <Routes>
+            <Route path="/app/notes/:id" element={
+              <>
+                <NoteDetail />
+                <Link to="/app/notes/new">New Note</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for existing note to load
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Test Note')).toBeInTheDocument()
+      })
+
+      // Navigate to create mode
+      await user.click(screen.getByText('New Note'))
+
+      // Should show create mode — empty title, no stale data
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Note title')).toHaveValue('')
+      })
+
+      // Should show Create button (not Save), confirming we're in create mode
+      // Form is clean so Create button won't appear until dirty — just verify no Save button
+      expect(screen.queryByText('Save')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('create to existing transition without fromCreate', () => {
+    it('should load existing note when navigating from /new to /:id without fromCreate', async () => {
+      const user = userEvent.setup()
+
+      // Navigate from /new to an existing note (e.g., via browser back) without
+      // the fromCreate flag — this is NOT a create-save transition, so state should reset.
+      render(
+        <MemoryRouter initialEntries={['/app/notes/new']}>
+          <Routes>
+            <Route path="/app/notes/:id" element={
+              <>
+                <NoteDetail />
+                <Link to="/app/notes/1">Existing Note</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for create form
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('Note title')).toHaveValue('')
+      })
+
+      // Navigate to existing note (no fromCreate in location state)
+      await user.click(screen.getByText('Existing Note'))
+
+      // Should load the existing note's data
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('Test Note')).toBeInTheDocument()
       })
     })
   })

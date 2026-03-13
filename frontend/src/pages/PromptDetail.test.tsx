@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, Link } from 'react-router-dom'
 import { PromptDetail } from './PromptDetail'
 import type { Prompt } from '../types'
 
@@ -159,12 +159,11 @@ vi.mock('../components/ContentEditor', () => ({
   ),
 }))
 
-// Helper to render PromptDetail with router
+// Single route entry matches actual App.tsx — separate entries would mask remount bugs
 function renderWithRouter(initialRoute: string): void {
   render(
     <MemoryRouter initialEntries={[initialRoute]}>
       <Routes>
-        <Route path="/app/prompts/new" element={<PromptDetail />} />
         <Route path="/app/prompts/:id" element={<PromptDetail />} />
         <Route path="/app/prompts" element={<div>Prompts List</div>} />
       </Routes>
@@ -409,11 +408,12 @@ describe('PromptDetail page', () => {
     })
 
     it('should show error when API returns not found', async () => {
-      mockFetchPrompt.mockRejectedValue(new Error('Prompt not found'))
+      const notFoundError = { response: { status: 404 } }
+      mockFetchPrompt.mockRejectedValue(notFoundError)
       renderWithRouter('/app/prompts/invalid-uuid')
 
       await waitFor(() => {
-        expect(screen.getByText('Prompt not found')).toBeInTheDocument()
+        expect(screen.getByText('This prompt does not exist')).toBeInTheDocument()
       })
     })
 
@@ -582,7 +582,7 @@ describe('PromptDetail page', () => {
           '/app/prompts/new-prompt-id',
           {
             replace: true,
-            state: { prompt: createdPrompt },
+            state: { prompt: createdPrompt, fromCreate: true },
           }
         )
       })
@@ -629,6 +629,113 @@ describe('PromptDetail page', () => {
       // Should fetch since IDs don't match
       await waitFor(() => {
         expect(mockFetchPrompt).toHaveBeenCalledWith('123')
+      })
+    })
+  })
+
+  describe('error to create transition', () => {
+    it('should clear error state when navigating from failed load to /new', async () => {
+      const user = userEvent.setup()
+      mockFetchPrompt.mockRejectedValue(new Error('Network error'))
+
+      // Use Link to navigate — useNavigate is mocked to a spy
+      render(
+        <MemoryRouter initialEntries={['/app/prompts/bad-id']}>
+          <Routes>
+            <Route path="/app/prompts/:id" element={
+              <>
+                <PromptDetail />
+                <Link to="/app/prompts/new">New Prompt</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for error state to appear
+      await waitFor(() => {
+        expect(screen.getByText('Network error')).toBeInTheDocument()
+      })
+
+      // Navigate to create mode
+      await user.click(screen.getByText('New Prompt'))
+
+      // Should show create form, not stale error
+      await waitFor(() => {
+        expect(screen.queryByText('Network error')).not.toBeInTheDocument()
+        expect(screen.getByPlaceholderText('prompt-name')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('edit to create transition', () => {
+    it('should reset to create mode when navigating from existing prompt to /new', async () => {
+      const user = userEvent.setup()
+
+      // Use Link (not useNavigate) because useNavigate is mocked to a spy.
+      // Link uses real React Router internals and triggers actual navigation.
+      render(
+        <MemoryRouter initialEntries={['/app/prompts/1']}>
+          <Routes>
+            <Route path="/app/prompts/:id" element={
+              <>
+                <PromptDetail />
+                <Link to="/app/prompts/new">New Prompt</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for existing prompt to load
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('code-review')).toBeInTheDocument()
+      })
+
+      // Navigate to create mode
+      await user.click(screen.getByText('New Prompt'))
+
+      // Should show create mode — empty name, no stale data
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('prompt-name')).toHaveValue('')
+      })
+
+      // Should show Create button (not Save), confirming we're in create mode
+      // Form is clean so Create button won't appear until dirty — just verify no Save button
+      expect(screen.queryByText('Save')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('create to existing transition without fromCreate', () => {
+    it('should load existing prompt when navigating from /new to /:id without fromCreate', async () => {
+      const user = userEvent.setup()
+
+      // Navigate from /new to an existing prompt (e.g., via browser back) without
+      // the fromCreate flag — this is NOT a create-save transition, so state should reset.
+      render(
+        <MemoryRouter initialEntries={['/app/prompts/new']}>
+          <Routes>
+            <Route path="/app/prompts/:id" element={
+              <>
+                <PromptDetail />
+                <Link to="/app/prompts/1">Existing Prompt</Link>
+              </>
+            } />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for create form
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText('prompt-name')).toHaveValue('')
+      })
+
+      // Navigate to existing prompt (no fromCreate in location state)
+      await user.click(screen.getByText('Existing Prompt'))
+
+      // Should load the existing prompt's data
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('code-review')).toBeInTheDocument()
       })
     })
   })
