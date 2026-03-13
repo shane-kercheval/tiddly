@@ -1383,7 +1383,8 @@ describe('AllContent', () => {
       expect(items[2].getAttribute('aria-selected')).toBe('true')
     })
 
-    it('Enter on selected bookmark navigates to edit', async () => {
+    it('Enter on selected bookmark opens URL in new tab', async () => {
+      const windowOpenSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
       const user = userEvent.setup()
       mockContentQueryData = createMockResponse([mockBookmark])
       renderAtRoute('/app/content')
@@ -1396,7 +1397,8 @@ describe('AllContent', () => {
       await user.click(searchInput)
       await user.keyboard('{ArrowDown}{Enter}')
 
-      expect(mockNavigate).toHaveBeenCalledWith('/app/bookmarks/1', expect.objectContaining({ state: expect.any(Object) }))
+      expect(windowOpenSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer')
+      windowOpenSpy.mockRestore()
     })
 
     it('Enter on selected note navigates to view', async () => {

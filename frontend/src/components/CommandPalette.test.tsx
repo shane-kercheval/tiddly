@@ -283,7 +283,8 @@ describe('CommandPalette', () => {
       expect(document.activeElement).toBe(input)
     })
 
-    it('Enter on selected bookmark navigates and closes', async () => {
+    it('Enter on selected bookmark opens URL in new tab and closes', async () => {
+      const windowOpenSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
       const onClose = vi.fn()
       const user = userEvent.setup()
       mockContentQueryData = mockSearchResults
@@ -296,8 +297,9 @@ describe('CommandPalette', () => {
       await user.type(input, 'test')
       await user.keyboard('{ArrowDown}{Enter}')
 
-      expect(mockNavigate).toHaveBeenCalledWith('/app/bookmarks/1')
+      expect(windowOpenSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer')
       expect(onClose).toHaveBeenCalled()
+      windowOpenSpy.mockRestore()
     })
 
     it('Enter on selected note navigates and closes', async () => {
