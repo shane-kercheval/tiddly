@@ -15,6 +15,7 @@ import { markdownStyleExtension, createFontTheme } from '../utils/markdownStyleE
 import type { KeyBinding } from '@codemirror/view'
 import { autocompletion, completionStatus } from '@codemirror/autocomplete'
 import { Prec, Compartment, EditorState } from '@codemirror/state'
+import { search } from '@codemirror/search'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
 import { Tooltip } from './ui/Tooltip'
 import { MilkdownEditor } from './MilkdownEditor'
@@ -558,6 +559,7 @@ export function CodeMirrorEditor({
         selectOnOpen: true,
         addToOptions: slashCommandAddToOptions,
       }),
+      search({ top: true }),
       scrollFadePlugin,
       // Prevent Escape from bubbling to parent handlers (e.g. discard confirmation)
       // when closing the autocomplete dropdown. Prec.highest ensures this runs
@@ -566,10 +568,14 @@ export function CodeMirrorEditor({
       Prec.highest(
         EditorView.domEventHandlers({
           keydown(event, view) {
-            if (event.key === 'Escape' && completionStatus(view.state) !== null) {
-              event.stopPropagation()
+            if (event.key === 'Escape') {
+              // Stop Escape from bubbling to parent handlers (e.g. discard confirmation)
+              // when CM has a UI element that consumes it (autocomplete or search panel)
+              if (completionStatus(view.state) !== null || view.dom.querySelector('.cm-search')) {
+                event.stopPropagation()
+              }
             }
-            return false // let CM's keymap close the dropdown normally
+            return false // let CM's keymap handle the event normally
           },
         }),
       ),
@@ -787,40 +793,37 @@ export function CodeMirrorEditor({
           )}
         </div>
       </div>
-      {/* Editor area - overflow-hidden for content clipping (rounded corners handled by parent) */}
-      <div className="overflow-hidden">
-        {/* Reading mode: show Milkdown preview */}
-        {effectiveReadingMode && (
-          <MilkdownEditor
-            value={value}
-            onChange={() => {}} // Read-only: ignore changes
-            disabled={false}
-            readOnly={true}
-            minHeight={minHeight}
-            placeholder={placeholder}
-            noPadding={noPadding}
-          />
-        )}
-        {/* CodeMirror: always mounted to preserve state, hidden when in reading mode */}
-        {/* This prevents loss of edits when toggling modes (initialValue pattern) */}
-        <div className={effectiveReadingMode ? 'hidden' : ''}>
-          <CodeMirror
-            ref={editorRef}
-            value={initialValue}
-            onChange={onChange}
-            extensions={extensions}
-            minHeight={minHeight}
-            placeholder={placeholder}
-            editable={!disabled}
-            basicSetup={{
-              lineNumbers: showLineNumbers,
-              foldGutter: false,
-              highlightActiveLine: false,
-              autocompletion: false,
-            }}
+      {/* Reading mode: show Milkdown preview */}
+      {effectiveReadingMode && (
+        <MilkdownEditor
+          value={value}
+          onChange={() => {}} // Read-only: ignore changes
+          disabled={false}
+          readOnly={true}
+          minHeight={minHeight}
+          placeholder={placeholder}
+          noPadding={noPadding}
+        />
+      )}
+      {/* CodeMirror: always mounted to preserve state, hidden when in reading mode */}
+      {/* This prevents loss of edits when toggling modes (initialValue pattern) */}
+      <div className={`overflow-hidden ${effectiveReadingMode ? 'hidden' : ''}`}>
+        <CodeMirror
+          ref={editorRef}
+          value={initialValue}
+          onChange={onChange}
+          extensions={extensions}
+          minHeight={minHeight}
+          placeholder={placeholder}
+          editable={!disabled}
+          basicSetup={{
+            lineNumbers: showLineNumbers,
+            foldGutter: false,
+            highlightActiveLine: false,
+            autocompletion: false,
+          }}
 
-          />
-        </div>
+        />
       </div>
 
       {/* Editor command menu (Cmd+/) — conditionally rendered so

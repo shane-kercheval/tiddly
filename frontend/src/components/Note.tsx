@@ -437,6 +437,13 @@ export function Note({
         }
       }
 
+      // Don't intercept Escape when CM search panel is open — let CM handle it
+      // (CM's domEventHandlers only fires for .cm-scroller events, not .cm-panels,
+      // so the search panel Escape must be guarded here at the document level)
+      if (e.key === 'Escape' && (e.target as HTMLElement)?.closest?.('.cm-search')) {
+        return
+      }
+
       // When confirming discard: Escape backs out, Enter confirms
       if (isConfirming) {
         if (e.key === 'Escape') {
