@@ -42,6 +42,7 @@ const stubIcons = {
   close: () => createElement('span', null, 'close'),
   tableOfContents: () => createElement('span', null, 'tableOfContents'),
   versionHistory: () => createElement('span', null, 'versionHistory'),
+  readingMode: () => createElement('span', null, 'readingMode'),
 }
 
 describe('buildEditorCommands', () => {
