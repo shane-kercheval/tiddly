@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     auth0_audience: str = Field(default="", validation_alias="VITE_AUTH0_AUDIENCE")
     auth0_client_id: str = Field(default="", validation_alias="VITE_AUTH0_CLIENT_ID")
 
+    # Auth0 custom claim namespace for reading email from access tokens
+    auth0_custom_claim_namespace: str = Field(
+        default="",
+        validation_alias="AUTH0_CUSTOM_CLAIM_NAMESPACE",
+    )
+
     # Development mode - bypasses auth for local development (shared with frontend)
     dev_mode: bool = Field(default=False, validation_alias="VITE_DEV_MODE")
 
@@ -55,14 +61,26 @@ class Settings(BaseSettings):
     # Note: Field length limits moved to core/tier_limits.py (tier-based)
 
     @model_validator(mode="after")
-    def validate_dev_mode_security(self) -> "Settings":
+    def validate_settings(self) -> "Settings":
         """
-        Prevent DEV_MODE from being enabled with a production database.
+        Validate cross-field settings constraints.
 
-        DEV_MODE completely bypasses authentication, so we must ensure it's only
-        used with local development databases to prevent accidental production exposure.
+        - Normalize AUTH0_CUSTOM_CLAIM_NAMESPACE (strip trailing slash)
+        - Require AUTH0_CUSTOM_CLAIM_NAMESPACE in production (prevents silent
+          email capture failure)
+        - Prevent DEV_MODE with non-local databases (auth bypass safety)
         """
+        # Normalize namespace: strip trailing slash
+        if self.auth0_custom_claim_namespace:
+            self.auth0_custom_claim_namespace = self.auth0_custom_claim_namespace.rstrip("/")
+
         if not self.dev_mode:
+            # Production requires namespace to read email from Auth0 access tokens
+            if not self.auth0_custom_claim_namespace:
+                raise ValueError(
+                    "AUTH0_CUSTOM_CLAIM_NAMESPACE is required when DEV_MODE is disabled. "
+                    "Without it, email cannot be read from Auth0 access tokens.",
+                )
             return self
 
         # Parse database URL to extract hostname

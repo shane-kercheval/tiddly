@@ -17,6 +17,7 @@ def non_dev_settings(database_url: str) -> Settings:
         auth0_domain="test.auth0.com",
         auth0_audience="https://test-api",
         auth0_client_id="test-client-id",
+        auth0_custom_claim_namespace="https://test.example.com",
     )
 
 

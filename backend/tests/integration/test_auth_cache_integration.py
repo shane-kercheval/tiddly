@@ -19,6 +19,9 @@ from core.auth_cache import CACHE_SCHEMA_VERSION, get_auth_cache
 from core.redis import RedisClient
 from models.user_consent import UserConsent
 
+# Dev mode always uses this auth0_id
+DEV_AUTH0_ID = "dev|local-development-user"
+
 
 class TestAuthCachePopulation:
     """Tests for auth cache population after authenticated requests."""
@@ -35,7 +38,6 @@ class TestAuthCachePopulation:
 
         user_data = response.json()
         user_id = user_data["id"]
-        auth0_id = user_data["auth0_id"]
 
         # Verify cache entry exists by user_id
         user_id_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:id:{user_id}"
@@ -43,7 +45,7 @@ class TestAuthCachePopulation:
         assert cached_data is not None, "Cache entry should exist for user_id"
 
         # Verify cache entry exists by auth0_id
-        auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{auth0_id}"
+        auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{DEV_AUTH0_ID}"
         cached_data = await redis_client.get(auth0_key)
         assert cached_data is not None, "Cache entry should exist for auth0_id"
 
@@ -63,7 +65,7 @@ class TestAuthCachePopulation:
         cached = json.loads(cached_bytes)
 
         assert cached["id"] == user_data["id"]
-        assert cached["auth0_id"] == user_data["auth0_id"]
+        assert cached["auth0_id"] == DEV_AUTH0_ID
         assert cached["email"] == user_data["email"]
 
 
@@ -78,11 +80,10 @@ class TestAuthCacheInvalidation:
         """POST /consent/me clears cache entry."""
         # First, make a request to populate cache
         response = await client.get("/users/me")
-        user_data = response.json()
-        auth0_id = user_data["auth0_id"]
+        assert response.status_code == 200
 
         # Verify cache is populated
-        auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{auth0_id}"
+        auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{DEV_AUTH0_ID}"
         assert await redis_client.get(auth0_key) is not None, "Cache should be populated"
 
         # Now update consent
@@ -107,10 +108,8 @@ class TestAuthCacheInvalidation:
     ) -> None:
         """Request after consent update repopulates cache."""
         # Populate cache
-        response1 = await client.get("/users/me")
-        user_data = response1.json()
-        auth0_id = user_data["auth0_id"]
-        auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{auth0_id}"
+        await client.get("/users/me")
+        auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{DEV_AUTH0_ID}"
 
         # Update consent (invalidates cache)
         await client.post(
@@ -183,7 +182,7 @@ class TestAuthCacheConsentData:
             user_data = response.json()
 
             # Invalidate cache
-            await auth_cache.invalidate(user_data["id"], user_data["auth0_id"])
+            await auth_cache.invalidate(user_data["id"], DEV_AUTH0_ID)
 
             # Also clear any consent for this test
             await db_session.execute(

@@ -978,7 +978,11 @@ async def test_user_cannot_access_another_users_history(
         yield db_session
 
     def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
+        return Settings(
+            database_url="postgresql://test",
+            dev_mode=False,
+            auth0_custom_claim_namespace="https://test.example.com",
+        )
 
     app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_settings] = override_get_settings
@@ -1055,7 +1059,11 @@ async def test_pat_can_access_history(
         yield db_session
 
     def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
+        return Settings(
+            database_url="postgresql://test",
+            dev_mode=False,
+            auth0_custom_claim_namespace="https://test.example.com",
+        )
 
     app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_settings] = override_get_settings
@@ -2378,7 +2386,11 @@ async def test_get_version_diff__cross_user_isolation(
         yield db_session
 
     def override_get_settings() -> Settings:
-        return Settings(database_url="postgresql://test", dev_mode=False)
+        return Settings(
+            database_url="postgresql://test",
+            dev_mode=False,
+            auth0_custom_claim_namespace="https://test.example.com",
+        )
 
     app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_settings] = override_get_settings

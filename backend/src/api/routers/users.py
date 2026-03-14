@@ -19,7 +19,6 @@ class UserResponse(BaseModel):
     """Response model for user info."""
 
     id: UUID
-    auth0_id: str
     email: str | None
 
     model_config = {"from_attributes": True}

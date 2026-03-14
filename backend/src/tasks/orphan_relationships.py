@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.session import async_session_factory
 from models.content_relationship import ContentRelationship
 from services.relationship_service import MODEL_MAP
 
@@ -220,6 +219,10 @@ async def run_orphan_cleanup(
     if db is not None:
         stats = await _run(db)
     else:
+        # Deferred: db.session triggers get_settings() at import time, which
+        # breaks test collection (Settings validation runs before fixtures).
+        from db.session import async_session_factory  # noqa: PLC0415
+
         async with async_session_factory() as session:
             stats = await _run(session)
 

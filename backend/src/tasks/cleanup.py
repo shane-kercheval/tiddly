@@ -21,7 +21,6 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.tier_limits import TIER_LIMITS, Tier
-from db.session import async_session_factory
 from models.bookmark import Bookmark
 from models.content_history import ContentHistory, EntityType
 from models.note import Note
@@ -278,6 +277,10 @@ async def run_cleanup(
     if db is not None:
         stats = await _run(db)
     else:
+        # Deferred: db.session triggers get_settings() at import time, which
+        # breaks test collection (Settings validation runs before fixtures).
+        from db.session import async_session_factory  # noqa: PLC0415
+
         async with async_session_factory() as session:
             stats = await _run(session)
 

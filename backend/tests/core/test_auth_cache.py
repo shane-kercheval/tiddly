@@ -129,6 +129,35 @@ class TestAuthCache:
         assert result.consent_privacy_version == "2025-01-01"
         assert result.consent_tos_version == "2025-01-01"
 
+    async def test__set__includes_email_verified(
+        self,
+        redis_client: RedisClient,
+        test_user: User,
+    ) -> None:
+        """Cached user includes email_verified field."""
+        cache = AuthCache(redis_client)
+
+        test_user.email_verified = True
+        await cache.set(test_user, auth0_id=test_user.auth0_id)
+        result = await cache.get_by_auth0_id(test_user.auth0_id)
+
+        assert result is not None
+        assert result.email_verified is True
+
+    async def test__set__handles_null_email_verified(
+        self,
+        redis_client: RedisClient,
+        test_user: User,
+    ) -> None:
+        """User without email_verified has None in cache."""
+        cache = AuthCache(redis_client)
+
+        await cache.set(test_user, auth0_id=test_user.auth0_id)
+        result = await cache.get_by_auth0_id(test_user.auth0_id)
+
+        assert result is not None
+        assert result.email_verified is None
+
     async def test__set__handles_user_without_consent(
         self,
         redis_client: RedisClient,

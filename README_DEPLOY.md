@@ -151,6 +151,7 @@ VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
 VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 VITE_FRONTEND_URL=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
+AUTH0_CUSTOM_CLAIM_NAMESPACE=https://tiddly.me
 API_WORKERS=4
 ```
 
@@ -282,7 +283,44 @@ Go to the **Settings** tab of your new API:
 
 **Why Allow Offline Access matters:** The frontend requests the `offline_access` scope to get refresh tokens. Without this enabled, Auth0 silently ignores the scope and users get logged out when their access token expires (~24 hours).
 
-#### 6d. Google Social Connection (Optional)
+#### 6d. Post-Login Action (Email Claims)
+
+Auth0 access tokens for custom APIs don't include profile claims like `email` by default. A Post-Login Action adds them as namespaced custom claims so the backend can read them.
+
+1. Go to **Actions** → **Triggers** → **post-login**
+2. Click **+** (Add Action) → **Create Custom Action**
+    - Name: "Add email claims to access token"
+    - Trigger: Login / Post Login (default)
+    - Runtime: Node 22 (default)
+3. Click **Create**
+4. Replace the `onExecutePostLogin` function with:
+
+```javascript
+exports.onExecutePostLogin = async (event, api) => {
+    const namespace = 'https://tiddly.me';
+    if (event.authorization) {
+    api.accessToken.setCustomClaim(
+        `${namespace}/email`,
+        event.user.email ?? null
+    );
+    api.accessToken.setCustomClaim(
+        `${namespace}/email_verified`,
+        event.user.email_verified ?? false
+    );
+    }
+};
+```
+
+5. Click **Deploy**
+6. Click **Back to Triggers** → **post-login**
+7. **Drag** the new action from the right panel into the flow (between **Start** and **Complete**)
+8. Click **Apply**
+
+**To verify:** Log in, grab the access token from browser dev tools (Network tab → any API request → `Authorization: Bearer <token>` header), paste it into [jwt.io](https://jwt.io), and confirm the payload contains `https://tiddly.me/email` and `https://tiddly.me/email_verified`.
+
+**Note:** The namespace URL (`https://tiddly.me`) doesn't need to resolve — it's just a unique prefix required by Auth0 for custom claims. The backend reads these claims using the `AUTH0_CUSTOM_CLAIM_NAMESPACE` env var.
+
+#### 6e. Google Social Connection (Optional)
 
 To enable "Sign in with Google":
 
