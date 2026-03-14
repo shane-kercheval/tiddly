@@ -2,7 +2,9 @@
 
 Resolves inconsistencies between our CLI/UI scope terminology and upstream tool conventions. Also improves the Settings > AI Integration UX.
 
-**Terminology consistency applies everywhere** — not just user-facing strings. Internal code (variable names, constants, type names, comments), test names and assertions, inline comments, and documentation must all use the new `user`/`directory` terminology. Old terms like `global`, `local`, `project`, `ScopeGlobal`, `ScopeProject`, `McpScopeType`, `SkillsScopeType`, etc. should not appear anywhere in the codebase after this work is complete.
+**Terminology consistency applies to all Tiddly-owned code** — not just user-facing strings. CLI flags, UI labels, user-facing messages, our own constants and abstractions (e.g., `ScopeGlobal`, `ScopeProject`, `SkillsScopeType`), test names, inline comments, and documentation must all use the new `user`/`directory` terminology.
+
+**Exception: handler-internal code that maps to upstream API values.** The MCP handlers (`handler_claude_code.go`, `handler_codex.go`, etc.) pass scope values directly to upstream tools. These must keep the upstream-native values — e.g., `ClaudeCodeHandler.SupportedScopes()` returns `["user", "local"]` because those are the actual `claude mcp add --scope` values. The translation from Tiddly's `directory` → upstream `local`/`project` happens at the command boundary (in `cli/cmd/mcp.go` and `cli/cmd/skills.go`), not inside handlers. This is the standard integration pattern: preserve provider-native semantics inside adapters, expose friendlier terms at the UX edge.
 
 Background research and official tool documentation: [docs/ai-integration.md](../ai-integration.md)
 
@@ -35,7 +37,7 @@ The Settings UI currently shows two separate scope selectors. Since both scopes 
 - **"User"** — replaces "User (global)" and "Global"
 - **"Directory"** — replaces "Local" and "Project". Unambiguous: literally the directory you run the command in.
 
-Tooltip for "Directory": "Configuration is stored in the current working directory and only applies when running tools from that location."
+Tooltip for "Directory": "Configuration only applies when running tools from a specific directory." (Note: for Claude Code MCP, the config is stored in `~/.claude.json` under a project-path key, not in the working directory itself. The file details disclosure shows the actual storage paths.)
 
 ### D4: Add collapsible file details below generated command
 
@@ -98,18 +100,22 @@ After this milestone:
 - Rename `cli/cmd/upgrade.go` → `cli/cmd/update.go`, `cli/cmd/upgrade_test.go` → `cli/cmd/update_test.go`
 - Update cobra command: `Use: "update"`, `Short: "Update Tiddly CLI to the latest version"`
 - Update `cli/cmd/root.go` to register the renamed command
-- Update `cli/cmd/update_check.go` — the background update checker likely prints "run `tiddly upgrade`"; change to `tiddly update`
+- Update `cli/cmd/update_check.go`:
+  - The background update checker prints "run `tiddly upgrade`" (line 88); change to `tiddly update`
+  - The `shouldCheckForUpdates` function (line 27) skips update checks for `case "upgrade"` — must change to `"update"`, otherwise `tiddly update` would show "a new version is available" while already updating
 - Grep for any remaining "upgrade" references in `cli/` and update (README, internal strings, etc.)
 
 **2. Simplify scopes to `user`/`directory` (D1)**
 
-- Find where scope values are defined for both MCP and skills (likely `cli/cmd/skills.go`, `cli/cmd/mcp.go`, or a shared scope constants file; skills constants at `cli/internal/skills/configure.go:19-25`)
-- Replace all scope values: `global` → `user`, `local` → `directory`, `project` → remove
-- For MCP: `--scope user` maps to Claude Code `--scope user`, `--scope directory` maps to Claude Code `--scope local`
-- For skills: `--scope user` maps to user-level skill directories, `--scope directory` maps to CWD-relative skill directories
-- Remove any `project` scope handling (Claude Code `--scope project` / `.mcp.json`)
+- The CLI accepts `--scope user` and `--scope directory` as public-facing values. Translation to upstream-native values happens at the command boundary:
+  - MCP: `user` → Claude Code `--scope user` / Codex user config; `directory` → Claude Code `--scope local` / Codex project config
+  - Skills: `user` → user-level skill directories; `directory` → CWD-relative skill directories
+- In `cli/cmd/mcp.go` and `cli/cmd/skills.go`: accept `user`/`directory`, translate to handler-native values before calling handlers
+- In `cli/internal/skills/configure.go:19-25`: rename `ScopeGlobal`/`ScopeProject` to `ScopeUser`/`ScopeDirectory` (these are Tiddly-owned constants)
+- Handler-internal code keeps upstream values — e.g., `ClaudeCodeHandler.SupportedScopes()` keeps returning `["user", "local"]`; `CodexHandler.SupportedScopes()` keeps returning `["user", "project"]`
+- Remove Claude Code `--scope project` / `.mcp.json` support from the command layer
 - Update help text, validation, and error messages
-- Ensure the default scope for both MCP and skills is `user`
+- Ensure the default scope for both MCP and skills is `user`. The frontend omits `--scope` when `user` is selected since it's the default.
 - Invalid scope errors should list valid options clearly: `invalid scope "local". Valid scopes: user, directory`
 
 **3. Fix Codex skills user-scope path (D7)**
@@ -117,12 +123,15 @@ After this milestone:
 - Find where Codex skills directory paths are defined (see `cli/internal/skills/configure.go:48-52`)
 - Change user-scope path only: `~/.codex/skills/` → `~/.agents/skills/`
 - Directory-scope path (`.agents/skills/`) is already correct — no change needed
+- For the remove/cleanup flow: clean **both** `~/.codex/skills/` and `~/.agents/skills/` when removing user-scope Codex skills, since users may have skills at the old path from before this change
 
-**4. Update `tiddly status` to use new terminology and paths**
+**4. Update `tiddly status` and `tiddly mcp status` to use new terminology and paths**
 
 - `cli/cmd/status.go`: Update help text (line 37: "all scopes" → "user and directory scopes", line 42: "local/project scopes" → "directory scope")
-- Rename `--project-path` flag to `--path`
+- `cli/cmd/mcp.go`: Update `mcp status` help text (line 259: "local/project scopes" → "directory scope")
+- Rename `--project-path` flag to `--path` in **both** `status.go` (line 122) and `mcp.go` (line 280)
 - `cli/internal/skills/scan.go`: Update `ScopeGlobal`/`ScopeProject` references to use new scope names, update Codex user-scope scan path from `~/.codex/skills/` to `~/.agents/skills/`
+- Add deprecated path detection: if skills are found at `~/.codex/skills/`, display them in status output with a "(deprecated path)" label. E.g., `8 skills   ~/.codex/skills/ (deprecated path)`. Only show this line if skills actually exist at the old path.
 - Update any status output formatting that displays scope names
 
 **5. Update `cli/agent_testing_procedure.md`**
@@ -138,7 +147,8 @@ After this milestone:
 All tests are automated Go unit tests. Update existing tests in `cli/cmd/upgrade_test.go` (renamed), `cli/cmd/update_check_test.go`, `cli/cmd/skills_test.go`, `cli/cmd/mcp_test.go`, `cli/cmd/status_test.go`, `cli/internal/skills/configure_test.go`, and `cli/internal/skills/scan_test.go`.
 
 - **`tiddly update` command**: Existing upgrade tests adapted to new name; verify command registers and runs
-- **`tiddly update` in update checker**: Verify background update check message says `tiddly update`
+- **`tiddly update` in update checker message**: Verify background update check message says `tiddly update`
+- **`tiddly update` suppresses update check**: Verify `shouldCheckForUpdates` returns false when running `tiddly update`
 - **MCP `--scope user`**: Verify maps to Claude Code `--scope user` and Codex `~/.codex/config.toml`
 - **MCP `--scope directory`**: Verify maps to Claude Code `--scope local` and Codex `.codex/config.toml`
 - **Skills `--scope user`**: Verify writes to `~/.claude/skills/` (Claude Code) and `~/.agents/skills/` (Codex)
@@ -148,7 +158,10 @@ All tests are automated Go unit tests. Update existing tests in `cli/cmd/upgrade
 - **`tiddly status` output**: Verify scope names in status output use new terminology
 - **`tiddly status` scans correct paths**: Verify Codex user-scope skills scan uses `~/.agents/skills/`
 - **`tiddly status --path`**: Verify renamed flag works (old `--project-path` should not exist)
-- **No old terminology in code**: Grep the `cli/` directory for `ScopeGlobal`, `ScopeProject`, `"global"`, `"local"` (in scope contexts), `"project-path"`, `"upgrade"` to confirm no remnants
+- **`tiddly mcp status --path`**: Verify renamed flag works here too
+- **Deprecated path detection in status**: Verify `tiddly status` shows skills at `~/.codex/skills/` with "(deprecated path)" label when they exist, and omits the line when they don't
+- **Remove cleans both Codex paths**: Verify remove flow cleans both `~/.codex/skills/` and `~/.agents/skills/` for user-scope Codex skills
+- **No old terminology in Tiddly-owned code**: Grep the `cli/` directory for `ScopeGlobal`, `ScopeProject`, `"global"` (in scope contexts), `"project-path"`, `"upgrade"` to confirm no remnants. Note: `"local"` and `"project"` will still appear in handler-internal code that maps to upstream values — this is expected.
 
 ---
 
@@ -183,7 +196,7 @@ In `AISetupWidget.tsx`:
 
 **2. Update command generation**
 
-- `generateCLICommands`: Accepts a single `scope: ScopeType`. Maps `directory` → `--scope directory` for both MCP and skills. Maps `user` → default (no flag needed if user is the default, or `--scope user`).
+- `generateCLICommands`: Accepts a single `scope: ScopeType`. Maps `directory` → `--scope directory` for both MCP and skills. Omits `--scope` when `user` is selected (it's the default).
 - `generateRemoveCommands`: Same single scope. For skills removal:
   - `user` → `~/.claude/skills/`, `~/.agents/skills/`
   - `directory` → `.claude/skills/`, `.agents/skills/`
@@ -194,7 +207,7 @@ In `AISetupWidget.tsx`:
 - Replace both "MCP Scope" and "Skills Scope" selector rows with a single "Scope" row in both configure and remove flows
 - Two pill options: "User" and "Directory"
 - Section label: "Scope"
-- Tooltip on "Directory": "Configuration is stored in the current working directory and only applies when running tools from that location."
+- Tooltip on "Directory": "Configuration only applies when running tools from a specific directory."
 - Remove the Claude Code "Note: Claude Code defaults to local (per-project) scope..." message — no longer relevant with simplified scopes
 
 **4. Simplify scope options**
