@@ -18,7 +18,6 @@ Auth0 access tokens for custom APIs only include `sub` by default — no profile
 
 - Backend correctly reads `email` and `email_verified` from namespaced custom claims in Auth0 access tokens
 - `email_verified` is stored in the database and cache alongside `email`
-- The `/users/me` endpoint returns `email_verified`
 - Dev mode continues to work unchanged
 
 ### Implementation Outline
@@ -66,8 +65,9 @@ Auth0 access tokens for custom APIs only include `sub` by default — no profile
 6. **Update `create_user_with_defaults()`** (`services/user_service.py`)
    - Add `email_verified` parameter, pass to `User()` constructor
 
-7. **Update `UserResponse`** (`api/routers/users.py`)
-   - Add `email_verified: bool | None` to the response model
+7. **Remove `auth0_id` from `UserResponse`** (`api/routers/users.py`)
+   - Remove `auth0_id: str` from the response model — it leaks an Auth0 implementation detail and no client uses it
+   - After this change, `/users/me` returns only `id` and `email`
 
 8. **Update `AuthCache.set()`** (`core/auth_cache.py`)
    - Include `email_verified` in the cached data
@@ -98,8 +98,9 @@ Auth0 access tokens for custom APIs only include `sub` by default — no profile
 - Cache version bump ensures old entries are ignored (cache miss on v3 keys)
 
 **API tests — `/users/me`:**
-- Returns `email_verified` field on cache miss (first request, hits DB)
-- Returns correct `email_verified` field on cache hit (second request, served from cache after schema v4 bump)
+- Returns only `id` and `email` (no `auth0_id`)
+- Returns correct `email` on cache miss (first request, hits DB)
+- Returns correct `email` on cache hit (second request, served from cache after schema v4 bump)
 
 **Migration:**
 - Existing users get `email_verified=NULL` after migration (no data loss, no blocking)
