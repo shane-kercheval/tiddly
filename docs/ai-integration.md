@@ -2,6 +2,8 @@
 
 This document records the official scope terminology used by each AI tool we integrate with, and documents our Tiddly CLI's mapping decisions.
 
+For the decisions and rationale behind our scope simplification, see [implementation_plans/2026-03-14-cli-terminology-cleanup.md](implementation_plans/2026-03-14-cli-terminology-cleanup.md).
+
 ## Official Tool Documentation
 
 ### Claude Code
@@ -25,7 +27,7 @@ From the docs:
 
 Note: Claude Code explicitly renamed `global` → `user` for MCP scopes.
 
-#### Skills Scopes
+#### Skills
 
 Claude Code does **not** have a `--scope` flag for skills. Scope is determined entirely by directory location:
 
@@ -89,54 +91,25 @@ Claude Desktop does not have a CLI or scope flags. MCP servers are configured vi
 
 ## Tiddly CLI Scope Mapping
 
-Our CLI (`tiddly mcp configure`, `tiddly skills configure`) wraps these tools and introduces its own `--scope` flags. This section documents our current mapping and known inconsistencies.
+Our CLI (`tiddly mcp configure`, `tiddly skills configure`) provides two scopes: `user` and `directory`. These map to both MCP and skills for all supported tools.
 
-### Current Implementation
+- **`user`** — available everywhere for the user
+- **`directory`** — scoped to the directory the command is run in
 
-#### `tiddly mcp configure --scope <scope>`
+### Unified Scope Mapping
 
-| Tiddly `--scope` | Claude Code              | Codex                                       | Claude Desktop |
-|-------------------|--------------------------|----------------------------------------------|----------------|
-| `user`            | `--scope user`           | "User-level" (`~/.codex/config.toml`)        | GUI config     |
-| `local`           | `--scope local`          | N/A (not supported)                          | N/A            |
-| `project`         | `--scope project`        | "Project-scoped" (`.codex/config.toml`)      | N/A            |
+| Tiddly scope  | Claude Code MCP                                | Claude Code Skills       | Codex MCP                                    | Codex Skills                              |
+|---------------|------------------------------------------------|--------------------------|----------------------------------------------|-------------------------------------------|
+| `user`        | `--scope user` (`~/.claude.json` top-level)    | `~/.claude/skills/`      | "User-level" (`~/.codex/config.toml`)        | `USER` scope (`~/.agents/skills/`)        |
+| `directory`   | `--scope local` (`~/.claude.json` under project) | `.claude/skills/`      | "Project-scoped" (`.codex/config.toml`)      | `REPO` scope (`.agents/skills/`)          |
 
-#### `tiddly skills configure --scope <scope>`
+Every tool supports both scopes for both MCP and skills. No per-tool scope filtering is needed.
 
-| Tiddly `--scope` | Claude Code                          | Codex                                        |
-|-------------------|--------------------------------------|----------------------------------------------|
-| `global`          | "Personal" (`~/.claude/skills/`)     | `USER` scope (`~/.codex/skills/`)            |
-| `project`         | "Project" (`.claude/skills/`)        | `REPO` scope (`.codex/skills/`)              |
+### Known Limitations
 
-### Known Inconsistencies
+1. **Claude Code `--scope project` not supported**: Claude Code has a third MCP scope (`project`) that writes a shared `.mcp.json` file for team collaboration via version control. Tiddly does not support this because Tiddly is not a team tool. Users who need team-shared MCP config can run `claude mcp add --scope project` directly.
 
-> **TODO**: Review and resolve these.
+2. **No official scope flags for skills**: Neither Claude Code nor Codex have a `--scope` flag for skills — scope is determined by file placement. Our `tiddly skills configure --scope` flag is our own abstraction over directory placement.
 
-1. **`user` vs `global` for the same concept**: Our MCP scope uses `--scope user` while our skills scope uses `--scope global`. Both mean "user-level, available across all projects." Claude Code explicitly renamed `global` → `user` for MCP. Codex calls this level "User-level" for MCP and `USER` for skills. Both upstream tools use "user" terminology — we are the only ones using "global."
+3. **Codex MCP has no `--scope` flag**: Codex uses "user-level" and "project-scoped" terminology but does not have a CLI `--scope` flag. Our CLI maps our scope flags to writing the appropriate config file.
 
-2. **UI label mismatch**: The MCP scope selector shows "User (global)" while the skills scope selector shows "Global". These represent the same concept but use different labels.
-
-3. **Codex skills path**: Our CLI writes skills to `~/.codex/skills/` and `.codex/skills/`, but Codex's official docs say skills live at `$HOME/.agents/skills` (USER scope) and `$CWD/.agents/skills` (REPO scope).
-
-4. **No official scope flags for skills**: Neither Claude Code nor Codex have a `--scope` flag for skills — scope is determined by file placement. Our `tiddly skills configure --scope` flag is our own abstraction over directory placement.
-
-5. **Codex MCP has no `--scope` flag**: Codex uses "user-level" and "project-scoped" terminology but does not have a CLI `--scope` flag. Our CLI maps our `--scope user` / `--scope project` flags to writing the appropriate config file.
-
-## Frontend UI Scope Support Matrix
-
-This is what the Settings > AI Integration page uses to determine which scope options to show for each tool. Scope options are filtered to only show scopes supported by at least one selected tool. If the selected scope becomes unavailable (e.g., deselecting the only tool that supports it), it auto-resets to the default. Warnings appear when some (but not all) selected tools support the chosen scope.
-
-### MCP Scopes
-
-| Tiddly scope | Claude Desktop | Claude Code                | Codex                                   |
-|--------------|----------------|----------------------------|-----------------------------------------|
-| `user`       | Yes (GUI)      | Yes (`--scope user`)       | Yes ("User-level", `~/.codex/config.toml`) |
-| `local`      | —              | Yes (`--scope local`, default) | —                                   |
-| `project`    | —              | Yes (`--scope project`)    | Yes ("Project-scoped", `.codex/config.toml`) |
-
-### Skills Scopes
-
-| Tiddly scope | Claude Desktop          | Claude Code                          | Codex                                    |
-|--------------|-------------------------|--------------------------------------|------------------------------------------|
-| `global`     | Yes (GUI: Capabilities) | Yes ("Personal", `~/.claude/skills/`) | Yes (`USER` scope, `~/.codex/skills/`)  |
-| `project`    | —                       | Yes ("Project", `.claude/skills/`)   | Yes (`REPO` scope, `.codex/skills/`)     |
