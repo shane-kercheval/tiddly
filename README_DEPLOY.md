@@ -289,32 +289,32 @@ Auth0 access tokens for custom APIs don't include profile claims like `email` by
 
 1. Go to **Actions** → **Triggers** → **post-login**
 2. Click **+** (Add Action) → **Create Custom Action**
-3. Name: "Add email claims to access token"
-4. Trigger: Login / Post Login (default)
-5. Runtime: Node 22 (default)
-6. Click **Create**
-7. Replace the `onExecutePostLogin` function with:
+    - Name: "Add email claims to access token"
+    - Trigger: Login / Post Login (default)
+    - Runtime: Node 22 (default)
+3. Click **Create**
+4. Replace the `onExecutePostLogin` function with:
 
-   ```javascript
-   exports.onExecutePostLogin = async (event, api) => {
-     const namespace = 'https://tiddly.me';
-     if (event.authorization) {
-       api.accessToken.setCustomClaim(
-         `${namespace}/email`,
-         event.user.email ?? null
-       );
-       api.accessToken.setCustomClaim(
-         `${namespace}/email_verified`,
-         event.user.email_verified ?? false
-       );
-     }
-   };
-   ```
+```javascript
+exports.onExecutePostLogin = async (event, api) => {
+    const namespace = 'https://tiddly.me';
+    if (event.authorization) {
+    api.accessToken.setCustomClaim(
+        `${namespace}/email`,
+        event.user.email ?? null
+    );
+    api.accessToken.setCustomClaim(
+        `${namespace}/email_verified`,
+        event.user.email_verified ?? false
+    );
+    }
+};
+```
 
-8. Click **Deploy**
-9. Click **Back to Triggers** → **post-login**
-10. **Drag** the new action from the right panel into the flow (between **Start** and **Complete**)
-11. Click **Apply**
+5. Click **Deploy**
+6. Click **Back to Triggers** → **post-login**
+7. **Drag** the new action from the right panel into the flow (between **Start** and **Complete**)
+8. Click **Apply**
 
 **To verify:** Log in, grab the access token from browser dev tools (Network tab → any API request → `Authorization: Bearer <token>` header), paste it into [jwt.io](https://jwt.io), and confirm the payload contains `https://tiddly.me/email` and `https://tiddly.me/email_verified`.
 
