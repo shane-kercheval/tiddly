@@ -16,8 +16,8 @@ async def test_get_me_in_dev_mode_returns_dev_user(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     data = response.json()
-    assert data["auth0_id"] == "dev|local-development-user"
     assert data["email"] == "dev@localhost"
+    assert "auth0_id" not in data
 
 
 async def test_get_me_creates_user_on_first_request(
@@ -62,10 +62,26 @@ async def test_get_me_response_structure(client: AsyncClient) -> None:
 
     data = response.json()
     assert "id" in data
-    assert "auth0_id" in data
     assert "email" in data
+    assert "auth0_id" not in data
     assert isinstance(data["id"], str)
-    assert isinstance(data["auth0_id"], str)
+
+
+async def test_get_me_returns_correct_email_on_cache_miss_and_hit(
+    client: AsyncClient,
+) -> None:
+    """Email is correct on both cache miss (first request) and cache hit (second request)."""
+    response1 = await client.get("/users/me")
+    assert response1.status_code == 200
+    data1 = response1.json()
+    assert data1["email"] == "dev@localhost"
+
+    # Second request served from cache (schema v4)
+    response2 = await client.get("/users/me")
+    assert response2.status_code == 200
+    data2 = response2.json()
+    assert data2["email"] == "dev@localhost"
+    assert data1["id"] == data2["id"]
 
 
 class TestGetMyLimits:

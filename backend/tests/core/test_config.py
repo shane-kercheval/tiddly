@@ -15,6 +15,7 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="http://localhost:5173",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.cors_origins == ["http://localhost:5173"]
 
@@ -26,6 +27,7 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="http://localhost:5173,https://example.com",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.cors_origins == [
             "http://localhost:5173",
@@ -40,6 +42,7 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="  http://localhost:5173 , https://example.com  ",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.cors_origins == [
             "http://localhost:5173",
@@ -54,6 +57,7 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.cors_origins == []
 
@@ -65,6 +69,7 @@ class TestCorsOriginsParsing:
             database_url="postgresql://test",
             CORS_ORIGINS="http://localhost:5173,",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.cors_origins == ["http://localhost:5173"]
 
@@ -77,6 +82,7 @@ class TestCorsOriginsParsing:
             _env_file=None,
             database_url="postgresql://test",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.cors_origins == ["http://localhost:5173"]
 
@@ -94,6 +100,7 @@ class TestAuth0Config:
             VITE_AUTH0_CLIENT_ID="test-client-id",
             VITE_AUTH0_AUDIENCE="https://test-api",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.auth0_domain == "test.auth0.com"
         assert settings.auth0_client_id == "test-client-id"
@@ -111,6 +118,7 @@ class TestAuth0Config:
             _env_file=None,  # Don't load from .env file
             database_url="postgresql://test",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.auth0_domain == ""
         assert settings.auth0_client_id == ""
@@ -124,6 +132,7 @@ class TestAuth0Config:
             database_url="postgresql://test",
             VITE_AUTH0_DOMAIN="test.auth0.com",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.auth0_issuer == "https://test.auth0.com/"
 
@@ -135,6 +144,7 @@ class TestAuth0Config:
             database_url="postgresql://test",
             VITE_AUTH0_DOMAIN="test.auth0.com",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.auth0_jwks_url == "https://test.auth0.com/.well-known/jwks.json"
 
@@ -200,6 +210,7 @@ class TestDevModeSecurityValidation:
             _env_file=None,
             database_url="postgresql://prod-db.railway.app:5432/bookmarks",
             VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://test.example.com",
         )
         assert settings.dev_mode is False
 
@@ -216,3 +227,42 @@ class TestDevModeSecurityValidation:
                 database_url="postgresql:///database",
                 VITE_DEV_MODE="true",
             )
+
+
+class TestAuth0CustomClaimNamespace:
+    """Tests for AUTH0_CUSTOM_CLAIM_NAMESPACE validation."""
+
+    def test__production_requires_namespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Non-dev mode raises error when namespace is empty."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
+        monkeypatch.delenv("AUTH0_CUSTOM_CLAIM_NAMESPACE", raising=False)
+        with pytest.raises(
+            ValueError,
+            match="AUTH0_CUSTOM_CLAIM_NAMESPACE is required",
+        ):
+            Settings(
+                _env_file=None,
+                database_url="postgresql://test",
+                VITE_DEV_MODE="false",
+            )
+
+    def test__dev_mode_allows_empty_namespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Dev mode allows empty namespace (auth is bypassed)."""
+        monkeypatch.delenv("AUTH0_CUSTOM_CLAIM_NAMESPACE", raising=False)
+        settings = Settings(
+            _env_file=None,
+            database_url="postgresql://localhost:5432/test",
+            VITE_DEV_MODE="true",
+        )
+        assert settings.auth0_custom_claim_namespace == ""
+
+    def test__trailing_slash_stripped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Trailing slash is stripped from namespace."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
+        settings = Settings(
+            _env_file=None,
+            database_url="postgresql://test",
+            VITE_DEV_MODE="false",
+            AUTH0_CUSTOM_CLAIM_NAMESPACE="https://tiddly.me/",
+        )
+        assert settings.auth0_custom_claim_namespace == "https://tiddly.me"

@@ -270,3 +270,173 @@ class TestEmailMismatchCacheFallthrough:
         )
         db_user = result.scalar_one()
         assert db_user.email == "added@test.com"
+
+
+class TestGetOrCreateUserEmailVerified:
+    """Tests for get_or_create_user with email_verified."""
+
+    async def test__creates_user_with_email_verified_true(
+        self,
+        db_session: AsyncSession,
+        redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """User can be created with email_verified=True."""
+        from core.auth import get_or_create_user  # noqa: PLC0415
+
+        auth0_id = "auth0|ev-test-1"
+        user = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=True,
+        )
+        await db_session.commit()
+
+        assert user.email_verified is True
+
+    async def test__creates_user_with_email_verified_none(
+        self,
+        db_session: AsyncSession,
+        redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """User created without email_verified has None."""
+        from core.auth import get_or_create_user  # noqa: PLC0415
+
+        auth0_id = "auth0|ev-test-2"
+        user = await get_or_create_user(db_session, auth0_id=auth0_id)
+        await db_session.commit()
+
+        assert user.email_verified is None
+
+    async def test__updates_email_verified_from_none_to_true(
+        self,
+        db_session: AsyncSession,
+        redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """email_verified can be updated from None to True on subsequent login."""
+        from core.auth import get_or_create_user  # noqa: PLC0415
+
+        auth0_id = "auth0|ev-test-3"
+        user1 = await get_or_create_user(db_session, auth0_id=auth0_id, email="ev@test.com")
+        await db_session.commit()
+        assert user1.email_verified is None
+
+        auth_cache = get_auth_cache()
+        if auth_cache:
+            await auth_cache.invalidate(user1.id, auth0_id)
+
+        user2 = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=True,
+        )
+        await db_session.commit()
+
+        assert user2.id == user1.id
+        assert user2.email_verified is True
+
+    async def test__updates_email_verified_from_false_to_true(
+        self,
+        db_session: AsyncSession,
+        redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """email_verified can be updated from False to True."""
+        from core.auth import get_or_create_user  # noqa: PLC0415
+
+        auth0_id = "auth0|ev-test-4"
+        user1 = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=False,
+        )
+        await db_session.commit()
+        assert user1.email_verified is False
+
+        auth_cache = get_auth_cache()
+        if auth_cache:
+            await auth_cache.invalidate(user1.id, auth0_id)
+
+        user2 = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=True,
+        )
+        await db_session.commit()
+
+        assert user2.id == user1.id
+        assert user2.email_verified is True
+
+    async def test__email_verified_not_overwritten_with_none(
+        self,
+        db_session: AsyncSession,
+        redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """email_verified is NOT overwritten with None when claim is missing."""
+        from core.auth import get_or_create_user  # noqa: PLC0415
+
+        auth0_id = "auth0|ev-test-5"
+        user1 = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=True,
+        )
+        await db_session.commit()
+
+        auth_cache = get_auth_cache()
+        if auth_cache:
+            await auth_cache.invalidate(user1.id, auth0_id)
+
+        user2 = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=None,
+        )
+
+        assert user2.id == user1.id
+        assert user2.email_verified is True
+
+    async def test__email_and_email_verified_updated_together(
+        self,
+        db_session: AsyncSession,
+        redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """Email and email_verified are updated together when email changes."""
+        from core.auth import get_or_create_user  # noqa: PLC0415
+
+        auth0_id = "auth0|ev-test-6"
+        user1 = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="old@test.com", email_verified=False,
+        )
+        await db_session.commit()
+
+        auth_cache = get_auth_cache()
+        if auth_cache:
+            await auth_cache.invalidate(user1.id, auth0_id)
+
+        user2 = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="new@test.com", email_verified=True,
+        )
+        await db_session.commit()
+
+        assert user2.id == user1.id
+        assert user2.email == "new@test.com"
+        assert user2.email_verified is True
+
+    async def test__email_verified_stale_on_cache_hit(
+        self,
+        db_session: AsyncSession,
+        redis_client: RedisClient,  # noqa: ARG002
+    ) -> None:
+        """
+        email_verified is NOT updated on cache hit (by design).
+
+        email_verified is informational and not used for access control,
+        so staleness up to cache TTL (5 min) is acceptable. This test
+        documents that intentional behavior.
+        """
+        from core.auth import get_or_create_user  # noqa: PLC0415
+
+        auth0_id = "auth0|ev-test-stale"
+
+        # Create user with email_verified=False (populates cache)
+        user1 = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=False,
+        )
+        await db_session.commit()
+        assert user1.email_verified is False
+
+        # Second call with email_verified=True but same email — cache hit
+        result = await get_or_create_user(
+            db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=True,
+        )
+
+        # Returns cached user with stale email_verified
+        assert isinstance(result, CachedUser)
+        assert result.email_verified is False

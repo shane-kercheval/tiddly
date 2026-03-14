@@ -31,6 +31,7 @@ class CachedUser:
     id: UUID
     auth0_id: str
     email: str | None
+    email_verified: bool | None
     consent_privacy_version: str | None
     consent_tos_version: str | None
     tier: str

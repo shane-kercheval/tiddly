@@ -138,6 +138,7 @@ async def get_or_create_user(
     db: AsyncSession,
     auth0_id: str,
     email: str | None = None,
+    email_verified: bool | None = None,
 ) -> User | CachedUser:
     """
     Get user from cache or database.
@@ -145,9 +146,10 @@ async def get_or_create_user(
     Returns CachedUser on cache hit, User ORM object on cache miss.
 
     Safe attributes (available on both types):
-    - id: int
+    - id: UUID
     - auth0_id: str
     - email: str | None
+    - email_verified: bool | None
 
     Consent fields (different access patterns):
     - CachedUser: consent_privacy_version, consent_tos_version (direct attributes)
@@ -167,7 +169,11 @@ async def get_or_create_user(
     if auth_cache:
         cached = await auth_cache.get_by_auth0_id(auth0_id)
         if cached:
-            # Check if email update needed (can't update cache directly, skip to DB)
+            # Fall through to DB if email changed (can't update cache directly).
+            # Note: email_verified is intentionally NOT checked here. It's an
+            # informational field not used for access control, so staleness up to
+            # cache TTL (5 min) is acceptable. Avoiding a DB hit on every request
+            # for a rarely-changing field is the right tradeoff.
             if email and cached.email != email:
                 logger.debug("auth_cache email_mismatch, falling through to DB")
             else:
@@ -183,7 +189,9 @@ async def get_or_create_user(
 
     if user is None:
         try:
-            user = await user_service.create_user_with_defaults(db, auth0_id, email)
+            user = await user_service.create_user_with_defaults(
+                db, auth0_id, email, email_verified=email_verified,
+            )
         except IntegrityError:
             # Race condition: another request created the user between our SELECT
             # and INSERT. Rollback and fetch the existing user.
@@ -195,11 +203,13 @@ async def get_or_create_user(
             )
             user = result.scalar_one()
 
-    # Update email if changed in Auth0 (applies to both existing users and
-    # users fetched after race condition recovery)
+    # Update email/email_verified if changed in Auth0 (applies to both existing
+    # users and users fetched after race condition recovery)
     if email and user.email != email:
         user.email = email
-        await db.flush()
+    if email_verified is not None and user.email_verified != email_verified:
+        user.email_verified = email_verified
+    await db.flush()
 
     # Populate cache
     if auth_cache:
@@ -436,8 +446,12 @@ async def _authenticate_user(
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
-            email = payload.get("email")
-            user = await get_or_create_user(db, auth0_id=auth0_id, email=email)
+            namespace = settings.auth0_custom_claim_namespace
+            email = payload.get(f"{namespace}/email") if namespace else payload.get("email")
+            email_verified = payload.get(f"{namespace}/email_verified") if namespace else None
+            user = await get_or_create_user(
+                db, auth0_id=auth0_id, email=email, email_verified=email_verified,
+            )
 
     # Set request context for content versioning audit trail
     source = _get_request_source(request)

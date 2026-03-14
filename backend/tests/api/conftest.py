@@ -62,7 +62,11 @@ async def create_user2_client(
         yield db_session
 
     def override_get_settings() -> Settings:
-        return Settings(database_url='postgresql://test', dev_mode=False)
+        return Settings(
+            database_url='postgresql://test',
+            dev_mode=False,
+            auth0_custom_claim_namespace="https://test.example.com",
+        )
 
     app.dependency_overrides[get_async_session] = override_get_async_session
     app.dependency_overrides[get_settings] = override_get_settings

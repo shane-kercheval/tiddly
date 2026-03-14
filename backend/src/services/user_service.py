@@ -9,9 +9,10 @@ async def create_user_with_defaults(
     db: AsyncSession,
     auth0_id: str,
     email: str | None = None,
+    email_verified: bool | None = None,
 ) -> User:
     """Create a user and default content filters."""
-    user = User(auth0_id=auth0_id, email=email)
+    user = User(auth0_id=auth0_id, email=email, email_verified=email_verified)
     db.add(user)
     await db.flush()
     # New user has no consent - set explicitly to avoid lazy load

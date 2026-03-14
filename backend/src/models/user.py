@@ -31,6 +31,7 @@ class User(Base, UUIDv7Mixin, TimestampMixin):
         comment="Auth0 'sub' claim - unique identifier from Auth0",
     )
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email_verified: Mapped[bool | None] = mapped_column(nullable=True, default=None)
     tier: Mapped[str] = mapped_column(
         String(50),
         default="free",

@@ -66,6 +66,7 @@ def mock_settings_no_dev_mode() -> Settings:
     settings.dev_mode = False
     settings.frontend_url = "http://localhost:5173"
     settings.api_url = "http://localhost:8000"
+    settings.auth0_custom_claim_namespace = "https://test.example.com"
     return settings
 
 

@@ -1,11 +1,15 @@
-"""Tests for user creation defaults."""
+"""
+Tests for user creation defaults.
+
+Note: Imports from core.auth are done inside test methods to avoid triggering
+Settings validation during test collection (before DATABASE_URL is set by fixtures).
+"""
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.content_filter import ContentFilter
-from core.auth import get_or_create_user
 from services import user_service
 
 
@@ -37,6 +41,8 @@ async def test__create_user_with_defaults__creates_default_filters(
 async def test__create_user_with_defaults__does_not_recreate_deleted_defaults(
     db_session: AsyncSession,
 ) -> None:
+    from core.auth import get_or_create_user  # noqa: PLC0415
+
     user = await get_or_create_user(
         db_session,
         auth0_id="test|default-lists-delete",

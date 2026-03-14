@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 #   v1: Initial version with id: int
 #   v2: Changed id from int to UUID (UUIDv7 migration)
 #   v3: Added tier field for tier-based limits
-CACHE_SCHEMA_VERSION = 3
+#   v4: Added email_verified field
+CACHE_SCHEMA_VERSION = 4
 
 
 class AuthCache:
@@ -100,6 +101,7 @@ class AuthCache:
             id=user.id,
             auth0_id=user.auth0_id,
             email=user.email,
+            email_verified=user.email_verified,
             consent_privacy_version=(
                 user.consent.privacy_policy_version if user.consent else None
             ),
