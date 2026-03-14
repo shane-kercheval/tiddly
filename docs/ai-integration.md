@@ -76,7 +76,11 @@ Codex uses named scope levels for skills directories. There is no `--scope` CLI 
 | **`ADMIN`**  | `/etc/codex/skills`            | Machine/container-level shared       |
 | **`SYSTEM`** | Bundled with Codex             | Built-in skills by OpenAI            |
 
-Note: Codex skills use `$HOME/.agents/skills` (not `$HOME/.codex/skills`).
+Per the [Codex source code](https://github.com/openai/codex/blob/main/codex-rs/core/src/skills/loader.rs), Codex scans **both** `$CODEX_HOME/skills/` (i.e., `~/.codex/skills/`) and `$HOME/.agents/skills/` for user-scope skills. The source explicitly marks `$CODEX_HOME/skills/` as **"Deprecated user skills location, kept for backward compatibility."** The canonical path per docs and source is `$HOME/.agents/skills/`.
+
+Note: only the **skills** subdirectory moved from `~/.codex/` to `~/.agents/`. Codex config (`config.toml`, history, logs) still lives at `~/.codex/` — that is not deprecated.
+
+`$HOME` is a standard OS environment variable present on all platforms. `$CODEX_HOME` is an optional override that defaults to `~/.codex` if not set. No platform-specific path variation between macOS, Linux, and Windows.
 
 #### General Config Hierarchy
 
@@ -91,7 +95,7 @@ Claude Desktop does not have a CLI or scope flags. MCP servers are configured vi
 
 ## Tiddly CLI Scope Mapping
 
-Our CLI (`tiddly mcp configure`, `tiddly skills configure`) provides two scopes: `user` and `directory`. These map to both MCP and skills for all supported tools.
+Our CLI (`tiddly mcp configure`, `tiddly skills configure`) will provide two scopes: `user` and `directory`. These map to both MCP and skills for all supported tools. See [implementation plan](implementation_plans/2026-03-14-cli-terminology-cleanup.md) for the migration from the current `user`/`local`/`project`/`global` scopes.
 
 - **`user`** — available everywhere for the user
 - **`directory`** — scoped to the directory the command is run in
