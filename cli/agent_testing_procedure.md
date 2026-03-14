@@ -74,7 +74,14 @@ echo "Test project dir: $TEST_PROJECT"
 
 ### OAuth Login (engineer must do this manually)
 
-The agent **cannot** complete the OAuth device flow — it requires opening a browser and entering a code. Prompt the engineer to run the following in their terminal:
+The agent **cannot** complete the OAuth device flow — it requires opening a browser and entering a code.
+
+**IMPORTANT:** The exports and login **must** run in the same terminal session that will run Claude Code. The agent's Bash tool inherits the shell environment from the terminal that launched it. If the engineer logs in from a different terminal, the agent won't have access to the OAuth session or env vars.
+
+Instruct the engineer to:
+
+1. **Exit/stop the current Claude Code session** (if already running)
+2. Run the following in that same terminal:
 
 ```bash
 export TIDDLY_API_URL=http://localhost:8000
@@ -86,9 +93,11 @@ export TIDDLY_AUTH0_AUDIENCE=bookmarks-api
 bin/tiddly login
 ```
 
+3. **Resume the Claude Code session** from the same terminal
+
 The exports only persist for the current shell session and won't affect future `tiddly` usage.
 
-Verify login succeeded:
+Verify login succeeded (the agent can run these after resuming):
 
 ```bash
 bin/tiddly auth status
