@@ -224,7 +224,7 @@ func ExtractBinary(tarGzReader io.Reader) ([]byte, error) {
 // On Windows, returns an error with a download URL suggestion.
 func ReplaceBinary(newBinary []byte) error {
 	if runtime.GOOS == "windows" {
-		return fmt.Errorf("automatic upgrade not supported on Windows. Download the latest release from https://github.com/%s/%s/releases", defaultOwner, defaultRepo)
+		return fmt.Errorf("automatic update not supported on Windows. Download the latest release from https://github.com/%s/%s/releases", defaultOwner, defaultRepo)
 	}
 
 	execPath, err := os.Executable()
@@ -253,10 +253,10 @@ func ReplaceBinaryAt(newBinary []byte, execPath string) error {
 
 	// Write to temp file in same directory (required for atomic rename on same filesystem)
 	dir := filepath.Dir(execPath)
-	tmp, err := os.CreateTemp(dir, "tiddly-upgrade-*")
+	tmp, err := os.CreateTemp(dir, "tiddly-update-*")
 	if err != nil {
 		if os.IsPermission(err) {
-			return fmt.Errorf("permission denied writing to %s. Run: sudo tiddly upgrade", execPath)
+			return fmt.Errorf("permission denied writing to %s. Run: sudo tiddly update", execPath)
 		}
 		return fmt.Errorf("creating temp file: %w", err)
 	}
@@ -284,7 +284,7 @@ func ReplaceBinaryAt(newBinary []byte, execPath string) error {
 	// Atomic rename
 	if err := os.Rename(tmpPath, execPath); err != nil {
 		if os.IsPermission(err) {
-			return fmt.Errorf("permission denied writing to %s. Run: sudo tiddly upgrade", execPath)
+			return fmt.Errorf("permission denied writing to %s. Run: sudo tiddly update", execPath)
 		}
 		return fmt.Errorf("replacing binary: %w", err)
 	}

@@ -47,7 +47,7 @@ func TestMCPConfigure__invalid_scope(t *testing.T) {
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "invalid scope")
-	assert.Contains(t, result.Err.Error(), "user, local, project")
+	assert.Contains(t, result.Err.Error(), "user, directory")
 }
 
 func TestMCPConfigure__invalid_servers_flag(t *testing.T) {
@@ -358,45 +358,48 @@ func TestParseServersFlag__invalid(t *testing.T) {
 	}
 }
 
-func TestMCPConfigure__scope_local_with_codex_explicit_returns_error(t *testing.T) {
+func TestMCPConfigure__old_scope_local_rejected(t *testing.T) {
 	store := testutil.CredsWithPAT("bm_test123")
-	viper.Reset()
-	tm := auth.NewTokenManager(store, nil)
-
-	// Mock looker that detects codex
-	looker := testutil.NewMockExecLooker()
-	looker.Paths["codex"] = "/usr/bin/codex"
-
-	SetDeps(&AppDeps{
-		CredStore:    store,
-		TokenManager: tm,
-		ConfigDir:    "",
-		ExecLooker:   looker,
-	})
-	t.Cleanup(func() {
-		appDeps = nil
-		viper.Reset()
-	})
+	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "codex", "--scope", "local")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "--scope", "local")
 
 	require.Error(t, result.Err)
-	assert.Contains(t, result.Err.Error(), "not supported by")
-	assert.Contains(t, result.Err.Error(), "codex")
+	assert.Contains(t, result.Err.Error(), "invalid scope")
+	assert.Contains(t, result.Err.Error(), "user, directory")
 }
 
-func TestMCPConfigure__scope_local_with_multiple_tools_fails_before_any_configure(t *testing.T) {
-	// When explicit tools are passed, scope is pre-validated for ALL tools before
-	// any configures happen. This prevents partial application (e.g. claude-code
-	// configured but codex fails).
+func TestMCPConfigure__old_scope_project_rejected(t *testing.T) {
+	store := testutil.CredsWithPAT("bm_test123")
+	setupTestDeps(t, store)
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "--scope", "project")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "invalid scope")
+	assert.Contains(t, result.Err.Error(), "user, directory")
+}
+
+func TestMCPConfigure__old_scope_global_rejected(t *testing.T) {
+	store := testutil.CredsWithPAT("bm_test123")
+	setupTestDeps(t, store)
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "--scope", "global")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "invalid scope")
+	assert.Contains(t, result.Err.Error(), "user, directory")
+}
+
+func TestMCPConfigure__claude_desktop_directory_scope_rejected(t *testing.T) {
 	store := testutil.CredsWithPAT("bm_test123")
 	viper.Reset()
 	tm := auth.NewTokenManager(store, nil)
 
 	looker := testutil.NewMockExecLooker()
-	looker.Paths["claude"] = "/usr/bin/claude"
-	looker.Paths["codex"] = "/usr/bin/codex"
 
 	dir := t.TempDir()
 	SetDeps(&AppDeps{
@@ -405,8 +408,7 @@ func TestMCPConfigure__scope_local_with_multiple_tools_fails_before_any_configur
 		ConfigDir:    "",
 		ExecLooker:   looker,
 		ToolHandlers: handlersWithOverrides(map[string]string{
-			"claude-code": filepath.Join(dir, "claude.json"),
-			"codex":       filepath.Join(dir, "codex-config.toml"),
+			"claude-desktop": filepath.Join(dir, "claude_desktop_config.json"),
 		}),
 	})
 	t.Cleanup(func() {
@@ -415,73 +417,23 @@ func TestMCPConfigure__scope_local_with_multiple_tools_fails_before_any_configur
 	})
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "claude-code", "codex", "--scope", "local")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "claude-desktop", "--scope", "directory")
 
 	require.Error(t, result.Err)
-	assert.Contains(t, result.Err.Error(), "codex")
-
-	// Verify no config files were written (pre-validation failed before configure)
-	_, err := os.Stat(filepath.Join(dir, "claude.json"))
-	assert.True(t, os.IsNotExist(err), "claude-code config should not have been written")
+	assert.Contains(t, result.Err.Error(), "not supported by")
+	assert.Contains(t, result.Err.Error(), "claude-desktop")
 }
 
-func TestMCPConfigure__auto_detect_skips_unsupported_scope(t *testing.T) {
-	// Auto-detect with --scope local should skip codex (doesn't support local)
-	// and configure claude-code only, not abort.
+func TestMCPRemove__old_scope_local_rejected(t *testing.T) {
 	store := testutil.CredsWithPAT("bm_test123")
-	viper.Reset()
-	tm := auth.NewTokenManager(store, nil)
-
-	looker := testutil.NewMockExecLooker()
-	looker.Paths["claude"] = "/usr/bin/claude"
-	looker.Paths["codex"] = "/usr/bin/codex"
-
-	SetDeps(&AppDeps{
-		CredStore:    store,
-		TokenManager: tm,
-		ConfigDir:    "",
-		ExecLooker:   looker,
-	})
-	t.Cleanup(func() {
-		appDeps = nil
-		viper.Reset()
-	})
+	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	// No tool arg = auto-detect. --scope local is unsupported by codex but fine for claude-code.
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "--scope", "local")
-
-	// Should succeed (claude-code configured), not fail because codex doesn't support local
-	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "claude-code")
-	// Stderr should have skip message for codex
-	assert.Contains(t, result.Stderr, "Skipping codex")
-}
-
-func TestMCPRemove__scope_local_with_codex_returns_error(t *testing.T) {
-	store := testutil.CredsWithPAT("bm_test123")
-	viper.Reset()
-	tm := auth.NewTokenManager(store, nil)
-
-	looker := testutil.NewMockExecLooker()
-	looker.Paths["codex"] = "/usr/bin/codex"
-
-	SetDeps(&AppDeps{
-		CredStore:    store,
-		TokenManager: tm,
-		ConfigDir:    "",
-		ExecLooker:   looker,
-	})
-	t.Cleanup(func() {
-		appDeps = nil
-		viper.Reset()
-	})
-
-	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "codex", "--scope", "local")
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--scope", "local")
 
 	require.Error(t, result.Err)
-	assert.Contains(t, result.Err.Error(), "not supported by codex")
+	assert.Contains(t, result.Err.Error(), "invalid scope")
+	assert.Contains(t, result.Err.Error(), "user, directory")
 }
 
 func TestMCPStatus__project_path_flag(t *testing.T) {
@@ -491,7 +443,7 @@ func TestMCPStatus__project_path_flag(t *testing.T) {
 	dir := t.TempDir()
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "mcp", "status", "--project-path", dir)
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "status", "--path", dir)
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "MCP Servers (project: "+dir+")")

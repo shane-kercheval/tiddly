@@ -44,20 +44,21 @@ func newSkillsConfigureCmd() *cobra.Command {
 		Long: `Configure your Tiddly prompts as agent skills.
 
 Each prompt is written as a Markdown skill file ({skill-name}/SKILL.md) to the tool's skills directory. The destination varies by tool and scope:
-  claude-code (global)  — ~/.claude/skills/
-  claude-code (project) — .claude/skills/
-  codex (global)        — ~/.codex/skills/
+  claude-code (user)       — ~/.claude/skills/
+  claude-code (directory)  — .claude/skills/
+  codex (user)             — ~/.agents/skills/
+  codex (directory)        — .agents/skills/
 
 Re-configuring overwrites existing skill files but does not remove skills whose prompts have been deleted. For Claude Desktop, a .zip file is exported instead — upload it manually via Settings > Skills.
 
 By default, only prompts tagged "skill" are configured (matching the frontend default). Use --tags "" to configure all prompts.
 
 Examples:
-  tiddly skills configure                         Auto-detect tools and configure skills
-  tiddly skills configure claude-code             Configure skills for a specific tool
-  tiddly skills configure --scope project         Configure to project-level paths
-  tiddly skills configure --tags python,skill     Only configure prompts with these tags
-  tiddly skills configure --tags ""               Configure all prompts (no tag filter)`,
+  tiddly skills configure                            Auto-detect tools and configure skills
+  tiddly skills configure claude-code                Configure skills for a specific tool
+  tiddly skills configure --scope directory           Configure to directory-level paths
+  tiddly skills configure --tags python,skill        Only configure prompts with these tags
+  tiddly skills configure --tags ""                  Configure all prompts (no tag filter)`,
 		ValidArgs: validSkillsTools,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate scope
@@ -97,14 +98,27 @@ Examples:
 				}
 			}
 
+			// Pre-validate scope for explicit tools before configuring
+			if len(args) > 0 {
+				var unsupported []string
+				for _, tool := range tools {
+					if tool == "claude-desktop" && scope == skills.ScopeDirectory {
+						unsupported = append(unsupported, tool)
+					}
+				}
+				if len(unsupported) > 0 {
+					return fmt.Errorf("--scope %s is not supported by: %s", scope, strings.Join(unsupported, ", "))
+				}
+			}
+
 			tagList := parseTags(tags)
 
 			ctx := cmd.Context()
 			w := cmd.OutOrStdout()
 			errW := cmd.ErrOrStderr()
 
-			// Warn if --scope project is used outside a project directory
-			if scope == skills.ScopeProject {
+			// Warn if --scope directory is used outside a project directory
+			if scope == skills.ScopeDirectory {
 				warnIfNotProjectDir(errW)
 			}
 
@@ -145,7 +159,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&scope, "scope", "global", "Extraction scope: global (default) or project")
+	cmd.Flags().StringVar(&scope, "scope", "user", "Extraction scope: user (default) or directory")
 	cmd.Flags().StringVar(&tags, "tags", "skill", `Comma-separated tag filter (use "" for all)`)
 	cmd.Flags().StringVar(&tagMatch, "tag-match", "", `Tag matching mode: "all" (default) or "any"`)
 

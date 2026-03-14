@@ -77,7 +77,7 @@ cli/
     export.go                 # tiddly export
     completion.go             # tiddly completion bash/zsh/fish
     config.go                 # tiddly config list/get/set
-    upgrade.go                # tiddly upgrade (self-update)
+    update.go                 # tiddly update (self-update)
     update_check.go           # Background auto-update notification
   internal/
     api/                      # HTTP client
@@ -175,10 +175,10 @@ The install script (`cli/install.sh`) detects OS/arch, downloads the matching ar
 
 **Self-update:**
 ```bash
-tiddly upgrade
+tiddly update
 ```
 
-Calls the GitHub API for the latest release, compares versions using semver, downloads and verifies the archive, then atomically replaces the running binary via `os.Rename`. On permission errors, it suggests `sudo tiddly upgrade`. Windows is not supported for self-update (returns an error with a download link).
+Calls the GitHub API for the latest release, compares versions using semver, downloads and verifies the archive, then atomically replaces the running binary via `os.Rename`. On permission errors, it suggests `sudo tiddly update`. Windows is not supported for self-update (returns an error with a download link).
 
 **Auto-update notification:**
 
@@ -215,7 +215,7 @@ go build -ldflags "-X github.com/shane-kercheval/tiddly/cli/cmd.cliVersion=1.2.3
 | `.github/workflows/cli-release.yaml` | Triggers on `cli/v*` tags, runs GoReleaser |
 | `cli/install.sh` | POSIX shell installer for `curl \| sh` |
 | `cli/internal/update/update.go` | GitHub API, checksum verification, atomic binary replace |
-| `cli/cmd/upgrade.go` | `tiddly upgrade` command |
+| `cli/cmd/update.go` | `tiddly update` command |
 | `cli/cmd/update_check.go` | Background auto-update check |
 | `cli/internal/config/state.go` | Persists `last_update_check` (separate from config.yaml) |
 

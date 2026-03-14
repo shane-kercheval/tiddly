@@ -142,6 +142,7 @@ After this milestone:
 - Update test checklists to reflect the simplified two-scope model (remove `--scope local`, `--scope project`, `--scope global` test cases; add `--scope user` and `--scope directory`)
 - Verify backup/restore helpers reference correct paths
 
+
 ### Testing Strategy
 
 All tests are automated Go unit tests. Update existing tests in `cli/cmd/upgrade_test.go` (renamed), `cli/cmd/update_check_test.go`, `cli/cmd/skills_test.go`, `cli/cmd/mcp_test.go`, `cli/cmd/status_test.go`, `cli/internal/skills/configure_test.go`, and `cli/internal/skills/scan_test.go`.
@@ -323,6 +324,7 @@ After this milestone:
 - Codex skills paths are corrected
 - Known limitations are documented
 - The test file header comment in `SettingsMCP.test.tsx` reflects the new architecture
+- All public-facing docs pages and `llms.txt` use the new terminology
 
 ### Implementation Outline
 
@@ -332,6 +334,13 @@ In `docs/ai-integration.md`:
 
 In `SettingsMCP.test.tsx`:
 - Update the scenario matrix comment at top of file to reflect the simplified scope model
+
+Update public-facing docs pages and `llms.txt` to match CLI behavior:
+- `frontend/public/llms.txt`: Update scopes, `--project-path` → `--path`, `tiddly upgrade` → `tiddly update`
+- `frontend/src/pages/docs/DocsCLIHub.tsx`: `tiddly upgrade` → `tiddly update`
+- `frontend/src/pages/docs/DocsCLISkills.tsx`: Update scope terminology, Codex skills path `~/.codex/skills/` → `~/.agents/skills/`
+- `frontend/src/pages/docs/DocsCLIReference.tsx`: `--project-path` → `--path`
+- `frontend/src/pages/docs/DocsCLIMCP.tsx`: Update scope terminology (`--scope local` → `--scope directory`, etc.)
 
 ### Testing Strategy
 

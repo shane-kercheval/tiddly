@@ -24,7 +24,7 @@ func shouldCheckForUpdates(cmd *cobra.Command, configDir string) bool {
 	// Check the full command ancestry so subcommands (e.g. "config get") are also skipped.
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "upgrade", "completion", "help", "config":
+		case "update", "completion", "help", "config":
 			return false
 		}
 	}
@@ -85,7 +85,7 @@ func startUpdateCheck(ctx context.Context, checker update.Checker, configDir str
 		}
 
 		if update.IsNewer(cliVersion, release.Version) {
-			ch <- fmt.Sprintf("A new version of tiddly is available: %s (current: %s). Run 'tiddly upgrade' to update.", update.DisplayVersion(release.Version), update.DisplayVersion(cliVersion))
+			ch <- fmt.Sprintf("A new version of tiddly is available: %s (current: %s). Run 'tiddly update' to update.", update.DisplayVersion(release.Version), update.DisplayVersion(cliVersion))
 		} else {
 			ch <- ""
 		}

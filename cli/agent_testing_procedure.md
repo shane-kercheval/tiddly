@@ -62,7 +62,7 @@ backup_file ~/.codex/config.toml "$BACKUP_DIR/config.toml"
 
 # Back up skills directories
 backup_dir ~/.claude/skills "$BACKUP_DIR/claude-skills"
-backup_dir ~/.codex/skills "$BACKUP_DIR/codex-skills"
+backup_dir ~/.agents/skills "$BACKUP_DIR/codex-skills"
 
 # Record existing tokens so cleanup only deletes tokens created during testing
 bin/tiddly tokens list 2>/dev/null > "$BACKUP_DIR/tokens-before.txt" || true
@@ -146,19 +146,19 @@ bin/tiddly status
 - [ ] Output includes: `Tiddly CLI v`, `Authentication:`, `API:`, `MCP Servers:`, `Skills:`
 - [ ] Shows detection status for each tool (claude-desktop, claude-code, codex)
 - [ ] MCP Servers section shows tree with all scopes per tool (user, local, project)
-- [ ] Skills section shows tree with global/project scopes per tool
+- [ ] Skills section shows tree with global/directory scopes per tool
 - [ ] Header shows `MCP Servers:` (no project path when using default cwd)
 
 ```bash
-bin/tiddly status --project-path /path/to/project
+bin/tiddly status --path /path/to/project
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Header shows `MCP Servers (project: /path/to/project):`
-- [ ] local/project scopes reflect config for specified project path
+- [ ] directory scope reflects config for specified path
 
 ```bash
-bin/tiddly status --project-path /nonexistent/path
+bin/tiddly status --path /nonexistent/path
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -199,11 +199,11 @@ bin/tiddly login --token "bm_definitely_not_valid_token"
 
 ### Coverage Matrix
 
-| Tool | user | local | project |
-|------|------|-------|---------|
-| claude-code | T3.1 | T3.5 | T3.4 |
-| claude-desktop | T3.8 | unsupported (T9.5a) | unsupported (T9.5b) |
-| codex | T3.6 | unsupported (T9.4) | T3.7 |
+| Tool | user | directory |
+|------|------|-----------|
+| claude-code | T3.1 | T3.5 |
+| claude-desktop | T3.8 | user only |
+| codex | T3.6 | T3.7 |
 
 ### T3.1 — Claude Code, user scope (default)
 ```bash
@@ -239,19 +239,9 @@ bin/tiddly mcp configure claude-code --servers prompts
 - [ ] `~/.claude.json` contains `mcpServers.tiddly_prompts`
 - [ ] `tiddly_notes_bookmarks` from T3.2 is still present (--servers prompts must not delete content)
 
-### T3.4 — Claude Code, project scope
+### T3.4 — Claude Code, directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope project
-```
-**Verify:**
-- [ ] Exit code 0
-- [ ] `$TEST_PROJECT/.mcp.json` exists (new file)
-- [ ] Contains `mcpServers.tiddly_notes_bookmarks` and `mcpServers.tiddly_prompts`
-- [ ] `~/.claude.json` was NOT modified by this command
-
-### T3.5 — Claude Code, local scope
-```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope local
+cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope directory
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -272,9 +262,9 @@ bin/tiddly mcp configure codex
   - URL matching `TIDDLY_PROMPT_MCP_URL`
 - [ ] Existing non-tiddly sections preserved
 
-### T3.7 — Codex, project scope
+### T3.7 — Codex, directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp configure codex --scope project
+cd "$TEST_PROJECT" && bin/tiddly mcp configure codex --scope directory
 ```
 **Verify:**
 - [ ] Exit code 0
@@ -332,13 +322,13 @@ bin/tiddly mcp configure claude-code --dry-run
 - [ ] `After:` section shows `tiddly_notes_bookmarks` and `tiddly_prompts` entries
 - [ ] `~/.claude.json` was NOT modified (compare checksum before/after)
 
-### T4.2 — Dry-run, new file scenario
+### T4.2 — Dry-run, directory scope
 ```bash
-cd "$TEST_PROJECT" && rm -f .mcp.json && bin/tiddly mcp configure claude-code --scope project --dry-run
+cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope directory --dry-run
 ```
 **Verify:**
-- [ ] Output contains `(new file)`
-- [ ] `$TEST_PROJECT/.mcp.json` does NOT exist after command
+- [ ] Output shows diff for `~/.claude.json` under project path key
+- [ ] `~/.claude.json` was NOT modified (dry-run only)
 
 ### T4.3 — Dry-run, placeholder tokens
 ```bash
@@ -383,17 +373,17 @@ bin/tiddly mcp status
 
 ### T5.2 — Status with explicit project path
 ```bash
-bin/tiddly mcp status --project-path "$TEST_PROJECT"
+bin/tiddly mcp status --path "$TEST_PROJECT"
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] Header shows `MCP Servers (project: $TEST_PROJECT):`
-- [ ] local/project scopes reflect config for specified project
+- [ ] local/directory scopes reflect config for specified project
 - [ ] claude-code local scope shows `~/.claude.json → projects[...]`
 
 ### T5.3 — Status with invalid project path
 ```bash
-bin/tiddly mcp status --project-path /nonexistent/path
+bin/tiddly mcp status --path /nonexistent/path
 ```
 **Verify:**
 - [ ] Exit code non-zero
@@ -415,14 +405,14 @@ bin/tiddly mcp remove claude-code
 - [ ] Other non-tiddly entries in `~/.claude.json` preserved
 - [ ] Stderr may contain orphaned token warning
 
-### T6.2 — Remove Claude Code, project scope
+### T6.2 — Remove Claude Code, directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope project
-cd "$TEST_PROJECT" && bin/tiddly mcp remove claude-code --scope project
+cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope directory
+cd "$TEST_PROJECT" && bin/tiddly mcp remove claude-code --scope directory
 ```
 **Verify:**
-- [ ] `$TEST_PROJECT/.mcp.json` no longer contains tiddly server entries
-- [ ] `~/.claude.json` was NOT modified
+- [ ] `~/.claude.json` no longer contains tiddly server entries under `projects["$TEST_PROJECT"]`
+- [ ] Top-level `mcpServers` in `~/.claude.json` is NOT modified
 
 ### T6.3 — Remove Codex
 ```bash
@@ -483,7 +473,7 @@ bin/tiddly mcp remove claude-code  # already uninstalled from T6.1
 
 ## Test Group 7: Skills Configure
 
-### T7.1 — Skills configure, Claude Code, global scope (default)
+### T7.1 — Skills configure, Claude Code, user scope (default)
 ```bash
 bin/tiddly skills configure claude-code
 ```
@@ -491,31 +481,31 @@ bin/tiddly skills configure claude-code
 - [ ] Exit code 0
 - [ ] Output contains either `claude-code: Installed N skill(s) to ~/.claude/skills` or `claude-code: No skills to install.`
 
-### T7.2 — Skills configure, Claude Code, project scope
+### T7.2 — Skills configure, Claude Code, directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills configure claude-code --scope project
+cd "$TEST_PROJECT" && bin/tiddly skills configure claude-code --scope directory
 ```
 **Verify:**
 - [ ] Exit code 0
 - [ ] If skills exist: output contains `claude-code: Installed N skill(s) to .claude/skills`
 - [ ] Skills extracted to `$TEST_PROJECT/.claude/skills/`
 
-### T7.3 — Skills configure, Codex, global scope
+### T7.3 — Skills configure, Codex, user scope
 ```bash
 bin/tiddly skills configure codex
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Output references `~/.codex/skills`
+- [ ] Output references `~/.agents/skills`
 
-### T7.4 — Skills configure, Codex, project scope
+### T7.4 — Skills configure, Codex, directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills configure codex --scope project
+cd "$TEST_PROJECT" && bin/tiddly skills configure codex --scope directory
 ```
 **Verify:**
 - [ ] Skills extracted to `$TEST_PROJECT/.agents/skills/`
 
-### T7.5 — Skills configure, Claude Desktop, global scope
+### T7.5 — Skills configure, Claude Desktop, user scope
 ```bash
 bin/tiddly skills configure claude-desktop
 ```
@@ -555,7 +545,7 @@ bin/tiddly skills configure --scope invalid
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `invalid scope "invalid". Valid scopes: global, project`
+- [ ] Error contains `invalid scope "invalid". Valid scopes: user, directory`
 
 ---
 
@@ -604,31 +594,23 @@ bin/tiddly mcp configure claude-code --scope bad-scope
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `invalid scope "bad-scope". Valid scopes: user, local, project`
+- [ ] Error contains `invalid scope "bad-scope". Valid scopes: user, directory`
 
-### T9.4 — Unsupported scope: Codex + local
+### T9.4 — Old scope "local" rejected
 ```bash
-bin/tiddly mcp configure codex --scope local
+bin/tiddly mcp configure claude-code --scope local
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `--scope local is not supported by: codex (valid: user, project)`
+- [ ] Error contains `invalid scope "local". Valid scopes: user, directory`
 
-### T9.5a — Unsupported scope: Claude Desktop + local
+### T9.5 — Old scope "project" rejected
 ```bash
-bin/tiddly mcp configure claude-desktop --scope local
+bin/tiddly mcp configure claude-code --scope project
 ```
 **Verify:**
 - [ ] Exit code non-zero
-- [ ] Error contains `--scope local is not supported by: claude-desktop (valid: user)`
-
-### T9.5b — Unsupported scope: Claude Desktop + project
-```bash
-bin/tiddly mcp configure claude-desktop --scope project
-```
-**Verify:**
-- [ ] Exit code non-zero
-- [ ] Error contains `--scope project is not supported by: claude-desktop (valid: user)`
+- [ ] Error contains `invalid scope "project". Valid scopes: user, directory`
 
 ### T9.6 — Invalid --servers flag
 ```bash
@@ -655,13 +637,13 @@ bin/tiddly mcp configure claude-desktop  # if Claude Desktop is not detected
 - [ ] Exit code non-zero
 - [ ] Error contains `claude-desktop is not installed on this system`
 
-### T9.9 — Claude Desktop + skills --scope project
+### T9.9 — Claude Desktop + skills --scope directory
 ```bash
-bin/tiddly skills configure claude-desktop --scope project
+bin/tiddly skills configure claude-desktop --scope directory
 ```
 **Verify:**
 - [ ] Exit code non-zero (or error in output)
-- [ ] Error contains `claude-desktop does not support --scope project`
+- [ ] Error contains `claude-desktop does not support --scope directory`
 
 ---
 
@@ -711,7 +693,7 @@ restore_file "$BACKUP_DIR/config.toml" ~/.codex/config.toml
 
 # Restore skills directories
 restore_dir "$BACKUP_DIR/claude-skills" ~/.claude/skills
-restore_dir "$BACKUP_DIR/codex-skills" ~/.codex/skills
+restore_dir "$BACKUP_DIR/codex-skills" ~/.agents/skills
 ```
 
 ### Step 3: T10.1 — Logout and verify commands fail
@@ -838,7 +820,7 @@ These items require human verification and cannot be automated by an agent:
 }
 ```
 
-### Claude Code — project scope (`.mcp.json` in project root)
+### Claude Code — directory scope (`~/.claude.json` under project key)
 Same top-level structure as user scope (the `mcpServers` key is at the root of the file).
 
 ### Codex — user scope (`~/.codex/config.toml`)
@@ -856,7 +838,7 @@ url = "https://prompts-mcp.tiddly.me/mcp"
 Authorization = "Bearer bm_XXXXX"
 ```
 
-### Codex — project scope (`.codex/config.toml` in project root)
+### Codex — directory scope (`.codex/config.toml` in project root)
 Same TOML structure as user scope.
 
 ---
@@ -888,8 +870,8 @@ Same TOML structure as user scope.
 
 ## Reference: Skills Extraction Paths
 
-| Tool | global scope | project scope |
+| Tool | user scope | directory scope |
 |------|-------------|---------------|
 | claude-code | `~/.claude/skills/` | `.claude/skills/` (relative to cwd) |
-| codex | `~/.codex/skills/` | `.agents/skills/` (relative to cwd) |
+| codex | `~/.agents/skills/` | `.agents/skills/` (relative to cwd, canonical per Codex docs) |
 | claude-desktop | Saves zip to `/tmp/tiddly-skills-*.zip` | Not supported |

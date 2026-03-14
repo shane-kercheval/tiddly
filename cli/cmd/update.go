@@ -11,19 +11,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newUpgradeCmd() *cobra.Command {
+func newUpdateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "upgrade",
-		Short: "Upgrade Tiddly CLI to the latest version",
+		Use:   "update",
+		Short: "Update Tiddly CLI to the latest version",
 		Long: `Download and install the latest version of the Tiddly CLI.
 
-  tiddly upgrade    Download and replace the current binary
+  tiddly update    Download and replace the current binary
 
 The binary is verified via SHA256 checksum before replacement.
 On Linux/macOS, the binary is replaced atomically via rename.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runtime.GOOS == "windows" {
-				return fmt.Errorf("automatic upgrade not supported on Windows. Download the latest release from https://github.com/shane-kercheval/tiddly/releases")
+				return fmt.Errorf("automatic update not supported on Windows. Download the latest release from https://github.com/shane-kercheval/tiddly/releases")
 			}
 
 			ctx := cmd.Context()

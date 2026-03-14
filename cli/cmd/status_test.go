@@ -85,25 +85,25 @@ func TestStatus__shows_version(t *testing.T) {
 	assert.Contains(t, result.Stdout, "Tiddly CLI vdev")
 }
 
-func TestStatus__project_path_flag_accepted(t *testing.T) {
+func TestStatus__path_flag_accepted(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
 	dir := t.TempDir()
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "status", "--project-path", dir)
+	result := testutil.ExecuteCmd(t, cmd, "status", "--path", dir)
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "Tiddly CLI vdev")
 }
 
-func TestStatus__invalid_project_path_returns_error(t *testing.T) {
+func TestStatus__invalid_path_returns_error(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "status", "--project-path", "/nonexistent/path/xyz")
+	result := testutil.ExecuteCmd(t, cmd, "status", "--path", "/nonexistent/path/xyz")
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "does not exist")
@@ -147,24 +147,28 @@ func TestStatus__shows_tree_output(t *testing.T) {
 	// Tree connectors should appear
 	assert.Contains(t, result.Stdout, "├──")
 	assert.Contains(t, result.Stdout, "└──")
-	// Scope labels
+	// Scope labels should use Tiddly terminology, not handler-native
 	assert.Contains(t, result.Stdout, "user")
+	assert.Contains(t, result.Stdout, "directory")
+	// Hints should suggest valid CLI flags
+	assert.NotContains(t, result.Stdout, "--scope local")
+	assert.NotContains(t, result.Stdout, "--scope project")
 	// Tiddly servers section
 	assert.Contains(t, result.Stdout, "Tiddly servers:")
 	assert.Contains(t, result.Stdout, "claude-code")
-	// Header should NOT show (project: ...) when --project-path is not passed
+	// Header should NOT show (project: ...) when --path is not passed
 	assert.Contains(t, result.Stdout, "MCP Servers:")
 	assert.NotContains(t, result.Stdout, "MCP Servers (project:")
 }
 
-func TestStatus__shows_project_path_in_header(t *testing.T) {
+func TestStatus__shows_path_in_header(t *testing.T) {
 	store := testutil.NewMockCredStore()
 	setupTestDeps(t, store)
 
 	dir := t.TempDir()
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "status", "--project-path", dir)
+	result := testutil.ExecuteCmd(t, cmd, "status", "--path", dir)
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "MCP Servers (project: "+dir+")")
@@ -339,7 +343,7 @@ func TestStatus__shows_skills_section(t *testing.T) {
 	require.NoError(t, os.MkdirAll(skillDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Test"), 0644))
 
-	cleanupOverride := skills.SetToolPathOverride("claude-code", "global", skillsDir)
+	cleanupOverride := skills.SetToolPathOverride("claude-code", "user", skillsDir)
 	t.Cleanup(cleanupOverride)
 
 	cmd := newRootCmd()
