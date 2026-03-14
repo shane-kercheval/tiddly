@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
 
 interface RoadmapItem {
@@ -14,20 +14,14 @@ interface RoadmapColumn {
   items: RoadmapItem[]
 }
 
+const INITIAL_VISIBLE_COUNT = 7
+
 const ROADMAP: RoadmapColumn[] = [
   {
     title: 'Backlog',
-    description: 'Ideas we want to explore.',
+    description: 'Planned work we intend to build.',
     accentColor: 'border-t-gray-300',
     items: [
-      {
-        title: 'AI-assisted features',
-        description: 'Tag suggestions, auto-generated descriptions, and smart summaries.',
-      },
-      {
-        title: 'AI chat',
-        description: 'Conversational interface for searching and managing content.',
-      },
       {
         title: 'OAuth for MCP',
         description: 'Connect MCP clients like ChatGPT without personal access tokens.',
@@ -41,10 +35,6 @@ const ROADMAP: RoadmapColumn[] = [
         description: 'Save and search bookmarks directly from Safari.',
       },
       {
-        title: 'Chrome extension editing',
-        description: 'Edit bookmarks and notes directly from the extension popup.',
-      },
-      {
         title: 'Image support',
         description: 'Attach images to bookmarks and notes.',
       },
@@ -55,10 +45,6 @@ const ROADMAP: RoadmapColumn[] = [
       {
         title: 'Content encryption',
         description: 'End-to-end encryption for sensitive content.',
-      },
-      {
-        title: 'Integrations',
-        description: 'Google Docs, Confluence, and other third-party connections.',
       },
     ],
   },
@@ -71,10 +57,6 @@ const ROADMAP: RoadmapColumn[] = [
         title: 'Mobile app',
         description: 'Native mobile experience backed by the existing API.',
       },
-      {
-        title: 'CLI',
-        description: 'Command-line interface for power users and scripting.',
-      },
     ],
   },
   {
@@ -82,6 +64,26 @@ const ROADMAP: RoadmapColumn[] = [
     description: 'Recently launched.',
     accentColor: 'border-t-green-500',
     items: [
+      {
+        title: 'Tiddly CLI',
+        description: 'Command-line tool for configuring MCP servers and syncing agent skills.',
+        date: '2026-03',
+      },
+      {
+        title: 'Public docs site',
+        description: 'AI integration guides, content types, search, versioning, and keyboard shortcuts.',
+        date: '2026-03',
+      },
+      {
+        title: 'Keyboard navigation',
+        description: 'Arrow keys to navigate content lists, Enter to open.',
+        date: '2026-03',
+      },
+      {
+        title: 'PAT rename',
+        description: 'Rename Personal Access Tokens from the settings page.',
+        date: '2026-03',
+      },
       {
         title: 'Chrome extension',
         description: 'Save and search bookmarks from any page.',
@@ -136,15 +138,38 @@ const ROADMAP: RoadmapColumn[] = [
   },
 ]
 
+const IDEAS: RoadmapItem[] = [
+  {
+    title: 'AI-assisted features',
+    description: 'Tag suggestions, auto-generated descriptions, and smart summaries.',
+  },
+  {
+    title: 'AI chat',
+    description: 'Conversational interface for searching and managing content.',
+  },
+  {
+    title: 'Chrome extension editing',
+    description: 'Edit bookmarks and notes directly from the extension popup.',
+  },
+  {
+    title: 'Integrations',
+    description: 'Google Docs, Confluence, and other third-party connections.',
+  },
+]
+
 function RoadmapColumnCard({ column }: { column: RoadmapColumn }): ReactNode {
+  const [expanded, setExpanded] = useState(false)
+  const hasMore = column.items.length > INITIAL_VISIBLE_COUNT
+  const visibleItems = expanded ? column.items : column.items.slice(0, INITIAL_VISIBLE_COUNT)
+
   return (
     <div className={`rounded-xl border border-gray-200 border-t-4 ${column.accentColor}`}>
       <div className="p-6">
         <h2 className="text-lg font-bold text-gray-900">{column.title}</h2>
         <p className="mt-1 text-sm text-gray-500">{column.description}</p>
       </div>
-      <div className="space-y-3 px-6 pb-6">
-        {column.items.map((item) => (
+      <div className="space-y-3 px-6 pb-4">
+        {visibleItems.map((item) => (
           <div key={item.title} className="rounded-lg bg-gray-50 p-4">
             <h3 className="text-sm font-semibold text-gray-900">{item.title}</h3>
             <p className="mt-1 text-sm text-gray-600">{item.description}</p>
@@ -153,6 +178,38 @@ function RoadmapColumnCard({ column }: { column: RoadmapColumn }): ReactNode {
                 {item.date}
               </span>
             )}
+          </div>
+        ))}
+        {hasMore && (
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            className="w-full rounded-lg border border-gray-200 py-1 text-xs text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+          >
+            {expanded
+              ? 'Show less'
+              : `View ${column.items.length - INITIAL_VISIBLE_COUNT} more`}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function IdeasSection(): ReactNode {
+  return (
+    <div className="mt-8 rounded-xl border border-gray-200 border-t-4 border-t-violet-400">
+      <div className="p-6">
+        <h2 className="text-lg font-bold text-gray-900">Ideas</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Things we're considering. These may evolve, merge, or never happen.
+        </p>
+      </div>
+      <div className="grid gap-3 px-6 pb-6 sm:grid-cols-2">
+        {IDEAS.map((item) => (
+          <div key={item.title} className="rounded-lg bg-gray-50 p-4">
+            <h3 className="text-sm font-semibold text-gray-900">{item.title}</h3>
+            <p className="mt-1 text-sm text-gray-600">{item.description}</p>
           </div>
         ))}
       </div>
@@ -180,6 +237,8 @@ export function Roadmap(): ReactNode {
           <RoadmapColumnCard key={column.title} column={column} />
         ))}
       </div>
+
+      <IdeasSection />
     </div>
   )
 }
