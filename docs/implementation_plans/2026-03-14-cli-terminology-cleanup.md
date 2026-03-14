@@ -2,6 +2,8 @@
 
 Resolves inconsistencies between our CLI/UI scope terminology and upstream tool conventions. Also improves the Settings > AI Integration UX.
 
+**Terminology consistency applies everywhere** — not just user-facing strings. Internal code (variable names, constants, type names, comments), test names and assertions, inline comments, and documentation must all use the new `user`/`directory` terminology. Old terms like `global`, `local`, `project`, `ScopeGlobal`, `ScopeProject`, `McpScopeType`, `SkillsScopeType`, etc. should not appear anywhere in the codebase after this work is complete.
+
 Background research and official tool documentation: [docs/ai-integration.md](../ai-integration.md)
 
 ## Decisions
@@ -62,9 +64,11 @@ Rename `upgrade` → `update` across CLI, frontend docs, and install instruction
 
 ### D7: Codex skills path correction
 
-Our CLI currently writes Codex skills to `~/.codex/skills/` and `.codex/skills/`, but Codex's official docs say skills live at `$HOME/.agents/skills` (USER scope) and `$CWD/.agents/skills` (REPO scope).
+Our CLI currently writes Codex user-scope skills to `~/.codex/skills/`. Per the [Codex source code](https://github.com/openai/codex/blob/main/codex-rs/core/src/skills/loader.rs), this path is explicitly marked as **"Deprecated user skills location, kept for backward compatibility."** The canonical path per docs and source is `$HOME/.agents/skills/`. Codex currently scans both locations, but we should write to the canonical path.
 
-Update CLI to write to `~/.agents/skills/` (user) and `.agents/skills/` (directory). Update the remove flow's `rm -rf` paths accordingly.
+The directory-scope path (`.agents/skills/`) is already correct in our CLI — no change needed there.
+
+Update CLI to write user-scope Codex skills to `~/.agents/skills/` (was `~/.codex/skills/`). Update the remove flow's `rm -rf` paths accordingly.
 
 ---
 
@@ -80,6 +84,7 @@ After this milestone:
 - `tiddly mcp configure` accepts `--scope user` and `--scope directory` (replaces `--scope user`/`--scope local`/`--scope project`)
 - Codex skills are written to `~/.agents/skills/` (user) and `.agents/skills/` (directory) matching official Codex docs
 - All CLI help text and error messages reflect the new terminology
+- `tiddly status` output uses new scope names and scans the correct Codex skills path
 
 ### Implementation Outline
 
@@ -98,18 +103,27 @@ After this milestone:
 
 **2. Simplify scopes to `user`/`directory` (D1)**
 
-- Find where scope values are defined for both MCP and skills (likely `cli/cmd/skills.go`, `cli/cmd/mcp.go`, or a shared scope constants file)
+- Find where scope values are defined for both MCP and skills (likely `cli/cmd/skills.go`, `cli/cmd/mcp.go`, or a shared scope constants file; skills constants at `cli/internal/skills/configure.go:19-25`)
 - Replace all scope values: `global` → `user`, `local` → `directory`, `project` → remove
 - For MCP: `--scope user` maps to Claude Code `--scope user`, `--scope directory` maps to Claude Code `--scope local`
 - For skills: `--scope user` maps to user-level skill directories, `--scope directory` maps to CWD-relative skill directories
 - Remove any `project` scope handling (Claude Code `--scope project` / `.mcp.json`)
 - Update help text, validation, and error messages
+- Ensure the default scope for both MCP and skills is `user`
+- Invalid scope errors should list valid options clearly: `invalid scope "local". Valid scopes: user, directory`
 
-**3. Fix Codex skills paths (D7)**
+**3. Fix Codex skills user-scope path (D7)**
 
-- Find where Codex skills directory paths are defined
-- Change user-scope path: `~/.codex/skills/` → `~/.agents/skills/`
-- Change directory-scope path: `.codex/skills/` → `.agents/skills/`
+- Find where Codex skills directory paths are defined (see `cli/internal/skills/configure.go:48-52`)
+- Change user-scope path only: `~/.codex/skills/` → `~/.agents/skills/`
+- Directory-scope path (`.agents/skills/`) is already correct — no change needed
+
+**4. Update `tiddly status` to use new terminology and paths**
+
+- `cli/cmd/status.go`: Update help text (line 37: "all scopes" → "user and directory scopes", line 42: "local/project scopes" → "directory scope")
+- Rename `--project-path` flag to `--path`
+- `cli/internal/skills/scan.go`: Update `ScopeGlobal`/`ScopeProject` references to use new scope names, update Codex user-scope scan path from `~/.codex/skills/` to `~/.agents/skills/`
+- Update any status output formatting that displays scope names
 
 ### Testing Strategy
 
@@ -119,8 +133,10 @@ After this milestone:
 - **MCP `--scope directory`**: Verify maps to Claude Code `--scope local` and Codex `.codex/config.toml`
 - **Skills `--scope user`**: Verify writes to `~/.claude/skills/` (Claude Code) and `~/.agents/skills/` (Codex)
 - **Skills `--scope directory`**: Verify writes to `.claude/skills/` (Claude Code) and `.agents/skills/` (Codex)
-- **`--scope project` rejected**: Verify `--scope project` and `--scope global` and `--scope local` are not accepted
+- **Old scopes rejected**: Verify `--scope project`, `--scope global`, and `--scope local` are not accepted; error message lists valid options
 - **Help text**: Verify help output shows `user` and `directory` as the only scope options
+- **`tiddly status` output**: Verify scope names in status output use new terminology
+- **`tiddly status` scans correct paths**: Verify Codex user-scope skills scan uses `~/.agents/skills/`
 
 ---
 
@@ -132,8 +148,9 @@ Simplify the Settings > AI Integration UI to a single scope selector with clear,
 
 After this milestone:
 - One "Scope" selector with two options: "User" and "Directory"
-- Both options always available — no per-tool filtering, warnings, or auto-reset logic
+- Both options always available for Claude Code and Codex — no per-tool filtering or auto-reset logic
 - Scope applies to both MCP and skills commands
+- Claude Desktop + "Directory" scope shows an error and hides steps (Claude Desktop only supports user scope for both MCP and skills)
 - All `SCOPE_SUPPORT` matrices, `getAvailableScopes()`, `getScopeWarnings()`, and auto-reset `useMemo`/effective-scope logic removed
 
 ### Implementation Outline
@@ -178,6 +195,12 @@ In `AISetupWidget.tsx`:
   ]
   ```
 
+**5. Claude Desktop + Directory scope error**
+
+- Claude Desktop only supports user scope for both MCP and skills (the CLI returns `"claude-desktop does not support --scope project"`)
+- When Claude Desktop is the **only** selected tool and scope is "Directory", show an error message and hide the steps/command. E.g., "Claude Desktop only supports User scope. Select User scope, or add another tool."
+- When Claude Desktop is selected alongside other tools and scope is "Directory", skip Claude Desktop in the generated commands — the other tools will still work. No warning needed since Claude Desktop is not a CLI tool and this is the expected behavior.
+
 ### Testing Strategy
 
 - **Single scope selector visible**: Verify one "Scope" selector appears (not "MCP Scope" + "Skills Scope")
@@ -193,6 +216,9 @@ In `AISetupWidget.tsx`:
 - **No Codex old paths**: Verify no references to `~/.codex/skills/` or `.codex/skills/` anywhere in generated commands
 - **Default scope**: "User" is selected by default
 - **Configure command join**: User scope → commands joined with `&&`. Directory scope → `cd` prepended, commands joined with newlines.
+- **Claude Desktop only + Directory scope**: Shows error message, hides steps/command
+- **Claude Desktop only + User scope**: Works normally
+- **Claude Desktop + other tools + Directory scope**: Generates commands for other tools, Claude Desktop silently excluded from CLI commands (Claude Desktop is a GUI tool, not a CLI tool)
 
 ---
 
