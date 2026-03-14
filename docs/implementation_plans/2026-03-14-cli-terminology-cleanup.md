@@ -125,7 +125,17 @@ After this milestone:
 - `cli/internal/skills/scan.go`: Update `ScopeGlobal`/`ScopeProject` references to use new scope names, update Codex user-scope scan path from `~/.codex/skills/` to `~/.agents/skills/`
 - Update any status output formatting that displays scope names
 
+**5. Update `cli/agent_testing_procedure.md`**
+
+- Update all scope references: `global` → `user`, `local`/`project` → `directory`
+- Update all path references: `~/.codex/skills/` → `~/.agents/skills/`, `--project-path` → `--path`
+- Update `tiddly upgrade` → `tiddly update`
+- Update test checklists to reflect the simplified two-scope model (remove `--scope local`, `--scope project`, `--scope global` test cases; add `--scope user` and `--scope directory`)
+- Verify backup/restore helpers reference correct paths
+
 ### Testing Strategy
+
+All tests are automated Go unit tests. Update existing tests in `cli/cmd/upgrade_test.go` (renamed), `cli/cmd/update_check_test.go`, `cli/cmd/skills_test.go`, `cli/cmd/mcp_test.go`, `cli/cmd/status_test.go`, `cli/internal/skills/configure_test.go`, and `cli/internal/skills/scan_test.go`.
 
 - **`tiddly update` command**: Existing upgrade tests adapted to new name; verify command registers and runs
 - **`tiddly update` in update checker**: Verify background update check message says `tiddly update`
@@ -137,6 +147,8 @@ After this milestone:
 - **Help text**: Verify help output shows `user` and `directory` as the only scope options
 - **`tiddly status` output**: Verify scope names in status output use new terminology
 - **`tiddly status` scans correct paths**: Verify Codex user-scope skills scan uses `~/.agents/skills/`
+- **`tiddly status --path`**: Verify renamed flag works (old `--project-path` should not exist)
+- **No old terminology in code**: Grep the `cli/` directory for `ScopeGlobal`, `ScopeProject`, `"global"`, `"local"` (in scope contexts), `"project-path"`, `"upgrade"` to confirm no remnants
 
 ---
 
@@ -202,6 +214,8 @@ In `AISetupWidget.tsx`:
 - When Claude Desktop is selected alongside other tools and scope is "Directory", skip Claude Desktop in the generated commands — the other tools will still work. No warning needed since Claude Desktop is not a CLI tool and this is the expected behavior.
 
 ### Testing Strategy
+
+All tests are automated Vitest tests in `frontend/src/pages/settings/SettingsMCP.test.tsx`. Update existing tests and add new ones. Remove tests for separate Skills Scope selector, scope filtering, scope warnings, and auto-reset logic.
 
 - **Single scope selector visible**: Verify one "Scope" selector appears (not "MCP Scope" + "Skills Scope")
 - **Two options only**: Verify "User" and "Directory" pills, no "Local", "Project", "User (global)", or "Global"
@@ -272,6 +286,8 @@ In `DocsCLIHub.tsx`:
 - Change `tiddly upgrade` reference to `tiddly update`.
 
 ### Testing Strategy
+
+All tests are automated Vitest tests in `frontend/src/pages/settings/SettingsMCP.test.tsx` (for AISetupWidget) and `frontend/src/pages/docs/DocsAIHub.test.tsx` (for DocsCLIHub).
 
 - **File details visible when command shown**: Verify `<details>` element renders when there are selections and a command is generated
 - **File details hidden when no command**: Verify details section is absent when nothing is selected
