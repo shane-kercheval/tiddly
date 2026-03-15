@@ -142,7 +142,7 @@ Authenticate, configure MCP servers, sync skills, export data, and manage tokens
 	rootCmd.AddCommand(newTokensCmd())
 	rootCmd.AddCommand(newCompletionCmd())
 	rootCmd.AddCommand(newConfigCmd())
-	rootCmd.AddCommand(newUpgradeCmd())
+	rootCmd.AddCommand(newUpdateCmd())
 
 	return rootCmd
 }

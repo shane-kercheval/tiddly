@@ -36,19 +36,19 @@ tiddly skills configure claude-code codex                # multiple tools
 tiddly skills configure --tags python,skill --tag-match all  # prompts matching all tags (default)
 tiddly skills configure --tags python,skill --tag-match any  # prompts matching any tag
 tiddly skills configure --tags ""                         # configure all prompts (no tag filter)
-tiddly skills configure --scope project                   # configure to project-level paths`} />
+tiddly skills configure --scope directory                  # configure to directory-level paths`} />
 
       <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">What happens per client</h3>
       <ul className="list-disc list-inside space-y-2 text-sm text-gray-600 mb-4">
         <li>
           <strong>Claude Code:</strong> extracts tar.gz to{' '}
-          <code className="bg-gray-100 px-1 rounded">~/.claude/skills/</code> (global) or{' '}
-          <code className="bg-gray-100 px-1 rounded">.claude/skills/</code> (project)
+          <code className="bg-gray-100 px-1 rounded">~/.claude/skills/</code> (user) or{' '}
+          <code className="bg-gray-100 px-1 rounded">.claude/skills/</code> (directory)
         </li>
         <li>
           <strong>Codex:</strong> extracts tar.gz to{' '}
-          <code className="bg-gray-100 px-1 rounded">~/.codex/skills/</code> (global) or{' '}
-          <code className="bg-gray-100 px-1 rounded">.agents/skills/</code> (project)
+          <code className="bg-gray-100 px-1 rounded">~/.agents/skills/</code> (user) or{' '}
+          <code className="bg-gray-100 px-1 rounded">.agents/skills/</code> (directory)
         </li>
         <li>
           <strong>Claude Desktop:</strong> saves zip to a temp file for manual upload via
@@ -92,16 +92,16 @@ tiddly skills list --tags python         # list skills filtered by tags`} />
           </thead>
           <tbody className="text-sm text-gray-600">
             <tr className="border-b border-gray-100">
-              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">global</code> (default)</td>
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">user</code> (default)</td>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.claude/skills/</code></td>
-              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.codex/skills/</code></td>
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.agents/skills/</code></td>
               <td className="py-2 text-gray-400">N/A (zip download)</td>
             </tr>
             <tr>
-              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">project</code></td>
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">directory</code></td>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">.claude/skills/</code></td>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">.agents/skills/</code></td>
-              <td className="py-2 text-gray-400">Error</td>
+              <td className="py-2 text-gray-400">Not supported</td>
             </tr>
           </tbody>
         </table>
@@ -132,7 +132,7 @@ tiddly skills list --tags python         # list skills filtered by tags`} />
             <tr>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--scope</code></td>
               <td className="py-2 pr-4">configure</td>
-              <td className="py-2">global (default) or project</td>
+              <td className="py-2">user (default) or directory</td>
             </tr>
           </tbody>
         </table>

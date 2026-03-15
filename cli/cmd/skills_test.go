@@ -37,7 +37,7 @@ func TestSkillsConfigure__with_mock_api(t *testing.T) {
 
 	// Override tool path for testing
 	destDir := t.TempDir()
-	cleanup := skills.SetToolPathOverride("claude-code", "global", filepath.Join(destDir, "skills"))
+	cleanup := skills.SetToolPathOverride("claude-code", "user", filepath.Join(destDir, "skills"))
 	defer cleanup()
 
 	cmd := newRootCmd()
@@ -73,7 +73,7 @@ func TestSkillsConfigure__auto_detect_tools(t *testing.T) {
 		"claude-code": filepath.Join(destDir, "claude.json"),
 		"codex":       filepath.Join(destDir, "nonexistent", "config.toml"),
 	})
-	cleanupSkills := skills.SetToolPathOverride("claude-code", "global", filepath.Join(destDir, "skills"))
+	cleanupSkills := skills.SetToolPathOverride("claude-code", "user", filepath.Join(destDir, "skills"))
 	defer cleanupSkills()
 
 	cmd := newRootCmd()
@@ -106,7 +106,7 @@ func TestSkillsConfigure__no_tools_detected(t *testing.T) {
 	assert.Contains(t, result.Err.Error(), "no supported AI tools detected")
 }
 
-func TestSkillsConfigure__scope_project(t *testing.T) {
+func TestSkillsConfigure__scope_directory(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -123,17 +123,17 @@ func TestSkillsConfigure__scope_project(t *testing.T) {
 	setupTestDeps(t, store)
 
 	destDir := t.TempDir()
-	cleanup := skills.SetToolPathOverride("claude-code", "project", filepath.Join(destDir, ".claude", "skills"))
+	cleanup := skills.SetToolPathOverride("claude-code", "directory", filepath.Join(destDir, ".claude", "skills"))
 	defer cleanup()
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--scope", "project", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--scope", "directory", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout, "Configured 1 skill(s)")
 }
 
-func TestSkillsConfigure__scope_project_warns_outside_project(t *testing.T) {
+func TestSkillsConfigure__scope_directory_warns_outside_project(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -151,7 +151,7 @@ func TestSkillsConfigure__scope_project_warns_outside_project(t *testing.T) {
 
 	// Use a temp dir with no .git/.claude/.agents markers
 	tempDir := t.TempDir()
-	cleanup := skills.SetToolPathOverride("claude-code", "project", filepath.Join(tempDir, ".claude", "skills"))
+	cleanup := skills.SetToolPathOverride("claude-code", "directory", filepath.Join(tempDir, ".claude", "skills"))
 	defer cleanup()
 
 	// Change to the temp dir so CWD check sees no project markers
@@ -161,7 +161,7 @@ func TestSkillsConfigure__scope_project_warns_outside_project(t *testing.T) {
 	t.Cleanup(func() { os.Chdir(origDir) }) //nolint:errcheck
 
 	cmd := newRootCmd()
-	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--scope", "project", "--api-url", mock.URL())
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-code", "--scope", "directory", "--api-url", mock.URL())
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stderr, "does not appear to be a project root")
@@ -177,6 +177,19 @@ func TestSkillsConfigure__invalid_scope(t *testing.T) {
 
 	require.Error(t, result.Err)
 	assert.Contains(t, result.Err.Error(), "invalid scope")
+}
+
+func TestSkillsConfigure__claude_desktop_directory_scope_rejected(t *testing.T) {
+	store := testutil.NewMockCredStore()
+	_ = store.Set("pat", "bm_test123")
+	setupTestDeps(t, store)
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "skills", "configure", "claude-desktop", "--scope", "directory", "--api-url", "http://unused")
+
+	require.Error(t, result.Err)
+	assert.Contains(t, result.Err.Error(), "not supported by")
+	assert.Contains(t, result.Err.Error(), "claude-desktop")
 }
 
 func TestSkillsConfigure__not_logged_in(t *testing.T) {
@@ -200,7 +213,7 @@ func TestSkillsConfigure__api_error_returns_nonzero(t *testing.T) {
 	setupTestDeps(t, store)
 
 	destDir := t.TempDir()
-	cleanup := skills.SetToolPathOverride("claude-code", "global", filepath.Join(destDir, "skills"))
+	cleanup := skills.SetToolPathOverride("claude-code", "user", filepath.Join(destDir, "skills"))
 	defer cleanup()
 
 	cmd := newRootCmd()
@@ -230,7 +243,7 @@ func TestSkillsConfigure__empty_response(t *testing.T) {
 	setupTestDeps(t, store)
 
 	destDir := t.TempDir()
-	cleanup := skills.SetToolPathOverride("claude-code", "global", filepath.Join(destDir, "skills"))
+	cleanup := skills.SetToolPathOverride("claude-code", "user", filepath.Join(destDir, "skills"))
 	defer cleanup()
 
 	cmd := newRootCmd()

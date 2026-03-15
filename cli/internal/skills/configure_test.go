@@ -61,11 +61,11 @@ func TestConfigure__tar_gz_extraction(t *testing.T) {
 	defer server.Close()
 
 	destDir := t.TempDir()
-	cleanup := SetToolPathOverride("claude-code", ScopeGlobal, filepath.Join(destDir, "skills"))
+	cleanup := SetToolPathOverride("claude-code", ScopeUser, filepath.Join(destDir, "skills"))
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeGlobal)
+	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeUser)
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, result.SkillCount)
@@ -91,7 +91,7 @@ func TestConfigure__zip_extraction_claude_desktop(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	result, err := Configure(context.Background(), client, "claude-desktop", nil, "", ScopeGlobal)
+	result, err := Configure(context.Background(), client, "claude-desktop", nil, "", ScopeUser)
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, result.SkillCount)
@@ -105,7 +105,7 @@ func TestConfigure__zip_extraction_claude_desktop(t *testing.T) {
 	os.Remove(result.ZipPath) //nolint:errcheck
 }
 
-func TestConfigure__global_paths_claude_code(t *testing.T) {
+func TestConfigure__user_paths_claude_code(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -115,17 +115,17 @@ func TestConfigure__global_paths_claude_code(t *testing.T) {
 
 	destDir := t.TempDir()
 	expectedPath := filepath.Join(destDir, "claude-skills")
-	cleanup := SetToolPathOverride("claude-code", ScopeGlobal, expectedPath)
+	cleanup := SetToolPathOverride("claude-code", ScopeUser, expectedPath)
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeGlobal)
+	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeUser)
 
 	require.NoError(t, err)
 	assert.Equal(t, expectedPath, result.DestPath)
 }
 
-func TestConfigure__global_paths_codex(t *testing.T) {
+func TestConfigure__user_paths_codex(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -135,17 +135,17 @@ func TestConfigure__global_paths_codex(t *testing.T) {
 
 	destDir := t.TempDir()
 	expectedPath := filepath.Join(destDir, "codex-skills")
-	cleanup := SetToolPathOverride("codex", ScopeGlobal, expectedPath)
+	cleanup := SetToolPathOverride("codex", ScopeUser, expectedPath)
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	result, err := Configure(context.Background(), client, "codex", nil, "", ScopeGlobal)
+	result, err := Configure(context.Background(), client, "codex", nil, "", ScopeUser)
 
 	require.NoError(t, err)
 	assert.Equal(t, expectedPath, result.DestPath)
 }
 
-func TestConfigure__project_paths_claude_code(t *testing.T) {
+func TestConfigure__directory_paths_claude_code(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -155,17 +155,17 @@ func TestConfigure__project_paths_claude_code(t *testing.T) {
 
 	destDir := t.TempDir()
 	expectedPath := filepath.Join(destDir, "project-skills")
-	cleanup := SetToolPathOverride("claude-code", ScopeProject, expectedPath)
+	cleanup := SetToolPathOverride("claude-code", ScopeDirectory, expectedPath)
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeProject)
+	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeDirectory)
 
 	require.NoError(t, err)
 	assert.Equal(t, expectedPath, result.DestPath)
 }
 
-func TestConfigure__project_paths_codex(t *testing.T) {
+func TestConfigure__directory_paths_codex(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -175,17 +175,17 @@ func TestConfigure__project_paths_codex(t *testing.T) {
 
 	destDir := t.TempDir()
 	expectedPath := filepath.Join(destDir, "agents-skills")
-	cleanup := SetToolPathOverride("codex", ScopeProject, expectedPath)
+	cleanup := SetToolPathOverride("codex", ScopeDirectory, expectedPath)
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	result, err := Configure(context.Background(), client, "codex", nil, "", ScopeProject)
+	result, err := Configure(context.Background(), client, "codex", nil, "", ScopeDirectory)
 
 	require.NoError(t, err)
 	assert.Equal(t, expectedPath, result.DestPath)
 }
 
-func TestConfigure__default_scope_is_global(t *testing.T) {
+func TestConfigure__default_scope_is_user(t *testing.T) {
 	archive := testutil.CreateTarGz(t, map[string]string{
 		"my-skill/SKILL.md": "skill content",
 	})
@@ -194,15 +194,15 @@ func TestConfigure__default_scope_is_global(t *testing.T) {
 	defer server.Close()
 
 	destDir := t.TempDir()
-	globalPath := filepath.Join(destDir, "global-skills")
-	cleanup := SetToolPathOverride("claude-code", ScopeGlobal, globalPath)
+	userPath := filepath.Join(destDir, "user-skills")
+	cleanup := SetToolPathOverride("claude-code", ScopeUser, userPath)
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
 	result, err := Configure(context.Background(), client, "claude-code", nil, "", "")
 
 	require.NoError(t, err)
-	assert.Equal(t, globalPath, result.DestPath)
+	assert.Equal(t, userPath, result.DestPath)
 }
 
 func TestConfigure__empty_archive(t *testing.T) {
@@ -217,11 +217,11 @@ func TestConfigure__empty_archive(t *testing.T) {
 	defer server.Close()
 
 	destDir := t.TempDir()
-	cleanup := SetToolPathOverride("claude-code", ScopeGlobal, filepath.Join(destDir, "skills"))
+	cleanup := SetToolPathOverride("claude-code", ScopeUser, filepath.Join(destDir, "skills"))
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeGlobal)
+	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeUser)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.SkillCount)
@@ -243,11 +243,11 @@ func TestConfigure__existing_skills_overwritten(t *testing.T) {
 	server := newMockSkillsServer(t, "application/gzip", archive)
 	defer server.Close()
 
-	cleanup := SetToolPathOverride("claude-code", ScopeGlobal, skillsDir)
+	cleanup := SetToolPathOverride("claude-code", ScopeUser, skillsDir)
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeGlobal)
+	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeUser)
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.SkillCount)
@@ -275,23 +275,23 @@ func TestConfigure__tag_filtering_passes_query_params(t *testing.T) {
 	defer server.Close()
 
 	destDir := t.TempDir()
-	cleanup := SetToolPathOverride("claude-code", ScopeGlobal, filepath.Join(destDir, "skills"))
+	cleanup := SetToolPathOverride("claude-code", ScopeUser, filepath.Join(destDir, "skills"))
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	_, err := Configure(context.Background(), client, "claude-code", []string{"python", "skill"}, "any", ScopeGlobal)
+	_, err := Configure(context.Background(), client, "claude-code", []string{"python", "skill"}, "any", ScopeUser)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"python", "skill"}, capturedTags)
 	assert.Equal(t, "any", capturedTagMatch)
 }
 
-func TestConfigure__claude_desktop_project_scope_error(t *testing.T) {
+func TestConfigure__claude_desktop_directory_scope_error(t *testing.T) {
 	client := api.NewClient("http://unused", "test-token", "pat")
-	_, err := Configure(context.Background(), client, "claude-desktop", nil, "", ScopeProject)
+	_, err := Configure(context.Background(), client, "claude-desktop", nil, "", ScopeDirectory)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not support --scope project")
+	assert.Contains(t, err.Error(), "does not support --scope directory")
 }
 
 func TestExtractTarGz__skips_symlinks(t *testing.T) {
@@ -348,11 +348,11 @@ func TestConfigure__directory_traversal_prevented(t *testing.T) {
 
 	destDir := t.TempDir()
 	skillsDir := filepath.Join(destDir, "skills")
-	cleanup := SetToolPathOverride("claude-code", ScopeGlobal, skillsDir)
+	cleanup := SetToolPathOverride("claude-code", ScopeUser, skillsDir)
 	defer cleanup()
 
 	client := api.NewClient(server.URL, "test-token", "pat")
-	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeGlobal)
+	result, err := Configure(context.Background(), client, "claude-code", nil, "", ScopeUser)
 
 	require.NoError(t, err)
 	// Only the safe skill should be extracted

@@ -217,17 +217,10 @@ tiddly mcp remove claude-code --delete-tokens" />
       </p>
       <ul className="list-disc list-inside space-y-2 text-sm text-gray-600 mb-4">
         <li>
-          <strong>user</strong> — applies globally to all projects. Stored in your home directory.
+          <strong>user</strong> (default) — available everywhere for the user. Stored in your home directory.
         </li>
         <li>
-          <strong>local</strong> (Claude Code only) — scoped to a specific project but stored in
-          your home directory (<code className="bg-gray-100 px-1 rounded text-xs">~/.claude.json</code> under
-          a project key). Not committed to the repo — useful for private config you don&apos;t want
-          to share with collaborators.
-        </li>
-        <li>
-          <strong>project</strong> — scoped to the project and stored in the project directory
-          itself. Can be committed and shared with collaborators.
+          <strong>directory</strong> — configuration only applies when running tools from a specific directory.
         </li>
       </ul>
       <div className="overflow-x-auto mb-4">
@@ -247,32 +240,15 @@ tiddly mcp remove claude-code --delete-tokens" />
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.claude.json</code> top-level</td>
               <td className="py-2"><code className="bg-gray-100 px-1 rounded text-xs">~/.codex/config.toml</code></td>
             </tr>
-            <tr className="border-b border-gray-100">
-              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">local</code></td>
-              <td className="py-2 pr-4 text-gray-400">N/A</td>
-              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.claude.json</code> under project key</td>
-              <td className="py-2 text-gray-400">N/A</td>
-            </tr>
             <tr>
-              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">project</code></td>
-              <td className="py-2 pr-4 text-gray-400">N/A</td>
-              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">.mcp.json</code> in cwd</td>
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">directory</code></td>
+              <td className="py-2 pr-4 text-gray-400">Not supported</td>
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.claude.json</code> under project key</td>
               <td className="py-2"><code className="bg-gray-100 px-1 rounded text-xs">.codex/config.toml</code> in cwd</td>
             </tr>
           </tbody>
         </table>
       </div>
-
-      <InfoCallout variant="info" title="Default Scope vs Claude Code">
-        <p>
-          Tiddly defaults to <code className="bg-blue-100 px-1 rounded">user</code> scope so your
-          MCP servers are available across all projects without re-configuring per project.
-          Claude Code&apos;s own <code className="bg-blue-100 px-1 rounded">claude mcp add</code> command
-          defaults to <code className="bg-blue-100 px-1 rounded">local</code> scope (per-project).
-          If you prefer per-project configuration, use{' '}
-          <code className="bg-blue-100 px-1 rounded">--scope local</code>.
-        </p>
-      </InfoCallout>
 
       {/* All Flags */}
       <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">All Flags</h3>
@@ -290,8 +266,8 @@ tiddly mcp remove claude-code --delete-tokens" />
               <td className="py-2">Install only specific servers (default: both)</td>
             </tr>
             <tr className="border-b border-gray-100">
-              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--scope user|local|project</code></td>
-              <td className="py-2">Config level to write (default: user)</td>
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--scope user|directory</code></td>
+              <td className="py-2">Config scope (default: user)</td>
             </tr>
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--dry-run</code></td>

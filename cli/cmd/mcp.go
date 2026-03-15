@@ -12,9 +12,11 @@ import (
 )
 
 
-// validScopes is the flat list of all known scopes, used for early typo rejection
-// before per-tool validation in ResolveToolConfig.
-var validScopes = []string{"user", "local", "project"}
+// validScopes is the list of Tiddly-facing scope values accepted by --scope.
+// Translated to handler-native values (e.g., "directory" → "local" for Claude Code)
+// before passing to handlers.
+var validScopes = []string{"user", "directory"}
+
 
 func validateScope(scope string) error {
 	for _, s := range validScopes {
@@ -62,27 +64,15 @@ Scope:
   The --scope flag controls where the MCP server config is written. The default is "user",
   which makes Tiddly servers available across all projects.
 
-  Note: Claude Code's own "claude mcp add" command defaults to "local" scope (per-project).
-  Tiddly defaults to "user" scope so you don't need to re-configure for each project.
-
-  Scopes for claude-code:
-    user     ~/.claude.json top-level mcpServers (available in all projects)
-    local    ~/.claude.json under projects[<cwd>] (current project only, same file)
-    project  .mcp.json in project root (shared with collaborators via version control)
-
-  Scopes for claude-desktop:
-    user     ~/Library/Application Support/Claude/claude_desktop_config.json (macOS)
-
-  Scopes for codex:
-    user     ~/.codex/config.toml
-    project  <cwd>/.codex/config.toml
+  user       Configuration available everywhere for the user
+  directory  Configuration only applies when running tools from a specific directory
 
 Examples:
-  tiddly mcp configure                                Auto-detect and configure for all found tools
-  tiddly mcp configure claude-code                    Configure for a specific tool
-  tiddly mcp configure claude-code --scope local      Configure for current project only
-  tiddly mcp configure --dry-run                      Preview changes without writing
-  tiddly mcp configure --servers content              Configure only the content server`,
+  tiddly mcp configure                                  Auto-detect and configure for all found tools
+  tiddly mcp configure claude-code                      Configure for a specific tool
+  tiddly mcp configure claude-code --scope directory    Configure for the current directory only
+  tiddly mcp configure --dry-run                        Preview changes without writing
+  tiddly mcp configure --servers content                Configure only the content server`,
 		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateScope(scope); err != nil {
@@ -131,10 +121,9 @@ Examples:
 					if !t.Detected {
 						continue
 					}
-					if !mcp.IsScopeSupported(t.Name, scope) {
-						supported := mcp.ToolSupportedScopes(t.Name)
-						fmt.Fprintf(cmd.ErrOrStderr(), "Skipping %s: --scope %s is not supported (valid: %s)\n",
-							t.Name, scope, strings.Join(supported, ", "))
+					if !mcp.IsTiddlyScopeSupported(scope, t.Name) {
+						fmt.Fprintf(cmd.ErrOrStderr(), "Skipping %s: --scope %s is not supported\n",
+							t.Name, scope)
 						continue
 					}
 					targetTools = append(targetTools, t)
@@ -145,9 +134,8 @@ Examples:
 			if len(args) > 0 {
 				var unsupported []string
 				for _, t := range targetTools {
-					if !mcp.IsScopeSupported(t.Name, scope) {
-						supported := mcp.ToolSupportedScopes(t.Name)
-						unsupported = append(unsupported, fmt.Sprintf("%s (valid: %s)", t.Name, strings.Join(supported, ", ")))
+					if !mcp.IsTiddlyScopeSupported(scope, t.Name) {
+						unsupported = append(unsupported, t.Name)
 					}
 				}
 				if len(unsupported) > 0 {
@@ -210,7 +198,7 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")
-	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
+	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (all projects) or directory (current directory only)")
 	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (1-365, or 0 for no expiration)")
 	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which MCP servers to configure: content, prompts, or both")
 
@@ -256,12 +244,12 @@ Shows all applicable scopes per tool in a tree-style layout:
   Not configured     — tool is detected but no MCP server entries at that scope
   Configured         — lists which server entries are present (content, prompts)
 
-Use --project-path to specify which project directory to inspect for local/project scopes.
+Use --path to specify which directory to inspect for directory-scoped configurations.
 Defaults to the current working directory.
 
 Examples:
-  tiddly mcp status                                Show all tools at all scopes
-  tiddly mcp status --project-path /path/to/project  Check a specific project`,
+  tiddly mcp status                          Show all tools at all scopes
+  tiddly mcp status --path /path/to/project  Check a specific directory`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolvedProjectPath, err := resolveProjectPath(projectPath)
 			if err != nil {
@@ -270,14 +258,14 @@ Examples:
 
 			w := cmd.OutOrStdout()
 			tools := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
-			projectPathExplicit := cmd.Flags().Changed("project-path")
+			projectPathExplicit := cmd.Flags().Changed("path")
 			printMCPTree(w, tools, resolvedProjectPath, projectPathExplicit)
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&projectPath, "project-path", "", "Project directory to inspect for local/project scopes (default: cwd)")
+	cmd.Flags().StringVar(&projectPath, "path", "", "Directory to inspect for directory-scoped configurations (default: cwd)")
 
 	return cmd
 }
@@ -305,7 +293,7 @@ Use --servers to selectively remove only the content or prompts server, preservi
 Examples:
   tiddly mcp remove claude-code                          Remove MCP entries
   tiddly mcp remove claude-code --delete-tokens          Remove entries and revoke PATs
-  tiddly mcp remove codex --scope project                Remove from project config
+  tiddly mcp remove codex --scope directory              Remove from directory config
   tiddly mcp remove claude-code --servers content        Remove only the content server
   tiddly mcp remove claude-code --servers content --delete-tokens  Remove content server and revoke its PAT`,
 		Args:      cobra.ExactArgs(1),
@@ -345,12 +333,17 @@ Examples:
 				return fmt.Errorf("%s is not installed on this system", toolName)
 			}
 
+			if !mcp.IsTiddlyScopeSupported(scope, toolName) {
+				return fmt.Errorf("--scope %s is not supported by %s", scope, toolName)
+			}
+
 			cwd, err := getWorkingDir()
 			if err != nil {
 				return err
 			}
 
-			rc, err := mcp.ResolveToolConfig(handler, tool.ConfigPath, scope, cwd)
+			nativeScope := mcp.TranslateScope(scope, toolName)
+			rc, err := mcp.ResolveToolConfig(handler, tool.ConfigPath, nativeScope, cwd)
 			if err != nil {
 				return err
 			}
@@ -423,7 +416,7 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&deleteTokens, "delete-tokens", false, "Revoke PATs extracted from config during removal")
-	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (global), local (claude-code only), or project")
+	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (all projects) or directory (current directory only)")
 	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which servers to remove: content, prompts, or both")
 
 	return cmd

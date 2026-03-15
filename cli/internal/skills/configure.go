@@ -17,12 +17,12 @@ import (
 
 // Scope constants for skills extraction.
 const (
-	ScopeGlobal  = "global"
-	ScopeProject = "project"
+	ScopeUser      = "user"
+	ScopeDirectory = "directory"
 )
 
 // ValidScopes is the list of valid scope values.
-var ValidScopes = []string{ScopeGlobal, ScopeProject}
+var ValidScopes = []string{ScopeUser, ScopeDirectory}
 
 // ConfigureResult holds the outcome of a skills configure operation.
 type ConfigureResult struct {
@@ -32,7 +32,7 @@ type ConfigureResult struct {
 	ZipPath string
 }
 
-// toolPaths maps tool name + scope to the extraction directory.
+// toolPath maps tool name + scope to the extraction directory.
 func toolPath(tool, scope string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -41,18 +41,18 @@ func toolPath(tool, scope string) (string, error) {
 
 	switch tool {
 	case "claude-code":
-		if scope == ScopeProject {
+		if scope == ScopeDirectory {
 			return filepath.Join(".claude", "skills"), nil
 		}
 		return filepath.Join(home, ".claude", "skills"), nil
 	case "codex":
-		if scope == ScopeProject {
+		if scope == ScopeDirectory {
 			return filepath.Join(".agents", "skills"), nil
 		}
-		return filepath.Join(home, ".codex", "skills"), nil
+		return filepath.Join(home, ".agents", "skills"), nil
 	case "claude-desktop":
-		if scope == ScopeProject {
-			return "", fmt.Errorf("claude-desktop does not support --scope project")
+		if scope == ScopeDirectory {
+			return "", fmt.Errorf("claude-desktop does not support --scope directory")
 		}
 		// Claude Desktop gets a temp file; path determined at extraction time
 		return "", nil
@@ -90,11 +90,27 @@ func resolveToolPath(tool, scope string) (string, error) {
 	return toolPath(tool, scope)
 }
 
+// deprecatedCodexUserPath returns the deprecated Codex user-scope skills path (~/.codex/skills/).
+// Returns "" if the home directory can't be resolved.
+func deprecatedCodexUserPath() string {
+	key := "codex:deprecated-user"
+	if toolPathOverrides != nil {
+		if p, ok := toolPathOverrides[key]; ok {
+			return p
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".codex", "skills")
+}
+
 // Configure downloads skills from the API and extracts them to the correct directory.
 func Configure(ctx context.Context, client *api.Client, tool string, tags []string, tagMatch string, scope string) (*ConfigureResult, error) {
 	// Validate scope
 	if scope == "" {
-		scope = ScopeGlobal
+		scope = ScopeUser
 	}
 
 	destPath, err := resolveToolPath(tool, scope)

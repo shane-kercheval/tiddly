@@ -10,9 +10,10 @@ import (
 // ScanResult holds the outcome of scanning a single tool+scope skills directory.
 type ScanResult struct {
 	Tool       string   // "claude-code" or "codex"
-	Scope      string   // "global" or "project"
+	Scope      string   // "user" or "directory"
 	Path       string   // resolved directory path
 	SkillNames []string // subdirectory names containing SKILL.md
+	Deprecated bool     // true if scanning a deprecated path (e.g., ~/.codex/skills/)
 	Err        error
 }
 
@@ -43,16 +44,17 @@ func ScanSkillsDir(dirPath string) ([]string, error) {
 
 // ScanAllSkills scans all tool+scope combinations for configured skills.
 // Claude Desktop is excluded (its skills aren't file-accessible).
+// Also scans the deprecated Codex user-scope path (~/.codex/skills/) if skills exist there.
 func ScanAllSkills(projectPath string) []ScanResult {
 	type combo struct {
 		tool  string
 		scope string
 	}
 	combos := []combo{
-		{"claude-code", ScopeGlobal},
-		{"claude-code", ScopeProject},
-		{"codex", ScopeGlobal},
-		{"codex", ScopeProject},
+		{"claude-code", ScopeUser},
+		{"claude-code", ScopeDirectory},
+		{"codex", ScopeUser},
+		{"codex", ScopeDirectory},
 	}
 
 	var results []ScanResult
@@ -67,7 +69,7 @@ func ScanAllSkills(projectPath string) []ScanResult {
 			continue
 		}
 
-		// Project-scope paths are relative; join with projectPath
+		// Directory-scope paths are relative; join with projectPath
 		if !filepath.IsAbs(dirPath) {
 			if projectPath == "" {
 				results = append(results, ScanResult{
@@ -90,5 +92,20 @@ func ScanAllSkills(projectPath string) []ScanResult {
 			Err:        err,
 		})
 	}
+
+	// Check deprecated Codex user-scope path (~/.codex/skills/).
+	// Only include if skills actually exist there.
+	if deprecatedPath := deprecatedCodexUserPath(); deprecatedPath != "" {
+		if names, scanErr := ScanSkillsDir(deprecatedPath); scanErr == nil && len(names) > 0 {
+			results = append(results, ScanResult{
+				Tool:       "codex",
+				Scope:      ScopeUser,
+				Path:       deprecatedPath,
+				SkillNames: names,
+				Deprecated: true,
+			})
+		}
+	}
+
 	return results
 }

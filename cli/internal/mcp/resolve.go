@@ -9,8 +9,42 @@ import (
 // Created once at the command boundary via ResolveToolConfig.
 type ResolvedConfig struct {
 	Path  string // Fully resolved file path
-	Scope string // Validated scope ("user", "local", or "project")
+	Scope string // Handler-native scope ("user", "local", or "project")
 	Cwd   string // Working directory (used by claude-code local scope)
+}
+
+// TranslateScope converts a Tiddly-facing scope to the handler-native scope for a tool.
+// "user" passes through unchanged. "directory" maps to "local" for Claude Code
+// and "project" for Codex (matching each tool's upstream terminology).
+func TranslateScope(tiddlyScope, toolName string) string {
+	if tiddlyScope == "directory" {
+		switch toolName {
+		case "claude-code":
+			return "local"
+		case "codex":
+			return "project"
+		}
+	}
+	return tiddlyScope
+}
+
+// TiddlyScopes is the list of Tiddly-facing scope values.
+var TiddlyScopes = []string{"user", "directory"}
+
+// IsTiddlyScopeSupported returns true if the Tiddly scope can be translated to a
+// valid handler-native scope for the given tool.
+func IsTiddlyScopeSupported(tiddlyScope, toolName string) bool {
+	nativeScope := TranslateScope(tiddlyScope, toolName)
+	return IsScopeSupported(toolName, nativeScope)
+}
+
+// DisplayScope returns the Tiddly-facing label for a handler-native scope.
+// Maps any non-user native scope to "directory".
+func DisplayScope(nativeScope string) string {
+	if nativeScope == "user" {
+		return "user"
+	}
+	return "directory"
 }
 
 // ToolSupportedScopes returns valid scopes for a tool by looking up its handler.
@@ -32,9 +66,9 @@ func IsScopeSupported(toolName, scope string) bool {
 	return false
 }
 
-// ResolveToolConfig validates the scope for the handler and resolves the config path.
+// ResolveToolConfig validates the handler-native scope and resolves the config path.
 // Empty scope defaults to "user". Returns an error if the scope is unsupported
-// for the tool, or if cwd is empty for project/local scope.
+// for the tool, or if cwd is empty for non-user scopes.
 func ResolveToolConfig(handler ToolHandler, configPath, scope, cwd string) (ResolvedConfig, error) {
 	if scope == "" {
 		scope = "user"

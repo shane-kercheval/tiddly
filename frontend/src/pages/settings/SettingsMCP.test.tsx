@@ -3,20 +3,25 @@
  *
  * Tests both the CLI setup section (default tab) and the manual setup section (Curl/PAT tab).
  *
+ * For the tool/scope support matrix and terminology decisions,
+ * see docs/ai-integration.md
+ *
+ * == Scope Model ==
+ *
+ * Single scope selector with two options: User and Directory.
+ * Applies to both MCP and skills commands.
+ * Claude Desktop only supports User scope — Directory scope shows error.
+ *
  * == CLI Remove Flow: Scenario Matrix ==
  *
- * Scope selector:
- *   - MCP servers selected    → scope selector visible (user/local/project)
- *   - Skills only (no MCP)    → scope selector hidden, Options section hidden
+ * Scope:
  *   - Default scope           → "user", no --scope in command
- *   - Local scope             → --scope local in command, cd prepended, unsupported tools skipped
- *   - Project scope           → --scope project in command, cd prepended, unsupported tools skipped
- *   - Scope warning           → shown for tools that don't support the selected scope
+ *   - Directory scope         → --scope directory in command, cd prepended
+ *   - Claude Desktop only + directory → error, steps hidden
  *
  * Delete tokens:
  *   - Defaults to no          → no --delete-tokens, no login step
  *   - Enabled                 → --delete-tokens in command, login step shown
- *   - Enabled + incompatible  → login step hidden (no runnable commands)
  *   - Skills only (no MCP)    → Delete Tokens option hidden
  *
  * --servers flag:
@@ -27,21 +32,16 @@
  *   - Skills=yes in remove    → warning callout shown, commented-out rm -rf commands
  *   - Skills=yes in configure → no warning
  *   - Claude Desktop          → manual instruction (no rm command)
- *   - Local/project scope     → project-level skill paths (# rm -rf .claude/skills/)
- *   - User scope              → no project-level skill paths
- *
- * Empty state:
- *   - Nothing selected        → "Select at least one item..." message, no steps
- *   - Incompatible scope      → "don't support the chosen scope" message, no steps
+ *   - User scope              → ~/.claude/skills/, ~/.agents/skills/ (+ ~/.codex/skills/ deprecated)
+ *   - Directory scope         → .claude/skills/, .agents/skills/
  *
  * cd step:
- *   - Local/project scope     → cd /path/to/your/project prepended (both configure and remove)
+ *   - Directory scope         → cd /path/to/your/project prepended (both configure and remove)
  *   - User scope              → no cd line
- *   - Skills-only project     → cd prepended when skills scope is project (configure only)
  *
  * Command join (configure):
  *   - User scope + MCP+skills → commands joined with && (stop on failure)
- *   - Local/project + MCP+skills → commands joined with \n (cd on separate line)
+ *   - Directory + MCP+skills  → commands joined with \n (cd on separate line)
  */
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -280,28 +280,21 @@ describe('SettingsMCP', () => {
     })
 
     describe('scope options', () => {
-      it('should show MCP scope when servers selected', () => {
+      it('should show single Scope selector with User and Directory options', () => {
         renderWithRouter()
         const cli = screen.getByTestId('cli-setup-section')
-        expect(within(cli).getByText('MCP Scope')).toBeInTheDocument()
-        expect(within(cli).getByRole('button', { name: 'User (global)' })).toBeInTheDocument()
-        expect(within(cli).getByRole('button', { name: 'Local' })).toBeInTheDocument()
-        // "Project" appears in both MCP Scope and Skills Scope
-        expect(within(cli).getAllByRole('button', { name: 'Project' }).length).toBeGreaterThanOrEqual(1)
+        expect(within(cli).getByText('Scope')).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'User' })).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'Directory' })).toBeInTheDocument()
+        // Old labels should not exist
+        expect(within(cli).queryByText('MCP Scope')).not.toBeInTheDocument()
+        expect(within(cli).queryByText('Skills Scope')).not.toBeInTheDocument()
+        expect(within(cli).queryByRole('button', { name: 'User (global)' })).not.toBeInTheDocument()
+        expect(within(cli).queryByRole('button', { name: 'Local' })).not.toBeInTheDocument()
+        expect(within(cli).queryByRole('button', { name: 'Global' })).not.toBeInTheDocument()
       })
 
-      it('should show Skills scope when skills enabled', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-
-        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
-
-        expect(within(cli).getByText('Skills Scope')).toBeInTheDocument()
-        expect(within(cli).getByRole('button', { name: 'Global' })).toBeInTheDocument()
-      })
-
-      it('should hide MCP scope when no servers selected', async () => {
+      it('should hide scope when nothing selected', async () => {
         const user = userEvent.setup()
         renderWithRouter()
         const cli = screen.getByTestId('cli-setup-section')
@@ -309,40 +302,47 @@ describe('SettingsMCP', () => {
         await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
         await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
 
-        expect(within(cli).queryByText('MCP Scope')).not.toBeInTheDocument()
+        expect(within(cli).queryByText('Scope')).not.toBeInTheDocument()
       })
 
-      it('should hide Skills scope when skills off', () => {
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        // Skills default to No, so Skills Scope should not appear
-        expect(within(cli).queryByText('Skills Scope')).not.toBeInTheDocument()
-      })
-
-      it('should add --scope to command when non-default scope selected', async () => {
+      it('should add --scope directory to command when Directory selected', async () => {
         const user = userEvent.setup()
         renderWithRouter()
         const cli = screen.getByTestId('cli-setup-section')
 
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
 
         const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('--scope local')
+        expect(pre.textContent).toContain('--scope directory')
       })
 
-      it('should show warning when scope not supported by selected tool', async () => {
+      it('should not add --scope when User selected (default)', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).not.toContain('--scope')
+      })
+
+      it('should apply scope to both MCP and skills commands', async () => {
         const user = userEvent.setup()
         renderWithRouter()
         const cli = screen.getByTestId('cli-setup-section')
 
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
 
-        // Claude Desktop is off by default, so only Codex warning shows
-        expect(within(cli).queryByText(/Claude Desktop doesn't support "local" scope/)).not.toBeInTheDocument()
-        expect(within(cli).getByText(/Codex doesn't support "local" scope/)).toBeInTheDocument()
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('tiddly mcp configure')
+        expect(pre.textContent).toContain('tiddly skills configure')
+        // Both commands should have --scope directory
+        const text = pre.textContent || ''
+        const mcpMatch = text.match(/tiddly mcp configure[^\n]*--scope directory/)
+        const skillsMatch = text.match(/tiddly skills configure[^\n]*--scope directory/)
+        expect(mcpMatch).not.toBeNull()
+        expect(skillsMatch).not.toBeNull()
       })
 
-      it('should not show warning for user scope (all tools support it)', () => {
+      it('should not show scope warnings', () => {
         renderWithRouter()
         const cli = screen.getByTestId('cli-setup-section')
         expect(within(cli).queryByText(/doesn't support/)).not.toBeInTheDocument()
@@ -728,50 +728,34 @@ describe('SettingsMCP', () => {
     }
 
     describe('scope selector', () => {
-      it('should show MCP scope when action=remove and MCP servers selected', async () => {
+      it('should show single Scope selector in remove flow', async () => {
         const { cli } = await switchToRemove()
-        expect(within(cli).getByText('MCP Scope')).toBeInTheDocument()
-        expect(within(cli).getByRole('button', { name: 'User (global)' })).toBeInTheDocument()
-        expect(within(cli).getByRole('button', { name: 'Local' })).toBeInTheDocument()
+        expect(within(cli).getByText('Scope')).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'User' })).toBeInTheDocument()
+        expect(within(cli).getByRole('button', { name: 'Directory' })).toBeInTheDocument()
       })
 
-      it('should hide MCP scope when action=remove and only skills selected', async () => {
+      it('should show Scope when only skills selected in remove flow', async () => {
         const { user, cli } = await switchToRemove()
-        // Deselect both servers, enable skills
         await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
         await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
-        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
+        await user.click(yesButtons[0])
 
-        expect(within(cli).queryByText('MCP Scope')).not.toBeInTheDocument()
+        expect(within(cli).getByText('Scope')).toBeInTheDocument()
       })
 
       it('should default remove scope to user', async () => {
         const { cli } = await switchToRemove()
-        // "User (global)" pill should be selected (orange)
-        expect(within(cli).getByRole('button', { name: 'User (global)' }).className).toContain('bg-[#f09040]')
+        expect(within(cli).getByRole('button', { name: 'User' }).className).toContain('bg-[#f09040]')
       })
 
-      it('should add --scope local to remove command when local selected', async () => {
+      it('should add --scope directory to remove command', async () => {
         const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
 
         const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('--scope local')
-      })
-
-      it('should show scope warning for unsupported tool/scope pairs', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
-
-        expect(within(cli).getByText(/Codex doesn't support "local" scope/)).toBeInTheDocument()
-      })
-
-      it('should add --scope project to remove command when project selected', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Project' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('--scope project')
+        expect(pre.textContent).toContain('--scope directory')
       })
 
       it('should not add --scope when user scope selected', async () => {
@@ -780,30 +764,12 @@ describe('SettingsMCP', () => {
         const pre = within(cli).getByTestId('cli-install-command')
         expect(pre.textContent).not.toContain('--scope')
       })
-
-      it('should skip unsupported tools in generated remove commands', async () => {
-        const { user, cli } = await switchToRemove()
-        // Select local scope — Codex doesn't support it
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('tiddly mcp remove claude-code')
-        expect(pre.textContent).not.toContain('tiddly mcp remove codex')
-      })
     })
 
     describe('cd step', () => {
-      it('should prepend cd when local scope selected for remove', async () => {
+      it('should prepend cd when directory scope selected for remove', async () => {
         const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
-      })
-
-      it('should prepend cd when project scope selected for remove', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Project' }))
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
 
         const pre = within(cli).getByTestId('cli-install-command')
         expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
@@ -816,24 +782,11 @@ describe('SettingsMCP', () => {
         expect(pre.textContent).not.toContain('cd /path/to/your/project')
       })
 
-      it('should prepend cd when local scope selected for configure', async () => {
+      it('should prepend cd when directory scope selected for configure', async () => {
         const user = userEvent.setup()
         renderWithRouter()
         const cli = screen.getByTestId('cli-setup-section')
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
-      })
-
-      it('should prepend cd when project scope selected for configure', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-
-        // Click the first "Project" button (MCP Scope)
-        const projectButtons = within(cli).getAllByRole('button', { name: 'Project' })
-        await user.click(projectButtons[0])
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
 
         const pre = within(cli).getByTestId('cli-install-command')
         expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
@@ -869,43 +822,38 @@ describe('SettingsMCP', () => {
         expect(within(cli).queryByTestId('skills-remove-warning')).not.toBeInTheDocument()
       })
 
-      it('should generate commented-out rm commands for skills', async () => {
+      it('should generate commented-out rm commands for user scope skills', async () => {
         const { user, cli } = await switchToRemove()
         await enableSkills(user, cli)
 
         const pre = within(cli).getByTestId('cli-install-command')
         expect(pre.textContent).toContain('# rm -rf ~/.claude/skills/')
+        expect(pre.textContent).toContain('# rm -rf ~/.agents/skills/')
+        // Also includes deprecated Codex path cleanup
         expect(pre.textContent).toContain('# rm -rf ~/.codex/skills/')
         expect(pre.textContent).not.toContain('\nrm -rf')
       })
 
+      it('should generate commented-out rm commands for directory scope skills', async () => {
+        const { user, cli } = await switchToRemove()
+        await enableSkills(user, cli)
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('# rm -rf .claude/skills/')
+        expect(pre.textContent).toContain('# rm -rf .agents/skills/')
+        // Should NOT include user-scope paths
+        expect(pre.textContent).not.toContain('~/.claude/skills/')
+        expect(pre.textContent).not.toContain('~/.agents/skills/')
+      })
+
       it('should show manual instruction for Claude Desktop skills', async () => {
         const { user, cli } = await switchToRemove()
-        // Enable Claude Desktop and skills
         await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
         await enableSkills(user, cli)
 
         const pre = within(cli).getByTestId('cli-install-command')
         expect(pre.textContent).toContain('Claude Desktop: manually remove skills')
-      })
-
-      it('should include project-level skill paths when local/project scope selected', async () => {
-        const { user, cli } = await switchToRemove()
-        await enableSkills(user, cli)
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('# rm -rf .claude/skills/')
-        expect(pre.textContent).toContain('# rm -rf .codex/skills/')
-      })
-
-      it('should not include project-level skill paths when user scope selected', async () => {
-        const { user, cli } = await switchToRemove()
-        await enableSkills(user, cli)
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).not.toContain('# rm -rf .claude/skills/')
-        expect(pre.textContent).not.toContain('# rm -rf .codex/skills/')
       })
     })
 
@@ -959,20 +907,17 @@ describe('SettingsMCP', () => {
         expect(within(cli).queryByText('Delete Tokens')).not.toBeInTheDocument()
       })
 
-      it('should not show login step when delete tokens is yes but scope is incompatible', async () => {
+      it('should show Claude Desktop directory scope error instead of steps', async () => {
         const { user, cli } = await switchToRemove()
         // Select only Claude Desktop
         await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
         await user.click(within(cli).getByRole('button', { name: 'Codex' }))
         await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
-        // Enable delete tokens
-        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
-        await user.click(yesButtons[yesButtons.length - 1])
-        // Select local scope (CD doesn't support it)
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+        // Select directory scope
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
 
-        // Login step should not appear since there are no commands
-        expect(within(cli).queryByText('Log in')).not.toBeInTheDocument()
+        expect(within(cli).getByText(/Claude Desktop only supports User scope\. Deselect Claude Desktop or switch to User scope\./)).toBeInTheDocument()
+        expect(within(cli).queryByText('Install the CLI')).not.toBeInTheDocument()
       })
     })
 
@@ -1005,48 +950,39 @@ describe('SettingsMCP', () => {
         expect(pre.textContent).toContain('&& \\')
       })
 
-      it('should join configure commands with newlines when local scope', async () => {
+      it('should join configure commands with newlines when directory scope', async () => {
         const user = userEvent.setup()
         renderWithRouter()
         const cli = screen.getByTestId('cli-setup-section')
-        // Enable skills and select local scope
+        // Enable skills and select directory scope
         await user.click(within(cli).getByRole('button', { name: 'Yes' }))
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
 
         const pre = within(cli).getByTestId('cli-install-command')
         expect(pre.textContent).not.toContain('&&')
         expect(pre.textContent).toContain('cd /path/to/your/project')
       })
-
-      it('should prepend cd when only skills scope is project and MCP scope is user', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        // Enable skills
-        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
-        // Set skills scope to project (MCP scope stays at default user)
-        const projectButtons = within(cli).getAllByRole('button', { name: 'Project' })
-        // Skills scope Project is the second Project button (first is MCP scope)
-        await user.click(projectButtons[projectButtons.length - 1])
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
-      })
     })
 
     describe('empty command handling', () => {
-      it('should show incompatible scope message when all tools unsupported for scope', async () => {
+      it('should show Claude Desktop error when only Claude Desktop + directory scope', async () => {
         const { user, cli } = await switchToRemove()
-        // Select only Claude Desktop, then choose local scope (which CD doesn't support)
         await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
         await user.click(within(cli).getByRole('button', { name: 'Codex' }))
         await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
-        await user.click(within(cli).getByRole('button', { name: 'Local' }))
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
 
-        expect(within(cli).getByText(/don't support the chosen scope/)).toBeInTheDocument()
-        // Steps should not be rendered
+        expect(within(cli).getByText(/Claude Desktop only supports User scope\. Deselect Claude Desktop or switch to User scope\./)).toBeInTheDocument()
         expect(within(cli).queryByText('Install the CLI')).not.toBeInTheDocument()
-        expect(within(cli).queryByText('Log in')).not.toBeInTheDocument()
+      })
+
+      it('should show error when Claude Desktop + other tools + directory scope', async () => {
+        const { user, cli } = await switchToRemove()
+        await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
+
+        expect(within(cli).getByText(/Claude Desktop only supports User scope\. Deselect Claude Desktop or switch to User scope\./)).toBeInTheDocument()
+        expect(within(cli).queryByText('Install the CLI')).not.toBeInTheDocument()
       })
 
       it('should show nothing-selected message when nothing selected', async () => {
@@ -1056,6 +992,109 @@ describe('SettingsMCP', () => {
         await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
 
         expect(within(cli).getByText(/Select at least one item and one target tool above/)).toBeInTheDocument()
+      })
+    })
+
+    describe('file details disclosure', () => {
+      it('should show file details when command is generated', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        expect(within(cli).getByTestId('affected-files')).toBeInTheDocument()
+        expect(within(cli).getByText('Files modified')).toBeInTheDocument()
+      })
+
+      it('should hide file details when nothing selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
+        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
+
+        expect(within(cli).queryByTestId('affected-files')).not.toBeInTheDocument()
+      })
+
+      it('should show only Claude Code files when only Claude Code selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Codex' }))
+
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.claude.json')).toBeInTheDocument()
+        expect(within(details).queryByText('~/.codex/config.toml')).not.toBeInTheDocument()
+      })
+
+      it('should show only Codex files when only Codex selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
+
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.codex/config.toml')).toBeInTheDocument()
+        expect(within(details).queryByText('~/.claude.json')).not.toBeInTheDocument()
+      })
+
+      it('should show user-scope paths for user scope', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.claude.json')).toBeInTheDocument()
+        expect(within(details).getByText('~/.codex/config.toml')).toBeInTheDocument()
+      })
+
+      it('should show directory-scope paths for directory scope', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
+
+        const details = within(cli).getByTestId('affected-files')
+        // Claude Code MCP still writes to ~/.claude.json (under project key)
+        expect(within(details).getByText('~/.claude.json')).toBeInTheDocument()
+        // Codex MCP writes to project directory
+        expect(within(details).getByText('.codex/config.toml')).toBeInTheDocument()
+      })
+
+      it('should include skills paths when skills enabled in configure flow', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.claude/skills/')).toBeInTheDocument()
+        expect(within(details).getByText('~/.agents/skills/')).toBeInTheDocument()
+        // Deprecated Codex path NOT shown in configure flow
+        expect(within(details).queryByText('~/.codex/skills/')).not.toBeInTheDocument()
+      })
+
+      it('should include deprecated Codex path in remove flow', async () => {
+        const { user, cli } = await switchToRemove()
+        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
+        await user.click(yesButtons[0])
+
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.agents/skills/')).toBeInTheDocument()
+        expect(within(details).getByText('~/.codex/skills/')).toBeInTheDocument()
+      })
+    })
+
+    describe('status tip', () => {
+      it('should show status tip', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        expect(within(cli).getByTestId('status-tip')).toBeInTheDocument()
+        expect(within(cli).getByText(/tiddly status/)).toBeInTheDocument()
+      })
+
+      it('should contain code element for tiddly status', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        const tip = within(cli).getByTestId('status-tip')
+        const code = tip.querySelector('code')
+        expect(code).not.toBeNull()
+        expect(code?.textContent).toBe('tiddly status')
       })
     })
   })

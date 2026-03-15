@@ -34,17 +34,17 @@ Sections displayed:
   Authentication — login status and auth method (OAuth or PAT)
   API            — URL, reachability, and round-trip latency
   Content        — bookmark, note, and prompt counts (fetched in parallel)
-  MCP Servers    — detected tools with configuration status across all scopes
+  MCP Servers    — detected tools with configuration status across user and directory scopes
   Skills         — configured skills across all tools and scopes
 
 MCP servers are identified by URL, not by config key name. Content counts are only shown when the API is reachable and authenticated.
 
-Use --project-path to specify which project directory to inspect for local/project scopes.
+Use --path to specify which directory to inspect for directory-scoped configurations.
 Defaults to the current working directory.
 
 Examples:
-  tiddly status                                Show full status overview
-  tiddly status --project-path /path/to/project  Check a specific project`,
+  tiddly status                          Show full status overview
+  tiddly status --path /path/to/project  Check a specific directory`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resolvedProjectPath, err := resolveProjectPath(projectPath)
 			if err != nil {
@@ -109,7 +109,7 @@ Examples:
 
 			// --- MCP Servers ---
 			tools := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
-			projectPathExplicit := cmd.Flags().Changed("project-path")
+			projectPathExplicit := cmd.Flags().Changed("path")
 			printMCPTree(w, tools, resolvedProjectPath, projectPathExplicit)
 
 			// --- Skills ---
@@ -119,11 +119,11 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&projectPath, "project-path", "", "Project directory to inspect for local/project scopes (default: cwd)")
+	cmd.Flags().StringVar(&projectPath, "path", "", "Directory to inspect for directory-scoped configurations (default: cwd)")
 	return cmd
 }
 
-// resolveProjectPath resolves the --project-path flag to an absolute path.
+// resolveProjectPath resolves the --path flag to an absolute path.
 // If empty, uses cwd. If cwd is unavailable, returns "".
 func resolveProjectPath(flagValue string) (string, error) {
 	if flagValue != "" {
@@ -145,7 +145,7 @@ func resolveProjectPath(flagValue string) (string, error) {
 	}
 	cwd, err := getWorkingDir()
 	if err != nil {
-		return "", nil // non-fatal; local/project scopes will show errors inline
+		return "", nil // non-fatal; directory scope will show errors inline
 	}
 	return cwd, nil
 }
@@ -158,18 +158,21 @@ type scopeStatus struct {
 }
 
 func getToolStatusAllScopes(tool mcp.DetectedTool, projectPath string) []scopeStatus {
-	scopes := mcp.ToolSupportedScopes(tool.Name)
-	results := make([]scopeStatus, 0, len(scopes))
-	for _, scope := range scopes {
-		sr, err := getToolStatus(tool, scope, projectPath)
-		results = append(results, scopeStatus{Scope: scope, Result: sr, Err: err})
+	var results []scopeStatus
+	for _, tiddlyScope := range mcp.TiddlyScopes {
+		if !mcp.IsTiddlyScopeSupported(tiddlyScope, tool.Name) {
+			continue
+		}
+		nativeScope := mcp.TranslateScope(tiddlyScope, tool.Name)
+		sr, err := getToolStatus(tool, nativeScope, projectPath)
+		results = append(results, scopeStatus{Scope: tiddlyScope, Result: sr, Err: err})
 	}
 	return results
 }
 
 func printMCPTree(w io.Writer, tools []mcp.DetectedTool, projectPath string, showProjectPath bool) {
 	if showProjectPath && projectPath != "" {
-		fmt.Fprintf(w, "\nMCP Servers (project: %s):\n", projectPath)
+		fmt.Fprintf(w, "\nMCP Servers (path: %s):\n", projectPath)
 	} else {
 		fmt.Fprintln(w, "\nMCP Servers:")
 	}
@@ -247,19 +250,17 @@ func shortenHome(path string) string {
 }
 
 // displayPath formats a config path for display, shortening the home dir prefix.
-// For local scope, appends the JSON path within the file.
+// For Claude Code's directory scope (which stores per-directory config inside
+// ~/.claude.json under a project key), appends the project path annotation.
 func displayPath(configPath, projectPath, scope string) string {
 	display := shortenHome(configPath)
-	if scope == "local" && projectPath != "" {
+	if scope == "directory" && projectPath != "" && strings.HasSuffix(configPath, ".claude.json") {
 		display += " → projects[" + shortenHome(projectPath) + "]"
 	}
 	return display
 }
 
 // printSkillsSection renders the Skills tree.
-// NOTE: Skills use "global"/"project" scope terminology (from `tiddly skills configure --scope`),
-// while MCP uses "user"/"local"/"project" (from Claude Code's conventions). "user" and "global"
-// refer to the same thing (~/ config). Changing either would break existing CLI contracts.
 func printSkillsSection(w io.Writer, projectPath string) {
 	fmt.Fprintln(w, "\nSkills:")
 	fmt.Fprintln(w, "  Skills directories may include non-Tiddly skills.")
@@ -304,7 +305,11 @@ func printSkillsSection(w io.Writer, projectPath string) {
 				label = "1 skill"
 			}
 			path := shortenHome(r.Path)
-			fmt.Fprintf(w, "  %s %-10s %s   %s\n", connector, r.Scope, label, path)
+			if r.Deprecated {
+				fmt.Fprintf(w, "  %s %-10s %s   %s (deprecated path)\n", connector, r.Scope, label, path)
+			} else {
+				fmt.Fprintf(w, "  %s %-10s %s   %s\n", connector, r.Scope, label, path)
+			}
 			for _, name := range r.SkillNames {
 				fmt.Fprintf(w, "  %s             - %s\n", prefix, name)
 			}

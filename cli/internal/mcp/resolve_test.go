@@ -115,3 +115,31 @@ func TestResolveToolConfig__claude_desktop_user_scope_with_config_path(t *testin
 	require.NoError(t, err)
 	assert.Equal(t, "/custom/config.json", rc.Path)
 }
+
+func TestTranslateScope__user_passes_through(t *testing.T) {
+	assert.Equal(t, "user", TranslateScope("user", "claude-code"))
+	assert.Equal(t, "user", TranslateScope("user", "codex"))
+	assert.Equal(t, "user", TranslateScope("user", "claude-desktop"))
+}
+
+func TestTranslateScope__directory_maps_to_native(t *testing.T) {
+	assert.Equal(t, "local", TranslateScope("directory", "claude-code"))
+	assert.Equal(t, "project", TranslateScope("directory", "codex"))
+	// claude-desktop: passes through unchanged (will fail at handler validation)
+	assert.Equal(t, "directory", TranslateScope("directory", "claude-desktop"))
+}
+
+func TestIsTiddlyScopeSupported(t *testing.T) {
+	assert.True(t, IsTiddlyScopeSupported("user", "claude-code"))
+	assert.True(t, IsTiddlyScopeSupported("directory", "claude-code"))
+	assert.True(t, IsTiddlyScopeSupported("user", "codex"))
+	assert.True(t, IsTiddlyScopeSupported("directory", "codex"))
+	assert.True(t, IsTiddlyScopeSupported("user", "claude-desktop"))
+	assert.False(t, IsTiddlyScopeSupported("directory", "claude-desktop"))
+}
+
+func TestDisplayScope(t *testing.T) {
+	assert.Equal(t, "user", DisplayScope("user"))
+	assert.Equal(t, "directory", DisplayScope("local"))
+	assert.Equal(t, "directory", DisplayScope("project"))
+}

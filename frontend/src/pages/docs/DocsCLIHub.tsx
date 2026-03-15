@@ -46,7 +46,7 @@ export function DocsCLIHub(): ReactNode {
       <StepSection step={1} title="Install">
         <CopyableCodeBlock code="curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh" />
         <p className="text-sm text-gray-600 mt-2 text-sm">
-          To update later, run <code className="bg-gray-100 px-1 rounded">tiddly upgrade</code>.
+          To update later, run <code className="bg-gray-100 px-1 rounded">tiddly update</code>.
         </p>
       </StepSection>
 

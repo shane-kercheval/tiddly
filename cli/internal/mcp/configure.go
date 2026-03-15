@@ -45,8 +45,8 @@ type ConfigureOpts struct {
 	Handlers  []ToolHandler // handler list for dispatch
 	AuthType  string        // "oauth", "pat", "flag", "env"
 	DryRun    bool
-	Scope     string   // config scope: "user" (default), "local", or "project"
-	Cwd       string   // working directory for "local"/"project" scope resolution
+	Scope     string   // Tiddly scope: "user" (default) or "directory"
+	Cwd       string   // working directory for directory scope resolution
 	Servers   []string // which servers to configure: "content", "prompts" (default: both)
 	ExpiresIn *int     // PAT expiration in days (nil = no expiration)
 	Output    io.Writer
@@ -104,7 +104,8 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 			return nil, fmt.Errorf("no handler for tool %q", tool.Name)
 		}
 
-		rc, err := ResolveToolConfig(handler, tool.ConfigPath, opts.Scope, opts.Cwd)
+		nativeScope := TranslateScope(opts.Scope, tool.Name)
+		rc, err := ResolveToolConfig(handler, tool.ConfigPath, nativeScope, opts.Cwd)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", tool.Name, err)
 		}

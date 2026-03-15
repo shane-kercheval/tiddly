@@ -86,15 +86,15 @@ export function DocsCLIReference(): ReactNode {
         <li>Authentication status and method</li>
         <li>API health and latency</li>
         <li>Content counts (bookmarks, notes, prompts — fetched in parallel)</li>
-        <li>MCP server status for each detected AI tool across all scopes (user, local, project)</li>
+        <li>MCP server status for each detected AI tool across user and directory scopes</li>
         <li>Installed skills across all tools and scopes</li>
       </ul>
       <p className="text-sm text-gray-600 mb-3">
-        Use <code className="bg-gray-100 px-1 rounded">--project-path</code> to specify which
-        project directory to inspect for local/project scopes. Defaults to the current working
+        Use <code className="bg-gray-100 px-1 rounded">--path</code> to specify which
+        directory to inspect for directory-scoped configurations. Defaults to the current working
         directory.
       </p>
-      <CopyableCodeBlock code="tiddly status --project-path /path/to/project" />
+      <CopyableCodeBlock code="tiddly status --path /path/to/project" />
 
       {/* Credential Storage */}
       <h2 className="text-lg font-bold text-gray-900 mt-10 mb-4">Credential Storage</h2>

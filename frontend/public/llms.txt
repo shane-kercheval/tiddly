@@ -213,27 +213,26 @@ curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/ins
 
 **Commands:**
 - `tiddly login` / `tiddly logout`: Authenticate via OAuth device flow or Personal Access Token.
-- `tiddly status [--scope user|local|project]`: Overview of authentication, API health, content counts, and MCP server status. Use `--scope` to check a specific config level for MCP servers (default: user).
+- `tiddly status [--path /dir]`: Overview of authentication, API health, content counts, and MCP server status. Use `--path` to inspect a specific directory for directory-scoped configurations (default: cwd).
 - `tiddly mcp configure`: Auto-detect installed AI tools (Claude Desktop, Claude Code, Codex) and configure MCP servers with dedicated tokens.
 - `tiddly mcp status` / `tiddly mcp remove`: View or remove MCP server configurations.
-- `tiddly skills configure [tool...]`: Install prompt templates as agent skills for Claude Code, Codex, or Claude Desktop. Auto-detects tools if none specified. Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode, and `--scope` for project-level paths.
+- `tiddly skills configure [tool...]`: Install prompt templates as agent skills for Claude Code, Codex, or Claude Desktop. Auto-detects tools if none specified. Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode, and `--scope` (user or directory) for scope selection.
 - `tiddly skills list`: List available skills (prompts eligible for export). Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode.
 - `tiddly tokens list`: List all Personal Access Tokens with name, prefix, last used, expiration, and creation date.
 - `tiddly tokens create <name> [--expires N]`: Create a new PAT. The plaintext token is shown once at creation.
 - `tiddly tokens delete <id> [--force]`: Revoke a PAT by ID. Prompts for confirmation unless `--force` is used.
 - `tiddly completion bash/zsh/fish`: Generate shell completion scripts.
 - `tiddly export`: Bulk export bookmarks, notes, and prompts as JSON. Supports `--types`, `--output`, and `--include-archived`.
-- `tiddly upgrade`: Download and install the latest CLI version. Verifies SHA256 checksum before replacing the binary.
+- `tiddly update`: Download and install the latest CLI version. Verifies SHA256 checksum before replacing the binary.
 - `tiddly config list`: Show all configuration values.
 - `tiddly config get <key>`: Get a configuration value.
 - `tiddly config set <key> <value>`: Set a configuration value. Supported keys: `api_url`, `update_check`.
 
 Token management requires OAuth login (browser-based). PAT authentication is not sufficient for token operations.
 
-**Config scopes** control where MCP server entries are written:
-- `user` (default) — applies globally to all projects. Stored in the user's home directory.
-- `local` (Claude Code only) — scoped to a specific project but stored in the user's home directory (`~/.claude.json` under a project key). Not committed to the repo — useful for private config you don't want to share with collaborators.
-- `project` — scoped to the project and stored in the project directory itself (`.mcp.json` for Claude Code, `.codex/config.toml` for Codex). Can be committed and shared with collaborators.
+**Config scopes** control where MCP server and skills entries are written:
+- `user` (default) — available everywhere for the user. Stored in the user's home directory.
+- `directory` — configuration only applies when running tools from a specific directory.
 
 Also supports dry-run mode and automatic token management. Full documentation at https://tiddly.me/docs/cli.
 

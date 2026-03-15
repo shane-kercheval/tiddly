@@ -73,8 +73,8 @@ func TestShouldCheckForUpdates__no_update_check_env(t *testing.T) {
 	assert.False(t, shouldCheckForUpdates(newTestCmd("status"), ""))
 }
 
-func TestShouldCheckForUpdates__upgrade_command(t *testing.T) {
-	assert.False(t, shouldCheckForUpdates(newTestCmd("upgrade"), ""))
+func TestShouldCheckForUpdates__update_command(t *testing.T) {
+	assert.False(t, shouldCheckForUpdates(newTestCmd("update"), ""))
 }
 
 func TestShouldCheckForUpdates__completion_command(t *testing.T) {

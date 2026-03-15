@@ -54,74 +54,80 @@ func TestScanSkillsDir__nonexistent_dir_returns_empty(t *testing.T) {
 func TestScanAllSkills__returns_all_tool_scope_combos(t *testing.T) {
 	projectDir := t.TempDir()
 
-	// Set up claude-code global skills
+	// Set up claude-code user skills
 	globalDir := t.TempDir()
 	skillDir := filepath.Join(globalDir, "my-skill")
 	require.NoError(t, os.MkdirAll(skillDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Skill"), 0644))
-	cleanupCCGlobal := SetToolPathOverride("claude-code", ScopeGlobal, globalDir)
+	cleanupCCGlobal := SetToolPathOverride("claude-code", ScopeUser, globalDir)
 	t.Cleanup(cleanupCCGlobal)
 
-	// Set up claude-code project skills
+	// Set up claude-code directory skills
 	ccProjectDir := filepath.Join(projectDir, ".claude", "skills")
 	ccSkillDir := filepath.Join(ccProjectDir, "project-skill")
 	require.NoError(t, os.MkdirAll(ccSkillDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(ccSkillDir, "SKILL.md"), []byte("# Skill"), 0644))
 
-	// Set up codex global skills (empty)
+	// Set up codex user skills (empty)
 	codexGlobalDir := t.TempDir()
-	cleanupCxGlobal := SetToolPathOverride("codex", ScopeGlobal, codexGlobalDir)
+	cleanupCxGlobal := SetToolPathOverride("codex", ScopeUser, codexGlobalDir)
 	t.Cleanup(cleanupCxGlobal)
+
+	// Override deprecated path to empty dir so real ~/.codex/skills/ is not scanned
+	t.Cleanup(SetToolPathOverride("codex", "deprecated-user", t.TempDir()))
 
 	results := ScanAllSkills(projectDir)
 
 	require.Len(t, results, 4)
 
-	// claude-code global
+	// claude-code user
 	assert.Equal(t, "claude-code", results[0].Tool)
-	assert.Equal(t, ScopeGlobal, results[0].Scope)
+	assert.Equal(t, ScopeUser, results[0].Scope)
 	assert.Equal(t, []string{"my-skill"}, results[0].SkillNames)
 	assert.NoError(t, results[0].Err)
 
-	// claude-code project
+	// claude-code directory
 	assert.Equal(t, "claude-code", results[1].Tool)
-	assert.Equal(t, ScopeProject, results[1].Scope)
+	assert.Equal(t, ScopeDirectory, results[1].Scope)
 	assert.Equal(t, []string{"project-skill"}, results[1].SkillNames)
 	assert.NoError(t, results[1].Err)
 
-	// codex global — empty dir, 0 skills
+	// codex user — empty dir, 0 skills
 	assert.Equal(t, "codex", results[2].Tool)
-	assert.Equal(t, ScopeGlobal, results[2].Scope)
+	assert.Equal(t, ScopeUser, results[2].Scope)
 	assert.Empty(t, results[2].SkillNames)
 	assert.NoError(t, results[2].Err)
 
-	// codex project — no dir created, 0 skills
+	// codex directory — no dir created, 0 skills
 	assert.Equal(t, "codex", results[3].Tool)
-	assert.Equal(t, ScopeProject, results[3].Scope)
+	assert.Equal(t, ScopeDirectory, results[3].Scope)
 	assert.Empty(t, results[3].SkillNames)
 	assert.NoError(t, results[3].Err)
 }
 
-func TestScanAllSkills__empty_project_path_returns_errors_for_project_scope(t *testing.T) {
-	// Global overrides so we get predictable results
+func TestScanAllSkills__empty_project_path_returns_errors_for_directory_scope(t *testing.T) {
+	// User overrides so we get predictable results
 	globalDir := t.TempDir()
-	cleanupCC := SetToolPathOverride("claude-code", ScopeGlobal, globalDir)
+	cleanupCC := SetToolPathOverride("claude-code", ScopeUser, globalDir)
 	t.Cleanup(cleanupCC)
 	codexDir := t.TempDir()
-	cleanupCx := SetToolPathOverride("codex", ScopeGlobal, codexDir)
+	cleanupCx := SetToolPathOverride("codex", ScopeUser, codexDir)
 	t.Cleanup(cleanupCx)
+
+	// Override deprecated path to empty dir
+	t.Cleanup(SetToolPathOverride("codex", "deprecated-user", t.TempDir()))
 
 	results := ScanAllSkills("")
 
 	require.Len(t, results, 4)
 
-	// Global scopes should work fine
-	assert.NoError(t, results[0].Err) // claude-code global
-	assert.NoError(t, results[2].Err) // codex global
+	// User scopes should work fine
+	assert.NoError(t, results[0].Err) // claude-code user
+	assert.NoError(t, results[2].Err) // codex user
 
-	// Project scopes should have errors
-	assert.Error(t, results[1].Err) // claude-code project
+	// Directory scopes should have errors
+	assert.Error(t, results[1].Err) // claude-code directory
 	assert.Contains(t, results[1].Err.Error(), "no project path")
-	assert.Error(t, results[3].Err) // codex project
+	assert.Error(t, results[3].Err) // codex directory
 	assert.Contains(t, results[3].Err.Error(), "no project path")
 }
