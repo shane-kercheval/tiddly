@@ -409,6 +409,58 @@ const CLI_TOOL_LABELS: Record<CliToolType, string> = {
   'codex': 'Codex',
 }
 
+interface AffectedFile {
+  path: string
+  description: string
+}
+
+/**
+ * Returns the list of files/directories that will be created or modified
+ * based on the selected tools, scope, and what's being configured.
+ */
+function getAffectedFiles(
+  selectedTools: Set<CliToolType>,
+  scope: ScopeType,
+  hasMcpServers: boolean,
+  installSkills: boolean,
+): AffectedFile[] {
+  const files: AffectedFile[] = []
+
+  if (hasMcpServers) {
+    if (selectedTools.has('claude-code')) {
+      files.push(scope === 'user'
+        ? { path: '~/.claude.json', description: 'Claude Code MCP (--scope user)' }
+        : { path: '~/.claude.json', description: 'Claude Code MCP (--scope local, under project key)' })
+    }
+    if (selectedTools.has('codex')) {
+      files.push(scope === 'user'
+        ? { path: '~/.codex/config.toml', description: 'Codex MCP (user-level config)' }
+        : { path: '.codex/config.toml', description: 'Codex MCP (project-scoped config)' })
+    }
+    if (selectedTools.has('claude-desktop')) {
+      files.push({ path: '~/Library/Application Support/Claude/claude_desktop_config.json', description: 'Claude Desktop MCP (macOS)' })
+    }
+  }
+
+  if (installSkills) {
+    if (selectedTools.has('claude-code')) {
+      files.push(scope === 'user'
+        ? { path: '~/.claude/skills/', description: 'Claude Code skills (personal)' }
+        : { path: '.claude/skills/', description: 'Claude Code skills (project directory)' })
+    }
+    if (selectedTools.has('codex')) {
+      if (scope === 'user') {
+        files.push({ path: '~/.agents/skills/', description: 'Codex skills (USER scope)' })
+        files.push({ path: '~/.codex/skills/', description: 'Codex skills (deprecated path)' })
+      } else {
+        files.push({ path: '.agents/skills/', description: 'Codex skills (REPO scope)' })
+      }
+    }
+  }
+
+  return files
+}
+
 /**
  * Returns true when Claude Desktop is selected with directory scope — an invalid
  * configuration since Claude Desktop only supports user scope.
@@ -478,6 +530,7 @@ function CLISetupSection(): ReactNode {
   const desktopDirectoryError = hasClaudeDesktopDirectoryError(selectedTools, activeScope)
   const command = desktopDirectoryError ? '' : generateCLICommands(cliAction, selectedServers, installSkills, selectedTools, activeScope, skillsTags, skillsTagMatch, deleteTokens)
   const hasAnything = hasSelections && command !== ''
+  const affectedFiles = hasAnything ? getAffectedFiles(selectedTools, activeScope, hasMcpServers, installSkills) : []
 
   const handleCopyCommand = async (): Promise<void> => {
     try {
@@ -542,6 +595,13 @@ function CLISetupSection(): ReactNode {
         Use the Tiddly CLI to quickly configure or remove MCP servers and skills for your AI tools.
         Select what you'd like to do and follow the steps below.
       </p>
+
+      {/* Status tip */}
+      <div className="rounded-lg bg-blue-50 border border-blue-100 px-4 py-2.5 mb-6" data-testid="status-tip">
+        <p className="text-xs text-blue-700">
+          Want to view your current setup? Install the CLI and run <code className="bg-blue-100 px-1 rounded text-xs">tiddly status</code>.
+        </p>
+      </div>
 
       {/* Action */}
       <div className="mb-6">
@@ -746,6 +806,19 @@ function CLISetupSection(): ReactNode {
                     {copiedCommand ? 'Copied!' : 'Copy'}
                   </button>
                 </div>
+                {affectedFiles.length > 0 && (
+                  <details className="mt-2" data-testid="affected-files">
+                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">Files modified</summary>
+                    <div className="mt-1.5 text-xs text-gray-400 font-mono space-y-0.5">
+                      {affectedFiles.map((f) => (
+                        <div key={f.path} className="flex gap-3">
+                          <span className="text-gray-500 min-w-[15rem]">{f.path}</span>
+                          <span>{f.description}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </div>
             </div>
           </div>

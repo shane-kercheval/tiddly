@@ -994,5 +994,98 @@ describe('SettingsMCP', () => {
         expect(within(cli).getByText(/Select at least one item and one target tool above/)).toBeInTheDocument()
       })
     })
+
+    describe('file details disclosure', () => {
+      it('should show file details when command is generated', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        expect(within(cli).getByTestId('affected-files')).toBeInTheDocument()
+        expect(within(cli).getByText('Files modified')).toBeInTheDocument()
+      })
+
+      it('should hide file details when nothing selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
+        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
+
+        expect(within(cli).queryByTestId('affected-files')).not.toBeInTheDocument()
+      })
+
+      it('should show only Claude Code files when only Claude Code selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Codex' }))
+
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.claude.json')).toBeInTheDocument()
+        expect(within(details).queryByText('~/.codex/config.toml')).not.toBeInTheDocument()
+      })
+
+      it('should show only Codex files when only Codex selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
+
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.codex/config.toml')).toBeInTheDocument()
+        expect(within(details).queryByText('~/.claude.json')).not.toBeInTheDocument()
+      })
+
+      it('should show user-scope paths for user scope', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.claude.json')).toBeInTheDocument()
+        expect(within(details).getByText('~/.codex/config.toml')).toBeInTheDocument()
+      })
+
+      it('should show directory-scope paths for directory scope', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
+
+        const details = within(cli).getByTestId('affected-files')
+        // Claude Code MCP still writes to ~/.claude.json (under project key)
+        expect(within(details).getByText('~/.claude.json')).toBeInTheDocument()
+        // Codex MCP writes to project directory
+        expect(within(details).getByText('.codex/config.toml')).toBeInTheDocument()
+      })
+
+      it('should include skills paths when skills enabled', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
+
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.claude/skills/')).toBeInTheDocument()
+        expect(within(details).getByText('~/.agents/skills/')).toBeInTheDocument()
+        // Deprecated Codex path shown for user scope
+        expect(within(details).getByText('~/.codex/skills/')).toBeInTheDocument()
+      })
+    })
+
+    describe('status tip', () => {
+      it('should show status tip', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        expect(within(cli).getByTestId('status-tip')).toBeInTheDocument()
+        expect(within(cli).getByText(/tiddly status/)).toBeInTheDocument()
+      })
+
+      it('should contain code element for tiddly status', () => {
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+        const tip = within(cli).getByTestId('status-tip')
+        const code = tip.querySelector('code')
+        expect(code).not.toBeNull()
+        expect(code?.textContent).toBe('tiddly status')
+      })
+    })
   })
 })
