@@ -95,7 +95,7 @@ Claude Desktop does not have a CLI or scope flags. MCP servers are configured vi
 
 ## Tiddly CLI Scope Mapping
 
-Our CLI (`tiddly mcp configure`, `tiddly skills configure`) provides two scopes: `user` and `directory`. These map to both MCP and skills for all supported tools.
+Our CLI (`tiddly mcp configure`, `tiddly skills configure`) provides two scopes: `user` and `directory`. These apply to both MCP and skills configuration.
 
 - **`user`** — available everywhere for the user
 - **`directory`** — scoped to the directory the command is run in

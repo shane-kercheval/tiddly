@@ -158,7 +158,7 @@ func TestStatus__shows_tree_output(t *testing.T) {
 	assert.Contains(t, result.Stdout, "claude-code")
 	// Header should NOT show (project: ...) when --path is not passed
 	assert.Contains(t, result.Stdout, "MCP Servers:")
-	assert.NotContains(t, result.Stdout, "MCP Servers (project:")
+	assert.NotContains(t, result.Stdout, "MCP Servers (path:")
 }
 
 func TestStatus__shows_path_in_header(t *testing.T) {
@@ -171,7 +171,7 @@ func TestStatus__shows_path_in_header(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "status", "--path", dir)
 
 	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "MCP Servers (project: "+dir+")")
+	assert.Contains(t, result.Stdout, "MCP Servers (path: "+dir+")")
 }
 
 func TestStatus__shows_tiddly_server_urls(t *testing.T) {

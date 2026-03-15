@@ -446,7 +446,7 @@ func TestMCPStatus__project_path_flag(t *testing.T) {
 	result := testutil.ExecuteCmd(t, cmd, "mcp", "status", "--path", dir)
 
 	require.NoError(t, result.Err)
-	assert.Contains(t, result.Stdout, "MCP Servers (project: "+dir+")")
+	assert.Contains(t, result.Stdout, "MCP Servers (path: "+dir+")")
 }
 
 func TestMCPRemove__servers_flag_content_only(t *testing.T) {

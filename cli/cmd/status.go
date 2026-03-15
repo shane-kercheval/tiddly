@@ -172,7 +172,7 @@ func getToolStatusAllScopes(tool mcp.DetectedTool, projectPath string) []scopeSt
 
 func printMCPTree(w io.Writer, tools []mcp.DetectedTool, projectPath string, showProjectPath bool) {
 	if showProjectPath && projectPath != "" {
-		fmt.Fprintf(w, "\nMCP Servers (project: %s):\n", projectPath)
+		fmt.Fprintf(w, "\nMCP Servers (path: %s):\n", projectPath)
 	} else {
 		fmt.Fprintln(w, "\nMCP Servers:")
 	}
@@ -250,22 +250,14 @@ func shortenHome(path string) string {
 }
 
 // displayPath formats a config path for display, shortening the home dir prefix.
-// For directory scope where the config file is in the home directory (Claude Code stores
-// per-directory config inside ~/.claude.json under a project key), appends the project path.
+// For Claude Code's directory scope (which stores per-directory config inside
+// ~/.claude.json under a project key), appends the project path annotation.
 func displayPath(configPath, projectPath, scope string) string {
 	display := shortenHome(configPath)
-	if scope == "directory" && projectPath != "" && strings.HasPrefix(configPath, homeDir()) {
+	if scope == "directory" && projectPath != "" && strings.HasSuffix(configPath, ".claude.json") {
 		display += " → projects[" + shortenHome(projectPath) + "]"
 	}
 	return display
-}
-
-func homeDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return home
 }
 
 // printSkillsSection renders the Skills tree.

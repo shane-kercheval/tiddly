@@ -163,7 +163,7 @@ bin/tiddly status --path /path/to/project
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Header shows `MCP Servers (project: /path/to/project):`
+- [ ] Header shows `MCP Servers (path: /path/to/project):`
 - [ ] directory scope reflects config for specified path
 
 ```bash
@@ -386,7 +386,7 @@ bin/tiddly mcp status --path "$TEST_PROJECT"
 ```
 **Verify:**
 - [ ] Exit code 0
-- [ ] Header shows `MCP Servers (project: $TEST_PROJECT):`
+- [ ] Header shows `MCP Servers (path: $TEST_PROJECT):`
 - [ ] local/directory scopes reflect config for specified project
 - [ ] claude-code local scope shows `~/.claude.json → projects[...]`
 

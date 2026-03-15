@@ -726,8 +726,6 @@ function CLISetupSection(): ReactNode {
         <p className="text-sm text-gray-400 italic">Select at least one item and one target tool above.</p>
       ) : desktopDirectoryError ? (
         <p className="text-sm text-amber-600 italic">Claude Desktop only supports User scope. Deselect Claude Desktop or switch to User scope.</p>
-      ) : !hasAnything ? (
-        <p className="text-sm text-gray-400 italic">Select at least one item and one target tool above.</p>
       ) : (
         <div className="space-y-3">
           {/* Step 1: Install CLI */}
