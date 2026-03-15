@@ -223,9 +223,8 @@ In `AISetupWidget.tsx`:
 
 **5. Claude Desktop + Directory scope error**
 
-- Claude Desktop only supports user scope for both MCP and skills (the CLI returns `"claude-desktop does not support --scope project"`)
-- When Claude Desktop is the **only** selected tool and scope is "Directory", show an error message and hide the steps/command. E.g., "Claude Desktop only supports User scope. Select User scope, or add another tool."
-- When Claude Desktop is selected alongside other tools and scope is "Directory", skip Claude Desktop in the generated commands — the other tools will still work. No warning needed since Claude Desktop is not a CLI tool and this is the expected behavior.
+- Claude Desktop only supports user scope for both MCP and skills (the CLI returns `"claude-desktop does not support --scope directory"`)
+- When Claude Desktop is selected (regardless of other tools) and scope is "Directory", show an error message and hide the steps/command: "Claude Desktop only supports User scope. Deselect Claude Desktop or switch to User scope." No silent skipping — invalid configuration is always surfaced.
 
 ### Testing Strategy
 
@@ -244,9 +243,8 @@ All tests are automated Vitest tests in `frontend/src/pages/settings/SettingsMCP
 - **No Codex old paths**: Verify no references to `~/.codex/skills/` or `.codex/skills/` anywhere in generated commands
 - **Default scope**: "User" is selected by default
 - **Configure command join**: User scope → commands joined with `&&`. Directory scope → `cd` prepended, commands joined with newlines.
-- **Claude Desktop only + Directory scope**: Shows error message, hides steps/command
-- **Claude Desktop only + User scope**: Works normally
-- **Claude Desktop + other tools + Directory scope**: Generates commands for other tools, Claude Desktop silently excluded from CLI commands (Claude Desktop is a GUI tool, not a CLI tool)
+- **Claude Desktop + Directory scope**: Shows error message and hides steps/command regardless of other selected tools
+- **Claude Desktop + User scope**: Works normally
 
 ---
 

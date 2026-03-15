@@ -100,26 +100,15 @@ function SelectorRow<T extends string>({
 
 // =============================================================================
 // CLI-First Setup Section
+//
+// For the tool/scope support matrix and terminology decisions,
+// see docs/ai-integration.md
 // =============================================================================
 
 type CliToolType = 'claude-desktop' | 'claude-code' | 'codex'
 type CliActionType = 'configure' | 'remove'
-type McpScopeType = 'user' | 'local' | 'project'
-type SkillsScopeType = 'global' | 'project'
+type ScopeType = 'user' | 'directory'
 type TagMatchType = 'all' | 'any'
-
-// Scope support matrix (matches CLI handler.SupportedScopes())
-const MCP_SCOPE_SUPPORT: Record<CliToolType, McpScopeType[]> = {
-  'claude-desktop': ['user'],
-  'claude-code': ['user', 'local', 'project'],
-  'codex': ['user', 'project'],
-}
-
-const SKILLS_SCOPE_SUPPORT: Record<CliToolType, SkillsScopeType[]> = {
-  'claude-desktop': ['global'],
-  'claude-code': ['global', 'project'],
-  'codex': ['global', 'project'],
-}
 
 interface PillOption<T extends string> {
   value: T
@@ -286,38 +275,33 @@ function generateCLICommands(
   selectedServers: Set<ServerType>,
   installSkills: boolean,
   selectedTools: Set<CliToolType>,
-  mcpScope: McpScopeType,
-  skillsScope: SkillsScopeType,
+  scope: ScopeType,
   skillsTags: string[],
   skillsTagMatch: TagMatchType,
   deleteTokens: boolean,
-  removeMcpScope: McpScopeType,
 ): string {
   if (action === 'remove') {
-    return generateRemoveCommands(selectedServers, installSkills, selectedTools, deleteTokens, removeMcpScope)
+    return generateRemoveCommands(selectedServers, installSkills, selectedTools, deleteTokens, scope)
   }
 
   const allTools: CliToolType[] = ['claude-desktop', 'claude-code', 'codex']
-  const needsCd = (mcpScope === 'local' || mcpScope === 'project') || (installSkills && skillsScope === 'project')
+  const needsCd = scope === 'directory'
   const parts: string[] = []
 
   if (selectedServers.size > 0 && selectedTools.size > 0) {
     let cmd = 'tiddly mcp configure'
 
-    // Add specific tools if not all selected
     const mcpTools = allTools.filter((t) => selectedTools.has(t))
     if (mcpTools.length < allTools.length) {
       cmd += ' ' + mcpTools.join(' ')
     }
 
-    // Add --servers if not both
     if (selectedServers.size === 1) {
       cmd += ` --servers ${[...selectedServers][0]}`
     }
 
-    // Add --scope if not default
-    if (mcpScope !== 'user') {
-      cmd += ` --scope ${mcpScope}`
+    if (scope !== 'user') {
+      cmd += ` --scope ${scope}`
     }
 
     parts.push(cmd)
@@ -326,25 +310,21 @@ function generateCLICommands(
   if (installSkills && selectedTools.size > 0) {
     let cmd = 'tiddly skills configure'
 
-    // Add specific tools if not all selected
     const skillsTools = allTools.filter((t) => selectedTools.has(t))
     if (skillsTools.length < allTools.length) {
       cmd += ' ' + skillsTools.join(' ')
     }
 
-    // Add --scope if not default
-    if (skillsScope !== 'global') {
-      cmd += ` --scope ${skillsScope}`
+    if (scope !== 'user') {
+      cmd += ` --scope ${scope}`
     }
 
-    // Add --tags if not default ('skill')
     if (skillsTags.length === 0) {
       cmd += ' --tags ""'
     } else if (skillsTags.length !== 1 || skillsTags[0] !== 'skill') {
       cmd += ` --tags ${skillsTags.join(',')}`
     }
 
-    // Add --tag-match if not default
     if (skillsTagMatch === 'any') {
       cmd += ' --tag-match any'
     }
@@ -354,13 +334,11 @@ function generateCLICommands(
 
   if (parts.length === 0) return ''
 
-  // Prepend cd when local/project scope requires a project directory
   if (needsCd) {
     parts.unshift('cd /path/to/your/project')
   }
 
   if (parts.length === 1) return parts[0]
-  // Use && chaining when no cd is prepended (single copy-pasteable command that stops on failure)
   return parts.join(needsCd ? '\n' : ' && \\\n')
 }
 
@@ -372,22 +350,21 @@ function generateRemoveCommands(
   removeSkills: boolean,
   selectedTools: Set<CliToolType>,
   deleteTokens: boolean,
-  mcpScope: McpScopeType,
+  scope: ScopeType,
 ): string {
   const allTools: CliToolType[] = ['claude-desktop', 'claude-code', 'codex']
-  const needsCd = mcpScope === 'local' || mcpScope === 'project'
+  const needsCd = scope === 'directory'
   const parts: string[] = []
 
   if (selectedServers.size > 0 && selectedTools.size > 0) {
-    // Skip tools that don't support the selected scope
-    const mcpTools = allTools.filter((t) => selectedTools.has(t) && MCP_SCOPE_SUPPORT[t].includes(mcpScope))
+    const mcpTools = allTools.filter((t) => selectedTools.has(t))
     for (const tool of mcpTools) {
       let cmd = `tiddly mcp remove ${tool}`
       if (selectedServers.size === 1) {
         cmd += ` --servers ${[...selectedServers][0]}`
       }
-      if (mcpScope !== 'user') {
-        cmd += ` --scope ${mcpScope}`
+      if (scope !== 'user') {
+        cmd += ` --scope ${scope}`
       }
       if (deleteTokens) {
         cmd += ' --delete-tokens'
@@ -401,27 +378,24 @@ function generateRemoveCommands(
     for (const tool of skillsTools) {
       if (tool === 'claude-desktop') {
         parts.push('# Claude Desktop: manually remove skills from Settings > Capabilities')
-      } else {
-        const dir = tool === 'claude-code' ? '~/.claude/skills/' : '~/.codex/skills/'
+      } else if (scope === 'user') {
+        const dir = tool === 'claude-code' ? '~/.claude/skills/' : '~/.agents/skills/'
         parts.push(`# WARNING: Removes ALL skills including non-Tiddly ones`)
         parts.push(`# rm -rf ${dir}`)
-      }
-    }
-    // Project-level skill paths when local/project scope
-    if (needsCd) {
-      parts.push('# WARNING: Removes ALL project-level skills including non-Tiddly ones')
-      if (selectedTools.has('claude-code')) {
-        parts.push('# rm -rf .claude/skills/')
-      }
-      if (selectedTools.has('codex')) {
-        parts.push('# rm -rf .codex/skills/')
+        // Also clean deprecated Codex path if applicable
+        if (tool === 'codex') {
+          parts.push(`# rm -rf ~/.codex/skills/`)
+        }
+      } else {
+        const dir = tool === 'claude-code' ? '.claude/skills/' : '.agents/skills/'
+        parts.push(`# WARNING: Removes ALL directory-level skills including non-Tiddly ones`)
+        parts.push(`# rm -rf ${dir}`)
       }
     }
   }
 
   if (parts.length === 0) return ''
 
-  // Prepend cd when local/project scope requires a project directory
   if (needsCd) {
     parts.unshift('cd /path/to/your/project')
   }
@@ -429,33 +403,18 @@ function generateRemoveCommands(
   return parts.join('\n')
 }
 
-/**
- * Get scope warnings for tools that don't support the selected scope.
- */
 const CLI_TOOL_LABELS: Record<CliToolType, string> = {
   'claude-desktop': 'Claude Desktop',
   'claude-code': 'Claude Code',
   'codex': 'Codex',
 }
 
-function getMcpScopeWarnings(selectedTools: Set<CliToolType>, scope: McpScopeType): string[] {
-  const warnings: string[] = []
-  for (const tool of selectedTools) {
-    if (!MCP_SCOPE_SUPPORT[tool].includes(scope)) {
-      warnings.push(`${CLI_TOOL_LABELS[tool]} doesn't support "${scope}" scope and will be skipped`)
-    }
-  }
-  return warnings
-}
-
-function getSkillsScopeWarnings(selectedTools: Set<CliToolType>, scope: SkillsScopeType): string[] {
-  const warnings: string[] = []
-  for (const tool of selectedTools) {
-    if (!SKILLS_SCOPE_SUPPORT[tool].includes(scope)) {
-      warnings.push(`${CLI_TOOL_LABELS[tool]} doesn't support "${scope}" scope and will be skipped`)
-    }
-  }
-  return warnings
+/**
+ * Returns true when Claude Desktop is selected with directory scope — an invalid
+ * configuration since Claude Desktop only supports user scope.
+ */
+function hasClaudeDesktopDirectoryError(selectedTools: Set<CliToolType>, scope: ScopeType): boolean {
+  return selectedTools.has('claude-desktop') && scope === 'directory'
 }
 
 /**
@@ -476,10 +435,9 @@ function CLISetupSection(): ReactNode {
   // Where to configure/remove
   const [selectedTools, setSelectedTools] = useState<Set<CliToolType>>(new Set(['claude-code', 'codex']))
 
-  // Scope
-  const [mcpScope, setMcpScope] = useState<McpScopeType>('user')
-  const [removeMcpScope, setRemoveMcpScope] = useState<McpScopeType>('user')
-  const [skillsScope, setSkillsScope] = useState<SkillsScopeType>('global')
+  // Scope (single selector for both MCP and skills)
+  const [scope, setScope] = useState<ScopeType>('user')
+  const [removeScope, setRemoveScope] = useState<ScopeType>('user')
 
   // Skills tag filter
   const [promptTags, setPromptTags] = useState<TagCount[]>([])
@@ -516,12 +474,10 @@ function CLISetupSection(): ReactNode {
 
   const hasMcpServers = selectedServers.size > 0
   const hasSelections = (hasMcpServers || installSkills) && selectedTools.size > 0
-  const command = generateCLICommands(cliAction, selectedServers, installSkills, selectedTools, mcpScope, skillsScope, skillsTags, skillsTagMatch, deleteTokens, removeMcpScope)
+  const activeScope = isRemove ? removeScope : scope
+  const desktopDirectoryError = hasClaudeDesktopDirectoryError(selectedTools, activeScope)
+  const command = desktopDirectoryError ? '' : generateCLICommands(cliAction, selectedServers, installSkills, selectedTools, activeScope, skillsTags, skillsTagMatch, deleteTokens)
   const hasAnything = hasSelections && command !== ''
-
-  const activeMcpScope = isRemove ? removeMcpScope : mcpScope
-  const mcpScopeWarnings = hasMcpServers ? getMcpScopeWarnings(selectedTools, activeMcpScope) : []
-  const skillsScopeWarnings = installSkills ? getSkillsScopeWarnings(selectedTools, skillsScope) : []
 
   const handleCopyCommand = async (): Promise<void> => {
     try {
@@ -562,17 +518,10 @@ function CLISetupSection(): ReactNode {
     { value: 'prompts', label: 'Prompts' },
   ]
 
-  // MCP scope options
-  const mcpScopeOptions: PillOption<McpScopeType>[] = [
-    { value: 'user', label: 'User (global)' },
-    { value: 'local', label: 'Local' },
-    { value: 'project', label: 'Project' },
-  ]
-
-  // Skills scope options
-  const skillsScopeOptions: PillOption<SkillsScopeType>[] = [
-    { value: 'global', label: 'Global' },
-    { value: 'project', label: 'Project' },
+  // Scope options
+  const scopeOptions: PillOption<ScopeType>[] = [
+    { value: 'user', label: 'User' },
+    { value: 'directory', label: 'Directory' },
   ]
 
   // Tag match options
@@ -626,25 +575,16 @@ function CLISetupSection(): ReactNode {
       </div>
 
       {/* Options - remove flow (scope + delete tokens) */}
-      {isRemove && hasMcpServers && (
+      {isRemove && (hasMcpServers || installSkills) && (
         <div className="mb-6">
           <SectionDivider label="Options" tooltip="Scope controls which config location to remove from. Delete Tokens revokes the PATs embedded in the tool configurations." />
           <div className="space-y-4">
-            {hasMcpServers && (
-              <div>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">MCP Scope</span>
-                  <PillSelectGroup options={mcpScopeOptions} value={removeMcpScope} onChange={setRemoveMcpScope} />
-                </div>
-                {mcpScopeWarnings.length > 0 && (
-                  <div className="mt-2 ml-0 sm:ml-28">
-                    {mcpScopeWarnings.map((w) => (
-                      <p key={w} className="text-xs text-amber-600">{w}</p>
-                    ))}
-                  </div>
-                )}
+            <div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">Scope</span>
+                <PillSelectGroup options={scopeOptions} value={removeScope} onChange={setRemoveScope} />
               </div>
-            )}
+            </div>
             {hasMcpServers && (
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -681,47 +621,19 @@ function CLISetupSection(): ReactNode {
       {/* Options - scope (hidden when removing) */}
       {!isRemove && (hasMcpServers || installSkills) && (
         <div className="mb-6">
-          <SectionDivider label="Options" tooltip="Scope controls where configurations are stored. User/Global scope makes integrations available everywhere, while Local/Project scope limits them to a specific project directory." />
+          <SectionDivider label="Options" tooltip="Scope controls where configurations are stored. User scope makes integrations available everywhere. Directory scope limits them to the directory you run the command in." />
           <div className="space-y-4">
-            {hasMcpServers && (
-              <div>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">MCP Scope</span>
-                  <PillSelectGroup options={mcpScopeOptions} value={mcpScope} onChange={setMcpScope} />
-                </div>
-                {mcpScopeWarnings.length > 0 && (
-                  <div className="mt-2 ml-0 sm:ml-28">
-                    {mcpScopeWarnings.map((w) => (
-                      <p key={w} className="text-xs text-amber-600">{w}</p>
-                    ))}
-                  </div>
-                )}
-                {selectedTools.has('claude-code') && mcpScope !== 'local' && (
-                  <div className="mt-2 ml-0 sm:ml-28">
-                    <p className="text-xs text-amber-600">
-                      Note: Claude Code defaults to local (per-project) scope. Using &quot;{mcpScope}&quot; scope
-                      will make MCP servers available across all projects.
-                      Use <span className="font-medium">Local</span> if you prefer per-project configuration.
-                    </p>
-                  </div>
-                )}
+            <div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">Scope</span>
+                <PillSelectGroup options={scopeOptions} value={scope} onChange={setScope} />
               </div>
-            )}
-            {installSkills && (
-              <div>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <span className="text-sm font-medium text-gray-600 w-28 flex-shrink-0">Skills Scope</span>
-                  <PillSelectGroup options={skillsScopeOptions} value={skillsScope} onChange={setSkillsScope} />
-                </div>
-                {skillsScopeWarnings.length > 0 && (
-                  <div className="mt-2 ml-0 sm:ml-28">
-                    {skillsScopeWarnings.map((w) => (
-                      <p key={w} className="text-xs text-amber-600">{w}</p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+              {scope === 'directory' && (
+                <p className="text-xs text-gray-500 mt-2 ml-0 sm:ml-28">
+                  Configuration only applies when running tools from a specific directory.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -749,8 +661,10 @@ function CLISetupSection(): ReactNode {
       <SectionDivider label="Steps" />
       {!hasSelections ? (
         <p className="text-sm text-gray-400 italic">Select at least one item and one target tool above.</p>
+      ) : desktopDirectoryError ? (
+        <p className="text-sm text-amber-600 italic">Claude Desktop only supports User scope. Deselect Claude Desktop or switch to User scope.</p>
       ) : !hasAnything ? (
-        <p className="text-sm text-gray-400 italic">No commands to run — the selected tools don&apos;t support the chosen scope.</p>
+        <p className="text-sm text-gray-400 italic">Select at least one item and one target tool above.</p>
       ) : (
         <div className="space-y-3">
           {/* Step 1: Install CLI */}
