@@ -2,7 +2,7 @@
 
 ## Vision
 
-There don't seem to be any good bookmark management solutions. I'm currently using Instapaper. It's alright. But I want something better integrated with my workflow. I don't care about offline reading—mainly just want a better way to organize, tag, and retrieve bookmarks. Also, I want to integrate it with AI tools for better search and summarization.
+There doesn't seem to be any good bookmark management solutions. I'm currently using Instapaper. It's alright. But I want something better integrated with my workflow. I don't care about offline reading - mainly just want a better way to organize, tag, and retrieve bookmarks. Also, I want to integrate it with AI tools for better search and summarization.
 
 ---
 
