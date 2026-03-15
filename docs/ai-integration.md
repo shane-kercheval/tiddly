@@ -95,7 +95,7 @@ Claude Desktop does not have a CLI or scope flags. MCP servers are configured vi
 
 ## Tiddly CLI Scope Mapping
 
-Our CLI (`tiddly mcp configure`, `tiddly skills configure`) will provide two scopes: `user` and `directory`. These map to both MCP and skills for all supported tools. See [implementation plan](implementation_plans/2026-03-14-cli-terminology-cleanup.md) for the migration from the current `user`/`local`/`project`/`global` scopes.
+Our CLI (`tiddly mcp configure`, `tiddly skills configure`) provides two scopes: `user` and `directory`. These map to both MCP and skills for all supported tools.
 
 - **`user`** — available everywhere for the user
 - **`directory`** — scoped to the directory the command is run in
@@ -107,7 +107,7 @@ Our CLI (`tiddly mcp configure`, `tiddly skills configure`) will provide two sco
 | `user`        | `--scope user` (`~/.claude.json` top-level)    | `~/.claude/skills/`      | "User-level" (`~/.codex/config.toml`)        | `USER` scope (`~/.agents/skills/`)        |
 | `directory`   | `--scope local` (`~/.claude.json` under project) | `.claude/skills/`      | "Project-scoped" (`.codex/config.toml`)      | `REPO` scope (`.agents/skills/`)          |
 
-Every tool supports both scopes for both MCP and skills. No per-tool scope filtering is needed.
+Claude Code and Codex support both scopes for both MCP and skills. Claude Desktop only supports `user` scope.
 
 ### Known Limitations
 
