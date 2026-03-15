@@ -15,6 +15,7 @@ from core.config import Settings, get_settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.api_token import ApiToken
 from models.user import User
+from core.tier_limits import Tier
 from models.user_consent import UserConsent
 from services.token_service import hash_token
 
@@ -395,7 +396,7 @@ async def test_rename_token_other_users_token(
 ) -> None:
     """Test that renaming another user's token returns 404."""
     # Create a token owned by a different user directly at model level
-    other_user = User(auth0_id="other-rename-user", email="other-rename@example.com")
+    other_user = User(auth0_id="other-rename-user", email="other-rename@example.com", tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 

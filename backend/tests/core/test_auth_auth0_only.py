@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload
 from core.config import Settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
+from core.tier_limits import Tier
 from models.user_consent import UserConsent
 
 
@@ -30,6 +31,7 @@ async def test_user(db_session: AsyncSession) -> User:
     user = User(
         auth0_id="test-auth0-id-auth",
         email="auth@test.com",
+        tier=Tier.FREE.value,
     )
     db_session.add(user)
     await db_session.commit()
@@ -43,6 +45,7 @@ async def test_user_with_consent(db_session: AsyncSession) -> User:
     user = User(
         auth0_id="test-auth0-id-auth-consent",
         email="authconsent@test.com",
+        tier=Tier.FREE.value,
     )
     db_session.add(user)
     await db_session.flush()

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from core.tier_limits import Tier
 from models.bookmark import Bookmark
 from models.prompt import Prompt
 from models.tag import Tag
@@ -25,7 +26,7 @@ from services.tag_service import (
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-tag-user-123", email="tags@example.com")
+    user = User(auth0_id="test-tag-user-123", email="tags@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -35,7 +36,7 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def other_user(db_session: AsyncSession) -> User:
     """Create another test user for isolation tests."""
-    user = User(auth0_id="other-tag-user-456", email="other-tags@example.com")
+    user = User(auth0_id="other-tag-user-456", email="other-tags@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -650,7 +651,7 @@ async def test__user_delete__cascades_to_tags(
     db_session: AsyncSession,
 ) -> None:
     """Test that deleting a user cascades to delete their tags."""
-    user = User(auth0_id="cascade-tag-user", email="cascade-tags@example.com")
+    user = User(auth0_id="cascade-tag-user", email="cascade-tags@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 

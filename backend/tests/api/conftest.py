@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import Settings, get_settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
+from core.tier_limits import Tier
 from models.user_consent import UserConsent
 from schemas.token import TokenCreate
 from services.token_service import create_token
@@ -45,7 +46,7 @@ async def create_user2_client(
     from api.main import app  # noqa: PLC0415
     from db.session import get_async_session  # noqa: PLC0415
 
-    user2 = User(auth0_id=auth0_id, email=email)
+    user2 = User(auth0_id=auth0_id, email=email, tier=Tier.FREE.value)
     db_session.add(user2)
     await db_session.flush()
 

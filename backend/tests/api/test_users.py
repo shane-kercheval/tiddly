@@ -142,6 +142,9 @@ class TestGetMyLimits:
         assert "max_argument_name_length" in data
         assert "max_argument_description_length" in data
 
+        # PATs
+        assert "max_pats" in data
+
         # Rate limits
         assert "rate_read_per_minute" in data
         assert "rate_read_per_day" in data
@@ -149,6 +152,13 @@ class TestGetMyLimits:
         assert "rate_write_per_day" in data
         assert "rate_sensitive_per_minute" in data
         assert "rate_sensitive_per_day" in data
+
+        # Relationships
+        assert "max_relationships_per_entity" in data
+
+        # History retention
+        assert "history_retention_days" in data
+        assert "max_history_per_entity" in data
 
     @pytest.mark.usefixtures("low_limits")
     async def test__get_my_limits__uses_low_limits_fixture(

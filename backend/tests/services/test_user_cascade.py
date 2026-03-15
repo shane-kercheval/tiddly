@@ -16,6 +16,7 @@ from models.content_history import ActionType, ContentHistory, EntityType
 from models.note import Note
 from models.tag import Tag, bookmark_tags, note_tags
 from models.user import User
+from core.tier_limits import Tier
 from models.user_settings import UserSettings
 
 
@@ -41,7 +42,7 @@ async def test__user_delete__cascades_to_all_user_data(
     # Setup: Create a user with data across all tables
     # ==========================================================================
 
-    user = User(auth0_id="cascade-test-user", email="cascade@example.com")
+    user = User(auth0_id="cascade-test-user", email="cascade@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     user_id = user.id
@@ -296,8 +297,8 @@ async def test__user_delete__does_not_affect_other_users_data(
     to the deleted user only.
     """
     # Create two users
-    user1 = User(auth0_id="user1-cascade", email="user1@example.com")
-    user2 = User(auth0_id="user2-cascade", email="user2@example.com")
+    user1 = User(auth0_id="user1-cascade", email="user1@example.com", tier=Tier.FREE.value)
+    user2 = User(auth0_id="user2-cascade", email="user2@example.com", tier=Tier.FREE.value)
     db_session.add_all([user1, user2])
     await db_session.flush()
 

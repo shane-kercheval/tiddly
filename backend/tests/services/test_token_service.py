@@ -18,13 +18,14 @@ from services.token_service import (
     rename_token,
     validate_token,
 )
+from core.tier_limits import Tier
 from schemas.token import TokenCreate
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-token-user-123", email="tokens@example.com")
+    user = User(auth0_id="test-token-user-123", email="tokens@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -34,7 +35,7 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def other_user(db_session: AsyncSession) -> User:
     """Create another test user for isolation tests."""
-    user = User(auth0_id="other-token-user-456", email="other-tokens@example.com")
+    user = User(auth0_id="other-token-user-456", email="other-tokens@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -452,7 +453,7 @@ async def test__user_delete__cascades_to_tokens(
     db_session: AsyncSession,
 ) -> None:
     """Test that deleting a user cascades to delete their tokens."""
-    user = User(auth0_id="cascade-token-user", email="cascade-tokens@example.com")
+    user = User(auth0_id="cascade-token-user", email="cascade-tokens@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 

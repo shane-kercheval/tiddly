@@ -14,12 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.prompt import Prompt
 from models.tag import Tag, prompt_tags
 from models.user import User
+from core.tier_limits import Tier
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-user-prompt-model-123", email="prompt-model@example.com")
+    user = User(auth0_id="test-user-prompt-model-123", email="prompt-model@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -243,7 +244,7 @@ async def test__prompt_model__cascade_delete_user_removes_prompts(
 ) -> None:
     """Test that deleting a user cascades to delete their prompts."""
     # Create user and prompt
-    user = User(auth0_id="cascade-test-user", email="cascade@example.com")
+    user = User(auth0_id="cascade-test-user", email="cascade@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 
@@ -340,7 +341,7 @@ async def test__prompt_model__same_name_allowed_different_users(
 ) -> None:
     """Test that different users can have prompts with the same name."""
     # Create another user
-    other_user = User(auth0_id="other-user-prompt-123", email="other@example.com")
+    other_user = User(auth0_id="other-user-prompt-123", email="other@example.com", tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 

@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.tier_limits import Tier, get_tier_limits
+from core.tier_limits import Tier, TierLimits, get_tier_limits
 from models.bookmark import Bookmark
 from models.tag import bookmark_tags
 from models.user import User
@@ -23,18 +23,18 @@ from services.bookmark_service import (
     BookmarkService,
     DuplicateUrlError,
 )
-from services.exceptions import InvalidStateError
+from services.exceptions import FieldLimitExceededError, InvalidStateError, QuotaExceededError
 from services.utils import build_tag_filter_from_expression, escape_ilike
 
 
 bookmark_service = BookmarkService()
-DEFAULT_LIMITS = get_tier_limits(Tier.FREE)
+DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id='test-user-123', email='test@example.com')
+    user = User(auth0_id='test-user-123', email='test@example.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -751,7 +751,7 @@ async def test__update_bookmark__wrong_user_returns_none(
 ) -> None:
     """Test that update_bookmark returns None for wrong user."""
     # Create another user
-    other_user = User(auth0_id='other-user-456', email='other@example.com')
+    other_user = User(auth0_id='other-user-456', email='other@example.com', tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -1030,7 +1030,7 @@ async def test__check_url_exists__scoped_to_user(
 ) -> None:
     """Test that _check_url_exists only finds URLs for the given user."""
     # Create another user
-    other_user = User(auth0_id='other-user-check', email='other-check@example.com')
+    other_user = User(auth0_id='other-user-check', email='other-check@example.com', tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -1297,7 +1297,7 @@ async def test__cascade_delete__user_deletion_removes_bookmarks(
 ) -> None:
     """Test that deleting a user removes all their bookmarks."""
     # Create a user with bookmarks
-    user = User(auth0_id="cascade-test-user-bm", email="cascade-bm@example.com")
+    user = User(auth0_id="cascade-test-user-bm", email="cascade-bm@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 
@@ -1318,3 +1318,91 @@ async def test__cascade_delete__user_deletion_removes_bookmarks(
         select(Bookmark).where(Bookmark.user_id == user.id),
     )
     assert result.scalars().all() == []
+
+
+# =============================================================================
+# Tier Limits Enforcement Tests
+# =============================================================================
+
+
+async def test__create__quota_exceeded__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that creating beyond max_bookmarks raises QuotaExceededError."""
+    for i in range(low_limits.max_bookmarks):
+        data = BookmarkCreate(url=f"https://example{i}.com")
+        await bookmark_service.create(db_session, test_user.id, data, low_limits)
+    data = BookmarkCreate(url="https://one-too-many.com")
+    with pytest.raises(QuotaExceededError, match=r"(?i)bookmark"):
+        await bookmark_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__quota_counts_archived_and_deleted(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that archived and soft-deleted items count toward quota."""
+    # Create one bookmark and archive it
+    b1 = await bookmark_service.create(
+        db_session, test_user.id, BookmarkCreate(url="https://archived.com"), low_limits,
+    )
+    await bookmark_service.archive(db_session, test_user.id, b1.id)
+
+    # Create another and soft-delete it
+    b2 = await bookmark_service.create(
+        db_session, test_user.id, BookmarkCreate(url="https://deleted.com"), low_limits,
+    )
+    await bookmark_service.delete(db_session, test_user.id, b2.id)
+
+    # Quota of 2 is now full (1 archived + 1 deleted)
+    with pytest.raises(QuotaExceededError, match=r"(?i)bookmark"):
+        await bookmark_service.create(
+            db_session, test_user.id, BookmarkCreate(url="https://over.com"), low_limits,
+        )
+
+
+async def test__create__url_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that URL exceeding max_url_length raises FieldLimitExceededError."""
+    long_url = "https://example.com/" + "a" * low_limits.max_url_length
+    data = BookmarkCreate(url=long_url)
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)url"):
+        await bookmark_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__tag_name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that tag name exceeding max_tag_name_length raises FieldLimitExceededError."""
+    long_tag = "a" * (low_limits.max_tag_name_length + 1)
+    data = BookmarkCreate(url="https://example.com", tags=[long_tag])
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)tag"):
+        await bookmark_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__update__url_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating URL beyond max_url_length raises FieldLimitExceededError."""
+    bm = await bookmark_service.create(
+        db_session, test_user.id, BookmarkCreate(url="https://ok.com"), low_limits,
+    )
+    long_url = "https://example.com/" + "a" * low_limits.max_url_length
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)url"):
+        await bookmark_service.update(
+            db_session, test_user.id, bm.id, BookmarkUpdate(url=long_url), low_limits,
+        )
+
+
+async def test__update__tag_name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating with oversized tag raises FieldLimitExceededError."""
+    bm = await bookmark_service.create(
+        db_session, test_user.id, BookmarkCreate(url="https://ok2.com"), low_limits,
+    )
+    long_tag = "a" * (low_limits.max_tag_name_length + 1)
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)tag"):
+        await bookmark_service.update(
+            db_session, test_user.id, bm.id, BookmarkUpdate(tags=[long_tag]), low_limits,
+        )

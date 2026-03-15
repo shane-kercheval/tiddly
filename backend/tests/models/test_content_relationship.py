@@ -9,12 +9,13 @@ from models.bookmark import Bookmark
 from models.content_relationship import ContentRelationship
 from models.note import Note
 from models.user import User
+from core.tier_limits import Tier
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id='test-user-relationship', email='rel@test.com')
+    user = User(auth0_id='test-user-relationship', email='rel@test.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -241,7 +242,7 @@ class TestContentRelationshipModel:
         db_session: AsyncSession,
     ) -> None:
         """Relationships are deleted when user is deleted (FK CASCADE)."""
-        user = User(auth0_id='test-cascade-user', email='cascade@test.com')
+        user = User(auth0_id='test-cascade-user', email='cascade@test.com', tier=Tier.FREE.value)
         db_session.add(user)
         await db_session.flush()
 
@@ -272,7 +273,7 @@ class TestContentRelationshipModel:
         test_user: User,
     ) -> None:
         """Two different users can create identical relationships (user_id in unique constraint)."""
-        user2 = User(auth0_id='test-user-relationship-2', email='rel2@test.com')
+        user2 = User(auth0_id='test-user-relationship-2', email='rel2@test.com', tier=Tier.FREE.value)
         db_session.add(user2)
         await db_session.flush()
 

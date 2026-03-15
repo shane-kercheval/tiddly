@@ -527,6 +527,9 @@ export interface UserLimits {
   max_notes: number
   max_prompts: number
 
+  // Personal Access Tokens
+  max_pats: number
+
   // Field lengths (common)
   max_title_length: number
   max_description_length: number
@@ -550,6 +553,13 @@ export interface UserLimits {
   rate_write_per_day: number
   rate_sensitive_per_minute: number
   rate_sensitive_per_day: number
+
+  // Relationship limits
+  max_relationships_per_entity: number
+
+  // History retention limits
+  history_retention_days: number
+  max_history_per_entity: number
 }
 
 // =============================================================================

@@ -2,6 +2,7 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.tier_limits import Tier
 from models.user import User
 from models.user_settings import UserSettings
 from services.settings_service import (
@@ -13,7 +14,7 @@ from services.settings_service import (
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-settings-user-123", email="settings@example.com")
+    user = User(auth0_id="test-settings-user-123", email="settings@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -89,7 +90,7 @@ async def test__user_delete__cascades_to_settings(
     db_session: AsyncSession,
 ) -> None:
     """Test that deleting a user cascades to delete their settings."""
-    user = User(auth0_id="cascade-test-user", email="cascade@example.com")
+    user = User(auth0_id="cascade-test-user", email="cascade@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 

@@ -20,13 +20,13 @@ from services.prompt_service import PromptService
 bookmark_service = BookmarkService()
 note_service = NoteService()
 prompt_service = PromptService()
-DEFAULT_LIMITS = get_tier_limits(Tier.FREE)
+DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id='test-fts-user-1', email='fts-test@example.com')
+    user = User(auth0_id='test-fts-user-1', email='fts-test@example.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -36,7 +36,7 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def other_user(db_session: AsyncSession) -> User:
     """Create another test user for isolation tests."""
-    user = User(auth0_id='test-fts-user-2', email='fts-test-other@example.com')
+    user = User(auth0_id='test-fts-user-2', email='fts-test-other@example.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)

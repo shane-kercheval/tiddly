@@ -317,6 +317,7 @@ LOW_TIER_LIMITS = TierLimits(
     max_bookmarks=2,
     max_notes=2,
     max_prompts=2,
+    max_pats=2,
     max_title_length=10,
     max_description_length=50,
     max_tag_name_length=10,
@@ -350,7 +351,7 @@ def default_limits() -> TierLimits:
     Use this fixture when calling service methods that require a limits parameter
     but you don't need to test limit enforcement.
     """
-    return get_tier_limits(Tier.FREE)
+    return get_tier_limits(Tier.DEV)
 
 
 @pytest.fixture
@@ -364,6 +365,11 @@ def low_limits() -> Generator[TierLimits]:
     """
     with patch.dict(
         "core.tier_limits.TIER_LIMITS",
-        {Tier.FREE: LOW_TIER_LIMITS, Tier.DEV: LOW_TIER_LIMITS},
+        {
+            Tier.FREE: LOW_TIER_LIMITS,
+            Tier.STANDARD: LOW_TIER_LIMITS,
+            Tier.PRO: LOW_TIER_LIMITS,
+            Tier.DEV: LOW_TIER_LIMITS,
+        },
     ):
         yield LOW_TIER_LIMITS

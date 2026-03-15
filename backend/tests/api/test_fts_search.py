@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.helpers.filter_utils import resolve_filter_and_sorting
 from models.user import User
+from core.tier_limits import Tier
 from schemas.content_filter import ContentFilterCreate, FilterExpression
 from services import content_filter_service
 from tests.api.conftest import add_consent_for_user
@@ -23,7 +24,7 @@ from tests.api.conftest import add_consent_for_user
 @pytest.fixture
 async def user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id='test|fts-filter-utils', email='fts-filter@test.com')
+    user = User(auth0_id='test|fts-filter-utils', email='fts-filter@test.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await add_consent_for_user(db_session, user)

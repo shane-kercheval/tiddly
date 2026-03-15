@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.content_history import ActionType, ContentHistory, EntityType
 from models.user import User
+from core.tier_limits import Tier
 
 
 @pytest.fixture
@@ -16,6 +17,7 @@ async def test_user(db_session: AsyncSession) -> User:
     user = User(
         auth0_id="test-auth0-id-content-history",
         email="contenthistory@test.com",
+        tier=Tier.FREE.value,
     )
     db_session.add(user)
     await db_session.commit()

@@ -16,8 +16,8 @@ from core.redis import RedisClient
 from core.tier_limits import Tier, get_tier_limits
 from services.url_scraper import ExtractedMetadata, ScrapedPage
 
-# Reference configuration for SENSITIVE operations (used by fetch-metadata)
-FREE_LIMITS = get_tier_limits(Tier.FREE)
+# Reference limits for the tier used by test users (PRO during beta)
+TEST_USER_LIMITS = get_tier_limits(Tier.PRO)
 
 
 @pytest.fixture
@@ -99,7 +99,7 @@ class TestRateLimitHeaders:
                 params={"url": "https://example.com"},
             )
 
-        expected_limit = FREE_LIMITS.rate_sensitive_per_minute
+        expected_limit = TEST_USER_LIMITS.rate_sensitive_per_minute
         assert int(response.headers["X-RateLimit-Limit"]) == expected_limit
 
     async def test__rate_limit_headers__reset_is_future_timestamp(
@@ -140,7 +140,7 @@ class TestRateLimitEnforcement:
 
         Returns the user ID discovered from the first request.
         """
-        limit = FREE_LIMITS.rate_sensitive_per_minute
+        limit = TEST_USER_LIMITS.rate_sensitive_per_minute
 
         # First, make a request to get the user ID and see the rate limit key pattern
         with patch(
@@ -267,7 +267,7 @@ class TestRateLimitEnforcement:
         This is a more thorough test that doesn't pre-populate Redis.
         It makes limit+1 requests and verifies the last is blocked.
         """
-        limit = FREE_LIMITS.rate_sensitive_per_minute
+        limit = TEST_USER_LIMITS.rate_sensitive_per_minute
         blocked = False
         request_count = 0
 
@@ -307,7 +307,7 @@ class TestRateLimitUserIsolation:
         Note: In dev mode, all requests use the same dev user, so this test
         verifies isolation by checking different user_id keys in Redis directly.
         """
-        limit = FREE_LIMITS.rate_sensitive_per_minute
+        limit = TEST_USER_LIMITS.rate_sensitive_per_minute
         now = int(time.time())
 
         # Pre-fill user 100's bucket to the limit
@@ -354,7 +354,7 @@ class TestRateLimitDevModeBypass:
         This test verifies that even after pre-filling the rate limit bucket,
         requests still succeed in dev mode.
         """
-        limit = FREE_LIMITS.rate_sensitive_per_minute
+        limit = TEST_USER_LIMITS.rate_sensitive_per_minute
 
         # Get user ID from dev user
         user_response = await client.get("/users/me")

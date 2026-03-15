@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.request_context import AuthType
@@ -306,15 +306,16 @@ class TestCleanupExpiredHistoryBoundaryConditions:
     """
     Test precise boundary conditions for time-based cleanup.
 
-    With retention_days=30:
-    - Day 29: KEEP (within retention window)
-    - Day 30: KEEP (exactly at boundary, created_at < cutoff means strictly less than)
-    - Day 31: DELETE (outside retention window)
+    Uses FREE tier retention days from config. Tests:
+    - Before retention window: KEEP
+    - Exactly at boundary: KEEP (created_at < cutoff means strictly less than)
+    - Just past boundary: DELETE
+    - Well past boundary: DELETE
     """
 
     @pytest.fixture
     async def user(self, db_session: AsyncSession) -> User:
-        """Create a test user."""
+        """Create a test user on FREE tier."""
         user = User(
             auth0_id=f"test-boundary-{uuid4()}",
             email=f"boundary-{uuid4()}@test.com",
@@ -326,76 +327,71 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         return user
 
     @pytest.mark.asyncio
-    async def test__day_29__record_is_kept(
+    async def test__within_retention__record_is_kept(
         self,
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """Record created 29 days ago should be kept (inside retention window)."""
+        """Record created within retention window should be kept."""
         now = datetime.now(UTC)
         entity_id = uuid4()
 
-        # Create record 29 days ago
+        # Create record half a retention period ago (safely within window)
+        hours_within = max(1, (FREE_RETENTION_DAYS * 24) // 2)
         record = create_history_record(
             user_id=user.id,
             entity_type=EntityType.NOTE,
             entity_id=entity_id,
-            created_at=now - timedelta(days=29),
+            created_at=now - timedelta(hours=hours_within),
         )
         db_session.add(record)
         await db_session.commit()
 
-        # Run cleanup
         stats = await cleanup_expired_history(db_session, now=now)
 
-        # Verify record was NOT deleted
         assert stats.expired_deleted == 0
         assert await count_history_records(db_session, user.id) == 1
 
     @pytest.mark.asyncio
-    async def test__day_30_exactly__record_is_kept(
+    async def test__exactly_at_boundary__record_is_kept(
         self,
         db_session: AsyncSession,
         user: User,
     ) -> None:
         """
-        Record created exactly 30 days ago should be kept.
+        Record created exactly at the retention boundary should be kept.
 
-        The cutoff is `now - 30 days`, and we delete where `created_at < cutoff`.
+        The cutoff is `now - retention_days`, and we delete where `created_at < cutoff`.
         A record created exactly at cutoff (created_at == cutoff) is NOT deleted.
         """
         now = datetime.now(UTC)
         entity_id = uuid4()
 
-        # Create record exactly 30 days ago
-        exactly_30_days = now - timedelta(days=FREE_RETENTION_DAYS)
+        exactly_at_boundary = now - timedelta(days=FREE_RETENTION_DAYS)
         record = create_history_record(
             user_id=user.id,
             entity_type=EntityType.NOTE,
             entity_id=entity_id,
-            created_at=exactly_30_days,
+            created_at=exactly_at_boundary,
         )
         db_session.add(record)
         await db_session.commit()
 
-        # Run cleanup
         stats = await cleanup_expired_history(db_session, now=now)
 
-        # Verify record was NOT deleted (exactly at boundary is kept)
         assert stats.expired_deleted == 0
         assert await count_history_records(db_session, user.id) == 1
 
     @pytest.mark.asyncio
-    async def test__day_30_plus_1_second__record_is_deleted(
+    async def test__just_past_boundary__record_is_deleted(
         self,
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """Record created 30 days + 1 second ago should be deleted."""
+        """Record created just past the retention boundary should be deleted."""
         now = datetime.now(UTC)
         entity_id = uuid4()
 
-        # Create record 30 days + 1 second ago
         just_past_cutoff = now - timedelta(days=FREE_RETENTION_DAYS, seconds=1)
         record = create_history_record(
             user_id=user.id,
@@ -406,30 +402,28 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         db_session.add(record)
         await db_session.commit()
 
-        # Run cleanup
         stats = await cleanup_expired_history(db_session, now=now)
 
-        # Verify record WAS deleted
         assert stats.expired_deleted == 1
         assert stats.expired_by_tier[Tier.FREE.value] == 1
         assert await count_history_records(db_session, user.id) == 0
 
     @pytest.mark.asyncio
-    async def test__day_31__record_is_deleted(
+    async def test__well_past_boundary__record_is_deleted(
         self,
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """Record created 31 days ago should be deleted (clearly outside window)."""
+        """Record created well past the retention boundary should be deleted."""
         now = datetime.now(UTC)
         entity_id = uuid4()
 
-        # Create record 31 days ago
+        # Create record well past retention
         record = create_history_record(
             user_id=user.id,
             entity_type=EntityType.NOTE,
             entity_id=entity_id,
-            created_at=now - timedelta(days=31),
+            created_at=now - timedelta(days=FREE_RETENTION_DAYS + 5),
         )
         db_session.add(record)
         await db_session.commit()
@@ -451,34 +445,33 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         now = datetime.now(UTC)
         entity_id = uuid4()
 
-        # Create records at various ages
+        # Create records at various ages relative to retention period
+        r = FREE_RETENTION_DAYS
         ages_and_expected = [
-            (1, True),     # 1 day ago - keep
-            (15, True),    # 15 days ago - keep
-            (29, True),    # 29 days ago - keep
-            (30, True),    # 30 days ago - keep (exactly at boundary)
-            (31, False),   # 31 days ago - delete
-            (60, False),   # 60 days ago - delete
-            (365, False),  # 365 days ago - delete
+            (timedelta(hours=1), True),                # just now - keep
+            (timedelta(days=r), True),                 # exactly at boundary - keep
+            (timedelta(days=r, seconds=1), False),     # just past boundary - delete
+            (timedelta(days=r + 5), False),            # well past boundary - delete
+            (timedelta(days=r * 10), False),           # far past boundary - delete
         ]
 
-        for version, (days_ago, should_keep) in enumerate(ages_and_expected, 1):
+        for version, (age, should_keep) in enumerate(ages_and_expected, 1):
             record = create_history_record(
                 user_id=user.id,
                 entity_type=EntityType.NOTE,
                 entity_id=entity_id,
                 version=version,
-                created_at=now - timedelta(days=days_ago),
+                created_at=now - age,
             )
             db_session.add(record)
         await db_session.commit()
 
-        # Run cleanup
         stats = await cleanup_expired_history(db_session, now=now)
 
-        # Verify: 3 deleted (days 31, 60, 365), 4 kept
-        assert stats.expired_deleted == 3
-        assert await count_history_records(db_session, user.id) == 4
+        expected_deleted = sum(1 for _, keep in ages_and_expected if not keep)
+        expected_kept = sum(1 for _, keep in ages_and_expected if keep)
+        assert stats.expired_deleted == expected_deleted
+        assert await count_history_records(db_session, user.id) == expected_kept
 
 
 class TestCleanupExpiredHistoryBatchByTier:
@@ -526,23 +519,34 @@ class TestCleanupExpiredHistoryBatchByTier:
             assert await count_history_records(db_session, user.id) == 0
 
     @pytest.mark.asyncio
-    async def test__null_tier__treated_as_free(
+    async def test__unknown_tier__not_cleaned_by_any_tier(
         self,
         db_session: AsyncSession,
     ) -> None:
-        """Users with NULL tier are treated as FREE tier."""
+        """
+        Users with unrecognized tier values are not matched by any tier's cleanup.
+
+        The cleanup iterates known tiers and matches users via
+        `COALESCE(tier, 'free') == tier_value`. A non-NULL unknown value like
+        'bogus' won't match any known tier, so records are left untouched.
+        The database enforces NOT NULL on tier, so NULL is impossible.
+        """
         now = datetime.now(UTC)
 
-        # Create user with NULL tier
+        # Create user then set tier to an unrecognized value via raw SQL
         user = User(
-            auth0_id=f"test-null-tier-{uuid4()}",
-            email=f"nulltier-{uuid4()}@test.com",
-            tier=None,  # NULL tier
+            auth0_id=f"test-bogus-tier-{uuid4()}",
+            email=f"bogustier-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
         )
         db_session.add(user)
         await db_session.flush()
+        await db_session.execute(
+            text("UPDATE users SET tier = :tier WHERE id = :uid"),
+            {"tier": "bogus", "uid": str(user.id)},
+        )
 
-        # Add old record
+        # Add old record (well past any tier's retention)
         db_session.add(create_history_record(
             user_id=user.id,
             entity_type=EntityType.NOTE,
@@ -551,12 +555,10 @@ class TestCleanupExpiredHistoryBatchByTier:
         ))
         await db_session.commit()
 
-        # Run cleanup
         stats = await cleanup_expired_history(db_session, now=now)
 
-        # Record deleted under FREE tier
-        assert stats.expired_deleted == 1
-        assert stats.expired_by_tier[Tier.FREE.value] == 1
+        # Unknown tier doesn't match any known tier, so nothing is deleted
+        assert stats.expired_deleted == 0
 
 
 class TestCleanupExpiredHistoryEntityTypes:
@@ -933,7 +935,7 @@ class TestRunCleanupIntegration:
             entity_type=EntityType.NOTE,
             entity_id=note.id,
             version=2,
-            created_at=now - timedelta(days=5),  # New - keep
+            created_at=now - timedelta(hours=1),  # Recent - keep
         ))
         db_session.add(create_history_record(
             user_id=user.id,

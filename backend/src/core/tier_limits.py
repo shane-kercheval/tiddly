@@ -1,4 +1,13 @@
-"""Tier-based usage limits for content management."""
+"""
+Tier-based usage limits for content management.
+
+SYNC LOCATIONS: When updating tier values, also update:
+- frontend/src/pages/Pricing.tsx (pricing cards and comparison table)
+- frontend/src/pages/LandingPage.tsx (FAQ: "How much does Tiddly cost?")
+- frontend/public/llms.txt (Tier Limits section)
+- frontend/src/types.ts (UserLimits interface — if adding/removing fields)
+- backend/src/schemas/user_limits.py (UserLimitsResponse — if adding/removing fields)
+"""
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
@@ -10,8 +19,9 @@ class Tier(StrEnum):
     """User subscription tiers."""
 
     FREE = "free"
+    STANDARD = "standard"
+    PRO = "pro"
     DEV = "dev"
-    # PRO = "pro"  # future
 
 
 @dataclass(frozen=True)
@@ -22,6 +32,9 @@ class TierLimits:
     max_bookmarks: int
     max_notes: int
     max_prompts: int
+
+    # Personal Access Tokens
+    max_pats: int  # named max_pats to avoid confusion with LLM max_tokens
 
     # Field lengths (common)
     max_title_length: int
@@ -55,29 +68,73 @@ class TierLimits:
     max_history_per_entity: int  # Max versions per entity
 
 
+# Field lengths are structural limits, not pricing levers — same across all tiers.
+_FIELD_LENGTHS = {
+    "max_title_length": 200,
+    "max_description_length": 1000,
+    "max_tag_name_length": 50,
+    "max_url_length": 2048,
+    "max_prompt_name_length": 100,
+    "max_argument_name_length": 100,
+    "max_argument_description_length": 500,
+}
+
 TIER_LIMITS: dict[Tier, TierLimits] = {
     Tier.FREE: TierLimits(
-        max_bookmarks=100,
+        max_bookmarks=10,
+        max_notes=10,
+        max_prompts=5,
+        max_pats=3,
+        **_FIELD_LENGTHS,
+        max_bookmark_content_length=25_000,
+        max_note_content_length=25_000,
+        max_prompt_content_length=25_000,
+        rate_read_per_minute=60,
+        rate_read_per_day=500,
+        rate_write_per_minute=20,
+        rate_write_per_day=200,
+        rate_sensitive_per_minute=5,
+        rate_sensitive_per_day=25,
+        max_relationships_per_entity=50,
+        history_retention_days=1,
+        max_history_per_entity=100,
+    ),
+    Tier.STANDARD: TierLimits(
+        max_bookmarks=250,
         max_notes=100,
-        max_prompts=100,
-        max_title_length=100,
-        max_description_length=1000,
-        max_tag_name_length=50,
+        max_prompts=50,
+        max_pats=10,
+        **_FIELD_LENGTHS,
+        max_bookmark_content_length=50_000,
+        max_note_content_length=50_000,
+        max_prompt_content_length=50_000,
+        rate_read_per_minute=120,
+        rate_read_per_day=2_000,
+        rate_write_per_minute=60,
+        rate_write_per_day=1_000,
+        rate_sensitive_per_minute=15,
+        rate_sensitive_per_day=100,
+        max_relationships_per_entity=50,
+        history_retention_days=5,
+        max_history_per_entity=100,
+    ),
+    Tier.PRO: TierLimits(
+        max_bookmarks=1_000_000,
+        max_notes=1_000_000,
+        max_prompts=1_000_000,
+        max_pats=50,
+        **_FIELD_LENGTHS,
         max_bookmark_content_length=100_000,
         max_note_content_length=100_000,
         max_prompt_content_length=100_000,
-        max_url_length=2048,
-        max_prompt_name_length=100,
-        max_argument_name_length=100,
-        max_argument_description_length=500,
-        rate_read_per_minute=180,
-        rate_read_per_day=4000,
-        rate_write_per_minute=120,
-        rate_write_per_day=4000,
+        rate_read_per_minute=300,
+        rate_read_per_day=10_000,
+        rate_write_per_minute=200,
+        rate_write_per_day=5_000,
         rate_sensitive_per_minute=30,
         rate_sensitive_per_day=250,
         max_relationships_per_entity=50,
-        history_retention_days=30,
+        history_retention_days=15,
         max_history_per_entity=100,
     ),
     # DEV tier: resolved at runtime when settings.dev_mode=true.
@@ -87,6 +144,7 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         max_bookmarks=1_000_000,
         max_notes=1_000_000,
         max_prompts=1_000_000,
+        max_pats=1_000_000,
         max_title_length=1_000_000,
         max_description_length=1_000_000,
         max_tag_name_length=1_000_000,

@@ -23,7 +23,7 @@ from services.relationship_service import (
 bookmark_service = BookmarkService()
 note_service = NoteService()
 prompt_service = PromptService()
-DEFAULT_LIMITS = get_tier_limits(Tier.FREE)
+DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +33,7 @@ DEFAULT_LIMITS = get_tier_limits(Tier.FREE)
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
-    user = User(auth0_id='test-user-rel-cleanup', email='rel-cleanup@test.com')
+    user = User(auth0_id='test-user-rel-cleanup', email='rel-cleanup@test.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)

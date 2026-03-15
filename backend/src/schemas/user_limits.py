@@ -12,6 +12,9 @@ class UserLimitsResponse(BaseModel):
     max_notes: int
     max_prompts: int
 
+    # Personal Access Tokens
+    max_pats: int
+
     # Field lengths (common)
     max_title_length: int
     max_description_length: int
@@ -35,3 +38,10 @@ class UserLimitsResponse(BaseModel):
     rate_write_per_day: int
     rate_sensitive_per_minute: int
     rate_sensitive_per_day: int
+
+    # Relationship limits
+    max_relationships_per_entity: int
+
+    # History retention limits
+    history_retention_days: int
+    max_history_per_entity: int

@@ -20,7 +20,8 @@ def low_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
         max_bookmarks=100,
         max_notes=100,
         max_prompts=100,
-        max_title_length=100,
+        max_pats=100,
+        max_title_length=200,
         max_description_length=1000,
         max_tag_name_length=50,
         max_bookmark_content_length=100_000,
@@ -40,7 +41,12 @@ def low_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
         history_retention_days=30,
         max_history_per_entity=100,
     )
-    monkeypatch.setattr(tier_limits, "TIER_LIMITS", {Tier.FREE: test_limits, Tier.DEV: test_limits})
+    monkeypatch.setattr(tier_limits, "TIER_LIMITS", {
+        Tier.FREE: test_limits,
+        Tier.STANDARD: test_limits,
+        Tier.PRO: test_limits,
+        Tier.DEV: test_limits,
+    })
 
 
 class TestRateLimitAppliedToAllEndpoints:
