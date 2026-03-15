@@ -34,9 +34,10 @@ class User(Base, UUIDv7Mixin, TimestampMixin):
     email_verified: Mapped[bool | None] = mapped_column(nullable=True, default=None)
     tier: Mapped[str] = mapped_column(
         String(50),
-        default="free",
-        server_default="free",
-        comment="User subscription tier (e.g., 'free', 'pro')",
+        # BETA: default to "pro" during beta. Revert to "free" when beta ends.
+        default="pro",
+        server_default="pro",
+        comment="User subscription tier (e.g., 'free', 'standard', 'pro')",
     )
 
     bookmarks: Mapped[list["Bookmark"]] = relationship(
