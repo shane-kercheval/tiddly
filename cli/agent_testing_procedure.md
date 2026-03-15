@@ -210,9 +210,9 @@ bin/tiddly login --token "bm_definitely_not_valid_token"
 
 | Tool | user | directory |
 |------|------|-----------|
-| claude-code | T3.1 | T3.5 |
-| claude-desktop | T3.8 | user only |
-| codex | T3.6 | T3.7 |
+| claude-code | T3.1 | T3.4 |
+| claude-desktop | T3.7 | user only |
+| codex | T3.5 | T3.6 |
 
 ### T3.1 — Claude Code, user scope (default)
 ```bash
@@ -258,7 +258,7 @@ cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope directory
 - [ ] `~/.claude.json` contains `projects["$TEST_PROJECT"].mcpServers.tiddly_prompts`
 - [ ] Top-level `mcpServers` in `~/.claude.json` is NOT modified
 
-### T3.6 — Codex, user scope
+### T3.5 — Codex, user scope
 ```bash
 bin/tiddly mcp configure codex
 ```
@@ -271,7 +271,7 @@ bin/tiddly mcp configure codex
   - URL matching `TIDDLY_PROMPT_MCP_URL`
 - [ ] Existing non-tiddly sections preserved
 
-### T3.7 — Codex, directory scope
+### T3.6 — Codex, directory scope
 ```bash
 cd "$TEST_PROJECT" && bin/tiddly mcp configure codex --scope directory
 ```
@@ -281,7 +281,7 @@ cd "$TEST_PROJECT" && bin/tiddly mcp configure codex --scope directory
 - [ ] Contains `[mcp_servers.tiddly_notes_bookmarks]` and `[mcp_servers.tiddly_prompts]`
 - [ ] `~/.codex/config.toml` was NOT modified
 
-### T3.8 — Claude Desktop, user scope
+### T3.7 — Claude Desktop, user scope
 ```bash
 bin/tiddly mcp configure claude-desktop
 ```
@@ -295,7 +295,7 @@ bin/tiddly mcp configure claude-desktop
 - [ ] Stderr contains `Restart Claude Desktop to apply changes.`
 - [ ] Existing non-tiddly entries preserved
 
-### T3.9 — Configure with --expires flag
+### T3.8 — Configure with --expires flag
 ```bash
 # Ensure no existing tokens to reuse, so --expires takes effect on newly created tokens
 bin/tiddly mcp remove claude-code --delete-tokens 2>/dev/null
@@ -306,7 +306,7 @@ bin/tiddly mcp configure claude-code --expires 30
 - [ ] Output contains `Created tokens:` (not `Reused tokens:`) with names matching pattern `cli-mcp-claude-code-*`
 - [ ] Config file updated with valid tokens
 
-### T3.10 — Auto-detect configure (no tool argument)
+### T3.9 — Auto-detect configure (no tool argument)
 ```bash
 bin/tiddly mcp configure
 ```
