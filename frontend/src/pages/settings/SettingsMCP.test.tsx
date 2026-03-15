@@ -1056,7 +1056,7 @@ describe('SettingsMCP', () => {
         expect(within(details).getByText('.codex/config.toml')).toBeInTheDocument()
       })
 
-      it('should include skills paths when skills enabled', async () => {
+      it('should include skills paths when skills enabled in configure flow', async () => {
         const user = userEvent.setup()
         renderWithRouter()
         const cli = screen.getByTestId('cli-setup-section')
@@ -1065,7 +1065,17 @@ describe('SettingsMCP', () => {
         const details = within(cli).getByTestId('affected-files')
         expect(within(details).getByText('~/.claude/skills/')).toBeInTheDocument()
         expect(within(details).getByText('~/.agents/skills/')).toBeInTheDocument()
-        // Deprecated Codex path shown for user scope
+        // Deprecated Codex path NOT shown in configure flow
+        expect(within(details).queryByText('~/.codex/skills/')).not.toBeInTheDocument()
+      })
+
+      it('should include deprecated Codex path in remove flow', async () => {
+        const { user, cli } = await switchToRemove()
+        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
+        await user.click(yesButtons[0])
+
+        const details = within(cli).getByTestId('affected-files')
+        expect(within(details).getByText('~/.agents/skills/')).toBeInTheDocument()
         expect(within(details).getByText('~/.codex/skills/')).toBeInTheDocument()
       })
     })

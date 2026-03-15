@@ -423,6 +423,7 @@ function getAffectedFiles(
   scope: ScopeType,
   hasMcpServers: boolean,
   installSkills: boolean,
+  action: CliActionType,
 ): AffectedFile[] {
   const files: AffectedFile[] = []
 
@@ -451,7 +452,9 @@ function getAffectedFiles(
     if (selectedTools.has('codex')) {
       if (scope === 'user') {
         files.push({ path: '~/.agents/skills/', description: 'Codex skills (USER scope)' })
-        files.push({ path: '~/.codex/skills/', description: 'Codex skills (deprecated path)' })
+        if (action === 'remove') {
+          files.push({ path: '~/.codex/skills/', description: 'Codex skills (deprecated path)' })
+        }
       } else {
         files.push({ path: '.agents/skills/', description: 'Codex skills (REPO scope)' })
       }
@@ -530,7 +533,7 @@ function CLISetupSection(): ReactNode {
   const desktopDirectoryError = hasClaudeDesktopDirectoryError(selectedTools, activeScope)
   const command = desktopDirectoryError ? '' : generateCLICommands(cliAction, selectedServers, installSkills, selectedTools, activeScope, skillsTags, skillsTagMatch, deleteTokens)
   const hasAnything = hasSelections && command !== ''
-  const affectedFiles = hasAnything ? getAffectedFiles(selectedTools, activeScope, hasMcpServers, installSkills) : []
+  const affectedFiles = hasAnything ? getAffectedFiles(selectedTools, activeScope, hasMcpServers, installSkills, cliAction) : []
 
   const handleCopyCommand = async (): Promise<void> => {
     try {
@@ -599,7 +602,7 @@ function CLISetupSection(): ReactNode {
       {/* Status tip */}
       <div className="rounded-lg bg-blue-50 border border-blue-100 px-4 py-2.5 mb-6" data-testid="status-tip">
         <p className="text-xs text-blue-700">
-          Want to view your current setup? Install the CLI and run <code className="bg-blue-100 px-1 rounded text-xs">tiddly status</code>.
+          Check which MCP servers and skills are configured on your machine with <code className="bg-blue-100 px-1 rounded text-xs">tiddly status</code>.
         </p>
       </div>
 
