@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.tier_limits import TierLimits
 from models.note import Note
 
 from tests.api.conftest import create_user2_client
@@ -2081,3 +2082,21 @@ async def test__list_notes__no_relationships_field(client: AsyncClient) -> None:
     items = response.json()["items"]
     assert len(items) >= 1
     assert "relationships" not in items[0]
+
+
+# =============================================================================
+# Tier Limits Quota Enforcement Tests (API-level)
+# =============================================================================
+
+
+async def test__create_note__quota_exceeded__returns_402(
+    client: AsyncClient, low_limits: TierLimits,
+) -> None:
+    """Test that exceeding max_notes returns 402 with QUOTA_EXCEEDED error code."""
+    for i in range(low_limits.max_notes):
+        r = await client.post("/notes/", json={"title": f"Note {i}", "content": "c"})
+        assert r.status_code == 201
+    r = await client.post("/notes/", json={"title": "Over", "content": "c"})
+    assert r.status_code == 402
+    body = r.json()
+    assert body["error_code"] == "QUOTA_EXCEEDED"

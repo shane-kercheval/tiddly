@@ -561,9 +561,14 @@ export function handleSaveError(response) {
   }
 
   if (status === 402) {
-    showSaveStatus(body?.detail || 'Bookmark limit reached.', 'error', {
-      text: 'Manage bookmarks',
-      href: 'https://tiddly.me/app/bookmarks'
+    const resource = body?.resource;
+    const limit = body?.limit;
+    const message = resource && limit != null
+      ? `You've reached the limit of ${limit} ${resource}s.`
+      : 'Bookmark limit reached.';
+    showSaveStatus(message, 'error', {
+      text: 'Manage your plan',
+      href: 'https://tiddly.me/pricing'
     });
     return;
   }
@@ -582,7 +587,10 @@ export function handleSaveError(response) {
 
   if (status === 429) {
     const seconds = retryAfter || '?';
-    showSaveStatus(`Rate limited — try again in ${seconds}s`, 'error');
+    showSaveStatus(`Rate limited — try again in ${seconds}s.`, 'error', {
+      text: 'Higher limits available',
+      href: 'https://tiddly.me/pricing'
+    });
     return;
   }
 

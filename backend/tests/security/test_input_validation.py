@@ -11,7 +11,7 @@ OWASP References:
 import pytest
 from httpx import AsyncClient
 
-from core.tier_limits import Tier, get_tier_limits
+from core.tier_limits import TierLimits
 
 
 
@@ -160,14 +160,13 @@ class TestInputLengthLimits:
         # Should either accept or reject gracefully (not crash)
         assert response.status_code in [201, 422]
 
-    @pytest.mark.usefixtures("low_limits")
     async def test__title_at_max_length__is_accepted(
         self,
         client_as_user_a: AsyncClient,
+        low_limits: TierLimits,
     ) -> None:
         """Title at maximum tier limit length is accepted."""
-        limits = get_tier_limits(Tier.FREE)
-        max_title = "A" * limits.max_title_length
+        max_title = "A" * low_limits.max_title_length
 
         response = await client_as_user_a.post(
             "/bookmarks/",
@@ -181,10 +180,10 @@ class TestInputLengthLimits:
         assert response.status_code == 201
         assert response.json()["title"] == max_title
 
-    @pytest.mark.usefixtures("low_limits")
     async def test__title_over_max_length__is_rejected(
         self,
         client_as_user_a: AsyncClient,
+        low_limits: TierLimits,
     ) -> None:
         """
         Title over maximum length is rejected by service layer validation.
@@ -192,8 +191,7 @@ class TestInputLengthLimits:
         The service layer validates field lengths based on user tier limits,
         returning a 400 Bad Request response.
         """
-        limits = get_tier_limits(Tier.FREE)
-        over_limit_title = "A" * (limits.max_title_length + 1)
+        over_limit_title = "A" * (low_limits.max_title_length + 1)
 
         response = await client_as_user_a.post(
             "/bookmarks/",

@@ -23,13 +23,14 @@ from services.content_filter_service import (
     get_filters,
     update_filter,
 )
+from core.tier_limits import Tier
 from services.settings_service import get_settings
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-filter-user-123", email="filter@example.com")
+    user = User(auth0_id="test-filter-user-123", email="filter@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -39,7 +40,7 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def other_user(db_session: AsyncSession) -> User:
     """Create another test user for isolation tests."""
-    user = User(auth0_id="other-filter-user-456", email="other@example.com")
+    user = User(auth0_id="other-filter-user-456", email="other@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -647,7 +648,7 @@ async def test__user_delete__cascades_to_filters(
     db_session: AsyncSession,
 ) -> None:
     """Test that deleting a user cascades to delete their filters."""
-    user = User(auth0_id="cascade-filter-user", email="cascade@example.com")
+    user = User(auth0_id="cascade-filter-user", email="cascade@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 

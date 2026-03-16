@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload
 from core.auth_cache import CACHE_SCHEMA_VERSION, AuthCache, get_auth_cache, set_auth_cache
 from core.redis import RedisClient
 from models.user import User
+from core.tier_limits import Tier
 from models.user_consent import UserConsent
 from schemas.cached_user import CachedUser
 
@@ -21,6 +22,7 @@ async def test_user(db_session: AsyncSession) -> User:
     user = User(
         auth0_id="auth0|cache-test-user",
         email="cachetest@example.com",
+        tier=Tier.FREE.value,
     )
     db_session.add(user)
     await db_session.flush()
@@ -38,6 +40,7 @@ async def test_user_with_consent(db_session: AsyncSession) -> User:
     user = User(
         auth0_id="auth0|cache-test-user-consent",
         email="cachetestconsent@example.com",
+        tier=Tier.FREE.value,
     )
     db_session.add(user)
     await db_session.flush()

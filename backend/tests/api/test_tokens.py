@@ -15,6 +15,8 @@ from core.config import Settings, get_settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.api_token import ApiToken
 from models.user import User
+
+from core.tier_limits import Tier, TierLimits
 from models.user_consent import UserConsent
 from services.token_service import hash_token
 
@@ -395,7 +397,7 @@ async def test_rename_token_other_users_token(
 ) -> None:
     """Test that renaming another user's token returns 404."""
     # Create a token owned by a different user directly at model level
-    other_user = User(auth0_id="other-rename-user", email="other-rename@example.com")
+    other_user = User(auth0_id="other-rename-user", email="other-rename@example.com", tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -577,3 +579,28 @@ async def test_tokens_are_user_scoped(client: AsyncClient) -> None:
     # (Verifying same user can delete)
     delete_response = await client.delete(f"/tokens/{token_id}")
     assert delete_response.status_code == 204
+
+
+# =============================================================================
+# PAT Quota Enforcement Tests (API Layer)
+# =============================================================================
+
+
+async def test__create_token__quota_exceeded__returns_402(
+    client: AsyncClient, low_limits: TierLimits,
+) -> None:
+    """Test that exceeding max_pats returns 402 with QUOTA_EXCEEDED error."""
+    # Create tokens up to the limit
+    for i in range(low_limits.max_pats):
+        response = await client.post("/tokens/", json={"name": f"Token {i}"})
+        assert response.status_code == 201
+
+    # One more should fail with 402
+    response = await client.post("/tokens/", json={"name": "Over limit"})
+    assert response.status_code == 402
+
+    data = response.json()
+    assert data["error_code"] == "QUOTA_EXCEEDED"
+    assert data["resource"] == "token"
+    assert data["current"] == low_limits.max_pats
+    assert data["limit"] == low_limits.max_pats

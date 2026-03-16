@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.tier_limits import TierLimits
 from models.prompt import Prompt
 from models.user import User
 
@@ -3093,3 +3094,25 @@ async def test__list_prompts__no_relationships_field(client: AsyncClient) -> Non
     items = response.json()["items"]
     assert len(items) >= 1
     assert "relationships" not in items[0]
+
+
+# =============================================================================
+# Tier Limits Quota Enforcement Tests (API-level)
+# =============================================================================
+
+
+async def test__create_prompt__quota_exceeded__returns_402(
+    client: AsyncClient, low_limits: TierLimits,
+) -> None:
+    """Test that exceeding max_prompts returns 402 with QUOTA_EXCEEDED error code."""
+    for i in range(low_limits.max_prompts):
+        r = await client.post(
+            "/prompts/", json={"name": f"quota-{i}", "content": f"content {i}"},
+        )
+        assert r.status_code == 201
+    r = await client.post(
+        "/prompts/", json={"name": "quota-over", "content": "over"},
+    )
+    assert r.status_code == 402
+    body = r.json()
+    assert body["error_code"] == "QUOTA_EXCEEDED"

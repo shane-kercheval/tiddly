@@ -13,36 +13,43 @@ from db.session import get_async_session
 from schemas.cached_user import CachedUser
 
 
+def resolve_tier_limits(user_tier: str, *, dev_mode: bool) -> TierLimits:
+    """
+    Convert a user's tier string to TierLimits.
+
+    Shared logic used by all get_current_limits* dependencies.
+    In dev mode, always returns DEV tier limits regardless of stored tier.
+    Defaults to FREE tier on unknown values to prevent 500 errors.
+    """
+    if dev_mode:
+        return get_tier_limits(Tier.DEV)
+    return get_tier_limits(get_tier_safely(user_tier))
+
+
 def get_current_limits(
     current_user: CachedUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> TierLimits:
-    """
-    Get the tier limits for the current user.
+    """Get tier limits for the current user (any auth method)."""
+    return resolve_tier_limits(current_user.tier, dev_mode=settings.dev_mode)
 
-    This dependency safely converts the user's tier to limits, defaulting
-    to FREE tier on unknown values to prevent 500 errors.
-    In dev mode, always returns DEV tier limits regardless of stored tier.
 
-    Args:
-        current_user: The authenticated user.
-        settings: Application settings.
-
-    Returns:
-        TierLimits for the user's subscription tier.
-    """
-    if settings.dev_mode:
-        return get_tier_limits(Tier.DEV)
-    tier = get_tier_safely(current_user.tier)
-    return get_tier_limits(tier)
+def get_current_limits_auth0_only(
+    current_user: CachedUser = Depends(get_current_user_auth0_only),
+    settings: Settings = Depends(get_settings),
+) -> TierLimits:
+    """Get tier limits for the current user (Auth0 only — rejects PATs)."""
+    return resolve_tier_limits(current_user.tier, dev_mode=settings.dev_mode)
 
 
 __all__ = [
     "get_async_session",
     "get_current_limits",
+    "get_current_limits_auth0_only",
     "get_current_user",
     "get_current_user_auth0_only",
     "get_current_user_auth0_only_without_consent",
     "get_current_user_without_consent",
     "get_settings",
+    "resolve_tier_limits",
 ]

@@ -669,13 +669,14 @@ describe('handleSaveError', () => {
     expect(getStatusLink().textContent).toBe('Update in settings');
   });
 
-  it('402 with body.detail: shows message with "Manage bookmarks" link', () => {
-    handleSaveError({ status: 402, body: { detail: 'Free tier limit reached' } });
-    expect(getStatusText()).toContain('Free tier limit reached');
-    expect(getStatusLink().textContent).toBe('Manage bookmarks');
+  it('402 with resource and limit: shows structured message with pricing link', () => {
+    handleSaveError({ status: 402, body: { error_code: 'QUOTA_EXCEEDED', resource: 'bookmark', limit: 10, current: 10 } });
+    expect(getStatusText()).toContain('limit of 10 bookmarks');
+    expect(getStatusLink().textContent).toBe('Manage your plan');
+    expect(getStatusLink().href).toContain('/pricing');
   });
 
-  it('402 with no detail: falls back to "Bookmark limit reached."', () => {
+  it('402 with no structured fields: falls back to generic message', () => {
     handleSaveError({ status: 402, body: {} });
     expect(getStatusText()).toContain('Bookmark limit reached.');
   });
@@ -693,10 +694,12 @@ describe('handleSaveError', () => {
     expect(getStatusText()).toContain('Already saved');
   });
 
-  it('429: shows rate limit message with retry seconds', () => {
+  it('429: shows rate limit message with retry seconds and pricing link', () => {
     handleSaveError({ status: 429, retryAfter: 30 });
     expect(getStatusText()).toContain('Rate limited');
     expect(getStatusText()).toContain('30');
+    expect(getStatusLink().textContent).toBe('Higher limits available');
+    expect(getStatusLink().href).toContain('/pricing');
   });
 
   it('451: shows "Accept terms first." with link', () => {

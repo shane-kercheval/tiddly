@@ -8,7 +8,15 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { useLimits } from '../../hooks/useLimits'
+import { Link } from 'react-router-dom'
 import { isDevMode } from '../../config'
+
+/** Item counts at or above this are displayed as "Unlimited". */
+const UNLIMITED_THRESHOLD = 10_000
+
+function formatItemCount(count: number): string {
+  return count >= UNLIMITED_THRESHOLD ? 'Unlimited' : count.toLocaleString()
+}
 
 /**
  * General settings page for UI preferences.
@@ -107,7 +115,7 @@ export function SettingsGeneral(): ReactNode {
 
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
           <p className="text-sm text-yellow-800">
-            <span className="font-medium">Beta:</span> This app is currently in beta. Pricing tiers and limits have not been finalized and may change.
+            <span className="font-medium">Beta:</span> During beta, all accounts have Pro-tier access at no charge. When beta ends (date TBD), accounts will move to the Free tier unless upgraded. Your existing content will be preserved — you just won't be able to create new items if you're over Free tier limits. See <Link to="/pricing" className="underline font-medium hover:text-yellow-900">pricing</Link> for details.
           </p>
         </div>
 
@@ -124,7 +132,9 @@ export function SettingsGeneral(): ReactNode {
             <div className="p-4 space-y-4">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-500">Current Plan:</span>
-                <span className="font-medium capitalize">{limits.tier}</span>
+                <span className="font-medium capitalize">
+                  {limits.tier}{limits.tier === 'pro' && ' (Beta)'}
+                </span>
               </div>
 
               <div className="border-t border-gray-100 pt-4">
@@ -143,15 +153,15 @@ export function SettingsGeneral(): ReactNode {
                     </tr>
                     <tr>
                       <td className="py-2 text-gray-600">Bookmarks</td>
-                      <td className="py-2 text-right text-gray-900">{limits.max_bookmarks.toLocaleString()}</td>
+                      <td className="py-2 text-right text-gray-900">{formatItemCount(limits.max_bookmarks)}</td>
                     </tr>
                     <tr>
                       <td className="py-2 text-gray-600">Notes</td>
-                      <td className="py-2 text-right text-gray-900">{limits.max_notes.toLocaleString()}</td>
+                      <td className="py-2 text-right text-gray-900">{formatItemCount(limits.max_notes)}</td>
                     </tr>
                     <tr>
                       <td className="py-2 text-gray-600">Prompts</td>
-                      <td className="py-2 text-right text-gray-900">{limits.max_prompts.toLocaleString()}</td>
+                      <td className="py-2 text-right text-gray-900">{formatItemCount(limits.max_prompts)}</td>
                     </tr>
                     <tr>
                       <td colSpan={2} className="pt-4 pb-2 text-center">
@@ -169,6 +179,24 @@ export function SettingsGeneral(): ReactNode {
                     <tr>
                       <td className="py-2 text-gray-600">Prompt content</td>
                       <td className="py-2 text-right text-gray-900">{limits.max_prompt_content_length.toLocaleString()} chars</td>
+                    </tr>
+                    <tr>
+                      <td colSpan={2} className="pt-4 pb-2 text-center">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Version History</span>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 text-gray-600">History retention</td>
+                      <td className="py-2 text-right text-gray-900">{limits.history_retention_days} {limits.history_retention_days === 1 ? 'day' : 'days'}</td>
+                    </tr>
+                    <tr>
+                      <td colSpan={2} className="pt-4 pb-2 text-center">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">API & Tokens</span>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 text-gray-600">Personal Access Tokens</td>
+                      <td className="py-2 text-right text-gray-900">{limits.max_pats.toLocaleString()}</td>
                     </tr>
                     <tr>
                       <td colSpan={2} className="pt-4 pb-2 text-center">

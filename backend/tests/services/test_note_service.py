@@ -16,25 +16,25 @@ from sqlalchemy import func
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import defer, selectinload
 
-from core.tier_limits import Tier, get_tier_limits
+from core.tier_limits import Tier, TierLimits, get_tier_limits
 from models.note import Note
 from models.tag import note_tags
 from models.user import User
 from schemas.note import NoteCreate, NoteUpdate
-from services.exceptions import InvalidStateError
+from services.exceptions import FieldLimitExceededError, InvalidStateError, QuotaExceededError
 from services.note_service import NoteService
 from services.utils import build_tag_filter_from_expression, escape_ilike
 from services.base_entity_service import CONTENT_PREVIEW_LENGTH
 
 
 note_service = NoteService()
-DEFAULT_LIMITS = get_tier_limits(Tier.FREE)
+DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id='test-user-notes-123', email='test-notes@example.com')
+    user = User(auth0_id='test-user-notes-123', email='test-notes@example.com', tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -622,7 +622,7 @@ async def test__update_note__wrong_user_returns_none(
 ) -> None:
     """Test that update_note returns None for wrong user."""
     # Create another user
-    other_user = User(auth0_id='other-user-notes-456', email='other-notes@example.com')
+    other_user = User(auth0_id='other-user-notes-456', email='other-notes@example.com', tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -1010,7 +1010,7 @@ async def test__cascade_delete__user_deletion_removes_notes(
 ) -> None:
     """Test that deleting a user removes all their notes."""
     # Create a user with notes
-    user = User(auth0_id="cascade-test-user-notes", email="cascade-notes@example.com")
+    user = User(auth0_id="cascade-test-user-notes", email="cascade-notes@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 
@@ -1102,3 +1102,136 @@ def test__search_query__defer_excludes_content_from_select() -> None:
     assert standalone_content is None, (
         f"Found standalone notes.content column in SELECT (defer not working). SQL: {sql}"
     )
+
+
+# =============================================================================
+# Tier Limits Enforcement Tests
+# =============================================================================
+
+
+async def test__create__quota_exceeded__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that creating beyond max_notes raises QuotaExceededError."""
+    for i in range(low_limits.max_notes):
+        data = NoteCreate(title=f"Note {i}", content="content")
+        await note_service.create(db_session, test_user.id, data, low_limits)
+    data = NoteCreate(title="Over", content="content")
+    with pytest.raises(QuotaExceededError, match=r"(?i)note"):
+        await note_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__quota_counts_archived_and_deleted(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that archived and soft-deleted notes count toward quota."""
+    n1 = await note_service.create(
+        db_session, test_user.id, NoteCreate(title="Archived", content="c"), low_limits,
+    )
+    await note_service.archive(db_session, test_user.id, n1.id)
+
+    n2 = await note_service.create(
+        db_session, test_user.id, NoteCreate(title="Deleted", content="c"), low_limits,
+    )
+    await note_service.delete(db_session, test_user.id, n2.id)
+
+    with pytest.raises(QuotaExceededError, match=r"(?i)note"):
+        await note_service.create(
+            db_session, test_user.id, NoteCreate(title="Over", content="c"), low_limits,
+        )
+
+
+async def test__create__title_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that title exceeding max_title_length raises FieldLimitExceededError."""
+    data = NoteCreate(title="a" * (low_limits.max_title_length + 1), content="ok")
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)title"):
+        await note_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__description_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that description exceeding max_description_length raises FieldLimitExceededError."""
+    data = NoteCreate(
+        title="ok", description="a" * (low_limits.max_description_length + 1), content="ok",
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)description"):
+        await note_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__content_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that content exceeding max_note_content_length raises FieldLimitExceededError."""
+    data = NoteCreate(title="ok", content="a" * (low_limits.max_note_content_length + 1))
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)content"):
+        await note_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__tag_name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that tag name exceeding max_tag_name_length raises FieldLimitExceededError."""
+    long_tag = "a" * (low_limits.max_tag_name_length + 1)
+    data = NoteCreate(title="ok", content="ok", tags=[long_tag])
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)tag"):
+        await note_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__update__title_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating title beyond max_title_length raises FieldLimitExceededError."""
+    note = await note_service.create(
+        db_session, test_user.id, NoteCreate(title="ok", content="c"), low_limits,
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)title"):
+        await note_service.update(
+            db_session, test_user.id, note.id,
+            NoteUpdate(title="a" * (low_limits.max_title_length + 1)), low_limits,
+        )
+
+
+async def test__update__description_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating description beyond limit raises FieldLimitExceededError."""
+    note = await note_service.create(
+        db_session, test_user.id, NoteCreate(title="ok", content="c"), low_limits,
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)description"):
+        await note_service.update(
+            db_session, test_user.id, note.id,
+            NoteUpdate(description="a" * (low_limits.max_description_length + 1)), low_limits,
+        )
+
+
+async def test__update__content_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating content beyond limit raises FieldLimitExceededError."""
+    note = await note_service.create(
+        db_session, test_user.id, NoteCreate(title="ok", content="c"), low_limits,
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)content"):
+        await note_service.update(
+            db_session, test_user.id, note.id,
+            NoteUpdate(content="a" * (low_limits.max_note_content_length + 1)), low_limits,
+        )
+
+
+async def test__update__tag_name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating with oversized tag raises FieldLimitExceededError."""
+    note = await note_service.create(
+        db_session, test_user.id, NoteCreate(title="ok", content="c"), low_limits,
+    )
+    long_tag = "a" * (low_limits.max_tag_name_length + 1)
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)tag"):
+        await note_service.update(
+            db_session, test_user.id, note.id,
+            NoteUpdate(tags=[long_tag]), low_limits,
+        )

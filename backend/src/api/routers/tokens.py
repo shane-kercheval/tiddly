@@ -4,7 +4,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_async_session, get_current_user_auth0_only
+from api.dependencies import (
+    get_async_session,
+    get_current_limits_auth0_only,
+    get_current_user_auth0_only,
+)
+from core.tier_limits import TierLimits
 from models.user import User
 from schemas.token import TokenCreate, TokenCreateResponse, TokenRenameRequest, TokenResponse
 from services import token_service
@@ -17,6 +22,7 @@ async def create_token(
     data: TokenCreate,
     current_user: User = Depends(get_current_user_auth0_only),
     db: AsyncSession = Depends(get_async_session),
+    limits: TierLimits = Depends(get_current_limits_auth0_only),
 ) -> TokenCreateResponse:
     """
     Create a new API token (PAT).
@@ -25,7 +31,7 @@ async def create_token(
 
     IMPORTANT: The plaintext token is only returned once. Store it securely.
     """
-    api_token, plaintext = await token_service.create_token(db, current_user.id, data)
+    api_token, plaintext = await token_service.create_token(db, current_user.id, data, limits)
     return TokenCreateResponse(
         id=api_token.id,
         name=api_token.name,

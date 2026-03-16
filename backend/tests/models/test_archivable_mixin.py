@@ -14,12 +14,13 @@ from models.bookmark import Bookmark
 from models.note import Note
 from models.prompt import Prompt
 from models.user import User
+from core.tier_limits import Tier
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-user-mixin-123", email="mixin@example.com")
+    user = User(auth0_id="test-user-mixin-123", email="mixin@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)

@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from models.user import User
+from core.tier_limits import Tier
 
 
 @pytest.fixture
@@ -50,7 +51,7 @@ async def test__get_or_create_user__handles_integrity_error_from_race_condition(
 
     # Step 1: Create the user directly (simulating another concurrent request winning)
     async with independent_session_factory() as session:
-        user_from_other_request = User(auth0_id=auth0_id, email=email)
+        user_from_other_request = User(auth0_id=auth0_id, email=email, tier=Tier.FREE.value)
         session.add(user_from_other_request)
         await session.commit()
         existing_user_id = user_from_other_request.id

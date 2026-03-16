@@ -6,14 +6,13 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
-import pytest
 from fastapi import HTTPException, status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.rate_limit_config import RateLimitResult
-from core.tier_limits import Tier, get_tier_limits
+from core.tier_limits import Tier, TierLimits
 from models.bookmark import Bookmark
 from models.user import User
 from services.url_scraper import ExtractedMetadata, ScrapedPage
@@ -581,11 +580,9 @@ async def test_create_bookmark_invalid_url(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-@pytest.mark.usefixtures("low_limits")
-async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
+async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient, low_limits: TierLimits) -> None:
     """Test that title exceeding max length returns 400."""
-    limits = get_tier_limits(Tier.FREE)
-    long_title = "a" * (limits.max_title_length + 1)
+    long_title = "a" * (low_limits.max_title_length + 1)
 
     response = await client.post(
         "/bookmarks/",
@@ -595,11 +592,9 @@ async def test_create_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
     assert "exceeds limit" in response.text.lower()
 
 
-@pytest.mark.usefixtures("low_limits")
-async def test_create_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
+async def test_create_bookmark_description_exceeds_max_length(client: AsyncClient, low_limits: TierLimits) -> None:
     """Test that description exceeding max length returns 400."""
-    limits = get_tier_limits(Tier.FREE)
-    long_description = "a" * (limits.max_description_length + 1)
+    long_description = "a" * (low_limits.max_description_length + 1)
 
     response = await client.post(
         "/bookmarks/",
@@ -609,11 +604,9 @@ async def test_create_bookmark_description_exceeds_max_length(client: AsyncClien
     assert "exceeds limit" in response.text.lower()
 
 
-@pytest.mark.usefixtures("low_limits")
-async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
+async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient, low_limits: TierLimits) -> None:
     """Test that content exceeding max length returns 400."""
-    limits = get_tier_limits(Tier.FREE)
-    long_content = "a" * (limits.max_bookmark_content_length + 1)
+    long_content = "a" * (low_limits.max_bookmark_content_length + 1)
 
     response = await client.post(
         "/bookmarks/",
@@ -623,8 +616,7 @@ async def test_create_bookmark_content_exceeds_max_length(client: AsyncClient) -
     assert "exceeds limit" in response.text.lower()
 
 
-@pytest.mark.usefixtures("low_limits")
-async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> None:
+async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient, low_limits: TierLimits) -> None:
     """Test that updating with title exceeding max length returns 400."""
     # Create a valid bookmark first
     create_response = await client.post(
@@ -635,8 +627,7 @@ async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
     bookmark_id = create_response.json()["id"]
 
     # Try to update with oversized title
-    limits = get_tier_limits(Tier.FREE)
-    long_title = "a" * (limits.max_title_length + 1)
+    long_title = "a" * (low_limits.max_title_length + 1)
 
     response = await client.patch(
         f"/bookmarks/{bookmark_id}",
@@ -646,8 +637,7 @@ async def test_update_bookmark_title_exceeds_max_length(client: AsyncClient) -> 
     assert "exceeds limit" in response.text.lower()
 
 
-@pytest.mark.usefixtures("low_limits")
-async def test_update_bookmark_description_exceeds_max_length(client: AsyncClient) -> None:
+async def test_update_bookmark_description_exceeds_max_length(client: AsyncClient, low_limits: TierLimits) -> None:
     """Test that updating with description exceeding max length returns 400."""
     # Create a valid bookmark first
     create_response = await client.post(
@@ -658,8 +648,7 @@ async def test_update_bookmark_description_exceeds_max_length(client: AsyncClien
     bookmark_id = create_response.json()["id"]
 
     # Try to update with oversized description
-    limits = get_tier_limits(Tier.FREE)
-    long_description = "a" * (limits.max_description_length + 1)
+    long_description = "a" * (low_limits.max_description_length + 1)
 
     response = await client.patch(
         f"/bookmarks/{bookmark_id}",
@@ -669,8 +658,7 @@ async def test_update_bookmark_description_exceeds_max_length(client: AsyncClien
     assert "exceeds limit" in response.text.lower()
 
 
-@pytest.mark.usefixtures("low_limits")
-async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -> None:
+async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient, low_limits: TierLimits) -> None:
     """Test that updating with content exceeding max length returns 400."""
     # Create a valid bookmark first
     create_response = await client.post(
@@ -681,8 +669,7 @@ async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -
     bookmark_id = create_response.json()["id"]
 
     # Try to update with oversized content
-    limits = get_tier_limits(Tier.FREE)
-    long_content = "a" * (limits.max_bookmark_content_length + 1)
+    long_content = "a" * (low_limits.max_bookmark_content_length + 1)
 
     response = await client.patch(
         f"/bookmarks/{bookmark_id}",
@@ -692,23 +679,21 @@ async def test_update_bookmark_content_exceeds_max_length(client: AsyncClient) -
     assert "exceeds limit" in response.text.lower()
 
 
-async def test_create_bookmark_fields_at_max_length_succeeds(client: AsyncClient) -> None:
+async def test_create_bookmark_fields_at_max_length_succeeds(client: AsyncClient, low_limits: TierLimits) -> None:
     """Test that fields exactly at max length are accepted."""
-    limits = get_tier_limits(Tier.FREE)
-
     response = await client.post(
         "/bookmarks/",
         json={
             "url": "https://example.com",
-            "title": "a" * limits.max_title_length,
-            "description": "b" * limits.max_description_length,
+            "title": "a" * low_limits.max_title_length,
+            "description": "b" * low_limits.max_description_length,
             # Note: not testing max content length here as it's 512KB
         },
     )
     assert response.status_code == 201
     data = response.json()
-    assert len(data["title"]) == limits.max_title_length
-    assert len(data["description"]) == limits.max_description_length
+    assert len(data["title"]) == low_limits.max_title_length
+    assert len(data["description"]) == low_limits.max_description_length
 
 
 # =============================================================================
@@ -1857,7 +1842,7 @@ async def test_different_users_can_have_same_url(
     assert response.status_code == 201
 
     # Create a different user directly in DB
-    other_user = User(auth0_id="auth0|other-user", email="other@example.com")
+    other_user = User(auth0_id="auth0|other-user", email="other@example.com", tier=Tier.FREE.value)
     db_session.add(other_user)
     await db_session.flush()
 
@@ -3267,3 +3252,29 @@ async def test__list_bookmarks__no_relationships_field(client: AsyncClient) -> N
     items = response.json()["items"]
     assert len(items) >= 1
     assert "relationships" not in items[0]
+
+
+# =============================================================================
+# Tier Limits Quota Enforcement Tests (API-level)
+# =============================================================================
+
+
+async def test__create_bookmark__quota_exceeded__returns_402(
+    client: AsyncClient, low_limits: TierLimits,
+) -> None:
+    """Test that exceeding max_bookmarks returns 402 with QUOTA_EXCEEDED error code."""
+    for i in range(low_limits.max_bookmarks):
+        r = await client.post("/bookmarks/", json={"url": f"https://quota{i}.com"})
+        assert r.status_code == 201
+    r = await client.post("/bookmarks/", json={"url": "https://over-quota.com"})
+    assert r.status_code == 402
+    body = r.json()
+    assert body["error_code"] == "QUOTA_EXCEEDED"
+
+
+async def test__create_bookmark__too_many_tags__returns_422(client: AsyncClient) -> None:
+    """Test that exceeding MAX_TAGS_PER_ENTITY returns 422."""
+    tags = [f"tag-{i}" for i in range(101)]
+    response = await client.post("/bookmarks/", json={"url": "https://example.com", "tags": tags})
+    assert response.status_code == 422
+    assert "Too many tags" in response.json()["detail"][0]["msg"]

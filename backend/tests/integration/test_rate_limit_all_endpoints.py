@@ -20,7 +20,8 @@ def low_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
         max_bookmarks=100,
         max_notes=100,
         max_prompts=100,
-        max_title_length=100,
+        max_pats=100,
+        max_title_length=200,
         max_description_length=1000,
         max_tag_name_length=50,
         max_bookmark_content_length=100_000,
@@ -40,7 +41,12 @@ def low_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
         history_retention_days=30,
         max_history_per_entity=100,
     )
-    monkeypatch.setattr(tier_limits, "TIER_LIMITS", {Tier.FREE: test_limits, Tier.DEV: test_limits})
+    monkeypatch.setattr(tier_limits, "TIER_LIMITS", {
+        Tier.FREE: test_limits,
+        Tier.STANDARD: test_limits,
+        Tier.PRO: test_limits,
+        Tier.DEV: test_limits,
+    })
 
 
 class TestRateLimitAppliedToAllEndpoints:
@@ -242,6 +248,40 @@ class TestRateLimitAppliedToAllEndpoints:
 
         # 3rd request should be blocked
         response = await rate_limit_client.get("/consent/status")
+        assert response.status_code == 429
+
+
+    async def test__tokens_create__rate_limited(
+        self,
+        rate_limit_client: AsyncClient,
+        low_rate_limits: None,  # noqa: ARG002
+    ) -> None:
+        """
+        POST /tokens/ is rate limited and consumes only 1 slot per request.
+
+        This also serves as a regression test: prior to the
+        get_current_limits_auth0_only dependency, the token creation
+        endpoint ran both get_current_user_auth0_only and get_current_user
+        (via get_current_limits), consuming 2 rate limit slots per request.
+        With the fix, both dependencies share get_current_user_auth0_only,
+        so only 1 slot is consumed.
+        """
+        # Make 2 requests (allowed — write limit is 2/min)
+        for i in range(2):
+            response = await rate_limit_client.post(
+                "/tokens/",
+                json={"name": f"Rate Limit Token {i}"},
+            )
+            assert response.status_code == 201, (
+                f"Request {i + 1} failed with {response.status_code} "
+                f"(double rate-limit bug may still be present)"
+            )
+
+        # 3rd request should be blocked
+        response = await rate_limit_client.post(
+            "/tokens/",
+            json={"name": "Blocked Token"},
+        )
         assert response.status_code == 429
 
 

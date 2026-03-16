@@ -13,9 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import Settings, get_settings
 from models.content_history import ContentHistory
 from models.user import User
+from core.tier_limits import Tier, get_tier_limits
 from schemas.token import TokenCreate
 from services.token_service import create_token
 from tests.api.conftest import add_consent_for_user
+
+_DEV_LIMITS = get_tier_limits(Tier.DEV)
 
 
 # --- Test data for parametrized tests ---
@@ -960,7 +963,7 @@ async def test_user_cannot_access_another_users_history(
     assert user1_history["total"] > 0
 
     # Create a second user and a PAT for them
-    user2 = User(auth0_id="auth0|user2-history-test", email="user2-history@example.com")
+    user2 = User(auth0_id="auth0|user2-history-test", email="user2-history@example.com", tier=Tier.FREE.value)
     db_session.add(user2)
     await db_session.flush()
 
@@ -968,7 +971,7 @@ async def test_user_cannot_access_another_users_history(
     await add_consent_for_user(db_session, user2)
 
     _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Test Token"),
+        db_session, user2.id, TokenCreate(name="Test Token"), _DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -1049,7 +1052,7 @@ async def test_pat_can_access_history(
 
     # Create a PAT for the dev user
     _, pat_token = await create_token(
-        db_session, dev_user.id, TokenCreate(name="History PAT"),
+        db_session, dev_user.id, TokenCreate(name="History PAT"), _DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -2369,14 +2372,14 @@ async def test_get_version_diff__cross_user_isolation(
     note_id = response.json()["id"]
 
     # Create user2 with PAT
-    user2 = User(auth0_id="auth0|diff-cross-user", email="diff-cross@example.com")
+    user2 = User(auth0_id="auth0|diff-cross-user", email="diff-cross@example.com", tier=Tier.FREE.value)
     db_session.add(user2)
     await db_session.flush()
 
     await add_consent_for_user(db_session, user2)
 
     _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name="Diff Test Token"),
+        db_session, user2.id, TokenCreate(name="Diff Test Token"), _DEV_LIMITS,
     )
     await db_session.flush()
 

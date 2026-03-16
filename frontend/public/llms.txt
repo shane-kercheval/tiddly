@@ -269,7 +269,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 
 ## Platform
 
-- **Pricing**: Free tier with all features included. Pro tier ($5/month or $4/month billed annually) removes capacity limits — unlimited bookmarks, notes, and prompts, more API tokens, and longer version history retention. All features are available on both tiers; Pro only increases capacity.
+- **Pricing**: Three tiers — Free ($0), Standard ($2/mo or $1/mo annual), and Pro ($5/mo or $4/mo annual). Higher tiers increase capacity (more items, longer history, higher rate limits). Currently in beta — all accounts have Pro access at no charge.
 - **Self-hostable**: The codebase is publicly available at https://github.com/shane-kercheval/tiddly and can be self-hosted with no tier limits.
 - **Infrastructure**: FastAPI backend, React frontend, PostgreSQL database (encryption at rest), Redis for caching and rate limiting. Hosted on Railway's Pro tier which includes SOC 2 compliance, DDoS protection, automatic daily database backups, and manual snapshots before major updates.
 - **Authentication**: Auth0.
@@ -280,24 +280,32 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 
 ## Tier Limits
 
+Currently in beta — all accounts have Pro access at no charge.
+
 ### Free Tier
-- **Items**: 50 bookmarks, 25 notes, 10 prompts.
+- **Items**: 10 bookmarks, 10 notes, 5 prompts.
 - **Content length**: Up to 25,000 characters per item.
-- **URL length**: Up to 2,048 characters.
-- **Tags**: Tag names up to 50 characters.
-- **Titles**: Up to 100 characters.
-- **Descriptions**: Up to 1,000 characters.
-- **Relationships**: Up to 50 per entity.
-- **Version history**: 3-day retention, up to 100 versions per entity.
 - **Personal Access Tokens**: Up to 3 active tokens.
-- **Content filters**: Up to 10 filters, 10 sidebar collections.
+- **Version history**: 1-day retention, up to 100 versions per entity.
+- **Rate limits**: 60 reads/min, 500 reads/day; 20 writes/min, 200 writes/day; 5 sensitive/min, 25 sensitive/day.
+- **Field limits**: Titles up to 200 characters, descriptions up to 1,000 characters, tag names up to 50 characters, URLs up to 2,048 characters.
+- **Relationships**: Up to 50 per entity.
+- **Tags**: Up to 100 per entity.
+
+### Standard Tier ($2/month or $1/month billed annually)
+- **Items**: 250 bookmarks, 100 notes, 50 prompts.
+- **Content length**: Up to 50,000 characters per item.
+- **Personal Access Tokens**: Up to 10 active tokens.
+- **Version history**: 5-day retention, up to 100 versions per entity.
+- **Rate limits**: 120 reads/min, 2,000 reads/day; 60 writes/min, 1,000 writes/day; 15 sensitive/min, 100 sensitive/day.
+- All other limits same as Free tier.
 
 ### Pro Tier ($5/month or $4/month billed annually)
 - **Items**: Unlimited bookmarks, notes, and prompts.
 - **Content length**: Up to 100,000 characters per item.
-- **Version history**: 30-day retention.
-- **Personal Access Tokens**: Up to 25 active tokens.
-- **Rate limits**: Higher than Free tier.
+- **Personal Access Tokens**: Up to 50 active tokens.
+- **Version history**: 15-day retention, up to 100 versions per entity.
+- **Rate limits**: 300 reads/min, 10,000 reads/day; 200 writes/min, 5,000 writes/day; 30 sensitive/min, 250 sensitive/day.
 - All other limits same as Free tier.
 
 ## Use Cases and Examples

@@ -11,22 +11,22 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.tier_limits import Tier, get_tier_limits
+from core.tier_limits import Tier, TierLimits, get_tier_limits
 from models.prompt import Prompt
 from models.user import User
 from schemas.prompt import PromptCreate, PromptUpdate, PromptArgument
-from services.exceptions import InvalidStateError
+from services.exceptions import FieldLimitExceededError, InvalidStateError, QuotaExceededError
 from services.prompt_service import NameConflictError, PromptService, validate_template
 
 
 prompt_service = PromptService()
-DEFAULT_LIMITS = get_tier_limits(Tier.FREE)
+DEFAULT_LIMITS = get_tier_limits(Tier.DEV)
 
 
 @pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user."""
-    user = User(auth0_id="test-user-prompts-123", email="test-prompts@example.com")
+    user = User(auth0_id="test-user-prompts-123", email="test-prompts@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -36,7 +36,7 @@ async def test_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def other_user(db_session: AsyncSession) -> User:
     """Create another test user for isolation tests."""
-    user = User(auth0_id="other-user-prompts-456", email="other-prompts@example.com")
+    user = User(auth0_id="other-user-prompts-456", email="other-prompts@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
@@ -580,7 +580,7 @@ async def test__cascade_delete__user_deletion_removes_prompts(
 ) -> None:
     """Test that deleting a user removes all their prompts."""
     # Create a user with prompts
-    user = User(auth0_id="cascade-test-user", email="cascade@example.com")
+    user = User(auth0_id="cascade-test-user", email="cascade@example.com", tier=Tier.FREE.value)
     db_session.add(user)
     await db_session.flush()
 
@@ -943,3 +943,229 @@ Done!{% endif %}
 # =============================================================================
 # include_content Parameter Tests (BaseEntityService.search)
 # =============================================================================
+
+
+# =============================================================================
+# Tier Limits Enforcement Tests
+# =============================================================================
+
+
+async def test__create__quota_exceeded__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that creating beyond max_prompts raises QuotaExceededError."""
+    for i in range(low_limits.max_prompts):
+        data = PromptCreate(name=f"p-{i}", content=f"content {i}")
+        await prompt_service.create(db_session, test_user.id, data, low_limits)
+    data = PromptCreate(name="p-over", content="over")
+    with pytest.raises(QuotaExceededError, match=r"(?i)prompt"):
+        await prompt_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__quota_counts_archived_and_deleted(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that archived and soft-deleted prompts count toward quota."""
+    p1 = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="p-arch", content="c"), low_limits,
+    )
+    await prompt_service.archive(db_session, test_user.id, p1.id)
+
+    p2 = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="p-del", content="c"), low_limits,
+    )
+    await prompt_service.delete(db_session, test_user.id, p2.id)
+
+    with pytest.raises(QuotaExceededError, match=r"(?i)prompt"):
+        await prompt_service.create(
+            db_session, test_user.id, PromptCreate(name="p-over", content="c"), low_limits,
+        )
+
+
+async def test__create__name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that name exceeding max_prompt_name_length raises FieldLimitExceededError."""
+    long_name = "a" * (low_limits.max_prompt_name_length + 1)
+    data = PromptCreate(name=long_name, content="ok")
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)name"):
+        await prompt_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__title_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that title exceeding max_title_length raises FieldLimitExceededError."""
+    data = PromptCreate(
+        name="ok", title="a" * (low_limits.max_title_length + 1), content="ok",
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)title"):
+        await prompt_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__description_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that description exceeding max_description_length raises FieldLimitExceededError."""
+    data = PromptCreate(
+        name="ok2", description="a" * (low_limits.max_description_length + 1), content="ok",
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)description"):
+        await prompt_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__content_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that content exceeding max_prompt_content_length raises FieldLimitExceededError."""
+    data = PromptCreate(
+        name="ok3", content="a" * (low_limits.max_prompt_content_length + 1),
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)content"):
+        await prompt_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__tag_name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that tag name exceeding max_tag_name_length raises FieldLimitExceededError."""
+    long_tag = "a" * (low_limits.max_tag_name_length + 1)
+    data = PromptCreate(name="ok4", content="ok", tags=[long_tag])
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)tag"):
+        await prompt_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__argument_name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that argument name exceeding max_argument_name_length raises FieldLimitExceededError."""
+    long_arg = "a" * (low_limits.max_argument_name_length + 1)
+    data = PromptCreate(
+        name="ok5",
+        content=f"Hello {{{{ {long_arg} }}}}!",
+        arguments=[PromptArgument(name=long_arg)],
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)argument name"):
+        await prompt_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__create__argument_description_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that argument description exceeding limit raises FieldLimitExceededError."""
+    long_desc = "a" * (low_limits.max_argument_description_length + 1)
+    data = PromptCreate(
+        name="ok6",
+        content="Hello {{ x }}!",
+        arguments=[PromptArgument(name="x", description=long_desc)],
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)argument description"):
+        await prompt_service.create(db_session, test_user.id, data, low_limits)
+
+
+async def test__update__name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating name beyond limit raises FieldLimitExceededError."""
+    p = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="upd1", content="c"), low_limits,
+    )
+    long_name = "a" * (low_limits.max_prompt_name_length + 1)
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)name"):
+        await prompt_service.update(
+            db_session, test_user.id, p.id, PromptUpdate(name=long_name), low_limits,
+        )
+
+
+async def test__update__title_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating title beyond limit raises FieldLimitExceededError."""
+    p = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="upd2", content="c"), low_limits,
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)title"):
+        await prompt_service.update(
+            db_session, test_user.id, p.id,
+            PromptUpdate(title="a" * (low_limits.max_title_length + 1)), low_limits,
+        )
+
+
+async def test__update__description_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating description beyond limit raises FieldLimitExceededError."""
+    p = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="upd3", content="c"), low_limits,
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)description"):
+        await prompt_service.update(
+            db_session, test_user.id, p.id,
+            PromptUpdate(description="a" * (low_limits.max_description_length + 1)), low_limits,
+        )
+
+
+async def test__update__content_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating content beyond limit raises FieldLimitExceededError."""
+    p = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="upd4", content="c"), low_limits,
+    )
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)content"):
+        await prompt_service.update(
+            db_session, test_user.id, p.id,
+            PromptUpdate(content="a" * (low_limits.max_prompt_content_length + 1)), low_limits,
+        )
+
+
+async def test__update__tag_name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating with oversized tag raises FieldLimitExceededError."""
+    p = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="upd5", content="c"), low_limits,
+    )
+    long_tag = "a" * (low_limits.max_tag_name_length + 1)
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)tag"):
+        await prompt_service.update(
+            db_session, test_user.id, p.id, PromptUpdate(tags=[long_tag]), low_limits,
+        )
+
+
+async def test__update__argument_name_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating with oversized argument name raises FieldLimitExceededError."""
+    p = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="upd6", content="c"), low_limits,
+    )
+    long_arg = "a" * (low_limits.max_argument_name_length + 1)
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)argument name"):
+        await prompt_service.update(
+            db_session, test_user.id, p.id,
+            PromptUpdate(
+                content=f"Hello {{{{ {long_arg} }}}}!",
+                arguments=[PromptArgument(name=long_arg)],
+            ),
+            low_limits,
+        )
+
+
+async def test__update__argument_description_exceeds_max_length__raises(
+    db_session: AsyncSession, test_user: User, low_limits: TierLimits,
+) -> None:
+    """Test that updating with oversized argument description raises FieldLimitExceededError."""
+    p = await prompt_service.create(
+        db_session, test_user.id, PromptCreate(name="upd7", content="c"), low_limits,
+    )
+    long_desc = "a" * (low_limits.max_argument_description_length + 1)
+    with pytest.raises(FieldLimitExceededError, match=r"(?i)argument description"):
+        await prompt_service.update(
+            db_session, test_user.id, p.id,
+            PromptUpdate(
+                content="Hello {{ x }}!",
+                arguments=[PromptArgument(name="x", description=long_desc)],
+            ),
+            low_limits,
+        )
