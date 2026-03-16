@@ -6,6 +6,9 @@ Format validation happens here; length validation happens in service layer (tier
 """
 import re
 
+# Abuse prevention: cap on tags per entity. Not tier-based — universal safety guardrail.
+MAX_TAGS_PER_ENTITY = 100
+
 # Tag format: lowercase alphanumeric with hyphens (e.g., 'machine-learning', 'web-dev')
 # Note: This pattern is intentionally duplicated in the frontend (frontend/src/utils.ts)
 # for immediate UX feedback. Backend validation ensures security. Keep both in sync.
@@ -75,6 +78,10 @@ def validate_and_normalize_tags(tags: list[str]) -> list[str]:
         if validated not in seen:
             seen.add(validated)
             normalized.append(validated)
+    if len(normalized) > MAX_TAGS_PER_ENTITY:
+        raise ValueError(
+            f"Too many tags ({len(normalized)}). Maximum is {MAX_TAGS_PER_ENTITY} per item.",
+        )
     return normalized
 
 

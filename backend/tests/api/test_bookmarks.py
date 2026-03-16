@@ -3270,3 +3270,11 @@ async def test__create_bookmark__quota_exceeded__returns_402(
     assert r.status_code == 402
     body = r.json()
     assert body["error_code"] == "QUOTA_EXCEEDED"
+
+
+async def test__create_bookmark__too_many_tags__returns_422(client: AsyncClient) -> None:
+    """Test that exceeding MAX_TAGS_PER_ENTITY returns 422."""
+    tags = [f"tag-{i}" for i in range(101)]
+    response = await client.post("/bookmarks/", json={"url": "https://example.com", "tags": tags})
+    assert response.status_code == 422
+    assert "Too many tags" in response.json()["detail"][0]["msg"]
