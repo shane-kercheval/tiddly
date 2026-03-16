@@ -146,24 +146,33 @@ export function setupAuthInterceptor(
         }
       }
       if (error.response?.status === 402) {
-        // Quota exceeded - show resource-specific message
+        // Quota exceeded - show resource-specific message with pricing link
         const data = error.response.data as { resource?: string; limit?: number; error_code?: string }
         if (data?.error_code === 'QUOTA_EXCEEDED') {
-          const resource = data.resource ?? 'items'
+          const resource = data.resource ?? 'item'
           const limit = data.limit ?? 0
           toast.error(
-            `You've reached the limit of ${limit.toLocaleString()} ${resource}. Delete some existing items to create new ones.`,
+            <span>
+              You've reached the limit of {limit.toLocaleString()} {resource}s.{' '}
+              <a href="/pricing" className="underline font-medium">Manage your plan</a>
+            </span>,
             { id: 'quota-exceeded' }
           )
         }
       }
       if (error.response?.status === 429) {
-        // Rate limit exceeded - show user-friendly message
+        // Rate limit exceeded - show user-friendly message with pricing link
         const retryAfter = error.response.headers['retry-after']
-        const message = retryAfter
-          ? `Too many requests. Please wait ${retryAfter} seconds.`
-          : 'Too many requests. Please try again later.'
-        toast.error(message, { id: 'rate-limit' }) // id prevents duplicate toasts
+        const waitText = retryAfter
+          ? `Please wait ${retryAfter} seconds.`
+          : 'Please try again later.'
+        toast.error(
+          <span>
+            Too many requests. {waitText}{' '}
+            <a href="/pricing" className="underline font-medium">Higher limits available</a>
+          </span>,
+          { id: 'rate-limit' }
+        )
       }
       if (error.response?.status === 451) {
         // Consent required - show dialog immediately and fetch new versions

@@ -413,36 +413,41 @@ Read each FAQ in `Pricing.tsx` and verify against actual behavior:
 | **Chrome ext** | Error + "Manage bookmarks" link to `/app/bookmarks` | "Rate limited — try again in {N}s" |
 | **CLI** | "Quota exceeded: {resource} ({current}/{limit}). Upgrade at https://tiddly.me/pricing" (already good) | Auto-retries, then wait message (already good) |
 
+### Final State
+
+| Client | 402 (Quota) | 429 (Rate limit) |
+|---|---|---|
+| **Frontend** | Toast: "You've reached the limit of {limit} {resource}s." + clickable "Manage your plan" link to `/pricing` | Toast: "Too many requests. Please wait {N} seconds." + clickable "Higher limits available" link to `/pricing` |
+| **Chrome ext** | "You've reached the limit of {limit} {resource}s." + clickable "Manage your plan" link to `tiddly.me/pricing` | "Rate limited — try again in {N}s." + clickable "Higher limits available" link to `tiddly.me/pricing` |
+| **CLI** | "Quota exceeded: {resource} ({current}/{limit}). Upgrade at https://tiddly.me/pricing" (unchanged) | Auto-retries, then wait message (unchanged) |
+
 ### Implementation Outline
 
-**Frontend (`frontend/src/services/api.ts`):**
+**Frontend (`frontend/src/services/api.tsx`):**
 
-Read the file first, specifically the response interceptor (around lines 112-175).
+File renamed from `api.ts` to `api.tsx` to enable JSX in toast messages.
 
-- **402 handler:** The interceptor already extracts `resource` and `limit` from the response. Update the toast to:
-  - Include a clickable "Manage your plan" link to `/pricing` (react-hot-toast supports JSX/custom content — check how the existing toasts work)
-  - Use neutral wording that works for all tiers: "You've reached the limit of {limit} {resource}. Delete existing items to free space. [Manage your plan](/pricing)"
-  - "Manage your plan" is accurate for all tiers — Free/Standard users can see upgrade options, Pro users can see their plan. Avoids telling Pro users to "upgrade."
+- **402 handler:** Build user-facing message from structured response fields (`resource`, `limit`), not `body.detail`. Backend error messages are developer-facing, not user-facing — each client owns its own UX copy.
+  - Toast: "You've reached the limit of {limit} {resource}s. [Manage your plan](/pricing)"
+  - Clickable "Manage your plan" link to `/pricing` via JSX anchor element.
+  - No action instruction ("delete items") — the pricing link is the call to action, and the specific remediation depends on resource type (delete items vs revoke tokens).
 
-- **429 handler:** Update toast to include a pricing link for Free/Standard users:
+- **429 handler:** Toast with pricing link:
   - "Too many requests. Please wait {N} seconds. [Higher limits available](/pricing)"
-  - This isn't just an upsell — it informs users that they have options. Rate limits are tier-based and users should know higher limits exist.
-  - For Pro users, the pricing link is harmless (they can see their plan). Keeping the same message for all tiers avoids needing tier-awareness in the interceptor.
+  - Clickable "Higher limits available" link to `/pricing`.
 
 **Chrome extension (`chrome-extension/popup-core.js`):**
 
-Read the `handleSaveError()` function (around lines 541-601).
+- **402 handler:** Build message from structured response fields (`resource`, `limit`), consistent with frontend. Do not render `body.detail` — backend messages are not user-facing copy.
+  - Message: "You've reached the limit of {limit} {resource}s."
+  - Link: "Manage your plan" → `https://tiddly.me/pricing`
 
-- **402 handler:** Change the link from `https://tiddly.me/app/bookmarks` ("Manage bookmarks") to `https://tiddly.me/pricing` ("See plans").
-- Update the message to mention upgrading: "Bookmark limit reached. Delete existing bookmarks or see plans."
-
-**Backend:** No changes needed. The neutral wording works without knowing the user's tier.
+**Backend:** No changes needed.
 
 ### Testing Strategy
 
-- **Frontend API tests** (`frontend/src/services/api.test.ts`): update existing 402 test to verify the new toast message includes pricing link. Add test for 429 toast including pricing link.
-- **Chrome extension:** manual test — trigger a 402 and verify the link goes to `/pricing`
-- **Visual verification:** trigger quota exceeded in dev mode (set low limits) and verify the toast is clear and actionable
+- **Frontend API tests** (`frontend/src/services/api.test.ts`): 402 test verifies toast text (resource, limit, "Manage your plan") and pricing link href. 429 tests verify retry-after text, "Higher limits available" text, and pricing link href. Negative tests for non-quota 402 and non-429 errors.
+- **Chrome extension tests**: 402 test verifies structured message ("limit of 10 bookmarks"), link text ("Manage your plan"), and link href (`/pricing`).
 
 ---
 
