@@ -119,9 +119,9 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         max_history_per_entity=100,
     ),
     Tier.PRO: TierLimits(
-        max_bookmarks=1_000_000,
-        max_notes=1_000_000,
-        max_prompts=1_000_000,
+        max_bookmarks=10_000,
+        max_notes=10_000,
+        max_prompts=10_000,
         max_pats=50,
         **_FIELD_LENGTHS,
         max_bookmark_content_length=100_000,

@@ -23,9 +23,9 @@ We're transitioning from a single FREE tier to a three-tier pricing model: **Fre
 
 | | Free | Standard ($2/mo, $1/mo annual) | Pro ($5/mo, $4/mo annual) |
 |---|---|---|---|
-| Bookmarks | 10 | 250 | Unlimited (1,000,000) |
-| Notes | 10 | 100 | Unlimited (1,000,000) |
-| Prompts | 5 | 50 | Unlimited (1,000,000) |
+| Bookmarks | 10 | 250 | Unlimited (10,000) |
+| Notes | 10 | 100 | Unlimited (10,000) |
+| Prompts | 5 | 50 | Unlimited (10,000) |
 | Chars/item | 25,000 | 50,000 | 100,000 |
 | PATs | 3 | 10 | 50 |
 | History retention | 1 day | 5 days | 15 days |
