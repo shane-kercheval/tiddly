@@ -41,9 +41,11 @@ function Auth0SignupButton({
 function CTAButton({
   variant,
   size,
+  tier,
 }: {
   variant: 'primary' | 'secondary'
   size?: 'large'
+  tier?: 'free' | 'standard' | 'pro'
 }): ReactNode {
   const { isAuthenticated } = useAuthStatus()
 
@@ -58,6 +60,14 @@ function CTAButton({
   const className = `${baseClass} ${variantClass}`
 
   if (isAuthenticated || isDevMode) {
+    // During beta, everyone is on Pro
+    if (tier === 'pro') {
+      return (
+        <span className={`${baseClass} border border-gray-300 text-gray-500 cursor-default`}>
+          Current Plan (Beta)
+        </span>
+      )
+    }
     return (
       <Link to="/app/content" className={className}>
         Open App
@@ -76,54 +86,60 @@ const comparisonData = [
   {
     category: 'Content',
     rows: [
-      { feature: 'Bookmarks', free: '50', pro: 'Unlimited' },
-      { feature: 'Notes', free: '25', pro: 'Unlimited' },
-      { feature: 'Prompt templates', free: '10', pro: 'Unlimited' },
+      { feature: 'Bookmarks', free: '10', standard: '250', pro: 'Unlimited' },
+      { feature: 'Notes', free: '10', standard: '100', pro: 'Unlimited' },
+      { feature: 'Prompt templates', free: '5', standard: '50', pro: 'Unlimited' },
     ],
   },
   {
     category: 'Storage',
     rows: [
-      { feature: 'Characters per content item', free: '25,000', pro: '100,000' },
+      { feature: 'Characters per content item', free: '25,000', standard: '50,000', pro: '100,000' },
     ],
   },
   {
     category: 'API & Automation',
     rows: [
-      { feature: 'Personal Access Tokens', free: '3', pro: '25' },
-      { feature: 'Rate limits', free: 'Standard', pro: 'Higher' },
-      { feature: 'MCP integration', free: 'Included', pro: 'Included' },
-      { feature: 'Chrome extension', free: 'Included', pro: 'Included' },
+      { feature: 'Personal Access Tokens', free: '3', standard: '10', pro: '50' },
+      { feature: 'Rate limits', free: 'Standard', standard: 'Higher', pro: 'Highest' },
+      { feature: 'MCP integration', free: 'Included', standard: 'Included', pro: 'Included' },
+      { feature: 'Chrome extension', free: 'Included', standard: 'Included', pro: 'Included' },
     ],
   },
   {
     category: 'History & Versioning',
     rows: [
-      { feature: 'Version history retention', free: '3 days', pro: '30 days' },
-      { feature: 'Full-text search', free: 'Included', pro: 'Included' },
+      { feature: 'Version history retention', free: '1 day', standard: '5 days', pro: '15 days' },
+      { feature: 'Full-text search', free: 'Included', standard: 'Included', pro: 'Included' },
     ],
   },
 ]
 
 /**
- * Public pricing page with Free and Pro tier comparison.
+ * Public pricing page with Free, Standard, and Pro tier comparison.
  */
 export function Pricing(): ReactNode {
   usePageTitle('Pricing')
   const [isAnnual, setIsAnnual] = useState(false)
 
-  const price = isAnnual ? '4' : '5'
-  const billingNote = isAnnual ? 'per month, billed annually' : 'per month'
+  const standardPrice = isAnnual ? '1' : '2'
+  const standardBillingNote = isAnnual ? 'per month, billed annually' : 'per month'
+  const proPrice = isAnnual ? '4' : '5'
+  const proBillingNote = isAnnual ? 'per month, billed annually' : 'per month'
 
   return (
     <div>
       {/* Hero */}
-      <div className="pb-12 text-center">
+      <div className="pb-8 text-center">
         <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">
           Simple, transparent pricing
         </h1>
-        <p className="mt-4 text-lg text-gray-500 sm:text-xl">
-          All features included on every plan. Pro removes the limits.
+      </div>
+
+      {/* Beta Banner */}
+      <div className="mx-auto mb-10 max-w-2xl rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-center">
+        <p className="text-sm text-yellow-800">
+          <span className="font-medium">Currently in beta</span> — all accounts have Pro access at no charge. When beta ends, accounts will default to the Free tier unless upgraded. Your content will be preserved, but you won't be able to add new items if you're over the Free tier limits.
         </p>
       </div>
 
@@ -147,33 +163,55 @@ export function Pricing(): ReactNode {
         </span>
         {isAnnual && (
           <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
-            Save 20%
+            Save up to 50%
           </span>
         )}
       </div>
 
       {/* Pricing Cards */}
-      <div className="grid gap-8 pb-20 lg:grid-cols-2">
+      <div className="grid gap-8 pb-20 lg:grid-cols-3">
         {/* Free Card */}
         <div className="rounded-2xl border border-gray-200 bg-white p-8">
           <h2 className="text-lg font-semibold text-gray-900">Free</h2>
           <div className="mt-4 flex items-baseline gap-1">
             <span className="text-5xl font-bold tracking-tight text-gray-900">$0</span>
           </div>
-          <p className="mt-2 text-sm text-gray-500">Free to get started</p>
+          <p className="mt-2 text-sm text-gray-500">Free forever</p>
 
-          <CTAButton variant="secondary" />
+          <CTAButton variant="secondary" tier="free" />
 
           <ul className="mt-8 space-y-4 text-sm text-gray-600">
-            <FeatureItem>50 bookmarks</FeatureItem>
-            <FeatureItem>25 notes</FeatureItem>
-            <FeatureItem>10 prompt templates</FeatureItem>
-            <FeatureItem>25K characters per content item</FeatureItem>
+            <FeatureItem>10 bookmarks</FeatureItem>
+            <FeatureItem>10 notes</FeatureItem>
+            <FeatureItem>5 prompt templates</FeatureItem>
+            <FeatureItem>25K characters per item</FeatureItem>
+            <FeatureItem>3 API tokens</FeatureItem>
+            <FeatureItem>1-day version history</FeatureItem>
             <FeatureItem>Full-text search</FeatureItem>
             <FeatureItem>MCP integration</FeatureItem>
             <FeatureItem>Chrome extension</FeatureItem>
-            <FeatureItem>3 API tokens</FeatureItem>
-            <FeatureItem>3-day version history</FeatureItem>
+          </ul>
+        </div>
+
+        {/* Standard Card */}
+        <div className="rounded-2xl border border-gray-200 bg-white p-8">
+          <h2 className="text-lg font-semibold text-gray-900">Standard</h2>
+          <div className="mt-4 flex items-baseline gap-1">
+            <span className="text-5xl font-bold tracking-tight text-gray-900">${standardPrice}</span>
+            <span className="text-lg text-gray-500">/mo</span>
+          </div>
+          <p className="mt-2 text-sm text-gray-500">{standardBillingNote}</p>
+
+          <CTAButton variant="secondary" tier="standard" />
+
+          <ul className="mt-8 space-y-4 text-sm text-gray-600">
+            <FeatureItem>250 bookmarks</FeatureItem>
+            <FeatureItem>100 notes</FeatureItem>
+            <FeatureItem>50 prompt templates</FeatureItem>
+            <FeatureItem>50K characters per item</FeatureItem>
+            <FeatureItem>10 API tokens</FeatureItem>
+            <FeatureItem>5-day version history</FeatureItem>
+            <FeatureItem>Higher rate limits</FeatureItem>
           </ul>
         </div>
 
@@ -181,20 +219,19 @@ export function Pricing(): ReactNode {
         <div className="rounded-2xl border-2 border-gray-900 bg-gray-50 p-8">
           <h2 className="text-lg font-semibold text-gray-900">Pro</h2>
           <div className="mt-4 flex items-baseline gap-1">
-            <span className="text-5xl font-bold tracking-tight text-gray-900">${price}</span>
+            <span className="text-5xl font-bold tracking-tight text-gray-900">${proPrice}</span>
             <span className="text-lg text-gray-500">/mo</span>
           </div>
-          <p className="mt-2 text-sm text-gray-500">{billingNote}</p>
+          <p className="mt-2 text-sm text-gray-500">{proBillingNote}</p>
 
-          <CTAButton variant="primary" />
+          <CTAButton variant="primary" tier="pro" />
 
           <ul className="mt-8 space-y-4 text-sm text-gray-600">
             <FeatureItem><strong>Unlimited</strong> bookmarks, notes & prompts</FeatureItem>
-            <FeatureItem>100K characters per content item</FeatureItem>
-            <FeatureItem>Everything in Free, plus:</FeatureItem>
-            <FeatureItem>25 API tokens</FeatureItem>
-            <FeatureItem>30-day version history</FeatureItem>
-            <FeatureItem>Higher rate limits</FeatureItem>
+            <FeatureItem>100K characters per item</FeatureItem>
+            <FeatureItem>50 API tokens</FeatureItem>
+            <FeatureItem>15-day version history</FeatureItem>
+            <FeatureItem>Highest rate limits</FeatureItem>
           </ul>
         </div>
       </div>
@@ -210,6 +247,7 @@ export function Pricing(): ReactNode {
               <tr className="border-b border-gray-200">
                 <th className="py-4 pr-4 text-left text-sm font-medium text-gray-500" />
                 <th className="px-4 py-4 text-center text-sm font-semibold text-gray-900">Free</th>
+                <th className="px-4 py-4 text-center text-sm font-semibold text-gray-900">Standard</th>
                 <th className="px-4 py-4 text-center text-sm font-semibold text-gray-900">Pro</th>
               </tr>
             </thead>
@@ -230,15 +268,15 @@ export function Pricing(): ReactNode {
         <div>
           <FAQItem question="Can I try Pro before committing?">
             <p>
-              There's no formal trial yet, but the Free tier gives you full access to every
-              feature. Use it to evaluate Tiddly — if you need more capacity, upgrade to Pro.
+              During beta, everyone has Pro access at no charge. After beta, the Free tier gives
+              you full access to every feature — upgrade when you need more capacity.
             </p>
           </FAQItem>
 
           <FAQItem question="What happens if I hit a limit?">
             <p>
-              You'll see a clear error message explaining which limit you've reached, with a
-              link to upgrade. Your existing content is never affected — you just can't create
+              You'll see a clear error message explaining which limit you've reached, with an
+              option to upgrade. Your existing content is never affected — you just can't create
               new items until you upgrade or free up space.
             </p>
           </FAQItem>
@@ -253,8 +291,7 @@ export function Pricing(): ReactNode {
 
           <FAQItem question="Do you offer refunds?">
             <p>
-              Yes, within 30 days of any payment. Contact us and we'll process your refund,
-              no questions asked.
+              Paid plans haven't launched yet. A refund policy will be announced when they do.
             </p>
           </FAQItem>
 
@@ -262,7 +299,7 @@ export function Pricing(): ReactNode {
             <p>
               AI-powered features (summarization, auto-suggestions, enhanced search) are
               planned but not yet available. They may be priced separately when launched.
-              MCP integration and prompt templates are included in both tiers today.
+              MCP integration and prompt templates are included in all tiers today.
             </p>
           </FAQItem>
 
@@ -298,13 +335,13 @@ export function Pricing(): ReactNode {
 function ComparisonSection({
   section,
 }: {
-  section: { category: string; rows: { feature: string; free: string; pro: string }[] }
+  section: { category: string; rows: { feature: string; free: string; standard: string; pro: string }[] }
 }): ReactNode {
   return (
     <>
       <tr>
         <td
-          colSpan={3}
+          colSpan={4}
           className="pb-2 pt-6 text-xs font-semibold uppercase tracking-wider text-gray-400"
         >
           {section.category}
@@ -314,6 +351,7 @@ function ComparisonSection({
         <tr key={row.feature} className="border-b border-gray-100">
           <td className="py-3 pr-4 text-sm text-gray-600">{row.feature}</td>
           <td className="px-4 py-3 text-center text-sm text-gray-600">{row.free}</td>
+          <td className="px-4 py-3 text-center text-sm text-gray-600">{row.standard}</td>
           <td className="px-4 py-3 text-center text-sm font-medium text-gray-900">{row.pro}</td>
         </tr>
       ))}
