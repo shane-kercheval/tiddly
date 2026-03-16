@@ -18,8 +18,12 @@ from services.token_service import (
     rename_token,
     validate_token,
 )
-from core.tier_limits import Tier
+from core.tier_limits import Tier, TierLimits, get_tier_limits
 from schemas.token import TokenCreate
+from services.exceptions import QuotaExceededError
+
+
+DEV_LIMITS = get_tier_limits(Tier.DEV)
 
 
 @pytest.fixture
@@ -98,7 +102,7 @@ async def test__create_token__creates_token_with_hash(
     """Test that create_token stores hash and returns plaintext."""
     data = TokenCreate(name="Test Token")
 
-    api_token, plaintext = await create_token(db_session, test_user.id, data)
+    api_token, plaintext = await create_token(db_session, test_user.id, data, DEV_LIMITS)
 
     assert api_token.name == "Test Token"
     assert api_token.user_id == test_user.id
@@ -115,7 +119,7 @@ async def test__create_token__with_expiration(
     """Test that create_token sets expiration correctly."""
     data = TokenCreate(name="Expiring Token", expires_in_days=30)
 
-    api_token, _ = await create_token(db_session, test_user.id, data)
+    api_token, _ = await create_token(db_session, test_user.id, data, DEV_LIMITS)
 
     assert api_token.expires_at is not None
     expected_expiry = datetime.now(UTC) + timedelta(days=30)
@@ -130,8 +134,8 @@ async def test__create_token__returns_unique_tokens(
     """Test that create_token generates unique tokens each time."""
     data = TokenCreate(name="Token")
 
-    _, plaintext1 = await create_token(db_session, test_user.id, data)
-    _, plaintext2 = await create_token(db_session, test_user.id, data)
+    _, plaintext1 = await create_token(db_session, test_user.id, data, DEV_LIMITS)
+    _, plaintext2 = await create_token(db_session, test_user.id, data, DEV_LIMITS)
 
     assert plaintext1 != plaintext2
 
@@ -149,7 +153,7 @@ async def test__get_tokens__returns_user_tokens(
     # Create multiple tokens
     for i in range(3):
         data = TokenCreate(name=f"Token {i}")
-        await create_token(db_session, test_user.id, data)
+        await create_token(db_session, test_user.id, data, DEV_LIMITS)
     await db_session.flush()
 
     tokens = await get_tokens(db_session, test_user.id)
@@ -175,7 +179,7 @@ async def test__get_tokens__orders_by_created_at_desc(
     """Test that get_tokens returns tokens in reverse chronological order."""
     for name in ["First", "Second", "Third"]:
         data = TokenCreate(name=name)
-        await create_token(db_session, test_user.id, data)
+        await create_token(db_session, test_user.id, data, DEV_LIMITS)
     await db_session.flush()
 
     tokens = await get_tokens(db_session, test_user.id)
@@ -192,8 +196,8 @@ async def test__get_tokens__user_isolation(
     other_user: User,
 ) -> None:
     """Test that get_tokens only returns tokens for the specified user."""
-    await create_token(db_session, test_user.id, TokenCreate(name="User1 Token"))
-    await create_token(db_session, other_user.id, TokenCreate(name="User2 Token"))
+    await create_token(db_session, test_user.id, TokenCreate(name="User1 Token"), DEV_LIMITS)
+    await create_token(db_session, other_user.id, TokenCreate(name="User2 Token"), DEV_LIMITS)
     await db_session.flush()
 
     user1_tokens = await get_tokens(db_session, test_user.id)
@@ -216,7 +220,7 @@ async def test__get_token_by_id__returns_token_if_exists(
 ) -> None:
     """Test that get_token_by_id returns the token if it exists."""
     api_token, _ = await create_token(
-        db_session, test_user.id, TokenCreate(name="Test"),
+        db_session, test_user.id, TokenCreate(name="Test"), DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -244,7 +248,7 @@ async def test__get_token_by_id__returns_none_for_other_users_token(
 ) -> None:
     """Test that get_token_by_id enforces user scope."""
     api_token, _ = await create_token(
-        db_session, other_user.id, TokenCreate(name="Other's Token"),
+        db_session, other_user.id, TokenCreate(name="Other's Token"), DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -265,7 +269,7 @@ async def test__delete_token__removes_token_and_returns_true(
 ) -> None:
     """Test that delete_token removes the token and returns True."""
     api_token, _ = await create_token(
-        db_session, test_user.id, TokenCreate(name="To Delete"),
+        db_session, test_user.id, TokenCreate(name="To Delete"), DEV_LIMITS,
     )
     await db_session.flush()
     token_id = api_token.id
@@ -296,7 +300,7 @@ async def test__delete_token__enforces_user_scope(
 ) -> None:
     """Test that delete_token only deletes tokens owned by the user."""
     api_token, _ = await create_token(
-        db_session, other_user.id, TokenCreate(name="Other's Token"),
+        db_session, other_user.id, TokenCreate(name="Other's Token"), DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -320,7 +324,7 @@ async def test__rename_token__updates_name(
 ) -> None:
     """Test that rename_token updates the token name in the database."""
     api_token, _ = await create_token(
-        db_session, test_user.id, TokenCreate(name="Old Name"),
+        db_session, test_user.id, TokenCreate(name="Old Name"), DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -348,7 +352,7 @@ async def test__rename_token__user_scoping(
 ) -> None:
     """Test that rename_token only renames tokens owned by the user."""
     api_token, _ = await create_token(
-        db_session, other_user.id, TokenCreate(name="Other's Token"),
+        db_session, other_user.id, TokenCreate(name="Other's Token"), DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -372,7 +376,7 @@ async def test__validate_token__returns_token_for_valid_plaintext(
 ) -> None:
     """Test that validate_token returns the token for valid plaintext."""
     api_token, plaintext = await create_token(
-        db_session, test_user.id, TokenCreate(name="Valid Token"),
+        db_session, test_user.id, TokenCreate(name="Valid Token"), DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -396,7 +400,7 @@ async def test__validate_token__returns_none_for_expired_token(
 ) -> None:
     """Test that validate_token returns None for expired token."""
     api_token, plaintext = await create_token(
-        db_session, test_user.id, TokenCreate(name="Expiring", expires_in_days=1),
+        db_session, test_user.id, TokenCreate(name="Expiring", expires_in_days=1), DEV_LIMITS,
     )
     # Set expiration to the past
     api_token.expires_at = datetime.now(UTC) - timedelta(hours=1)
@@ -413,7 +417,7 @@ async def test__validate_token__updates_last_used_at(
 ) -> None:
     """Test that validate_token updates last_used_at on successful validation."""
     api_token, plaintext = await create_token(
-        db_session, test_user.id, TokenCreate(name="Track Usage"),
+        db_session, test_user.id, TokenCreate(name="Track Usage"), DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -432,7 +436,7 @@ async def test__validate_token__accepts_token_without_expiration(
 ) -> None:
     """Test that validate_token accepts tokens without expiration date."""
     api_token, plaintext = await create_token(
-        db_session, test_user.id, TokenCreate(name="No Expiry"),
+        db_session, test_user.id, TokenCreate(name="No Expiry"), DEV_LIMITS,
     )
     await db_session.flush()
 
@@ -457,7 +461,7 @@ async def test__user_delete__cascades_to_tokens(
     db_session.add(user)
     await db_session.flush()
 
-    api_token, _ = await create_token(db_session, user.id, TokenCreate(name="Token"))
+    api_token, _ = await create_token(db_session, user.id, TokenCreate(name="Token"), DEV_LIMITS)
     await db_session.flush()
     token_id = api_token.id
 
@@ -471,3 +475,56 @@ async def test__user_delete__cascades_to_tokens(
     )
     remaining = result.scalar_one_or_none()
     assert remaining is None
+
+
+# =============================================================================
+# PAT Quota Enforcement Tests
+# =============================================================================
+
+
+async def test__create_token__quota_exceeded__raises(
+    db_session: AsyncSession, test_user: User,
+) -> None:
+    """Test that creating beyond max_pats raises QuotaExceededError."""
+    limits = TierLimits(**{**vars(DEV_LIMITS), "max_pats": 2})
+    for i in range(2):
+        await create_token(db_session, test_user.id, TokenCreate(name=f"T{i}"), limits)
+    with pytest.raises(QuotaExceededError, match=r"(?i)token"):
+        await create_token(db_session, test_user.id, TokenCreate(name="Over"), limits)
+
+
+async def test__create_token__at_limit_with_max_pats_1(
+    db_session: AsyncSession, test_user: User,
+) -> None:
+    """Test quota enforcement with a tight limit of 1."""
+    limits = TierLimits(**{**vars(DEV_LIMITS), "max_pats": 1})
+    await create_token(db_session, test_user.id, TokenCreate(name="Only"), limits)
+    with pytest.raises(QuotaExceededError):
+        await create_token(db_session, test_user.id, TokenCreate(name="Nope"), limits)
+
+
+async def test__create_token__delete_then_create__succeeds(
+    db_session: AsyncSession, test_user: User,
+) -> None:
+    """Test that deleting a token frees quota for a new one."""
+    limits = TierLimits(**{**vars(DEV_LIMITS), "max_pats": 1})
+    token, _ = await create_token(db_session, test_user.id, TokenCreate(name="First"), limits)
+    await delete_token(db_session, test_user.id, token.id)
+    await db_session.flush()
+    # Should succeed now that quota is freed
+    _, plaintext = await create_token(
+        db_session, test_user.id, TokenCreate(name="Second"), limits,
+    )
+    assert plaintext.startswith("bm_")
+
+
+async def test__create_token__up_to_limit__succeeds(
+    db_session: AsyncSession, test_user: User,
+) -> None:
+    """Test that creating tokens up to (but not exceeding) the limit works."""
+    limits = TierLimits(**{**vars(DEV_LIMITS), "max_pats": 3})
+    for i in range(3):
+        _, plaintext = await create_token(
+            db_session, test_user.id, TokenCreate(name=f"Token {i}"), limits,
+        )
+        assert plaintext.startswith("bm_")

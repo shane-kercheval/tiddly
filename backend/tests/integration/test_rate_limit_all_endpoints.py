@@ -251,6 +251,40 @@ class TestRateLimitAppliedToAllEndpoints:
         assert response.status_code == 429
 
 
+    async def test__tokens_create__rate_limited(
+        self,
+        rate_limit_client: AsyncClient,
+        low_rate_limits: None,  # noqa: ARG002
+    ) -> None:
+        """
+        POST /tokens/ is rate limited and consumes only 1 slot per request.
+
+        This also serves as a regression test: prior to the
+        get_current_limits_auth0_only dependency, the token creation
+        endpoint ran both get_current_user_auth0_only and get_current_user
+        (via get_current_limits), consuming 2 rate limit slots per request.
+        With the fix, both dependencies share get_current_user_auth0_only,
+        so only 1 slot is consumed.
+        """
+        # Make 2 requests (allowed — write limit is 2/min)
+        for i in range(2):
+            response = await rate_limit_client.post(
+                "/tokens/",
+                json={"name": f"Rate Limit Token {i}"},
+            )
+            assert response.status_code == 201, (
+                f"Request {i + 1} failed with {response.status_code} "
+                f"(double rate-limit bug may still be present)"
+            )
+
+        # 3rd request should be blocked
+        response = await rate_limit_client.post(
+            "/tokens/",
+            json={"name": "Blocked Token"},
+        )
+        assert response.status_code == 429
+
+
 class TestRateLimitHeadersOnAllEndpoints:
     """Verify rate limit headers are included on all authenticated endpoint responses."""
 

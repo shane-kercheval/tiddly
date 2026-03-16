@@ -4,11 +4,13 @@ import secrets
 from datetime import datetime, timedelta, UTC
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.tier_limits import TierLimits
 from models.api_token import ApiToken
 from schemas.token import TokenCreate
+from services.exceptions import QuotaExceededError
 
 
 def generate_token() -> tuple[str, str, str]:
@@ -31,10 +33,19 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+async def count_user_tokens(db: AsyncSession, user_id: UUID) -> int:
+    """Count all API tokens for a user."""
+    result = await db.execute(
+        select(func.count()).where(ApiToken.user_id == user_id),
+    )
+    return result.scalar_one()
+
+
 async def create_token(
     db: AsyncSession,
     user_id: UUID,
     data: TokenCreate,
+    limits: TierLimits,
 ) -> tuple[ApiToken, str]:
     """
     Create a new API token for a user.
@@ -43,14 +54,22 @@ async def create_token(
         db: Database session.
         user_id: ID of the user creating the token.
         data: Token creation data (name, optional expiration).
+        limits: Tier limits for quota enforcement.
 
     Returns:
         Tuple of (ApiToken model, plaintext_token).
         The plaintext token is only available at creation time.
 
+    Raises:
+        QuotaExceededError: If user has reached max_pats limit.
+
     Note:
         Does not commit. Caller (session generator) handles commit at request end.
     """
+    current = await count_user_tokens(db, user_id)
+    if current >= limits.max_pats:
+        raise QuotaExceededError("token", current, limits.max_pats)
+
     plaintext, token_hash, token_prefix = generate_token()
 
     expires_at = None

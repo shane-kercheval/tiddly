@@ -235,3 +235,25 @@ class TestGetCurrentLimits:
 
         result = get_current_limits(current_user=user, settings=settings)
         assert result is get_tier_limits(Tier.FREE)
+
+
+class TestResolveTierLimits:
+    """Tests for resolve_tier_limits shared logic."""
+
+    def test__resolve_tier_limits__dev_mode_returns_dev(self) -> None:
+        from api.dependencies import resolve_tier_limits  # noqa: PLC0415
+
+        result = resolve_tier_limits("free", dev_mode=True)
+        assert result is get_tier_limits(Tier.DEV)
+
+    def test__resolve_tier_limits__free_tier(self) -> None:
+        from api.dependencies import resolve_tier_limits  # noqa: PLC0415
+
+        result = resolve_tier_limits("free", dev_mode=False)
+        assert result is get_tier_limits(Tier.FREE)
+
+    def test__resolve_tier_limits__unknown_tier_defaults_to_free(self) -> None:
+        from api.dependencies import resolve_tier_limits  # noqa: PLC0415
+
+        result = resolve_tier_limits("bogus", dev_mode=False)
+        assert result is get_tier_limits(Tier.FREE)

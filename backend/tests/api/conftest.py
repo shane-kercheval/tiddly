@@ -9,10 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import Settings, get_settings
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
 from models.user import User
-from core.tier_limits import Tier
+from core.tier_limits import Tier, get_tier_limits
 from models.user_consent import UserConsent
 from schemas.token import TokenCreate
 from services.token_service import create_token
+
+_DEV_LIMITS = get_tier_limits(Tier.DEV)
 
 
 async def add_consent_for_user(db_session: AsyncSession, user: User) -> None:
@@ -53,7 +55,7 @@ async def create_user2_client(
     await add_consent_for_user(db_session, user2)
 
     _, user2_token = await create_token(
-        db_session, user2.id, TokenCreate(name='Test Token'),
+        db_session, user2.id, TokenCreate(name='Test Token'), _DEV_LIMITS,
     )
     await db_session.flush()
 
