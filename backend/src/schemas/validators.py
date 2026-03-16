@@ -7,6 +7,9 @@ Format validation happens here; length validation happens in service layer (tier
 import re
 
 # Abuse prevention: cap on tags per entity. Not tier-based — universal safety guardrail.
+# Applies to all paths through validate_and_normalize_tags(), including read-path tag
+# filters (list/search endpoints). Filtering by 100+ tags is nonsensical and would
+# generate expensive queries, so capping reads is an accepted side effect.
 MAX_TAGS_PER_ENTITY = 100
 
 # Tag format: lowercase alphanumeric with hyphens (e.g., 'machine-learning', 'web-dev')

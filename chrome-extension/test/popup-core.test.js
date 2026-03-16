@@ -676,9 +676,9 @@ describe('handleSaveError', () => {
     expect(getStatusLink().href).toContain('/pricing');
   });
 
-  it('402 with no resource: falls back to "items"', () => {
+  it('402 with no structured fields: falls back to generic message', () => {
     handleSaveError({ status: 402, body: {} });
-    expect(getStatusText()).toContain('limit of 0 bookmarks');
+    expect(getStatusText()).toContain('Bookmark limit reached.');
   });
 
   it('409 with ARCHIVED_URL_EXISTS: shows archived message with link', () => {

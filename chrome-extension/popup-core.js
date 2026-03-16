@@ -561,9 +561,11 @@ export function handleSaveError(response) {
   }
 
   if (status === 402) {
-    const resource = body?.resource ?? 'bookmark';
-    const limit = body?.limit ?? 0;
-    const message = `You've reached the limit of ${limit} ${resource}s.`;
+    const resource = body?.resource;
+    const limit = body?.limit;
+    const message = resource && limit != null
+      ? `You've reached the limit of ${limit} ${resource}s.`
+      : 'Bookmark limit reached.';
     showSaveStatus(message, 'error', {
       text: 'Manage your plan',
       href: 'https://tiddly.me/pricing'

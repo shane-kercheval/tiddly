@@ -177,7 +177,7 @@ async def create_relationship(
             db, user_id, original_source_type, original_source_id,
         )
         if current_count >= max_per_entity:
-            raise QuotaExceededError("relationships", current_count, max_per_entity)
+            raise QuotaExceededError("relationship", current_count, max_per_entity)
 
     # Validate both endpoints exist
     if not await validate_content_exists(db, user_id, source_type, source_id):
@@ -682,7 +682,7 @@ async def sync_relationships_for_entity(  # noqa: PLR0912
         and not skip_missing_targets
         and len(desired) > max_per_entity
     ):
-        raise QuotaExceededError("relationships", len(desired), max_per_entity)
+        raise QuotaExceededError("relationship", len(desired), max_per_entity)
     # Fetch current relationships (single SELECT, no pagination)
     is_source = and_(
         ContentRelationship.source_type == entity_type,
