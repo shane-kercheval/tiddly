@@ -338,10 +338,8 @@ function LandingContent({
 
             <FAQItem question="How much does Tiddly cost?">
               <p>
-                Tiddly has a Free tier with access to every feature. The Pro tier
-                ($5/month or $4/month billed annually) removes capacity limits — unlimited
-                bookmarks, notes, and prompts, more API tokens, and longer version history
-                retention. See the{' '}
+                Tiddly has three tiers: Free ($0), Standard ($2/mo), and Pro ($5/mo).
+                During beta, all accounts have Pro access at no charge. See the{' '}
                 <a href="/pricing" className="text-blue-600 hover:underline">
                   pricing page
                 </a>{' '}
@@ -374,7 +372,7 @@ function LandingContent({
         <div className="rounded-2xl bg-gray-50 px-8 py-16 text-center">
           <h2 className="mb-6 text-3xl font-bold text-gray-900">Start organizing today</h2>
           <p className="mb-10 text-lg text-gray-500">
-            Get started with the Free tier. Upgrade to Pro when you need more capacity.
+            Free during beta — all accounts have Pro access at no charge.
           </p>
           <button
             onClick={onSignup}
