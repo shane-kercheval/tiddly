@@ -46,6 +46,9 @@ dev = [
     "flex-evals>=0.3.27",
     "py-spy>=0.4.1",
     "pyinstrument>=5.1.2",
+    "litellm>=1.82.3",
+    "jupyter>=1.1.1",
+    "ipykernel>=7.2.0",
 ]
 
 [tool.hatch.metadata]
