@@ -268,18 +268,27 @@ count       INT
 
 Both per-user and per-dimension stats go in the same table. Detail rows have `user_id = NULL`.
 
-**Railway cron job** — runs daily at 00:30 UTC:
+**Railway cron service** — runs daily at 00:30 UTC. Uses the same `Dockerfile.api` as the API service with a different start command. This shares all backend code (DB models, Redis client, settings) without duplication.
+
+Railway configuration:
+- Dockerfile: `Dockerfile.api` (same as API)
+- Start command override: `uv run python -m tasks.daily`
+- Schedule: `30 0 * * *`
+
+The `tasks.daily` entrypoint (`backend/src/tasks/daily.py`) runs all daily tasks sequentially:
+1. Flush AI usage from Redis to DB
+2. Cleanup trash (soft-deleted items past retention)
+3. Cleanup old history records
+
+Each task logs its results. If one fails, it logs the error and continues to the next.
+
+The flush step:
 1. Scan for yesterday's keys (`ai_stats:user:*:{yesterday}` and `ai_stats:detail:{yesterday}:*`)
 2. Read all hashes
 3. Upsert summary rows into `ai_usage_daily`
-4. Delete processed keys
+4. Delete processed keys only after successful DB write
 
-This is a Python script (e.g. `backend/src/tasks/flush_ai_usage.py`) configured as a Railway Cron Service with schedule `30 0 * * *`.
-
-**Open question:** What's the best way to structure the Railway cron service? Options:
-- A. Same Docker image as the API, different entrypoint (`python -m tasks.flush_ai_usage`)
-- B. Separate lightweight service/Dockerfile
-- Leaning toward A — shares the same DB models and Redis client code, no duplication.
+**Note:** `litellm` must be moved from dev dependencies to main dependencies in `pyproject.toml` before deploying (currently only installed with `--no-dev` excluded).
 
 #### 7. AI Router (`backend/src/api/routers/ai.py`)
 
