@@ -26,7 +26,7 @@ from models.base import Base
 @pytest.fixture(scope="session")
 def postgres_container() -> Generator[PostgresContainer]:
     """Start a PostgreSQL container for the test session."""
-    with PostgresContainer("postgres:16", driver="asyncpg") as postgres:
+    with PostgresContainer("pgvector/pgvector:pg17", driver="asyncpg") as postgres:
         yield postgres
 
 
