@@ -170,7 +170,7 @@ export function AllContent(): ReactNode {
     return filterTypes && filterTypes.length > 0 ? filterTypes : ALL_CONTENT_TYPES
   }, [currentFilterId, currentFilter])
   const contentTypeFilterKey = currentFilterId !== undefined ? `filter:${currentFilterId}` : currentView
-  const shouldShowContentTypeFilters = currentFilterId === undefined || availableContentTypes.length > 1
+  const shouldShowContentTypeFilters = currentFilterId === undefined || (filtersHasFetched && availableContentTypes.length > 1)
   const selectedContentTypes = shouldShowContentTypeFilters
     ? getSelectedTypes(contentTypeFilterKey, availableContentTypes)
     : undefined

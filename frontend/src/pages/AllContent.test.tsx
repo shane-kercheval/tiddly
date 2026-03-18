@@ -1233,6 +1233,40 @@ describe('AllContent', () => {
 
       expect(mockContentQueryEnabled).toBe(true)
     })
+
+    it('hides content type chips on filter view when filters have not loaded', () => {
+      mockFiltersHasFetched = false
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content/filters/1')
+
+      expect(screen.queryByText('Bookmarks')).not.toBeInTheDocument()
+      expect(screen.queryByText('Notes')).not.toBeInTheDocument()
+    })
+
+    it('shows content type chips on multi-type filter when filters have loaded', async () => {
+      mockFiltersHasFetched = true
+      mockContentQueryData = createMockResponse([mockBookmark])
+      // Filter 3 has content_types: ['bookmark', 'note']
+      renderAtRoute('/app/content/filters/3')
+
+      await waitFor(() => {
+        expect(screen.getByText('Bookmarks')).toBeInTheDocument()
+        expect(screen.getByText('Notes')).toBeInTheDocument()
+      })
+    })
+
+    it('hides content type chips on single-type filter even after filters have loaded', async () => {
+      mockFiltersHasFetched = true
+      mockContentQueryData = createMockResponse([mockBookmark])
+      // Filter 1 has content_types: ['bookmark'] (single type)
+      renderAtRoute('/app/content/filters/1')
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Test Bookmark').length).toBeGreaterThan(0)
+      })
+      expect(screen.queryByText('Bookmarks')).not.toBeInTheDocument()
+      expect(screen.queryByText('Notes')).not.toBeInTheDocument()
+    })
   })
 
   describe('view switching', () => {
