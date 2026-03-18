@@ -498,7 +498,7 @@ export function Prompt({
       // Cmd+Shift+S or Ctrl+Shift+S to save and close
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') {
         e.preventDefault()
-        if (!isReadOnly && isDirty) {
+        if (!isReadOnly && isDirty && !isSaving) {
           requestSaveAndClose()
           formRef.current?.requestSubmit()
         }
@@ -508,7 +508,7 @@ export function Prompt({
       // Cmd+S or Ctrl+S to save (only if there are changes)
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
-        if (!isReadOnly && isDirty) {
+        if (!isReadOnly && isDirty && !isSaving) {
           formRef.current?.requestSubmit()
         }
       }
@@ -541,7 +541,7 @@ export function Prompt({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, confirmLeave, requestSaveAndClose])
+  }, [requestDiscard, isConfirming, resetConfirmation, onClose, isReadOnly, isDirty, isSaving, confirmLeave, requestSaveAndClose])
 
   // Validation (only called after loading guard, so limits is guaranteed to exist)
   const validate = (): boolean => {
