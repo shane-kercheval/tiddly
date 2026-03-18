@@ -53,16 +53,16 @@ The plan calls for chunking from the start. Questions:
 
 **Decision needed:** Chunking threshold, which entities, boundary strategy.
 
-### 3. Celery Infrastructure
+### 3. Worker Infrastructure
 
-Celery needs a worker process on Railway — a new service. Questions:
-- **Worker service:** New Railway service running `celery -A ... worker`. Uses same codebase, different entrypoint.
-- **Monitoring:** Flower (Celery's monitoring UI) as another service? Or just logs?
+The embedding worker needs a new always-on Railway service. Questions:
+- **Worker service:** New Railway service running `python -m worker.main`. Uses same codebase, different entrypoint.
+- **Monitoring:** Logs only initially. Add structured logging or a health-check endpoint later if debugging becomes painful.
 - **Concurrency:** How many concurrent embedding API calls per worker?
 
-**Recommendation:** Start with one worker, 4 concurrent tasks (Celery default prefork). No Flower initially — use logs. Add Flower later if debugging becomes painful.
+**Recommendation:** Start with one worker, 4 concurrent jobs (asyncio semaphore). Monitor via logs.
 
-**Decision needed:** Are you comfortable adding a Celery worker service to Railway?
+**Decision needed:** Are you comfortable adding an embedding worker service to Railway?
 
 ### 4. Tier Gating
 
@@ -264,84 +264,155 @@ openai_api_key: str | None = None  # None = embeddings disabled
 
 ---
 
-## Milestone 4: Celery Setup + Embedding Task
+## Milestone 4: Async Embedding Worker
 
 ### Goal & Outcome
-Set up Celery with Redis broker and implement the async embedding task. After this milestone:
-- Celery worker can process embedding tasks from the queue
-- Saving/updating an entity enqueues an embedding task
-- The task chunks the content, calls the embedding API, and stores results in `content_chunks`
-- Failed tasks retry with exponential backoff
+Set up a custom async worker service that processes embedding jobs from a Redis queue. After this milestone:
+- A long-running worker process listens for embedding jobs via Redis `BRPOP`
+- Saving/updating an entity enqueues an embedding job
+- The worker chunks the content, calls the embedding API, and stores results in `content_chunks`
+- Failed jobs retry with exponential backoff (max 3 retries)
 - Stale chunks are cleaned up when content changes
+
+### Why a custom worker (not Celery/arq)
+- **Async nativity:** The entire stack is async (FastAPI, async SQLAlchemy, async OpenAI client). Celery 5.x does not support `async def` tasks natively — it would require `asyncio.run()` wrappers in every task, losing connection pooling and async benefits. Native async is targeted for Celery 6.0 (May 2026, repeatedly delayed since 2017).
+- **arq** is async-native but is in maintenance-only mode (no new features, never reached 1.0).
+- **Scope is small:** One job type (embed entity) with retries. The worker is ~100-150 lines — less code than configuring a framework.
+- **No dependency risk:** No external task library to break across upgrades.
+
+### Architecture note: workers vs. cron jobs
+This worker handles **event-driven jobs** (triggered by user actions, needs to run within seconds). Scheduled tasks like `tasks/cleanup.py`, `tasks/orphan_relationships.py`, and future cost aggregation remain as **Railway cron jobs** — they're already written as standalone scripts and don't need a queue.
+
+```
+Railway services:
+├── API (FastAPI)
+├── Embedding worker (this milestone — always-on, listens to Redis)
+├── Cron: cleanup (daily, python -m tasks.cleanup)
+├── Cron: orphan relationships (weekly, python -m tasks.orphan_relationships --delete)
+└── Cron: cost aggregation (future — daily, python -m tasks.aggregate_costs)
+```
 
 ### Implementation Outline
 
-**Celery setup:**
-- Add `celery[redis]` to dependencies
-- Create `celery_app.py` at the package root:
+**Worker service** (`worker/main.py`):
 
 ```python
-from celery import Celery
+import asyncio
+import json
+import logging
+import signal
+
+import redis.asyncio as redis
+
 from core.config import get_settings
 
-settings = get_settings()
-celery_app = Celery("tiddly", broker=settings.redis_url)
-celery_app.conf.update(
-    task_serializer="json",
-    result_backend=None,  # we don't need result storage
-    task_acks_late=True,   # re-queue if worker crashes mid-task
-)
-```
+logger = logging.getLogger(__name__)
 
-**Embedding task** (`tasks/embed_entity.py`):
+MAX_RETRIES = 3
+CONCURRENCY = 4  # max concurrent embedding API calls
 
-```python
-@celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
-def embed_entity(self, entity_type: str, entity_id: str, user_id: str):
+async def process_job(job_data: dict):
     """Chunk and embed an entity's content.
 
     1. Load entity from DB
     2. Delete existing chunks for this entity
-    3. Chunk the content
-    4. Call embedding API for all chunks
+    3. Chunk the content (chunking service)
+    4. Call embedding API for all chunks (embedding service)
     5. Store chunks + embeddings in content_chunks
     6. Set embedded_at on all chunks
-
-    On failure: retry with exponential backoff.
-    Entity save is never blocked — this runs async.
     """
+    ...
+
+async def worker_loop():
+    settings = get_settings()
+    r = redis.from_url(settings.redis_url)
+    sem = asyncio.Semaphore(CONCURRENCY)
+    shutdown = asyncio.Event()
+
+    def handle_signal():
+        logger.info("Shutdown signal received, finishing current jobs...")
+        shutdown.set()
+
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, handle_signal)
+
+    logger.info("Embedding worker started (concurrency=%d)", CONCURRENCY)
+
+    while not shutdown.is_set():
+        # BRPOP blocks until a job arrives (no polling, no CPU waste)
+        result = await r.brpop("embed_jobs", timeout=5)
+        if result is None:
+            continue  # timeout — check shutdown flag and loop
+
+        job_data = json.loads(result[1])
+
+        async def handle(data):
+            async with sem:
+                try:
+                    await process_job(data)
+                except Exception as e:
+                    retries = data.get("retries", 0)
+                    if retries < MAX_RETRIES:
+                        data["retries"] = retries + 1
+                        delay = 2 ** retries  # 1s, 2s, 4s
+                        await asyncio.sleep(delay)
+                        await r.lpush("embed_jobs", json.dumps(data))
+                        logger.warning("Retrying job (attempt %d): %s", retries + 1, e)
+                    else:
+                        logger.error("Job failed after %d retries: %s", MAX_RETRIES, e, exc_info=True)
+
+        asyncio.create_task(handle(job_data))
+
+    await r.aclose()
+    logger.info("Embedding worker shut down")
+```
+
+**Enqueue helper** (`worker/enqueue.py`):
+
+```python
+async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user_id: str):
+    """Push an embedding job onto the Redis queue."""
+    await redis_client.lpush("embed_jobs", json.dumps({
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "user_id": user_id,
+    }))
 ```
 
 **Triggering from service layer:**
-- In each entity service's `create()` and `update()` methods, after the DB save succeeds, call `embed_entity.delay(entity_type, entity_id, user_id)`
+- In each entity service's `create()` and `update()` methods, after the DB save succeeds, call `enqueue_embedding(redis, entity_type, entity_id, user_id)`
 - Do NOT call on archive/unarchive/soft-delete — content hasn't changed
 - Only trigger when content-relevant fields change (title, description, content, summary, name)
 
 **Chunk lifecycle:**
 - On entity update: delete all existing chunks for that entity, re-chunk, re-embed
-- On entity hard-delete: delete all chunks for that entity (add to existing cleanup task or cascade)
+- On entity hard-delete: delete all chunks for that entity (add to orphan cleanup or handle in service layer)
 - On soft-delete: leave chunks in place (entity might be restored)
 
 **Railway deployment:**
-- New service: Celery worker using the same Docker image, different start command:
+- New service using the same Docker image, different start command:
   ```
-  celery -A celery_app worker --loglevel=info --concurrency=4
+  python -m worker.main
   ```
-- Uses same `DATABASE_URL` and `REDIS_URL` as the API
+- Uses same `DATABASE_URL`, `REDIS_URL`, and `OPENAI_API_KEY` as the API
+- Always-on service (not a cron job)
 
 ### Testing Strategy
-- Task successfully chunks and embeds an entity (mock embedding API)
-- Task retries on embedding API failure
-- Task retries with exponential backoff (verify delay increases)
-- Task max retries exceeded → task fails gracefully (entity still works, just no embeddings)
+- Worker processes a job and produces correct chunks + embeddings (mock embedding API)
+- Worker retries on embedding API failure with exponential backoff
+- Worker respects max retries — after 3 failures, job is dropped with error log
+- Max retries exceeded → entity still works, just no embeddings
 - Content update triggers re-chunking (old chunks deleted, new chunks created)
 - Non-content update (archive, last_used_at) does NOT trigger embedding
 - Hard-delete cleans up associated chunks
 - Soft-delete preserves chunks
 - Restore does NOT re-trigger embedding (chunks still valid)
-- Task handles entity not found (deleted between enqueue and execution)
-- Task handles concurrent updates (entity changed while embedding was in progress)
-- Celery task serialization/deserialization works correctly with UUID args
+- Worker handles entity not found (deleted between enqueue and execution)
+- Worker handles concurrent updates (entity changed while embedding was in progress)
+- Graceful shutdown: SIGTERM finishes in-progress jobs before exiting
+- Concurrency: multiple jobs process in parallel up to semaphore limit
+- Job serialization round-trip: enqueue → dequeue → parse works with UUID strings
 
 ---
 
@@ -495,7 +566,7 @@ Milestone 1 (schema)
     ↓
 Milestone 2 (chunking) ──→ Milestone 3 (embedding API)
                                   ↓
-                          Milestone 4 (Celery + task)
+                          Milestone 4 (async worker + Redis queue)
                                   ↓
                           Milestone 5 (search + RRF)
                                   ↓
@@ -511,6 +582,6 @@ Milestones 2 and 3 are independent of each other and could be done in parallel.
 - [OpenAI Embeddings API](https://platform.openai.com/docs/guides/embeddings) — embedding model docs, batch limits, pricing
 - [pgvector GitHub](https://github.com/pgvector/pgvector) — vector types, operators, index options
 - [pgvector SQLAlchemy integration](https://github.com/pgvector/pgvector-python) — `Vector` column type, query patterns
-- [Celery docs](https://docs.celeryq.dev/en/stable/) — task definition, retry, configuration
+- [redis-py async docs](https://redis-py.readthedocs.io/en/stable/examples/asyncio_examples.html) — async Redis client, BRPOP
 - [tiktoken](https://github.com/openai/tiktoken) — token counting for chunk sizing
 - `docs/implementation_plans/future-search.md` — original search roadmap (Phases 2-3)
