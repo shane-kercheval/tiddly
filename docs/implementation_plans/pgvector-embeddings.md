@@ -10,12 +10,12 @@
   - Async embedding via Celery (save returns immediately, embedding happens in background)
   - Redis (already deployed) as Celery broker
 
-## pgvector Setup (completed 2026-03-17)
+## pgvector Setup
 
 **Production:**
 - Upgraded Railway `postgres-ssl` image from `:17.1` → `:17.9` (via Railway's built-in update button). The `:17.9` image includes `postgresql-17-pgvector`, added to the `postgres-ssl` image on 2026-03-14.
 - Enabled extension: `CREATE EXTENSION IF NOT EXISTS vector;` — pgvector 0.8.2 on PostgreSQL 17.9.
-- No data migration was needed — persistent volume preserved through image update. ~1-2 min downtime.
+- No data migration was needed — persistent volume preserved through image update.
 
 **Local development:**
 - `docker-compose.yml`: `postgres:16` → `pgvector/pgvector:pg17`
