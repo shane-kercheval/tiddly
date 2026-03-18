@@ -18,7 +18,6 @@ import {
   ViewPlugin,
   Decoration,
   EditorView,
-  WidgetType,
 } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { RangeSetBuilder } from '@codemirror/state'
@@ -28,53 +27,11 @@ const SYNTAX_COLOR = '#c0c5cc'
 const SYNTAX_FONT_SIZE = '0.9em'
 
 /**
- * Widget for rendering a clickable checkbox.
- * When clicked, toggles between [ ] and [x] in the source.
- */
-class CheckboxWidget extends WidgetType {
-  checked: boolean
-  bracketPos: number  // Position of [ character for editing
-
-  constructor(checked: boolean, bracketPos: number) {
-    super()
-    this.checked = checked
-    this.bracketPos = bracketPos
-  }
-
-  toDOM(view: EditorView): HTMLElement {
-    const checkbox = document.createElement('input')
-    checkbox.type = 'checkbox'
-    checkbox.checked = this.checked
-    checkbox.className = 'cm-checkbox-widget'
-    checkbox.setAttribute('aria-label', this.checked ? 'Completed task' : 'Incomplete task')
-
-    checkbox.addEventListener('mousedown', (e) => {
-      e.preventDefault() // Prevent focus change
-      const newText = this.checked ? '[ ]' : '[x]'
-      view.dispatch({
-        changes: { from: this.bracketPos, to: this.bracketPos + 3, insert: newText },
-      })
-    })
-
-    return checkbox
-  }
-
-  eq(other: CheckboxWidget): boolean {
-    return other.checked === this.checked && other.bracketPos === this.bracketPos
-  }
-
-  ignoreEvent(): boolean {
-    return false
-  }
-}
-
-/**
  * Parse a line and return decoration info if it matches a markdown pattern.
  */
 interface LineInfo {
   type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'bullet' | 'numbered' | 'task' | 'blockquote' | 'code-start' | 'code-end' | 'code-content' | 'hr'
   checked?: boolean
-  checkboxPos?: number  // Position to place the widget (start of line after indent)
   bracketPos?: number   // Position of [ character for editing
 }
 
@@ -102,11 +59,9 @@ function parseLine(text: string, inCodeBlock: boolean): LineInfo | null {
   if (taskMatch) {
     const checked = taskMatch[3].toLowerCase() === 'x'
     const indent = taskMatch[1].length
-    // checkboxPos: start of line (after indent) - widget appears before "- [ ]"
     // bracketPos: position of [ character - for editing when clicked
-    const checkboxPos = indent
     const bracketPos = indent + taskMatch[2].length + 1 // indent + "-" + " "
-    return { type: 'task', checked, checkboxPos, bracketPos }
+    return { type: 'task', checked, bracketPos }
   }
 
   // Bullet lists
@@ -446,6 +401,10 @@ const italicContentMark = Decoration.mark({ class: 'cm-md-italic-content' })
 // Decoration for task syntax
 const taskSyntaxMark = Decoration.mark({ class: 'cm-md-task-syntax' })
 
+// Decorations for clickable checkbox text ([ ] or [x])
+const taskCheckboxUncheckedMark = Decoration.mark({ class: 'cm-md-task-checkbox cm-md-task-checkbox-unchecked' })
+const taskCheckboxCheckedMark = Decoration.mark({ class: 'cm-md-task-checkbox cm-md-task-checkbox-checked' })
+
 // Decoration for checked task content (strikethrough)
 const taskCheckedContentMark = Decoration.mark({ class: 'cm-md-task-checked-content' })
 
@@ -607,13 +566,12 @@ function buildDecorations(view: EditorView): DecorationSet {
       // Collect all inline decorations with their positions
       const inlineDecorations: Array<{ from: number; to: number; decoration: Decoration }> = []
 
-      // Task syntax and checkbox widget for task items
+      // Task syntax and clickable checkbox for task items
       const taskSyntax = findTaskSyntax(line.text)
       if (taskSyntax && info?.type === 'task' && info.bracketPos !== undefined) {
-        const bracketPos = line.from + info.bracketPos   // Where [ is for editing
-        const bracketEnd = bracketPos + 4                // After ] and space (covers [x]  or [ ] )
+        const bracketPos = line.from + info.bracketPos   // Where [ is in the document
 
-        // Style "- " before the checkbox
+        // Style "- " before the checkbox as dimmed syntax
         if (info.bracketPos > taskSyntax.from) {
           inlineDecorations.push({
             from: line.from + taskSyntax.from,
@@ -622,13 +580,11 @@ function buildDecorations(view: EditorView): DecorationSet {
           })
         }
 
-        // Replace [x]  or [ ]  (including trailing space) with checkbox widget
+        // Mark [x] or [ ] as clickable (text stays visible, no widget replacement)
         inlineDecorations.push({
           from: bracketPos,
-          to: bracketEnd,
-          decoration: Decoration.replace({
-            widget: new CheckboxWidget(info.checked ?? false, bracketPos),
-          }),
+          to: bracketPos + 3,
+          decoration: info.checked ? taskCheckboxCheckedMark : taskCheckboxUncheckedMark,
         })
         // Apply strikethrough to content after checkbox when checked
         if (info?.type === 'task' && info.checked && taskSyntax.to < line.text.length) {
@@ -1036,15 +992,28 @@ const markdownBaseTheme = EditorView.theme({
     borderRadius: '3px',
   },
 
-  // Checkbox widget - appears before the task syntax
-  '.cm-checkbox-widget': {
-    width: '14px',
-    height: '14px',
-    marginRight: '4px',
-    verticalAlign: 'middle',
+  // Clickable checkbox text ([ ] or [x]) - click to toggle
+  '.cm-md-task-checkbox': {
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     cursor: 'pointer',
-    accentColor: '#374151',
-    pointerEvents: 'auto',
+    borderRadius: '3px',
+    padding: '1px 2px',
+    transition: 'background-color 0.15s',
+  },
+  '.cm-md-task-checkbox:hover': {
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  '.cm-md-task-checkbox-unchecked': {
+    color: '#374151',
+    fontWeight: 'bold',
+  },
+  '.cm-md-task-checkbox-checked': {
+    color: '#6b7280',
+    fontWeight: 'bold',
+    textDecoration: 'none !important',
+  },
+  '.cm-md-task-checkbox-checked *': {
+    textDecoration: 'none !important',
   },
 
   // Task syntax (- [ ] or - [x]) - dimmed gray like other markdown syntax
@@ -1364,11 +1333,42 @@ function findLinkAtPosition(view: EditorView, pos: number): string | null {
 }
 
 /**
- * Event handler for Cmd+click (or Ctrl+click) to open links.
+ * Event handler for clicking checkbox text ([ ] or [x]) to toggle task state,
+ * and Cmd+click (or Ctrl+click) to open links.
  */
-const linkClickHandler = EditorView.domEventHandlers({
+const clickHandler = EditorView.domEventHandlers({
+  // Use mousedown for checkbox toggle to prevent cursor from moving
+  mousedown(event: MouseEvent, view: EditorView) {
+    if (event.button !== 0) return false
+
+    const target = event.target as HTMLElement
+    if (!target.classList.contains('cm-md-task-checkbox') &&
+        !target.closest('.cm-md-task-checkbox')) {
+      return false
+    }
+
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+    if (pos === null) return false
+
+    const line = view.state.doc.lineAt(pos)
+    const info = parseLine(line.text, false)
+    if (info?.type !== 'task' || info.bracketPos === undefined) return false
+
+    const bracketPos = line.from + info.bracketPos
+    const newText = info.checked ? '[ ]' : '[x]'
+
+    // Save current selection and restore it after the toggle
+    const selection = view.state.selection
+    view.dispatch({
+      changes: { from: bracketPos, to: bracketPos + 3, insert: newText },
+      selection,
+    })
+    event.preventDefault()
+    return true
+  },
+
+  // Cmd+click (Mac) or Ctrl+click (Windows/Linux) to open links
   click(event: MouseEvent, view: EditorView) {
-    // Only handle Cmd+click (Mac) or Ctrl+click (Windows/Linux)
     if (!event.metaKey && !event.ctrlKey) {
       return false
     }
@@ -1380,13 +1380,10 @@ const linkClickHandler = EditorView.domEventHandlers({
 
     const url = findLinkAtPosition(view, pos)
     if (url) {
-      // Ensure URL has a protocol
       let finalUrl = url
       if (!url.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:/)) {
-        // No protocol - assume https
         finalUrl = 'https://' + url
       }
-      // Open link in new tab
       window.open(finalUrl, '_blank', 'noopener,noreferrer')
       event.preventDefault()
       return true
@@ -1423,7 +1420,7 @@ export const markdownStyleExtension = [
   markdownDecorationPlugin,
   cursorInCodeBlockPlugin,
   markdownBaseTheme,
-  linkClickHandler,
+  clickHandler,
 ]
 
 // Export helper functions for testing

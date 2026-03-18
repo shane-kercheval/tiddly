@@ -575,6 +575,77 @@ export function createContentComponentTests<TItem, TProps>(
         })
       })
 
+      it('should not save on Cmd+S when isSaving is true', async () => {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+        const { rerender } = renderWithRouter(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        // Make the form dirty
+        await user.clear(screen.getByDisplayValue(getPrimaryFieldValue(mockItem)))
+        await user.type(screen.getByPlaceholderText(placeholders.primaryField), 'changed-value')
+
+        // Re-render with isSaving=true to simulate in-flight save
+        rerender(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+              isSaving: true,
+            })}
+          />
+        )
+
+        // Press Cmd+S while saving
+        fireEvent.keyDown(document, { key: 's', metaKey: true })
+
+        // onSave should not be called again
+        expect(mockOnSave).not.toHaveBeenCalled()
+      })
+
+      it('should not save and close on Cmd+Shift+S when isSaving is true', async () => {
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+        const { rerender } = renderWithRouter(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+            })}
+          />
+        )
+
+        // Make the form dirty
+        await user.clear(screen.getByDisplayValue(getPrimaryFieldValue(mockItem)))
+        await user.type(screen.getByPlaceholderText(placeholders.primaryField), 'changed-value')
+
+        // Re-render with isSaving=true to simulate in-flight save
+        rerender(
+          <TypedComponent
+            {...buildProps({
+              item: mockItem,
+              onSave: mockOnSave,
+              onClose: mockOnClose,
+              isSaving: true,
+            })}
+          />
+        )
+
+        // Press Cmd+Shift+S while saving
+        fireEvent.keyDown(document, { key: 's', metaKey: true, shiftKey: true })
+
+        // onSave should not be called again
+        expect(mockOnSave).not.toHaveBeenCalled()
+        expect(mockOnClose).not.toHaveBeenCalled()
+      })
+
       it('should NOT save and close on Cmd+Shift+S when form is not dirty', () => {
         renderWithRouter(
           <TypedComponent
