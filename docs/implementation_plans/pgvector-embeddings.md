@@ -7,8 +7,10 @@
 - **Goal:** Add semantic/meaning-based search so "auth" finds documents about "login flow" and "OAuth." Complements FTS keyword matching.
 - **Key decisions:**
   - Chunking from the start (not deferred to a later phase)
-  - Async embedding via Celery (save returns immediately, embedding happens in background)
-  - Redis (already deployed) as Celery broker
+  - 512 tokens per chunk, no overlap, paragraph-based greedy combining
+  - Per-entity strategy: prompts get a single embedding (typically short), notes and bookmarks use paragraph-based chunking, bookmarks also get a summary embedding
+  - Async embedding via custom async worker using Redis BRPOP (not Celery — see Milestone 4 for rationale)
+  - Re-embedding on content change: document-level hash check (skip if unchanged) + full re-chunk/re-embed when content changes. Incremental re-embedding (ADIRE) is deferred — see `docs/implementation_plans/adire-anchor-diffed-incremental-re-embedding.md`
 
 ## pgvector Setup
 
@@ -22,64 +24,39 @@
 - `backend/tests/conftest.py`: `PostgresContainer("postgres:16", ...)` → `PostgresContainer("pgvector/pgvector:pg17", ...)`
 
 **Key learnings:**
-- Railway's built-in `postgres-ssl` image is a Docker container, not a fully managed DB. Community pgvector templates are functionally equivalent but lack auto-SSL and the dashboard DB tab.
 - Railway does not auto-update database images. Use the dashboard update button or redeploy to pull a newer tag.
 - pgvector binaries are part of the Docker image, not the data directory. Updating the image makes the extension available without affecting existing data.
 
-## Outstanding Questions
-
-Before implementing, these need answers:
+## Decisions
 
 ### 1. Embedding Model
 
-The original roadmap suggests OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Alternatives:
-- `text-embedding-3-large` (3072 dims, better quality, 2x storage)
-- `voyage-3-lite` (512 dims, cheaper storage)
-- An open-source model via an API-compatible provider?
+OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/storage balance. 1536 dims × 4 bytes × 30M vectors (10K users × 300 items × 10 chunks) = ~180GB.
 
-**Recommendation:** `text-embedding-3-small` — good quality/cost/storage balance. 1536 dims × 4 bytes × 30M vectors (10K users × 300 items × 10 chunks) = ~180GB. Manageable.
+### 2. Chunking Strategy
 
-**Decision needed:** Which model? Are you comfortable with an OpenAI dependency for embeddings?
-
-### 2. Chunking Threshold & Strategy
-
-The plan calls for chunking from the start. Questions:
-- **Which entities get chunked?** Notes and bookmarks (large content)? Prompts too (typically short)?
-- **Threshold:** At what size does an item get chunked vs. embedded as a single vector? e.g., items under 500 tokens → single embedding, items over 500 tokens → chunked.
-- **Chunk size:** 500-1000 tokens per chunk with ~100 token overlap is standard. Preference?
-- **Chunk boundaries:** Split on paragraph/section breaks (semantic) or fixed token count (simpler)?
-
-**Recommendation:** Chunk notes and bookmarks above ~500 tokens. Prompts are typically short — single embedding. Split on paragraph boundaries with a max chunk size fallback. Small items (under threshold) get one chunk that equals the whole content.
-
-**Decision needed:** Chunking threshold, which entities, boundary strategy.
+- **512 tokens per chunk, no overlap.** Benchmark-validated sweet spot (Vectara NAACL 2025, Vecta 2026). No overlap — 2026 research found no measurable recall benefit, and dropping it simplifies content hashing.
+- **Paragraph-based greedy combining:** Split on `\n\n`, combine adjacent paragraphs up to 512 tokens. If a single paragraph exceeds 512 tokens, split at fixed 512-token boundaries.
+- **Per-entity strategy:**
+  - **Prompts:** No chunking — single embedding (typically short, under 512 tokens)
+  - **Notes:** Paragraph-based greedy combining at 512 tokens
+  - **Bookmarks:** Same as notes, plus a summary embedding (title + first paragraph + meta description) for broad queries
+- **Small content:** If total tokens < 512, embed as a single chunk (no splitting).
+- **Re-embedding:** Document-level hash check (`body_hash` SHA-256 of full embeddable text). If unchanged on save, skip all embedding work. If changed, delete all chunks and re-embed from scratch. Cost is negligible (~$0.0005 for a max-size 100K note). Incremental re-embedding (ADIRE) is deferred — see `docs/implementation_plans/adire-anchor-diffed-incremental-re-embedding.md`.
 
 ### 3. Worker Infrastructure
 
-The embedding worker needs a new always-on Railway service. Questions:
-- **Worker service:** New Railway service running `python -m worker.main`. Uses same codebase, different entrypoint.
-- **Monitoring:** Logs only initially. Add structured logging or a health-check endpoint later if debugging becomes painful.
-- **Concurrency:** How many concurrent embedding API calls per worker?
-
-**Recommendation:** Start with one worker, 4 concurrent jobs (asyncio semaphore). Monitor via logs.
-
-**Decision needed:** Are you comfortable adding an embedding worker service to Railway?
+Custom async worker using `redis.asyncio` BRPOP. One always-on Railway service, 4 concurrent jobs (asyncio semaphore), logs only for monitoring. See Milestone 4 for full rationale and implementation.
 
 ### 4. Tier Gating
 
-Should semantic/vector search be available to all users or gated behind a paid tier? FTS is free for everyone.
-
-**Recommendation:** Available to all for now. Embedding costs are per-save (not per-search), and at current scale the cost is negligible. Gate later if costs grow.
-
-**Decision needed:** Tier gating strategy.
+Semantic/vector search is Pro tier only. FTS remains available to all users.
 
 ### 5. API Key Management
 
-The embedding API (e.g., OpenAI) needs an API key. This is a new external dependency.
-- Store as Railway environment variable (`OPENAI_API_KEY`)
-- Add to `core/config.py` Settings class
-- Graceful degradation if not configured (vector search unavailable, FTS still works)
-
-**Decision needed:** Confirm approach, and which API provider.
+- `OPENAI_API_KEY` stored as Railway environment variable
+- Added to `core/config.py` Settings class
+- Graceful degradation: if not configured, vector search is unavailable, FTS still works
 
 ---
 
@@ -107,6 +84,8 @@ content_chunks:
     chunk_index     Integer (ordering within entity)
     chunk_text      Text (the actual chunk content)
     token_count     Integer (for debugging/monitoring)
+    content_hash    Text (SHA-256 of chunk text — for change detection / future ADIRE optimization)
+    model           Text (embedding model that generated the vector, e.g. "text-embedding-3-small")
     embedding       Vector(1536) (nullable — populated async)
     embedded_at     DateTime (nullable — null means pending)
     created_at      DateTime
@@ -119,6 +98,7 @@ CREATE INDEX ix_content_chunks_embedding ON content_chunks
   USING hnsw (embedding vector_cosine_ops)
   WHERE embedding IS NOT NULL;
 ```
+- **TODO:** Verify that pgvector HNSW supports partial indexes (`WHERE` clause). If not, either drop the partial condition or use IVFFlat instead.
 - Index on `(entity_type, entity_id)` for chunk lookup/deletion
 - Index on `user_id` for scoped search queries
 - Index on `embedded_at` for finding stale/pending chunks
@@ -145,9 +125,10 @@ CREATE INDEX ix_content_chunks_embedding ON content_chunks
 ### Goal & Outcome
 Implement the logic that splits entity content into chunks. After this milestone:
 - A chunking service can take any entity (note, bookmark, prompt) and produce a list of text chunks
-- Chunking respects paragraph boundaries with a max-size fallback
-- Small items produce a single chunk (no unnecessary splitting)
-- Chunks include the entity's title/description as context prefix
+- Chunking uses paragraph-based greedy combining at 512 tokens, no overlap
+- Prompts produce a single chunk (no splitting)
+- Bookmarks produce chunks plus a separate summary embedding
+- Chunks include the entity's title as context prefix
 
 ### Implementation Outline
 
@@ -159,52 +140,56 @@ class Chunk:
     index: int
     text: str
     token_count: int
+    is_summary: bool = False  # True for bookmark summary embeddings
 
 def chunk_entity(
+    entity_type: str,
     title: str | None,
     description: str | None,
     content: str | None,
-    max_chunk_tokens: int = 800,
-    overlap_tokens: int = 100,
-    min_chunk_threshold: int = 500,
+    max_chunk_tokens: int = 512,
 ) -> list[Chunk]:
     """Split entity content into embeddable chunks.
 
-    - Builds embedding input: title + description + content
-    - If total tokens < min_chunk_threshold: return single chunk
-    - Otherwise: split on paragraph boundaries, respecting max_chunk_tokens
-    - Each chunk is prefixed with title for context
+    - Builds embedding input from entity fields
+    - Prompts: always a single chunk (no splitting)
+    - Notes/Bookmarks: paragraph-based greedy combining at max_chunk_tokens
+    - Bookmarks: also produce a summary chunk (title + first paragraph + description)
+    - If total tokens < max_chunk_tokens: return single chunk
     """
 ```
 
 **Token counting:** Use `tiktoken` (OpenAI's tokenizer) for accurate token counts matching the embedding model. Add to dependencies.
 
 **Chunking algorithm:**
-1. Build full text: `f"{title}\n{description}\n{content}"`
-2. Count tokens. If under threshold → single chunk, return early.
-3. Split content on double-newlines (paragraphs). Title/description go in every chunk as prefix.
-4. Greedily combine paragraphs until approaching `max_chunk_tokens`.
-5. If a single paragraph exceeds `max_chunk_tokens`, split on sentence boundaries.
-6. Apply `overlap_tokens` between adjacent chunks (repeat tail of previous chunk).
+1. Build full text from entity fields (see entity-specific handling below).
+2. Count tokens. If under `max_chunk_tokens` → single chunk, return early.
+3. Split content on `\n\n` (paragraphs). Title goes in every chunk as prefix.
+4. Greedily combine adjacent paragraphs until approaching `max_chunk_tokens`.
+5. If a single paragraph exceeds `max_chunk_tokens`, split at fixed 512-token boundaries.
+6. No overlap between chunks.
 
 **Entity-specific handling:**
-- **Bookmarks:** Use `title + description + summary (if available) + content`. Summary is a dense representation — prefer it over raw content when both exist.
-- **Notes:** Use `title + description + content`.
-- **Prompts:** Use `name + title + description + content`. Typically short — usually a single chunk.
+- **Prompts:** Use `name + title + description + content`. Always a single chunk — no splitting regardless of size (prompts are typically short).
+- **Notes:** Use `title + description + content`. Paragraph-based chunking as described above.
+- **Bookmarks:** Use `title + description + content`. Paragraph-based chunking as described above, plus a **summary chunk** (`is_summary=True`) composed of `title + first paragraph + description/meta`. The summary chunk handles broad "find that article about X" queries; the content chunks handle specific detail queries.
 
 ### Testing Strategy
-- Short content (under threshold) → single chunk
-- Content exactly at threshold boundary → correct behavior
+- Short content (under 512 tokens) → single chunk
+- Content exactly at 512-token boundary → correct behavior
 - Long content splits on paragraph boundaries
-- Very long single paragraph splits on sentence boundaries
-- Overlap between chunks is correct (tail of chunk N appears at start of chunk N+1)
+- Very long single paragraph splits at fixed 512-token boundaries
+- Many short paragraphs (e.g., bullet list) are combined into chunks up to 512 tokens
 - Title prefix appears in every chunk
 - Empty content → single chunk with just title/description
 - Null fields handled gracefully
 - Token counts are accurate (verify against tiktoken directly)
-- Bookmark with summary uses summary; bookmark without summary uses content
+- Prompts always produce a single chunk regardless of size
+- Bookmarks produce content chunks plus a summary chunk
+- Bookmark summary chunk contains title + first paragraph + description
 - Unicode content chunks correctly
-- Very large content (100KB bookmark) produces reasonable number of chunks
+- Very large content (100K note) produces reasonable number of chunks (~49 at 512 tokens)
+- No overlap between adjacent chunks
 
 ---
 
@@ -287,9 +272,9 @@ This worker handles **event-driven jobs** (triggered by user actions, needs to r
 Railway services:
 ├── API (FastAPI)
 ├── Embedding worker (this milestone — always-on, listens to Redis)
-├── Cron: cleanup (daily, python -m tasks.cleanup)
-├── Cron: orphan relationships (weekly, python -m tasks.orphan_relationships --delete)
-└── Cron: cost aggregation (future — daily, python -m tasks.aggregate_costs)
+├── Cron: cleanup (daily, python -m tasks.cleanup)              ← not yet deployed, not part of this plan
+├── Cron: orphan relationships (weekly, python -m tasks.orphan_relationships --delete)  ← not yet deployed, not part of this plan
+└── Cron: cost aggregation (future — daily, python -m tasks.aggregate_costs)            ← not yet deployed, not part of this plan
 ```
 
 ### Implementation Outline
@@ -315,11 +300,13 @@ async def process_job(job_data: dict):
     """Chunk and embed an entity's content.
 
     1. Load entity from DB
-    2. Delete existing chunks for this entity
-    3. Chunk the content (chunking service)
-    4. Call embedding API for all chunks (embedding service)
-    5. Store chunks + embeddings in content_chunks
-    6. Set embedded_at on all chunks
+    2. Compute body_hash (SHA-256 of embeddable text)
+    3. If body_hash matches stored hash → skip (nothing changed)
+    4. Delete existing chunks for this entity
+    5. Chunk the content (chunking service)
+    6. Call embedding API for all chunks (embedding service)
+    7. Store chunks + embeddings in content_chunks
+    8. Update entity body_hash
     """
     ...
 
@@ -386,7 +373,7 @@ async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user
 - Only trigger when content-relevant fields change (title, description, content, summary, name)
 
 **Chunk lifecycle:**
-- On entity update: delete all existing chunks for that entity, re-chunk, re-embed
+- On entity update: compute body_hash → if unchanged, skip. Otherwise delete all existing chunks, re-chunk, re-embed.
 - On entity hard-delete: delete all chunks for that entity (add to orphan cleanup or handle in service layer)
 - On soft-delete: leave chunks in place (entity might be restored)
 
@@ -403,6 +390,7 @@ async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user
 - Worker retries on embedding API failure with exponential backoff
 - Worker respects max retries — after 3 failures, job is dropped with error log
 - Max retries exceeded → entity still works, just no embeddings
+- Body hash unchanged → skip embedding entirely (no API calls, no DB writes)
 - Content update triggers re-chunking (old chunks deleted, new chunks created)
 - Non-content update (archive, last_used_at) does NOT trigger embedding
 - Hard-delete cleans up associated chunks
@@ -420,10 +408,11 @@ async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user
 
 ### Goal & Outcome
 Implement vector similarity search and combine it with existing FTS using Reciprocal Rank Fusion. After this milestone:
-- Search queries run both FTS and vector search
+- Search queries run both FTS and vector search (Pro tier only)
 - Results are merged using RRF scoring
 - Items matching both keyword and meaning rank highest
 - Search works transparently — no user-facing toggle
+- Free tier users get FTS only (current behavior, unchanged)
 - Items without embeddings still appear via FTS (graceful degradation)
 
 ### Implementation Outline
@@ -472,15 +461,22 @@ async def hybrid_search(db, user_id, query, embedding_service, limit=20):
     ...
 ```
 
+**Tier gating:**
+- Hybrid search (FTS + vector) is Pro tier only
+- Free tier users always get FTS-only (current behavior, no code change needed for them)
+- Check user tier before embedding the query — skip vector search path entirely for free tier
+
 **Integration with `search_all_content()`:**
-- When a query is provided and embeddings are configured: use hybrid search
-- When a query is provided but embeddings are not configured: fall back to FTS-only (current behavior)
+- When Pro user + query provided + embeddings configured: use hybrid search
+- When Free user, or embeddings not configured: FTS-only (current behavior)
 - When no query: no change (browse/filter mode)
 
 **Graceful degradation:**
 - If embedding API is down during search → fall back to FTS-only (log warning)
 - If a specific entity has no embeddings → it can still appear via FTS
 - If no entities have embeddings yet (fresh deploy, backfill pending) → FTS-only
+
+**TODO:** Embedding the query adds ~200-500ms latency per search request (OpenAI API round-trip). Evaluate whether this is acceptable, or if query embedding caching is needed for common/repeated queries.
 
 ### Testing Strategy
 - Vector search returns nearest neighbors by cosine similarity
@@ -490,6 +486,7 @@ async def hybrid_search(db, user_id, query, embedding_service, limit=20):
 - RRF scoring: item in only vector results still appears in results
 - Hybrid search falls back to FTS when embedding API is unavailable
 - Hybrid search falls back to FTS when embeddings not configured
+- Free tier user → FTS-only, no vector search or embedding API call
 - Items without embeddings still appear via FTS path
 - Entity type filtering works in vector search
 - Deduplication: multiple chunks from same entity → entity appears once with best score
@@ -502,8 +499,8 @@ async def hybrid_search(db, user_id, query, embedding_service, limit=20):
 
 ### Goal & Outcome
 Embed all existing content and detect when embeddings become stale. After this milestone:
-- A CLI command backfills embeddings for all existing content
-- A periodic task detects and re-embeds stale content (content changed after last embedding)
+- A CLI command backfills embeddings for all existing Pro tier content
+- A periodic task detects and re-embeds stale content (body_hash mismatch)
 - Monitoring: can query how many entities are pending/stale
 
 ### Implementation Outline
@@ -516,28 +513,30 @@ async def backfill_embeddings(
     batch_size: int = 50,
     entity_types: list[str] | None = None,
 ):
-    """Embed all entities that have no chunks or stale chunks.
+    """Embed all Pro tier entities that have no chunks or stale chunks.
 
-    - Finds entities with no rows in content_chunks, or where
-      entity.updated_at > max(chunks.embedded_at)
+    - Finds Pro tier entities with no rows in content_chunks, or where
+      body_hash doesn't match the hash of current content
     - Processes in batches to respect API rate limits
     - Idempotent: safe to run multiple times
     """
 ```
 
 - Run as: `python -m tasks.backfill_embeddings`
-- Batch entities, chunk each, embed chunks, store — same logic as the Celery task but sequential
+- Only processes Pro tier users' content (no point embedding for free tier)
+- Batch entities, chunk each, embed chunks, store — same logic as the async worker but sequential
 - Rate limiting: pause between batches to respect API limits
 - Progress logging: `Processed 50/345 entities...`
 
 **Stale detection** (add to existing `tasks/cleanup.py` or new periodic task):
-- Query: entities where `updated_at > (SELECT MAX(embedded_at) FROM content_chunks WHERE entity_id = ...)`
-- Enqueue `embed_entity` Celery tasks for stale entities
+- Query: entities where `body_hash` doesn't match the hash of current embeddable content (or where no chunks exist)
+- Enqueue embedding jobs to Redis for stale entities (same queue the async worker listens to)
 - Run as part of the daily cleanup cron, or as a separate periodic task
+- Only checks Pro tier users
 
 **Monitoring query:**
 ```sql
--- Entities without embeddings
+-- Entities without embeddings (Pro tier users only)
 SELECT entity_type, count(*) FROM (
     SELECT 'bookmark' as entity_type, id FROM bookmarks WHERE deleted_at IS NULL
     AND id NOT IN (SELECT entity_id FROM content_chunks WHERE entity_type = 'bookmark')
@@ -546,13 +545,14 @@ SELECT entity_type, count(*) FROM (
 ```
 
 ### Testing Strategy
-- Backfill processes all entities without chunks
-- Backfill skips entities that already have current chunks
+- Backfill processes all Pro tier entities without chunks
+- Backfill skips entities that already have current chunks (body_hash matches)
+- Backfill skips free tier users' content
 - Backfill handles empty database (no entities)
 - Backfill respects entity_types filter
 - Backfill is idempotent (running twice produces same result)
-- Stale detection finds entities updated after their last embedding
-- Stale detection ignores non-content updates (need to track which fields changed — or just re-embed, it's cheap)
+- Stale detection finds entities where body_hash doesn't match current content
+- Stale detection enqueues jobs to Redis (not direct embedding)
 - Backfill handles API failures gracefully (skips failed entities, continues)
 - Progress logging works correctly
 - Batch size is respected
