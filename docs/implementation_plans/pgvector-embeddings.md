@@ -402,6 +402,23 @@ async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user
 - Concurrency: multiple jobs process in parallel up to semaphore limit
 - Job serialization round-trip: enqueue → dequeue → parse works with UUID strings
 
+### Deployment (after M1-M4 are tested locally)
+
+Deploy the embedding pipeline to production. This is the only milestone that introduces a new Railway service.
+
+1. **Add `OPENAI_API_KEY`** to Railway shared env vars (new external dependency)
+2. **Run Alembic migration** on production (`alembic upgrade head`) to create `content_chunks` table (M1)
+3. **Deploy API** with the updated codebase (chunking service, embedding service, enqueue helper)
+4. **Create Railway service** for the embedding worker:
+   - Same Docker image / repo as the API
+   - Start command: `python -m worker.main`
+   - Env vars: inherits `DATABASE_URL`, `REDIS_URL` from shared vars, plus `OPENAI_API_KEY`
+   - Always-on (not a cron job)
+5. **Verify** the worker is running and processing jobs (check logs for "Embedding worker started")
+6. **Test end-to-end**: save an entity on production, confirm chunks + embeddings appear in `content_chunks`
+
+Milestones 5 and 6 are code changes to the existing API and a CLI command — no additional services needed.
+
 ---
 
 ## Milestone 5: Vector Search + Hybrid RRF
