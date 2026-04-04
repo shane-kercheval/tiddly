@@ -46,7 +46,7 @@ dev = [
     "flex-evals>=0.3.27",
     "py-spy>=0.4.1",
     "pyinstrument>=5.1.2",
-    "litellm>=1.82.3",
+    "litellm>=1.83.0,!=1.82.7,!=1.82.8",
     "jupyter>=1.1.1",
     "ipykernel>=7.2.0",
 ]
