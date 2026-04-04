@@ -5,7 +5,7 @@
 
 ## Overview
 
-Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction layer. Features range from simple structured-output suggestions (tags, titles) to streaming chat, all gated by tier and rate limits.
+Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction layer. This plan covers the backend service layer, suggestion features (backend + frontend), and auto-complete PoC — all gated by tier and rate limits. Chat, context management, and selection-action features (transform/improve/explain) are deferred to a [separate implementation plan](2026-04-02-llm-chat.md) — they depend on chat infrastructure and a context management strategy that warrants its own design.
 
 **Key decisions:**
 - **LiteLLM SDK** (in-process, no proxy) for provider abstraction. The SDK is a pure translation layer that calls provider APIs (OpenAI, Anthropic, Google, etc.) directly — no LiteLLM servers involved.
@@ -456,11 +456,7 @@ async def suggest_tags(
 
 The `/ai/suggest-relationships` endpoint needs to first find candidate items to evaluate. Use the existing `ContentService` search to find items with similar tags or text, then pass the top N candidates to the LLM for relevance judgment.
 
-**Open question:** What's the right search strategy for candidates? Options:
-- Search by the current item's tags
-- Search by the current item's title as a text query
-- Both, deduplicated
-- How many candidates to send to the LLM? 10? 20?
+Use the existing `ContentService` search with the item's title as the query. This leverages the existing full-text search infrastructure. Deduplicate and exclude the source item. Send the top 10 candidates to the LLM — enough for meaningful suggestions without excessive token cost. The exact search strategy (title-only vs title+tags) can be tuned during implementation based on result quality.
 
 ### Testing Strategy
 
@@ -557,7 +553,7 @@ const aiApi = {
 }
 ```
 
-**Open question:** Should the BYOK header be added via an axios interceptor (like auth) or per-request? Per-request is simpler since only `/ai/` endpoints need it. But an interceptor keeps it DRY if we add more AI endpoints over time. Leaning toward interceptor that only adds the header for `/ai/` paths.
+Use an axios request interceptor that conditionally adds the `X-LLM-Api-Key` header for `/ai/` paths. This keeps the BYOK logic in one place and scales as more AI endpoints are added, without polluting non-AI requests.
 
 #### 6. Feature gating
 
@@ -580,84 +576,13 @@ AI features should be hidden/disabled for users whose tier doesn't support them.
 
 ---
 
-## Milestone 4: Selection Actions (Rewrite/Improve) — Backend & Frontend
+## ~~Milestone 4: Selection Actions (Rewrite/Improve)~~ — Deferred
 
-### Goal & Outcome
-
-After this milestone:
-
-- Users can select text in the editor, press Cmd+/, and choose AI actions (e.g. "Improve writing", "Summarize", "Explain")
-- The result replaces the selection (for improve/summarize) or appears in a popover (for explain)
-
-### Implementation Outline
-
-#### 1. Backend endpoint
-
-```
-POST /ai/transform
-```
-
-```python
-class TransformRequest(BaseModel):
-    text: str                    # selected text
-    action: str                  # "improve" | "summarize" | "explain"
-    context: str | None = None   # surrounding text for better results
-
-class TransformResponse(BaseModel):
-    result: str
-```
-
-Single endpoint, action determines the system prompt. No streaming needed since selections are typically short.
-
-#### 2. Command menu integration
-
-Add AI commands to the existing `editorCommands.ts`:
-
-```ts
-// New section: "AI" (only shown when selection is non-empty and AI is available)
-{ id: 'ai-improve', label: 'Improve writing', section: 'AI', icon: SparkleIcon }
-{ id: 'ai-summarize', label: 'Summarize', section: 'AI', icon: ... }
-{ id: 'ai-explain', label: 'Explain', section: 'AI', icon: ... }
-```
-
-These commands are conditionally included based on:
-- User has a non-empty selection in the editor
-- User's tier supports AI (or BYOK is configured)
-
-#### 3. Replacement flow
-
-When the user selects an AI command:
-
-1. Capture the current selection range
-2. Show a loading indicator (inline or in the command menu area)
-3. Call `POST /ai/transform`
-4. **For improve/summarize:** Replace the selection with the result via CodeMirror transaction (`view.dispatch({ changes: { from, to, insert: result } })`). Undo via `Cmd+Z` restores original — no ghost text preview needed.
-5. **For explain:** Show result in a popover/tooltip positioned near the selection. User dismisses with Escape or clicking away.
-
-#### 4. Popover component for "Explain"
-
-A floating panel anchored to the selection coordinates (similar to how `EditorCommandMenu` positions itself). Shows the explanation text with a close button. Dismissed by Escape or clicking outside.
-
-### Testing Strategy
-
-- **Backend:**
-  - Each action type (improve, summarize, explain) generates appropriate system prompt
-  - Context is included in prompt when provided
-  - Empty text → 400 error
-  - Response schema validates correctly
-
-- **Frontend:**
-  - AI commands appear in command menu only when text is selected
-  - AI commands hidden when no selection or non-Pro without BYOK
-  - Improve action: replaces selection with result
-  - Explain action: shows popover, Escape dismisses
-  - Loading state shown during API call
-  - Error handling: API failure → toast, selection preserved
-  - Undo after replacement restores original text
+Moved to [LLM Chat & Context Management plan](2026-04-02-llm-chat.md). Selection actions (select text → Cmd+/ → "Improve"/"Summarize"/"Explain") will route results through the chat sidebar rather than standalone popovers/inline replacement. This avoids building throwaway UI and gives users the ability to iterate on transform results conversationally.
 
 ---
 
-## Milestone 5: Auto-Complete PoC
+## Milestone 4: Auto-Complete PoC
 
 ### Goal & Outcome
 
@@ -687,7 +612,7 @@ class CompleteResponse(BaseModel):
 
 Non-streaming. The prompt instructs the LLM to continue the text naturally — complete the current sentence or add 1-2 sentences. Keep completions short for speed and relevance.
 
-**Open question:** How much context to send? Too little = bad suggestions. Too much = slow + expensive. Starting point: ~500 chars before cursor, ~200 chars after. Iterate based on quality.
+Start with ~500 chars before cursor and ~200 chars after. This is a PoC — the context window size can be tuned based on completion quality and latency once we have real usage data.
 
 #### 2. CodeMirror ghost text extension
 
@@ -750,128 +675,9 @@ const timer = setTimeout(async () => {
 
 ---
 
-## Milestone 6: Chat
+## ~~Milestone 5: Chat~~ — Deferred
 
-### Goal & Outcome
-
-After this milestone:
-
-- A chat sidebar panel on item detail pages where users can converse with an LLM
-- The LLM has the current item's content as context
-- Streaming responses (tokens appear as they arrive)
-- Conversation is ephemeral (not persisted — lost on navigation/refresh)
-
-### Implementation Outline
-
-#### 1. Backend streaming endpoint
-
-```
-POST /ai/chat
-```
-
-```python
-class ChatMessage(BaseModel):
-    role: str       # "user" or "assistant"
-    content: str
-
-class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
-    context: str | None = None    # current item content, injected as system context
-    entity_id: str | None = None  # for audit/logging purposes
-```
-
-Returns a `StreamingResponse` with `text/event-stream` content type (Server-Sent Events). Each event is a chunk of the assistant's response.
-
-```python
-@router.post("/chat")
-async def chat(
-    data: ChatRequest,
-    current_user: User = Depends(get_current_user),
-    limits: TierLimits = Depends(get_current_limits),
-    llm_api_key: str | None = Depends(get_llm_api_key),
-):
-    config = llm_service.resolve_config(AIUseCase.CHAT, llm_api_key)
-    messages = build_chat_messages(data.context, data.messages)
-    stream = await llm_service.stream(messages, config)
-
-    async def event_generator():
-        async for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield f"data: {json.dumps({'content': delta})}\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-```
-
-**Open questions:**
-- **Context injection:** Should the full item content go in the system prompt? For long notes, this could be expensive. Maybe truncate to first N characters, or let the user choose what context to include.
-- **Conversation length:** Should we cap the number of messages in the conversation history to control costs/context window? e.g. keep last 20 messages.
-- **Chat scope:** Starting with per-item chat (current item as context). Global chat with search across all content = tool use / RAG, which is a future feature.
-
-#### 2. Frontend chat sidebar
-
-A new right sidebar panel (similar to history sidebar) that appears on item detail pages:
-
-- Toggle with a keyboard shortcut (TBD) or button in the toolbar
-- Chat message list (scrollable, auto-scrolls to bottom on new messages)
-- Text input at the bottom with send button (Enter to send, Shift+Enter for newline)
-- Streaming: assistant messages update in real-time as SSE chunks arrive
-- Loading indicator while waiting for first chunk
-- Conversation messages stored in component state (ephemeral)
-- Current item's content automatically included as context in each request
-
-#### 3. SSE client
-
-Use `fetch` with `ReadableStream` for SSE consumption (not `EventSource`, which doesn't support POST or custom headers):
-
-```ts
-const response = await fetch('/ai/chat', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-    ...(aiStore.apiKey ? { 'X-LLM-Api-Key': aiStore.apiKey } : {}),
-  },
-  body: JSON.stringify(chatRequest),
-})
-
-const reader = response.body.getReader()
-const decoder = new TextDecoder()
-
-while (true) {
-  const { done, value } = await reader.read()
-  if (done) break
-  const text = decoder.decode(value)
-  // Parse SSE lines, update message state
-}
-```
-
-#### 4. Chat message rendering
-
-- User messages: right-aligned, styled differently from assistant messages
-- Assistant messages: left-aligned, supports markdown rendering
-- Reuse existing markdown rendering approach for assistant messages
-
-### Testing Strategy
-
-- **Backend:**
-  - Streaming endpoint returns valid SSE format
-  - Context is included in system message
-  - Conversation history is passed through correctly
-  - Empty messages list → 400 error
-  - Rate limiting enforced (each chat request counts as one AI operation)
-  - BYOK key passed through to LiteLLM
-
-- **Frontend:**
-  - Sending a message adds it to the conversation and triggers API call
-  - Streaming response updates assistant message in real-time
-  - Chat sidebar opens/closes correctly
-  - Context from current item is included in requests
-  - Navigation away clears conversation
-  - Error handling: network error → error message in chat
-  - Error handling: 429 rate limit → appropriate message
-  - BYOK header included when configured
+Moved to [LLM Chat & Context Management plan](2026-04-02-llm-chat.md). Chat requires solving context management (how much content to inject, conversation length limits, token budgets) which warrants its own design.
 
 ---
 
@@ -879,18 +685,18 @@ while (true) {
 
 ### Error Handling
 
-LiteLLM can raise several provider-specific errors. The LLM service should catch and normalize these:
+LiteLLM raises typed exceptions for provider errors. The LLM service catches these and returns a structured JSON error body with an `error` code that distinguishes LLM provider failures from platform failures. This is critical for BYOK users — a bad user API key should not look like a tiddly auth failure.
 
-| LiteLLM Error | Our Response | HTTP Status |
-|---|---|---|
-| `AuthenticationError` | "Invalid API key" | 401 |
-| `RateLimitError` | "Provider rate limit exceeded, try again later" | 429 |
-| `Timeout` | "LLM request timed out" | 504 |
-| `BadRequestError` | "Invalid request to LLM provider" | 400 |
-| `APIConnectionError` | "Could not connect to LLM provider" | 502 |
-| Other | "AI service temporarily unavailable" | 503 |
+| LiteLLM Error | HTTP Status | Error Code | Message |
+|---|---|---|---|
+| `AuthenticationError` | 422 | `llm_auth_failed` | "Your API key was rejected by the provider" |
+| `RateLimitError` | 429 | `llm_rate_limited` | "Provider rate limit exceeded, try again later" |
+| `Timeout` | 504 | `llm_timeout` | "LLM request timed out" |
+| `BadRequestError` | 400 | `llm_bad_request` | "Invalid request to LLM provider" |
+| `APIConnectionError` | 502 | `llm_connection_error` | "Could not connect to LLM provider" |
+| Other | 503 | `llm_unavailable` | "AI service temporarily unavailable" |
 
-For BYOK users, error messages should make it clear when the issue is with their key/provider (not our platform).
+All LLM provider errors use `llm_*` error codes so the frontend can unambiguously distinguish them from platform auth errors (which use HTTP 401 with different error codes). Note `AuthenticationError` returns 422 (not 401) to avoid conflation with tiddly session/token auth.
 
 ### Tier Limits Documentation Sync
 
@@ -914,4 +720,4 @@ When AI rate limits are added, update:
 - **Cost calculation:** Non-streaming uses `response._hidden_params['response_cost']`. Streaming uses `completion_cost(model, prompt, completion)` after stream is consumed (verified in PoC — streaming `response_cost` returns 0.0 for all providers).
 - Set a monthly budget alert on the Gemini API key
 - Consider a daily platform cost cap that disables platform AI if exceeded (emergency brake) — can be checked against Redis per-user key before each call
-- Content snippet truncation: limit input to ~2000 chars for suggestions, ~5000 for chat context
+- Content snippet truncation: limit input to ~2000 chars for suggestions, ~500 chars prefix + ~200 chars suffix for auto-complete
