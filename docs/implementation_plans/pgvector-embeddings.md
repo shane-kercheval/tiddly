@@ -7,10 +7,11 @@
 - **Goal:** Add semantic/meaning-based search so "auth" finds documents about "login flow" and "OAuth." Complements FTS keyword matching.
 - **Key decisions:**
   - Chunking from the start (not deferred to a later phase)
-  - 512 tokens per chunk, no overlap, paragraph-based greedy combining
-  - Per-entity strategy: prompts get a single embedding (typically short), notes and bookmarks use paragraph-based chunking, bookmarks also get a summary embedding
+  - Paragraph-level chunking: one paragraph = one chunk, with paragraph-hash-based reuse on re-embedding (95%+ savings on typical edits)
+  - Oversized paragraphs (>2048 tokens) split at fixed 512-token boundaries
+  - Per-entity strategy: prompts get a single embedding (typically short), notes and bookmarks use paragraph-level chunking, bookmarks also get a summary embedding
   - Async embedding via custom async worker using Redis BRPOPLPUSH (not Celery — see Milestone 4 for rationale)
-  - Re-embedding on content change: document-level hash check (skip if unchanged) + full re-chunk/re-embed when content changes. Incremental re-embedding (ADIRE) is deferred — see `docs/implementation_plans/adire-anchor-diffed-incremental-re-embedding.md`
+  - Re-embedding on content change: document-level hash check (skip if unchanged) + paragraph-hash diff (only embed new/changed paragraphs)
 
 ## pgvector Setup
 
@@ -35,14 +36,14 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
 
 ### 2. Chunking Strategy
 
-- **512 tokens per chunk, no overlap.** Benchmark-validated sweet spot (Vectara NAACL 2025, Vecta 2026). No overlap — 2026 research found no measurable recall benefit, and dropping it simplifies content hashing.
-- **Paragraph-based greedy combining:** Split on `\n\n`, combine adjacent paragraphs up to 512 tokens. If a single paragraph exceeds 512 tokens, split at fixed 512-token boundaries.
+- **Paragraph-level chunking with reuse.** Each paragraph (`\n\n`-separated) becomes its own chunk. Paragraphs are hashed independently — on re-embedding, only paragraphs with changed hashes are re-embedded. This is cascade-resistant (inserting a paragraph at the top doesn't invalidate downstream hashes) and saves 95%+ of embedding API calls on typical edits to large notes. See ADIRE simulation results (`ADIRE/docs/analysis-results.md`) for the empirical validation.
+- **Oversized paragraph handling:** Paragraphs over 2048 tokens (~8K characters) are split at fixed 512-token boundaries. This handles pasted content / structureless blobs. Typical prose paragraphs are 150-250 tokens and are never split.
+- **Token counting:** Approximate (`len(text) // 4`), not tiktoken. Exact counts aren't needed — paragraph boundaries determine chunks, and the 2048-token threshold is a generous guard rail. tiktoken is CPU-bound and synchronous, unsuitable for the async worker.
 - **Per-entity strategy:**
-  - **Prompts:** No chunking — single embedding (typically short, under 512 tokens)
-  - **Notes:** Paragraph-based greedy combining at 512 tokens
+  - **Prompts:** No chunking — single embedding (typically short)
+  - **Notes:** Paragraph-level chunking as described above
   - **Bookmarks:** Same as notes, plus a summary embedding (title + first paragraph + meta description) for broad queries
-- **Small content:** If total tokens < 512, embed as a single chunk (no splitting).
-- **Re-embedding:** Document-level hash check (`body_hash` SHA-256 of full embeddable text). If unchanged on save, skip all embedding work. If changed, delete all chunks and re-embed from scratch. Cost is negligible (~$0.0005 for a max-size 100K note). Incremental re-embedding (ADIRE) is deferred — see `docs/implementation_plans/adire-anchor-diffed-incremental-re-embedding.md`.
+- **Re-embedding:** Document-level hash check (`body_hash` SHA-256 of full embeddable text). If unchanged on save, skip entirely. If changed, diff paragraph hashes against stored hashes — only embed new/changed paragraphs, delete removed ones. Per-edit cost savings are 95%+ for typical edits at 25K+ characters.
 
 ### 3. Worker Infrastructure
 
@@ -115,7 +116,6 @@ content_embedding_state:
     entity_type     String (bookmark/note/prompt)
     entity_id       UUID (unique together with entity_type)
     body_hash       Text (SHA-256 of full embeddable text — for skip-if-unchanged)
-    active_body_hash Text (nullable — hash of the currently active chunk generation; null = no embeddings yet)
     model           Text (embedding model used, e.g. "text-embedding-3-small")
     status          String (pending/embedding/embedded/failed)
     last_error      Text (nullable — error message on last failure)
@@ -125,9 +125,9 @@ content_embedding_state:
 ```
 
 - Unique constraint on `(entity_type, entity_id)`
-- Index on `status` for finding pending/failed entities (M6 backfill/stale detection)
+- Index on `status` for finding pending/failed entities (M6 backfill/monitoring)
 
-This table keeps embedding lifecycle state out of the entity models. The `active_body_hash` field enables crash-safe re-embedding: new chunks are inserted with a new `body_hash`, then `active_body_hash` is updated atomically — old chunks are only deleted after the new generation is active. See M4 for the swap mechanism.
+This table keeps embedding lifecycle state out of the entity models. The `body_hash` field enables the skip-if-unchanged fast path — if the hash matches, no work is needed. With paragraph-level reuse, individual chunks are inserted/deleted incrementally (no generation swap needed), so crash safety comes from the paragraph-hash diff: if the worker crashes mid-update, `body_hash` won't match on the next attempt and the diff will complete the work.
 
 **SQLAlchemy models:**
 - `models/content_chunk.py`: Uses `UUIDv7Mixin`, `TimestampMixin`. `embedding` column uses pgvector's `Vector(1536)` type from `pgvector.sqlalchemy`. Relationship to User (for query scoping).
@@ -151,11 +151,11 @@ This table keeps embedding lifecycle state out of the entity models. The `active
 
 ### Goal & Outcome
 Implement the logic that splits entity content into chunks. After this milestone:
-- A chunking service can take any entity (note, bookmark, prompt) and produce a list of text chunks
-- Chunking uses paragraph-based greedy combining at 512 tokens, no overlap
+- A chunking service can take any entity (note, bookmark, prompt) and produce a list of paragraph-level chunks
+- Each paragraph becomes its own chunk, with an independent hash for reuse tracking
+- Oversized paragraphs (>2048 tokens) are split at 512-token boundaries
 - Prompts produce a single chunk (no splitting)
-- Bookmarks produce chunks plus a separate summary embedding
-- Chunks include the entity's title as context prefix
+- Bookmarks produce paragraph chunks plus a separate summary embedding
 
 ### Implementation Outline
 
@@ -166,7 +166,8 @@ Implement the logic that splits entity content into chunks. After this milestone
 class Chunk:
     index: int
     text: str
-    token_count: int
+    content_hash: str  # SHA-256 of normalized paragraph text
+    token_count: int   # approximate: len(text) // 4
     is_summary: bool = False  # True for bookmark summary embeddings
 
 def chunk_entity(
@@ -174,49 +175,47 @@ def chunk_entity(
     title: str | None,
     description: str | None,
     content: str | None,
-    max_chunk_tokens: int = 512,
 ) -> list[Chunk]:
-    """Split entity content into embeddable chunks.
+    """Split entity content into paragraph-level chunks.
 
     - Builds embedding input from entity fields
     - Prompts: always a single chunk (no splitting)
-    - Notes/Bookmarks: paragraph-based greedy combining at max_chunk_tokens
+    - Notes/Bookmarks: one chunk per paragraph (\n\n separated)
+    - Oversized paragraphs (>2048 tokens) split at 512-token boundaries
     - Bookmarks: also produce a summary chunk (title + first paragraph + description)
-    - If total tokens < max_chunk_tokens: return single chunk
+    - Each chunk has a content_hash for paragraph-level reuse on re-embedding
     """
 ```
 
-**Token counting:** Use `tiktoken` (OpenAI's tokenizer) for accurate token counts matching the embedding model. Add to dependencies.
+**Token counting:** Approximate (`len(text) // 4`). No tiktoken dependency — exact counts aren't needed since paragraph boundaries determine chunks, not a token budget. The 2048-token oversized threshold is a generous guard rail, not a precision boundary.
 
 **Chunking algorithm:**
 1. Build full text from entity fields (see entity-specific handling below).
-2. Count tokens. If under `max_chunk_tokens` → single chunk, return early.
-3. Split content on `\n\n` (paragraphs). Title goes in every chunk as prefix.
-4. Greedily combine adjacent paragraphs until approaching `max_chunk_tokens`.
-5. If a single paragraph exceeds `max_chunk_tokens`, split at fixed 512-token boundaries.
-6. No overlap between chunks.
+2. Split content on `\n\n` → paragraphs. Hash each paragraph (SHA-256 of normalized text).
+3. Each paragraph becomes its own chunk.
+4. If a paragraph exceeds 2048 tokens (~8K characters), split it at fixed 512-token boundaries. Each sub-chunk gets its own hash.
+5. Prepend entity title to each chunk's text for search context.
 
 **Entity-specific handling:**
 - **Prompts:** Use `name + title + description + content`. Always a single chunk — no splitting regardless of size (prompts are typically short).
-- **Notes:** Use `title + description + content`. Paragraph-based chunking as described above.
-- **Bookmarks:** Use `title + description + content`. Paragraph-based chunking as described above, plus a **summary chunk** (`is_summary=True`) composed of `title + first paragraph + description/meta`. The summary chunk handles broad "find that article about X" queries; the content chunks handle specific detail queries.
+- **Notes:** Use `title + description + content`. Paragraph-level chunking as described above.
+- **Bookmarks:** Use `title + description + content`. Paragraph-level chunking as described above, plus a **summary chunk** (`is_summary=True`) composed of `title + first paragraph + description/meta`. The summary chunk handles broad "find that article about X" queries; the paragraph chunks handle specific detail queries.
 
 ### Testing Strategy
-- Short content (under 512 tokens) → single chunk
-- Content exactly at 512-token boundary → correct behavior
-- Long content splits on paragraph boundaries
-- Very long single paragraph splits at fixed 512-token boundaries
-- Many short paragraphs (e.g., bullet list) are combined into chunks up to 512 tokens
+- Short content (single paragraph) → single chunk
+- Multi-paragraph content → one chunk per paragraph
+- Each chunk has a unique content_hash
+- Oversized paragraph (>2048 tokens) splits at 512-token boundaries
+- Normal-sized paragraphs (even 500+ tokens) are NOT split — only the 2048 threshold triggers splitting
 - Title prefix appears in every chunk
 - Empty content → single chunk with just title/description
 - Null fields handled gracefully
-- Token counts are accurate (verify against tiktoken directly)
 - Prompts always produce a single chunk regardless of size
-- Bookmarks produce content chunks plus a summary chunk
+- Bookmarks produce paragraph chunks plus a summary chunk
 - Bookmark summary chunk contains title + first paragraph + description
 - Unicode content chunks correctly
-- Very large content (100K note) produces reasonable number of chunks (~49 at 512 tokens)
-- No overlap between adjacent chunks
+- Content hashes are stable (same text → same hash regardless of surrounding content)
+- Very large content (100K note) produces one chunk per paragraph (~125-250 chunks depending on paragraph size)
 
 ---
 
@@ -282,10 +281,8 @@ openai_api_key: str | None = None  # None = embeddings disabled
 Set up a custom async worker service that processes embedding jobs from a Redis queue. After this milestone:
 - A long-running worker process listens for embedding jobs via Redis BRPOPLPUSH (crash-safe delivery)
 - Saving/updating an entity enqueues an embedding job
-- The worker chunks the content, calls the embedding API, and stores results in `content_chunks`
-- Re-embedding uses a two-phase swap (insert new, then promote) — never deletes old chunks before new ones are ready
+- The worker chunks the content into paragraphs, diffs paragraph hashes against stored chunks, and only embeds new/changed paragraphs
 - Failed jobs retry with exponential backoff (max 3 retries); permanently failed jobs go to a dead letter queue
-- Stale chunks are cleaned up when content changes
 
 ### Why a custom worker (not Celery/arq)
 - **Async nativity:** The entire stack is async (FastAPI, async SQLAlchemy, async OpenAI client). Celery 5.x does not support `async def` tasks natively — it would require `asyncio.run()` wrappers in every task, losing connection pooling and async benefits. Native async is targeted for Celery 6.0 (May 2026, repeatedly delayed since 2017).
@@ -329,22 +326,21 @@ MAX_RETRIES = 3
 CONCURRENCY = 4  # max concurrent embedding API calls
 
 async def process_job(job_data: dict):
-    """Chunk and embed an entity's content (two-phase swap).
+    """Chunk and embed an entity's content (paragraph-level reuse).
 
     1. Load entity from DB
-    2. Compute body_hash (SHA-256 of embeddable text)
-    3. Check content_embedding_state — if body_hash matches active_body_hash → skip
-    4. Update state: status = 'embedding'
-    5. Chunk the content (chunking service)
-    6. Call embedding API for all chunks (embedding service)
-    7. INSERT new chunks into content_chunks (with new body_hash)
-    8. Update state: active_body_hash = new body_hash, status = 'embedded'
-    9. DELETE old chunks where body_hash != active_body_hash
-    10. Steps 7-9 in a single transaction — old chunks survive until new ones are committed
+    2. Compute body_hash (SHA-256 of full embeddable text)
+    3. Check content_embedding_state — if body_hash matches → skip (nothing changed)
+    4. Split content into paragraphs, hash each (chunking service)
+    5. Load existing chunk content_hashes for this entity from DB
+    6. Diff: new hashes not in old set → need embedding. Old hashes not in new set → delete.
+    7. Call embedding API only for new/changed paragraphs
+    8. INSERT new chunks, DELETE removed chunks
+    9. Update content_embedding_state: body_hash, status = 'embedded'
 
-    If the worker crashes between 7 and 9, old chunks remain active (active_body_hash
-    still points to them). New orphan chunks (with non-active body_hash) are cleaned
-    up by the stale detection task (M6).
+    On worker crash: existing chunks remain intact. The entity's body_hash in
+    content_embedding_state won't match, so the next job (or backfill) will
+    retry the full diff. No data loss — at worst, some chunks are stale.
     """
     ...
 
@@ -436,12 +432,12 @@ Integration points (all 6 must be wired):
 - `prompt_service.create()` — after flush
 - `prompt_service.update()` — after flush, only if content fields changed
 
-**Chunk lifecycle (two-phase swap):**
-- On entity update: check `content_embedding_state.active_body_hash` → if unchanged, skip. Otherwise insert new chunks, update `active_body_hash`, delete old chunks — all in one transaction. Entity always has valid embeddings (old or new), never zero.
+**Chunk lifecycle (paragraph-level reuse):**
+- On entity update: check `content_embedding_state.body_hash` → if unchanged, skip. Otherwise diff paragraph hashes: insert new paragraphs, delete removed paragraphs, leave unchanged paragraphs in place. Entity retains all unchanged chunk embeddings throughout.
 - On entity hard-delete: delete all chunks and the state row for that entity
 - On soft-delete: leave chunks in place (entity might be restored)
 
-**Concurrent job deduplication:** If two jobs arrive for the same entity (rapid successive edits), the `body_hash` check in `content_embedding_state` is the natural deduplication. The second job computes the hash, finds it matches `active_body_hash` (set by the first job), and skips. No explicit job dedup needed.
+**Concurrent job deduplication:** If two jobs arrive for the same entity (rapid successive edits), the `body_hash` check in `content_embedding_state` is the natural deduplication. The second job computes the hash, finds it matches (set by the first job), and skips. No explicit job dedup needed.
 
 **Railway deployment:**
 - New service using the same Docker image, different start command:
@@ -455,10 +451,10 @@ Integration points (all 6 must be wired):
 - Worker processes a job and produces correct chunks + embeddings (mock embedding API)
 - Worker retries on embedding API failure with exponential backoff
 - Worker respects max retries — after 3 failures, job goes to dead letter queue
-- Max retries exceeded → entity retains old embeddings (two-phase swap), just no updated ones
+- Max retries exceeded → entity retains existing chunk embeddings, just no updated ones
 - Body hash unchanged → skip embedding entirely (no API calls, no DB writes)
-- Two-phase swap: new chunks inserted before old ones deleted; entity always has valid embeddings
-- Worker crash mid-embedding → old chunks remain active, new orphan chunks cleaned by M6
+- Paragraph-level reuse: only new/changed paragraphs are embedded, unchanged paragraphs keep their embeddings
+- Worker crash mid-embedding → existing chunks remain intact, body_hash mismatch triggers retry on next job
 - content_embedding_state updated correctly: status transitions (pending → embedding → embedded/failed)
 - Non-content update (archive, last_used_at) does NOT trigger embedding
 - Hard-delete cleans up associated chunks and state row
@@ -654,7 +650,8 @@ async def backfill_embeddings(
 - Progress logging: `Processed 50/345 entities...`
 
 **Orphan chunk cleanup** (add to backfill command or run separately):
-- Delete chunks where `body_hash` doesn't match the `active_body_hash` in `content_embedding_state` for that entity. These are leftover from crashed two-phase swaps (M4) where new chunks were inserted but the swap never completed.
+- Delete chunks for entities that no longer exist (hard-deleted entities whose chunks weren't cleaned up).
+- Delete chunks for entities where `content_embedding_state.status = 'failed'` and the chunk data may be incomplete from a crashed worker run.
 - Run as part of the backfill command (`--cleanup` flag) or as a separate manual step.
 
 **Monitoring queries** (run manually via `railway run` or DB console as needed):
@@ -677,14 +674,14 @@ SELECT entity_type, count(*) FROM (
 
 ### Testing Strategy
 - Backfill processes all Pro tier entities without embedding state
-- Backfill skips entities where active_body_hash matches current content
+- Backfill skips entities where body_hash matches current content
 - Backfill skips free tier users' content
 - Backfill handles empty database (no entities)
 - Backfill respects entity_types filter
 - Backfill is idempotent (running twice produces same result)
-- Backfill also catches stale content (active_body_hash doesn't match current content)
+- Backfill also catches stale content (body_hash doesn't match current content)
 - Backfill picks up entities with status = 'failed'
-- Orphan chunk cleanup removes chunks from crashed swaps
+- Orphan chunk cleanup removes chunks for deleted entities and failed states
 - Backfill handles API failures gracefully (skips failed entities, continues)
 - Progress logging works correctly
 - Batch size is respected
@@ -715,5 +712,5 @@ Milestones 2 and 3 are independent of each other and could be done in parallel.
 - [pgvector GitHub](https://github.com/pgvector/pgvector) — vector types, operators, index options
 - [pgvector SQLAlchemy integration](https://github.com/pgvector/pgvector-python) — `Vector` column type, query patterns
 - [redis-py async docs](https://redis-py.readthedocs.io/en/stable/examples/asyncio_examples.html) — async Redis client, BRPOP
-- [tiktoken](https://github.com/openai/tiktoken) — token counting for chunk sizing
+- [ADIRE simulation results](../implementation_plans/adire-anchor-diffed-incremental-re-embedding.md) — empirical validation of paragraph-level reuse strategy
 - `docs/implementation_plans/future-search.md` — original search roadmap (Phases 2-3)
