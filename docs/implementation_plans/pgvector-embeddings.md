@@ -52,7 +52,7 @@ Custom async worker using Redis BRPOPLPUSH (crash-safe delivery). One always-on 
 
 Semantic/vector search is Pro tier only. FTS remains available to all users.
 
-**On tier downgrade (Pro → Free):** Existing embeddings are preserved but dormant — not used for search, not updated on edits. On re-upgrade, stale detection (M6) handles any content that changed while on the free tier. This avoids wasteful re-embedding on re-upgrade.
+**On tier downgrade (Pro → Free):** Delete all embeddings (`content_chunks`) and embedding state (`content_embedding_state`) for the user. These are internal search infrastructure, not user data — user content is untouched. On re-upgrade, backfill/stale detection (M6) re-embeds automatically. See KAN-109.
 
 ### 5. API Key Management
 
@@ -620,13 +620,13 @@ async def hybrid_search(
 
 ---
 
-## Milestone 6: Backfill + Stale Embedding Detection
+## Milestone 6: Backfill + Monitoring
 
 ### Goal & Outcome
-Embed all existing content and detect when embeddings become stale. After this milestone:
+Embed all existing content and provide monitoring for embedding health. After this milestone:
 - A CLI command backfills embeddings for all existing Pro tier content
-- A periodic task detects and re-embeds stale content (body_hash mismatch)
-- Monitoring: can query how many entities are pending/stale
+- Monitoring queries can check how many entities are pending/stale/failed
+- Orphan chunks from crashed swaps are cleaned up
 
 ### Implementation Outline
 
@@ -653,18 +653,13 @@ async def backfill_embeddings(
 - Rate limiting: pause between batches to respect API limits
 - Progress logging: `Processed 50/345 entities...`
 
-**Stale detection** (add to existing `tasks/cleanup.py` or new periodic task):
-- Query `content_embedding_state` for entities where `active_body_hash` doesn't match the hash of current embeddable content, or where status = 'failed', or where no state row exists
-- Enqueue embedding jobs to Redis for stale entities (same queue the async worker listens to)
-- Run as part of the daily cleanup cron, or as a separate periodic task
-- Only checks Pro tier users
-- Also serves as safety net for worker crashes and extended API outages
-
-**Orphan chunk cleanup:**
+**Orphan chunk cleanup** (add to backfill command or run separately):
 - Delete chunks where `body_hash` doesn't match the `active_body_hash` in `content_embedding_state` for that entity. These are leftover from crashed two-phase swaps (M4) where new chunks were inserted but the swap never completed.
-- Can run as part of stale detection or as a separate cleanup step.
+- Run as part of the backfill command (`--cleanup` flag) or as a separate manual step.
 
-**Monitoring query:**
+**Monitoring queries** (run manually via `railway run` or DB console as needed):
+
+No automated stale detection cron job for now. The worker + retry + dead letter queue handles normal operations. If stale entities accumulate (visible via monitoring queries), re-run the backfill command — it's idempotent and catches stale content. Add a periodic cron later if manual monitoring proves insufficient.
 ```sql
 -- Embedding status overview (Pro tier users only)
 SELECT status, count(*) FROM content_embedding_state
@@ -687,9 +682,8 @@ SELECT entity_type, count(*) FROM (
 - Backfill handles empty database (no entities)
 - Backfill respects entity_types filter
 - Backfill is idempotent (running twice produces same result)
-- Stale detection finds entities where active_body_hash doesn't match current content
-- Stale detection picks up entities with status = 'failed'
-- Stale detection enqueues jobs to Redis (not direct embedding)
+- Backfill also catches stale content (active_body_hash doesn't match current content)
+- Backfill picks up entities with status = 'failed'
 - Orphan chunk cleanup removes chunks from crashed swaps
 - Backfill handles API failures gracefully (skips failed entities, continues)
 - Progress logging works correctly
@@ -708,7 +702,7 @@ Milestone 2 (chunking) ──→ Milestone 3 (embedding API)
                                   ↓
                           Milestone 5 (search + RRF)
                                   ↓
-                          Milestone 6 (backfill + stale detection)
+                          Milestone 6 (backfill + monitoring)
 ```
 
 Milestones 2 and 3 are independent of each other and could be done in parallel.
