@@ -9,7 +9,7 @@
   - Chunking from the start (not deferred to a later phase)
   - 512 tokens per chunk, no overlap, paragraph-based greedy combining
   - Per-entity strategy: prompts get a single embedding (typically short), notes and bookmarks use paragraph-based chunking, bookmarks also get a summary embedding
-  - Async embedding via custom async worker using Redis BRPOP (not Celery — see Milestone 4 for rationale)
+  - Async embedding via custom async worker using Redis BRPOPLPUSH (not Celery — see Milestone 4 for rationale)
   - Re-embedding on content change: document-level hash check (skip if unchanged) + full re-chunk/re-embed when content changes. Incremental re-embedding (ADIRE) is deferred — see `docs/implementation_plans/adire-anchor-diffed-incremental-re-embedding.md`
 
 ## pgvector Setup
@@ -46,11 +46,13 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
 
 ### 3. Worker Infrastructure
 
-Custom async worker using `redis.asyncio` BRPOP. One always-on Railway service, 4 concurrent jobs (asyncio semaphore), logs only for monitoring. See Milestone 4 for full rationale and implementation.
+Custom async worker using Redis BRPOPLPUSH (crash-safe delivery). One always-on Railway service, 4 concurrent jobs (asyncio semaphore), logs only for monitoring. Dead letter queue for permanently failed jobs. See Milestone 4 for full rationale and implementation.
 
 ### 4. Tier Gating
 
 Semantic/vector search is Pro tier only. FTS remains available to all users.
+
+**On tier downgrade (Pro → Free):** Existing embeddings are preserved but dormant — not used for search, not updated on edits. On re-upgrade, stale detection (M6) handles any content that changed while on the free tier. This avoids wasteful re-embedding on re-upgrade.
 
 ### 5. API Key Management
 
@@ -65,7 +67,8 @@ Semantic/vector search is Pro tier only. FTS remains available to all users.
 ### Goal & Outcome
 Set up the database schema for storing chunked content and their embeddings. After this milestone:
 - `content_chunks` table exists with vector column and HNSW index
-- Alembic migration enables pgvector extension and creates the table
+- `content_embedding_state` table tracks per-entity embedding lifecycle
+- Alembic migration enables pgvector extension and creates both tables
 - No embeddings are generated yet — this is schema only
 
 ### Implementation Outline
@@ -103,10 +106,32 @@ CREATE INDEX ix_content_chunks_embedding ON content_chunks
 - Index on `user_id` for scoped search queries
 - Index on `embedded_at` for finding stale/pending chunks
 
-**SQLAlchemy model** (`models/content_chunk.py`):
-- Uses `UUIDv7Mixin`, `TimestampMixin`
-- `embedding` column uses pgvector's `Vector(1536)` type from `pgvector.sqlalchemy`
-- Relationship to User (for query scoping)
+- Create `content_embedding_state` table:
+
+```python
+# Per-entity embedding lifecycle tracking (one row per entity)
+content_embedding_state:
+    id              UUID PK (UUIDv7)
+    entity_type     String (bookmark/note/prompt)
+    entity_id       UUID (unique together with entity_type)
+    body_hash       Text (SHA-256 of full embeddable text — for skip-if-unchanged)
+    active_body_hash Text (nullable — hash of the currently active chunk generation; null = no embeddings yet)
+    model           Text (embedding model used, e.g. "text-embedding-3-small")
+    status          String (pending/embedding/embedded/failed)
+    last_error      Text (nullable — error message on last failure)
+    embedded_at     DateTime (nullable — last successful embedding)
+    created_at      DateTime
+    updated_at      DateTime
+```
+
+- Unique constraint on `(entity_type, entity_id)`
+- Index on `status` for finding pending/failed entities (M6 backfill/stale detection)
+
+This table keeps embedding lifecycle state out of the entity models. The `active_body_hash` field enables crash-safe re-embedding: new chunks are inserted with a new `body_hash`, then `active_body_hash` is updated atomically — old chunks are only deleted after the new generation is active. See M4 for the swap mechanism.
+
+**SQLAlchemy models:**
+- `models/content_chunk.py`: Uses `UUIDv7Mixin`, `TimestampMixin`. `embedding` column uses pgvector's `Vector(1536)` type from `pgvector.sqlalchemy`. Relationship to User (for query scoping).
+- `models/content_embedding_state.py`: Uses `UUIDv7Mixin`, `TimestampMixin`. One row per entity.
 
 **Dependency:** Add `pgvector` Python package to `pyproject.toml` (provides `pgvector.sqlalchemy` for the `Vector` type).
 
@@ -117,6 +142,8 @@ CREATE INDEX ix_content_chunks_embedding ON content_chunks
 - HNSW index is created (query `pg_indexes`)
 - Verify `content_chunks` table constraints: user_id FK, non-null fields
 - Verify chunk insertion and retrieval round-trip with embedding data
+- `content_embedding_state` unique constraint on `(entity_type, entity_id)` enforced
+- State row creation and update round-trip
 
 ---
 
@@ -253,10 +280,11 @@ openai_api_key: str | None = None  # None = embeddings disabled
 
 ### Goal & Outcome
 Set up a custom async worker service that processes embedding jobs from a Redis queue. After this milestone:
-- A long-running worker process listens for embedding jobs via Redis `BRPOP`
+- A long-running worker process listens for embedding jobs via Redis BRPOPLPUSH (crash-safe delivery)
 - Saving/updating an entity enqueues an embedding job
 - The worker chunks the content, calls the embedding API, and stores results in `content_chunks`
-- Failed jobs retry with exponential backoff (max 3 retries)
+- Re-embedding uses a two-phase swap (insert new, then promote) — never deletes old chunks before new ones are ready
+- Failed jobs retry with exponential backoff (max 3 retries); permanently failed jobs go to a dead letter queue
 - Stale chunks are cleaned up when content changes
 
 ### Why a custom worker (not Celery/arq)
@@ -279,6 +307,10 @@ Railway services:
 
 ### Implementation Outline
 
+**Database sessions:** The worker runs as a separate process, not inside FastAPI. It creates its own sessions via `get_session_factory()` from `db/session.py` (not FastAPI's `get_async_session()` dependency). The worker manages its own commit/rollback per job.
+
+**Redis integration:** Queue primitives (LPUSH, BRPOPLPUSH) should be added to the existing `RedisClient` wrapper in `core/redis.py` rather than using raw `redis.asyncio` directly. This maintains a single Redis usage pattern across the codebase.
+
 **Worker service** (`worker/main.py`):
 
 ```python
@@ -287,9 +319,9 @@ import json
 import logging
 import signal
 
-import redis.asyncio as redis
-
 from core.config import get_settings
+from core.redis import get_redis_client
+from db.session import get_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -297,24 +329,31 @@ MAX_RETRIES = 3
 CONCURRENCY = 4  # max concurrent embedding API calls
 
 async def process_job(job_data: dict):
-    """Chunk and embed an entity's content.
+    """Chunk and embed an entity's content (two-phase swap).
 
     1. Load entity from DB
     2. Compute body_hash (SHA-256 of embeddable text)
-    3. If body_hash matches stored hash → skip (nothing changed)
-    4. Delete existing chunks for this entity
+    3. Check content_embedding_state — if body_hash matches active_body_hash → skip
+    4. Update state: status = 'embedding'
     5. Chunk the content (chunking service)
     6. Call embedding API for all chunks (embedding service)
-    7. Store chunks + embeddings in content_chunks
-    8. Update entity body_hash
+    7. INSERT new chunks into content_chunks (with new body_hash)
+    8. Update state: active_body_hash = new body_hash, status = 'embedded'
+    9. DELETE old chunks where body_hash != active_body_hash
+    10. Steps 7-9 in a single transaction — old chunks survive until new ones are committed
+
+    If the worker crashes between 7 and 9, old chunks remain active (active_body_hash
+    still points to them). New orphan chunks (with non-active body_hash) are cleaned
+    up by the stale detection task (M6).
     """
     ...
 
 async def worker_loop():
     settings = get_settings()
-    r = redis.from_url(settings.redis_url)
+    redis = get_redis_client()
     sem = asyncio.Semaphore(CONCURRENCY)
     shutdown = asyncio.Event()
+    tasks = set()  # track in-flight tasks for clean shutdown
 
     def handle_signal():
         logger.info("Shutdown signal received, finishing current jobs...")
@@ -324,38 +363,55 @@ async def worker_loop():
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, handle_signal)
 
+    # On startup, reclaim any stale jobs from the processing queue
+    # (left behind by a previous crash)
+    await reclaim_stale_processing_jobs(redis)
+
     logger.info("Embedding worker started (concurrency=%d)", CONCURRENCY)
 
     while not shutdown.is_set():
-        # BRPOP blocks until a job arrives (no polling, no CPU waste)
-        result = await r.brpop("embed_jobs", timeout=5)
-        if result is None:
+        # BRPOPLPUSH atomically moves job from embed_jobs to embed_jobs_processing
+        # Job stays in processing queue until explicitly removed on success
+        raw = await redis.brpoplpush("embed_jobs", "embed_jobs_processing", timeout=5)
+        if raw is None:
             continue  # timeout — check shutdown flag and loop
 
-        job_data = json.loads(result[1])
-
-        async def handle(data):
+        async def handle(raw_data):
             async with sem:
                 try:
+                    data = json.loads(raw_data)
                     await process_job(data)
+                    # Success — remove from processing queue
+                    await redis.lrem("embed_jobs_processing", 1, raw_data)
                 except Exception as e:
+                    data = json.loads(raw_data) if isinstance(raw_data, (str, bytes)) else {}
                     retries = data.get("retries", 0)
+                    # Remove from processing queue regardless
+                    await redis.lrem("embed_jobs_processing", 1, raw_data)
                     if retries < MAX_RETRIES:
                         data["retries"] = retries + 1
                         delay = 2 ** retries  # 1s, 2s, 4s
                         await asyncio.sleep(delay)
-                        await r.lpush("embed_jobs", json.dumps(data))
+                        await redis.lpush("embed_jobs", json.dumps(data))
                         logger.warning("Retrying job (attempt %d): %s", retries + 1, e)
                     else:
+                        # Dead letter — permanently failed, inspectable
+                        await redis.lpush("embed_jobs_dead", json.dumps(data))
                         logger.error("Job failed after %d retries: %s", MAX_RETRIES, e, exc_info=True)
 
-        asyncio.create_task(handle(job_data))
+        t = asyncio.create_task(handle(raw))
+        tasks.add(t)
+        t.add_done_callback(tasks.discard)
 
-    await r.aclose()
+    # Wait for in-flight tasks to complete before shutting down
+    if tasks:
+        logger.info("Waiting for %d in-flight tasks...", len(tasks))
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     logger.info("Embedding worker shut down")
 ```
 
-**Enqueue helper** (`worker/enqueue.py`):
+**Enqueue helper** (add to `core/redis.py` or `worker/enqueue.py`):
 
 ```python
 async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user_id: str):
@@ -372,10 +428,20 @@ async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user
 - Do NOT call on archive/unarchive/soft-delete — content hasn't changed
 - Only trigger when content-relevant fields change (title, description, content, summary, name)
 
-**Chunk lifecycle:**
-- On entity update: compute body_hash → if unchanged, skip. Otherwise delete all existing chunks, re-chunk, re-embed.
-- On entity hard-delete: delete all chunks for that entity (add to orphan cleanup or handle in service layer)
+Integration points (all 6 must be wired):
+- `bookmark_service.create()` — after flush
+- `bookmark_service.update()` — after flush, only if content fields changed
+- `note_service.create()` — after flush
+- `note_service.update()` — after flush, only if content fields changed
+- `prompt_service.create()` — after flush
+- `prompt_service.update()` — after flush, only if content fields changed
+
+**Chunk lifecycle (two-phase swap):**
+- On entity update: check `content_embedding_state.active_body_hash` → if unchanged, skip. Otherwise insert new chunks, update `active_body_hash`, delete old chunks — all in one transaction. Entity always has valid embeddings (old or new), never zero.
+- On entity hard-delete: delete all chunks and the state row for that entity
 - On soft-delete: leave chunks in place (entity might be restored)
+
+**Concurrent job deduplication:** If two jobs arrive for the same entity (rapid successive edits), the `body_hash` check in `content_embedding_state` is the natural deduplication. The second job computes the hash, finds it matches `active_body_hash` (set by the first job), and skips. No explicit job dedup needed.
 
 **Railway deployment:**
 - New service using the same Docker image, different start command:
@@ -388,17 +454,23 @@ async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user
 ### Testing Strategy
 - Worker processes a job and produces correct chunks + embeddings (mock embedding API)
 - Worker retries on embedding API failure with exponential backoff
-- Worker respects max retries — after 3 failures, job is dropped with error log
-- Max retries exceeded → entity still works, just no embeddings
+- Worker respects max retries — after 3 failures, job goes to dead letter queue
+- Max retries exceeded → entity retains old embeddings (two-phase swap), just no updated ones
 - Body hash unchanged → skip embedding entirely (no API calls, no DB writes)
-- Content update triggers re-chunking (old chunks deleted, new chunks created)
+- Two-phase swap: new chunks inserted before old ones deleted; entity always has valid embeddings
+- Worker crash mid-embedding → old chunks remain active, new orphan chunks cleaned by M6
+- content_embedding_state updated correctly: status transitions (pending → embedding → embedded/failed)
 - Non-content update (archive, last_used_at) does NOT trigger embedding
-- Hard-delete cleans up associated chunks
+- Hard-delete cleans up associated chunks and state row
 - Soft-delete preserves chunks
 - Restore does NOT re-trigger embedding (chunks still valid)
 - Worker handles entity not found (deleted between enqueue and execution)
-- Worker handles concurrent updates (entity changed while embedding was in progress)
-- Graceful shutdown: SIGTERM finishes in-progress jobs before exiting
+- Duplicate jobs for same entity: second job skips via body_hash check
+- Malformed job data (bad JSON) → logged error, not crash
+- Dead letter: permanently failed job appears in `embed_jobs_dead` with error context
+- BRPOPLPUSH: job moves to processing queue before execution, removed on success
+- Worker startup reclaims stale jobs from processing queue (crash recovery)
+- Graceful shutdown: SIGTERM waits for in-flight tasks before exiting
 - Concurrency: multiple jobs process in parallel up to semaphore limit
 - Job serialization round-trip: enqueue → dequeue → parse works with UUID strings
 
@@ -434,7 +506,7 @@ Implement vector similarity search and combine it with existing FTS using Recipr
 
 ### Implementation Outline
 
-**Vector search function** (`services/content_service.py` or new `services/vector_search_service.py`):
+**Vector search function** (`services/vector_search_service.py`):
 
 ```python
 async def vector_search(
@@ -454,29 +526,58 @@ async def vector_search(
 
 **Hybrid search with RRF:**
 
+The whole point of semantic search is **recall** — finding "login flow" when the user searches "auth." If we only rerank FTS results, we never surface items that FTS missed. RRF merge preserves recall while respecting filters.
+
 ```python
-async def hybrid_search(db, user_id, query, embedding_service, limit=20):
-    # 1. FTS search (existing)
-    fts_results = await fts_search(db, user_id, query, limit=100)
+async def hybrid_search(
+    db, user_id, query, embedding_service,
+    tags, tag_match, view, filter_expression, content_types,
+    sort_by, sort_order, offset, limit,
+):
+    # 1. Run existing search_all_content() pipeline (FTS + all filters)
+    fts_results, fts_total = await search_all_content(
+        db, user_id, query, tags=tags, tag_match=tag_match,
+        view=view, filter_expression=filter_expression,
+        content_types=content_types,
+        sort_by="relevance", sort_order="desc",
+        offset=0, limit=100,  # overfetch for RRF merge
+    )
 
     # 2. Embed the query
     query_embedding = await embedding_service.embed_single(query)
 
-    # 3. Vector search
-    vec_results = await vector_search(db, user_id, query_embedding, limit=100)
+    # 3. Vector search (scoped to user_id + entity_types only)
+    vec_results = await vector_search(db, user_id, query_embedding,
+                                       entity_types=content_types, limit=100)
 
-    # 4. RRF merge
+    # 4. Filter-check vector-only results
+    # Vector results not in the FTS set may violate tag/view/filter constraints.
+    # Do a lightweight filter check on this small set (~10-20 entities) before including.
+    vec_only = [r for r in vec_results if (r.entity_type, r.entity_id) not in fts_set]
+    vec_only_filtered = await filter_check(db, user_id, vec_only, tags, tag_match, view, filter_expression)
+
+    # 5. RRF merge
     k = 60
     scores = {}
     for rank, item in enumerate(fts_results):
         scores[(item.entity_type, item.entity_id)] = 1.0 / (k + rank)
-    for rank, (entity_type, entity_id, _) in enumerate(vec_results):
+    for rank, (entity_type, entity_id, _) in enumerate(vec_results_filtered):
         key = (entity_type, entity_id)
         scores[key] = scores.get(key, 0) + 1.0 / (k + rank)
 
-    # 5. Return merged, sorted by combined score
+    # 6. Sort by combined RRF score, then paginate
+    merged = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    page = merged[offset:offset + limit]
+
+    # 7. Hydrate into ContentListItem shape (load full entity data for the page)
     ...
 ```
+
+**Key design choices:**
+- FTS runs through the existing `search_all_content()` pipeline with all filters applied — tag, view, content type, filter expression. No filter logic is duplicated.
+- Vector search runs a separate query scoped to user_id + entity_types. It does not apply tag/view/filter constraints (HNSW can't do this efficiently).
+- Vector-only results (semantic matches that FTS missed) get a lightweight filter check before entering the RRF merge. This is a small query on ~10-20 entities — trivial cost.
+- RRF merge and pagination happen **before** hydrating full entity data. Only the final page of results is loaded.
 
 **Tier gating:**
 - Hybrid search (FTS + vector) is Pro tier only
@@ -493,6 +594,10 @@ async def hybrid_search(db, user_id, query, embedding_service, limit=20):
 - If a specific entity has no embeddings → it can still appear via FTS
 - If no entities have embeddings yet (fresh deploy, backfill pending) → FTS-only
 
+**Known scaling limitation:** pgvector's HNSW index scans globally across all users, then post-filters by `user_id`. At current scale (beta, small user count) this is fine. At larger scale, two options:
+1. **Overfetch + post-filter** (current approach): Set a higher HNSW limit (e.g., 500) to compensate for filtered-out rows. Works for moderate user counts.
+2. **Partitioned tables**: Partition `content_chunks` by `user_id` with per-partition HNSW indexes. PostgreSQL 17 supports this natively. Required if user count grows significantly.
+
 **TODO:** Embedding the query adds ~200-500ms latency per search request (OpenAI API round-trip). Evaluate whether this is acceptable, or if query embedding caching is needed for common/repeated queries.
 
 ### Testing Strategy
@@ -500,7 +605,10 @@ async def hybrid_search(db, user_id, query, embedding_service, limit=20):
 - Vector search is scoped to user_id (multi-tenant isolation)
 - RRF scoring: item in both FTS and vector results scores higher than item in only one
 - RRF scoring: item in only FTS still appears in results
-- RRF scoring: item in only vector results still appears in results
+- RRF scoring: vector-only result (semantic match FTS missed) appears in results after filter check
+- Vector-only result that violates tag/view filter is excluded from merge
+- Hybrid search respects all existing filters: tags, tag_match, view, content_types, filter_expression
+- Pagination on merged results works correctly (offset/limit applied after RRF merge)
 - Hybrid search falls back to FTS when embedding API is unavailable
 - Hybrid search falls back to FTS when embeddings not configured
 - Free tier user → FTS-only, no vector search or embedding API call
@@ -546,30 +654,43 @@ async def backfill_embeddings(
 - Progress logging: `Processed 50/345 entities...`
 
 **Stale detection** (add to existing `tasks/cleanup.py` or new periodic task):
-- Query: entities where `body_hash` doesn't match the hash of current embeddable content (or where no chunks exist)
+- Query `content_embedding_state` for entities where `active_body_hash` doesn't match the hash of current embeddable content, or where status = 'failed', or where no state row exists
 - Enqueue embedding jobs to Redis for stale entities (same queue the async worker listens to)
 - Run as part of the daily cleanup cron, or as a separate periodic task
 - Only checks Pro tier users
+- Also serves as safety net for worker crashes and extended API outages
+
+**Orphan chunk cleanup:**
+- Delete chunks where `body_hash` doesn't match the `active_body_hash` in `content_embedding_state` for that entity. These are leftover from crashed two-phase swaps (M4) where new chunks were inserted but the swap never completed.
+- Can run as part of stale detection or as a separate cleanup step.
 
 **Monitoring query:**
 ```sql
--- Entities without embeddings (Pro tier users only)
+-- Embedding status overview (Pro tier users only)
+SELECT status, count(*) FROM content_embedding_state
+WHERE entity_type IN ('bookmark', 'note', 'prompt')
+GROUP BY status;
+
+-- Entities with no embedding state at all
 SELECT entity_type, count(*) FROM (
-    SELECT 'bookmark' as entity_type, id FROM bookmarks WHERE deleted_at IS NULL
-    AND id NOT IN (SELECT entity_id FROM content_chunks WHERE entity_type = 'bookmark')
+    SELECT 'bookmark' as entity_type, id FROM bookmarks
+    WHERE deleted_at IS NULL
+    AND id NOT IN (SELECT entity_id FROM content_embedding_state WHERE entity_type = 'bookmark')
     UNION ALL ...
 ) pending GROUP BY entity_type;
 ```
 
 ### Testing Strategy
-- Backfill processes all Pro tier entities without chunks
-- Backfill skips entities that already have current chunks (body_hash matches)
+- Backfill processes all Pro tier entities without embedding state
+- Backfill skips entities where active_body_hash matches current content
 - Backfill skips free tier users' content
 - Backfill handles empty database (no entities)
 - Backfill respects entity_types filter
 - Backfill is idempotent (running twice produces same result)
-- Stale detection finds entities where body_hash doesn't match current content
+- Stale detection finds entities where active_body_hash doesn't match current content
+- Stale detection picks up entities with status = 'failed'
 - Stale detection enqueues jobs to Redis (not direct embedding)
+- Orphan chunk cleanup removes chunks from crashed swaps
 - Backfill handles API failures gracefully (skips failed entities, continues)
 - Progress logging works correctly
 - Batch size is respected
