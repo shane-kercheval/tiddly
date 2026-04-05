@@ -55,7 +55,7 @@ async def complete(
     limits: TierLimits = Depends(get_current_limits),
     llm_api_key: str | None = Depends(get_llm_api_key),
 ):
-    config = llm_service.resolve_config(AIUseCase.COMPLETION, llm_api_key)
+    config = llm_service.resolve_config(AIUseCase.AUTO_COMPLETE, llm_api_key)
     # Build messages from prompt template + prefix/suffix
     # Call llm_service.complete(...)
     # Track cost via Redis

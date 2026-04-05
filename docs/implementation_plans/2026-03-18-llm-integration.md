@@ -58,7 +58,7 @@ class KeySource(StrEnum):
 class AIUseCase(StrEnum):
     SUGGESTIONS = "suggestions"   # tags, title, description, relationships — fast & cheap
     TRANSFORM = "transform"       # improve, summarize, explain — medium quality
-    COMPLETION = "completion"     # auto-complete — fast & cheap
+    AUTO_COMPLETE = "auto_complete"  # editor auto-complete — fast & cheap
     CHAT = "chat"                 # conversational — higher quality
 
 class LLMConfig(BaseModel):
@@ -81,9 +81,9 @@ class LLMService:
                 api_key=self._resolve_platform_key(settings.llm_model_transform, settings),
                 key_source=KeySource.PLATFORM,
             ),
-            AIUseCase.COMPLETION: LLMConfig(
-                model=settings.llm_model_completion,
-                api_key=self._resolve_platform_key(settings.llm_model_completion, settings),
+            AIUseCase.AUTO_COMPLETE: LLMConfig(
+                model=settings.llm_model_auto_complete,
+                api_key=self._resolve_platform_key(settings.llm_model_auto_complete, settings),
                 key_source=KeySource.PLATFORM,
             ),
             AIUseCase.CHAT: LLMConfig(
@@ -98,7 +98,7 @@ class LLMService:
         "gemini/": "gemini_api_key",
         "anthropic/": "anthropic_api_key",
         "openai/": "openai_api_key",
-        "gpt-": "openai_api_key",
+        "gpt-": "openai_api_key",  # Legacy OpenAI names without prefix — verify if still needed with current LiteLLM
     }
 
     @staticmethod
@@ -182,7 +182,7 @@ Add new env vars — per-use-case models + per-provider API keys:
 # LLM models per use case
 llm_model_suggestions: str = "gemini/gemini-2.5-flash-lite"
 llm_model_transform: str = "gemini/gemini-2.5-flash-lite"
-llm_model_completion: str = "gemini/gemini-2.5-flash-lite"
+llm_model_auto_complete: str = "gemini/gemini-2.5-flash-lite"
 llm_model_chat: str = "gemini/gemini-2.5-flash"
 
 # Provider API keys (only needed for providers referenced by models above)
@@ -214,7 +214,7 @@ Proposed values:
 |------|--------|--------|-------------|-------------|
 | Free | 0 | 0 | 0 | 0 |
 | Standard | 0 | 0 | 0 | 0 |
-| Pro | 15 | 100 | 60 | 1000 |
+| Pro | 30 | 500 | 120 | 2000 |
 | Dev | 1000 | 10000 | 1000 | 10000 |
 
 #### 4. Rate limit integration
@@ -293,12 +293,12 @@ async def track_cost(
 
 #### 6. Hourly cost flush — DB table + Railway cron
 
-**DB table** (`ai_usage`) — single-grain fact table with hourly buckets (requires Alembic migration):
+**DB table** (`ai_usage`) — single-grain fact table with hourly buckets. Generate the migration via `make migration msg='add ai_usage table'` — **never create Alembic migrations manually** (this has been a source of issues).
 
 ```
 bucket_start    TIMESTAMPTZ     -- truncated to hour
 user_id         UUID NOT NULL
-use_case        VARCHAR         -- suggestions, chat, completion, transform
+use_case        VARCHAR         -- suggestions, chat, auto_complete, transform
 model           VARCHAR         -- gemini/gemini-2.5-flash-lite, etc.
 key_source      VARCHAR         -- platform, user
 request_count   INT
@@ -308,20 +308,52 @@ UNIQUE (bucket_start, user_id, use_case, model, key_source)
 
 One grain, one table. Global analytics (total cost by model, cost by use case) are derived via `GROUP BY` — no mixed-grain rows with `user_id = NULL`. Hourly buckets provide enough resolution for operational monitoring without excessive row count.
 
-**Extend the existing `run_cleanup()` in `backend/src/tasks/cleanup.py`** to include AI usage flushing as a new phase. Change the Railway cron schedule from daily (`30 0 * * *`) to hourly (`30 * * * *`). The existing cleanup phases (trash, history) are cheap and idempotent, so running them hourly is harmless.
+##### Flush function
 
-Add AI flush as the first phase (time-sensitive due to 7-day TTL), before the existing cleanup phases:
-1. **Flush AI usage from Redis to DB** (new)
-2. Cleanup trash (soft-deleted items past retention) (existing)
-3. Cleanup old history records (existing)
-
-Each task logs its results. If one fails, it logs the error and continues to the next (existing pattern).
+Create `async def flush_ai_usage(db: AsyncSession, redis: RedisClient) -> None` in a new module `backend/src/tasks/ai_usage_flush.py`. This is a standalone, independently testable function — it does not depend on or call `run_cleanup()`.
 
 The flush step:
 1. Scan for the previous hour's Redis keys (`ai_stats:user:*:{previous_hour}` and `ai_stats:detail:{previous_hour}:*`)
 2. Read all hashes
 3. Upsert rows into `ai_usage` (`INSERT ON CONFLICT UPDATE`, incrementing `request_count` and `total_cost`)
-4. Delete processed keys only after successful DB write
+4. Delete processed Redis keys only after successful DB write
+5. Log summary: number of keys processed, total cost flushed
+
+The module also has a `main()` entrypoint for cron invocation:
+
+```python
+async def main() -> None:
+    """Entrypoint for Railway cron. Creates its own DB and Redis sessions."""
+    async with get_db_session() as db, get_redis_client() as redis:
+        await flush_ai_usage(db, redis)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+This follows the same pattern as `backend/src/tasks/cleanup.py` which has its own `main()` for cron invocation.
+
+##### Railway deployment
+
+This is a **separate Railway cron service** from the existing cleanup cron. The AI flush runs hourly; the existing cleanup runs daily. Each has one responsibility, one schedule, one failure mode.
+
+**New Railway cron service — "AI Usage Flush":**
+- Dockerfile: `Dockerfile.api` (same as API and cleanup — shares all backend code)
+- Start command: `uv run python -m tasks.ai_usage_flush`
+- Schedule: `30 * * * *` (every hour at :30)
+- Environment: same env vars as API service (needs DB + Redis connection strings)
+
+**Existing cleanup cron service** — unchanged:
+- Schedule remains: `30 0 * * *` (daily at 00:30 UTC)
+- No modifications needed
+
+To set up the new cron service in Railway:
+1. In the Railway project dashboard, click "New Service" → "Cron Job"
+2. Point it at the same repo/branch as the API service
+3. Set Dockerfile to `Dockerfile.api`
+4. Set start command to `uv run python -m tasks.ai_usage_flush`
+5. Set schedule to `30 * * * *`
+6. Copy the environment variables from the API service (or use Railway's shared variables)
 
 **Note:** `litellm` must be moved from dev dependencies to main dependencies in `pyproject.toml` before deploying (currently only installed with `--no-dev` excluded).
 
@@ -405,12 +437,13 @@ Add `app.include_router(ai_router)` alongside existing routers.
   - Correct key format: `ai_stats:user:{user_id}:{hour}` and `ai_stats:detail:{hour}:{use_case}:{model}:{key_source}`
   - TTL is set on keys
 
-- **Unit tests for cost flush cron:**
-  - Reads previous hour's Redis keys → upserts correct rows to `ai_usage` table
+- **Unit tests for `flush_ai_usage()` (tested independently, not via `run_cleanup`):**
+  - Seed Redis with known hourly keys → flushes correct rows to `ai_usage` table
   - Handles empty Redis (no keys for previous hour) gracefully
   - Upserts increment `request_count` and `total_cost` on conflict
   - Deletes processed Redis keys after successful DB write
   - Handles DB write failure → does not delete Redis keys (data preserved for retry)
+  - Logs summary with keys processed and total cost flushed
 
 - **Integration tests for `/ai/health`:**
   - Pro user → `available: true`, `remaining_daily` and `limit_daily` present
@@ -560,12 +593,24 @@ New Zustand store (`stores/aiStore.ts`) for:
 - `setApiKey(key)` / `clearApiKey()` — persist to/from localStorage
 - `isConfigured: boolean` — derived: true if BYOK key is set
 
-New settings page named "LLM Settings" (distinct from the existing "AI Integration" page which is MCP-focused):
-- API key input (masked, with show/hide toggle)
-- Provider/model selection (only enabled when API key is set)
-- Model dropdown: curated short list + "Custom" text field for power users
-- Clear key button
-- Test connection button (calls `/ai/health` with the key)
+New settings page named "LLM Settings" (distinct from the existing "AI Integration" page which is MCP-focused). The page has two states depending on whether the user has entered a BYOK key:
+
+**Default state (no BYOK key):**
+- Shows the platform model name (e.g. "Gemini 2.5 Flash Lite") as read-only text — not a dropdown, since there's nothing to select
+- A brief note: "Included with your Pro plan. To use a different model, provide your own API key below."
+- API key input section (see below)
+
+**BYOK state (key entered):**
+- Model dropdown becomes active — curated short list of known-compatible models (e.g. GPT-4o, Claude Sonnet, Gemini Flash) plus a "Custom" option with a free-text field for power users
+- Note next to dropdown: "Suggestion features require models that support structured output." (Links to the BYOK docs or a tooltip listing compatible models.)
+- The platform model is still shown as a label (e.g. "Default: Gemini 2.5 Flash Lite") so the user knows what they're overriding
+
+**API key section (always visible):**
+- Input field (masked by default, with show/hide toggle)
+- Clear key button (only shown when a key is set)
+- Test connection button — calls `/ai/health` with the key, shows success/failure
+- Info text: "Your API key is stored only in this browser's local storage. It is never sent to our servers — it is passed directly to the LLM provider. If you use a different browser or device, you'll need to enter it again."
+- Note: "When using your own key, API calls are billed directly by your provider."
 
 #### 2. Tag suggestion UI
 
@@ -622,8 +667,11 @@ AI features should be hidden/disabled for users whose tier doesn't support them.
   - Tag suggestion button: click → loading state → shows suggested tags → click tag adds it
   - Tag suggestion button: hidden for non-Pro users
   - Metadata suggestion: shows preview, accept replaces fields
-  - AI settings: entering key persists to localStorage, clearing removes it
-  - AI settings: test connection button calls health endpoint
+  - AI settings (default state): shows platform model as read-only, model dropdown not active
+  - AI settings (BYOK state): entering key persists to localStorage, model dropdown becomes active
+  - AI settings: clearing key removes from localStorage, reverts to default state
+  - AI settings: test connection button calls `/ai/health` with the key, shows success/failure
+  - AI settings: info text about localStorage-only storage is visible
 
 - **API integration tests (mock API responses):**
   - BYOK header included when key is configured
@@ -668,9 +716,9 @@ When AI rate limits are added, update:
 ### Cost Management
 
 - **Real-time tracking:** Redis hashes accumulate cost + count per user and per use-case/model/key-source with hourly buckets (see Milestone 1, section 5)
-- **Historical data:** Hourly Railway cron flushes Redis to `ai_usage` DB table (see Milestone 1, section 6)
+- **Historical data:** Separate hourly Railway cron service flushes Redis to `ai_usage` DB table (see Milestone 1, section 6)
 - **Cost calculation:** Both streaming and non-streaming use `completion_cost(completion_response=response)` — the public LiteLLM API. Do not use `_hidden_params` (private, unstable across versions).
 - **Audit trail:** Every LLM call emits a structured info log with metadata (user_id, use_case, model, key_source, cost, latency). Never log prompts, completions, or API keys.
-- Set a monthly budget alert on the Gemini API key
+- CRITICAL: Remind the engineer to set a monthly budget alert on the Gemini API key
 - Consider a daily platform cost cap that disables platform AI if exceeded (emergency brake) — can be checked against Redis per-user key before each call
 - Content snippet truncation: enforced via `max_length` on Pydantic request schemas (see Milestone 2 §1)
