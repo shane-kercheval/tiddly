@@ -104,6 +104,11 @@ _PROVIDER_KEY_MAP: list[tuple[str, str]] = [
     ("anthropic/", "anthropic_api_key"),
 ]
 
+# Allowlist of supported model IDs for BYOK model selection.
+# Prevents SSRF: LiteLLM interprets model strings as provider routing directives,
+# so arbitrary strings could route server requests to attacker-controlled endpoints.
+_SUPPORTED_MODEL_IDS: set[str] = {d["id"] for d in _SUPPORTED_MODEL_DEFS}
+
 
 def _resolve_platform_key(model: str, settings: Settings) -> str:
     """Determine which provider API key to use based on model prefix.
@@ -221,8 +226,12 @@ class LLMService:
 
         - If user provides a key: use their key + their model (or use-case default model)
         - Otherwise: use platform key + use-case model (ignore user model choice)
+
+        Raises ValueError if user_model is not in the supported models allowlist.
         """
         if user_api_key:
+            if user_model and user_model not in _SUPPORTED_MODEL_IDS:
+                raise ValueError(f"Unsupported model: {user_model}")
             return LLMConfig(
                 model=user_model or self._platform_configs[use_case].model,
                 api_key=user_api_key,

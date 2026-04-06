@@ -170,6 +170,26 @@ class TestResolveConfig:
         assert config.api_key == "user-key-123"
         assert config.key_source == KeySource.USER
 
+    def test_unsupported_user_model_raises(self) -> None:
+        """Arbitrary model strings are rejected to prevent SSRF via LiteLLM routing."""
+        service = LLMService(_make_settings())
+        with pytest.raises(ValueError, match="Unsupported model"):
+            service.resolve_config(
+                AIUseCase.SUGGESTIONS,
+                user_api_key="user-key-123",
+                user_model="openai/evil-model-with-custom-base",
+            )
+
+    def test_unsupported_model_without_key_ignored(self) -> None:
+        """Unsupported model without BYOK key is silently ignored (platform default used)."""
+        service = LLMService(_make_settings())
+        config = service.resolve_config(
+            AIUseCase.SUGGESTIONS,
+            user_model="openai/evil-model",
+        )
+        assert config.model == "gemini/gemini-2.5-flash-lite"
+        assert config.key_source == KeySource.PLATFORM
+
     def test_user_model_ignored_without_user_key(self) -> None:
         service = LLMService(_make_settings())
         config = service.resolve_config(

@@ -111,6 +111,8 @@ class LLMService:
                 return getattr(settings, key_attr)
         raise ValueError(f"Unknown model prefix: {model}. Add mapping to _PROVIDER_KEY_MAP.")
 
+    _SUPPORTED_MODEL_IDS = {d["id"] for d in _SUPPORTED_MODEL_DEFS}
+
     def resolve_config(
         self,
         use_case: AIUseCase,
@@ -120,8 +122,11 @@ class LLMService:
         """Determine which key and model to use.
         - If user provides a key: use their key + their model (or use-case default model)
         - Otherwise: use platform key + use-case model (ignore user model choice)
+        - user_model is validated against the supported models allowlist (SSRF prevention)
         """
         if user_api_key:
+            if user_model and user_model not in self._SUPPORTED_MODEL_IDS:
+                raise ValueError(f"Unsupported model: {user_model}")
             return LLMConfig(
                 model=user_model or self._platform_configs[use_case].model,
                 api_key=user_api_key,
@@ -172,6 +177,7 @@ class LLMService:
 - **Singleton via lifespan** — created in `lifespan()`, stored in `app.state`, exposed via a `get_llm_service()` dependency function (same pattern as `RedisClient`). `__init__` takes `Settings`, so it can't be instantiated at module level.
 - **Use-case model mapping** — each `AIUseCase` maps to a model via env vars. Changing a use case's model is a config change, not a code change.
 - **Provider key resolution** — `_PROVIDER_KEY_MAP` is an explicit dict mapping model prefixes to settings attribute names. No string parsing or implicit conventions — adding a new provider is one dict entry. First matching prefix wins.
+- **BYOK model allowlist** — `resolve_config()` validates `user_model` against the curated `_SUPPORTED_MODEL_DEFS` allowlist before accepting it. This prevents SSRF: LiteLLM interprets model strings as provider routing directives (e.g. `openai/<model>` with custom `api_base`), so an arbitrary string could direct server-originated HTTP requests to attacker-controlled endpoints. The allowlist eliminates this by restricting BYOK model selection to known, vetted model IDs. Raises `ValueError` for unsupported models. The UI constrains choices via a dropdown, but the API is directly callable by any authenticated user.
 - **Timeout + retry** — `complete()` has a 30s timeout and `num_retries=1` (idempotent, safe to retry transient 500s). `stream()` has a 60s timeout and no retries (streaming retries are complex with partial responses).
 - **Cost via public API** — both streaming and non-streaming use `completion_cost()` (not `_hidden_params` which is private and has broken across LiteLLM versions).
 
@@ -330,7 +336,8 @@ Add `app.include_router(ai_router)` alongside existing routers.
   - `resolve_config(SUGGESTIONS)` returns platform config with correct model
   - `resolve_config(CHAT)` returns a different model than `resolve_config(SUGGESTIONS)` (when configured differently)
   - `resolve_config` with user key → `KeySource.USER`, uses user's key
-  - `resolve_config` with user key + user model → uses both
+  - `resolve_config` with user key + supported user model → uses both
+  - `resolve_config` with user key + unsupported user model → raises `ValueError` (SSRF prevention via allowlist)
   - `resolve_config` with user key + no model → falls back to use-case default model
   - `resolve_config` without user key → `KeySource.PLATFORM`, ignores user model choice
   - `_resolve_platform_key` correctly maps `gemini/...` → gemini key, `anthropic/...` → anthropic key, `gpt-...` → openai key
