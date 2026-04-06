@@ -36,11 +36,12 @@ async def apply_ai_rate_limit(
     llm_api_key: str | None = Depends(get_llm_api_key),
 ) -> None:
     """
-    Enforce AI rate limiting based on BYOK header.
+    Enforce AI rate limiting for BYOK calls.
 
-    Selects AI_PLATFORM or AI_BYOK bucket and checks rate limit.
+    Returns early if no BYOK key is present (no quota consumed).
     Stores result in request.state for rate limit headers middleware.
-    Only applied to endpoints that make LLM calls — requires BYOK key.
+    Note: platform AI rate limiting is added in Milestone 2 when
+    platform AI endpoints (suggest-tags, etc.) are introduced.
     """
     if not llm_api_key:
         return
