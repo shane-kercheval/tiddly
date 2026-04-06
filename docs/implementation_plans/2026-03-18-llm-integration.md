@@ -17,7 +17,7 @@ Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction l
 - **BYOK (Bring Your Own Key)** lets users bypass platform rate limits and choose their own model/provider
 - **User API keys** stored in browser `localStorage`, passed via `X-LLM-Api-Key` header, never persisted server-side
 - **All AI endpoints** live under a new `/ai/` router
-- **Milestone structure:** 1a (LLM Service + Router) → 1b (Rate Limiting) → 1c (Cost Tracking) → 2 (Suggestion Backend) → 3 (Suggestion Frontend). Each is independently deployable and testable.
+- **Milestone structure:** 1a (LLM Service + Router) → 1b (Rate Limiting) → 1c (Cost Tracking) → 2 (Suggestion Backend) → 3 (Suggestion Frontend) → 4 (Deployment & Verification). Each code milestone is independently deployable and testable. The deployment milestone is done after merging to main.
 
 **References:**
 - LiteLLM docs: https://docs.litellm.ai/docs/
@@ -615,27 +615,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-##### Railway deployment
-
-This is a **separate Railway cron service** from the existing cleanup cron. The AI flush runs hourly; the existing cleanup runs daily. Each has one responsibility, one schedule, one failure mode.
-
-**New Railway cron service — "AI Usage Flush":**
-- Dockerfile: `Dockerfile.api` (same as API and cleanup — shares all backend code)
-- Start command: `uv run python -m tasks.ai_usage_flush`
-- Schedule: `30 * * * *` (every hour at :30)
-- Environment: same env vars as API service (needs DB + Redis connection strings)
-
-**Existing cleanup cron service** — unchanged:
-- Schedule remains: `30 0 * * *` (daily at 00:30 UTC)
-- No modifications needed
-
-To set up the new cron service in Railway:
-1. In the Railway project dashboard, click "New Service" → "Cron Job"
-2. Point it at the same repo/branch as the API service
-3. Set Dockerfile to `Dockerfile.api`
-4. Set start command to `uv run python -m tasks.ai_usage_flush`
-5. Set schedule to `30 * * * *`
-6. Copy the environment variables from the API service (or use Railway's shared variables)
+Railway deployment and verification are covered in the Deployment milestone at the end of this plan.
 
 ### Testing Strategy
 
@@ -1065,6 +1045,131 @@ AI features should be hidden/disabled for users whose tier doesn't support them.
 
 ---
 
+## Milestone 4: Deployment & Verification
+
+> **Depends on:** All code milestones merged to main.
+
+### Goal & Outcome
+
+After this milestone:
+
+- LLM provider API keys are configured in Railway
+- The AI usage flush cron job is running hourly
+- All AI infrastructure is verified working in production
+- Spend protection is configured at the provider level
+
+### Railway Configuration
+
+#### 1. API service — add LLM environment variables
+
+Add the following environment variables to the existing API service in Railway:
+
+```
+GEMINI_API_KEY=<your Google AI Studio key>
+OPENAI_API_KEY=<your OpenAI key>
+ANTHROPIC_API_KEY=<your Anthropic key>
+```
+
+These are the platform API keys used for Pro-tier AI features. BYOK users provide their own keys via the `X-LLM-Api-Key` header.
+
+Optional model overrides (defaults are fine for initial deployment):
+```
+LLM_MODEL_SUGGESTIONS=gemini/gemini-2.5-flash-lite
+LLM_MODEL_TRANSFORM=gemini/gemini-2.5-flash-lite
+LLM_MODEL_AUTO_COMPLETE=gemini/gemini-2.5-flash-lite
+LLM_MODEL_CHAT=gemini/gemini-2.5-flash
+```
+
+#### 2. Run the database migration
+
+After deploying the new code, run the Alembic migration to create the `ai_usage` table:
+
+```
+alembic upgrade head
+```
+
+This should happen automatically if Railway is configured to run migrations on deploy. Verify the table exists.
+
+#### 3. Create the AI Usage Flush cron service
+
+This is a **separate Railway cron service** from the existing cleanup cron. The AI flush runs hourly; the existing cleanup runs daily. Each has one responsibility, one schedule, one failure mode.
+
+1. In the Railway project dashboard, click "New Service" → "Cron Job"
+2. Point it at the same repo/branch as the API service
+3. Set Dockerfile to `Dockerfile.api`
+4. Set start command: `uv run python -m tasks.ai_usage_flush`
+5. Set schedule: `30 * * * *` (every hour at :30)
+6. Copy the environment variables from the API service (or use Railway's shared variables) — needs `DATABASE_URL` and `REDIS_URL` at minimum
+
+**Existing cleanup cron service** — unchanged:
+- Schedule remains: `30 0 * * *` (daily at 00:30 UTC)
+- No modifications needed
+
+#### 4. Configure provider spend protection
+
+**CRITICAL:** Set a project-level monthly spend cap in Google AI Studio (e.g. $50/month). Google enforces this at the provider level — service is suspended when the cap is reached. This eliminates the need for a custom circuit breaker.
+
+If OpenAI or Anthropic are added as platform providers in the future, configure equivalent spend controls on those platforms.
+
+### Verification Checklist
+
+After deployment, verify each component is working:
+
+#### AI endpoints are live
+
+```bash
+# Health check (requires Auth0 token)
+curl -H "Authorization: Bearer <token>" https://<api>/ai/health
+# Expected: {"available": true, "byok": false, "remaining_daily": ..., "limit_daily": ...}
+
+# Models endpoint
+curl -H "Authorization: Bearer <token>" https://<api>/ai/models
+# Expected: {"models": [...], "defaults": {...}} with 9 models
+```
+
+#### Validate-key works with a real key
+
+```bash
+curl -X POST -H "Authorization: Bearer <token>" \
+     -H "X-LLM-Api-Key: <a valid Gemini key>" \
+     https://<api>/ai/validate-key
+# Expected: {"valid": true}
+```
+
+#### Cost tracking writes to Redis
+
+After making a real AI call (once Milestone 2 endpoints exist), check Redis for `ai_stats:*` keys:
+
+```bash
+# Connect to Railway Redis and check for keys
+redis-cli SCAN 0 MATCH "ai_stats:*"
+```
+
+If no real AI calls are available yet, you can verify the flush cron runs successfully by checking its logs (it should log `ai_usage_flush: no keys found` on an empty Redis).
+
+#### Flush cron is running
+
+1. Check Railway dashboard → AI Usage Flush service → Deployments tab
+2. Verify the cron has run at least once (check logs)
+3. Expected log output: `ai_usage_flush: no keys found` (if no AI calls yet) or `ai_usage_flush: complete` with `keys_processed` and `total_cost_flushed`
+
+#### Database table exists
+
+```sql
+SELECT COUNT(*) FROM ai_usage;
+-- Should return 0 initially, rows appear after AI calls + flush
+```
+
+#### Rate limiting works
+
+```bash
+# Check that AI health returns remaining quota
+curl -H "Authorization: Bearer <token>" https://<api>/ai/health
+# remaining_daily and limit_daily should reflect tier limits
+```
+
+---
+
 ## Cross-Cutting Concerns
 
 ### Error Handling
@@ -1100,8 +1205,8 @@ When AI rate limits are added, update:
 ### Cost Management
 
 - **Real-time tracking:** Redis hashes accumulate cost + count per user and per use-case/model/key-source with hourly buckets (see Milestone 1c, section 1)
-- **Historical data:** Separate hourly Railway cron service flushes Redis to `ai_usage` DB table (see Milestone 1c, section 2)
+- **Historical data:** Separate hourly Railway cron service flushes Redis to `ai_usage` DB table (see Milestone 1c for code, Milestone 4 for deployment)
 - **Cost calculation:** Both streaming and non-streaming use `completion_cost(completion_response=response)` — the public LiteLLM API. Do not use `_hidden_params` (private, unstable across versions).
 - **Audit trail:** Every LLM call emits a structured info log with metadata (user_id, use_case, model, key_source, cost, latency). Never log prompts, completions, or API keys.
-- **CRITICAL — Platform spend protection:** Set a project-level monthly spend cap in Google AI Studio (e.g. $50/month). Google enforces this at the provider level — service is suspended when the cap is reached (with up to ~10 minute processing delay). This eliminates the need for a custom Redis-based circuit breaker. Document the spend cap value and how to adjust it in the deployment instructions. If OpenAI or Anthropic are added as platform providers in the future, configure equivalent spend controls on those platforms.
+- **CRITICAL — Platform spend protection:** See Milestone 4 §4. Set a project-level monthly spend cap in Google AI Studio. Google enforces this at the provider level — service is suspended when the cap is reached.
 - Content snippet truncation: enforced via `max_length` on Pydantic request schemas (see Milestone 2, section 1)
