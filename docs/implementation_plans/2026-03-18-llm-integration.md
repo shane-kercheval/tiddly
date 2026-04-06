@@ -358,6 +358,13 @@ Add `app.include_router(ai_router)` alongside existing routers.
   - Returns curated model list with id, name, provider, costs
   - Returns per-use-case defaults matching settings configuration
 
+- **Smoke tests per supported model (skipped if provider API key not set):**
+  - For each model in `SUPPORTED_MODELS`, make a minimal `complete()` call with a simple prompt and a Pydantic `response_format` (structured output)
+  - Assert: response is valid, structured output parses correctly, `completion_cost()` returns non-zero
+  - Skip via pytest marker per provider (e.g. `@pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"))`) so CI without keys still passes
+  - Run manually before deploys or on a schedule to catch provider/model changes early
+  - Also validates `_PROVIDER_KEY_MAP` mappings and LiteLLM model ID prefixes — if a prefix is wrong, the smoke test fails
+
 ---
 
 ## Milestone 1b: AI Rate Limiting
