@@ -15,11 +15,15 @@ logger = logging.getLogger(__name__)
 
 
 class KeySource(StrEnum):
+    """Source of the API key used for an LLM call."""
+
     PLATFORM = "platform"
     USER = "user"
 
 
 class AIUseCase(StrEnum):
+    """AI feature use cases, each mapping to a default model."""
+
     SUGGESTIONS = "suggestions"
     TRANSFORM = "transform"
     AUTO_COMPLETE = "auto_complete"
@@ -58,7 +62,8 @@ _SUPPORTED_MODEL_DEFS: list[dict] = [
 
 
 def _get_model_cost(model_id: str) -> dict | None:
-    """Look up cost info in litellm.model_cost.
+    """
+    Look up cost info in litellm.model_cost.
 
     LiteLLM's cost map uses prefixed keys for some providers (gemini/) but
     unprefixed keys for others (OpenAI, Anthropic). Try the full ID first,
@@ -74,7 +79,8 @@ def _get_model_cost(model_id: str) -> dict | None:
 
 
 def build_supported_models() -> list[dict]:
-    """Build the supported models list with pricing from LiteLLM's SDK.
+    """
+    Build the supported models list with pricing from LiteLLM's SDK.
 
     Called at startup. Pricing auto-updates with LiteLLM version bumps.
     """
@@ -111,7 +117,8 @@ _SUPPORTED_MODEL_IDS: set[str] = {d["id"] for d in _SUPPORTED_MODEL_DEFS}
 
 
 def _resolve_platform_key(model: str, settings: Settings) -> str:
-    """Determine which provider API key to use based on model prefix.
+    """
+    Determine which provider API key to use based on model prefix.
 
     Prefix-matched in order, first match wins. Raises ValueError for unknown prefix.
     """
@@ -125,22 +132,24 @@ def _resolve_platform_key(model: str, settings: Settings) -> str:
 # Response normalization
 # ---------------------------------------------------------------------------
 
-# O-series models (o1, o3, o4, etc.) only support temperature=1.
-_O_SERIES_PATTERN = re.compile(r"(?:^|/)o[1-9]")
+# Models that only support temperature=1. Hardcoded — no pattern matching.
+# The smoke test (test_llm_smoke.py) uses temperature=0 for all models,
+# so adding a new model that requires temperature=1 will be caught immediately.
+_TEMPERATURE_1_ONLY_MODELS: set[str] = {
+    "openai/o4-mini",
+}
 
 
 def _normalize_temperature(model: str, temperature: float) -> float:
-    """Clamp temperature to model-supported values.
-
-    OpenAI O-series models only accept temperature=1.
-    """
-    if _O_SERIES_PATTERN.search(model):
+    """Clamp temperature to model-supported values."""
+    if model in _TEMPERATURE_1_ONLY_MODELS:
         return 1.0
     return temperature
 
 
 def _sanitize_structured_content(response: object) -> None:
-    """Extract clean JSON from structured output responses.
+    """
+    Extract clean JSON from structured output responses.
 
     Some providers (notably Gemini 2.5) sometimes return preamble text or
     markdown fences around JSON even when response_format is set. This is a
@@ -222,7 +231,8 @@ class LLMService:
         user_api_key: str | None = None,
         user_model: str | None = None,
     ) -> LLMConfig:
-        """Determine which key and model to use.
+        """
+        Determine which key and model to use.
 
         - If user provides a key: use their key + their model (or use-case default model)
         - Otherwise: use platform key + use-case model (ignore user model choice)
@@ -247,7 +257,8 @@ class LLMService:
         temperature: float = 0.7,
         max_tokens: int | None = None,
     ) -> tuple[ModelResponse, float | None]:
-        """Non-streaming completion. Returns (response, cost).
+        """
+        Non-streaming completion. Returns (response, cost).
 
         Cost is None if cost calculation fails (e.g. model not in LiteLLM's
         pricing database). A successful LLM call never fails due to cost tracking.

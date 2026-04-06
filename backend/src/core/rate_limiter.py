@@ -18,6 +18,16 @@ from core.tier_limits import Tier, get_tier_limits
 
 logger = logging.getLogger(__name__)
 
+# Maps operation types to their daily Redis key pool name.
+# Shared between check_rate_limit and get_ai_rate_limit_status.
+_DAILY_POOL_MAP: dict[OperationType, str] = {
+    OperationType.READ: "general",
+    OperationType.WRITE: "general",
+    OperationType.SENSITIVE: "sensitive",
+    OperationType.AI_PLATFORM: "ai_platform",
+    OperationType.AI_BYOK: "ai_byok",
+}
+
 
 async def check_rate_limit(
     user_id: int,
@@ -41,8 +51,22 @@ async def check_rate_limit(
         config = RateLimitConfig(limits.rate_write_per_minute, limits.rate_write_per_day)
     elif operation_type == OperationType.SENSITIVE:
         config = RateLimitConfig(limits.rate_sensitive_per_minute, limits.rate_sensitive_per_day)
+    elif operation_type == OperationType.AI_PLATFORM:
+        config = RateLimitConfig(limits.rate_ai_per_minute, limits.rate_ai_per_day)
+    elif operation_type == OperationType.AI_BYOK:
+        config = RateLimitConfig(limits.rate_ai_byok_per_minute, limits.rate_ai_byok_per_day)
     else:
         raise ValueError(f"Unknown operation type: {operation_type}")
+
+    # Short-circuit for zero limits (e.g. FREE/STANDARD AI) — no Redis needed
+    if config.requests_per_minute == 0 or config.requests_per_day == 0:
+        return RateLimitResult(
+            allowed=False,
+            limit=0,
+            remaining=0,
+            reset=0,
+            retry_after=0,
+        )
 
     redis_client = get_redis_client()
     if redis_client is None or not redis_client.is_connected:
@@ -75,7 +99,7 @@ async def check_rate_limit(
         return minute_result
 
     # Check daily limit (fixed window - simpler, lower memory)
-    daily_pool = "sensitive" if operation_type == OperationType.SENSITIVE else "general"
+    daily_pool = _DAILY_POOL_MAP[operation_type]
     day_key = f"rate:{user_id}:daily:{daily_pool}"
     day_result = await _check_fixed_window(
         day_key, config.requests_per_day, 86400, now,
@@ -94,6 +118,54 @@ async def check_rate_limit(
 
     # Both passed - return the per-minute result (more relevant for headers)
     return minute_result
+
+
+async def get_ai_rate_limit_status(
+    user_id: int,
+    operation_type: OperationType,
+    tier: Tier,
+) -> RateLimitResult:
+    """
+    Read current daily AI rate limit status without consuming a request.
+
+    Returns the remaining daily quota for AI_PLATFORM or AI_BYOK.
+    Used by /ai/health to show quota without counting as a request.
+    """
+    limits = get_tier_limits(tier)
+
+    if operation_type == OperationType.AI_PLATFORM:
+        daily_limit = limits.rate_ai_per_day
+    elif operation_type == OperationType.AI_BYOK:
+        daily_limit = limits.rate_ai_byok_per_day
+    else:
+        raise ValueError(
+            f"get_ai_rate_limit_status only supports AI operation types, got: {operation_type}",
+        )
+
+    redis_client = get_redis_client()
+    if redis_client is None or not redis_client.is_connected:
+        return RateLimitResult(
+            allowed=True,
+            limit=daily_limit,
+            remaining=daily_limit,
+            reset=0,
+            retry_after=0,
+        )
+
+    day_key = f"rate:{user_id}:daily:{_DAILY_POOL_MAP[operation_type]}"
+
+    # Read the current counter without incrementing
+    count_str = await redis_client.get(day_key)
+    current_count = int(count_str) if count_str else 0
+    remaining = max(0, daily_limit - current_count)
+
+    return RateLimitResult(
+        allowed=remaining > 0,
+        limit=daily_limit,
+        remaining=remaining,
+        reset=0,
+        retry_after=0,
+    )
 
 
 async def _check_sliding_window(

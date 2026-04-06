@@ -3,8 +3,6 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-logger = logging.getLogger(__name__)
-
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -44,6 +42,8 @@ from core.redis import RedisClient, set_redis_client
 from db.session import engine
 from services.exceptions import FieldLimitExceededError, QuotaExceededError
 from services.llm_service import LLMService, set_llm_service
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -194,7 +194,10 @@ async def llm_auth_exception_handler(
     logger.warning("llm_auth_failed", extra={"error": str(exc)})
     return JSONResponse(
         status_code=422,
-        content={"detail": "LLM authentication failed. Check your API key.", "error_code": "llm_auth_failed"},
+        content={
+            "detail": "LLM authentication failed. Check your API key.",
+            "error_code": "llm_auth_failed",
+        },
     )
 
 
@@ -218,7 +221,10 @@ async def llm_rate_limit_exception_handler(
     logger.warning("llm_rate_limited", extra={"error": str(exc)})
     return JSONResponse(
         status_code=429,
-        content={"detail": "LLM provider rate limit exceeded. Try again later.", "error_code": "llm_rate_limited"},
+        content={
+            "detail": "LLM provider rate limit exceeded. Try again later.",
+            "error_code": "llm_rate_limited",
+        },
     )
 
 
@@ -242,7 +248,10 @@ async def llm_connection_exception_handler(
     logger.warning("llm_connection_error", extra={"error": str(exc)})
     return JSONResponse(
         status_code=502,
-        content={"detail": "Could not connect to LLM provider.", "error_code": "llm_connection_error"},
+        content={
+            "detail": "Could not connect to LLM provider.",
+            "error_code": "llm_connection_error",
+        },
     )
 
 

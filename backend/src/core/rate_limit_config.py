@@ -18,6 +18,8 @@ class OperationType(Enum):
     READ = "read"
     WRITE = "write"
     SENSITIVE = "sensitive"  # External HTTP calls, bulk operations
+    AI_PLATFORM = "ai_platform"  # AI endpoints using platform API key
+    AI_BYOK = "ai_byok"  # AI endpoints using user's own API key
 
 
 @dataclass

@@ -428,14 +428,19 @@ Add `AI_PLATFORM` and `AI_BYOK` to the `OperationType` enum in `rate_limit_confi
 2. Checks consent
 3. Does **NOT** call `_apply_rate_limit()` — skips the global route-based limiter entirely
 
-Then create a separate AI rate limit dependency used by `/ai/` router endpoints:
-1. Checks whether the `X-LLM-Api-Key` header is present
-2. Selects `AI_PLATFORM` or `AI_BYOK` operation type accordingly
+Then create a separate AI rate limit dependency (`apply_ai_rate_limit`) used by `/ai/` router endpoints:
+1. Checks whether the `X-LLM-Api-Key` header is present — if absent, returns early (no quota consumed for invalid requests like validate-key without a key)
+2. Selects `AI_BYOK` operation type (only BYOK calls are rate-limited by this dependency; platform AI calls will use it in Milestone 2)
 3. Calls `check_rate_limit()` with the appropriate type
+4. Stores the result in `request.state.rate_limit_info` so the `RateLimitHeadersMiddleware` adds `X-RateLimit-*` headers to successful responses (same pattern as the global rate limiter)
 
 This keeps AI rate limiting fully isolated from the global auth pipeline.
 
 `/ai/health` and `/ai/models` are exempt from AI rate limiting — they are configuration/status endpoints, not LLM calls. They use `get_current_user_ai` for auth but do not depend on the AI rate limit dependency.
+
+**Zero-limit short-circuit:** `check_rate_limit()` short-circuits for tiers with zero limits (FREE/STANDARD AI) — returns denied immediately without hitting Redis. This avoids unnecessary Redis round-trips for a foregone conclusion.
+
+**`UserLimitsResponse` sync:** Add `rate_ai_per_minute`, `rate_ai_per_day`, `rate_ai_byok_per_minute`, `rate_ai_byok_per_day` to `UserLimitsResponse` in `schemas/user_limits.py` and `UserLimits` in `frontend/src/types.ts` to keep the API contract and frontend type in sync.
 
 #### 3. Create `get_current_limits_ai` dependency
 
@@ -488,16 +493,18 @@ Replace the `get_current_user_auth0_only` placeholder from Milestone 1a with `ge
   - Pro tier has non-zero AI limits (both platform and BYOK)
   - Free/Standard tiers have zero AI limits (both platform and BYOK)
   - BYOK limits are higher than platform limits for Pro
-  - AI rate limit dependency selects `AI_PLATFORM` when no BYOK header
+  - Zero-limit tiers short-circuit without hitting Redis
   - AI rate limit dependency selects `AI_BYOK` when `X-LLM-Api-Key` header present
+  - AI rate limit dependency returns early (no quota consumed) when no BYOK key present
   - `/ai/health` does not consume AI quota
   - `/ai/models` does not consume AI quota
-  - `SENSITIVE` operation type comment no longer references AI/LLM
 
-- **Integration tests for `/ai/health` with quota:**
-  - `remaining_daily` and `limit_daily` present in response
+- **Integration tests for AI rate limiting:**
+  - `remaining_daily` and `limit_daily` present in health response
   - After N AI calls, `remaining_daily` reflects correct remaining count (reads from Redis AI bucket)
-  - Rate limit enforcement: exhaust AI limit, next request returns 429
+  - `validate-key` without BYOK key returns 400 without consuming quota
+  - Successful AI-limited responses include `X-RateLimit-*` headers
+  - AI endpoint calls do not consume global READ/WRITE rate limit quota (isolation test)
 
 ---
 
@@ -997,6 +1004,12 @@ The BYOK API key is sent via an axios request interceptor that conditionally add
 #### 7. Feature gating
 
 AI features should be hidden/disabled for users whose tier doesn't support them. The `/ai/health` endpoint (or the user's limits from `useLimits()`) tells the frontend whether AI is available. Don't show suggestion buttons to Free/Standard users — or show them disabled with an upgrade prompt.
+
+**Sync AI rate limit fields to frontend:** The backend `UserLimitsResponse` schema was updated in Milestone 1b to include `rate_ai_per_minute`, `rate_ai_per_day`, `rate_ai_byok_per_minute`, `rate_ai_byok_per_day`. This milestone must update the corresponding frontend types and UI:
+- `frontend/src/types.ts` — add AI rate limit fields to `UserLimits` interface
+- `frontend/src/pages/Pricing.tsx` — add AI calls row to pricing comparison table
+- `frontend/src/pages/LandingPage.tsx` — update FAQ if it mentions limits
+- `frontend/public/llms.txt` — add AI rate limits to Tier Limits section
 
 ### Testing Strategy
 

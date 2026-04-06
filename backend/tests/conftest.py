@@ -342,6 +342,11 @@ LOW_TIER_LIMITS = TierLimits(
     rate_write_per_day=10,
     rate_sensitive_per_minute=2,
     rate_sensitive_per_day=5,
+    # AI rate limits - low values for testing
+    rate_ai_per_minute=3,
+    rate_ai_per_day=10,
+    rate_ai_byok_per_minute=5,
+    rate_ai_byok_per_day=20,
     # Relationship limits - low values for testing
     max_relationships_per_entity=3,
     # History retention - low values for testing

@@ -554,6 +554,12 @@ export interface UserLimits {
   rate_sensitive_per_minute: number
   rate_sensitive_per_day: number
 
+  // AI rate limits
+  rate_ai_per_minute: number
+  rate_ai_per_day: number
+  rate_ai_byok_per_minute: number
+  rate_ai_byok_per_day: number
+
   // Relationship limits
   max_relationships_per_entity: number
 

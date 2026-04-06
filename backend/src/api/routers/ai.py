@@ -4,7 +4,11 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from litellm.exceptions import AuthenticationError
 
-from api.dependencies import get_current_user_auth0_only
+from api.dependencies import get_current_limits_ai, get_current_user_ai
+from core.rate_limit_config import OperationType, RateLimitExceededError
+from core.rate_limiter import check_rate_limit, get_ai_rate_limit_status
+from core.tier_limits import TierLimits, get_tier_safely
+from models.user import User
 from schemas.cached_user import CachedUser
 from services.llm_service import (
     AIUseCase,
@@ -26,6 +30,32 @@ def get_llm_api_key(request: Request) -> str | None:
     return request.headers.get("X-LLM-Api-Key")
 
 
+async def apply_ai_rate_limit(
+    request: Request,
+    current_user: User | CachedUser = Depends(get_current_user_ai),
+    llm_api_key: str | None = Depends(get_llm_api_key),
+) -> None:
+    """
+    Enforce AI rate limiting based on BYOK header.
+
+    Selects AI_PLATFORM or AI_BYOK bucket and checks rate limit.
+    Stores result in request.state for rate limit headers middleware.
+    Only applied to endpoints that make LLM calls — requires BYOK key.
+    """
+    if not llm_api_key:
+        return
+    op_type = OperationType.AI_BYOK
+    tier = get_tier_safely(current_user.tier)
+    result = await check_rate_limit(current_user.id, op_type, tier)
+    request.state.rate_limit_info = {
+        "limit": result.limit,
+        "remaining": result.remaining,
+        "reset": result.reset,
+    }
+    if not result.allowed:
+        raise RateLimitExceededError(result)
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -33,24 +63,29 @@ def get_llm_api_key(request: Request) -> str | None:
 
 @router.get("/health")
 async def ai_health(
-    current_user: CachedUser = Depends(get_current_user_auth0_only),
+    current_user: User | CachedUser = Depends(get_current_user_ai),
+    limits: TierLimits = Depends(get_current_limits_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
 ) -> dict:
-    """Check if AI features are available for this user. No AI rate limit consumed.
-
-    Simplified response for Milestone 1a — full quota-aware response added in 1b.
-    """
+    """Check if AI features are available for this user. No AI rate limit consumed."""
     has_byok = llm_api_key is not None
+    ai_bucket = OperationType.AI_BYOK if has_byok else OperationType.AI_PLATFORM
+    quota = await get_ai_rate_limit_status(
+        current_user.id, ai_bucket, get_tier_safely(current_user.tier),
+    )
     return {
-        "available": True,
+        "available": limits.rate_ai_per_day > 0 or (has_byok and limits.rate_ai_byok_per_day > 0),
         "byok": has_byok,
+        "remaining_daily": quota.remaining,
+        "limit_daily": quota.limit,
     }
 
 
 @router.post("/validate-key")
 async def validate_key(
-    current_user: CachedUser = Depends(get_current_user_auth0_only),
+    _current_user: User | CachedUser = Depends(get_current_user_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
+    _rate_limit: None = Depends(apply_ai_rate_limit),
 ) -> dict:
     """Validate a BYOK API key by making a minimal provider call."""
     if not llm_api_key:
@@ -60,7 +95,7 @@ async def validate_key(
     config = llm_service.resolve_config(AIUseCase.SUGGESTIONS, user_api_key=llm_api_key)
     try:
         await llm_service.complete(
-            messages=[{"role": "user", "content": "Hi"}],
+            messages=[{"role": "user", "content": "This is a test. Respond with 'ok'."}],
             config=config,
             max_tokens=5,
             temperature=0,
@@ -72,9 +107,10 @@ async def validate_key(
 
 @router.get("/models")
 async def ai_models(
-    current_user: CachedUser = Depends(get_current_user_auth0_only),
+    _current_user: User | CachedUser = Depends(get_current_user_ai),
 ) -> dict:
-    """Return curated list of supported models and per-use-case defaults.
+    """
+    Return curated list of supported models and per-use-case defaults.
 
     No AI rate limit consumed — this is a configuration endpoint, not an LLM call.
     """

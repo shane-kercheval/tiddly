@@ -1,4 +1,5 @@
-"""Smoke tests for supported LLM models.
+"""
+Smoke tests for supported LLM models.
 
 These tests make real API calls to verify model IDs, structured output,
 and cost tracking work end-to-end. Skipped if the provider API key is not set.
@@ -6,6 +7,7 @@ and cost tracking work end-to-end. Skipped if the provider API key is not set.
 Run manually before deploys or on a schedule to catch provider/model changes early.
 """
 import os
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel
@@ -14,7 +16,6 @@ from services.llm_service import (
     KeySource,
     LLMConfig,
     LLMService,
-    _SUPPORTED_MODEL_DEFS,
     build_supported_models,
 )
 
@@ -22,6 +23,8 @@ _SMOKE_MODELS = build_supported_models()
 
 
 class SimpleResponse(BaseModel):
+    """Simple structured output schema for smoke tests."""
+
     greeting: str
 
 
@@ -40,8 +43,6 @@ def _get_api_key_for_model(model_id: str) -> str | None:
 
 def _make_smoke_settings(model_id: str, api_key: str) -> object:
     """Create a minimal settings-like object for smoke tests."""
-    from unittest.mock import MagicMock
-
     settings = MagicMock()
     settings.llm_model_suggestions = model_id
     settings.llm_model_transform = model_id
@@ -72,8 +73,11 @@ async def test_smoke_structured_output(model_def: dict) -> None:
     service = LLMService(settings)
     config = LLMConfig(model=model_id, api_key=api_key, key_source=KeySource.PLATFORM)
 
-    # temperature=0 is passed intentionally — the service normalizes it
-    # for O-series models automatically.
+    # temperature=0 is intentional — DO NOT change to a higher value.
+    # This verifies that _normalize_temperature correctly handles models
+    # that only support temperature=1 (e.g. O-series). If a new model
+    # is added to _SUPPORTED_MODEL_DEFS that requires temperature=1,
+    # this test will fail, prompting an update to _TEMPERATURE_1_ONLY_MODELS.
     # max_tokens=1000 because O-series models use internal reasoning tokens
     # that count against the limit — 50 is not enough for them.
     response, cost = await service.complete(

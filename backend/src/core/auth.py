@@ -34,6 +34,7 @@ __all__ = [
     "AuthType",
     "RequestContext",
     "get_current_user",
+    "get_current_user_ai",
     "get_current_user_auth0_only",
     "get_current_user_auth0_only_without_consent",
     "get_current_user_without_consent",
@@ -552,4 +553,25 @@ async def get_current_user_auth0_only_without_consent(
     """
     user = await _authenticate_user(request, credentials, db, settings, allow_pat=False)
     await _apply_rate_limit(user, request, settings)
+    return user
+
+
+async def get_current_user_ai(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: AsyncSession = Depends(get_async_session),
+    settings: Settings = Depends(get_settings),
+) -> User | CachedUser:
+    """
+    Dependency: Auth0-only auth + consent check, NO global rate limiting.
+
+    Used by /ai/* endpoints. Skips _apply_rate_limit() to avoid consuming
+    READ/WRITE quota — AI endpoints have their own rate limit buckets
+    (AI_PLATFORM / AI_BYOK) enforced by a separate dependency.
+
+    Returns 403 Forbidden for PAT tokens.
+    Returns 451 if user hasn't consented to privacy policy/terms.
+    """
+    user = await _authenticate_user(request, credentials, db, settings, allow_pat=False)
+    _check_consent(user, settings)
     return user

@@ -2,6 +2,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from core.config import Settings
 from services.llm_service import (
@@ -48,6 +49,7 @@ def _make_settings(**overrides: str) -> MagicMock:
 
 
 class TestResolvePlatformKey:
+    """Tests for _resolve_platform_key."""
 
     def test_gemini_prefix(self) -> None:
         settings = _make_settings()
@@ -73,6 +75,7 @@ class TestResolvePlatformKey:
 
 
 class TestGetModelCost:
+    """Tests for _get_model_cost."""
 
     def test_prefixed_key_found(self) -> None:
         """Gemini models are in cost map with prefix."""
@@ -97,6 +100,7 @@ class TestGetModelCost:
 
 
 class TestBuildSupportedModels:
+    """Tests for build_supported_models."""
 
     def test_returns_all_models(self) -> None:
         models = build_supported_models()
@@ -138,6 +142,7 @@ class TestBuildSupportedModels:
 
 
 class TestResolveConfig:
+    """Tests for LLMService.resolve_config."""
 
     def test_platform_config_suggestions(self) -> None:
         service = LLMService(_make_settings())
@@ -213,6 +218,7 @@ class TestResolveConfig:
 
 
 class TestGetModelForUseCase:
+    """Tests for LLMService.get_model_for_use_case."""
 
     def test_returns_platform_model(self) -> None:
         service = LLMService(_make_settings())
@@ -226,6 +232,7 @@ class TestGetModelForUseCase:
 
 
 class TestComplete:
+    """Tests for LLMService.complete."""
 
     @pytest.mark.asyncio
     async def test_calls_acompletion_with_correct_args(self) -> None:
@@ -255,8 +262,6 @@ class TestComplete:
 
     @pytest.mark.asyncio
     async def test_passes_response_format(self) -> None:
-        from pydantic import BaseModel
-
         class TestSchema(BaseModel):
             name: str
 
@@ -308,8 +313,6 @@ class TestComplete:
 
     @pytest.mark.asyncio
     async def test_sanitizes_structured_content(self) -> None:
-        from pydantic import BaseModel
-
         class TestSchema(BaseModel):
             name: str
 
@@ -391,6 +394,7 @@ class TestComplete:
 
 
 class TestStream:
+    """Tests for LLMService.stream."""
 
     @pytest.mark.asyncio
     async def test_calls_acompletion_with_stream_args(self) -> None:
@@ -418,25 +422,17 @@ class TestStream:
 
 
 class TestNormalizeTemperature:
+    """Tests for _normalize_temperature."""
 
     def test_regular_model_passes_through(self) -> None:
         assert _normalize_temperature("gemini/gemini-2.5-flash", 0.7) == 0.7
         assert _normalize_temperature("openai/gpt-4o-mini", 0.0) == 0.0
         assert _normalize_temperature("anthropic/claude-haiku-4-5", 0.5) == 0.5
-
-    def test_o_series_clamped_to_1(self) -> None:
-        assert _normalize_temperature("openai/o4-mini", 0.7) == 1.0
-        assert _normalize_temperature("openai/o3-mini", 0.0) == 1.0
-        assert _normalize_temperature("openai/o1", 0.5) == 1.0
-
-    def test_o_series_without_prefix(self) -> None:
-        assert _normalize_temperature("o4-mini", 0.7) == 1.0
-        assert _normalize_temperature("o3-mini", 0.0) == 1.0
-
-    def test_non_o_series_with_o_in_name(self) -> None:
-        """Models like 'gpt-4o' should NOT be treated as O-series."""
         assert _normalize_temperature("openai/gpt-4o", 0.3) == 0.3
-        assert _normalize_temperature("gpt-4o-mini", 0.5) == 0.5
+
+    def test_temperature_1_only_models_clamped(self) -> None:
+        assert _normalize_temperature("openai/o4-mini", 0.7) == 1.0
+        assert _normalize_temperature("openai/o4-mini", 0.0) == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +450,7 @@ def _make_response(content: str) -> MagicMock:
 
 
 class TestSanitizeStructuredContent:
+    """Tests for _sanitize_structured_content."""
 
     def test_clean_json_unchanged(self) -> None:
         response = _make_response('{"greeting": "hello"}')
