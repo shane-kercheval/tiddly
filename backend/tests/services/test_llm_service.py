@@ -1,0 +1,481 @@
+"""Unit tests for LLMService."""
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from core.config import Settings
+from services.llm_service import (
+    AIUseCase,
+    KeySource,
+    LLMConfig,
+    LLMService,
+    _get_model_cost,
+    _normalize_temperature,
+    _resolve_platform_key,
+    _sanitize_structured_content,
+    build_supported_models,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_settings(**overrides: str) -> MagicMock:
+    """Create a mock Settings with LLM defaults."""
+    defaults = {
+        "llm_model_suggestions": "gemini/gemini-2.5-flash-lite",
+        "llm_model_transform": "gemini/gemini-2.5-flash-lite",
+        "llm_model_auto_complete": "gemini/gemini-2.5-flash-lite",
+        "llm_model_chat": "gemini/gemini-2.5-flash",
+        "gemini_api_key": "test-gemini-key",
+        "openai_api_key": "test-openai-key",
+        "anthropic_api_key": "test-anthropic-key",
+        "llm_timeout_default": 30,
+        "llm_timeout_streaming": 60,
+    }
+    defaults.update(overrides)
+    settings = MagicMock(spec=Settings)
+    for key, value in defaults.items():
+        setattr(settings, key, value)
+    return settings
+
+
+# ---------------------------------------------------------------------------
+# _resolve_platform_key
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePlatformKey:
+
+    def test_gemini_prefix(self) -> None:
+        settings = _make_settings()
+        assert _resolve_platform_key("gemini/gemini-2.5-flash", settings) == "test-gemini-key"
+
+    def test_openai_prefix(self) -> None:
+        settings = _make_settings()
+        assert _resolve_platform_key("openai/gpt-4o-mini", settings) == "test-openai-key"
+
+    def test_anthropic_prefix(self) -> None:
+        settings = _make_settings()
+        assert _resolve_platform_key("anthropic/claude-haiku-4-5", settings) == "test-anthropic-key"
+
+    def test_unknown_prefix_raises(self) -> None:
+        settings = _make_settings()
+        with pytest.raises(ValueError, match="Unknown model prefix"):
+            _resolve_platform_key("unknown-provider/some-model", settings)
+
+
+# ---------------------------------------------------------------------------
+# _get_model_cost
+# ---------------------------------------------------------------------------
+
+
+class TestGetModelCost:
+
+    def test_prefixed_key_found(self) -> None:
+        """Gemini models are in cost map with prefix."""
+        cost = _get_model_cost("gemini/gemini-2.5-flash-lite")
+        assert cost is not None
+        assert "input_cost_per_token" in cost
+
+    def test_unprefixed_fallback(self) -> None:
+        """OpenAI/Anthropic models are in cost map without prefix — fallback works."""
+        cost = _get_model_cost("openai/gpt-4o-mini")
+        assert cost is not None
+        assert "input_cost_per_token" in cost
+
+    def test_completely_unknown_model(self) -> None:
+        cost = _get_model_cost("unknown/nonexistent-model-xyz")
+        assert cost is None
+
+
+# ---------------------------------------------------------------------------
+# build_supported_models
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSupportedModels:
+
+    def test_returns_all_models(self) -> None:
+        models = build_supported_models()
+        assert len(models) == 9
+
+    def test_all_models_have_required_fields(self) -> None:
+        models = build_supported_models()
+        for model in models:
+            assert "id" in model
+            assert "provider" in model
+            assert "tier" in model
+
+    def test_all_models_have_pricing(self) -> None:
+        """All curated models should have pricing in LiteLLM's cost map."""
+        models = build_supported_models()
+        for model in models:
+            assert "input_cost_per_million" in model, f"Missing pricing for {model['id']}"
+            assert "output_cost_per_million" in model, f"Missing pricing for {model['id']}"
+            assert model["input_cost_per_million"] > 0
+            assert model["output_cost_per_million"] > 0
+
+    def test_three_tiers_per_provider(self) -> None:
+        """Each provider should have budget, balanced, and flagship tiers."""
+        models = build_supported_models()
+        for provider in ["google", "openai", "anthropic"]:
+            provider_models = [m for m in models if m["provider"] == provider]
+            tiers = {m["tier"] for m in provider_models}
+            assert tiers == {"budget", "balanced", "flagship"}, f"Missing tiers for {provider}"
+
+    def test_service_stores_supported_models(self) -> None:
+        """LLMService instance should have supported_models populated."""
+        service = LLMService(_make_settings())
+        assert len(service.supported_models) == 9
+
+
+# ---------------------------------------------------------------------------
+# LLMService.resolve_config
+# ---------------------------------------------------------------------------
+
+
+class TestResolveConfig:
+
+    def test_platform_config_suggestions(self) -> None:
+        service = LLMService(_make_settings())
+        config = service.resolve_config(AIUseCase.SUGGESTIONS)
+        assert config.model == "gemini/gemini-2.5-flash-lite"
+        assert config.api_key == "test-gemini-key"
+        assert config.key_source == KeySource.PLATFORM
+
+    def test_chat_uses_different_model(self) -> None:
+        service = LLMService(_make_settings())
+        config = service.resolve_config(AIUseCase.CHAT)
+        assert config.model == "gemini/gemini-2.5-flash"
+
+    def test_user_key_overrides_platform(self) -> None:
+        service = LLMService(_make_settings())
+        config = service.resolve_config(AIUseCase.SUGGESTIONS, user_api_key="user-key-123")
+        assert config.api_key == "user-key-123"
+        assert config.key_source == KeySource.USER
+        # Falls back to use-case default model
+        assert config.model == "gemini/gemini-2.5-flash-lite"
+
+    def test_user_key_with_user_model(self) -> None:
+        service = LLMService(_make_settings())
+        config = service.resolve_config(
+            AIUseCase.SUGGESTIONS,
+            user_api_key="user-key-123",
+            user_model="anthropic/claude-sonnet-4-6",
+        )
+        assert config.model == "anthropic/claude-sonnet-4-6"
+        assert config.api_key == "user-key-123"
+        assert config.key_source == KeySource.USER
+
+    def test_user_model_ignored_without_user_key(self) -> None:
+        service = LLMService(_make_settings())
+        config = service.resolve_config(
+            AIUseCase.SUGGESTIONS,
+            user_model="anthropic/claude-sonnet-4-6",
+        )
+        assert config.model == "gemini/gemini-2.5-flash-lite"
+        assert config.key_source == KeySource.PLATFORM
+
+    def test_all_use_cases_resolve(self) -> None:
+        service = LLMService(_make_settings())
+        for use_case in AIUseCase:
+            config = service.resolve_config(use_case)
+            assert config.key_source == KeySource.PLATFORM
+            assert config.api_key  # non-empty
+
+
+# ---------------------------------------------------------------------------
+# LLMService.get_model_for_use_case
+# ---------------------------------------------------------------------------
+
+
+class TestGetModelForUseCase:
+
+    def test_returns_platform_model(self) -> None:
+        service = LLMService(_make_settings())
+        assert service.get_model_for_use_case(AIUseCase.SUGGESTIONS) == "gemini/gemini-2.5-flash-lite"
+        assert service.get_model_for_use_case(AIUseCase.CHAT) == "gemini/gemini-2.5-flash"
+
+
+# ---------------------------------------------------------------------------
+# LLMService.complete
+# ---------------------------------------------------------------------------
+
+
+class TestComplete:
+
+    @pytest.mark.asyncio
+    async def test_calls_acompletion_with_correct_args(self) -> None:
+        service = LLMService(_make_settings())
+        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+
+        mock_response = MagicMock()
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_response) as mock_acomp,
+            patch("services.llm_service.completion_cost", return_value=0.001),
+        ):
+            response, cost = await service.complete(
+                messages=[{"role": "user", "content": "Hello"}],
+                config=config,
+            )
+
+            mock_acomp.assert_called_once()
+            call_kwargs = mock_acomp.call_args.kwargs
+            assert call_kwargs["model"] == "gemini/gemini-2.5-flash-lite"
+            assert call_kwargs["api_key"] == "key"
+            assert call_kwargs["timeout"] == 30
+            assert call_kwargs["num_retries"] == 1
+            assert call_kwargs["temperature"] == 0.7
+            assert "response_format" not in call_kwargs
+            assert response is mock_response
+            assert cost == 0.001
+
+    @pytest.mark.asyncio
+    async def test_passes_response_format(self) -> None:
+        from pydantic import BaseModel
+
+        class TestSchema(BaseModel):
+            name: str
+
+        service = LLMService(_make_settings())
+        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock) as mock_acomp,
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            await service.complete(
+                messages=[{"role": "user", "content": "Hi"}],
+                config=config,
+                response_format=TestSchema,
+            )
+            assert mock_acomp.call_args.kwargs["response_format"] is TestSchema
+
+    @pytest.mark.asyncio
+    async def test_passes_max_tokens(self) -> None:
+        service = LLMService(_make_settings())
+        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock) as mock_acomp,
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            await service.complete(
+                messages=[{"role": "user", "content": "Hi"}],
+                config=config,
+                max_tokens=5,
+            )
+            assert mock_acomp.call_args.kwargs["max_tokens"] == 5
+
+    @pytest.mark.asyncio
+    async def test_o_series_temperature_normalized(self) -> None:
+        service = LLMService(_make_settings())
+        config = LLMConfig(model="openai/o4-mini", api_key="key", key_source=KeySource.USER)
+
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock) as mock_acomp,
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            await service.complete(
+                messages=[{"role": "user", "content": "Hi"}],
+                config=config,
+                temperature=0.5,
+            )
+            assert mock_acomp.call_args.kwargs["temperature"] == 1.0
+
+    @pytest.mark.asyncio
+    async def test_sanitizes_structured_content(self) -> None:
+        from pydantic import BaseModel
+
+        class TestSchema(BaseModel):
+            name: str
+
+        service = LLMService(_make_settings())
+        config = LLMConfig(model="gemini/gemini-2.5-flash", api_key="key", key_source=KeySource.PLATFORM)
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = 'Here is JSON:\n{"name": "test"}'
+
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_response),
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            response, _ = await service.complete(
+                messages=[{"role": "user", "content": "Hi"}],
+                config=config,
+                response_format=TestSchema,
+            )
+            assert response.choices[0].message.content == '{"name": "test"}'
+
+    @pytest.mark.asyncio
+    async def test_no_sanitize_without_response_format(self) -> None:
+        service = LLMService(_make_settings())
+        config = LLMConfig(model="gemini/gemini-2.5-flash", api_key="key", key_source=KeySource.PLATFORM)
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Here is some text with no JSON"
+
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_response),
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            response, _ = await service.complete(
+                messages=[{"role": "user", "content": "Hi"}],
+                config=config,
+            )
+            assert response.choices[0].message.content == "Here is some text with no JSON"
+
+    @pytest.mark.asyncio
+    async def test_completion_cost_failure_returns_none(self) -> None:
+        service = LLMService(_make_settings())
+        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+
+        mock_response = MagicMock()
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_response),
+            patch("services.llm_service.completion_cost", side_effect=Exception("unknown model")),
+        ):
+            response, cost = await service.complete(
+                messages=[{"role": "user", "content": "Hi"}],
+                config=config,
+            )
+            assert response is mock_response
+            assert cost is None
+
+    @pytest.mark.asyncio
+    async def test_cost_from_completion_cost(self) -> None:
+        service = LLMService(_make_settings())
+        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+
+        mock_response = MagicMock()
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_response),
+            patch("services.llm_service.completion_cost", return_value=0.0042) as mock_cost,
+        ):
+            _, cost = await service.complete(
+                messages=[{"role": "user", "content": "Hi"}],
+                config=config,
+            )
+            mock_cost.assert_called_once_with(completion_response=mock_response)
+            assert cost == 0.0042
+
+
+# ---------------------------------------------------------------------------
+# LLMService.stream
+# ---------------------------------------------------------------------------
+
+
+class TestStream:
+
+    @pytest.mark.asyncio
+    async def test_calls_acompletion_with_stream_args(self) -> None:
+        service = LLMService(_make_settings())
+        config = LLMConfig(model="gemini/gemini-2.5-flash", api_key="key", key_source=KeySource.PLATFORM)
+
+        mock_iter = AsyncMock()
+        with patch("services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_iter) as mock_acomp:
+            result = await service.stream(
+                messages=[{"role": "user", "content": "Hello"}],
+                config=config,
+            )
+
+            mock_acomp.assert_called_once()
+            call_kwargs = mock_acomp.call_args.kwargs
+            assert call_kwargs["stream"] is True
+            assert call_kwargs["timeout"] == 60
+            assert "num_retries" not in call_kwargs
+            assert result is mock_iter
+
+
+# ---------------------------------------------------------------------------
+# _normalize_temperature
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeTemperature:
+
+    def test_regular_model_passes_through(self) -> None:
+        assert _normalize_temperature("gemini/gemini-2.5-flash", 0.7) == 0.7
+        assert _normalize_temperature("openai/gpt-4o-mini", 0.0) == 0.0
+        assert _normalize_temperature("anthropic/claude-haiku-4-5", 0.5) == 0.5
+
+    def test_o_series_clamped_to_1(self) -> None:
+        assert _normalize_temperature("openai/o4-mini", 0.7) == 1.0
+        assert _normalize_temperature("openai/o3-mini", 0.0) == 1.0
+        assert _normalize_temperature("openai/o1", 0.5) == 1.0
+
+    def test_o_series_without_prefix(self) -> None:
+        assert _normalize_temperature("o4-mini", 0.7) == 1.0
+        assert _normalize_temperature("o3-mini", 0.0) == 1.0
+
+    def test_non_o_series_with_o_in_name(self) -> None:
+        """Models like 'gpt-4o' should NOT be treated as O-series."""
+        assert _normalize_temperature("openai/gpt-4o", 0.3) == 0.3
+        assert _normalize_temperature("gpt-4o-mini", 0.5) == 0.5
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_structured_content
+# ---------------------------------------------------------------------------
+
+
+def _make_response(content: str) -> MagicMock:
+    """Create a mock LLM response with one choice."""
+    choice = MagicMock()
+    choice.message.content = content
+    response = MagicMock()
+    response.choices = [choice]
+    return response
+
+
+class TestSanitizeStructuredContent:
+
+    def test_clean_json_unchanged(self) -> None:
+        response = _make_response('{"greeting": "hello"}')
+        _sanitize_structured_content(response)
+        assert response.choices[0].message.content == '{"greeting": "hello"}'
+
+    def test_clean_json_array_unchanged(self) -> None:
+        response = _make_response('[1, 2, 3]')
+        _sanitize_structured_content(response)
+        assert response.choices[0].message.content == '[1, 2, 3]'
+
+    def test_strips_markdown_fences(self) -> None:
+        response = _make_response('```json\n{"greeting": "hello"}\n```')
+        _sanitize_structured_content(response)
+        assert response.choices[0].message.content == '{"greeting": "hello"}'
+
+    def test_strips_markdown_fences_no_lang(self) -> None:
+        response = _make_response('```\n{"greeting": "hello"}\n```')
+        _sanitize_structured_content(response)
+        assert response.choices[0].message.content == '{"greeting": "hello"}'
+
+    def test_extracts_json_from_preamble(self) -> None:
+        response = _make_response('Here is the JSON requested:\n{"greeting": "hello"}')
+        _sanitize_structured_content(response)
+        assert response.choices[0].message.content == '{"greeting": "hello"}'
+
+    def test_extracts_json_array_from_preamble(self) -> None:
+        response = _make_response('Sure, here you go:\n[{"name": "test"}]')
+        _sanitize_structured_content(response)
+        assert response.choices[0].message.content == '[{"name": "test"}]'
+
+    def test_empty_content_unchanged(self) -> None:
+        response = _make_response("")
+        _sanitize_structured_content(response)
+        assert response.choices[0].message.content == ""
+
+    def test_none_content_unchanged(self) -> None:
+        response = _make_response(None)
+        _sanitize_structured_content(response)
+        assert response.choices[0].message.content is None
+
+    def test_no_json_found_leaves_content(self) -> None:
+        response = _make_response("No JSON here at all")
+        _sanitize_structured_content(response)
+        assert response.choices[0].message.content == "No JSON here at all"

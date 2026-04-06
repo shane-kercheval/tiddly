@@ -34,7 +34,7 @@ Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction l
 
 Establish the core backend infrastructure for AI features. After this milestone:
 
-- A new `LLMService` wraps LiteLLM with use-case-based model resolution, key routing (platform vs BYOK), and error handling
+- A new `LLMService` wraps LiteLLM with use-case-based model resolution, key routing (platform vs BYOK), and cost calculation. LiteLLM exceptions propagate from the service — error-to-HTTP mapping is handled in the router layer (see Cross-Cutting Concerns > Error Handling).
 - A new `/ai/` router exists with a health-check endpoint and models endpoint
 - BYOK header extraction works
 - The service is wired up and callable, but not yet rate-limited or cost-tracked
@@ -309,6 +309,7 @@ All 9 models support structured output (Pydantic `response_format`). The list is
 - Verify which LiteLLM SDK function returns per-model pricing (likely `litellm.model_cost` or `litellm.get_model_cost_map()`). The token-level costs need to be converted to per-million for display.
 - Investigate whether LiteLLM provides a friendly display name for models or whether we maintain our own `id → name` mapping. Decide whether the display name should include the provider (e.g. "Google Gemini 2.5 Flash Lite" vs "Gemini 2.5 Flash Lite") based on what looks clearest in the dropdown.
 - If a model isn't in LiteLLM's cost map, log a warning and omit cost fields — the frontend falls back to showing tier only.
+- The model IDs in this plan (e.g. `openai/gpt-5.4-nano`) are templates based on research. Substitute with whatever models are actually available and recognized by the installed LiteLLM version. The curated list structure (3 providers × 3 tiers) stays the same — use real model IDs.
 
 #### 6. BYOK header extraction
 
@@ -338,9 +339,15 @@ Add `app.include_router(ai_router)` alongside existing routers.
   - `complete` with `response_format` passes Pydantic model through
   - `complete` returns cost via `completion_cost()` (not `_hidden_params`)
   - `stream` calls `acompletion` with `timeout=60` and no `num_retries`
-  - Error handling: LiteLLM raises `AuthenticationError` (bad key) → `llm_auth_failed` (422)
-  - Error handling: LiteLLM raises `RateLimitError` (provider rate limit) → `llm_rate_limited` (429)
-  - Error handling: LiteLLM raises timeout → `llm_timeout` (504)
+  - LiteLLM exceptions propagate from service (not caught internally)
+
+- **Router-level error handling tests (shared exception handler on AI router):**
+  - LiteLLM `AuthenticationError` → `llm_auth_failed` (422)
+  - LiteLLM `RateLimitError` → `llm_rate_limited` (429)
+  - LiteLLM timeout → `llm_timeout` (504)
+  - LiteLLM `BadRequestError` → `llm_bad_request` (400)
+  - LiteLLM `APIConnectionError` → `llm_connection_error` (502)
+  - Unknown LiteLLM error → `llm_unavailable` (503)
 
 - **Integration tests for `/ai/health`:**
   - Pro user → `available: true`
@@ -1038,7 +1045,7 @@ AI features should be hidden/disabled for users whose tier doesn't support them.
 
 ### Error Handling
 
-LiteLLM raises typed exceptions for provider errors. The LLM service catches these and returns a structured JSON error body with an `error` code that distinguishes LLM provider failures from platform failures. This is critical for BYOK users — a bad user API key should not look like a tiddly auth failure.
+LiteLLM raises typed exceptions for provider errors. The `LLMService` does NOT catch these — it lets them propagate. Error-to-HTTP mapping is handled by a shared exception handler registered on the AI router. This keeps the service layer clean and testable without HTTP concerns, and avoids duplicating try/except in every endpoint. The handler returns a structured JSON error body with an `error` code that distinguishes LLM provider failures from platform failures. This is critical for BYOK users — a bad user API key should not look like a tiddly auth failure.
 
 | LiteLLM Error | HTTP Status | Error Code | Message |
 |---|---|---|---|

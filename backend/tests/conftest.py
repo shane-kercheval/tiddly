@@ -21,6 +21,7 @@ from core.config import Settings, get_settings
 from core.redis import RedisClient, set_redis_client
 from core.tier_limits import Tier, TierLimits, get_tier_limits
 from models.base import Base
+from services.llm_service import LLMService, set_llm_service
 
 
 @pytest.fixture(scope="session")
@@ -261,6 +262,11 @@ async def client(
     auth_cache = AuthCache(redis_client)
     set_auth_cache(auth_cache)
 
+    # Initialize LLM service for tests
+    test_settings = get_settings()
+    llm_service = LLMService(test_settings)
+    set_llm_service(llm_service)
+
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
@@ -268,6 +274,7 @@ async def client(
         yield test_client
 
     app.dependency_overrides.clear()
+    set_llm_service(None)
     set_auth_cache(None)
     set_redis_client(None)
 

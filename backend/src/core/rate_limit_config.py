@@ -17,7 +17,7 @@ class OperationType(Enum):
 
     READ = "read"
     WRITE = "write"
-    SENSITIVE = "sensitive"  # External HTTP calls, AI/LLM, bulk operations
+    SENSITIVE = "sensitive"  # External HTTP calls, bulk operations
 
 
 @dataclass
@@ -56,7 +56,7 @@ class RateLimitExceededError(Exception):
 
 SENSITIVE_ENDPOINTS: set[tuple[str, str]] = {
     ("GET", "/bookmarks/fetch-metadata"),
-    # Future: AI/LLM endpoints, bulk import/export
+    # Future: bulk import/export (AI/LLM has its own rate limit types in Milestone 1b)
 }
 
 
