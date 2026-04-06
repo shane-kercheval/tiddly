@@ -9,8 +9,8 @@
   - Chunking from the start (not deferred to a later phase)
   - Paragraph-level chunking: one paragraph = one chunk, with paragraph-hash-based reuse on re-embedding (95%+ savings on typical edits)
   - Oversized paragraphs (>2048 tokens) split at fixed 512-token boundaries
-  - Per-entity strategy: prompts get a single embedding (typically short), notes and bookmarks use paragraph-level chunking, bookmarks also get a summary embedding
-  - Async embedding via custom async worker using Redis BRPOPLPUSH (not Celery — see Milestone 4 for rationale)
+  - Per-entity strategy: prompts get a single embedding (typically short), notes and bookmarks use paragraph-level chunking
+  - Async embedding via custom async worker using Redis BLMOVE (not Celery — see Milestone 4 for rationale)
   - Re-embedding on content change: document-level hash check (skip if unchanged) + paragraph-hash diff (only embed new/changed paragraphs)
 
 ## pgvector Setup
@@ -42,12 +42,12 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
 - **Per-entity strategy:**
   - **Prompts:** No chunking — single embedding (typically short)
   - **Notes:** Paragraph-level chunking as described above
-  - **Bookmarks:** Same as notes, plus a summary embedding (title + first paragraph + meta description) for broad queries
+  - **Bookmarks:** Same as notes (summary embedding deferred to post-v1 if needed)
 - **Re-embedding:** Document-level hash check (`body_hash` SHA-256 of full embeddable text). If unchanged on save, skip entirely. If changed, diff paragraph hashes against stored hashes — only embed new/changed paragraphs, delete removed ones. Per-edit cost savings are 95%+ for typical edits at 25K+ characters.
 
 ### 3. Worker Infrastructure
 
-Custom async worker using Redis BRPOPLPUSH (crash-safe delivery). One always-on Railway service, 4 concurrent jobs (asyncio semaphore), logs only for monitoring. Dead letter queue for permanently failed jobs. See Milestone 4 for full rationale and implementation.
+Custom async worker using Redis BLMOVE (crash-safe delivery). One always-on Railway service, 4 concurrent jobs (asyncio semaphore), logs only for monitoring. Dead letter queue for permanently failed jobs. See Milestone 4 for full rationale and implementation.
 
 ### 4. Tier Gating
 
@@ -102,7 +102,7 @@ CREATE INDEX ix_content_chunks_embedding ON content_chunks
   USING hnsw (embedding vector_cosine_ops)
   WHERE embedding IS NOT NULL;
 ```
-- **TODO:** Verify that pgvector HNSW supports partial indexes (`WHERE` clause). If not, either drop the partial condition or use IVFFlat instead.
+- **Verified:** pgvector 0.8.2 on pg17 supports partial HNSW indexes (`WHERE embedding IS NOT NULL`). Tested locally 2026-04-05.
 - Index on `(entity_type, entity_id)` for chunk lookup/deletion
 - Index on `user_id` for scoped search queries
 - Index on `embedded_at` for finding stale/pending chunks
@@ -127,7 +127,9 @@ content_embedding_state:
 - Unique constraint on `(entity_type, entity_id)`
 - Index on `status` for finding pending/failed entities (M6 backfill/monitoring)
 
-This table keeps embedding lifecycle state out of the entity models. The `body_hash` field enables the skip-if-unchanged fast path — if the hash matches, no work is needed. With paragraph-level reuse, individual chunks are inserted/deleted incrementally (no generation swap needed), so crash safety comes from the paragraph-hash diff: if the worker crashes mid-update, `body_hash` won't match on the next attempt and the diff will complete the work.
+This table keeps embedding lifecycle state out of the entity models. The `body_hash` field enables the skip-if-unchanged fast path — if the hash matches, no work is needed.
+
+**Crash safety:** The worker executes chunk inserts, chunk deletes, and state updates in a single DB transaction. If the worker crashes before commit, the transaction rolls back and the DB is unchanged — `body_hash` still mismatches, so the next job retries from scratch. If the worker crashes after commit, everything is consistent. There is no window where search sees a mix of old and new chunks.
 
 **SQLAlchemy models:**
 - `models/content_chunk.py`: Uses `UUIDv7Mixin`, `TimestampMixin`. `embedding` column uses pgvector's `Vector(1536)` type from `pgvector.sqlalchemy`. Relationship to User (for query scoping).
@@ -155,7 +157,7 @@ Implement the logic that splits entity content into chunks. After this milestone
 - Each paragraph becomes its own chunk, with an independent hash for reuse tracking
 - Oversized paragraphs (>2048 tokens) are split at 512-token boundaries
 - Prompts produce a single chunk (no splitting)
-- Bookmarks produce paragraph chunks plus a separate summary embedding
+- Bookmarks produce paragraph chunks (summary embedding deferred — title prefix on first chunk serves as a broad search signal for v1)
 
 ### Implementation Outline
 
@@ -168,7 +170,6 @@ class Chunk:
     text: str
     content_hash: str  # SHA-256 of normalized paragraph text
     token_count: int   # approximate: len(text) // 4
-    is_summary: bool = False  # True for bookmark summary embeddings
 
 def chunk_entity(
     entity_type: str,
@@ -182,7 +183,6 @@ def chunk_entity(
     - Prompts: always a single chunk (no splitting)
     - Notes/Bookmarks: one chunk per paragraph (\n\n separated)
     - Oversized paragraphs (>2048 tokens) split at 512-token boundaries
-    - Bookmarks: also produce a summary chunk (title + first paragraph + description)
     - Each chunk has a content_hash for paragraph-level reuse on re-embedding
     """
 ```
@@ -199,7 +199,7 @@ def chunk_entity(
 **Entity-specific handling:**
 - **Prompts:** Use `name + title + description + content`. Always a single chunk — no splitting regardless of size (prompts are typically short).
 - **Notes:** Use `title + description + content`. Paragraph-level chunking as described above.
-- **Bookmarks:** Use `title + description + content`. Paragraph-level chunking as described above, plus a **summary chunk** (`is_summary=True`) composed of `title + first paragraph + description/meta`. The summary chunk handles broad "find that article about X" queries; the paragraph chunks handle specific detail queries.
+- **Bookmarks:** Use `title + description + content`. Paragraph-level chunking as described above. Title prefix on each chunk serves as a broad search signal. A separate summary embedding may be added later if bookmark search quality is lacking — it's just another row in `content_chunks`, no schema changes needed.
 
 ### Testing Strategy
 - Short content (single paragraph) → single chunk
@@ -211,8 +211,7 @@ def chunk_entity(
 - Empty content → single chunk with just title/description
 - Null fields handled gracefully
 - Prompts always produce a single chunk regardless of size
-- Bookmarks produce paragraph chunks plus a summary chunk
-- Bookmark summary chunk contains title + first paragraph + description
+- Bookmarks produce paragraph chunks with title prefix (no separate summary chunk)
 - Unicode content chunks correctly
 - Content hashes are stable (same text → same hash regardless of surrounding content)
 - Very large content (100K note) produces one chunk per paragraph (~125-250 chunks depending on paragraph size)
@@ -279,7 +278,7 @@ openai_api_key: str | None = None  # None = embeddings disabled
 
 ### Goal & Outcome
 Set up a custom async worker service that processes embedding jobs from a Redis queue. After this milestone:
-- A long-running worker process listens for embedding jobs via Redis BRPOPLPUSH (crash-safe delivery)
+- A long-running worker process listens for embedding jobs via Redis BLMOVE (crash-safe delivery)
 - Saving/updating an entity enqueues an embedding job
 - The worker chunks the content into paragraphs, diffs paragraph hashes against stored chunks, and only embeds new/changed paragraphs
 - Failed jobs retry with exponential backoff (max 3 retries); permanently failed jobs go to a dead letter queue
@@ -306,7 +305,7 @@ Railway services:
 
 **Database sessions:** The worker runs as a separate process, not inside FastAPI. It creates its own sessions via `get_session_factory()` from `db/session.py` (not FastAPI's `get_async_session()` dependency). The worker manages its own commit/rollback per job.
 
-**Redis integration:** Queue primitives (LPUSH, BRPOPLPUSH) should be added to the existing `RedisClient` wrapper in `core/redis.py` rather than using raw `redis.asyncio` directly. This maintains a single Redis usage pattern across the codebase.
+**Redis integration:** Queue primitives (LPUSH, BLMOVE) should be added to the existing `RedisClient` wrapper in `core/redis.py` rather than using raw `redis.asyncio` directly. This maintains a single Redis usage pattern across the codebase.
 
 **Worker service** (`worker/main.py`):
 
@@ -331,16 +330,22 @@ async def process_job(job_data: dict):
     1. Load entity from DB
     2. Compute body_hash (SHA-256 of full embeddable text)
     3. Check content_embedding_state — if body_hash matches → skip (nothing changed)
-    4. Split content into paragraphs, hash each (chunking service)
-    5. Load existing chunk content_hashes for this entity from DB
-    6. Diff: new hashes not in old set → need embedding. Old hashes not in new set → delete.
-    7. Call embedding API only for new/changed paragraphs
-    8. INSERT new chunks, DELETE removed chunks
-    9. Update content_embedding_state: body_hash, status = 'embedded'
+    4. Update state: status = 'embedding'
+    5. Split content into paragraphs, hash each (chunking service)
+    6. Load existing chunk content_hashes for this entity from DB
+    7. Diff: new hashes not in old set → need embedding. Old hashes not in new set → delete.
+    8. Call embedding API only for new/changed paragraphs
+    9. In a SINGLE TRANSACTION:
+       - INSERT new chunks
+       - DELETE removed chunks
+       - UPDATE content_embedding_state: body_hash, status = 'embedded'
+       All three operations commit atomically.
 
-    On worker crash: existing chunks remain intact. The entity's body_hash in
-    content_embedding_state won't match, so the next job (or backfill) will
-    retry the full diff. No data loss — at worst, some chunks are stale.
+    Crash safety:
+    - Crash before step 9 commit → transaction rolls back, DB unchanged.
+      body_hash still mismatches → next job retries from scratch.
+    - Crash after step 9 commit → everything is consistent.
+    - No window where search sees a mix of old and new chunks.
     """
     ...
 
@@ -366,9 +371,9 @@ async def worker_loop():
     logger.info("Embedding worker started (concurrency=%d)", CONCURRENCY)
 
     while not shutdown.is_set():
-        # BRPOPLPUSH atomically moves job from embed_jobs to embed_jobs_processing
+        # BLMOVE atomically moves job from embed_jobs to embed_jobs_processing
         # Job stays in processing queue until explicitly removed on success
-        raw = await redis.brpoplpush("embed_jobs", "embed_jobs_processing", timeout=5)
+        raw = await redis.blmove("embed_jobs", "embed_jobs_processing", "RIGHT", "LEFT", timeout=5)
         if raw is None:
             continue  # timeout — check shutdown flag and loop
 
@@ -386,8 +391,8 @@ async def worker_loop():
                     await redis.lrem("embed_jobs_processing", 1, raw_data)
                     if retries < MAX_RETRIES:
                         data["retries"] = retries + 1
-                        delay = 2 ** retries  # 1s, 2s, 4s
-                        await asyncio.sleep(delay)
+                        # Re-enqueue immediately — don't sleep under semaphore.
+                        # Job goes to back of queue, providing natural delay.
                         await redis.lpush("embed_jobs", json.dumps(data))
                         logger.warning("Retrying job (attempt %d): %s", retries + 1, e)
                     else:
@@ -434,7 +439,10 @@ Integration points (all 6 must be wired):
 
 **Chunk lifecycle (paragraph-level reuse):**
 - On entity update: check `content_embedding_state.body_hash` → if unchanged, skip. Otherwise diff paragraph hashes: insert new paragraphs, delete removed paragraphs, leave unchanged paragraphs in place. Entity retains all unchanged chunk embeddings throughout.
-- On entity hard-delete: delete all chunks and the state row for that entity
+- On entity hard-delete: delete all chunks and the state row for that entity. Integration points:
+  - `bookmark_service.hard_delete()` — delete chunks + state where entity_type='bookmark' and entity_id matches
+  - `note_service.hard_delete()` — same for notes
+  - `prompt_service.hard_delete()` — same for prompts
 - On soft-delete: leave chunks in place (entity might be restored)
 
 **Concurrent job deduplication:** If two jobs arrive for the same entity (rapid successive edits), the `body_hash` check in `content_embedding_state` is the natural deduplication. The second job computes the hash, finds it matches (set by the first job), and skips. No explicit job dedup needed.
@@ -454,7 +462,10 @@ Integration points (all 6 must be wired):
 - Max retries exceeded → entity retains existing chunk embeddings, just no updated ones
 - Body hash unchanged → skip embedding entirely (no API calls, no DB writes)
 - Paragraph-level reuse: only new/changed paragraphs are embedded, unchanged paragraphs keep their embeddings
-- Worker crash mid-embedding → existing chunks remain intact, body_hash mismatch triggers retry on next job
+- Chunk diff + state update execute in single transaction — no mixed chunk state visible to search
+- Worker crash before transaction commit → DB unchanged, body_hash mismatch triggers retry
+- Worker crash after transaction commit → everything consistent, no retry needed
+- Crash-window test: commit chunk diff, simulate crash before body_hash update, rerun job → no duplicate chunks, no stale chunks, state repaired
 - content_embedding_state updated correctly: status transitions (pending → embedding → embedded/failed)
 - Non-content update (archive, last_used_at) does NOT trigger embedding
 - Hard-delete cleans up associated chunks and state row
@@ -464,7 +475,7 @@ Integration points (all 6 must be wired):
 - Duplicate jobs for same entity: second job skips via body_hash check
 - Malformed job data (bad JSON) → logged error, not crash
 - Dead letter: permanently failed job appears in `embed_jobs_dead` with error context
-- BRPOPLPUSH: job moves to processing queue before execution, removed on success
+- BLMOVE: job moves to processing queue before execution, removed on success
 - Worker startup reclaims stale jobs from processing queue (crash recovery)
 - Graceful shutdown: SIGTERM waits for in-flight tasks before exiting
 - Concurrency: multiple jobs process in parallel up to semaphore limit
@@ -580,9 +591,14 @@ async def hybrid_search(
 - Free tier users always get FTS-only (current behavior, no code change needed for them)
 - Check user tier before embedding the query — skip vector search path entirely for free tier
 
+**Sort mode scoping:**
+- Hybrid search (RRF merge) activates **only when `sort_by="relevance"`**. This is the only mode where semantic ranking adds value.
+- All other sort modes (`created_at`, `updated_at`, `title`, etc.) use FTS-only — the user wants chronological/alphabetical order, not semantic ranking.
+- Total count for hybrid search = count of the merged candidate set (FTS results ∪ filter-passing vector results).
+
 **Integration with `search_all_content()`:**
-- When Pro user + query provided + embeddings configured: use hybrid search
-- When Free user, or embeddings not configured: FTS-only (current behavior)
+- When Pro user + query provided + `sort_by="relevance"` + embeddings configured: use hybrid search
+- When `sort_by` != `"relevance"`, Free user, or embeddings not configured: FTS-only (current behavior)
 - When no query: no change (browse/filter mode)
 
 **Graceful degradation:**
@@ -590,11 +606,15 @@ async def hybrid_search(
 - If a specific entity has no embeddings → it can still appear via FTS
 - If no entities have embeddings yet (fresh deploy, backfill pending) → FTS-only
 
-**Known scaling limitation:** pgvector's HNSW index scans globally across all users, then post-filters by `user_id`. At current scale (beta, small user count) this is fine. At larger scale, two options:
-1. **Overfetch + post-filter** (current approach): Set a higher HNSW limit (e.g., 500) to compensate for filtered-out rows. Works for moderate user counts.
+**Known scaling limitation:** pgvector's HNSW index scans globally across all users, then post-filters by `user_id`. At current scale (beta, small user count) this is fine. Mitigations for larger scale:
+1. **Overfetch + post-filter** (current approach): Set a higher HNSW limit (e.g., 500) to compensate for filtered-out rows. Also set `SET hnsw.ef_search = 200` at session level to increase the HNSW candidate pool. Works for moderate user counts.
 2. **Partitioned tables**: Partition `content_chunks` by `user_id` with per-partition HNSW indexes. PostgreSQL 17 supports this natively. Required if user count grows significantly.
 
-**TODO:** Embedding the query adds ~200-500ms latency per search request (OpenAI API round-trip). Evaluate whether this is acceptable, or if query embedding caching is needed for common/repeated queries.
+**Query embedding cache:** Embedding the query adds ~200-500ms latency per search request (OpenAI API round-trip). To mitigate, cache query embeddings in Redis:
+- Key: `embed_cache:{model}:{hash(normalized_query)}` — model name in the key prevents cache poisoning across model changes.
+- Query normalization: lowercase, strip whitespace before hashing.
+- TTL: 1 hour.
+- On cache hit, skip the OpenAI call entirely. First search for a novel query pays the latency; subsequent identical queries are instant.
 
 ### Testing Strategy
 - Vector search returns nearest neighbors by cosine similarity
@@ -605,9 +625,13 @@ async def hybrid_search(
 - Vector-only result that violates tag/view filter is excluded from merge
 - Hybrid search respects all existing filters: tags, tag_match, view, content_types, filter_expression
 - Pagination on merged results works correctly (offset/limit applied after RRF merge)
+- sort_by="relevance" → hybrid search with RRF merge
+- sort_by="created_at" (or any non-relevance sort) → FTS-only, no vector search
 - Hybrid search falls back to FTS when embedding API is unavailable
 - Hybrid search falls back to FTS when embeddings not configured
 - Free tier user → FTS-only, no vector search or embedding API call
+- Query embedding cache: second identical query skips OpenAI call (cache hit)
+- Query embedding cache key includes model name (model change doesn't poison cache)
 - Items without embeddings still appear via FTS path
 - Entity type filtering works in vector search
 - Deduplication: multiple chunks from same entity → entity appears once with best score
