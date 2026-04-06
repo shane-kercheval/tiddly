@@ -736,5 +736,5 @@ Milestones 2 and 3 are independent of each other and could be done in parallel.
 - [pgvector GitHub](https://github.com/pgvector/pgvector) — vector types, operators, index options
 - [pgvector SQLAlchemy integration](https://github.com/pgvector/pgvector-python) — `Vector` column type, query patterns
 - [redis-py async docs](https://redis-py.readthedocs.io/en/stable/examples/asyncio_examples.html) — async Redis client, BRPOP
-- [ADIRE simulation results](../implementation_plans/adire-anchor-diffed-incremental-re-embedding.md) — empirical validation of paragraph-level reuse strategy
+- [ADIRE simulation results](https://github.com/shane-kercheval/ADIRE/blob/main/docs/analysis-results.md) — empirical validation of paragraph-level reuse strategy
 - `docs/implementation_plans/future-search.md` — original search roadmap (Phases 2-3)
