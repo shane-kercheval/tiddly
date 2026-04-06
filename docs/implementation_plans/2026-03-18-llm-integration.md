@@ -208,22 +208,39 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 @router.get("/health")
 async def ai_health(
     current_user: User = Depends(get_current_user_ai),
-    limits: TierLimits = Depends(get_current_limits),
+    limits: TierLimits = Depends(get_current_limits_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
 ):
     """Check if AI features are available for this user. No AI rate limit consumed."""
     has_byok = llm_api_key is not None
-    ai_bucket = OperationType.AI_BYOK if has_byok else OperationType.AI_PLATFORM
-    quota = await get_rate_limit_status(current_user.id, ai_bucket, get_tier_safely(current_user.tier))
     return {
         "available": limits.rate_ai_per_day > 0 or (has_byok and limits.rate_ai_byok_per_day > 0),
         "byok": has_byok,
-        "remaining_daily": quota.remaining,
-        "limit_daily": quota.limit,
     }
 ```
 
-#### 4. Models endpoint
+**Note:** `get_current_limits_ai` depends on `get_current_user_ai` (not `get_current_user`). The existing `get_current_limits` depends on `get_current_user` which calls `_apply_rate_limit()` — using it on AI endpoints would re-introduce the double-limiting bug. Create `get_current_limits_ai` in `dependencies.py` that calls `resolve_tier_limits()` with the user from `get_current_user_ai`. See Milestone 1b §3 for the `remaining_daily`/`limit_daily` quota fields added after rate limiting is in place.
+
+#### 4. Validate-key endpoint
+
+```python
+@router.post("/validate-key")
+async def validate_key(
+    current_user: User = Depends(get_current_user_ai),
+    llm_api_key: str | None = Depends(get_llm_api_key),
+):
+    """Validate a BYOK API key by making a minimal provider call."""
+    if not llm_api_key:
+        raise HTTPException(status_code=400, detail="No API key provided")
+    config = llm_service.resolve_config(AIUseCase.SUGGESTIONS, llm_api_key)
+    # Make a minimal LLM call (short prompt, low max_tokens) to verify the key works
+    # Return {"valid": True} on success
+    # On AuthenticationError → {"valid": False, "error": "Key rejected by provider"}
+```
+
+This endpoint makes a real provider call, so it IS rate-limited (AI_BYOK bucket once Milestone 1b is complete). The settings page "Test connection" button calls this, not `/ai/health`.
+
+#### 5. Models endpoint
 
 ```python
 @router.get("/models")
@@ -247,30 +264,53 @@ No AI rate limit consumed — this is a configuration endpoint, not an LLM call.
 **Curated model list — GA models only (no preview/experimental).** Preview models lack stability guarantees, have lower rate limits, and can be shut down without notice (e.g. Gemini 3 Pro Preview was shut down March 9, 2026). When preview models go GA, they're added to this list — a one-line constant change.
 
 ```python
-SUPPORTED_MODELS = [
+# Static metadata per model — id, provider, tier are manually maintained
+_SUPPORTED_MODEL_DEFS = [
     # Google Gemini
-    {"id": "gemini/gemini-2.5-flash-lite", "provider": "google", "tier": "budget",    "input_cost_per_million": 0.10, "output_cost_per_million": 0.40},
-    {"id": "gemini/gemini-2.5-flash",      "provider": "google", "tier": "balanced",  "input_cost_per_million": 0.30, "output_cost_per_million": 2.50},
-    {"id": "gemini/gemini-2.5-pro",         "provider": "google", "tier": "flagship",  "input_cost_per_million": 1.25, "output_cost_per_million": 10.00},
+    {"id": "gemini/gemini-2.5-flash-lite", "provider": "google", "tier": "budget"},
+    {"id": "gemini/gemini-2.5-flash",      "provider": "google", "tier": "balanced"},
+    {"id": "gemini/gemini-2.5-pro",         "provider": "google", "tier": "flagship"},
     # OpenAI
-    {"id": "openai/gpt-5.4-nano",          "provider": "openai", "tier": "budget",    "input_cost_per_million": 0.20, "output_cost_per_million": 1.25},
-    {"id": "openai/gpt-5.4-mini",          "provider": "openai", "tier": "balanced",  "input_cost_per_million": 0.75, "output_cost_per_million": 4.50},
-    {"id": "openai/gpt-5.4",               "provider": "openai", "tier": "flagship",  "input_cost_per_million": 2.50, "output_cost_per_million": 15.00},
+    {"id": "openai/gpt-5.4-nano",          "provider": "openai", "tier": "budget"},
+    {"id": "openai/gpt-5.4-mini",          "provider": "openai", "tier": "balanced"},
+    {"id": "openai/gpt-5.4",               "provider": "openai", "tier": "flagship"},
     # Anthropic
-    {"id": "anthropic/claude-haiku-4-5",    "provider": "anthropic", "tier": "budget",    "input_cost_per_million": 1.00, "output_cost_per_million": 5.00},
-    {"id": "anthropic/claude-sonnet-4-6",   "provider": "anthropic", "tier": "balanced",  "input_cost_per_million": 3.00, "output_cost_per_million": 15.00},
-    {"id": "anthropic/claude-opus-4-6",     "provider": "anthropic", "tier": "flagship",  "input_cost_per_million": 5.00, "output_cost_per_million": 25.00},
+    {"id": "anthropic/claude-haiku-4-5",    "provider": "anthropic", "tier": "budget"},
+    {"id": "anthropic/claude-sonnet-4-6",   "provider": "anthropic", "tier": "balanced"},
+    {"id": "anthropic/claude-opus-4-6",     "provider": "anthropic", "tier": "flagship"},
 ]
+
+def build_supported_models() -> list[dict]:
+    """Build the supported models list with pricing from LiteLLM's SDK.
+    Called at startup. Pricing auto-updates with LiteLLM version bumps."""
+    models = []
+    for defn in _SUPPORTED_MODEL_DEFS:
+        model_id = defn["id"]
+        entry = {**defn}
+        # Populate pricing from LiteLLM's model cost map (e.g. litellm.model_cost)
+        # Verify during implementation which SDK function returns per-model pricing
+        cost_info = litellm.model_cost.get(model_id)
+        if cost_info:
+            entry["input_cost_per_million"] = cost_info["input_cost_per_token"] * 1_000_000
+            entry["output_cost_per_million"] = cost_info["output_cost_per_token"] * 1_000_000
+        else:
+            logger.warning("model_cost_not_found", model_id=model_id)
+            # Omit cost fields — frontend shows tier only
+        models.append(entry)
+    return models
+
+SUPPORTED_MODELS = build_supported_models()
 ```
 
-All 9 models support structured output (Pydantic `response_format`). The list is 3 providers × 3 tiers (budget / balanced / flagship) — scannable and covers all price points. The `tier` field can be used by the frontend to group the dropdown or to recommend models per use case in the future.
+All 9 models support structured output (Pydantic `response_format`). The list is 3 providers × 3 tiers (budget / balanced / flagship) — scannable and covers all price points. The `tier` field can be used by the frontend to group the dropdown or to recommend models per use case in the future. Pricing is populated from LiteLLM's SDK at startup — never hardcoded.
 
 **Notes for implementation:**
 - Verify the exact LiteLLM model ID prefixes (e.g. `openai/gpt-5.4` vs `gpt-5.4`). The `_PROVIDER_KEY_MAP` must match.
+- Verify which LiteLLM SDK function returns per-model pricing (likely `litellm.model_cost` or `litellm.get_model_cost_map()`). The token-level costs need to be converted to per-million for display.
 - Investigate whether LiteLLM provides a friendly display name for models or whether we maintain our own `id → name` mapping. Decide whether the display name should include the provider (e.g. "Google Gemini 2.5 Flash Lite" vs "Gemini 2.5 Flash Lite") based on what looks clearest in the dropdown.
-- Pricing should be verified against current provider pricing pages at implementation time — costs may have changed.
+- If a model isn't in LiteLLM's cost map, log a warning and omit cost fields — the frontend falls back to showing tier only.
 
-#### 5. BYOK header extraction
+#### 6. BYOK header extraction
 
 A new dependency that optionally extracts the user's API key from the `X-LLM-Api-Key` header. This is separate from auth — the user is still authenticated via JWT/PAT as normal.
 
@@ -279,7 +319,7 @@ def get_llm_api_key(request: Request) -> str | None:
     return request.headers.get("X-LLM-Api-Key")
 ```
 
-#### 6. Register router in `api/main.py`
+#### 7. Register router in `api/main.py`
 
 Add `app.include_router(ai_router)` alongside existing routers.
 
@@ -306,6 +346,13 @@ Add `app.include_router(ai_router)` alongside existing routers.
   - Pro user → `available: true`
   - Free user → `available: false`
   - Pro user with `X-LLM-Api-Key` header → `byok: true`
+  - Does not trigger global rate limiter (no WRITE/READ quota consumed via `get_current_limits_ai`)
+
+- **Integration tests for `/ai/validate-key`:**
+  - Valid BYOK key → `{"valid": true}`
+  - Invalid BYOK key → `{"valid": false, "error": "..."}`
+  - No key provided → 400
+  - Rate limited under AI_BYOK bucket (once 1b is complete)
 
 - **Integration tests for `/ai/models`:**
   - Returns curated model list with id, name, provider, costs
@@ -369,7 +416,20 @@ This keeps AI rate limiting fully isolated from the global auth pipeline.
 
 `/ai/health` and `/ai/models` are exempt from AI rate limiting — they are configuration/status endpoints, not LLM calls. They use `get_current_user_ai` for auth but do not depend on the AI rate limit dependency.
 
-#### 3. Update `/ai/health` to return remaining quota
+#### 3. Create `get_current_limits_ai` dependency
+
+The existing `get_current_limits` in `dependencies.py` depends on `get_current_user` (which calls `_apply_rate_limit()`). Using it on AI endpoints would re-introduce double-limiting. Create `get_current_limits_ai` that depends on `get_current_user_ai` instead:
+
+```python
+def get_current_limits_ai(
+    current_user: CachedUser = Depends(get_current_user_ai),
+    settings: Settings = Depends(get_settings),
+) -> TierLimits:
+    """Get tier limits for AI endpoints (no global rate limiting triggered)."""
+    return resolve_tier_limits(current_user.tier, dev_mode=settings.dev_mode)
+```
+
+#### 4. Update `/ai/health` to return remaining quota
 
 Update the health endpoint to read the AI rate limit bucket from Redis and return `remaining_daily` and `limit_daily`:
 
@@ -377,7 +437,7 @@ Update the health endpoint to read the AI rate limit bucket from Redis and retur
 @router.get("/health")
 async def ai_health(
     current_user: User = Depends(get_current_user_ai),
-    limits: TierLimits = Depends(get_current_limits),
+    limits: TierLimits = Depends(get_current_limits_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
 ):
     """Check if AI features are available for this user. No AI rate limit consumed."""
@@ -392,9 +452,9 @@ async def ai_health(
     }
 ```
 
-#### 4. Replace temporary auth dependency
+#### 5. Replace temporary auth dependency
 
-Replace the `get_current_user_auth0_only` placeholder from Milestone 1a with `get_current_user_ai` on all `/ai/` endpoints.
+Replace the `get_current_user_auth0_only` placeholder from Milestone 1a with `get_current_user_ai` on all `/ai/` endpoints. Replace `get_current_limits` with `get_current_limits_ai` on all `/ai/` endpoints.
 
 ### Testing Strategy
 
@@ -435,23 +495,20 @@ After this milestone:
 
 #### 1. Cost tracking via Redis
 
-After each LLM call, record cost and request count in Redis using pipelined `HINCRBYFLOAT`/`HINCRBY`. Two keys per call:
+After each LLM call, record cost and request count in Redis using pipelined `HINCRBYFLOAT`/`HINCRBY`. One key per unique combination of user + hour + use_case + model + key_source:
 
 ```
-# Per-user hourly totals (for user dashboards, budget caps)
-ai_stats:user:{user_id}:{hour}
-  → fields: cost (float), count (int)
-
-# Per-dimension breakdown (for operational analytics)
-ai_stats:detail:{hour}:{use_case}:{model}:{key_source}
+ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}
   → fields: cost (float), count (int)
 ```
 
 Where `{hour}` is formatted as `YYYY-MM-DDTHH` (e.g. `2026-04-05T14`).
 
+Each key maps 1:1 to a row in the `ai_usage` table. No separate "detail" keys — operational analytics (total cost by model, cost by use case) come from `GROUP BY` queries on the table.
+
 All keys get a 7-day TTL as a safety net.
 
-**Cost calculation:** Use `completion_cost(completion_response=response)` for both streaming and non-streaming. This is LiteLLM's public API — do not use `_hidden_params['response_cost']` which is private and has broken across versions. For streaming, call `completion_cost()` after the stream is fully consumed.
+**Cost calculation:** Use `completion_cost(completion_response=response)` for both streaming and non-streaming. This is LiteLLM's public API — do not use `_hidden_params['response_cost']` which is private and has broken across versions. For streaming, call `completion_cost()` after the stream is fully consumed. Wrap in try/except — if cost calculation fails (e.g. LiteLLM version has stale pricing data), return 0.0 and log a warning. Cost tracking must never break a successful LLM response. For platform keys, add a test asserting cost is non-zero to catch LiteLLM version drift early.
 
 **Logging:** Every LLM call emits a structured info log *before* the Redis write: `logger.info("llm_call", user_id=..., use_case=..., model=..., key_source=..., cost=..., latency_ms=...)`. This provides a complete audit trail and secondary data source for reconciliation. Log metadata only — never log prompts, completions, or API keys.
 
@@ -473,15 +530,11 @@ async def track_cost(
     if pipe is None:
         return
 
-    user_key = f"ai_stats:user:{user_id}:{hour}"
-    detail_key = f"ai_stats:detail:{hour}:{use_case}:{model}:{key_source}"
+    key = f"ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}"
 
-    pipe.hincrbyfloat(user_key, "cost", cost)
-    pipe.hincrby(user_key, "count", 1)
-    pipe.expire(user_key, ttl)
-    pipe.hincrbyfloat(detail_key, "cost", cost)
-    pipe.hincrby(detail_key, "count", 1)
-    pipe.expire(detail_key, ttl)
+    pipe.hincrbyfloat(key, "cost", cost)
+    pipe.hincrby(key, "count", 1)
+    pipe.expire(key, ttl)
 
     await pipe.execute()
 ```
@@ -508,25 +561,31 @@ One grain, one table. Global analytics (total cost by model, cost by use case) a
 Create `async def flush_ai_usage(db: AsyncSession, redis: RedisClient) -> None` in a new module `backend/src/tasks/ai_usage_flush.py`. This is a standalone, independently testable function — it does not depend on or call `run_cleanup()`.
 
 The flush step:
-1. Scan for the previous hour's Redis keys (`ai_stats:user:*:{previous_hour}` and `ai_stats:detail:{previous_hour}:*`)
-2. Read all hashes
-3. Upsert rows into `ai_usage` (`INSERT ON CONFLICT UPDATE`, incrementing `request_count` and `total_cost`)
-4. Delete processed Redis keys only after successful DB write
-5. Log summary: number of keys processed, total cost flushed
+1. Scan for all `ai_stats:*` keys with an hour stamp older than the current hour (not just the previous hour — this ensures skipped hours are recovered if the cron misses runs)
+2. Parse each key to extract user_id, hour, use_case, model, key_source
+3. Read all hashes (cost, count)
+4. Upsert rows into `ai_usage` (`INSERT ON CONFLICT UPDATE`, incrementing `request_count` and `total_cost`)
+5. Delete processed Redis keys only after successful DB write
+6. Log summary: number of keys processed, total cost flushed
 
-The module also has a `main()` entrypoint for cron invocation:
+The module also has a `main()` entrypoint for cron invocation. Follow the same session/Redis initialization pattern as `backend/src/tasks/cleanup.py` — create engine and session directly, get the Redis singleton. Do NOT use FastAPI DI helpers (`get_async_session`, etc.) which are designed for request-scoped dependency injection, not standalone scripts.
 
 ```python
 async def main() -> None:
-    """Entrypoint for Railway cron. Creates its own DB and Redis sessions."""
-    async with get_db_session() as db, get_redis_client() as redis:
+    """Entrypoint for Railway cron."""
+    # Follow cleanup.py pattern: create engine, session factory, and Redis client directly
+    engine = create_async_engine(settings.database_url)
+    async_session = async_sessionmaker(engine)
+    redis = get_redis_client()  # global singleton
+
+    async with async_session() as db:
         await flush_ai_usage(db, redis)
+
+    await engine.dispose()
 
 if __name__ == "__main__":
     asyncio.run(main())
 ```
-
-This follows the same pattern as `backend/src/tasks/cleanup.py` which has its own `main()` for cron invocation.
 
 ##### Railway deployment
 
@@ -553,15 +612,18 @@ To set up the new cron service in Railway:
 ### Testing Strategy
 
 - **Unit tests for cost tracking:**
-  - `track_cost` writes to both user and detail Redis keys with hourly key format
+  - `track_cost` writes Redis key with correct format: `ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}`
   - `track_cost` with Redis unavailable → no error raised, warning logged
-  - Correct key format: `ai_stats:user:{user_id}:{hour}` and `ai_stats:detail:{hour}:{use_case}:{model}:{key_source}`
   - TTL is set on keys
+  - `completion_cost()` failure → returns 0.0, warning logged, response not broken
+  - Platform key cost is non-zero (catches LiteLLM version drift)
   - Structured info log emitted on every LLM call (metadata only, no prompts/completions/keys)
 
 - **Unit tests for `flush_ai_usage()` (tested independently, not via `run_cleanup`):**
-  - Seed Redis with known hourly keys → flushes correct rows to `ai_usage` table
-  - Handles empty Redis (no keys for previous hour) gracefully
+  - Seed Redis with known keys → flushes correct rows to `ai_usage` table (key segments map 1:1 to table columns)
+  - Scans all keys older than current hour (not just previous hour)
+  - Handles skipped hours: seed keys for 3 different hours → all flushed in one run
+  - Handles empty Redis gracefully
   - Upserts increment `request_count` and `total_cost` on conflict
   - Deletes processed Redis keys after successful DB write
   - Handles DB write failure → does not delete Redis keys (data preserved for retry)
@@ -658,7 +720,7 @@ Each endpoint follows the same pattern:
 async def suggest_tags(
     data: SuggestTagsRequest,
     current_user: User = Depends(get_current_user_ai),
-    limits: TierLimits = Depends(get_current_limits),
+    limits: TierLimits = Depends(get_current_limits_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
 ):
     if limits.rate_ai_per_day == 0:
@@ -776,8 +838,8 @@ The page fetches `/ai/models` on load to get the curated model list and per-use-
 Always visible. Card-based layout:
 - Input field (masked by default, with show/hide toggle)
 - Clear key button (only shown when a key is set)
-- Test connection button — calls `/ai/health` with the key. Success: green inline checkmark + "Connected". Failure: red inline text with the error message (e.g. "Key rejected by provider").
-- Info text below input: "Your API key is stored only in this browser's local storage. It is never sent to our servers — it is passed directly to the LLM provider. If you use a different browser or device, you'll need to enter it again."
+- Test connection button — calls `POST /ai/validate-key` with the key (makes a real minimal provider call). Success: green inline checkmark + "Connected". Failure: red inline text with the error message (e.g. "Key rejected by provider").
+- Info text below input: "Your API key is stored only in this browser's local storage. It is forwarded through our backend to the LLM provider on each AI request, but is never persisted, logged, or stored on our servers. If you use a different browser or device, you'll need to enter it again."
 - Note: "When using your own key, API calls are billed directly by your provider."
 
 **Section 2: Models**
@@ -937,7 +999,7 @@ AI features should be hidden/disabled for users whose tier doesn't support them.
   - Metadata suggestion: title icon enabled when description or content exists
   - Metadata suggestion: description icon enabled when content exists
   - Metadata suggestion: click replaces field content with suggestion
-  - Metadata suggestion: Cmd+Z undoes the replacement
+  - Metadata suggestion: Cmd+Z undoes the replacement (verify this works with React controlled components — if undo stack is unreliable after programmatic value changes, address during implementation)
   - Metadata suggestion: API error → nothing happens, error logged to console
   - Prompt arguments: generate-all icon enabled when prompt content exists, disabled otherwise
   - Prompt arguments: generate-all appends suggestions to existing argument list
@@ -950,6 +1012,7 @@ AI features should be hidden/disabled for users whose tier doesn't support them.
   - AI settings (BYOK state): entering key persists to localStorage, model dropdowns become active
   - AI settings: selecting a model sets override in store, selecting default clears override
   - AI settings: clearing key removes key and all model overrides from localStorage, reverts to default state
+  - AI settings: test connection calls `/ai/validate-key` (not `/ai/health`)
   - AI settings: test connection success → green checkmark + "Connected"
   - AI settings: test connection failure → red inline error message
   - AI settings: info text about localStorage-only storage is visible
@@ -1002,6 +1065,5 @@ When AI rate limits are added, update:
 - **Historical data:** Separate hourly Railway cron service flushes Redis to `ai_usage` DB table (see Milestone 1c, section 2)
 - **Cost calculation:** Both streaming and non-streaming use `completion_cost(completion_response=response)` — the public LiteLLM API. Do not use `_hidden_params` (private, unstable across versions).
 - **Audit trail:** Every LLM call emits a structured info log with metadata (user_id, use_case, model, key_source, cost, latency). Never log prompts, completions, or API keys.
-- CRITICAL: Remind the engineer to set a monthly budget alert on the Gemini API key
-- Consider a daily platform cost cap that disables platform AI if exceeded (emergency brake) — can be checked against Redis per-user key before each call
+- **CRITICAL — Platform spend protection:** Set a project-level monthly spend cap in Google AI Studio (e.g. $50/month). Google enforces this at the provider level — service is suspended when the cap is reached (with up to ~10 minute processing delay). This eliminates the need for a custom Redis-based circuit breaker. Document the spend cap value and how to adjust it in the deployment instructions. If OpenAI or Anthropic are added as platform providers in the future, configure equivalent spend controls on those platforms.
 - Content snippet truncation: enforced via `max_length` on Pydantic request schemas (see Milestone 2, section 1)
