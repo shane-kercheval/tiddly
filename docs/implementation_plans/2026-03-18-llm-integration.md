@@ -823,9 +823,13 @@ class SuggestArgumentsResponse(BaseModel):
   - No prompt content + no description → still returns best-effort suggestion
   - Prompt content improves suggestion quality (verified via prompt construction, not output)
 
+- **Cost tracking verification per endpoint:**
+  - Each new AI endpoint must verify that `track_cost()` is called and that cost is non-null for the default platform model. This catches LiteLLM pricing gaps before they reach production as silent `cost=None` values. Test via the integration tests below (assert cost was written to Redis or passed to track_cost).
+
 - **Integration tests (mock LiteLLM, real DB):**
   - End-to-end flow: create a bookmark → call suggest-tags → get tags back
   - Rate limit enforcement: exhaust AI limit → 429
+  - Cost tracking: verify track_cost() receives non-null cost for each endpoint
 
 ---
 

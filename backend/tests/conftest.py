@@ -20,6 +20,7 @@ from core.auth_cache import AuthCache, set_auth_cache
 from core.config import Settings, get_settings
 from core.redis import RedisClient, set_redis_client
 from core.tier_limits import Tier, TierLimits, get_tier_limits
+from models.ai_usage import AiUsage  # noqa: F401 - registers model with Base.metadata
 from models.base import Base
 from services.llm_service import LLMService, set_llm_service
 

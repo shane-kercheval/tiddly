@@ -165,6 +165,35 @@ class RedisClient:
             logger.warning("Redis DELETE failed: %s", e)
             return False
 
+    async def scan_keys(self, pattern: str) -> list[str]:
+        """Scan for keys matching pattern. Returns empty list if unavailable."""
+        if not self._client:
+            return []
+        try:
+            keys = []
+            async for key in self._client.scan_iter(match=pattern):
+                keys.append(key.decode() if isinstance(key, bytes) else key)
+            return keys
+        except RedisError as e:
+            logger.warning("Redis SCAN failed: %s", e)
+            return []
+
+    async def hgetall(self, key: str) -> dict[str, str] | None:
+        """Get all fields from a hash. Returns None if unavailable."""
+        if not self._client:
+            return None
+        try:
+            result = await self._client.hgetall(key)
+            return {
+                (k.decode() if isinstance(k, bytes) else k): (
+                    v.decode() if isinstance(v, bytes) else v
+                )
+                for k, v in result.items()
+            }
+        except RedisError as e:
+            logger.warning("Redis HGETALL failed: %s", e)
+            return None
+
     async def pipeline(self) -> Pipeline | None:
         """Get pipeline for batched operations, returns None if unavailable."""
         if not self._client:
