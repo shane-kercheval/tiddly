@@ -75,4 +75,7 @@ filterwarnings = [
     # The library needs to migrate to waiting_for(LogMessageWaitStrategy(...)) API.
     # See: https://github.com/testcontainers/testcontainers-python
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
+    # LiteLLM's internal async logging coroutine is not awaited during test teardown.
+    # This is a library issue, not our code. Scoped to litellm package only.
+    "ignore:coroutine 'Logging.async_success_handler' was never awaited:RuntimeWarning:litellm",
 ]

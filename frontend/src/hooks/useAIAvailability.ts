@@ -40,7 +40,7 @@ export function useAIAvailability(): {
 
   const { data, isLoading, error } = useQuery({
     queryKey: aiHealthKeys.user(userId ?? 'anonymous'),
-    queryFn: fetchAIHealth,
+    queryFn: () => fetchAIHealth(),
     enabled: isAuthenticated && !!userId,
     staleTime: Infinity, // Invalidated manually after each AI call
     gcTime: Infinity,
