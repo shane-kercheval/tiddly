@@ -648,10 +648,12 @@ Railway deployment and verification are covered in the Deployment milestone at t
 After this milestone:
 
 - `POST /ai/suggest-tags` — given item metadata, returns suggested tags
-- `POST /ai/suggest-metadata` — given content/URL, returns suggested title and description
-- `POST /ai/suggest-relationships` — given an item, returns candidate related items
+- `POST /ai/suggest-metadata` — given content/URL, returns suggested title and/or description (controlled by `fields` parameter)
+- `POST /ai/suggest-relationships` — given an item, returns candidate related items via title + tag search
+- `POST /ai/suggest-arguments` — given a prompt template, returns argument names + descriptions
 - All endpoints return structured Pydantic responses
 - All endpoints work with both platform keys and BYOK
+- LLM response validation: malformed responses return 502 (`llm_invalid_response`), not 500
 
 ### Implementation Outline
 
@@ -675,21 +677,24 @@ class SuggestTagsResponse(BaseModel):
 
 class SuggestMetadataRequest(BaseModel):
     model: str | None = None             # BYOK model override (ignored without BYOK key)
+    fields: list[Literal["title", "description"]] = ["title", "description"]  # which fields to generate
     url: str | None = Field(None, max_length=2000)
-    title: str | None = Field(None, max_length=500)
+    title: str | None = Field(None, max_length=500)        # context when generating description
+    description: str | None = Field(None, max_length=1000) # context when generating title
     content_snippet: str | None = Field(None, max_length=2500)
 
 class SuggestMetadataResponse(BaseModel):
-    title: str
-    description: str
+    title: str | None = None       # None when not requested via fields
+    description: str | None = None # None when not requested via fields
 
 class SuggestRelationshipsRequest(BaseModel):
     model: str | None = None             # BYOK model override (ignored without BYOK key)
+    source_id: str | None = None         # source item ID for self-match exclusion
     title: str | None = Field(None, max_length=500)
     url: str | None = Field(None, max_length=2000)
     description: str | None = Field(None, max_length=1000)
     content_snippet: str | None = Field(None, max_length=2500)
-    current_tags: list[str] = []                  # for search queries
+    current_tags: list[str] = []                  # for tag-based candidate search
     existing_relationship_ids: list[str] = []     # for deduplication
 
 class RelationshipCandidate(BaseModel):
@@ -714,8 +719,8 @@ Key design choices for prompts:
   3. Few-shot examples: recent items that use the item's `current_tags`, showing title/description + tags. If no current tags, use the user's most recent items instead.
   4. Instructions: prefer reusing tags from the vocabulary, suggest lowercase hyphenated tags consistent with the user's style, the examples are for style reference only — do not simply duplicate them.
   5. The response excludes any tags already in `current_tags` (server-side deduplication).
-- **Metadata suggestions:** Generate concise title and description. The title should be short (under 100 chars). The description should be 1-2 sentences.
-- **Relationship suggestions:** This is a two-step operation. First, search for candidate items (using existing content search). Then send the current item + candidates to the LLM to judge relevance. Per candidate, send only: title, type, and first 200 characters of description. Total prompt budget for relationship suggestions: ~3000 tokens (system prompt + source item metadata + 10 candidates).
+- **Metadata suggestions:** The `fields` parameter controls which fields are generated (`["title"]`, `["description"]`, or both). The prompt adapts: non-requested fields appear as context ("Title: My Article") while requested fields appear as targets ("Current title (to improve): ..."). Internal response format models (`_TitleOnly`, `_DescriptionOnly`, `_TitleAndDescription`) constrain the LLM's structured output to exactly the requested fields. The title should be short (under 100 chars). The description should be 1-2 sentences.
+- **Relationship suggestions:** Two-step: search for candidates, then LLM judges relevance. Two sequential searches — title (relevance-ranked) and tags (recency-ranked) — provide orthogonal signals. Results are deduped by ID with title results prioritized. Source item excluded via `source_id`. Per candidate: title, type, first 200 chars of description, and first 200 chars of content_preview. Cap at 10 candidates.
 
 **BYOK structured output:** Suggestion endpoints require models that support structured output (Pydantic `response_format`). This works reliably with OpenAI, Gemini, and Anthropic major models. If a BYOK user chooses a model that doesn't support structured output, LiteLLM will raise an error that our error handler surfaces as `llm_bad_request`. The `/ai/health` endpoint should document which capabilities each use case requires so BYOK users can make informed model choices.
 
@@ -723,28 +728,21 @@ Key design choices for prompts:
 
 Each endpoint follows the same pattern:
 
-```python
-@router.post("/suggest-tags", response_model=SuggestTagsResponse)
-async def suggest_tags(
-    data: SuggestTagsRequest,
-    current_user: User = Depends(get_current_user_ai),
-    limits: TierLimits = Depends(get_current_limits_ai),
-    llm_api_key: str | None = Depends(get_llm_api_key),
-):
-    if limits.rate_ai_per_day == 0:
-        raise QuotaExceededError(resource="ai", current=0, limit=0)
-    config = llm_service.resolve_config(AIUseCase.SUGGESTIONS, llm_api_key, data.model)
-    # Build messages from prompt template + request data
-    # Call llm_service.complete(..., response_format=SuggestTagsResponse)
-    # Track cost via Redis
-    # Return parsed response
-```
+Each endpoint uses `apply_ai_rate_limit` (enforces AI_PLATFORM or AI_BYOK based on BYOK header — zero-limit tiers get 429 immediately). `validate-key` keeps `apply_ai_rate_limit_byok` (BYOK-only, returns early without key).
+
+LLM response parsing uses `_parse_llm_response()` which catches `ValidationError` and returns HTTP 502 with `llm_invalid_response` error code — not a bare 500. Cost is tracked before parsing (via `track_cost()`) so provider billing is always recorded even when response parsing fails.
 
 #### 4. Relationship suggestions — search step
 
-The `/ai/suggest-relationships` endpoint needs to first find candidate items to evaluate. Use the existing `ContentService` search to find items with similar tags or text, then pass the top N candidates to the LLM for relevance judgment.
+The `/ai/suggest-relationships` endpoint finds candidate items via search, then asks the LLM to judge relevance.
 
-Use the existing `ContentService` search with the item's title as the query. This leverages the existing full-text search infrastructure. Deduplicate and exclude the source item. Send the top 10 candidates to the LLM — enough for meaningful suggestions without excessive token cost. The exact search strategy (title-only vs title+tags) can be tuned during implementation based on result quality.
+**Search strategy:** Two sequential searches (not concurrent — `AsyncSession` is not safe for concurrent use):
+1. **Title search** (`sort_by="relevance"`, `limit=10`) — full-text relevance ranking against the item's title
+2. **Tag search** (`tags=current_tags`, `tag_match="any"`, `sort_by="updated_at"`, `limit=10`) — items sharing any of the source item's tags, ordered by recency
+
+Results are deduped by ID with title results prioritized (first-seen ordering). Source item excluded via `source_id`. Existing relationships excluded via `existing_relationship_ids`. Cap at 10 candidates.
+
+Per candidate, send to the LLM: title, type, entity_id, first 200 chars of description, and first 200 chars of content_preview. Returns empty list (no LLM call) if no title and no tags, or if search returns no candidates after filtering.
 
 #### 5. Prompt argument suggestions
 
@@ -770,9 +768,9 @@ class SuggestArgumentsResponse(BaseModel):
 ```
 
 **Three use cases, one endpoint:**
-- **Generate all arguments:** Send `prompt_content` with no `target`. The LLM analyzes the prompt template, identifies `{{ variable }}` placeholders, and returns a name + description for each. Existing `arguments` are included so the LLM doesn't duplicate them.
-- **Suggest argument name:** Send `target` identifying the argument (by index or placeholder), with that argument's `description` populated and `name` empty. The LLM returns a single-item list with a suggested name. `prompt_content` is optional but improves quality.
-- **Suggest argument description:** Send `target` identifying the argument, with that argument's `name` populated and `description` empty. The LLM returns a single-item list with a suggested description. `prompt_content` is optional but improves quality.
+- **Generate all arguments:** Send `prompt_content` with no `target`. Placeholders (`{{ variable }}`) are extracted deterministically via regex — the LLM does not guess at variable names. Existing arguments are excluded before the LLM call. The LLM generates descriptions for the remaining placeholders. If all placeholders already have arguments, returns empty (no LLM call). Response names are validated via `validate_argument_name()` — invalid names are silently filtered.
+- **Suggest argument name:** Send `target` identifying the argument by name, with that argument's `description` populated and `name` empty. The LLM returns a single-item list with a suggested name. `prompt_content` is optional but improves quality.
+- **Suggest argument description:** Send `target` identifying the argument by name, with that argument's `name` populated and `description` empty. The LLM returns a single-item list with a suggested description. `prompt_content` is optional but improves quality.
 
 ### Testing Strategy
 
