@@ -22,6 +22,9 @@ from schemas.ai import (
     SuggestRelationshipsResponse,
     SuggestTagsRequest,
     SuggestTagsResponse,
+    _DescriptionOnly,
+    _TitleAndDescription,
+    _TitleOnly,
 )
 from schemas.cached_user import CachedUser
 from schemas.validators import validate_argument_name
@@ -269,15 +272,33 @@ async def suggest_metadata(
     llm_api_key: str | None = Depends(get_llm_api_key),
     _rate_limit: None = Depends(apply_ai_rate_limit),
 ) -> SuggestMetadataResponse:
-    """Suggest title and description for an item."""
+    """
+    Suggest title and/or description for an item.
+
+    The `fields` parameter controls which fields are generated.
+    Existing values for non-requested fields are used as context.
+    """
+    generate_title = "title" in data.fields
+    generate_desc = "description" in data.fields
+
+    # Select the response format based on which fields are requested
+    if generate_title and generate_desc:
+        response_format = _TitleAndDescription
+    elif generate_title:
+        response_format = _TitleOnly
+    else:
+        response_format = _DescriptionOnly
+
     llm_service = get_llm_service()
     config = llm_service.resolve_config(
         AIUseCase.SUGGESTIONS, user_api_key=llm_api_key, user_model=data.model,
     )
 
     messages = build_metadata_suggestion_messages(
+        fields=data.fields,
         url=data.url,
         title=data.title,
+        description=data.description,
         content_snippet=data.content_snippet,
     )
 
@@ -285,7 +306,7 @@ async def suggest_metadata(
     response, cost = await llm_service.complete(
         messages=messages,
         config=config,
-        response_format=SuggestMetadataResponse,
+        response_format=response_format,
     )
     latency_ms = int((time.monotonic() - start) * 1000)
 
@@ -298,7 +319,12 @@ async def suggest_metadata(
         latency_ms=latency_ms,
     )
 
-    return _parse_llm_response(response, SuggestMetadataResponse)
+    parsed = _parse_llm_response(response, response_format)
+
+    return SuggestMetadataResponse(
+        title=getattr(parsed, "title", None),
+        description=getattr(parsed, "description", None),
+    )
 
 
 @router.post("/suggest-relationships", response_model=SuggestRelationshipsResponse)

@@ -125,10 +125,10 @@ class TestSuggestTags:
 class TestSuggestMetadata:
     """Tests for POST /ai/suggest-metadata."""
 
-    async def test_returns_title_and_description(self, client: AsyncClient) -> None:
+    async def test_generates_both_fields_by_default(self, client: AsyncClient) -> None:
         content = json.dumps({
             "title": "Understanding REST APIs",
-            "description": "A comprehensive guide to building RESTful web services.",
+            "description": "A guide to building RESTful web services.",
         })
         p1, p2 = _patch_llm(content)
         with p1, p2:
@@ -138,8 +138,131 @@ class TestSuggestMetadata:
             )
         assert response.status_code == 200
         data = response.json()
-        assert "title" in data
-        assert "description" in data
+        assert data["title"] is not None
+        assert data["description"] is not None
+
+    async def test_title_only(self, client: AsyncClient) -> None:
+        """Request title only — description used as context, not generated."""
+        content = json.dumps({"title": "Better Title"})
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-metadata",
+                json={
+                    "fields": ["title"],
+                    "description": "Existing description for context",
+                    "content_snippet": "Some content...",
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] is not None
+        assert data["description"] is None
+
+    async def test_description_only(self, client: AsyncClient) -> None:
+        """Request description only — title used as context, not generated."""
+        content = json.dumps({"description": "A detailed summary."})
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-metadata",
+                json={
+                    "fields": ["description"],
+                    "title": "My Article",
+                    "content_snippet": "Some content...",
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] is None
+        assert data["description"] is not None
+
+    async def test_explicit_both_fields(self, client: AsyncClient) -> None:
+        """Explicitly requesting both fields works the same as default."""
+        content = json.dumps({"title": "T", "description": "D"})
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-metadata",
+                json={
+                    "fields": ["title", "description"],
+                    "content_snippet": "Content...",
+                },
+            )
+        data = response.json()
+        assert data["title"] is not None
+        assert data["description"] is not None
+
+    async def test_invalid_fields_rejected(self, client: AsyncClient) -> None:
+        """Invalid field values are rejected at schema level (422, not 400)."""
+        response = await client.post(
+            "/ai/suggest-metadata",
+            json={"fields": ["invalid_field"], "content_snippet": "..."},
+        )
+        assert response.status_code == 422
+
+    async def test_empty_fields_rejected(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/ai/suggest-metadata",
+            json={"fields": [], "content_snippet": "..."},
+        )
+        assert response.status_code == 422
+
+    async def test_existing_title_used_as_context_for_description(
+        self, client: AsyncClient,
+    ) -> None:
+        """When generating description, the existing title appears in the prompt."""
+        content = json.dumps({"description": "A summary."})
+        mock_response = _mock_llm_response(content)
+        with (
+            patch(
+                "services.llm_service.acompletion",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ) as mock_acomp,
+            patch("services.llm_service.completion_cost", return_value=0.001),
+        ):
+            await client.post(
+                "/ai/suggest-metadata",
+                json={
+                    "fields": ["description"],
+                    "title": "My Specific Article Title",
+                    "content_snippet": "Content...",
+                },
+            )
+        call_kwargs = mock_acomp.call_args.kwargs
+        user_msg = next(
+            m["content"] for m in call_kwargs["messages"] if m["role"] == "user"
+        )
+        assert "My Specific Article Title" in user_msg
+
+    async def test_existing_description_used_as_context_for_title(
+        self, client: AsyncClient,
+    ) -> None:
+        """When generating title, the existing description appears in the prompt."""
+        content = json.dumps({"title": "A Title"})
+        mock_response = _mock_llm_response(content)
+        with (
+            patch(
+                "services.llm_service.acompletion",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ) as mock_acomp,
+            patch("services.llm_service.completion_cost", return_value=0.001),
+        ):
+            await client.post(
+                "/ai/suggest-metadata",
+                json={
+                    "fields": ["title"],
+                    "description": "A detailed description about machine learning",
+                    "content_snippet": "Content...",
+                },
+            )
+        call_kwargs = mock_acomp.call_args.kwargs
+        user_msg = next(
+            m["content"] for m in call_kwargs["messages"] if m["role"] == "user"
+        )
+        assert "A detailed description about machine learning" in user_msg
 
     async def test_works_with_url_only(self, client: AsyncClient) -> None:
         content = json.dumps({"title": "Example", "description": "A site."})
@@ -157,7 +280,7 @@ class TestSuggestMetadata:
         with p1, p2, patch("api.routers.ai.track_cost", new_callable=AsyncMock) as mock_track:
             await client.post(
                 "/ai/suggest-metadata",
-                json={"title": "Test"},
+                json={"content_snippet": "Test content"},
             )
         mock_track.assert_called_once()
 
@@ -538,7 +661,7 @@ class TestLLMResponseValidation:
         p1, p2 = _patch_llm('{"wrong_field": "value"}')
         with p1, p2:
             response = await client.post(
-                "/ai/suggest-metadata",
+                "/ai/suggest-tags",
                 json={"title": "Test"},
             )
         assert response.status_code == 502

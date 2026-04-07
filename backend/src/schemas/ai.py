@@ -1,5 +1,7 @@
 """Request/response schemas for AI suggestion endpoints."""
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -30,16 +32,58 @@ class SuggestTagsResponse(BaseModel):
 
 
 class SuggestMetadataRequest(BaseModel):
-    """Request for title/description suggestions."""
+    """
+    Request for title/description suggestions.
+
+    The `fields` parameter controls which fields are generated.
+    Existing field values (title, description) are used as context
+    for generating the requested fields, not overwritten.
+    """
 
     model: str | None = None
+    fields: list[Literal["title", "description"]] = ["title", "description"]
     url: str | None = Field(None, max_length=2000)
+
+    @field_validator("fields")
+    @classmethod
+    def fields_not_empty(cls, v: list) -> list:
+        """At least one field must be requested."""
+        if not v:
+            raise ValueError("fields must contain at least one of 'title' or 'description'")
+        return v
     title: str | None = Field(None, max_length=500)
+    description: str | None = Field(None, max_length=1000)
     content_snippet: str | None = Field(None, max_length=2500)
 
 
 class SuggestMetadataResponse(BaseModel):
-    """Response with suggested title and description."""
+    """
+    Response with suggested title and/or description.
+
+    Only requested fields are populated; others are None.
+    """
+
+    title: str | None = None
+    description: str | None = None
+
+
+# Internal response models for structured output — each tells the LLM
+# exactly which field(s) to generate.
+
+class _TitleOnly(BaseModel):
+    """Internal: LLM response format when only title is requested."""
+
+    title: str
+
+
+class _DescriptionOnly(BaseModel):
+    """Internal: LLM response format when only description is requested."""
+
+    description: str
+
+
+class _TitleAndDescription(BaseModel):
+    """Internal: LLM response format when both fields are requested."""
 
     title: str
     description: str
