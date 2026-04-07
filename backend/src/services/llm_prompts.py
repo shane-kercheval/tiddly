@@ -66,22 +66,41 @@ def build_tag_suggestion_messages(
 
 
 def build_metadata_suggestion_messages(
+    fields: list[str],
     url: str | None,
     title: str | None,
+    description: str | None,
     content_snippet: str | None,
 ) -> list[dict]:
-    """Build messages for title/description suggestion."""
-    system = (
-        "You are a content summarization assistant. "
-        "Generate a concise title and description for the given item.\n\n"
-        "Guidelines:\n"
-        "- Title: short and descriptive, under 100 characters\n"
-        "- Description: 1-2 sentences summarizing the content\n"
-    )
+    """
+    Build messages for title/description suggestion.
+
+    Args:
+        fields: Which fields to generate — ["title"], ["description"],
+            or ["title", "description"].
+        url: Item URL.
+        title: Existing title (used as context, not regenerated unless requested).
+        description: Existing description (used as context).
+        content_snippet: Item content.
+    """
+    generate_title = "title" in fields
+    generate_desc = "description" in fields
+
+    system = "You are a content summarization assistant.\n\nGuidelines:\n"
+    if generate_title:
+        system += "- Title: short and descriptive, under 100 characters\n"
+    if generate_desc:
+        system += "- Description: 1-2 sentences summarizing the content\n"
 
     user_parts = []
-    if title:
-        user_parts.append(f"Current title: {title}")
+    if title and not generate_title:
+        user_parts.append(f"Title: {title}")
+    elif title and generate_title:
+        user_parts.append(f"Current title (to improve): {title}")
+    if description and not generate_desc:
+        user_parts.append(f"Description: {description}")
+    elif description and generate_desc:
+        user_parts.append(f"Current description (to improve): {description}")
     if url:
         user_parts.append(f"URL: {url}")
     if content_snippet:
@@ -89,9 +108,16 @@ def build_metadata_suggestion_messages(
 
     user_msg = "\n".join(user_parts) if user_parts else "No context provided."
 
+    if generate_title and generate_desc:
+        task = "Generate a title and description"
+    elif generate_title:
+        task = "Generate a title"
+    else:
+        task = "Generate a description"
+
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"Generate a title and description:\n\n{user_msg}"},
+        {"role": "user", "content": f"{task}:\n\n{user_msg}"},
     ]
 
 
