@@ -170,31 +170,108 @@ class TestSuggestMetadata:
 class TestSuggestRelationships:
     """Tests for POST /ai/suggest-relationships."""
 
-    async def test_returns_empty_when_no_context(self, client: AsyncClient) -> None:
-        """No title, description, or tags — return empty immediately."""
+    async def test_returns_empty_when_no_title_or_tags(self, client: AsyncClient) -> None:
+        """No title or tags — return empty immediately."""
         response = await client.post(
             "/ai/suggest-relationships",
-            json={},
+            json={"description": "only description, no title or tags"},
         )
         assert response.status_code == 200
         assert response.json()["candidates"] == []
 
-    async def test_description_fallback_when_no_title(self, client: AsyncClient) -> None:
-        """Uses description for search when title is absent."""
+    async def test_tag_search_finds_candidates(self, client: AsyncClient) -> None:
+        """Items sharing tags appear as candidates even without title match."""
         await client.post("/bookmarks/", json={
-            "url": "https://example.com/desc-test",
-            "title": "Machine learning fundamentals",
-            "description": "An intro to ML concepts",
+            "url": "https://example.com/tag-rel-1",
+            "title": "Completely unrelated title alpha",
+            "tags": ["machine-learning"],
         })
+        await client.post("/bookmarks/", json={
+            "url": "https://example.com/tag-rel-2",
+            "title": "Completely unrelated title beta",
+            "tags": ["machine-learning"],
+        })
+
         content = json.dumps({"candidates": []})
-        p1, p2 = _patch_llm(content)
-        with p1, p2:
+        mock_response = _mock_llm_response(content)
+        with (
+            patch(
+                "services.llm_service.acompletion",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ) as mock_acomp,
+            patch("services.llm_service.completion_cost", return_value=0.001),
+        ):
             response = await client.post(
                 "/ai/suggest-relationships",
-                json={"description": "Machine learning fundamentals"},
+                json={
+                    "title": "No title match whatsoever xyz123",
+                    "current_tags": ["machine-learning"],
+                },
             )
-        # Should not return empty — description was used as search query
         assert response.status_code == 200
+        mock_acomp.assert_called_once()
+
+    async def test_tags_only_no_title(self, client: AsyncClient) -> None:
+        """Tags-only request (no title) still finds candidates."""
+        await client.post("/bookmarks/", json={
+            "url": "https://example.com/tag-only",
+            "title": "Tag only test item",
+            "tags": ["unique-test-tag-xyz"],
+        })
+
+        content = json.dumps({"candidates": []})
+        mock_response = _mock_llm_response(content)
+        with (
+            patch(
+                "services.llm_service.acompletion",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ) as mock_acomp,
+            patch("services.llm_service.completion_cost", return_value=0.001),
+        ):
+            response = await client.post(
+                "/ai/suggest-relationships",
+                json={"current_tags": ["unique-test-tag-xyz"]},
+            )
+        assert response.status_code == 200
+        mock_acomp.assert_called_once()
+
+    async def test_dedup_across_title_and_tag_results(self, client: AsyncClient) -> None:
+        """Item appearing in both title and tag results appears once in candidates."""
+        await client.post("/bookmarks/", json={
+            "url": "https://example.com/dedup-test",
+            "title": "Dedup overlap test unique item",
+            "tags": ["dedup-test-tag"],
+        })
+
+        content = json.dumps({"candidates": []})
+        mock_response = _mock_llm_response(content)
+        with (
+            patch(
+                "services.llm_service.acompletion",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ) as mock_acomp,
+            patch("services.llm_service.completion_cost", return_value=0.001),
+        ):
+            await client.post(
+                "/ai/suggest-relationships",
+                json={
+                    "title": "Dedup overlap test unique item",
+                    "current_tags": ["dedup-test-tag"],
+                },
+            )
+        mock_acomp.assert_called_once()
+        # Verify the candidate appears only once (deduped across title + tag results)
+        call_kwargs = mock_acomp.call_args.kwargs
+        user_msg = next(
+            m["content"] for m in call_kwargs["messages"] if m["role"] == "user"
+        )
+        # The candidates section should list the item once, even though it
+        # matched both title search and tag search
+        candidates_section = user_msg.split("Candidates:")[1]
+        assert candidates_section.count("Dedup overlap test unique item") == 1
 
     async def test_source_id_excluded_from_candidates(self, client: AsyncClient) -> None:
         """Source item is excluded from candidates via source_id."""

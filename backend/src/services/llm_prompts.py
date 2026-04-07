@@ -111,7 +111,7 @@ def build_relationship_suggestion_messages(
         source_description: Source item description.
         source_content_snippet: Source item content.
         candidates: List of candidate items, each with keys:
-            entity_id, entity_type, title, description (truncated to 200 chars).
+            entity_id, entity_type, title, description, content_preview.
     """
     system = (
         "You are a content relationship assistant. "
@@ -138,10 +138,13 @@ def build_relationship_suggestion_messages(
     candidate_lines = []
     for i, c in enumerate(candidates, 1):
         desc = (c.get("description") or "")[:200]
-        candidate_lines.append(
-            f"{i}. [{c['entity_type']}] \"{c['title']}\" (id: {c['entity_id']})"
-            + (f" — {desc}" if desc else ""),
-        )
+        preview = (c.get("content_preview") or "")[:200]
+        line = f"{i}. [{c['entity_type']}] \"{c['title']}\" (id: {c['entity_id']})"
+        if desc:
+            line += f" — {desc}"
+        if preview:
+            line += f"\n   Content: {preview}"
+        candidate_lines.append(line)
 
     candidates_str = "\n".join(candidate_lines) if candidate_lines else "No candidates."
 

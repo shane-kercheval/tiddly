@@ -1,5 +1,4 @@
 """AI feature endpoints."""
-import asyncio
 import logging
 import time
 
@@ -311,40 +310,30 @@ async def suggest_relationships(
     db: AsyncSession = Depends(get_async_session),
 ) -> SuggestRelationshipsResponse:
     """Suggest related items by searching for candidates and asking the LLM to judge relevance."""
-    has_title = bool(data.title)
-    has_description = bool(data.description)
-    has_tags = bool(data.current_tags)
-
-    if not has_title and not has_description and not has_tags:
+    if not data.title and not data.current_tags:
         return SuggestRelationshipsResponse(candidates=[])
 
-    # Run up to 3 searches concurrently for broader candidate coverage
-    searches = []
-    if has_title:
-        searches.append(search_all_content(
+    # Search by title (relevance-ranked) then tags (recency-ranked), sequentially.
+    # Two orthogonal signals: text similarity + topical grouping.
+    search_results: list[tuple] = []
+    if data.title:
+        search_results.append(await search_all_content(
             db=db, user_id=current_user.id, query=data.title,
             sort_by="relevance", limit=10,
         ))
-    if has_description:
-        searches.append(search_all_content(
-            db=db, user_id=current_user.id, query=data.description[:100],
-            sort_by="relevance", limit=10,
-        ))
-    if has_tags:
-        searches.append(search_all_content(
+    if data.current_tags:
+        search_results.append(await search_all_content(
             db=db, user_id=current_user.id, tags=data.current_tags,
             tag_match="any", sort_by="updated_at", limit=10,
         ))
 
-    results = await asyncio.gather(*searches)
-
-    # Dedup by ID, preserving first-seen order (title results first)
+    # Dedup by ID, title results first (highest signal)
     exclude_ids = set(data.existing_relationship_ids)
     if data.source_id:
         exclude_ids.add(data.source_id)
     seen_ids: set[str] = set()
     candidates = []
-    for items, _total in results:
+    for items, _total in search_results:
         for item in items:
             item_id = str(item.id)
             if item_id in exclude_ids or item_id in seen_ids:
@@ -355,6 +344,7 @@ async def suggest_relationships(
                 "entity_type": item.type,
                 "title": item.title or "",
                 "description": (item.description or "")[:200],
+                "content_preview": (item.content_preview or "")[:200],
             })
             if len(candidates) >= 10:
                 break
