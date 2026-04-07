@@ -1,4 +1,5 @@
 """AI feature endpoints."""
+import asyncio
 import logging
 import time
 
@@ -310,36 +311,53 @@ async def suggest_relationships(
     db: AsyncSession = Depends(get_async_session),
 ) -> SuggestRelationshipsResponse:
     """Suggest related items by searching for candidates and asking the LLM to judge relevance."""
-    # Build search query: prefer title, fall back to description
-    search_query = data.title or (data.description[:100] if data.description else None)
-    if not search_query and not data.current_tags:
+    has_title = bool(data.title)
+    has_description = bool(data.description)
+    has_tags = bool(data.current_tags)
+
+    if not has_title and not has_description and not has_tags:
         return SuggestRelationshipsResponse(candidates=[])
 
-    items, _total = await search_all_content(
-        db=db,
-        user_id=current_user.id,
-        query=search_query,
-        tags=data.current_tags or None,
-        tag_match="any",
-        sort_by="relevance" if search_query else "updated_at",
-        limit=15,
-    )
+    # Run up to 3 searches concurrently for broader candidate coverage
+    searches = []
+    if has_title:
+        searches.append(search_all_content(
+            db=db, user_id=current_user.id, query=data.title,
+            sort_by="relevance", limit=10,
+        ))
+    if has_description:
+        searches.append(search_all_content(
+            db=db, user_id=current_user.id, query=data.description[:100],
+            sort_by="relevance", limit=10,
+        ))
+    if has_tags:
+        searches.append(search_all_content(
+            db=db, user_id=current_user.id, tags=data.current_tags,
+            tag_match="any", sort_by="updated_at", limit=10,
+        ))
 
-    # Filter out source item and existing relationships
+    results = await asyncio.gather(*searches)
+
+    # Dedup by ID, preserving first-seen order (title results first)
     exclude_ids = set(data.existing_relationship_ids)
     if data.source_id:
         exclude_ids.add(data.source_id)
+    seen_ids: set[str] = set()
     candidates = []
-    for item in items:
-        item_id = str(item.id)
-        if item_id in exclude_ids:
-            continue
-        candidates.append({
-            "entity_id": item_id,
-            "entity_type": item.type,
-            "title": item.title or "",
-            "description": (item.description or "")[:200],
-        })
+    for items, _total in results:
+        for item in items:
+            item_id = str(item.id)
+            if item_id in exclude_ids or item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            candidates.append({
+                "entity_id": item_id,
+                "entity_type": item.type,
+                "title": item.title or "",
+                "description": (item.description or "")[:200],
+            })
+            if len(candidates) >= 10:
+                break
         if len(candidates) >= 10:
             break
 
