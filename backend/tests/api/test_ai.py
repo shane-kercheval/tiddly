@@ -116,6 +116,47 @@ class TestValidateKey:
         assert data["valid"] is False
         assert "rejected" in data["error"]
 
+    async def test_valid_key_with_model(self, client: AsyncClient) -> None:
+        """validate-key with explicit model should use that model for the test call."""
+        mock_response = MagicMock()
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_response) as mock_acompletion,
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            response = await client.post(
+                "/ai/validate-key",
+                headers={"X-LLM-Api-Key": "valid-key-123"},
+                json={"model": "anthropic/claude-haiku-4-5"},
+            )
+        assert response.status_code == 200
+        assert response.json()["valid"] is True
+        # Verify the model passed to acompletion matches the requested model
+        call_kwargs = mock_acompletion.call_args
+        assert call_kwargs.kwargs["model"] == "anthropic/claude-haiku-4-5"
+
+    async def test_valid_key_with_unsupported_model(self, client: AsyncClient) -> None:
+        """validate-key with unsupported model should return 400."""
+        response = await client.post(
+            "/ai/validate-key",
+            headers={"X-LLM-Api-Key": "valid-key-123"},
+            json={"model": "evil/attacker-model"},
+        )
+        assert response.status_code == 400
+
+    async def test_valid_key_without_model_uses_default(self, client: AsyncClient) -> None:
+        """validate-key without model should fall back to platform default."""
+        mock_response = MagicMock()
+        with (
+            patch("services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_response),
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            response = await client.post(
+                "/ai/validate-key",
+                headers={"X-LLM-Api-Key": "valid-key-123"},
+            )
+        assert response.status_code == 200
+        assert response.json()["valid"] is True
+
     async def test_timeout_propagates_to_global_handler(self, client: AsyncClient) -> None:
         """Timeout during validation should return 504, not valid=false."""
         with patch(

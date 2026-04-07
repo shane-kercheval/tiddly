@@ -682,3 +682,116 @@ export interface RelationshipListResponse {
   limit: number
   has_more: boolean
 }
+
+// =============================================================================
+// AI Types
+// =============================================================================
+
+/** AI health check response from GET /ai/health */
+export interface AIHealthResponse {
+  available: boolean
+  byok: boolean
+  remaining_daily: number
+  limit_daily: number
+}
+
+/** A supported model definition from GET /ai/models */
+export interface AIModelDef {
+  id: string            // e.g. "gemini/gemini-2.5-flash-lite"
+  provider: string      // "google" | "openai" | "anthropic"
+  tier: string          // "budget" | "balanced" | "flagship"
+  input_cost_per_million?: number
+  output_cost_per_million?: number
+}
+
+/** Response from GET /ai/models */
+export interface AIModelsResponse {
+  models: AIModelDef[]
+  defaults: Record<string, string>
+}
+
+/** Response from POST /ai/validate-key */
+export interface AIValidateKeyResponse {
+  valid: boolean
+  error?: string
+}
+
+/** Request for POST /ai/suggest-tags */
+export interface SuggestTagsRequest {
+  model?: string | null
+  title?: string | null
+  url?: string | null
+  description?: string | null
+  content_snippet?: string | null
+  current_tags?: string[]
+}
+
+/** Response from POST /ai/suggest-tags */
+export interface SuggestTagsResponse {
+  tags: string[]
+}
+
+/** Request for POST /ai/suggest-metadata */
+export interface SuggestMetadataRequest {
+  model?: string | null
+  fields?: ('title' | 'description')[]
+  url?: string | null
+  title?: string | null
+  description?: string | null
+  content_snippet?: string | null
+}
+
+/** Response from POST /ai/suggest-metadata */
+export interface SuggestMetadataResponse {
+  title: string | null
+  description: string | null
+}
+
+/** Request for POST /ai/suggest-relationships */
+export interface SuggestRelationshipsRequest {
+  model?: string | null
+  source_id?: string | null
+  title?: string | null
+  url?: string | null
+  description?: string | null
+  content_snippet?: string | null
+  current_tags?: string[]
+  existing_relationship_ids?: string[]
+}
+
+/** A relationship candidate from the AI */
+export interface RelationshipCandidate {
+  entity_id: string
+  entity_type: string
+  title: string
+}
+
+/** Response from POST /ai/suggest-relationships */
+export interface SuggestRelationshipsResponse {
+  candidates: RelationshipCandidate[]
+}
+
+/** An existing argument provided for context */
+export interface ArgumentInput {
+  name?: string | null
+  description?: string | null
+}
+
+/** Request for POST /ai/suggest-arguments */
+export interface SuggestArgumentsRequest {
+  model?: string | null
+  prompt_content?: string | null
+  arguments?: ArgumentInput[]
+  target?: string | null
+}
+
+/** A suggested argument */
+export interface ArgumentSuggestion {
+  name: string
+  description: string
+}
+
+/** Response from POST /ai/suggest-arguments */
+export interface SuggestArgumentsResponse {
+  arguments: ArgumentSuggestion[]
+}

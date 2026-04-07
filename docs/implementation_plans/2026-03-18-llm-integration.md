@@ -825,79 +825,117 @@ Split into sub-milestones to manage scope. Each is independently deployable.
 
 After this sub-milestone:
 
-- Zustand store manages BYOK key and model overrides (persisted to localStorage)
-- "AI Configuration" settings page with API key management and model selection
-- API integration layer with BYOK header interceptor
-- Feature gating via `/ai/health` — AI UI elements hidden for unsupported tiers
+- Zustand store manages per-use-case BYOK keys and model overrides (persisted to localStorage)
+- "AI Configuration" settings page with expandable per-use-case rows for API key management and model selection
+- API integration layer with per-use-case request helper (no global interceptor)
+- Feature gating via `/ai/health` — AI UI elements hidden for unsupported tiers, feature descriptions visible to all
 - `/ai/health` response cached in a hook for use across all AI UI components
+- Dual quota display (included + BYOK) when user has any BYOK keys configured
+- AI feature descriptions table on settings page (visible to all tiers for value communication)
+- New `/docs/features/ai` docs page with detailed AI feature documentation
+- Sidebar settings section is collapsible with persisted state
+- Docs link in sidebar settings section (opens in new tab)
 
 #### Implementation Outline
 
 ##### 1. AI settings store + settings page
 
 **Zustand store** (`stores/aiStore.ts`):
-- `apiKey: string | null` — from localStorage
-- `modelOverrides: Record<string, string>` — per-use-case model overrides, keyed by `AIUseCase` value (e.g. `{ "suggestions": "anthropic/claude-sonnet-4-6" }`). Only set for overrides — if a use case has no entry, the platform default is used. Persisted to localStorage.
-- `setApiKey(key)` / `clearApiKey()` — persist to/from localStorage. Clearing the key also clears all model overrides.
-- `setModelOverride(useCase, modelId)` / `clearModelOverride(useCase)` — set/remove a per-use-case override
-- `isConfigured: boolean` — derived: true if BYOK key is set
 
-The store values (`apiKey` and `modelOverrides`) are sent to the backend via the `X-LLM-Api-Key` header (key) and request body or query param (model) on each AI call. The backend's `resolve_config()` already handles this — user key + user model → use both; user key + no model → fall back to platform default.
+Per-use-case configuration — each use case has its own API key and model override:
+- `useCaseConfigs: Record<AIUseCase, UseCaseConfig>` where `UseCaseConfig = { apiKey: string | null, model: string | null }`. Persisted to localStorage.
+- `setApiKey(useCase, key)` / `clearApiKey(useCase)` — set/clear key for a specific use case. Clearing also resets the model override for that use case.
+- `clearAllKeys()` — reset all use cases to defaults.
+- `setModel(useCase, modelId)` / `clearModel(useCase)` — set/remove a model override for a use case.
+- `getConfig(useCase)` — returns `{ apiKey, model }` for a use case.
 
-**Settings page** — new page named "AI Configuration" in the sidebar, positioned before the existing "AI Integration" (MCP) page. Follows the existing `SettingsGeneral` layout pattern (`max-w-3xl pt-3`, section headings with `h2`, card-based controls with `rounded-lg border`).
+**Design decision — per-use-case keys instead of a single global key:** A single BYOK key doesn't work across model families (an Anthropic key can't call a Gemini model). Per-use-case keys allow users to configure different providers for different features (e.g., Anthropic for suggestions, OpenAI for chat). This also simplifies `validate-key` — each test connection sends both the key and the selected model, so the backend tests the key against the correct provider.
+
+**Settings page** — new page named "AI Configuration" at `/app/settings/ai`, positioned before the existing "AI Integration" (MCP) page. Follows existing settings patterns (`max-w-3xl pt-3`, uses app CSS classes `input`, `select`, `btn-primary`, `btn-secondary`, `btn-ghost`).
 
 The page fetches `/ai/models` on load to get the curated model list and per-use-case defaults.
 
-**Section 1: API Key**
+**Quota display:** At the top of the page. Shows "AI calls remaining today: X / Y". When any BYOK key is configured, also shows "Your key: X / Y" — fetched via a second `/ai/health` call with the BYOK key header. The two quota buckets (included and BYOK) are tracked independently by the backend.
 
-Always visible. Card-based layout:
-- Input field (masked by default, with show/hide toggle)
-- Clear key button (only shown when a key is set)
-- Test connection button — calls `POST /ai/validate-key` with the key (makes a real minimal provider call). Success: green inline checkmark + "Connected". Failure: red inline text with the error message (e.g. "Key rejected by provider").
-- Info text below input: "Your API key is stored only in this browser's local storage. It is forwarded through our backend to the LLM provider on each AI request, but is never persisted, logged, or stored on our servers. If you use a different browser or device, you'll need to enter it again."
-- Note: "When using your own key, API calls are billed directly by your provider."
+**Use case rows:** One expandable row per use case (Suggestions, Transform, Auto-Complete, Chat). Each row shows:
 
-**Section 2: Models**
+**Collapsed state:**
+- Left: Use case label + description (e.g. "Suggestions — Tags, metadata, and relationships")
+- Right: Current model ID (e.g. `gemini/gemini-2.5-flash-lite`) + chevron
+- Model IDs are displayed as-is (not formatted) — they include the provider prefix which is clear to users configuring API keys
 
-Shows one row per use case. Each row displays:
-- Use case label (e.g. "Suggestions", "Chat", "Auto-Complete", "Transform")
-- The current model — either the platform default or the user's override
+**Expanded state** (click to toggle, active use cases only):
+- Model dropdown — populated from `/ai/models`. Shows raw model IDs. Appears as a dropdown as soon as the API key input has any text (driven by local input state, not committed store state). When no key input, shows the default model ID as read-only text.
+- API key input — masked by default, show/hide toggle. Test button and Clear button inline to the right.
+- Test connection — calls `POST /ai/validate-key` with both the key (header) and selected model (body). Success: green checkmark + "Connected". Failure: red inline error.
+- Info text below input about localStorage-only storage.
 
-**Default state (no BYOK key):** Each row shows the platform default model name as read-only text. Dropdowns are disabled. A note above the section: "Included with your Pro plan. To use different models, provide your own API key above."
-
-**BYOK state (key entered):** Each row has an active dropdown populated from the `/ai/models` response. The platform default is shown as the first option (e.g. "Gemini 2.5 Flash Lite (default)"). Selecting a different model sets an override in the store. Selecting the default clears the override.
-
-For this plan, only the "Suggestions" use case is active. The other rows (Chat, Auto-Complete, Transform) should be shown but disabled with a "Coming soon" label — this communicates what's planned without hiding the structure.
-
-Note above the dropdowns when BYOK is active: "Suggestion features require models that support structured output."
+**Inactive use cases** (Transform, Auto-Complete, Chat): shown with "Coming soon" label, not expandable. Updated as milestones ship — controlled by `ACTIVE_USE_CASES` constant.
 
 ##### 2. Feature gating hook
 
-Create a `useAIAvailability()` hook that calls `GET /ai/health` and caches the result. Returns `{ available, byok, remainingDaily, limitDaily, isLoading }`. All AI UI components use this to determine whether to show/hide/disable AI features.
+`useAIAvailability()` hook calls `GET /ai/health` and caches the result. Returns `{ available, byok, remainingDaily, limitDaily, isLoading }`. All AI UI components use this to determine whether to show/hide/disable AI features.
 
-**Cache invalidation:** Invalidate after each AI call (not TTL-based). The AI API methods in §6 are the single point where all suggestion calls flow, so invalidation is centralized there — each successful call invalidates the health cache so `remainingDaily` updates immediately. This avoids stale quota display after rapid successive calls. The settings page's "Test connection" (`validate-key`) also consumes BYOK quota, so it must invalidate the health cache after a successful call too.
+**Cache invalidation:** Invalidate after each AI call (not TTL-based). The AI API methods in §6 are the single point where all suggestion calls flow, so invalidation is centralized there — each successful call invalidates the health cache so quota display updates immediately. The settings page's "Test connection" (`validate-key`) also consumes BYOK quota, so it must invalidate the health cache after a successful call too.
 
 ##### 3. API integration
 
-See §6 below for the API integration layer (axios interceptor for BYOK header, AI API methods).
+See §6 below for the API integration layer (helper function for per-use-case headers, AI API methods).
+
+##### 4. Backend: validate-key accepts model param
+
+`POST /ai/validate-key` accepts an optional `{ model: string | null }` request body via `ValidateKeyRequest` schema. The model is passed to `resolve_config()` so the backend tests the key against the correct provider. If the model is unsupported (not in the allowlist), returns 400. If omitted, falls back to the platform default model for the suggestions use case.
 
 #### Testing (3a)
 
-- AI settings: entering key persists to localStorage, model dropdowns become active
-- AI settings: selecting a model sets override in store, selecting default clears override
-- AI settings: clearing key removes key and all model overrides from localStorage, reverts to default state
-- AI settings: test connection calls `/ai/validate-key` (not `/ai/health`)
-- AI settings: test connection success → green checkmark + "Connected"
-- AI settings: test connection failure → red inline error message
-- AI settings: info text about localStorage-only storage is visible
-- AI settings: non-active use cases (Chat, Auto-Complete, Transform) shown as disabled with "Coming soon"
-- AI settings: page fetches `/ai/models` on load, handles loading/error states
-- BYOK header included when key is configured
-- BYOK header omitted when no key
-- API error handling: 429 rate limit → shows appropriate message to user
-- API error handling: 402 quota exceeded → shows upgrade prompt
-- API error handling: 502 LLM error → shows appropriate message
-- API error handling: network timeout → shows appropriate message
+**Store tests** (`aiStore.test.ts`):
+- setApiKey sets key for a specific use case without affecting others
+- clearApiKey clears key and model for one use case, preserves others
+- clearAllKeys resets all use cases to defaults
+- setModel / clearModel per use case
+- clearModel preserves the API key
+- getConfig returns correct config per use case
+- Default state: all use cases `{ apiKey: null, model: null }`
+
+**API layer tests** (`aiApi.test.ts`):
+- aiRequestConfig returns empty headers + null model when no key configured
+- aiRequestConfig returns X-LLM-Api-Key header when key configured
+- aiRequestConfig returns model override when set
+- aiRequestConfig reads the correct use case config (not another use case's)
+- fetchAIHealth sends no header by default, sends BYOK header when API key provided
+- validateKey sends both key header and model in body for the specified use case
+- validateKey with no key configured sends no header
+- suggestTags/Metadata/Relationships/Arguments pass model + headers from helper
+- All suggestion methods and validateKey invalidate health cache
+
+**Settings page tests** (`SettingsAI.test.tsx`):
+- Renders page heading and use case section with click instruction
+- Renders all four use case rows with descriptions
+- Inactive use cases show "Coming soon", are not expandable
+- Active use case row expands/collapses on click
+- Expanded row shows model as text when no key input
+- Model dropdown appears as soon as key input has text
+- Info text visible inside expanded row
+- Per-use-case key persists to store for specific use case only
+- Password visibility toggle works
+- Clear clears key + model for that use case
+- Test connection success/failure/network-error states
+- Test button disabled when no key entered
+- Test button is inline next to API key input
+- validateKey called with the correct use case
+- Model dropdown shows raw model IDs (not blank)
+- Selecting non-default model sets override, selecting default clears it
+- Uses app CSS classes (select, input, btn-secondary)
+- Models loading spinner and error states
+- Quota display visible when AI available
+- Both included and BYOK quota shown when key is configured
+- Collapsed subtitle shows description and model ID
+
+**Backend tests** (`test_ai.py`):
+- validate-key without model falls back to platform default (existing test, still passes)
+- validate-key with explicit model uses that model for the test call (verifies acompletion receives it)
+- validate-key with unsupported model returns 400
+- All existing rate limit / header tests pass unchanged
 
 ---
 
@@ -1117,20 +1155,27 @@ Update the following files with AI rate limit information:
 
 #### 6. API integration
 
-All AI API calls include the BYOK key header if configured:
+All AI API calls include the per-use-case BYOK key header and model override:
 
 ```tsx
-const aiApi = {
-  suggestTags: (data: SuggestTagsRequest) =>
-    api.post<SuggestTagsResponse>('/ai/suggest-tags', {
-      ...data,
-      model: aiStore.getModelOverride('suggestions'),  // null if no override
-    }),
-  // ...
+// Helper reads the correct key+model for a use case from the store
+function aiRequestConfig(useCase: AIUseCase) {
+  const config = useAIStore.getState().getConfig(useCase)
+  return {
+    model: config.model,
+    headers: config.apiKey ? { 'X-LLM-Api-Key': config.apiKey } : {},
+  }
+}
+
+export async function suggestTags(data: SuggestTagsRequest) {
+  const { model, headers } = aiRequestConfig('suggestions')
+  const response = await api.post('/ai/suggest-tags', { ...data, model }, { headers })
+  invalidateHealthCache()
+  return response.data
 }
 ```
 
-The BYOK API key is sent via an axios request interceptor that conditionally adds the `X-LLM-Api-Key` header for `/ai/` paths — this keeps the key logic in one place. The model override is sent in the request body since it's per-use-case data (different use cases may use different models). The backend ignores `model` when no BYOK key is present.
+**Design decision — helper function instead of axios interceptor:** With per-use-case keys, the interceptor pattern is a poor fit because it sees the URL but doesn't know which use case the request serves. Each API method already knows its use case, so the helper function reads the correct config directly. This is explicit, debuggable, and doesn't require extending axios types. The auth token interceptor remains — it applies uniformly to all requests, which is the right use case for interceptors.
 
 #### 7. Feature gating
 

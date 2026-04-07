@@ -23,6 +23,7 @@ const PromptDetail = lazy(() => import('./pages/PromptDetail').then(m => ({ defa
 // Lazy-loaded settings pages
 const SettingsGeneral = lazy(() => import('./pages/settings/SettingsGeneral').then(m => ({ default: m.SettingsGeneral })))
 const SettingsTokens = lazy(() => import('./pages/settings/SettingsTokens').then(m => ({ default: m.SettingsTokens })))
+const SettingsAI = lazy(() => import('./pages/settings/SettingsAI').then(m => ({ default: m.SettingsAI })))
 const SettingsMCP = lazy(() => import('./pages/settings/SettingsMCP').then(m => ({ default: m.SettingsMCP })))
 const SettingsTags = lazy(() => import('./pages/settings/SettingsTags').then(m => ({ default: m.SettingsTags })))
 const SettingsFAQ = lazy(() => import('./pages/settings/SettingsFAQ').then(m => ({ default: m.SettingsFAQ })))
@@ -46,6 +47,7 @@ const DocsTagsFilters = lazy(() => import('./pages/docs/DocsTagsFilters').then(m
 const DocsSearch = lazy(() => import('./pages/docs/DocsSearch').then(m => ({ default: m.DocsSearch })))
 const DocsVersioning = lazy(() => import('./pages/docs/DocsVersioning').then(m => ({ default: m.DocsVersioning })))
 const DocsShortcuts = lazy(() => import('./pages/docs/DocsShortcuts').then(m => ({ default: m.DocsShortcuts })))
+const DocsAIFeatures = lazy(() => import('./pages/docs/DocsAIFeatures').then(m => ({ default: m.DocsAIFeatures })))
 const DocsFAQ = lazy(() => import('./pages/docs/DocsFAQ').then(m => ({ default: m.DocsFAQ })))
 const DocsKnownIssues = lazy(() => import('./pages/docs/DocsKnownIssues').then(m => ({ default: m.DocsKnownIssues })))
 
@@ -97,6 +99,7 @@ const router = createBrowserRouter([
           { path: '/docs/features/search', element: <DocsSearch /> },
           { path: '/docs/features/versioning', element: <DocsVersioning /> },
           { path: '/docs/features/shortcuts', element: <DocsShortcuts /> },
+          { path: '/docs/features/ai', element: <DocsAIFeatures /> },
           { path: '/docs/ai', element: <DocsAIHub /> },
           { path: '/docs/cli', element: <DocsCLIHub /> },
           { path: '/docs/cli/mcp', element: <DocsCLIMCP /> },
@@ -156,6 +159,7 @@ const router = createBrowserRouter([
                   { path: '/app/settings', element: <Navigate to="/app/settings/general" replace /> },
                   { path: '/app/settings/general', element: <SettingsGeneral /> },
                   { path: '/app/settings/tokens', element: <SettingsTokens /> },
+                  { path: '/app/settings/ai', element: <SettingsAI /> },
                   { path: '/app/settings/ai-integration', element: <SettingsMCP /> },
                   { path: '/app/settings/tags', element: <SettingsTags /> },
                   { path: '/app/settings/history', element: <SettingsVersionHistory /> },
@@ -197,6 +201,7 @@ const router = createBrowserRouter([
  *   - /app/settings : Redirects to /app/settings/general
  *   - /app/settings/general : General UI preferences
  *   - /app/settings/tokens : Personal access tokens
+ *   - /app/settings/ai : AI configuration (BYOK key, model selection)
  *   - /app/settings/ai-integration : MCP integration setup
  *   - /app/settings/tags : Tag management
  *   - /app/settings/faq : Frequently asked questions

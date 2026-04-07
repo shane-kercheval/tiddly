@@ -5,6 +5,17 @@ from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
+# Validate Key
+# ---------------------------------------------------------------------------
+
+
+class ValidateKeyRequest(BaseModel):
+    """Request for key validation. Model determines which provider to test against."""
+
+    model: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # Suggest Tags
 # ---------------------------------------------------------------------------
 

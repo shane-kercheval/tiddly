@@ -22,6 +22,7 @@ from schemas.ai import (
     SuggestRelationshipsResponse,
     SuggestTagsRequest,
     SuggestTagsResponse,
+    ValidateKeyRequest,
     _DescriptionOnly,
     _TitleAndDescription,
     _TitleOnly,
@@ -131,6 +132,7 @@ async def ai_health(
 
 @router.post("/validate-key")
 async def validate_key(
+    body: ValidateKeyRequest = ValidateKeyRequest(),
     _current_user: User | CachedUser = Depends(get_current_user_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
     _rate_limit: None = Depends(apply_ai_rate_limit_byok),
@@ -140,7 +142,14 @@ async def validate_key(
         raise HTTPException(status_code=400, detail="No API key provided via X-LLM-Api-Key header")
 
     llm_service = get_llm_service()
-    config = llm_service.resolve_config(AIUseCase.SUGGESTIONS, user_api_key=llm_api_key)
+    try:
+        config = llm_service.resolve_config(
+            AIUseCase.SUGGESTIONS,
+            user_api_key=llm_api_key,
+            user_model=body.model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         await llm_service.complete(
             messages=[{"role": "user", "content": "This is a test. Respond with 'ok'."}],
