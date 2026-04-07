@@ -17,7 +17,7 @@ Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction l
 - **BYOK (Bring Your Own Key)** lets users bypass platform rate limits and choose their own model/provider
 - **User API keys** stored in browser `localStorage`, passed via `X-LLM-Api-Key` header, never persisted server-side
 - **All AI endpoints** live under a new `/ai/` router
-- **Milestone structure:** 1a (LLM Service + Router) → 1b (Rate Limiting) → 1c (Cost Tracking) → 2 (Suggestion Backend) → 3 (Suggestion Frontend) → 4 (Deployment & Verification). Each code milestone is independently deployable and testable. The deployment milestone is done after merging to main.
+- **Milestone structure:** 1a (LLM Service + Router) → 1b (Rate Limiting) → 1c (Cost Tracking) → 2 (Suggestion Backend) → 3a (AI Store + Settings + API Layer) → 3b (Tag Suggestion UI) → 3c (Metadata Suggestion UI) → 3d (Relationship + Argument Suggestion UI) → 3e (Pricing/Docs Sync) → 4 (Deployment & Verification). Each code milestone is independently deployable and testable. The deployment milestone is done after merging to main.
 
 **References:**
 - LiteLLM docs: https://docs.litellm.ai/docs/
@@ -815,20 +815,25 @@ class SuggestArgumentsResponse(BaseModel):
 
 > **Depends on:** Milestone 2 (Suggestion Backend). Milestone 1c (Cost Tracking) is recommended but not blocking — suggestions work without cost tracking, you just lack spend visibility.
 
-### Goal & Outcome
+Split into sub-milestones to manage scope. Each is independently deployable.
 
-After this milestone:
+---
 
-- Users can trigger tag/metadata suggestions from the bookmark/note/prompt edit UI
-- A "Suggest tags" button appears near the tag input
-- A "Suggest title/description" option is available when creating/editing items
-- Suggestion results are shown as selectable options (not auto-applied)
-- "AI Configuration" settings page exists with BYOK key management and per-use-case model selection
-- Relationship suggestions are accessible from the item detail view
+### Milestone 3a: AI Store + Settings Page + API Layer
 
-### Implementation Outline
+#### Goal & Outcome
 
-#### 1. AI settings store + settings page
+After this sub-milestone:
+
+- Zustand store manages BYOK key and model overrides (persisted to localStorage)
+- "AI Configuration" settings page with API key management and model selection
+- API integration layer with BYOK header interceptor
+- Feature gating via `/ai/health` — AI UI elements hidden for unsupported tiers
+- `/ai/health` response cached in a hook for use across all AI UI components
+
+#### Implementation Outline
+
+##### 1. AI settings store + settings page
 
 **Zustand store** (`stores/aiStore.ts`):
 - `apiKey: string | null` — from localStorage
@@ -866,7 +871,49 @@ For this plan, only the "Suggestions" use case is active. The other rows (Chat, 
 
 Note above the dropdowns when BYOK is active: "Suggestion features require models that support structured output."
 
-#### 2. Tag suggestion UI
+##### 2. Feature gating hook
+
+Create a `useAIAvailability()` hook that calls `GET /ai/health` and caches the result. Returns `{ available, byok, remainingDaily, limitDaily, isLoading }`. All AI UI components use this to determine whether to show/hide/disable AI features.
+
+**Cache invalidation:** Invalidate after each AI call (not TTL-based). The AI API methods in §6 are the single point where all suggestion calls flow, so invalidation is centralized there — each successful call invalidates the health cache so `remainingDaily` updates immediately. This avoids stale quota display after rapid successive calls. The settings page's "Test connection" (`validate-key`) also consumes BYOK quota, so it must invalidate the health cache after a successful call too.
+
+##### 3. API integration
+
+See §6 below for the API integration layer (axios interceptor for BYOK header, AI API methods).
+
+#### Testing (3a)
+
+- AI settings: entering key persists to localStorage, model dropdowns become active
+- AI settings: selecting a model sets override in store, selecting default clears override
+- AI settings: clearing key removes key and all model overrides from localStorage, reverts to default state
+- AI settings: test connection calls `/ai/validate-key` (not `/ai/health`)
+- AI settings: test connection success → green checkmark + "Connected"
+- AI settings: test connection failure → red inline error message
+- AI settings: info text about localStorage-only storage is visible
+- AI settings: non-active use cases (Chat, Auto-Complete, Transform) shown as disabled with "Coming soon"
+- AI settings: page fetches `/ai/models` on load, handles loading/error states
+- BYOK header included when key is configured
+- BYOK header omitted when no key
+- API error handling: 429 rate limit → shows appropriate message to user
+- API error handling: 402 quota exceeded → shows upgrade prompt
+- API error handling: 502 LLM error → shows appropriate message
+- API error handling: network timeout → shows appropriate message
+
+---
+
+### Milestone 3b: Tag Suggestion UI
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Suggested tags appear as muted chips when the tag input is opened
+- Clicking a suggestion promotes it to a regular tag
+- Suggestions are server-driven — the frontend sends item context, the server returns tags
+
+#### Implementation Outline
+
+##### Tag suggestion UI
 
 **Trigger:** When the user clicks the tag icon to open the tag input, the frontend fires `POST /ai/suggest-tags` in the background — only if:
 1. AI is available for the user's tier (check `available` from `/ai/health`, see §7 Feature Gating)
@@ -889,7 +936,31 @@ The server handles all user context (tag vocabulary, few-shot examples) — see 
 
 **Loading state:** Defer until implementation. Test real latency first — with concurrent DB queries and a fast model (Gemini Flash Lite), latency may be low enough that a loading indicator isn't needed. Add one later if the delay is noticeable.
 
-#### 3. Metadata suggestion UI
+#### Testing (3b)
+
+- Tag suggestions: opening tag input triggers suggestion request (if AI available)
+- Tag suggestions: muted chips appear to the right of existing tags
+- Tag suggestions: clicking a suggestion promotes it to a regular tag (moves left, standard style)
+- Tag suggestions: closing tag input clears suggestions
+- Tag suggestions: API error → no suggestions shown, no toast, error logged to console
+- Tag suggestions: not triggered for non-Pro users (no API call fired)
+- Tag suggestions: not triggered when item is completely blank (no title, description, content, or url)
+
+---
+
+### Milestone 3c: Metadata Suggestion UI
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Magic icons appear next to title and description fields
+- Clicking generates a suggestion for the requested field(s)
+- Uses the `fields` parameter to generate only what's needed
+
+#### Implementation Outline
+
+##### Metadata suggestion UI
 
 A sparkle/magic icon at the right edge of the title and description input fields on bookmark, note, and prompt edit forms. The interaction is the same across all content types.
 
@@ -918,7 +989,32 @@ On success, only the requested fields are populated in the response (`title: str
 
 **Prompt argument suggestions:** See §5 below for the prompt-specific argument suggestion UI.
 
-#### 4. Relationship suggestion UI
+#### Testing (3c)
+
+- Metadata suggestion: icon hidden for non-Pro users
+- Metadata suggestion: icon disabled (grayed out) when insufficient context, tooltip shown
+- Metadata suggestion: title icon enabled when description or content exists
+- Metadata suggestion: description icon enabled when content exists
+- Metadata suggestion: click replaces field content with suggestion
+- Metadata suggestion: `fields` parameter set correctly based on which fields are empty/filled
+- Metadata suggestion: Cmd+Z undoes the replacement
+- Metadata suggestion: API error → nothing happens, error logged to console
+
+---
+
+### Milestone 3d: Relationship + Argument Suggestion UI
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Relationship suggestions appear as muted chips when the linked content input is opened
+- Argument suggestions work from the prompt editor with magic icons
+- Both follow the established suggestion UI patterns from 3b/3c
+
+#### Implementation Outline
+
+##### Relationship suggestion UI
 
 Same UX pattern as tag suggestions — suggestions fire in the background, appear as muted chips, click to promote. Detail/edit view only (relationships are not managed from the list view).
 
@@ -973,6 +1069,52 @@ Magic icons in the prompt editor's arguments section. Same three icon states as 
 
 **Loading state:** Defer until implementation.
 
+#### Testing (3d)
+
+- Relationship suggestions: opening linked content input triggers suggestion request (if AI available + item has context)
+- Relationship suggestions: muted chips appear to the right of existing linked content chips
+- Relationship suggestions: clicking a suggestion promotes it (creates relationship, standard chip style)
+- Relationship suggestions: closing linked content input clears suggestions
+- Relationship suggestions: not triggered when item has no title or tags
+- Relationship suggestions: not triggered for non-Pro users
+- Relationship suggestions: API error → no suggestions shown, error logged to console
+- Prompt arguments: generate-all icon enabled when prompt content exists, disabled otherwise
+- Prompt arguments: generate-all appends suggestions to existing argument list
+- Prompt arguments: suggest-name icon enabled when argument description exists
+- Prompt arguments: suggest-description icon enabled when argument name exists
+- Prompt arguments: click replaces field content, Cmd+Z undoes
+- Prompt arguments: all icons hidden for non-Pro users
+- Prompt arguments: API error → nothing happens, error logged to console
+
+---
+
+### Milestone 3e: Pricing/Docs Sync
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Pricing page shows AI rate limits per tier
+- LandingPage FAQ updated if it mentions limits
+- llms.txt includes AI rate limit information
+- All frontend types are in sync with backend schemas
+
+#### Implementation Outline
+
+Update the following files with AI rate limit information:
+- `frontend/src/pages/Pricing.tsx` — add AI calls row to pricing comparison table
+- `frontend/src/pages/LandingPage.tsx` — update FAQ if it mentions limits
+- `frontend/public/llms.txt` — add AI rate limits to Tier Limits section
+
+#### Testing (3e)
+
+- Pricing page displays AI rate limit information per tier
+- AI rate limit values match backend tier configuration
+
+---
+
+### Cross-cutting: API integration (shared by 3a-3d)
+
 #### 6. API integration
 
 All AI API calls include the BYOK key header if configured:
@@ -994,59 +1136,9 @@ The BYOK API key is sent via an axios request interceptor that conditionally add
 
 AI features should be hidden/disabled for users whose tier doesn't support them. The `/ai/health` endpoint (or the user's limits from `useLimits()`) tells the frontend whether AI is available. Don't show suggestion buttons to Free/Standard users — or show them disabled with an upgrade prompt.
 
-**Sync AI rate limit fields to frontend:** The backend `UserLimitsResponse` schema was updated in Milestone 1b to include `rate_ai_per_minute`, `rate_ai_per_day`, `rate_ai_byok_per_minute`, `rate_ai_byok_per_day`. This milestone must update the corresponding frontend types and UI:
-- `frontend/src/types.ts` — add AI rate limit fields to `UserLimits` interface
-- `frontend/src/pages/Pricing.tsx` — add AI calls row to pricing comparison table
-- `frontend/src/pages/LandingPage.tsx` — update FAQ if it mentions limits
-- `frontend/public/llms.txt` — add AI rate limits to Tier Limits section
+**Sync AI rate limit fields to frontend:** The backend `UserLimitsResponse` schema was updated in Milestone 1b to include `rate_ai_per_minute`, `rate_ai_per_day`, `rate_ai_byok_per_minute`, `rate_ai_byok_per_day`. The frontend `UserLimits` type was already updated in 1b. Pricing page, landing page, and llms.txt sync is covered in Milestone 3e.
 
-### Testing Strategy
-
-- **Component tests:**
-  - Tag suggestions: opening tag input triggers suggestion request (if AI available)
-  - Tag suggestions: muted chips appear to the right of existing tags
-  - Tag suggestions: clicking a suggestion promotes it to a regular tag (moves left, standard style)
-  - Tag suggestions: closing tag input clears suggestions
-  - Tag suggestions: API error → no suggestions shown, no toast, error logged to console
-  - Tag suggestions: not triggered for non-Pro users (no API call fired)
-  - Tag suggestions: not triggered when item is completely blank (no title, description, content, or url)
-  - Relationship suggestions: opening linked content input triggers suggestion request (if AI available + item has context)
-  - Relationship suggestions: muted chips appear to the right of existing linked content chips
-  - Relationship suggestions: clicking a suggestion promotes it (creates relationship, standard chip style)
-  - Relationship suggestions: closing linked content input clears suggestions
-  - Relationship suggestions: not triggered when item is completely blank
-  - Relationship suggestions: not triggered for non-Pro users
-  - Relationship suggestions: API error → no suggestions shown, error logged to console
-  - Metadata suggestion: icon hidden for non-Pro users
-  - Metadata suggestion: icon disabled (grayed out) when insufficient context, tooltip shown
-  - Metadata suggestion: title icon enabled when description or content exists
-  - Metadata suggestion: description icon enabled when content exists
-  - Metadata suggestion: click replaces field content with suggestion
-  - Metadata suggestion: Cmd+Z undoes the replacement (verify this works with React controlled components — if undo stack is unreliable after programmatic value changes, address during implementation)
-  - Metadata suggestion: API error → nothing happens, error logged to console
-  - Prompt arguments: generate-all icon enabled when prompt content exists, disabled otherwise
-  - Prompt arguments: generate-all appends suggestions to existing argument list
-  - Prompt arguments: suggest-name icon enabled when argument description exists
-  - Prompt arguments: suggest-description icon enabled when argument name exists
-  - Prompt arguments: click replaces field content, Cmd+Z undoes
-  - Prompt arguments: all icons hidden for non-Pro users
-  - Prompt arguments: API error → nothing happens, error logged to console
-  - AI settings (default state): shows platform default model per use case as read-only text, dropdowns disabled
-  - AI settings (BYOK state): entering key persists to localStorage, model dropdowns become active
-  - AI settings: selecting a model sets override in store, selecting default clears override
-  - AI settings: clearing key removes key and all model overrides from localStorage, reverts to default state
-  - AI settings: test connection calls `/ai/validate-key` (not `/ai/health`)
-  - AI settings: test connection success → green checkmark + "Connected"
-  - AI settings: test connection failure → red inline error message
-  - AI settings: info text about localStorage-only storage is visible
-  - AI settings: non-active use cases (Chat, Auto-Complete, Transform) shown as disabled with "Coming soon"
-  - AI settings: page fetches `/ai/models` on load, handles loading/error states
-
-- **API integration tests (mock API responses):**
-  - BYOK header included when key is configured
-  - BYOK header omitted when no key
-  - Error handling: 429 rate limit → shows appropriate message
-  - Error handling: 402 quota → shows upgrade prompt
+Testing for each sub-milestone is defined in its own section above (Testing 3a, 3b, 3c, 3d, 3e).
 
 ---
 
