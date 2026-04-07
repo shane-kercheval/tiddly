@@ -904,7 +904,13 @@ A sparkle/magic icon at the right edge of the title and description input fields
 - **Title icon enabled when:** description OR content exists (need something to derive a title from)
 - **Description icon enabled when:** content exists (title alone isn't enough to generate a meaningful description; title + content works, content alone works)
 
-**Behavior:** Clicking the icon calls `POST /ai/suggest-metadata`. On success, the suggested text replaces the field content. The user can undo via Cmd+Z (standard browser undo) or type over it. No preview/accept/dismiss modal — that's over-engineered for a single text field replacement.
+**Behavior:** Clicking the icon calls `POST /ai/suggest-metadata` with the `fields` parameter set based on context:
+- Click title icon with description empty → `fields: ["title", "description"]` (generate both, populate both fields)
+- Click title icon with description filled → `fields: ["title"]` (generate title only, existing description sent as context)
+- Click description icon with title empty → `fields: ["title", "description"]` (generate both, populate both fields)
+- Click description icon with title filled → `fields: ["description"]` (generate description only, existing title sent as context)
+
+On success, only the requested fields are populated in the response (`title: str | None`, `description: str | None`). The frontend updates only the non-null fields. The user can undo via Cmd+Z (standard browser undo) or type over it. No preview/accept/dismiss modal — that's over-engineered for a single text field replacement.
 
 **Error handling:** Same as tag suggestions — silent. If the API fails, nothing happens. Log to console.
 
@@ -918,11 +924,12 @@ Same UX pattern as tag suggestions — suggestions fire in the background, appea
 
 **Trigger:** When the user clicks the link icon to open the linked content input, the frontend fires `POST /ai/suggest-relationships` in the background — only if:
 1. AI is available for the user's tier (see §7 Feature Gating)
-2. The item has at least some context to search by (title, description, content, or current_tags exists). If the item is completely blank, don't fire.
+2. The item has a title or current_tags (the server searches by title and/or tags — description and content alone are not sufficient). If neither exists, don't fire.
 
 **Request:** The frontend sends the current item's state:
+- `source_id` — the item's ID (if saved) for self-match exclusion
 - `title`, `url` (if bookmark), `description`, `content_snippet` (first ~2000 chars)
-- `current_tags` — gives the server additional search terms
+- `current_tags` — used for tag-based candidate search (orthogonal to title search)
 - `existing_relationship_ids` — for deduplication (server excludes these from candidates)
 - `model` — BYOK model override if configured
 
@@ -930,7 +937,7 @@ The server handles all search and LLM work — see Milestone 2 §4.
 
 **Display:** Suggested items appear as muted/transparent chips (same visual treatment as tag suggestions) to the right of existing linked content chips. Clicking a suggestion promotes it — creates the relationship, chip adopts the standard linked content style. Suggestions are dismissed when the linked content input is closed.
 
-**Search strategy:** The server runs full-text search using the item's title and tags as queries. A note for future: when pgvector semantic search lands, its results can be merged with full-text results for better candidate coverage. The plan works with full-text only for now.
+**Search strategy:** The server runs two sequential searches — title (relevance-ranked) and tags (recency-ranked) — then deduplicates. See Milestone 2 §4 for details. A note for future: when pgvector semantic search lands, its results can be merged with full-text results for better candidate coverage.
 
 **No candidates:** If search returns zero results, the server returns an empty list without making an LLM call. The frontend shows nothing — no error, no empty state message.
 
