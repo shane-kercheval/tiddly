@@ -7,10 +7,12 @@
 - **Goal:** Add semantic/meaning-based search so "auth" finds documents about "login flow" and "OAuth." Complements FTS keyword matching.
 - **Key decisions:**
   - Chunking from the start (not deferred to a later phase)
-  - Paragraph-level chunking: one paragraph = one chunk, with paragraph-hash-based reuse on re-embedding (95%+ savings on typical edits)
+  - Two chunk types: `metadata` (title + description + name) and `content` (paragraph text only). Metadata edits don't invalidate content chunks.
+  - Paragraph-level reuse on content chunks: hash-based diffing, 95%+ savings on typical edits
   - Oversized paragraphs (>2048 tokens) split at fixed 512-token boundaries
-  - Per-entity strategy: prompts get a single embedding (typically short), notes and bookmarks use paragraph-level chunking
+  - All entity types (notes, bookmarks, prompts) use the same chunking algorithm — no special cases
   - Async embedding via custom async worker using Redis BLMOVE (not Celery — see Milestone 4 for rationale)
+  - Post-commit enqueue: embedding jobs are pushed to Redis only after the DB transaction commits, not after flush
   - Re-embedding on content change: document-level hash check (skip if unchanged) + paragraph-hash diff (only embed new/changed paragraphs)
 
 ## pgvector Setup
@@ -36,14 +38,25 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
 
 ### 2. Chunking Strategy
 
-- **Paragraph-level chunking with reuse.** Each paragraph (`\n\n`-separated) becomes its own chunk. Paragraphs are hashed independently — on re-embedding, only paragraphs with changed hashes are re-embedded. This is cascade-resistant (inserting a paragraph at the top doesn't invalidate downstream hashes) and saves 95%+ of embedding API calls on typical edits to large notes. See ADIRE simulation results (`ADIRE/docs/analysis-results.md`) for the empirical validation.
+- **Two chunk types per entity:**
+  - **`metadata` chunk** (one per entity): Canonical format with labeled fields, only including non-empty values:
+    ```
+    Name: ...        (prompts only)
+    Title: ...
+    Description: ...
+    ```
+    Hashed independently. Metadata edits only re-embed this one chunk — content chunks are unaffected.
+  - **`content` chunks** (one per paragraph): Raw paragraph text only, no title prefix. Each paragraph hashed independently for reuse. This is cascade-resistant (inserting a paragraph doesn't invalidate downstream hashes) and saves 95%+ of embedding API calls on typical edits. See ADIRE simulation results for empirical validation.
+- **`chunk_index` is scoped per `chunk_type`:** metadata is always index 0, content paragraphs are 0..N.
 - **Oversized paragraph handling:** Paragraphs over 2048 tokens (~8K characters) are split at fixed 512-token boundaries. This handles pasted content / structureless blobs. Typical prose paragraphs are 150-250 tokens and are never split.
 - **Token counting:** Approximate (`len(text) // 4`), not tiktoken. Exact counts aren't needed — paragraph boundaries determine chunks, and the 2048-token threshold is a generous guard rail. tiktoken is CPU-bound and synchronous, unsuitable for the async worker.
-- **Per-entity strategy:**
-  - **Prompts:** No chunking — single embedding (typically short)
-  - **Notes:** Paragraph-level chunking as described above
-  - **Bookmarks:** Same as notes (summary embedding deferred to post-v1 if needed)
-- **Re-embedding:** Document-level hash check (`body_hash` SHA-256 of full embeddable text). If unchanged on save, skip entirely. If changed, diff paragraph hashes against stored hashes — only embed new/changed paragraphs, delete removed ones. Per-edit cost savings are 95%+ for typical edits at 25K+ characters.
+- **All entity types use the same chunking algorithm.** Notes, bookmarks, and prompts all produce a metadata chunk + content chunks. No special cases — short prompts naturally produce one content chunk.
+- **Re-embedding:** Two-level fast-path checks via `content_embedding_state`:
+  - `metadata_hash` (SHA-256 of canonical metadata text) — if unchanged, skip metadata chunk
+  - `content_hash` (SHA-256 of full content field) — if unchanged, skip all content chunks
+  - Both match → entire job is a no-op
+  - If content changed: diff individual paragraph hashes against stored chunk `content_hash` values — only embed new/changed paragraphs, delete removed ones
+  - Per-edit cost savings are 95%+ for typical edits at 25K+ characters.
 
 ### 3. Worker Infrastructure
 
@@ -85,10 +98,11 @@ content_chunks:
     user_id         UUID FK → users.id (for scoping queries)
     entity_type     String (bookmark/note/prompt)
     entity_id       UUID (FK not enforced — entities may be deleted)
-    chunk_index     Integer (ordering within entity)
+    chunk_type      String (metadata/content)
+    chunk_index     Integer (scoped per chunk_type: metadata always 0, content 0..N)
     chunk_text      Text (the actual chunk content)
     token_count     Integer (for debugging/monitoring)
-    content_hash    Text (SHA-256 of chunk text — for change detection / future ADIRE optimization)
+    content_hash    Text (SHA-256 of chunk text — for paragraph-level reuse)
     model           Text (embedding model that generated the vector, e.g. "text-embedding-3-small")
     embedding       Vector(1536) (nullable — populated async)
     embedded_at     DateTime (nullable — null means pending)
@@ -113,9 +127,11 @@ CREATE INDEX ix_content_chunks_embedding ON content_chunks
 # Per-entity embedding lifecycle tracking (one row per entity)
 content_embedding_state:
     id              UUID PK (UUIDv7)
+    user_id         UUID FK → users.id (for user-scoped operations: downgrade cleanup, Pro-only backfill, monitoring)
     entity_type     String (bookmark/note/prompt)
     entity_id       UUID (unique together with entity_type)
-    body_hash       Text (SHA-256 of full embeddable text — for skip-if-unchanged)
+    metadata_hash   Text (SHA-256 of canonical metadata text — for skip-if-unchanged on title/description/name edits)
+    content_hash    Text (SHA-256 of full content field — for skip-if-unchanged on content edits)
     model           Text (embedding model used, e.g. "text-embedding-3-small")
     status          String (pending/embedding/embedded/failed)
     last_error      Text (nullable — error message on last failure)
@@ -125,11 +141,15 @@ content_embedding_state:
 ```
 
 - Unique constraint on `(entity_type, entity_id)`
+- Index on `user_id` for downgrade cleanup and Pro-only queries
 - Index on `status` for finding pending/failed entities (M6 backfill/monitoring)
 
-This table keeps embedding lifecycle state out of the entity models. The `body_hash` field enables the skip-if-unchanged fast path — if the hash matches, no work is needed.
+This table keeps embedding lifecycle state out of the entity models. Two hash fields enable independent fast-path checks:
+- `metadata_hash` matches → skip metadata chunk re-embedding
+- `content_hash` matches → skip all content chunk processing
+- Both match → entire job is a no-op (most common case for metadata-only edits, duplicate saves, etc.)
 
-**Crash safety:** The worker executes chunk inserts, chunk deletes, and state updates in a single DB transaction. If the worker crashes before commit, the transaction rolls back and the DB is unchanged — `body_hash` still mismatches, so the next job retries from scratch. If the worker crashes after commit, everything is consistent. There is no window where search sees a mix of old and new chunks.
+**Crash safety:** The worker executes chunk inserts, chunk deletes, and state updates in a single DB transaction. If the worker crashes before commit, the transaction rolls back and the DB is unchanged — hashes still mismatch, so the next job retries from scratch. If the worker crashes after commit, everything is consistent. There is no window where search sees a mix of old and new chunks.
 
 **SQLAlchemy models:**
 - `models/content_chunk.py`: Uses `UUIDv7Mixin`, `TimestampMixin`. `embedding` column uses pgvector's `Vector(1536)` type from `pgvector.sqlalchemy`. Relationship to User (for query scoping).
@@ -152,12 +172,12 @@ This table keeps embedding lifecycle state out of the entity models. The `body_h
 ## Milestone 2: Chunking Service
 
 ### Goal & Outcome
-Implement the logic that splits entity content into chunks. After this milestone:
-- A chunking service can take any entity (note, bookmark, prompt) and produce a list of paragraph-level chunks
-- Each paragraph becomes its own chunk, with an independent hash for reuse tracking
+Implement the logic that splits entity content into metadata and content chunks. After this milestone:
+- A chunking service can take any entity (note, bookmark, prompt) and produce chunks
+- One `metadata` chunk per entity (title + description + name where applicable)
+- One `content` chunk per paragraph, with an independent hash for reuse tracking
 - Oversized paragraphs (>2048 tokens) are split at 512-token boundaries
-- Prompts produce a single chunk (no splitting)
-- Bookmarks produce paragraph chunks (summary embedding deferred — title prefix on first chunk serves as a broad search signal for v1)
+- All entity types use the same algorithm — no special cases
 
 ### Implementation Outline
 
@@ -166,9 +186,10 @@ Implement the logic that splits entity content into chunks. After this milestone
 ```python
 @dataclass
 class Chunk:
-    index: int
+    chunk_type: str    # "metadata" or "content"
+    index: int         # scoped per chunk_type: metadata=0, content=0..N
     text: str
-    content_hash: str  # SHA-256 of normalized paragraph text
+    content_hash: str  # SHA-256 of normalized text
     token_count: int   # approximate: len(text) // 4
 
 def chunk_entity(
@@ -176,45 +197,55 @@ def chunk_entity(
     title: str | None,
     description: str | None,
     content: str | None,
+    name: str | None = None,  # prompts only
 ) -> list[Chunk]:
-    """Split entity content into paragraph-level chunks.
+    """Split entity content into metadata + content chunks.
 
-    - Builds embedding input from entity fields
-    - Prompts: always a single chunk (no splitting)
-    - Notes/Bookmarks: one chunk per paragraph (\n\n separated)
+    Returns:
+    - One metadata chunk: canonical format with labeled fields (only non-empty)
+    - N content chunks: one per paragraph (\n\n separated)
     - Oversized paragraphs (>2048 tokens) split at 512-token boundaries
-    - Each chunk has a content_hash for paragraph-level reuse on re-embedding
+    - All entity types use the same algorithm
     """
 ```
 
 **Token counting:** Approximate (`len(text) // 4`). No tiktoken dependency — exact counts aren't needed since paragraph boundaries determine chunks, not a token budget. The 2048-token oversized threshold is a generous guard rail, not a precision boundary.
 
+**Metadata chunk format:** Canonical labeled fields, only including non-empty values:
+```
+Name: {name}
+Title: {title}
+Description: {description}
+```
+Stability of this format matters for hash consistency — don't change field order or formatting.
+
 **Chunking algorithm:**
-1. Build full text from entity fields (see entity-specific handling below).
-2. Split content on `\n\n` → paragraphs. Hash each paragraph (SHA-256 of normalized text).
-3. Each paragraph becomes its own chunk.
+1. Build metadata chunk from entity fields (canonical format above). Hash the metadata text.
+2. Split `content` on `\n\n` → paragraphs. Hash each paragraph (SHA-256 of normalized text).
+3. Each paragraph becomes its own `content` chunk (index 0..N).
 4. If a paragraph exceeds 2048 tokens (~8K characters), split it at fixed 512-token boundaries. Each sub-chunk gets its own hash.
-5. Prepend entity title to each chunk's text for search context.
+5. No title prefix on content chunks — title/description are in the metadata chunk.
 
 **Entity-specific handling:**
-- **Prompts:** Use `name + title + description + content`. Always a single chunk — no splitting regardless of size (prompts are typically short).
-- **Notes:** Use `title + description + content`. Paragraph-level chunking as described above.
-- **Bookmarks:** Use `title + description + content`. Paragraph-level chunking as described above. Title prefix on each chunk serves as a broad search signal. A separate summary embedding may be added later if bookmark search quality is lacking — it's just another row in `content_chunks`, no schema changes needed.
+- **Prompts:** Metadata chunk includes `name + title + description`. Content chunks from `content` field. Same algorithm as notes/bookmarks.
+- **Notes:** Metadata chunk includes `title + description`. Content chunks from `content` field.
+- **Bookmarks:** Same as notes.
 
 ### Testing Strategy
-- Short content (single paragraph) → single chunk
-- Multi-paragraph content → one chunk per paragraph
-- Each chunk has a unique content_hash
+- Every entity produces exactly one metadata chunk (chunk_type="metadata", index=0)
+- Multi-paragraph content → one content chunk per paragraph (chunk_type="content", index=0..N)
+- Entity with no content → metadata chunk only
+- Entity with empty title/description → metadata chunk with only non-empty fields
+- Metadata chunk format is canonical (labeled fields, stable order)
+- Each content chunk has a unique content_hash based on paragraph text only (not title)
+- Metadata hash changes when title/description change but content hashes don't
 - Oversized paragraph (>2048 tokens) splits at 512-token boundaries
 - Normal-sized paragraphs (even 500+ tokens) are NOT split — only the 2048 threshold triggers splitting
-- Title prefix appears in every chunk
-- Empty content → single chunk with just title/description
+- Prompts use same algorithm as notes — no special case, large prompts get chunked
 - Null fields handled gracefully
-- Prompts always produce a single chunk regardless of size
-- Bookmarks produce paragraph chunks with title prefix (no separate summary chunk)
 - Unicode content chunks correctly
-- Content hashes are stable (same text → same hash regardless of surrounding content)
-- Very large content (100K note) produces one chunk per paragraph (~125-250 chunks depending on paragraph size)
+- Content hashes are stable (same text → same hash regardless of surrounding content or title changes)
+- Very large content (100K) produces one chunk per paragraph (~125-250 chunks depending on paragraph size)
 
 ---
 
@@ -328,24 +359,34 @@ async def process_job(job_data: dict):
     """Chunk and embed an entity's content (paragraph-level reuse).
 
     1. Load entity from DB
-    2. Compute body_hash (SHA-256 of full embeddable text)
-    3. Check content_embedding_state — if body_hash matches → skip (nothing changed)
-    4. Update state: status = 'embedding'
-    5. Split content into paragraphs, hash each (chunking service)
-    6. Load existing chunk content_hashes for this entity from DB
-    7. Diff: new hashes not in old set → need embedding. Old hashes not in new set → delete.
-    8. Call embedding API only for new/changed paragraphs
-    9. In a SINGLE TRANSACTION:
-       - INSERT new chunks
-       - DELETE removed chunks
-       - UPDATE content_embedding_state: body_hash, status = 'embedded'
-       All three operations commit atomically.
+    2. Compute metadata_hash (SHA-256 of canonical metadata text)
+    3. Compute content_hash (SHA-256 of full content field)
+    4. Check content_embedding_state:
+       - metadata_hash matches → skip metadata chunk
+       - content_hash matches → skip all content chunks
+       - Both match → entire job is a no-op, return early
+    5. Update state: status = 'embedding'
+    6. For metadata (if changed): build metadata chunk, embed it
+    7. For content (if changed):
+       - chunk_entity() → content chunks with per-paragraph content_hash
+       - Load existing content chunk hashes from DB
+       - Diff: new hashes not in old set → embed. Old hashes not in new set → delete.
+       - Call embedding API only for new/changed paragraphs
+    8. In a SINGLE TRANSACTION:
+       - INSERT new chunks (metadata and/or content)
+       - DELETE removed content chunks
+       - UPDATE content_embedding_state: metadata_hash, content_hash, status = 'embedded'
+       All operations commit atomically.
 
     Crash safety:
     - Crash before step 9 commit → transaction rolls back, DB unchanged.
-      body_hash still mismatches → next job retries from scratch.
+      hashes still mismatch → next job retries from scratch.
     - Crash after step 9 commit → everything is consistent.
     - No window where search sees a mix of old and new chunks.
+
+    On failure (embedding API error): status set to 'failed', last_error recorded.
+    Existing chunks from prior successful embedding are PRESERVED — search continues
+    using last-good data. Failed status is picked up by backfill (M6) for retry.
     """
     ...
 
@@ -381,8 +422,16 @@ async def worker_loop():
             async with sem:
                 try:
                     data = json.loads(raw_data)
+
+                    # Exponential backoff: skip jobs that aren't ready yet
+                    not_before = data.get("not_before", 0)
+                    if not_before > time.time():
+                        await redis.lpush("embed_jobs", json.dumps(data))  # put it back
+                        await redis.lrem("embed_jobs_processing", 1, raw_data)
+                        return
+
                     await process_job(data)
-                    # Success — remove from processing queue
+                    # Success — remove from processing queue by job_id
                     await redis.lrem("embed_jobs_processing", 1, raw_data)
                 except Exception as e:
                     data = json.loads(raw_data) if isinstance(raw_data, (str, bytes)) else {}
@@ -391,8 +440,7 @@ async def worker_loop():
                     await redis.lrem("embed_jobs_processing", 1, raw_data)
                     if retries < MAX_RETRIES:
                         data["retries"] = retries + 1
-                        # Re-enqueue immediately — don't sleep under semaphore.
-                        # Job goes to back of queue, providing natural delay.
+                        data["not_before"] = time.time() + (2 ** retries)  # 1s, 2s, 4s
                         await redis.lpush("embed_jobs", json.dumps(data))
                         logger.warning("Retrying job (attempt %d): %s", retries + 1, e)
                     else:
@@ -418,34 +466,40 @@ async def worker_loop():
 async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user_id: str):
     """Push an embedding job onto the Redis queue."""
     await redis_client.lpush("embed_jobs", json.dumps({
+        "job_id": str(uuid7()),  # unique ID for LREM acknowledgment
         "entity_type": entity_type,
         "entity_id": entity_id,
         "user_id": user_id,
     }))
 ```
 
-**Triggering from service layer:**
-- In each entity service's `create()` and `update()` methods, after the DB save succeeds, call `enqueue_embedding(redis, entity_type, entity_id, user_id)`
+**Triggering from service layer (post-commit):**
+
+Embedding jobs must be enqueued **after the DB transaction commits**, not after `flush()`. This prevents the worker from seeing uncommitted or rolled-back data.
+
+Implementation: services register enqueue callbacks during the request. `get_async_session()` executes them after `session.commit()` succeeds. If the transaction rolls back, callbacks are discarded.
+
 - Do NOT call on archive/unarchive/soft-delete — content hasn't changed
 - Only trigger when content-relevant fields change (title, description, content, summary, name)
 
 Integration points (all 6 must be wired):
-- `bookmark_service.create()` — after flush
-- `bookmark_service.update()` — after flush, only if content fields changed
-- `note_service.create()` — after flush
-- `note_service.update()` — after flush, only if content fields changed
-- `prompt_service.create()` — after flush
-- `prompt_service.update()` — after flush, only if content fields changed
+- `bookmark_service.create()` — register post-commit enqueue
+- `bookmark_service.update()` — register post-commit enqueue, only if content fields changed
+- `note_service.create()` — register post-commit enqueue
+- `note_service.update()` — register post-commit enqueue, only if content fields changed
+- `prompt_service.create()` — register post-commit enqueue
+- `prompt_service.update()` — register post-commit enqueue, only if content fields changed
 
 **Chunk lifecycle (paragraph-level reuse):**
-- On entity update: check `content_embedding_state.body_hash` → if unchanged, skip. Otherwise diff paragraph hashes: insert new paragraphs, delete removed paragraphs, leave unchanged paragraphs in place. Entity retains all unchanged chunk embeddings throughout.
+- On entity update: check `content_embedding_state.metadata_hash` and `content_hash` independently. If metadata changed → re-embed metadata chunk. If content changed → diff paragraph hashes (insert new, delete removed, skip unchanged). Both match → no-op. Entity retains all unchanged chunk embeddings throughout.
+- On failure: existing chunks preserved (last-good data). Status set to 'failed'. Backfill (M6) retries later.
 - On entity hard-delete: delete all chunks and the state row for that entity. Integration points:
   - `bookmark_service.hard_delete()` — delete chunks + state where entity_type='bookmark' and entity_id matches
   - `note_service.hard_delete()` — same for notes
   - `prompt_service.hard_delete()` — same for prompts
 - On soft-delete: leave chunks in place (entity might be restored)
 
-**Concurrent job deduplication:** If two jobs arrive for the same entity (rapid successive edits), the `body_hash` check in `content_embedding_state` is the natural deduplication. The second job computes the hash, finds it matches (set by the first job), and skips. No explicit job dedup needed.
+**Concurrent job deduplication:** If two jobs arrive for the same entity (rapid successive edits), the `metadata_hash` + `content_hash` checks in `content_embedding_state` are the natural deduplication. The second job computes the hashes, finds they match (set by the first job), and skips. No explicit job dedup needed.
 
 **Railway deployment:**
 - New service using the same Docker image, different start command:
@@ -457,22 +511,28 @@ Integration points (all 6 must be wired):
 
 ### Testing Strategy
 - Worker processes a job and produces correct chunks + embeddings (mock embedding API)
-- Worker retries on embedding API failure with exponential backoff
+- Worker retries on embedding API failure with exponential backoff (not_before timestamp enforced)
 - Worker respects max retries — after 3 failures, job goes to dead letter queue
-- Max retries exceeded → entity retains existing chunk embeddings, just no updated ones
-- Body hash unchanged → skip embedding entirely (no API calls, no DB writes)
+- Max retries exceeded → entity retains existing chunk embeddings (last-good preserved), status set to 'failed'
+- Retry with not_before in the future → job re-enqueued, not processed until ready
+- Job payloads include unique job_id for LREM acknowledgment
+- Both hashes unchanged → skip embedding entirely (no API calls, no DB writes)
+- Post-commit enqueue: job only appears in Redis after DB transaction commits (not after flush)
+- Request rollback after flush → no embedding job enqueued
+- Metadata chunk re-embedded on title/description change; content chunks unaffected
+- Content-only edit → only changed content chunks re-embedded; metadata chunk unaffected
 - Paragraph-level reuse: only new/changed paragraphs are embedded, unchanged paragraphs keep their embeddings
 - Chunk diff + state update execute in single transaction — no mixed chunk state visible to search
-- Worker crash before transaction commit → DB unchanged, body_hash mismatch triggers retry
+- Worker crash before transaction commit → DB unchanged, hash mismatch triggers retry
 - Worker crash after transaction commit → everything consistent, no retry needed
-- Crash-window test: commit chunk diff, simulate crash before body_hash update, rerun job → no duplicate chunks, no stale chunks, state repaired
+- Crash-window test: commit chunk diff, simulate crash before state hash update, rerun job → no duplicate chunks, no stale chunks, state repaired
 - content_embedding_state updated correctly: status transitions (pending → embedding → embedded/failed)
 - Non-content update (archive, last_used_at) does NOT trigger embedding
 - Hard-delete cleans up associated chunks and state row
 - Soft-delete preserves chunks
 - Restore does NOT re-trigger embedding (chunks still valid)
 - Worker handles entity not found (deleted between enqueue and execution)
-- Duplicate jobs for same entity: second job skips via body_hash check
+- Duplicate jobs for same entity: second job skips via metadata_hash + content_hash check
 - Malformed job data (bad JSON) → logged error, not crash
 - Dead letter: permanently failed job appears in `embed_jobs_dead` with error context
 - BLMOVE: job moves to processing queue before execution, removed on success
@@ -529,6 +589,7 @@ async def vector_search(
 ```
 
 - Query: `SELECT entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid AND embedding IS NOT NULL ORDER BY distance LIMIT :limit`
+- **Note:** The `WHERE user_id` clause is a **post-filter** applied after the HNSW approximate nearest-neighbor scan, not an index-selective condition. HNSW scans globally across all users' vectors, then Postgres filters. See scaling limitation note below.
 - Deduplicate by entity (multiple chunks from same entity → best score wins)
 
 **Hybrid search with RRF:**
@@ -661,7 +722,7 @@ async def backfill_embeddings(
     """Embed all Pro tier entities that have no chunks or stale chunks.
 
     - Finds Pro tier entities with no rows in content_chunks, or where
-      body_hash doesn't match the hash of current content
+      metadata_hash or content_hash doesn't match current content
     - Processes in batches to respect API rate limits
     - Idempotent: safe to run multiple times
     """
@@ -675,7 +736,7 @@ async def backfill_embeddings(
 
 **Orphan chunk cleanup** (add to backfill command or run separately):
 - Delete chunks for entities that no longer exist (hard-deleted entities whose chunks weren't cleaned up).
-- Delete chunks for entities where `content_embedding_state.status = 'failed'` and the chunk data may be incomplete from a crashed worker run.
+- Do NOT delete chunks for `status = 'failed'` — failed entities retain their last-good chunks for search. "Failed" means the latest content isn't fully embedded, not that existing chunks are invalid.
 - Run as part of the backfill command (`--cleanup` flag) or as a separate manual step.
 
 **Monitoring queries** (run manually via `railway run` or DB console as needed):
@@ -698,14 +759,15 @@ SELECT entity_type, count(*) FROM (
 
 ### Testing Strategy
 - Backfill processes all Pro tier entities without embedding state
-- Backfill skips entities where body_hash matches current content
+- Backfill skips entities where metadata_hash and content_hash both match current content
 - Backfill skips free tier users' content
 - Backfill handles empty database (no entities)
 - Backfill respects entity_types filter
 - Backfill is idempotent (running twice produces same result)
-- Backfill also catches stale content (body_hash doesn't match current content)
+- Backfill also catches stale content (metadata_hash or content_hash doesn't match current content)
 - Backfill picks up entities with status = 'failed'
-- Orphan chunk cleanup removes chunks for deleted entities and failed states
+- Orphan chunk cleanup removes chunks for hard-deleted entities only
+- Failed entities retain their last-good chunks (not deleted by cleanup)
 - Backfill handles API failures gracefully (skips failed entities, continues)
 - Progress logging works correctly
 - Batch size is respected
