@@ -37,6 +37,7 @@ import { useBookmarks } from '../hooks/useBookmarks'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { useAITagIntegration } from '../hooks/useAITagIntegration'
+import { useAIRelationshipIntegration } from '../hooks/useAIRelationshipIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount, UserLimits } from '../types'
@@ -288,6 +289,8 @@ export function Bookmark({
   // AI tag suggestions
   const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
     useAITagIntegration(current, setCurrent, aiAvailable)
+  const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
+    useAIRelationshipIntegration({ ...current, contentId: bookmark?.id ?? null }, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -1052,12 +1055,15 @@ export function Bookmark({
                 contentType="bookmark"
                 contentId={bookmark?.id ?? null}
                 items={linkedItems}
-                onAdd={handleAddRelationship}
+                onAdd={(item) => handleAddRelationshipWithDismiss(item, handleAddRelationship)}
                 onRemove={handleRemoveRelationship}
                 onNavigate={onNavigateToLinked}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
                 onQuickCreate={handleQuickCreate}
+                aiSuggestions={aiRelationshipSuggestions}
+                onOpen={handleLinkedContentOpen}
+                onClose={handleLinkedContentClose}
               />
             </div>
           </div>

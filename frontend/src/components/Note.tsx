@@ -38,6 +38,7 @@ import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedConte
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { useAITagIntegration } from '../hooks/useAITagIntegration'
+import { useAIRelationshipIntegration } from '../hooks/useAIRelationshipIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload, TagCount } from '../types'
@@ -292,6 +293,8 @@ export function Note({
   // AI tag suggestions
   const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
     useAITagIntegration(current, setCurrent, aiAvailable)
+  const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
+    useAIRelationshipIntegration({ ...current, contentId: note?.id ?? null }, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -905,12 +908,15 @@ export function Note({
                 contentType="note"
                 contentId={note?.id ?? null}
                 items={linkedItems}
-                onAdd={handleAddRelationship}
+                onAdd={(item) => handleAddRelationshipWithDismiss(item, handleAddRelationship)}
                 onRemove={handleRemoveRelationship}
                 onNavigate={onNavigateToLinked}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
                 onQuickCreate={handleQuickCreate}
+                aiSuggestions={aiRelationshipSuggestions}
+                onOpen={handleLinkedContentOpen}
+                onClose={handleLinkedContentClose}
               />
             </div>
           </div>

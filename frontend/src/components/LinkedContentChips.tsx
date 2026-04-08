@@ -15,7 +15,7 @@ import { LinkIcon, PlusIcon } from './icons'
 import { Tooltip, DropdownPortal } from './ui'
 import type { DropdownPortalHandle } from './ui/DropdownPortal'
 import { CONTENT_TYPE_ICONS, CONTENT_TYPE_LABELS, CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import type { ContentListItem, ContentType } from '../types'
+import type { ContentListItem, ContentType, RelationshipCandidate } from '../types'
 import type { LinkedItem } from '../utils/relationships'
 
 interface LinkedContentChipsProps {
@@ -33,6 +33,12 @@ interface LinkedContentChipsProps {
   showAddButton?: boolean
   /** Called when user clicks a quick-create button (+N/+B/+P). Only shown for saved entities. */
   onQuickCreate?: (targetType: ContentType) => void
+  /** AI-suggested relationship candidates to display as muted chips. */
+  aiSuggestions?: RelationshipCandidate[]
+  /** Called when the linked content input opens (isAdding becomes true). */
+  onOpen?: () => void
+  /** Called when the linked content input closes (isAdding becomes false). */
+  onClose?: () => void
 }
 
 /** Exposed methods via ref */
@@ -92,6 +98,9 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     disabled,
     showAddButton = true,
     onQuickCreate,
+    aiSuggestions,
+    onOpen,
+    onClose,
   }: LinkedContentChipsProps,
   ref: Ref<LinkedContentChipsHandle>,
 ): ReactNode {
@@ -99,6 +108,17 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dropdownPortalRef = useRef<DropdownPortalHandle>(null)
+
+  // Fire onOpen/onClose callbacks when isAdding changes
+  const prevIsAddingRef = useRef(false)
+  useEffect(() => {
+    if (isAdding && !prevIsAddingRef.current) {
+      onOpen?.()
+    } else if (!isAdding && prevIsAddingRef.current) {
+      onClose?.()
+    }
+    prevIsAddingRef.current = isAdding
+  }, [isAdding, onOpen, onClose])
 
   // Build exclude keys from existing items
   const excludeKeys = useMemo(() => {
@@ -184,6 +204,33 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     // Stay in add mode, refocus input
     inputRef.current?.focus()
   }
+
+  const handleAiSuggestionClick = (candidate: RelationshipCandidate): void => {
+    // Minimal ContentListItem shape — handleAddRelationship only uses
+    // id, type, title, url, name, deleted_at, archived_at
+    const item: ContentListItem = {
+      id: candidate.entity_id,
+      type: candidate.entity_type as ContentType,
+      title: candidate.title,
+      url: null,
+      name: null,
+      description: null,
+      tags: [],
+      content_preview: null,
+      created_at: '',
+      updated_at: '',
+      last_used_at: '',
+      deleted_at: null,
+      archived_at: null,
+      version: null,
+      arguments: null,
+    }
+    onAdd(item)
+  }
+
+  // Filter AI suggestions to exclude items already linked
+  const existingIds = new Set(items.map((item) => item.id))
+  const visibleAiSuggestions = aiSuggestions?.filter((s) => !existingIds.has(s.entity_id)) ?? []
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'ArrowDown') {
@@ -362,6 +409,24 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
           </DropdownPortal>
         </div>
       )}
+
+      {/* AI-suggested relationship chips — muted, to the right of existing chips */}
+      {visibleAiSuggestions.length > 0 && visibleAiSuggestions.map((candidate) => {
+        const Icon = CONTENT_TYPE_ICONS[candidate.entity_type as ContentType]
+        const iconColor = CONTENT_TYPE_ICON_COLORS[candidate.entity_type as ContentType]
+        return (
+          <button
+            key={`ai-${candidate.entity_id}`}
+            type="button"
+            onClick={() => handleAiSuggestionClick(candidate)}
+            className="group/ai-link inline-flex items-center gap-1 rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
+            aria-label={`Add suggested link: ${candidate.title}`}
+          >
+            {Icon && <span className={iconColor}><Icon className="h-3 w-3" /></span>}
+            <span className="max-w-[120px] truncate">{candidate.title}</span>
+          </button>
+        )
+      })}
 
       {/* Inline add button (only when showAddButton is true and not already adding) */}
       {showAddButton && !isAdding && !disabled && (
