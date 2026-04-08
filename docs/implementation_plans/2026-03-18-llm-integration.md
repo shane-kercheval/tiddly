@@ -1245,6 +1245,7 @@ After this milestone:
 - The AI usage flush cron job is running hourly
 - All AI infrastructure is verified working in production
 - Spend protection is configured at the provider level
+- README_DEPLOY.md is updated with all AI-related deployment steps (env vars, cron job, migration, spend caps)
 
 ### Railway Configuration
 
@@ -1298,6 +1299,16 @@ This is a **separate Railway cron service** from the existing cleanup cron. The 
 **CRITICAL:** Set a project-level monthly spend cap in Google AI Studio (e.g. $50/month). Google enforces this at the provider level — service is suspended when the cap is reached. This eliminates the need for a custom circuit breaker.
 
 If OpenAI or Anthropic are added as platform providers in the future, configure equivalent spend controls on those platforms.
+
+#### 5. Update README_DEPLOY.md
+
+Add all AI-related deployment steps to `README_DEPLOY.md` — the master reference for what's deployed and how. Include:
+
+- LLM environment variables (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, optional model overrides)
+- AI usage flush cron service setup (separate Railway cron, `30 * * * *`, `uv run python -m tasks.ai_usage_flush`)
+- `ai_usage` database migration
+- Google AI Studio spend cap configuration
+- Verification steps (health check, rate limits, flush logs)
 
 ### Verification Checklist
 
