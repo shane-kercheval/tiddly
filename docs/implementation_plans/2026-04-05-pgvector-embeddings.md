@@ -8,12 +8,13 @@
 - **Key decisions:**
   - Chunking from the start (not deferred to a later phase)
   - Two chunk types: `metadata` (title + description + name) and `content` (paragraph text only). Metadata edits don't invalidate content chunks.
-  - Paragraph-level reuse on content chunks: hash-based diffing, 95%+ savings on typical edits
+  - Paragraph-level reuse on content chunks: hash-based set lookup (not diffing), cascade-resistant, 95%+ savings on typical edits
   - Oversized paragraphs (>2048 tokens) split at fixed 512-token boundaries
   - All entity types (notes, bookmarks, prompts) use the same chunking algorithm — no special cases
   - Async embedding via custom async worker using Redis BLMOVE (not Celery — see Milestone 4 for rationale)
   - Post-commit enqueue: embedding jobs are pushed to Redis only after the DB transaction commits, not after flush
-  - Re-embedding on content change: document-level hash check (skip if unchanged) + paragraph-hash diff (only embed new/changed paragraphs)
+  - Re-embedding on content change: two-level hash check (metadata_hash + content_hash) + paragraph-hash set lookup (reuse existing embeddings by hash, only embed new paragraphs)
+  - Staleness check includes model — if embedding model changes, all content is re-embedded
 
 ## pgvector Setup
 
@@ -54,8 +55,10 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
 - **Re-embedding:** Two-level fast-path checks via `content_embedding_state`:
   - `metadata_hash` (SHA-256 of canonical metadata text) — if unchanged, skip metadata chunk
   - `content_hash` (SHA-256 of full content field) — if unchanged, skip all content chunks
-  - Both match → entire job is a no-op
-  - If content changed: diff individual paragraph hashes against stored chunk `content_hash` values — only embed new/changed paragraphs, delete removed ones
+  - `model` — if embedding model changed since last embed, treat everything as stale regardless of hash matches
+  - Both hashes match AND model matches → entire job is a no-op
+  - If content changed: load existing chunk embeddings as `{content_hash: embedding}` dict, look up each new paragraph hash — reuse embedding if found, embed if not. Delete all old chunks, insert all new chunks (with reused or fresh embeddings) in a single transaction.
+  - Cascade-resistant: paragraph hashes are independent of position, so inserting a paragraph doesn't invalidate any existing embeddings.
   - Per-edit cost savings are 95%+ for typical edits at 25K+ characters.
 
 ### 3. Worker Infrastructure
@@ -117,6 +120,7 @@ CREATE INDEX ix_content_chunks_embedding ON content_chunks
   WHERE embedding IS NOT NULL;
 ```
 - **Verified:** pgvector 0.8.2 on pg17 supports partial HNSW indexes (`WHERE embedding IS NOT NULL`). Tested locally 2026-04-05.
+- Unique constraint on `(entity_type, entity_id, chunk_type, chunk_index)` — defense-in-depth against duplicate chunks from concurrent workers
 - Index on `(entity_type, entity_id)` for chunk lookup/deletion
 - Index on `user_id` for scoped search queries
 - Index on `embedded_at` for finding stale/pending chunks
@@ -144,10 +148,12 @@ content_embedding_state:
 - Index on `user_id` for downgrade cleanup and Pro-only queries
 - Index on `status` for finding pending/failed entities (M6 backfill/monitoring)
 
-This table keeps embedding lifecycle state out of the entity models. Two hash fields enable independent fast-path checks:
+This table keeps embedding lifecycle state out of the entity models. Three fields enable the fast-path skip check:
 - `metadata_hash` matches → skip metadata chunk re-embedding
 - `content_hash` matches → skip all content chunk processing
-- Both match → entire job is a no-op (most common case for metadata-only edits, duplicate saves, etc.)
+- `model` matches current configured model → embeddings are compatible
+- All three match → entire job is a no-op
+- If `model` doesn't match (embedding model upgraded), treat everything as stale regardless of hash matches
 
 **Crash safety:** The worker executes chunk inserts, chunk deletes, and state updates in a single DB transaction. If the worker crashes before commit, the transaction rolls back and the DB is unchanged — hashes still mismatch, so the next job retries from scratch. If the worker crashes after commit, everything is consistent. There is no window where search sees a mix of old and new chunks.
 
@@ -311,7 +317,7 @@ openai_api_key: str | None = None  # None = embeddings disabled
 Set up a custom async worker service that processes embedding jobs from a Redis queue. After this milestone:
 - A long-running worker process listens for embedding jobs via Redis BLMOVE (crash-safe delivery)
 - Saving/updating an entity enqueues an embedding job
-- The worker chunks the content into paragraphs, diffs paragraph hashes against stored chunks, and only embeds new/changed paragraphs
+- The worker chunks the content into paragraphs, looks up paragraph hashes against stored chunks (hash-based set lookup, not diffing), and only embeds paragraphs with new hashes
 - Failed jobs retry with exponential backoff (max 3 retries); permanently failed jobs go to a dead letter queue
 
 ### Why a custom worker (not Celery/arq)
@@ -345,6 +351,7 @@ import asyncio
 import json
 import logging
 import signal
+import time
 
 from core.config import get_settings
 from core.redis import get_redis_client
@@ -356,31 +363,37 @@ MAX_RETRIES = 3
 CONCURRENCY = 4  # max concurrent embedding API calls
 
 async def process_job(job_data: dict):
-    """Chunk and embed an entity's content (paragraph-level reuse).
+    """Chunk and embed an entity's content (paragraph-level reuse via hash lookup).
 
-    1. Load entity from DB
-    2. Compute metadata_hash (SHA-256 of canonical metadata text)
-    3. Compute content_hash (SHA-256 of full content field)
-    4. Check content_embedding_state:
-       - metadata_hash matches → skip metadata chunk
-       - content_hash matches → skip all content chunks
-       - Both match → entire job is a no-op, return early
-    5. Update state: status = 'embedding'
-    6. For metadata (if changed): build metadata chunk, embed it
-    7. For content (if changed):
-       - chunk_entity() → content chunks with per-paragraph content_hash
-       - Load existing content chunk hashes from DB
-       - Diff: new hashes not in old set → embed. Old hashes not in new set → delete.
-       - Call embedding API only for new/changed paragraphs
-    8. In a SINGLE TRANSACTION:
-       - INSERT new chunks (metadata and/or content)
-       - DELETE removed content chunks
-       - UPDATE content_embedding_state: metadata_hash, content_hash, status = 'embedded'
+    1. Load entity from DB (if not found — entity deleted between enqueue and execution — skip silently)
+    2. Upsert content_embedding_state row (INSERT ON CONFLICT DO NOTHING) then SELECT ... FOR UPDATE
+       to serialize concurrent workers for the same entity
+    3. Compute metadata_hash (SHA-256 of canonical metadata text)
+    4. Compute content_hash (SHA-256 of full content field)
+    5. Check state: if metadata_hash, content_hash, AND model all match → no-op, return early
+    6. Update state: status = 'embedding'
+    7. For metadata (if hash or model changed): build metadata chunk, embed it
+    8. For content (if hash or model changed):
+       - Split content into paragraphs, hash each
+       - Load existing content chunks as {content_hash: embedding} dict
+       - For each new paragraph: if hash exists in dict → reuse embedding, else → need to embed
+       - Call embedding API only for paragraphs with new hashes (one batch call)
+    9. In a SINGLE TRANSACTION:
+       - DELETE all old chunks for this entity
+       - INSERT all new chunks (metadata + content, with reused or fresh embeddings, correct indexes)
+       - UPDATE content_embedding_state: metadata_hash, content_hash, model, status = 'embedded'
        All operations commit atomically.
+
+    Paragraph reuse is cascade-resistant: hashes are based on paragraph text only, independent
+    of position. Inserting a paragraph doesn't invalidate any existing embeddings — they're
+    looked up by hash, not by index.
+
+    Duplicate paragraphs (same text at different positions) reuse the same embedding vector
+    (same text = same vector). Each gets its own chunk row with a distinct chunk_index.
 
     Crash safety:
     - Crash before step 9 commit → transaction rolls back, DB unchanged.
-      hashes still mismatch → next job retries from scratch.
+      Hashes still mismatch → next job retries from scratch.
     - Crash after step 9 commit → everything is consistent.
     - No window where search sees a mix of old and new chunks.
 
@@ -428,6 +441,10 @@ async def worker_loop():
                     if not_before > time.time():
                         await redis.lpush("embed_jobs", json.dumps(data))  # put it back
                         await redis.lrem("embed_jobs_processing", 1, raw_data)
+                        # Sleep briefly to avoid spin loop on empty queue with only deferred jobs.
+                        # Temporary simplification — a Redis sorted set delayed queue is the
+                        # proper fix if retry volume grows.
+                        await asyncio.sleep(1)
                         return
 
                     await process_job(data)
@@ -477,7 +494,7 @@ async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user
 
 Embedding jobs must be enqueued **after the DB transaction commits**, not after `flush()`. This prevents the worker from seeing uncommitted or rolled-back data.
 
-Implementation: services register enqueue callbacks during the request. `get_async_session()` executes them after `session.commit()` succeeds. If the transaction rolls back, callbacks are discarded.
+Implementation: services register enqueue callbacks in `session.info["post_commit_callbacks"]` (a list stored on SQLAlchemy's session info dict). In `get_async_session()`, after `await session.commit()` succeeds, execute all callbacks. On rollback, the callbacks are never executed. This is ~10 lines of code in the session dependency — no external libraries needed.
 
 - Do NOT call on archive/unarchive/soft-delete — content hasn't changed
 - Only trigger when content-relevant fields change (title, description, content, summary, name)
@@ -490,8 +507,8 @@ Integration points (all 6 must be wired):
 - `prompt_service.create()` — register post-commit enqueue
 - `prompt_service.update()` — register post-commit enqueue, only if content fields changed
 
-**Chunk lifecycle (paragraph-level reuse):**
-- On entity update: check `content_embedding_state.metadata_hash` and `content_hash` independently. If metadata changed → re-embed metadata chunk. If content changed → diff paragraph hashes (insert new, delete removed, skip unchanged). Both match → no-op. Entity retains all unchanged chunk embeddings throughout.
+**Chunk lifecycle (paragraph-level reuse via hash lookup):**
+- On entity update: check `content_embedding_state` — metadata_hash, content_hash, and model. If all match → no-op. If metadata changed → re-embed metadata chunk. If content changed → load existing chunks as `{content_hash: embedding}` dict, look up each new paragraph hash, reuse embeddings where found, embed new paragraphs only. Delete all old chunks, insert all new chunks (with correct indexes and reused/fresh embeddings) in a single transaction. Cascade-resistant — hashes are independent of position.
 - On failure: existing chunks preserved (last-good data). Status set to 'failed'. Backfill (M6) retries later.
 - On entity hard-delete: delete all chunks and the state row for that entity. Integration points:
   - `bookmark_service.hard_delete()` — delete chunks + state where entity_type='bookmark' and entity_id matches
@@ -499,7 +516,7 @@ Integration points (all 6 must be wired):
   - `prompt_service.hard_delete()` — same for prompts
 - On soft-delete: leave chunks in place (entity might be restored)
 
-**Concurrent job deduplication:** If two jobs arrive for the same entity (rapid successive edits), the `metadata_hash` + `content_hash` checks in `content_embedding_state` are the natural deduplication. The second job computes the hashes, finds they match (set by the first job), and skips. No explicit job dedup needed.
+**Concurrent job serialization:** The worker acquires `SELECT ... FOR UPDATE` on the `content_embedding_state` row at step 2. This serializes concurrent workers for the same entity — the second worker blocks until the first commits. After acquiring the lock, the hash check determines whether work is needed. Combined with the unique constraint on `content_chunks(entity_type, entity_id, chunk_type, chunk_index)`, this provides defense-in-depth against duplicate chunks.
 
 **Railway deployment:**
 - New service using the same Docker image, different start command:
@@ -602,27 +619,36 @@ async def hybrid_search(
     tags, tag_match, view, filter_expression, content_types,
     sort_by, sort_order, offset, limit,
 ):
-    # 1. Run existing search_all_content() pipeline (FTS + all filters)
-    fts_results, fts_total = await search_all_content(
+    # 1. Run FTS and query embedding concurrently (hides FTS latency behind embedding latency)
+    fts_coro = search_all_content(
         db, user_id, query, tags=tags, tag_match=tag_match,
         view=view, filter_expression=filter_expression,
         content_types=content_types,
         sort_by="relevance", sort_order="desc",
         offset=0, limit=100,  # overfetch for RRF merge
     )
+    embed_coro = embedding_service.embed_single(query)  # check cache first
+    (fts_results, fts_total), query_embedding = await asyncio.gather(fts_coro, embed_coro)
 
-    # 2. Embed the query
-    query_embedding = await embedding_service.embed_single(query)
-
-    # 3. Vector search (scoped to user_id + entity_types only)
+    # 2. Vector search (scoped to user_id + entity_types, overfetch 200 for filter headroom)
     vec_results = await vector_search(db, user_id, query_embedding,
-                                       entity_types=content_types, limit=100)
+                                       entity_types=content_types, limit=200)
 
-    # 4. Filter-check vector-only results
-    # Vector results not in the FTS set may violate tag/view/filter constraints.
-    # Do a lightweight filter check on this small set (~10-20 entities) before including.
-    vec_only = [r for r in vec_results if (r.entity_type, r.entity_id) not in fts_set]
-    vec_only_filtered = await filter_check(db, user_id, vec_only, tags, tag_match, view, filter_expression)
+    # 3. Filter-check vector-only results (only if user has active filters)
+    # Reuse existing search pipeline with entity_ids whitelist — no parallel filter engine.
+    fts_set = {(r.entity_type, r.entity_id) for r in fts_results}
+    vec_only_ids = [(r.entity_type, r.entity_id) for r in vec_results if (r.entity_type, r.entity_id) not in fts_set]
+
+    has_filters = tags or view != {"active"} or filter_expression
+    if vec_only_ids and has_filters:
+        vec_only_filtered, _ = await search_all_content(
+            db, user_id, query=None,
+            tags=tags, tag_match=tag_match, view=view,
+            filter_expression=filter_expression,
+            entity_ids=vec_only_ids,  # new parameter: whitelist specific entities
+            offset=0, limit=len(vec_only_ids),
+        )
+        vec_only_ids = [(r.entity_type, r.entity_id) for r in vec_only_filtered]
 
     # 5. RRF merge
     k = 60
@@ -642,10 +668,12 @@ async def hybrid_search(
 ```
 
 **Key design choices:**
+- FTS and query embedding run concurrently (`asyncio.gather`) to hide FTS latency behind the embedding API call.
 - FTS runs through the existing `search_all_content()` pipeline with all filters applied — tag, view, content type, filter expression. No filter logic is duplicated.
-- Vector search runs a separate query scoped to user_id + entity_types. It does not apply tag/view/filter constraints (HNSW can't do this efficiently).
-- Vector-only results (semantic matches that FTS missed) get a lightweight filter check before entering the RRF merge. This is a small query on ~10-20 entities — trivial cost.
+- Vector search overfetches 200 candidates (scoped to user_id + entity_types) for filter headroom.
+- Vector-only results (semantic matches that FTS missed) are filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. Filter check only runs when the user has active filters (tags, non-default view, or filter_expression).
 - RRF merge and pagination happen **before** hydrating full entity data. Only the final page of results is loaded.
+- **Total results capped at 100.** The merged candidate set (FTS top 100 ∪ filter-passing vector-only results) is capped at 100 final results. This is an intentional simplification — exact total counts across both search sources would require uncapped retrieval. In practice, nobody pages past 100 search results.
 
 **Tier gating:**
 - Hybrid search (FTS + vector) is Pro tier only
@@ -655,7 +683,6 @@ async def hybrid_search(
 **Sort mode scoping:**
 - Hybrid search (RRF merge) activates **only when `sort_by="relevance"`**. This is the only mode where semantic ranking adds value.
 - All other sort modes (`created_at`, `updated_at`, `title`, etc.) use FTS-only — the user wants chronological/alphabetical order, not semantic ranking.
-- Total count for hybrid search = count of the merged candidate set (FTS results ∪ filter-passing vector results).
 
 **Integration with `search_all_content()`:**
 - When Pro user + query provided + `sort_by="relevance"` + embeddings configured: use hybrid search
@@ -680,11 +707,15 @@ async def hybrid_search(
 ### Testing Strategy
 - Vector search returns nearest neighbors by cosine similarity
 - Vector search is scoped to user_id (multi-tenant isolation)
+- FTS and query embedding run concurrently (asyncio.gather)
 - RRF scoring: item in both FTS and vector results scores higher than item in only one
 - RRF scoring: item in only FTS still appears in results
 - RRF scoring: vector-only result (semantic match FTS missed) appears in results after filter check
+- Vector-only filter check uses existing search_all_content() with entity_ids whitelist — no parallel filter engine
+- Vector-only filter check only runs when user has active filters (tags, non-default view, filter_expression)
 - Vector-only result that violates tag/view filter is excluded from merge
 - Hybrid search respects all existing filters: tags, tag_match, view, content_types, filter_expression
+- Total results capped at 100
 - Pagination on merged results works correctly (offset/limit applied after RRF merge)
 - sort_by="relevance" → hybrid search with RRF merge
 - sort_by="created_at" (or any non-relevance sort) → FTS-only, no vector search
@@ -722,7 +753,7 @@ async def backfill_embeddings(
     """Embed all Pro tier entities that have no chunks or stale chunks.
 
     - Finds Pro tier entities with no rows in content_chunks, or where
-      metadata_hash or content_hash doesn't match current content
+      metadata_hash, content_hash, or model doesn't match current values
     - Processes in batches to respect API rate limits
     - Idempotent: safe to run multiple times
     """
@@ -759,12 +790,13 @@ SELECT entity_type, count(*) FROM (
 
 ### Testing Strategy
 - Backfill processes all Pro tier entities without embedding state
-- Backfill skips entities where metadata_hash and content_hash both match current content
+- Backfill skips entities where metadata_hash, content_hash, and model all match current values
 - Backfill skips free tier users' content
 - Backfill handles empty database (no entities)
 - Backfill respects entity_types filter
 - Backfill is idempotent (running twice produces same result)
-- Backfill also catches stale content (metadata_hash or content_hash doesn't match current content)
+- Backfill catches stale content (metadata_hash, content_hash, or model doesn't match)
+- Model upgrade triggers full re-embed for all entities (model mismatch = stale)
 - Backfill picks up entities with status = 'failed'
 - Orphan chunk cleanup removes chunks for hard-deleted entities only
 - Failed entities retain their last-good chunks (not deleted by cleanup)
