@@ -57,7 +57,7 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
   - `content_hash` (SHA-256 of full content field) — if unchanged, skip all content chunks
   - `model` — if embedding model changed since last embed, treat everything as stale regardless of hash matches
   - Both hashes match AND model matches → entire job is a no-op
-  - If content changed: load existing chunk embeddings as `{content_hash: embedding}` dict, look up each new paragraph hash — reuse embedding if found, embed if not. Delete all old chunks, insert all new chunks (with reused or fresh embeddings) in a single transaction.
+  - If content changed: load existing chunk embeddings as `{chunk_hash: embedding}` dict, look up each new paragraph hash — reuse embedding if found, embed if not. Delete all old chunks, insert all new chunks (with reused or fresh embeddings) in a single transaction.
   - Cascade-resistant: paragraph hashes are independent of position, so inserting a paragraph doesn't invalidate any existing embeddings.
   - Per-edit cost savings are 95%+ for typical edits at 25K+ characters.
 
@@ -111,25 +111,22 @@ content_chunks:
     chunk_index     Integer (scoped per chunk_type: metadata always 0, content 0..N)
     chunk_text      Text (the actual chunk content)
     token_count     Integer (for debugging/monitoring)
-    content_hash    Text (SHA-256 of chunk text — for paragraph-level reuse)
+    chunk_hash      Text (SHA-256 of normalized chunk text — for paragraph-level reuse)
     model           Text (embedding model that generated the vector, e.g. "text-embedding-3-small")
-    embedding       Vector(1536) (nullable — populated async)
-    embedded_at     DateTime (nullable — null means pending)
+    embedding       Vector(1536) (not nullable — chunks are only inserted with embeddings ready)
     created_at      DateTime
     updated_at      DateTime
 ```
 
-- Create HNSW index on `embedding` column, scoped to non-null embeddings:
+- Create HNSW index on `embedding` column:
 ```sql
 CREATE INDEX ix_content_chunks_embedding ON content_chunks
-  USING hnsw (embedding vector_cosine_ops)
-  WHERE embedding IS NOT NULL;
+  USING hnsw (embedding vector_cosine_ops);
 ```
-- **Verified:** pgvector 0.8.2 on pg17 supports partial HNSW indexes (`WHERE embedding IS NOT NULL`). Tested locally 2026-04-05. Use raw SQL via `op.execute()` in the Alembic migration — SQLAlchemy has no clean API for partial HNSW indexes.
+- No partial index needed — `embedding` is NOT NULL (chunks are only inserted with embeddings ready). Use raw SQL via `op.execute()` in the Alembic migration.
 - Unique constraint on `(entity_type, entity_id, chunk_type, chunk_index)` — defense-in-depth against duplicate chunks from concurrent workers
 - Index on `(entity_type, entity_id)` for chunk lookup/deletion
 - Index on `user_id` for scoped search queries
-- Index on `embedded_at` for finding stale/pending chunks
 
 - Create `content_embedding_state` table:
 
@@ -143,7 +140,7 @@ content_embedding_state:
     metadata_hash   Text (SHA-256 of canonical metadata text — for skip-if-unchanged on title/description/name edits)
     content_hash    Text (SHA-256 of full content field — for skip-if-unchanged on content edits)
     model           Text (embedding model used, e.g. "text-embedding-3-small")
-    status          String (pending/embedded/failed) — no 'embedding' state; status transitions atomically in same transaction as chunk writes
+    status          String (embedded/failed) — only two states. Transitions atomically in same transaction as chunk writes.
     last_error      Text (nullable — error message on last failure)
     embedded_at     DateTime (nullable — last successful embedding)
     created_at      DateTime
@@ -152,7 +149,7 @@ content_embedding_state:
 
 - Unique constraint on `(entity_type, entity_id)`
 - Index on `user_id` for downgrade cleanup and Pro-only queries
-- Index on `status` for finding pending/failed entities (M6 backfill/monitoring)
+- Index on `status` for finding failed entities (M6 backfill/monitoring)
 
 This table keeps embedding lifecycle state out of the entity models. Three fields enable the fast-path skip check:
 - `metadata_hash` matches → skip metadata chunk re-embedding
@@ -204,7 +201,7 @@ class Chunk:
     chunk_type: str    # "metadata" or "content"
     index: int         # scoped per chunk_type: metadata=0, content=0..N
     text: str
-    content_hash: str  # SHA-256 of normalized text
+    chunk_hash: str  # SHA-256 of normalized chunk text (distinct from content_embedding_state.content_hash)
     token_count: int   # approximate: len(text) // 4
 
 def chunk_entity(
@@ -234,7 +231,7 @@ Description: {description}
 ```
 Stability of this format matters for hash consistency — don't change field order or formatting.
 
-**Content paragraph normalization:** Strip leading/trailing whitespace per paragraph. No case folding. Hash the stripped UTF-8 bytes via SHA-256. This is the `content_hash` stored per chunk for reuse. The entity-level `content_hash` on `content_embedding_state` hashes the raw content field as-is (not the normalized paragraphs) — it's a fast-path "did anything change at all" check, not a per-paragraph identity.
+**Content paragraph normalization:** Strip leading/trailing whitespace per paragraph. No case folding. Hash the stripped UTF-8 bytes via SHA-256. This is the `chunk_hash` stored per chunk for reuse. The entity-level `content_hash` on `content_embedding_state` hashes the raw content field as-is (not the normalized paragraphs) — it's a fast-path "did anything change at all" check, not a per-paragraph identity.
 
 **Chunking algorithm:**
 1. Build metadata chunk from entity fields (canonical format above). Hash the metadata text. If all metadata fields are empty/NULL → skip metadata chunk entirely (don't embed empty string), but still store `metadata_hash = SHA-256("")` in the state table.
@@ -255,7 +252,7 @@ Stability of this format matters for hash consistency — don't change field ord
 - Entity with no content → metadata chunk only
 - Entity with empty title/description → metadata chunk with only non-empty fields
 - Metadata chunk format is canonical (labeled fields, stable order)
-- Each content chunk has a unique content_hash based on paragraph text only (not title)
+- Each content chunk has a unique chunk_hash based on paragraph text only (not title)
 - Metadata hash changes when title/description change but content hashes don't
 - Oversized paragraph (>2048 tokens) splits at 512-token boundaries
 - Normal-sized paragraphs (even 500+ tokens) are NOT split — only the 2048 threshold triggers splitting
@@ -381,27 +378,36 @@ async def process_job(job_data: dict):
     """Chunk and embed an entity's content (paragraph-level reuse via hash lookup).
 
     1. Load entity from DB (if not found — entity deleted between enqueue and execution — skip silently)
-    2. Upsert content_embedding_state row (INSERT ON CONFLICT DO NOTHING) then SELECT ... FOR UPDATE
-       to serialize concurrent workers for the same entity
+    2. Upsert content_embedding_state row:
+       INSERT (user_id, entity_type, entity_id, status='embedded', metadata_hash=NULL,
+       content_hash=NULL, model=NULL) ON CONFLICT (entity_type, entity_id) DO NOTHING.
+       Then SELECT ... FOR UPDATE to serialize concurrent workers for the same entity.
+       Initial NULL values are overwritten in step 8.
     3. Compute metadata_hash (SHA-256 of canonical metadata text)
     4. Compute content_hash (SHA-256 of full content field)
     5. Check state: if metadata_hash, content_hash, AND model all match → no-op, return early
-    6. For metadata (if hash or model changed): build metadata chunk, embed it
+    6. For metadata (if hash or model changed): build metadata chunk, embed it.
+       If all metadata fields empty → no metadata chunk (but store metadata_hash=SHA-256("")).
     7. For content (if hash or model changed):
        - Split content into paragraphs, hash each
-       - Load existing content chunks as {content_hash: embedding} dict
+       - Load existing content chunks as {chunk_hash: embedding} dict from DB
        - For each new paragraph: if hash exists in dict → reuse embedding, else → need to embed
        - Call embedding API only for paragraphs with new hashes (one batch call)
-    8. In a SINGLE TRANSACTION:
-       - DELETE all old chunks for this entity
-       - INSERT all new chunks (metadata + content, with reused or fresh embeddings, correct indexes)
-       - UPDATE content_embedding_state: metadata_hash, content_hash, model, status = 'embedded'
-       All operations commit atomically — including the status update.
-       No separate 'embedding' status commit.
+    8. In a SINGLE TRANSACTION — different paths depending on what changed:
+       - **Metadata only changed:** UPSERT metadata chunk row only. Content chunks untouched.
+       - **Content only changed:** DELETE all content chunks, INSERT new content chunks
+         (with reused or fresh embeddings, correct indexes). Metadata chunk untouched.
+       - **Both changed:** DELETE all old chunks, INSERT all new chunks.
+       - In all cases: UPDATE content_embedding_state: metadata_hash, content_hash, model,
+         status = 'embedded'. All operations commit atomically.
 
     Paragraph reuse is cascade-resistant: hashes are based on paragraph text only, independent
     of position. Inserting a paragraph doesn't invalidate any existing embeddings — they're
     looked up by hash, not by index.
+
+    Caveat: oversized paragraphs (>2048 tokens) split at fixed token boundaries are NOT
+    cascade-resistant — edits within them re-embed all sub-chunks. This is acceptable because
+    oversized paragraphs are rare (pasted content without line breaks).
 
     Duplicate paragraphs (same text at different positions) reuse the same embedding vector
     (same text = same vector). Each gets its own chunk row with a distinct chunk_index.
@@ -411,13 +417,12 @@ async def process_job(job_data: dict):
       Hashes still mismatch → next job retries from scratch.
     - Crash after step 8 commit → everything is consistent.
     - No window where search sees a mix of old and new chunks.
-    - No 'embedding' status that can get stranded — status transitions directly from
-      prior state to 'embedded' (or 'failed') in one atomic commit.
 
-    On failure (embedding API error): status set to 'failed', last_error recorded
-    (in a separate small transaction). Existing chunks from prior successful embedding
-    are PRESERVED — search continues using last-good data. Failed status is picked up
-    by backfill (M6) for retry.
+    On failure (embedding API error): UPSERT content_embedding_state with status='failed'
+    and last_error=str(error) in a separate small transaction. Uses UPSERT (not UPDATE)
+    because for first-time entities, the main transaction's INSERT rolled back — the state
+    row may not exist. Existing chunks from prior successful embedding are PRESERVED —
+    search continues using last-good data. Failed status is picked up by backfill (M6).
     """
     ...
 
@@ -490,7 +495,8 @@ async def worker_loop():
                         await redis.zadd("embed_jobs_delayed", {json.dumps(data): not_before})
                         logger.warning("Retrying job (attempt %d, delay %ds): %s", retries + 1, 2 ** retries, e)
                     else:
-                        # Dead letter — permanently failed, inspectable
+                        # Dead letter — permanently failed, inspectable with error context
+                        data["last_error"] = str(e)
                         await redis.lpush("embed_jobs_dead", json.dumps(data))
                         logger.error("Job failed after %d retries: %s", MAX_RETRIES, e, exc_info=True)
 
@@ -703,7 +709,7 @@ async def embed_query(query: str, embedding_service, redis_client) -> list[float
     cached = await redis_client.get(cache_key)
     if cached:
         return json.loads(cached)
-    vec = await embedding_service.embed_single(query)
+    vec = await embedding_service.embed_single(normalized)  # embed normalized text, not original
     await redis_client.setex(cache_key, 3600, json.dumps(vec))
     return vec
 
@@ -767,7 +773,7 @@ async def hybrid_search(
         key = (et, eid)
         scores[key] = scores.get(key, 0) + 1.0 / (k + rank)
 
-    # 7. Sort by combined RRF score, tiebreak by entity_id for stable pagination
+    # 7. Sort by combined RRF score, tiebreak by (entity_type, entity_id) tuple for stable pagination
     merged = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
     total = min(len(merged), 100)  # capped total — explicit API contract change
     page = merged[offset:offset + limit]
@@ -776,6 +782,8 @@ async def hybrid_search(
     # load_entities_by_ids(): factored from existing _row_to_content_item() and
     # tag-loading logic in content_service.py. Loads full entity data + tags for
     # a mixed set of (entity_type, entity_id) pairs.
+    # MUST preserve the input order — the ranked RRF order would be lost if rows
+    # are returned in DB/default order.
     items = await load_entities_by_ids(db, user_id, [key for key, _ in page])
     return items, total
 ```
@@ -838,7 +846,7 @@ async def hybrid_search(
 - Items without embeddings still appear via FTS path
 - Entity type filtering works in vector search
 - Deduplication: multiple chunks from same entity → entity appears once with best score
-- RRF tiebreaker: entities with equal RRF scores are ordered deterministically (by entity_id)
+- RRF tiebreaker: entities with equal RRF scores are ordered deterministically by (entity_type, entity_id) tuple
 - entity_ids whitelist correctly splits by entity type across UNION subqueries
 - load_entities_by_ids hydrates correct ContentListItem data for mixed entity types
 - Empty query → no vector search triggered (browse mode)
@@ -925,6 +933,11 @@ SELECT entity_type, count(*) FROM (
     AND b.id NOT IN (SELECT entity_id FROM content_embedding_state WHERE entity_type = 'bookmark')
     UNION ALL ...
 ) pending GROUP BY entity_type;
+
+-- Embeddings on old model (need re-embed after model upgrade)
+SELECT count(*) FROM content_embedding_state
+WHERE model != 'text-embedding-3-small'  -- replace with current model
+AND status = 'embedded';
 ```
 
 ### Testing Strategy
