@@ -391,7 +391,7 @@ async def process_job(job_data: dict):
        ON CONFLICT (entity_type, entity_id) DO NOTHING.
        Then SELECT ... FOR UPDATE to serialize concurrent workers for the same entity.
        Initial values are placeholders — overwritten in step 8, rolled back on failure.
-       Uses SHA-256("") not NULL to satisfy the "never NULL" hash rule (line 161).
+       Uses SHA-256("") not NULL to satisfy the "never NULL" hash rule (see "Hash behavior for NULL/empty fields" in M1).
        status='embedded' is arbitrary (no 'processing' state exists).
     3. Compute metadata_hash (SHA-256 of canonical metadata text)
     4. Compute content_hash (SHA-256 of full content field)
@@ -404,9 +404,8 @@ async def process_job(job_data: dict):
        - For each new paragraph: if hash exists in dict → reuse embedding, else → need to embed
        - Call embedding API only for paragraphs with new hashes (one batch call)
     8. In a SINGLE TRANSACTION — different paths depending on what changed:
-       - **Metadata only changed:** UPSERT metadata chunk row only. Content chunks untouched.
-       - **Content only changed:** DELETE all content chunks, INSERT new content chunks
-         (with reused or fresh embeddings, correct indexes). Metadata chunk untouched.
+       - **Metadata only changed:** DELETE old metadata chunk, INSERT new metadata chunk. Content chunks untouched. (DELETE+INSERT, not UPSERT — same pattern as content path, simpler.)
+       - **Content only changed:** DELETE all content chunks, INSERT new content chunks (with reused or fresh embeddings, correct indexes). Metadata chunk untouched.
        - **Both changed:** DELETE all old chunks, INSERT all new chunks.
        - In all cases: UPDATE content_embedding_state: metadata_hash, content_hash, model,
          status = 'embedded'. All operations commit atomically.
@@ -428,11 +427,16 @@ async def process_job(job_data: dict):
     - Crash after step 8 commit → everything is consistent.
     - No window where search sees a mix of old and new chunks.
 
-    On failure (embedding API error): UPSERT content_embedding_state with status='failed'
-    and last_error=str(error) in a separate small transaction. Uses UPSERT (not UPDATE)
-    because for first-time entities, the main transaction's INSERT rolled back — the state
-    row may not exist. Existing chunks from prior successful embedding are PRESERVED —
-    search continues using last-good data. Failed status is picked up by backfill (M6).
+    On failure (embedding API error): UPSERT content_embedding_state in a separate small
+    transaction. Uses INSERT ... ON CONFLICT (entity_type, entity_id) DO UPDATE because
+    for first-time entities, the main transaction's INSERT rolled back — the state row
+    may not exist.
+    - INSERT case (new entity): (user_id, entity_type, entity_id, status='failed',
+      metadata_hash=SHA-256(""), content_hash=SHA-256(""), model="", last_error=str(error))
+    - UPDATE case (existing entity): SET status='failed', last_error=str(error) ONLY —
+      preserve existing metadata_hash, content_hash, model (they reflect last-good state).
+    Existing chunks from prior successful embedding are PRESERVED — search continues
+    using last-good data. Failed status is picked up by backfill (M6).
     """
     ...
 
@@ -453,6 +457,8 @@ async def worker_loop():
 
     # On startup, reclaim any stale jobs from the processing queue
     # (left behind by a previous crash).
+    # Implemented as RedisClient.reclaim_stale_processing_jobs() in core/redis.py
+    # (alongside promote_delayed_jobs()).
     # Algorithm: LRANGE all items from embed_jobs_processing, LPUSH each
     # to embed_jobs, then DEL embed_jobs_processing.
     # Assumes single worker instance. For multi-worker scaling, add
@@ -741,7 +747,13 @@ async def hybrid_search(
         offset=0, limit=100,  # overfetch for RRF merge
     )
     embed_coro = embed_query(query, embedding_service, redis_client)
-    (fts_results, fts_total), query_embedding = await asyncio.gather(fts_coro, embed_coro)
+    # Graceful degradation: if embedding fails, fall back to FTS-only
+    results = await asyncio.gather(fts_coro, embed_coro, return_exceptions=True)
+    fts_results, fts_total = results[0]
+    if isinstance(results[1], Exception):
+        logger.warning("Query embedding failed, falling back to FTS-only: %s", results[1])
+        return fts_results[:limit], min(fts_total, 100)
+    query_embedding = results[1]
 
     # 2. Vector search (scoped to user_id + entity_types, overfetch 200 for filter headroom)
     # Returns list of (entity_type, entity_id, distance) tuples, deduplicated by entity.
@@ -752,19 +764,22 @@ async def hybrid_search(
     fts_set = {(item.entity_type, item.entity_id) for item in fts_results}
     vec_only = [(et, eid) for et, eid, _ in vec_results if (et, eid) not in fts_set]
 
-    # 4. Filter-check vector-only results (only if user has active filters)
+    # 4. Filter-check ALL vector-only results against view/tag/filter constraints.
+    # ALWAYS run this — even with default view settings, the "active" view excludes
+    # archived and soft-deleted entities. The vector search query has no archive/delete
+    # filter (HNSW can't do this efficiently), so unfiltered vector-only results could
+    # leak archived/deleted content.
     # Reuse existing search pipeline with entity_ids whitelist — no parallel filter engine.
     # New parameter: entity_ids: list[tuple[str, UUID]] | None = None
     # Inside search_all_content(): group by entity_type, add WHERE Bookmark.id IN [bookmark_ids]
     # to the bookmark subquery, WHERE Note.id IN [note_ids] to the note subquery, etc.
     # search_all_content() already supports query=None (skips FTS, uses default sort).
-    # view is set[ViewOption], default frozenset({"active"}) — compare against default
-    has_filters = tags or view != frozenset({"active"}) or filter_expression
-    if vec_only and has_filters:
+    if vec_only:
         filtered, _ = await search_all_content(
             db, user_id, query=None,
             tags=tags, tag_match=tag_match, view=view,
             filter_expression=filter_expression,
+            content_types=content_types,
             entity_ids=vec_only,  # new parameter: whitelist specific entities
             offset=0, limit=len(vec_only),
         )
@@ -804,7 +819,7 @@ async def hybrid_search(
 - FTS and query embedding run concurrently (`asyncio.gather`) to hide FTS latency behind the embedding API call.
 - FTS runs through the existing `search_all_content()` pipeline with all filters applied — tag, view, content type, filter expression. No filter logic is duplicated.
 - Vector search overfetches 200 candidates (scoped to user_id + entity_types) for filter headroom.
-- Vector-only results (semantic matches that FTS missed) are filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. Filter check only runs when the user has active filters (tags, non-default view, or filter_expression). **Implementation note:** new parameter `entity_ids: list[tuple[str, UUID]] | None = None`. Inside `search_all_content()`: group by entity_type, add `WHERE Bookmark.id IN [bookmark_ids]` to the bookmark subquery, `WHERE Note.id IN [note_ids]` to notes, etc.
+- Vector-only results (semantic matches that FTS missed) are **always** filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. This is required even with default view settings because the vector search query has no archive/delete filter (HNSW can't filter efficiently), so unfiltered vector-only results could leak archived/deleted content. **Implementation note:** new parameter `entity_ids: list[tuple[str, UUID]] | None = None`. Inside `search_all_content()`: group by entity_type, add `WHERE Bookmark.id IN [bookmark_ids]` to the bookmark subquery, `WHERE Note.id IN [note_ids]` to notes, etc.
 - RRF merge breaks ties deterministically by `(entity_type, entity_id)` tuple for stable offset-based pagination.
 - RRF merge and pagination happen **before** hydrating full entity data. Only the final page is hydrated via `load_entities_by_ids()` — a utility factored from existing search code that loads full `ContentListItem` data (tags, content_preview, etc.) for a mixed set of entity IDs.
 - **Total results capped at 100.** The merged candidate set (FTS top 100 ∪ filter-passing vector-only results) is capped at 100 final results. This is an intentional and explicit API contract change for hybrid search — the existing FTS-only path returns exact totals, but hybrid search returns `min(actual, 100)`. This should be reflected in API documentation. In practice, nobody pages past 100 search results.
@@ -843,7 +858,7 @@ async def hybrid_search(
 - RRF scoring: item in only FTS still appears in results
 - RRF scoring: vector-only result (semantic match FTS missed) appears in results after filter check
 - Vector-only filter check uses existing search_all_content() with entity_ids whitelist — no parallel filter engine
-- Vector-only filter check only runs when user has active filters (tags, non-default view, filter_expression)
+- Vector-only filter check always runs (even with default view — prevents archived/deleted content leaking through vector search)
 - Vector-only result that violates tag/view filter is excluded from merge
 - Hybrid search respects all existing filters: tags, tag_match, view, content_types, filter_expression
 - Total results capped at 100
@@ -894,13 +909,16 @@ async def backfill_embeddings(
     batch_size: int = 50,
     entity_types: list[str] | None = None,
     throttle_ms: int = 100,
+    force: bool = False,
 ):
     """Enqueue embedding jobs for Pro tier entities that may need embedding.
 
-    Selection criteria (intentionally broad — worker decides freshness):
-    - Pro tier entities with no content_embedding_state row (never embedded)
-    - Entities with status = 'failed' (previous attempt failed)
-    - For model upgrades: all Pro tier entities (worker skips if model + hashes match)
+    Selection criteria:
+    - force=False (routine): Pro tier entities with no content_embedding_state row
+      (never embedded) + entities with status = 'failed' (previous attempt failed).
+      Does NOT catch stale-but-embedded rows (status='embedded' with outdated hashes).
+    - force=True (full): all Pro tier entities. Worker decides freshness via hash + model
+      check. Use for model upgrades or to reconcile after persistent Redis outages.
 
     Does NOT compute hashes or compare freshness — that's the worker's job.
     This keeps backfill simple and maintains a single code path for all
@@ -928,7 +946,7 @@ async def backfill_embeddings(
 
 **Monitoring queries** (run manually via `railway run` or DB console as needed):
 
-No automated stale detection cron job for now. The worker + retry + dead letter queue handles normal operations. If stale entities accumulate (visible via monitoring queries), re-run the backfill command — it's idempotent and catches stale content. Add a periodic cron later if manual monitoring proves insufficient.
+No automated stale detection cron job for now. The worker + retry + dead letter queue handles normal operations. If stale entities accumulate (visible via monitoring queries), re-run the backfill command with `--force` to reconcile all entities. Routine backfill (without `--force`) only catches entities with no state row or `status='failed'`. Add a periodic cron later if manual monitoring proves insufficient.
 ```sql
 -- Embedding status overview (Pro tier users only)
 SELECT ces.status, count(*)
