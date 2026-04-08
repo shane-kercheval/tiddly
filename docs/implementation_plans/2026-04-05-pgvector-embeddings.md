@@ -49,7 +49,7 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
     Hashed independently. Metadata edits only re-embed this one chunk — content chunks are unaffected.
   - **`content` chunks** (one per paragraph): Raw paragraph text only, no title prefix. Each paragraph hashed independently for reuse. This is cascade-resistant (inserting a paragraph doesn't invalidate downstream hashes) and saves 95%+ of embedding API calls on typical edits. See ADIRE simulation results for empirical validation.
 - **`chunk_index` is scoped per `chunk_type`:** metadata is always index 0, content paragraphs are 0..N.
-- **Oversized paragraph handling:** Paragraphs over 2048 tokens (~8K characters) are split at fixed 512-token boundaries. This handles pasted content / structureless blobs. Typical prose paragraphs are 150-250 tokens and are never split.
+- **Oversized paragraph handling:** Paragraphs over ~8K characters (2048 tokens approximated as `len(text) // 4`) are split at ~2K character boundaries (~512 tokens). All token references in chunking use the same `len(text) // 4` approximation — no real tokenizer. This handles pasted content / structureless blobs. Typical prose paragraphs are 150-250 tokens and are never split.
 - **Token counting:** Approximate (`len(text) // 4`), not tiktoken. Exact counts aren't needed — paragraph boundaries determine chunks, and the 2048-token threshold is a generous guard rail. tiktoken is CPU-bound and synchronous, unsuitable for the async worker.
 - **All entity types use the same chunking algorithm.** Notes, bookmarks, and prompts all produce a metadata chunk + content chunks. No special cases — short prompts naturally produce one content chunk.
 - **Re-embedding:** Two-level fast-path checks via `content_embedding_state`:
@@ -63,7 +63,11 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
 
 ### 3. Consistency Model
 
-**Semantic search freshness is eventually consistent.** The primary operation is always the entity save — embedding is secondary. If Redis is unavailable during the post-commit callback, the entity is saved successfully but the embedding job is silently dropped. The entity will have no `content_embedding_state` row (or a stale one), so the backfill command (M6) catches it on the next manual run. This is an explicit product tradeoff: we never fail a user's save due to embedding infrastructure issues, and we accept that semantic search results may be temporarily stale.
+**Semantic search freshness is eventually consistent.** The primary operation is always the entity save — embedding is secondary. If Redis is unavailable during the post-commit callback, the entity is saved successfully but the embedding job is silently dropped. Two cases:
+- Entity has no `content_embedding_state` row yet → routine backfill (M6) catches it.
+- Entity has an existing state row with `status='embedded'` but stale hashes → routine backfill does NOT catch this (it only selects entities with no state row or `status='failed'`). The `--force` backfill flag or monitoring queries are needed to detect and fix these.
+
+This is an explicit product tradeoff: we never fail a user's save due to embedding infrastructure issues, and we accept that semantic search results may be temporarily stale. Persistent Redis unavailability requires a `--force` backfill to reconcile.
 
 ### 4. Worker Infrastructure
 
@@ -237,7 +241,7 @@ Stability of this format matters for hash consistency — don't change field ord
 1. Build metadata chunk from entity fields (canonical format above). Hash the metadata text. If all metadata fields are empty/NULL → skip metadata chunk entirely (don't embed empty string), but still store `metadata_hash = SHA-256("")` in the state table.
 2. Split `content` on `\n\n` → paragraphs. Normalize and hash each paragraph (see above).
 3. Each paragraph becomes its own `content` chunk (index 0..N).
-4. If a paragraph exceeds 2048 tokens (~8K characters), split it at fixed 512-token boundaries. Each sub-chunk gets its own hash.
+4. If a paragraph exceeds ~8K characters (2048 approximate tokens), split it at ~2K character boundaries (~512 approximate tokens). Each sub-chunk gets its own hash. All "token" thresholds use `len(text) // 4`.
 5. No title prefix on content chunks — title/description are in the metadata chunk.
 
 **Entity-specific handling:**
@@ -280,6 +284,9 @@ Implement the service that calls the embedding API to convert text chunks into v
 ```python
 class EmbeddingService:
     """Calls embedding API to convert text → vectors."""
+
+    model: str  # e.g. "text-embedding-3-small" — initialized from settings.embedding_model.
+                # Used by embed_query() in M5 for cache key construction.
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Embed multiple texts in a single API call.
@@ -379,10 +386,13 @@ async def process_job(job_data: dict):
 
     1. Load entity from DB (if not found — entity deleted between enqueue and execution — skip silently)
     2. Upsert content_embedding_state row:
-       INSERT (user_id, entity_type, entity_id, status='embedded', metadata_hash=NULL,
-       content_hash=NULL, model=NULL) ON CONFLICT (entity_type, entity_id) DO NOTHING.
+       INSERT (user_id, entity_type, entity_id, status='embedded',
+       metadata_hash=SHA-256(""), content_hash=SHA-256(""), model="")
+       ON CONFLICT (entity_type, entity_id) DO NOTHING.
        Then SELECT ... FOR UPDATE to serialize concurrent workers for the same entity.
-       Initial NULL values are overwritten in step 8.
+       Initial values are placeholders — overwritten in step 8, rolled back on failure.
+       Uses SHA-256("") not NULL to satisfy the "never NULL" hash rule (line 161).
+       status='embedded' is arbitrary (no 'processing' state exists).
     3. Compute metadata_hash (SHA-256 of canonical metadata text)
     4. Compute content_hash (SHA-256 of full content field)
     5. Check state: if metadata_hash, content_hash, AND model all match → no-op, return early
@@ -537,7 +547,7 @@ Embedding jobs must be enqueued **after the DB transaction commits**, not after 
 
 Implementation: services register enqueue callbacks in `session.info["post_commit_callbacks"]` (a list stored on SQLAlchemy's session info dict). In `get_async_session()`, after `await session.commit()` succeeds, execute all callbacks. On rollback, the callbacks are never executed. This is ~10 lines of code in the session dependency — no external libraries needed.
 
-**Callback failure policy:** Post-commit callbacks are **fire-and-forget**. If Redis is unavailable, log a warning and continue — the entity save already succeeded. The entity will lack a `content_embedding_state` row (or have a stale one), so the backfill command (M6) catches it. A callback exception must never turn a successful save into a 500 response. See "Consistency Model" in Decisions section.
+**Callback failure policy:** Post-commit callbacks are **fire-and-forget**. If Redis is unavailable, log a warning and continue — the entity save already succeeded. A callback exception must never turn a successful save into a 500 response. Dropped enqueues are caught by routine backfill (if no state row exists) or `--force` backfill (if state row exists but is stale). See "Consistency Model" in Decisions section.
 
 - Do NOT call on archive/unarchive/soft-delete — content hasn't changed
 - Only trigger when content-relevant fields change. Per-entity-type trigger fields:
@@ -562,7 +572,7 @@ str_replace router endpoints (4) — these modify entity.content directly in the
 - `prompts.py` str_replace endpoint (by name) — same (`str_replace_prompt_by_name()`)
 
 **Chunk lifecycle (paragraph-level reuse via hash lookup):**
-- On entity update: check `content_embedding_state` — metadata_hash, content_hash, and model. If all match → no-op. If metadata changed → re-embed metadata chunk. If content changed → load existing chunks as `{content_hash: embedding}` dict, look up each new paragraph hash, reuse embeddings where found, embed new paragraphs only. Delete all old chunks, insert all new chunks (with correct indexes and reused/fresh embeddings) in a single transaction. Cascade-resistant — hashes are independent of position.
+- On entity update: check `content_embedding_state` — metadata_hash, content_hash, and model. If all match → no-op. If metadata changed → re-embed metadata chunk. If content changed → load existing chunks as `{chunk_hash: embedding}` dict, look up each new paragraph hash, reuse embeddings where found, embed new paragraphs only. Delete all old chunks, insert all new chunks (with correct indexes and reused/fresh embeddings) in a single transaction. Cascade-resistant — hashes are independent of position.
 - On failure: existing chunks preserved (last-good data). Status set to 'failed'. Backfill (M6) retries later.
 - On entity hard-delete: delete all chunks and the state row for that entity. Integration points:
   - `BaseEntityService.delete(permanent=True)` — add chunk + state cleanup before `await db.delete(entity)`. This is the centralized hard-delete path; individual services don't override it.
@@ -691,7 +701,7 @@ async def vector_search(
     """
 ```
 
-- Query: `SELECT entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid AND embedding IS NOT NULL [AND entity_type IN (:types) IF entity_types provided] ORDER BY distance LIMIT :limit`
+- Query: `SELECT entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid [AND entity_type IN (:types) IF entity_types provided] ORDER BY distance LIMIT :limit`
 - **Note:** The `WHERE user_id` clause is a **post-filter** applied after the HNSW approximate nearest-neighbor scan, not an index-selective condition. HNSW scans globally across all users' vectors, then Postgres filters. See scaling limitation note below.
 - Deduplicate by entity (multiple chunks from same entity → best score wins)
 
@@ -744,8 +754,9 @@ async def hybrid_search(
 
     # 4. Filter-check vector-only results (only if user has active filters)
     # Reuse existing search pipeline with entity_ids whitelist — no parallel filter engine.
-    # Note: entity_ids param must be split by entity type within search_all_content()
-    # (e.g., WHERE Bookmark.id IN [...] for bookmarks, WHERE Note.id IN [...] for notes).
+    # New parameter: entity_ids: list[tuple[str, UUID]] | None = None
+    # Inside search_all_content(): group by entity_type, add WHERE Bookmark.id IN [bookmark_ids]
+    # to the bookmark subquery, WHERE Note.id IN [note_ids] to the note subquery, etc.
     # search_all_content() already supports query=None (skips FTS, uses default sort).
     # view is set[ViewOption], default frozenset({"active"}) — compare against default
     has_filters = tags or view != frozenset({"active"}) or filter_expression
@@ -775,7 +786,8 @@ async def hybrid_search(
 
     # 7. Sort by combined RRF score, tiebreak by (entity_type, entity_id) tuple for stable pagination
     merged = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
-    total = min(len(merged), 100)  # capped total — explicit API contract change
+    merged = merged[:100]  # cap the list itself, not just the reported total
+    total = len(merged)
     page = merged[offset:offset + limit]
 
     # 8. Hydrate final page into ContentListItem shape
@@ -792,8 +804,8 @@ async def hybrid_search(
 - FTS and query embedding run concurrently (`asyncio.gather`) to hide FTS latency behind the embedding API call.
 - FTS runs through the existing `search_all_content()` pipeline with all filters applied — tag, view, content type, filter expression. No filter logic is duplicated.
 - Vector search overfetches 200 candidates (scoped to user_id + entity_types) for filter headroom.
-- Vector-only results (semantic matches that FTS missed) are filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. Filter check only runs when the user has active filters (tags, non-default view, or filter_expression). **Implementation note:** the `entity_ids` parameter must be split by entity type within `search_all_content()` — each per-type subquery gets `WHERE Bookmark.id IN [bookmark_ids]`, `WHERE Note.id IN [note_ids]`, etc.
-- RRF merge breaks ties deterministically by `entity_id` for stable offset-based pagination.
+- Vector-only results (semantic matches that FTS missed) are filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. Filter check only runs when the user has active filters (tags, non-default view, or filter_expression). **Implementation note:** new parameter `entity_ids: list[tuple[str, UUID]] | None = None`. Inside `search_all_content()`: group by entity_type, add `WHERE Bookmark.id IN [bookmark_ids]` to the bookmark subquery, `WHERE Note.id IN [note_ids]` to notes, etc.
+- RRF merge breaks ties deterministically by `(entity_type, entity_id)` tuple for stable offset-based pagination.
 - RRF merge and pagination happen **before** hydrating full entity data. Only the final page is hydrated via `load_entities_by_ids()` — a utility factored from existing search code that loads full `ContentListItem` data (tags, content_preview, etc.) for a mixed set of entity IDs.
 - **Total results capped at 100.** The merged candidate set (FTS top 100 ∪ filter-passing vector-only results) is capped at 100 final results. This is an intentional and explicit API contract change for hybrid search — the existing FTS-only path returns exact totals, but hybrid search returns `min(actual, 100)`. This should be reflected in API documentation. In practice, nobody pages past 100 search results.
 
