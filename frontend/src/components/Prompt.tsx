@@ -43,6 +43,7 @@ import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { useAITagIntegration } from '../hooks/useAITagIntegration'
 import { useAIRelationshipIntegration } from '../hooks/useAIRelationshipIntegration'
+import { useAIMetadataIntegration } from '../hooks/useAIMetadataIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import { PROMPT_NAME_PATTERN, ARG_NAME_PATTERN } from '../constants/validation'
 import type { LinkedItem } from '../utils/relationships'
@@ -345,6 +346,8 @@ export function Prompt({
     useAITagIntegration(current, setCurrent, aiAvailable)
   const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: prompt?.id ?? null }, aiAvailable)
+  const { titleSuggestProps, descriptionSuggestProps } =
+    useAIMetadataIntegration(current, setCurrent, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -1044,6 +1047,7 @@ export function Prompt({
             error={errors.title}
             maxLength={limits.max_title_length}
             className="text-lg text-gray-600 placeholder:!text-[#b5bac2]"
+            {...titleSuggestProps}
           />
 
           {/* Description */}
@@ -1054,6 +1058,7 @@ export function Prompt({
             disabled={isSaving || isReadOnly}
             maxLength={limits.max_description_length}
             error={errors.description}
+            {...descriptionSuggestProps}
           />
 
           {/* Metadata: icons row + chips row */}

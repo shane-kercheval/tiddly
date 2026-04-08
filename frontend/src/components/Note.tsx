@@ -39,6 +39,7 @@ import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { useAITagIntegration } from '../hooks/useAITagIntegration'
 import { useAIRelationshipIntegration } from '../hooks/useAIRelationshipIntegration'
+import { useAIMetadataIntegration } from '../hooks/useAIMetadataIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload, TagCount } from '../types'
@@ -295,6 +296,8 @@ export function Note({
     useAITagIntegration(current, setCurrent, aiAvailable)
   const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: note?.id ?? null }, aiAvailable)
+  const { titleSuggestProps, descriptionSuggestProps } =
+    useAIMetadataIntegration(current, setCurrent, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -819,6 +822,7 @@ export function Note({
             disabled={isSaving || isReadOnly}
             error={errors.title}
             maxLength={limits.max_title_length}
+            {...titleSuggestProps}
           />
 
           {/* Description */}
@@ -829,6 +833,7 @@ export function Note({
             disabled={isSaving || isReadOnly}
             maxLength={limits.max_description_length}
             error={errors.description}
+            {...descriptionSuggestProps}
           />
 
           {/* Metadata: icons row + chips row */}

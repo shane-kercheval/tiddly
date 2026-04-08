@@ -38,6 +38,7 @@ import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
 import { useAITagIntegration } from '../hooks/useAITagIntegration'
 import { useAIRelationshipIntegration } from '../hooks/useAIRelationshipIntegration'
+import { useAIMetadataIntegration } from '../hooks/useAIMetadataIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount, UserLimits } from '../types'
@@ -291,6 +292,8 @@ export function Bookmark({
     useAITagIntegration(current, setCurrent, aiAvailable)
   const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: bookmark?.id ?? null }, aiAvailable)
+  const { titleSuggestProps, descriptionSuggestProps } =
+    useAIMetadataIntegration(current, setCurrent, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -966,6 +969,7 @@ export function Bookmark({
             disabled={isSaving || isReadOnly}
             error={errors.title}
             maxLength={limits.max_title_length}
+            {...titleSuggestProps}
           />
 
           {/* Description */}
@@ -976,6 +980,7 @@ export function Bookmark({
             disabled={isSaving || isReadOnly}
             maxLength={limits.max_description_length}
             error={errors.description}
+            {...descriptionSuggestProps}
           />
 
           {/* Metadata: icons row + chips row */}
