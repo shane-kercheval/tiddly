@@ -4,12 +4,14 @@
  * Renders a tag icon button that opens a dropdown with tag autocomplete.
  * Selecting a tag immediately calls onAdd - no form submission needed.
  * Uses useTagAutocomplete hook for all autocomplete logic.
+ * Optionally shows AI-suggested tags as muted chips in the dropdown.
  */
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent } from 'react'
 import type { TagCount } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
-import { Tooltip } from './ui'
+import { Tooltip, DropdownPortal } from './ui'
+import type { DropdownPortalHandle } from './ui/DropdownPortal'
 
 interface AddTagButtonProps {
   /** Tags already on this item (excluded from suggestions) */
@@ -18,26 +20,28 @@ interface AddTagButtonProps {
   suggestions: TagCount[]
   /** Called when a tag is added */
   onAdd: (tag: string) => void
+  /** AI-suggested tags to display as muted chips in the dropdown. */
+  aiSuggestions?: string[]
+  /** Called when the dropdown opens. */
+  onOpen?: () => void
+  /** Called when the dropdown closes. */
+  onClose?: () => void
 }
 
 /**
  * AddTagButton displays a compact tag icon button that opens a tag autocomplete dropdown.
- *
- * Behavior:
- * - Click opens dropdown with auto-focused input
- * - Type to filter suggestions or create new tag
- * - Click suggestion or press Enter to add
- * - Arrow keys navigate suggestions
- * - Escape or click outside closes dropdown
  */
 export function AddTagButton({
   existingTags,
   suggestions,
   onAdd,
+  aiSuggestions,
+  onOpen,
+  onClose,
 }: AddTagButtonProps): ReactNode {
   const [isOpen, setIsOpen] = useState(false)
-  const [openUpward, setOpenUpward] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const dropdownPortalRef = useRef<DropdownPortalHandle>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Handler that captures the added tag and calls onAdd
@@ -72,9 +76,19 @@ export function AddTagButton({
   const closeDropdown = useCallback((): void => {
     closeSuggestions()
     clearPending()
-    setOpenUpward(false)
     setIsOpen(false)
   }, [closeSuggestions, clearPending])
+
+  // Fire onOpen/onClose callbacks
+  const prevIsOpenRef = useRef(false)
+  useEffect(() => {
+    if (isOpen && !prevIsOpenRef.current) {
+      onOpen?.()
+    } else if (!isOpen && prevIsOpenRef.current) {
+      onClose?.()
+    }
+    prevIsOpenRef.current = isOpen
+  }, [isOpen, onOpen, onClose])
 
   // Focus input when dropdown opens
   useEffect(() => {
@@ -84,22 +98,14 @@ export function AddTagButton({
     }
   }, [isOpen, openSuggestions])
 
-  // Measure available space and flip dropdown direction if needed
-  useLayoutEffect(() => {
-    if (isOpen && showSuggestions && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect()
-      const spaceBelow = window.innerHeight - rect.bottom
-      // 220 ≈ max-h-48 (192px) + border + margin + buffer
-      setOpenUpward(spaceBelow < 220)
-    }
-  }, [isOpen, showSuggestions])
-
   // Close on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        closeDropdown()
+      const target = event.target as Node
+      if (containerRef.current?.contains(target) || dropdownPortalRef.current?.contains(target)) {
+        return
       }
+      closeDropdown()
     }
 
     if (isOpen) {
@@ -142,10 +148,18 @@ export function AddTagButton({
     addTag(suggestionName)
   }
 
+  const handleAiSuggestionClick = (e: React.MouseEvent, tag: string): void => {
+    e.stopPropagation()
+    addTag(tag)
+  }
+
   // Stop propagation on the dropdown to prevent card click
   const handleDropdownClick = (e: React.MouseEvent): void => {
     e.stopPropagation()
   }
+
+  // Filter AI suggestions to exclude tags already on the item
+  const visibleAiSuggestions = aiSuggestions?.filter((s) => !existingTags.includes(s)) ?? []
 
   return (
     <div ref={containerRef} className="relative inline-flex items-center">
@@ -177,15 +191,20 @@ export function AddTagButton({
 
           {/* Error message */}
           {error && (
-            <div className={`absolute left-0 md:left-auto md:right-0 z-20 ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+            <div className="absolute left-0 md:left-auto md:right-0 top-full mt-1 z-20">
               <p className="text-xs text-red-500 whitespace-nowrap">{error}</p>
             </div>
           )}
 
-          {/* Suggestions dropdown */}
-          {showSuggestions && filteredSuggestions.length > 0 && (
-            <div className={`absolute left-0 md:left-auto md:right-0 z-10 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg ${openUpward ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-              {filteredSuggestions.map((suggestion, index) => (
+          {/* Suggestions dropdown + AI suggestions — via portal */}
+          <DropdownPortal
+            ref={dropdownPortalRef}
+            anchorRef={inputRef}
+            open={(showSuggestions && filteredSuggestions.length > 0) || visibleAiSuggestions.length > 0}
+          >
+            <div className="mt-1 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
+              {/* Autocomplete suggestions */}
+              {showSuggestions && filteredSuggestions.map((suggestion, index) => (
                 <button
                   key={suggestion.name}
                   type="button"
@@ -201,8 +220,28 @@ export function AddTagButton({
                   <span className="text-gray-400">{suggestion.content_count}</span>
                 </button>
               ))}
+
+              {/* AI suggestions — muted, separated */}
+              {visibleAiSuggestions.length > 0 && (
+                <>
+                  {showSuggestions && filteredSuggestions.length > 0 && (
+                    <div className="border-t border-gray-100 my-1" />
+                  )}
+                  {visibleAiSuggestions.map((tag) => (
+                    <button
+                      key={`ai-${tag}`}
+                      type="button"
+                      onClick={(e) => handleAiSuggestionClick(e, tag)}
+                      className="flex w-full items-center px-3 py-1.5 text-left text-xs text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"
+                      aria-label={`Add suggested tag: ${tag}`}
+                    >
+                      <span>{tag}</span>
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
-          )}
+          </DropdownPortal>
         </div>
       )}
     </div>

@@ -100,6 +100,10 @@ function createMockResponse(items: ContentListItem[]): ContentListResponse {
 // Track navigation calls
 const mockNavigate = vi.fn()
 
+vi.mock('../hooks/useAIAvailability', () => ({
+  useAIAvailability: () => ({ available: false, remainingDaily: 0, limitDaily: 0, isLoading: false, error: null }),
+}))
+
 // Mock hooks and stores
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')

@@ -255,6 +255,12 @@ export function BookmarkCard({
                     existingTags={bookmark.tags}
                     suggestions={tagSuggestions}
                     onAdd={(tag) => onTagAdd(bookmark, tag)}
+                    aiContext={{
+                      title: bookmark.title,
+                      url: bookmark.url,
+                      description: bookmark.description,
+                      content: bookmark.content_preview,
+                    }}
                   />
                 )}
                 <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
@@ -417,6 +423,12 @@ export function BookmarkCard({
                     existingTags={bookmark.tags}
                     suggestions={tagSuggestions}
                     onAdd={(tag) => onTagAdd(bookmark, tag)}
+                    aiContext={{
+                      title: bookmark.title,
+                      url: bookmark.url,
+                      description: bookmark.description,
+                      content: bookmark.content_preview,
+                    }}
                   />
                 )}
                 {/* Edit button removed - clicking card row opens edit view */}

@@ -12,7 +12,8 @@ import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo }
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import { useContentSearch } from '../hooks/useContentSearch'
 import { LinkIcon, PlusIcon } from './icons'
-import { Tooltip } from './ui'
+import { Tooltip, DropdownPortal } from './ui'
+import type { DropdownPortalHandle } from './ui/DropdownPortal'
 import { CONTENT_TYPE_ICONS, CONTENT_TYPE_LABELS, CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import type { ContentListItem, ContentType } from '../types'
 import type { LinkedItem } from '../utils/relationships'
@@ -97,6 +98,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
   const [isAdding, setIsAdding] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const dropdownPortalRef = useRef<DropdownPortalHandle>(null)
 
   // Build exclude keys from existing items
   const excludeKeys = useMemo(() => {
@@ -152,12 +154,14 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
   // Close on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        closeDropdown()
-        // Exit add mode if input is empty
-        if (!inputValueRef.current.trim()) {
-          setIsAdding(false)
-        }
+      const target = event.target as Node
+      if (containerRef.current?.contains(target) || dropdownPortalRef.current?.contains(target)) {
+        return
+      }
+      closeDropdown()
+      // Exit add mode if input is empty
+      if (!inputValueRef.current.trim()) {
+        setIsAdding(false)
       }
     }
 
@@ -317,9 +321,9 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
             </span>
           )}
 
-          {/* Results dropdown */}
-          {showDropdown && inputValue.length >= 1 && (
-            <div id="linked-content-listbox" role="listbox" className="absolute left-0 top-full mt-1 z-10 max-h-48 w-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
+          {/* Results dropdown — rendered via portal to escape overflow containers */}
+          <DropdownPortal ref={dropdownPortalRef} anchorRef={inputRef} open={showDropdown && inputValue.length >= 1}>
+            <div id="linked-content-listbox" role="listbox" className="mt-1 max-h-48 w-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
               {isSearching && results.length === 0 && (
                 <p className="text-xs text-gray-400 py-3 text-center">Searching...</p>
               )}
@@ -355,7 +359,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                 )
               })}
             </div>
-          )}
+          </DropdownPortal>
         </div>
       )}
 

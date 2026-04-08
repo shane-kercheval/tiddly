@@ -25,6 +25,7 @@ import {
   useUnarchiveNote,
 } from '../hooks/useNoteMutations'
 import { useTagsStore } from '../stores/tagsStore'
+import { useAIAvailability } from '../hooks/useAIAvailability'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useRightSidebarStore } from '../stores/rightSidebarStore'
@@ -89,6 +90,7 @@ export function NoteDetail(): ReactNode {
   const { fetchNote, trackNoteUsage } = useNotes()
   const handleNavigateToLinked = useLinkedNavigation()
   const { tags: tagSuggestions } = useTagsStore()
+  const { available: aiAvailable } = useAIAvailability()
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const createMutation = useCreateNote()
   const updateMutation = useUpdateNote()
@@ -300,6 +302,7 @@ export function NoteDetail(): ReactNode {
         initialLinkedItems={locationState?.initialLinkedItems}
         showTocToggle={!isCreate}
         fromCreate={locationState?.fromCreate}
+        aiAvailable={aiAvailable}
       />
       {showHistory && noteId && (
         <HistorySidebar

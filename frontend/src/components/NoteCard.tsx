@@ -119,6 +119,11 @@ export function NoteCard({
                     existingTags={note.tags}
                     suggestions={tagSuggestions}
                     onAdd={(tag) => onTagAdd(note, tag)}
+                    aiContext={{
+                      title: note.title,
+                      description: note.description,
+                      content: note.content_preview,
+                    }}
                   />
                 )}
                 {view !== 'deleted' && (
@@ -241,6 +246,11 @@ export function NoteCard({
                     existingTags={note.tags}
                     suggestions={tagSuggestions}
                     onAdd={(tag) => onTagAdd(note, tag)}
+                    aiContext={{
+                      title: note.title,
+                      description: note.description,
+                      content: note.content_preview,
+                    }}
                   />
                 )}
                 {view !== 'deleted' && (

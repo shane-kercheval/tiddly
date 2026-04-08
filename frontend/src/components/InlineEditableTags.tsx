@@ -9,16 +9,18 @@
  * - X button on hover to remove tags
  * - Tag icon button to show input and add new tags
  * - Autocomplete dropdown for tag suggestions
+ * - AI-suggested tags displayed as muted chips (optional)
  * - Keyboard navigation (arrows, Enter, Escape)
  * - Tab moves to next field (standard form behavior)
  * - Exposes getPendingValue() via ref for form submission
  */
-import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
+import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import type { TagCount } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
 import { Tag } from './Tag'
-import { Tooltip } from './ui'
+import { Tooltip, DropdownPortal } from './ui'
+import type { DropdownPortalHandle } from './ui/DropdownPortal'
 
 interface InlineEditableTagsProps {
   /** Currently selected tags */
@@ -31,6 +33,12 @@ interface InlineEditableTagsProps {
   disabled?: boolean
   /** Whether to show the inline add button (default: true). Set false when using an external trigger. */
   showAddButton?: boolean
+  /** AI-suggested tags to display as muted chips. */
+  aiSuggestions?: string[]
+  /** Called when the tag input opens (isAddingTag becomes true). */
+  onOpen?: () => void
+  /** Called when the tag input closes (isAddingTag becomes false). */
+  onClose?: () => void
 }
 
 /** Exposed methods via ref */
@@ -49,12 +57,22 @@ export interface InlineEditableTagsHandle {
  * Styling uses badge pills with hover state revealing the remove button.
  */
 export const InlineEditableTags = forwardRef(function InlineEditableTags(
-  { value, onChange, suggestions, disabled = false, showAddButton = true }: InlineEditableTagsProps,
+  {
+    value,
+    onChange,
+    suggestions,
+    disabled = false,
+    showAddButton = true,
+    aiSuggestions,
+    onOpen,
+    onClose,
+  }: InlineEditableTagsProps,
   ref: Ref<InlineEditableTagsHandle>
 ): ReactNode {
   const [isAddingTag, setIsAddingTag] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const dropdownPortalRef = useRef<DropdownPortalHandle>(null)
 
   const {
     inputValue,
@@ -79,6 +97,21 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
     inputValueRef.current = inputValue
   }, [inputValue])
 
+  // Fire onOpen/onClose callbacks when isAddingTag changes
+  const prevIsAddingRef = useRef(false)
+  useEffect(() => {
+    if (isAddingTag && !prevIsAddingRef.current) {
+      onOpen?.()
+    } else if (!isAddingTag && prevIsAddingRef.current) {
+      onClose?.()
+    }
+    prevIsAddingRef.current = isAddingTag
+  }, [isAddingTag, onOpen, onClose])
+
+  const exitAddMode = useCallback(() => {
+    setIsAddingTag(false)
+  }, [])
+
   // Expose methods via ref for form submission and external triggers
   useImperativeHandle(ref, () => ({
     getPendingValue,
@@ -101,18 +134,21 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
   // Close suggestions and exit add mode when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        closeSuggestions()
-        // Only exit add mode if input is empty
-        if (!inputValueRef.current.trim()) {
-          setIsAddingTag(false)
-        }
+      const target = event.target as Node
+      // Ignore clicks inside the component or inside the portaled dropdown
+      if (containerRef.current?.contains(target) || dropdownPortalRef.current?.contains(target)) {
+        return
+      }
+      closeSuggestions()
+      // Only exit add mode if input is empty
+      if (!inputValueRef.current.trim()) {
+        exitAddMode()
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [closeSuggestions])
+  }, [closeSuggestions, exitAddMode])
 
   const handleAddClick = (): void => {
     if (!disabled) {
@@ -147,7 +183,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
     } else if (e.key === 'Escape') {
       closeSuggestions()
       clearPending()
-      setIsAddingTag(false)
+      exitAddMode()
     } else if (e.key === 'Backspace' && !inputValue && value.length > 0) {
       // Remove last tag on backspace when input is empty
       removeTag(value[value.length - 1])
@@ -161,6 +197,13 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
     inputRef.current?.focus()
     openSuggestions()
   }
+
+  const handleAiSuggestionClick = (tag: string): void => {
+    addTag(tag)
+  }
+
+  // Filter AI suggestions to exclude tags already in value
+  const visibleAiSuggestions = aiSuggestions?.filter((s) => !value.includes(s)) ?? []
 
   return (
     <div ref={containerRef} className="relative inline-flex flex-wrap items-center gap-2">
@@ -194,9 +237,9 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             </div>
           )}
 
-          {/* Suggestions dropdown */}
-          {showSuggestions && filteredSuggestions.length > 0 && (
-            <div className="absolute left-0 top-full mt-1 z-10 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
+          {/* Suggestions dropdown — rendered via portal to escape overflow containers */}
+          <DropdownPortal ref={dropdownPortalRef} anchorRef={inputRef} open={showSuggestions && filteredSuggestions.length > 0}>
+            <div className="mt-1 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
               {filteredSuggestions.map((suggestion, index) => (
                 <button
                   key={suggestion.name}
@@ -214,8 +257,25 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
                 </button>
               ))}
             </div>
-          )}
+          </DropdownPortal>
         </div>
+      )}
+
+      {/* AI-suggested tags — muted chips to the right */}
+      {visibleAiSuggestions.length > 0 && (
+        <>
+          {visibleAiSuggestions.map((tag) => (
+            <button
+              key={`ai-${tag}`}
+              type="button"
+              onClick={() => handleAiSuggestionClick(tag)}
+              className="inline-flex items-baseline rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
+              aria-label={`Add suggested tag: ${tag}`}
+            >
+              {tag}
+            </button>
+          ))}
+        </>
       )}
 
       {/* Inline add button (only when showAddButton is true and not already adding) */}

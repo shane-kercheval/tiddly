@@ -41,6 +41,7 @@ import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { usePrompts } from '../hooks/usePrompts'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
+import { useAITagIntegration } from '../hooks/useAITagIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import { PROMPT_NAME_PATTERN, ARG_NAME_PATTERN } from '../constants/validation'
 import type { LinkedItem } from '../utils/relationships'
@@ -156,6 +157,8 @@ interface PromptProps {
   showTocToggle?: boolean
   /** Whether this is a create→edit transition (preserves editor state) */
   fromCreate?: boolean
+  /** Whether AI features are available for this user's tier */
+  aiAvailable?: boolean
 }
 
 /**
@@ -181,6 +184,7 @@ export function Prompt({
   initialLinkedItems,
   showTocToggle = false,
   fromCreate = false,
+  aiAvailable = false,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
@@ -334,6 +338,10 @@ export function Prompt({
     setContentKey(prev => prev + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt?.id, initialTags, initialRelationships])
+
+  // AI tag suggestions
+  const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+    useAITagIntegration(current, setCurrent, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -761,9 +769,6 @@ export function Prompt({
     setErrors((prev) => (prev.content ? { ...prev, content: undefined } : prev))
   }, [])
 
-  const handleTagsChange = useCallback((tags: string[]): void => {
-    setCurrent((prev) => ({ ...prev, tags }))
-  }, [])
 
   const handleArchiveScheduleChange = useCallback((archivedAt: string): void => {
     setCurrent((prev) => ({ ...prev, archivedAt }))
@@ -1115,6 +1120,9 @@ export function Prompt({
                 suggestions={tagSuggestions}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
+                aiSuggestions={aiTagSuggestions}
+                onOpen={handleTagInputOpen}
+                onClose={handleTagInputClose}
               />
 
               <LinkedContentChips

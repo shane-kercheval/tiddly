@@ -21,10 +21,20 @@ vi.mock('react-hot-toast', () => ({
 
 // Mock @tanstack/react-query's useQueryClient
 const mockInvalidateQueries = vi.fn()
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({
-    invalidateQueries: mockInvalidateQueries,
-  }),
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return {
+    ...actual,
+    useQueryClient: () => ({
+      invalidateQueries: mockInvalidateQueries,
+    }),
+  }
+})
+
+// Mock AI availability (avoids QueryClient dependency)
+vi.mock('../hooks/useAIAvailability', () => ({
+  useAIAvailability: () => ({ available: false, remainingDaily: 0, limitDaily: 0, isLoading: false, error: null }),
+  aiHealthKeys: { all: ['ai-health'] as const, user: (id: string) => ['ai-health', id] as const },
 }))
 
 // Mock prompt data

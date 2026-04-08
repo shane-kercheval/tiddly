@@ -10,6 +10,10 @@ import userEvent from '@testing-library/user-event'
 import { PromptCard } from './PromptCard'
 import type { PromptListItem } from '../types'
 
+vi.mock('../hooks/useAIAvailability', () => ({
+  useAIAvailability: () => ({ available: false, remainingDaily: 0, limitDaily: 0, isLoading: false, error: null }),
+}))
+
 const mockPrompt: PromptListItem = {
   id: '1',
   name: 'code-review',

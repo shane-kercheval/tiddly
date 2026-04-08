@@ -1,0 +1,66 @@
+/**
+ * Shared AI tag suggestion integration for detail components.
+ *
+ * Composes useTagSuggestions and returns ready-to-use handlers for
+ * InlineEditableTags props (onOpen, onClose, onChange, aiSuggestions).
+ *
+ * The caller passes `available` (from useAIAvailability) so this hook
+ * doesn't depend on React Query directly — keeping it safe for component
+ * tests that render without a QueryClientProvider.
+ *
+ * Used by Bookmark, Note, and Prompt detail components.
+ */
+import { useCallback } from 'react'
+import { useTagSuggestions } from './useTagSuggestions'
+
+/** Minimum state shape required — detail components have additional fields. */
+interface TaggableState {
+  title: string
+  description: string
+  content: string
+  tags: string[]
+  url?: string
+}
+
+interface UseAITagIntegrationReturn {
+  aiTagSuggestions: string[]
+  handleTagInputOpen: () => void
+  handleTagInputClose: () => void
+  handleTagsChange: (tags: string[]) => void
+}
+
+export function useAITagIntegration<T extends TaggableState>(
+  current: T,
+  setCurrent: React.Dispatch<React.SetStateAction<T>>,
+  available: boolean = false,
+): UseAITagIntegrationReturn {
+  const { suggestions: aiTagSuggestions, fetchSuggestions, clearSuggestions, dismissSuggestion } =
+    useTagSuggestions({ available })
+
+  const handleTagInputOpen = useCallback(() => {
+    fetchSuggestions({
+      title: current.title,
+      url: current.url,
+      description: current.description,
+      content: current.content,
+      currentTags: current.tags,
+    })
+  }, [fetchSuggestions, current.title, current.url, current.description, current.content, current.tags])
+
+  const handleTagInputClose = useCallback(() => {
+    clearSuggestions()
+  }, [clearSuggestions])
+
+  const handleTagsChange = useCallback((tags: string[]) => {
+    const newTag = tags.find((t) => !current.tags.includes(t))
+    if (newTag) dismissSuggestion(newTag)
+    setCurrent((prev) => ({ ...prev, tags }))
+  }, [current.tags, dismissSuggestion, setCurrent])
+
+  return {
+    aiTagSuggestions,
+    handleTagInputOpen,
+    handleTagInputClose,
+    handleTagsChange,
+  }
+}

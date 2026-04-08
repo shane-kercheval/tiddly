@@ -125,6 +125,11 @@ export function PromptCard({
                     existingTags={prompt.tags}
                     suggestions={tagSuggestions}
                     onAdd={(tag) => onTagAdd(prompt, tag)}
+                    aiContext={{
+                      title: prompt.title,
+                      description: prompt.description,
+                      content: prompt.content_preview,
+                    }}
                   />
                 )}
                 {view !== 'deleted' && (
@@ -249,6 +254,11 @@ export function PromptCard({
                     existingTags={prompt.tags}
                     suggestions={tagSuggestions}
                     onAdd={(tag) => onTagAdd(prompt, tag)}
+                    aiContext={{
+                      title: prompt.title,
+                      description: prompt.description,
+                      content: prompt.content_preview,
+                    }}
                   />
                 )}
                 {view !== 'deleted' && (

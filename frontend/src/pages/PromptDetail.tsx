@@ -24,6 +24,7 @@ import {
   useUnarchivePrompt,
 } from '../hooks/usePromptMutations'
 import { useTagsStore } from '../stores/tagsStore'
+import { useAIAvailability } from '../hooks/useAIAvailability'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useRightSidebarStore } from '../stores/rightSidebarStore'
@@ -88,6 +89,7 @@ export function PromptDetail(): ReactNode {
   const { fetchPrompt, trackPromptUsage } = usePrompts()
   const handleNavigateToLinked = useLinkedNavigation()
   const { tags: tagSuggestions } = useTagsStore()
+  const { available: aiAvailable } = useAIAvailability()
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const createMutation = useCreatePrompt()
   const updateMutation = useUpdatePrompt()
@@ -331,6 +333,7 @@ export function PromptDetail(): ReactNode {
         initialLinkedItems={locationState?.initialLinkedItems}
         showTocToggle={!isCreate}
         fromCreate={locationState?.fromCreate}
+        aiAvailable={aiAvailable}
       />
       {showHistory && promptId && (
         <HistorySidebar

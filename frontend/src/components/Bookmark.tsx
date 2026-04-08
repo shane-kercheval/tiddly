@@ -36,6 +36,7 @@ import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
+import { useAITagIntegration } from '../hooks/useAITagIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount, UserLimits } from '../types'
@@ -134,6 +135,8 @@ interface BookmarkProps {
   initialRelationships?: RelationshipInputPayload[]
   /** Pre-populated linked item display cache from navigation state */
   initialLinkedItems?: LinkedItem[]
+  /** Whether AI features are available for this user's tier */
+  aiAvailable?: boolean
 }
 
 /**
@@ -170,6 +173,7 @@ export function Bookmark({
   onNavigateToLinked,
   initialRelationships,
   initialLinkedItems,
+  aiAvailable = false,
 }: BookmarkProps): ReactNode {
   const isCreate = !bookmark
 
@@ -280,6 +284,10 @@ export function Bookmark({
   const [contentKey, setContentKey] = useState(0) // Force editor remount when content is fetched
   const autoFetchedRef = useRef<string | null>(null)
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // AI tag suggestions
+  const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+    useAITagIntegration(current, setCurrent, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -716,9 +724,6 @@ export function Bookmark({
     setErrors((prev) => (prev.content ? { ...prev, content: undefined } : prev))
   }, [])
 
-  const handleTagsChange = useCallback((tags: string[]): void => {
-    setCurrent((prev) => ({ ...prev, tags }))
-  }, [])
 
   const handleArchiveScheduleChange = useCallback((archivedAt: string): void => {
     setCurrent((prev) => ({ ...prev, archivedAt }))
@@ -1037,6 +1042,9 @@ export function Bookmark({
                 suggestions={tagSuggestions}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
+                aiSuggestions={aiTagSuggestions}
+                onOpen={handleTagInputOpen}
+                onClose={handleTagInputClose}
               />
 
               <LinkedContentChips

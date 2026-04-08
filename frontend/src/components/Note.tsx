@@ -37,6 +37,7 @@ import { useNotes } from '../hooks/useNotes'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
+import { useAITagIntegration } from '../hooks/useAITagIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload, TagCount } from '../types'
@@ -109,6 +110,8 @@ interface NoteProps {
   showTocToggle?: boolean
   /** Whether this is a create→edit transition (preserves editor state) */
   fromCreate?: boolean
+  /** Whether AI features are available for this user's tier */
+  aiAvailable?: boolean
 }
 
 /**
@@ -134,6 +137,7 @@ export function Note({
   initialLinkedItems,
   showTocToggle = false,
   fromCreate = false,
+  aiAvailable = false,
 }: NoteProps): ReactNode {
   const isCreate = !note
 
@@ -284,6 +288,10 @@ export function Note({
     setContentKey(prev => prev + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.id, initialTags, initialRelationships])
+
+  // AI tag suggestions
+  const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+    useAITagIntegration(current, setCurrent, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -581,10 +589,6 @@ export function Note({
   const handleContentChange = useCallback((content: string): void => {
     setCurrent((prev) => ({ ...prev, content }))
     setErrors((prev) => (prev.content ? { ...prev, content: undefined } : prev))
-  }, [])
-
-  const handleTagsChange = useCallback((tags: string[]): void => {
-    setCurrent((prev) => ({ ...prev, tags }))
   }, [])
 
   const handleArchiveScheduleChange = useCallback((archivedAt: string): void => {
@@ -891,6 +895,9 @@ export function Note({
                 suggestions={tagSuggestions}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
+                aiSuggestions={aiTagSuggestions}
+                onOpen={handleTagInputOpen}
+                onClose={handleTagInputClose}
               />
 
               <LinkedContentChips
