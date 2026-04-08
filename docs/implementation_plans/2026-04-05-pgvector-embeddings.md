@@ -61,9 +61,13 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
   - Cascade-resistant: paragraph hashes are independent of position, so inserting a paragraph doesn't invalidate any existing embeddings.
   - Per-edit cost savings are 95%+ for typical edits at 25K+ characters.
 
-### 3. Worker Infrastructure
+### 3. Consistency Model
 
-Custom async worker using Redis BLMOVE (crash-safe delivery). One always-on Railway service, 4 concurrent jobs (asyncio semaphore), logs only for monitoring. Dead letter queue for permanently failed jobs. See Milestone 4 for full rationale and implementation.
+**Semantic search freshness is eventually consistent.** The primary operation is always the entity save — embedding is secondary. If Redis is unavailable during the post-commit callback, the entity is saved successfully but the embedding job is silently dropped. The entity will have no `content_embedding_state` row (or a stale one), so the backfill command (M6) catches it on the next manual run. This is an explicit product tradeoff: we never fail a user's save due to embedding infrastructure issues, and we accept that semantic search results may be temporarily stale.
+
+### 4. Worker Infrastructure
+
+Custom async worker using Redis BLMOVE (crash-safe delivery). One always-on Railway service, 4 concurrent jobs (asyncio semaphore), logs only for monitoring. Worker heartbeat written to Redis each loop iteration (`embed_worker:heartbeat` key with 30s TTL) for liveness detection. Dead letter queue for permanently failed jobs. See Milestone 4 for full rationale and implementation.
 
 ### 4. Tier Gating
 
@@ -139,7 +143,7 @@ content_embedding_state:
     metadata_hash   Text (SHA-256 of canonical metadata text — for skip-if-unchanged on title/description/name edits)
     content_hash    Text (SHA-256 of full content field — for skip-if-unchanged on content edits)
     model           Text (embedding model used, e.g. "text-embedding-3-small")
-    status          String (pending/embedding/embedded/failed)
+    status          String (pending/embedded/failed) — no 'embedding' state; status transitions atomically in same transaction as chunk writes
     last_error      Text (nullable — error message on last failure)
     embedded_at     DateTime (nullable — last successful embedding)
     created_at      DateTime
@@ -238,7 +242,7 @@ Stability of this format matters for hash consistency — don't change field ord
 **Entity-specific handling:**
 - **Prompts:** Metadata chunk includes `name + title + description`. Content chunks from `content` field. Same algorithm as notes/bookmarks.
 - **Notes:** Metadata chunk includes `title + description`. Content chunks from `content` field.
-- **Bookmarks:** Same as notes.
+- **Bookmarks:** Same as notes. The bookmark `summary` field is deliberately excluded — it is not currently populated in the product. Can be added to the metadata chunk later if summary generation is implemented.
 
 ### Testing Strategy
 - Every entity produces exactly one metadata chunk (chunk_type="metadata", index=0)
@@ -310,6 +314,7 @@ openai_api_key: str | None = None  # None = embeddings disabled
 - Invalid API key raises appropriate error
 - No API key configured raises `EmbeddingNotConfiguredError`
 - Empty text input handled gracefully
+- Embedding API returns wrong dimensionality → clear `EmbeddingError` with expected vs actual dims (not cryptic DB error from pgvector rejecting the vector)
 - Mock the OpenAI client for unit tests (don't call the real API in CI)
 
 ---
@@ -374,18 +379,18 @@ async def process_job(job_data: dict):
     3. Compute metadata_hash (SHA-256 of canonical metadata text)
     4. Compute content_hash (SHA-256 of full content field)
     5. Check state: if metadata_hash, content_hash, AND model all match → no-op, return early
-    6. Update state: status = 'embedding'
-    7. For metadata (if hash or model changed): build metadata chunk, embed it
-    8. For content (if hash or model changed):
+    6. For metadata (if hash or model changed): build metadata chunk, embed it
+    7. For content (if hash or model changed):
        - Split content into paragraphs, hash each
        - Load existing content chunks as {content_hash: embedding} dict
        - For each new paragraph: if hash exists in dict → reuse embedding, else → need to embed
        - Call embedding API only for paragraphs with new hashes (one batch call)
-    9. In a SINGLE TRANSACTION:
+    8. In a SINGLE TRANSACTION:
        - DELETE all old chunks for this entity
        - INSERT all new chunks (metadata + content, with reused or fresh embeddings, correct indexes)
        - UPDATE content_embedding_state: metadata_hash, content_hash, model, status = 'embedded'
-       All operations commit atomically.
+       All operations commit atomically — including the status update.
+       No separate 'embedding' status commit.
 
     Paragraph reuse is cascade-resistant: hashes are based on paragraph text only, independent
     of position. Inserting a paragraph doesn't invalidate any existing embeddings — they're
@@ -395,14 +400,17 @@ async def process_job(job_data: dict):
     (same text = same vector). Each gets its own chunk row with a distinct chunk_index.
 
     Crash safety:
-    - Crash before step 9 commit → transaction rolls back, DB unchanged.
+    - Crash before step 8 commit → transaction rolls back, DB unchanged.
       Hashes still mismatch → next job retries from scratch.
-    - Crash after step 9 commit → everything is consistent.
+    - Crash after step 8 commit → everything is consistent.
     - No window where search sees a mix of old and new chunks.
+    - No 'embedding' status that can get stranded — status transitions directly from
+      prior state to 'embedded' (or 'failed') in one atomic commit.
 
-    On failure (embedding API error): status set to 'failed', last_error recorded.
-    Existing chunks from prior successful embedding are PRESERVED — search continues
-    using last-good data. Failed status is picked up by backfill (M6) for retry.
+    On failure (embedding API error): status set to 'failed', last_error recorded
+    (in a separate small transaction). Existing chunks from prior successful embedding
+    are PRESERVED — search continues using last-good data. Failed status is picked up
+    by backfill (M6) for retry.
     """
     ...
 
@@ -428,6 +436,9 @@ async def worker_loop():
     logger.info("Embedding worker started (concurrency=%d)", CONCURRENCY)
 
     while not shutdown.is_set():
+        # Worker heartbeat — liveness signal for monitoring
+        await redis.setex("embed_worker:heartbeat", 30, str(time.time()))
+
         # Promote ready delayed jobs to the main queue (atomic via Lua script)
         # Selects jobs from embed_jobs_delayed where score <= now, removes them,
         # and pushes them to embed_jobs. Uses the existing evalsha/script_load
@@ -494,6 +505,8 @@ async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user
 Embedding jobs must be enqueued **after the DB transaction commits**, not after `flush()`. This prevents the worker from seeing uncommitted or rolled-back data.
 
 Implementation: services register enqueue callbacks in `session.info["post_commit_callbacks"]` (a list stored on SQLAlchemy's session info dict). In `get_async_session()`, after `await session.commit()` succeeds, execute all callbacks. On rollback, the callbacks are never executed. This is ~10 lines of code in the session dependency — no external libraries needed.
+
+**Callback failure policy:** Post-commit callbacks are **fire-and-forget**. If Redis is unavailable, log a warning and continue — the entity save already succeeded. The entity will lack a `content_embedding_state` row (or have a stale one), so the backfill command (M6) catches it. A callback exception must never turn a successful save into a 500 response. See "Consistency Model" in Decisions section.
 
 - Do NOT call on archive/unarchive/soft-delete — content hasn't changed
 - Only trigger when content-relevant fields change (title, description, content, summary, name)
@@ -581,6 +594,7 @@ This is critical infrastructure — the embedding pipeline touches every content
 - Worker crash after commit → everything consistent, retry is a no-op
 - Unique constraint: attempt to insert duplicate `(entity_type, entity_id, chunk_type, chunk_index)` → DB rejects
 - SELECT FOR UPDATE serialization: two concurrent jobs for same entity → second blocks until first commits, then skips (hashes match)
+- Rapid successive edits: three jobs for same entity → first processes fully, second and third skip via hash match after lock release
 
 **5. Post-commit enqueue tests (real Redis + real Postgres):**
 - Entity create via service → post-commit callback fires → job appears in Redis
@@ -696,20 +710,22 @@ async def hybrid_search(
         key = (entity_type, entity_id)
         scores[key] = scores.get(key, 0) + 1.0 / (k + rank)
 
-    # 6. Sort by combined RRF score, then paginate
-    merged = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    # 6. Sort by combined RRF score, tiebreak by entity_id for stable pagination
+    merged = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
     page = merged[offset:offset + limit]
 
     # 7. Hydrate into ContentListItem shape (load full entity data for the page)
-    ...
+    # Use load_entities_by_ids() utility — factored from existing search code.
+    return await load_entities_by_ids(db, user_id, [key for key, _ in page])
 ```
 
 **Key design choices:**
 - FTS and query embedding run concurrently (`asyncio.gather`) to hide FTS latency behind the embedding API call.
 - FTS runs through the existing `search_all_content()` pipeline with all filters applied — tag, view, content type, filter expression. No filter logic is duplicated.
 - Vector search overfetches 200 candidates (scoped to user_id + entity_types) for filter headroom.
-- Vector-only results (semantic matches that FTS missed) are filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. Filter check only runs when the user has active filters (tags, non-default view, or filter_expression).
-- RRF merge and pagination happen **before** hydrating full entity data. Only the final page of results is loaded.
+- Vector-only results (semantic matches that FTS missed) are filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. Filter check only runs when the user has active filters (tags, non-default view, or filter_expression). **Implementation note:** the `entity_ids` parameter must be split by entity type within `search_all_content()` — each per-type subquery gets `WHERE Bookmark.id IN [bookmark_ids]`, `WHERE Note.id IN [note_ids]`, etc.
+- RRF merge breaks ties deterministically by `entity_id` for stable offset-based pagination.
+- RRF merge and pagination happen **before** hydrating full entity data. Only the final page is hydrated via `load_entities_by_ids()` — a utility factored from existing search code that loads full `ContentListItem` data (tags, content_preview, etc.) for a mixed set of entity IDs.
 - **Total results capped at 100.** The merged candidate set (FTS top 100 ∪ filter-passing vector-only results) is capped at 100 final results. This is an intentional and explicit API contract change for hybrid search — the existing FTS-only path returns exact totals, but hybrid search returns `min(actual, 100)`. This should be reflected in API documentation. In practice, nobody pages past 100 search results.
 
 **Tier gating (v1: query-time enforcement only):**
@@ -765,8 +781,20 @@ async def hybrid_search(
 - Items without embeddings still appear via FTS path
 - Entity type filtering works in vector search
 - Deduplication: multiple chunks from same entity → entity appears once with best score
+- RRF tiebreaker: entities with equal RRF scores are ordered deterministically (by entity_id)
+- entity_ids whitelist correctly splits by entity type across UNION subqueries
+- load_entities_by_ids hydrates correct ContentListItem data for mixed entity types
 - Empty query → no vector search triggered (browse mode)
 - Search with all stop words → handled gracefully (existing stop-word guard)
+
+**API endpoint tests** (in addition to service-level tests above):
+- Pro user + sort_by="relevance" → hybrid search results returned
+- Free user + sort_by="relevance" → FTS-only results, no embedding API call
+- Pro user + sort_by="created_at" → FTS-only, chronological order
+- Embeddings disabled (no API key) → FTS-only, no error
+- Embedding API down → FTS fallback, no 500 error
+- Total count is capped at 100 for hybrid search
+- Existing search tests continue to pass (backward compatibility for FTS-only paths)
 
 ---
 
