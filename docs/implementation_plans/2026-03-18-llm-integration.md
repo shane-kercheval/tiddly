@@ -17,7 +17,7 @@ Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction l
 - **BYOK (Bring Your Own Key)** lets users bypass platform rate limits and choose their own model/provider
 - **User API keys** stored in browser `localStorage`, passed via `X-LLM-Api-Key` header, never persisted server-side
 - **All AI endpoints** live under a new `/ai/` router
-- **Milestone structure:** 1a (LLM Service + Router) → 1b (Rate Limiting) → 1c (Cost Tracking) → 2 (Suggestion Backend) → 3a (AI Store + Settings + API Layer) → 3b (Tag Suggestion UI) → 3c (Metadata Suggestion UI) → 3d (Relationship + Argument Suggestion UI) → 3e (Pricing/Docs Sync) → 4 (Deployment & Verification). Each code milestone is independently deployable and testable. The deployment milestone is done after merging to main.
+- **Milestone structure:** 1a (LLM Service + Router) → 1b (Rate Limiting) → 1c (Cost Tracking) → 2 (Suggestion Backend) → 3a (AI Store + Settings + API Layer) → 3b (Tag Suggestion UI) → 3c (Relationship Suggestion UI) → 3d (Metadata Suggestion UI) → 3e (Argument Suggestion UI) → 3f (Pricing/Docs Sync) → 4 (Deployment & Verification). Each code milestone is independently deployable and testable. The deployment milestone is done after merging to main.
 
 **References:**
 - LiteLLM docs: https://docs.litellm.ai/docs/
@@ -986,73 +986,26 @@ The server handles all user context (tag vocabulary, few-shot examples) — see 
 
 ---
 
-### Milestone 3c: Metadata Suggestion UI
+### Milestone 3c: Relationship Suggestion UI
 
-#### Goal & Outcome
+#### Lessons from 3b to apply
 
-After this sub-milestone:
-
-- Magic icons appear next to title and description fields
-- Clicking generates a suggestion for the requested field(s)
-- Uses the `fields` parameter to generate only what's needed
-
-#### Implementation Outline
-
-##### Metadata suggestion UI
-
-A sparkle/magic icon at the right edge of the title and description input fields on bookmark, note, and prompt edit forms. The interaction is the same across all content types.
-
-**No user context needed:** Unlike tag suggestions, titles and descriptions are content-specific — there's no "user's titling style" to learn from. The client sends item context, the server calls the LLM directly.
-
-**Icon states:**
-1. **Hidden:** User doesn't have AI available (tier check from `/ai/health`, see §7)
-2. **Visible + disabled (grayed out):** User has AI but insufficient context to generate from. Tooltip explains what's needed (e.g. "Add content to enable AI title suggestion").
-3. **Visible + enabled:** Enough context exists. Clickable.
-
-**Visibility conditions:**
-- **Title icon enabled when:** description OR content exists (need something to derive a title from)
-- **Description icon enabled when:** content exists (title alone isn't enough to generate a meaningful description; title + content works, content alone works)
-
-**Behavior:** Clicking the icon calls `POST /ai/suggest-metadata` with the `fields` parameter set based on context:
-- Click title icon with description empty → `fields: ["title", "description"]` (generate both, populate both fields)
-- Click title icon with description filled → `fields: ["title"]` (generate title only, existing description sent as context)
-- Click description icon with title empty → `fields: ["title", "description"]` (generate both, populate both fields)
-- Click description icon with title filled → `fields: ["description"]` (generate description only, existing title sent as context)
-
-On success, only the requested fields are populated in the response (`title: str | None`, `description: str | None`). The frontend updates only the non-null fields. The user can undo via Cmd+Z (standard browser undo) or type over it. No preview/accept/dismiss modal — that's over-engineered for a single text field replacement.
-
-**Error handling:** Same as tag suggestions — silent. If the API fails, nothing happens. Log to console.
-
-**Loading state:** Defer until implementation — test real latency first.
-
-**Prompt argument suggestions:** See §5 below for the prompt-specific argument suggestion UI.
-
-#### Testing (3c)
-
-- Metadata suggestion: icon hidden for non-Pro users
-- Metadata suggestion: icon disabled (grayed out) when insufficient context, tooltip shown
-- Metadata suggestion: title icon enabled when description or content exists
-- Metadata suggestion: description icon enabled when content exists
-- Metadata suggestion: click replaces field content with suggestion
-- Metadata suggestion: `fields` parameter set correctly based on which fields are empty/filled
-- Metadata suggestion: Cmd+Z undoes the replacement
-- Metadata suggestion: API error → nothing happens, error logged to console
-
----
-
-### Milestone 3d: Relationship + Argument Suggestion UI
+- **Availability gating:** Call `useAIAvailability()` in the page component (has QueryClient), pass `aiAvailable` as a prop to the detail component. Test every call site — verify no API call fires when `available` is false.
+- **Shared hook pattern:** Create `useRelationshipSuggestions` parallel to `useTagSuggestions`.
+- **Request identity for race conditions:** Use a per-request ID counter (not a shared boolean) to discard stale responses.
+- **Content-based caching:** Single-item cache keyed by content fields. Dismiss updates cache. `clearSuggestions` preserves cache for reopens.
+- **QueryClient test compatibility:** Components that use AI hooks must not call `useAIAvailability` directly — accept `aiAvailable` as a prop. Mock `useAIAvailability` in test files that render without QueryClientProvider.
+- **DropdownPortal:** Already applied to LinkedContentChips — relationship suggestion chips render inline (not in a dropdown), so no portal needed for the chips themselves.
 
 #### Goal & Outcome
 
 After this sub-milestone:
 
 - Relationship suggestions appear as muted chips when the linked content input is opened
-- Argument suggestions work from the prompt editor with magic icons
-- Both follow the established suggestion UI patterns from 3b/3c
+- Clicking a suggestion creates the relationship
+- Follows the established chip suggestion pattern from 3b (tag suggestions)
 
 #### Implementation Outline
-
-##### Relationship suggestion UI
 
 Same UX pattern as tag suggestions — suggestions fire in the background, appear as muted chips, click to promote. Detail/edit view only (relationships are not managed from the list view).
 
@@ -1079,9 +1032,106 @@ The server handles all search and LLM work — see Milestone 2 §4.
 
 **Loading state:** Defer until implementation. Relationship suggestions involve two searches + an LLM call, so they may be slower than tag suggestions. Add a loading indicator later if needed.
 
-#### 5. Prompt argument suggestion UI
+#### Testing (3c)
 
-Magic icons in the prompt editor's arguments section. Same three icon states as metadata suggestions (hidden / disabled with tooltip / enabled). See §6 for tier gating.
+- Opening linked content input triggers suggestion request (if AI available + item has context)
+- Muted chips appear to the right of existing linked content chips
+- Clicking a suggestion promotes it (creates relationship, standard chip style)
+- Closing linked content input clears suggestions
+- Not triggered when item has no title or tags (context gate)
+- Not triggered for non-Pro users — no API call fires (availability gate)
+- API error → no suggestions shown, error logged to console
+- Race condition: stale response discarded when new request starts
+- Cache: reopening without content change reuses cached suggestions
+- Cache: dismissed suggestions stay dismissed on reopen
+
+**Availability gate (all call sites):**
+- Relationship suggestions in Bookmark detail: verify no API call when aiAvailable=false
+- Relationship suggestions in Note detail: verify no API call when aiAvailable=false
+- Relationship suggestions in Prompt detail: verify no API call when aiAvailable=false
+
+---
+
+### Milestone 3d: Metadata Suggestion UI
+
+#### Lessons from 3b to apply
+
+- **Availability gating:** Pass `aiAvailable` prop from page to component. Test every call site — verify icons hidden and no API call when `available` is false.
+- **QueryClient test compatibility:** Components must not call `useAIAvailability` directly. Mock it in test files that render without QueryClientProvider.
+- **Shared hook pattern:** Create a metadata suggestion hook or integrate into existing patterns. Avoid duplicating wiring across Bookmark/Note/Prompt.
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Sparkle icons appear next to title and description fields
+- Clicking generates a suggestion for the requested field(s)
+- Uses the `fields` parameter to generate only what's needed
+
+#### Implementation Outline
+
+A sparkle/magic icon at the right edge of the title and description input fields on bookmark, note, and prompt edit forms. The interaction is the same across all content types.
+
+**No user context needed:** Unlike tag suggestions, titles and descriptions are content-specific — there's no "user's titling style" to learn from. The client sends item context, the server calls the LLM directly.
+
+**Icon states:**
+1. **Hidden:** User doesn't have AI available (tier check from `/ai/health`, see §7)
+2. **Visible + disabled (grayed out):** User has AI but insufficient context to generate from. Tooltip explains what's needed (e.g. "Add content to enable AI title suggestion").
+3. **Visible + enabled:** Enough context exists. Clickable.
+
+**Visibility conditions:**
+- **Title icon enabled when:** description OR content exists (need something to derive a title from)
+- **Description icon enabled when:** content exists (title alone isn't enough to generate a meaningful description; title + content works, content alone works)
+
+**Behavior:** Clicking the icon calls `POST /ai/suggest-metadata` with the `fields` parameter set based on context:
+- Click title icon with description empty → `fields: ["title", "description"]` (generate both, populate both fields)
+- Click title icon with description filled → `fields: ["title"]` (generate title only, existing description sent as context)
+- Click description icon with title empty → `fields: ["title", "description"]` (generate both, populate both fields)
+- Click description icon with title filled → `fields: ["description"]` (generate description only, existing title sent as context)
+
+On success, only the requested fields are populated in the response (`title: str | None`, `description: str | None`). The frontend updates only the non-null fields. The user can undo via Cmd+Z (standard browser undo) or type over it. No preview/accept/dismiss modal — that's over-engineered for a single text field replacement.
+
+**Error handling:** Same as tag suggestions — silent. If the API fails, nothing happens. Log to console.
+
+**Loading state:** Defer until implementation — test real latency first.
+
+#### Testing (3d)
+
+- Metadata suggestion: icon hidden for non-Pro users — no API call fires (availability gate)
+- Metadata suggestion: icon disabled (grayed out) when insufficient context, tooltip shown
+- Metadata suggestion: title icon enabled when description or content exists
+- Metadata suggestion: description icon enabled when content exists
+- Metadata suggestion: click replaces field content with suggestion
+- Metadata suggestion: `fields` parameter set correctly based on which fields are empty/filled
+- Metadata suggestion: Cmd+Z undoes the replacement
+- Metadata suggestion: API error → nothing happens, error logged to console
+
+**Availability gate (all call sites):**
+- Bookmark detail: verify icon hidden and no API call when aiAvailable=false
+- Note detail: verify icon hidden and no API call when aiAvailable=false
+- Prompt detail: verify icon hidden and no API call when aiAvailable=false
+
+---
+
+### Milestone 3e: Argument Suggestion UI
+
+#### Lessons from 3b/3d to apply
+
+- **Availability gating:** Pass `aiAvailable` prop from page to component. Test every call site — verify icons hidden and no API call when `available` is false.
+- **Sparkle icon pattern:** Same three icon states as metadata suggestions (hidden / disabled with tooltip / enabled). Reuse the pattern established in 3d.
+- **QueryClient test compatibility:** Mock `useAIAvailability` in test files.
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Sparkle icons in the prompt editor's arguments section
+- Generate-all button suggests arguments from template placeholders
+- Individual name/description suggestions for each argument
+
+#### Implementation Outline
+
+Magic icons in the prompt editor's arguments section. Same three icon states as metadata suggestions (hidden / disabled with tooltip / enabled).
 
 **Generate all arguments — magic icon next to the "+" (add argument) button:**
 - Calls `POST /ai/suggest-arguments` with `prompt_content` and existing `arguments`, no `target`
@@ -1107,26 +1157,22 @@ Magic icons in the prompt editor's arguments section. Same three icon states as 
 
 **Loading state:** Defer until implementation.
 
-#### Testing (3d)
+#### Testing (3e)
 
-- Relationship suggestions: opening linked content input triggers suggestion request (if AI available + item has context)
-- Relationship suggestions: muted chips appear to the right of existing linked content chips
-- Relationship suggestions: clicking a suggestion promotes it (creates relationship, standard chip style)
-- Relationship suggestions: closing linked content input clears suggestions
-- Relationship suggestions: not triggered when item has no title or tags
-- Relationship suggestions: not triggered for non-Pro users
-- Relationship suggestions: API error → no suggestions shown, error logged to console
-- Prompt arguments: generate-all icon enabled when prompt content exists, disabled otherwise
-- Prompt arguments: generate-all appends suggestions to existing argument list
-- Prompt arguments: suggest-name icon enabled when argument description exists
-- Prompt arguments: suggest-description icon enabled when argument name exists
-- Prompt arguments: click replaces field content, Cmd+Z undoes
-- Prompt arguments: all icons hidden for non-Pro users
-- Prompt arguments: API error → nothing happens, error logged to console
+- Generate-all icon enabled when prompt content exists, disabled otherwise
+- Generate-all appends suggestions to existing argument list
+- Suggest-name icon enabled when argument description exists
+- Suggest-description icon enabled when argument name exists
+- Click replaces field content, Cmd+Z undoes
+- All icons hidden for non-Pro users — no API call fires (availability gate)
+- API error → nothing happens, error logged to console
+
+**Availability gate:**
+- Argument suggestion icons in prompt editor: verify icons hidden and no API call when aiAvailable=false
 
 ---
 
-### Milestone 3e: Pricing/Docs Sync
+### Milestone 3f: Pricing/Docs Sync
 
 #### Goal & Outcome
 
@@ -1144,7 +1190,7 @@ Update the following files with AI rate limit information:
 - `frontend/src/pages/LandingPage.tsx` — update FAQ if it mentions limits
 - `frontend/public/llms.txt` — add AI rate limits to Tier Limits section
 
-#### Testing (3e)
+#### Testing (3f)
 
 - Pricing page displays AI rate limit information per tier
 - AI rate limit values match backend tier configuration
@@ -1183,7 +1229,7 @@ AI features should be hidden/disabled for users whose tier doesn't support them.
 
 **Sync AI rate limit fields to frontend:** The backend `UserLimitsResponse` schema was updated in Milestone 1b to include `rate_ai_per_minute`, `rate_ai_per_day`, `rate_ai_byok_per_minute`, `rate_ai_byok_per_day`. The frontend `UserLimits` type was already updated in 1b. Pricing page, landing page, and llms.txt sync is covered in Milestone 3e.
 
-Testing for each sub-milestone is defined in its own section above (Testing 3a, 3b, 3c, 3d, 3e).
+Testing for each sub-milestone is defined in its own section above (Testing 3a–3f). Execution order: 3a → 3b → 3c → 3d → 3e → 3f.
 
 ---
 
