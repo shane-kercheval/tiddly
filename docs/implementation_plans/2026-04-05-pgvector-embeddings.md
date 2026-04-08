@@ -69,7 +69,9 @@ Custom async worker using Redis BLMOVE (crash-safe delivery). One always-on Rail
 
 Semantic/vector search is Pro tier only. FTS remains available to all users.
 
-**On tier downgrade (Pro → Free):** Delete all embeddings (`content_chunks`) and embedding state (`content_embedding_state`) for the user. These are internal search infrastructure, not user data — user content is untouched. On re-upgrade, backfill/stale detection (M6) re-embeds automatically. See KAN-109.
+**v1 (this plan):** Enforce at query time only — Pro users get hybrid search, Free users get FTS-only. No destructive cleanup on downgrade in v1 (no billing event source exists yet).
+
+**Later (KAN-109):** When billing/tier-change events exist, delete all embeddings (`content_chunks`) and embedding state (`content_embedding_state`) for the user on downgrade. These are internal search infrastructure, not user data — user content is untouched. On re-upgrade (KAN-110), backfill re-embeds automatically.
 
 ### 5. API Key Management
 
@@ -160,6 +162,7 @@ This table keeps embedding lifecycle state out of the entity models. Three field
 **SQLAlchemy models:**
 - `models/content_chunk.py`: Uses `UUIDv7Mixin`, `TimestampMixin`. `embedding` column uses pgvector's `Vector(1536)` type from `pgvector.sqlalchemy`. Relationship to User (for query scoping).
 - `models/content_embedding_state.py`: Uses `UUIDv7Mixin`, `TimestampMixin`. One row per entity.
+- Both models must be added as relationships on the `User` model with `cascade="all, delete-orphan"` — matching the existing pattern for bookmarks, notes, prompts, etc. This ensures user deletion automatically cleans up chunks and state.
 
 **Dependency:** Add `pgvector` Python package to `pyproject.toml` (provides `pgvector.sqlalchemy` for the `Vector` type).
 
@@ -342,7 +345,7 @@ Railway services:
 
 **Database sessions:** The worker runs as a separate process, not inside FastAPI. It creates its own sessions via `get_session_factory()` from `db/session.py` (not FastAPI's `get_async_session()` dependency). The worker manages its own commit/rollback per job.
 
-**Redis integration:** Queue primitives (LPUSH, BLMOVE) should be added to the existing `RedisClient` wrapper in `core/redis.py` rather than using raw `redis.asyncio` directly. This maintains a single Redis usage pattern across the codebase.
+**Redis integration:** Queue primitives (LPUSH, BLMOVE, ZADD, ZRANGEBYSCORE) should be added to the existing `RedisClient` wrapper in `core/redis.py` rather than using raw `redis.asyncio` directly. This includes a `promote_delayed_jobs()` method backed by a Lua script for atomic sorted-set-to-list promotion (matching the existing `evalsha`/`script_load` pattern for rate limiting). This maintains a single Redis usage pattern across the codebase.
 
 **Worker service** (`worker/main.py`):
 
@@ -425,6 +428,12 @@ async def worker_loop():
     logger.info("Embedding worker started (concurrency=%d)", CONCURRENCY)
 
     while not shutdown.is_set():
+        # Promote ready delayed jobs to the main queue (atomic via Lua script)
+        # Selects jobs from embed_jobs_delayed where score <= now, removes them,
+        # and pushes them to embed_jobs. Uses the existing evalsha/script_load
+        # pattern in core/redis.py for atomicity.
+        await redis.promote_delayed_jobs("embed_jobs_delayed", "embed_jobs")
+
         # BLMOVE atomically moves job from embed_jobs to embed_jobs_processing
         # Job stays in processing queue until explicitly removed on success
         raw = await redis.blmove("embed_jobs", "embed_jobs_processing", "RIGHT", "LEFT", timeout=5)
@@ -436,17 +445,6 @@ async def worker_loop():
                 try:
                     data = json.loads(raw_data)
 
-                    # Exponential backoff: skip jobs that aren't ready yet
-                    not_before = data.get("not_before", 0)
-                    if not_before > time.time():
-                        await redis.lpush("embed_jobs", json.dumps(data))  # put it back
-                        await redis.lrem("embed_jobs_processing", 1, raw_data)
-                        # Sleep briefly to avoid spin loop on empty queue with only deferred jobs.
-                        # Temporary simplification — a Redis sorted set delayed queue is the
-                        # proper fix if retry volume grows.
-                        await asyncio.sleep(1)
-                        return
-
                     await process_job(data)
                     # Success — remove from processing queue by job_id
                     await redis.lrem("embed_jobs_processing", 1, raw_data)
@@ -457,9 +455,10 @@ async def worker_loop():
                     await redis.lrem("embed_jobs_processing", 1, raw_data)
                     if retries < MAX_RETRIES:
                         data["retries"] = retries + 1
-                        data["not_before"] = time.time() + (2 ** retries)  # 1s, 2s, 4s
-                        await redis.lpush("embed_jobs", json.dumps(data))
-                        logger.warning("Retrying job (attempt %d): %s", retries + 1, e)
+                        not_before = time.time() + (2 ** retries)  # 1s, 2s, 4s
+                        # Add to delayed queue (sorted set keyed by not_before)
+                        await redis.zadd("embed_jobs_delayed", {json.dumps(data): not_before})
+                        logger.warning("Retrying job (attempt %d, delay %ds): %s", retries + 1, 2 ** retries, e)
                     else:
                         # Dead letter — permanently failed, inspectable
                         await redis.lpush("embed_jobs_dead", json.dumps(data))
@@ -499,7 +498,9 @@ Implementation: services register enqueue callbacks in `session.info["post_commi
 - Do NOT call on archive/unarchive/soft-delete — content hasn't changed
 - Only trigger when content-relevant fields change (title, description, content, summary, name)
 
-Integration points (all 6 must be wired):
+Integration points (all 9 must be wired):
+
+Service layer (6):
 - `bookmark_service.create()` — register post-commit enqueue
 - `bookmark_service.update()` — register post-commit enqueue, only if content fields changed
 - `note_service.create()` — register post-commit enqueue
@@ -507,13 +508,17 @@ Integration points (all 6 must be wired):
 - `prompt_service.create()` — register post-commit enqueue
 - `prompt_service.update()` — register post-commit enqueue, only if content fields changed
 
+str_replace router endpoints (3) — these modify entity.content directly in the router, bypassing the service update path. MCP servers use str_replace heavily for AI agent edits:
+- `bookmarks.py` str_replace endpoint — register post-commit enqueue after content modification
+- `notes.py` str_replace endpoint — same
+- `prompts.py` str_replace endpoint — same
+
 **Chunk lifecycle (paragraph-level reuse via hash lookup):**
 - On entity update: check `content_embedding_state` — metadata_hash, content_hash, and model. If all match → no-op. If metadata changed → re-embed metadata chunk. If content changed → load existing chunks as `{content_hash: embedding}` dict, look up each new paragraph hash, reuse embeddings where found, embed new paragraphs only. Delete all old chunks, insert all new chunks (with correct indexes and reused/fresh embeddings) in a single transaction. Cascade-resistant — hashes are independent of position.
 - On failure: existing chunks preserved (last-good data). Status set to 'failed'. Backfill (M6) retries later.
 - On entity hard-delete: delete all chunks and the state row for that entity. Integration points:
-  - `bookmark_service.hard_delete()` — delete chunks + state where entity_type='bookmark' and entity_id matches
-  - `note_service.hard_delete()` — same for notes
-  - `prompt_service.hard_delete()` — same for prompts
+  - `BaseEntityService.delete(permanent=True)` — add chunk + state cleanup before `await db.delete(entity)`. This is the centralized hard-delete path; individual services don't override it.
+  - `tasks/cleanup.py` `cleanup_soft_deleted_items()` — this permanently deletes expired soft-deleted entities via direct SQLAlchemy delete (bypassing BaseEntityService). Must also delete chunks + state before `await db.delete(item)`, matching the existing pattern of deleting history before the entity.
 - On soft-delete: leave chunks in place (entity might be restored)
 
 **Concurrent job serialization:** The worker acquires `SELECT ... FOR UPDATE` on the `content_embedding_state` row at step 2. This serializes concurrent workers for the same entity — the second worker blocks until the first commits. After acquiring the lock, the hash check determines whether work is needed. Combined with the unique constraint on `content_chunks(entity_type, entity_id, chunk_type, chunk_index)`, this provides defense-in-depth against duplicate chunks.
@@ -527,36 +532,68 @@ Integration points (all 6 must be wired):
 - Always-on service (not a cron job)
 
 ### Testing Strategy
-- Worker processes a job and produces correct chunks + embeddings (mock embedding API)
-- Worker retries on embedding API failure with exponential backoff (not_before timestamp enforced)
-- Worker respects max retries — after 3 failures, job goes to dead letter queue
-- Max retries exceeded → entity retains existing chunk embeddings (last-good preserved), status set to 'failed'
-- Retry with not_before in the future → job re-enqueued, not processed until ready
-- Job payloads include unique job_id for LREM acknowledgment
-- Both hashes unchanged → skip embedding entirely (no API calls, no DB writes)
-- Post-commit enqueue: job only appears in Redis after DB transaction commits (not after flush)
-- Request rollback after flush → no embedding job enqueued
-- Metadata chunk re-embedded on title/description change; content chunks unaffected
-- Content-only edit → only changed content chunks re-embedded; metadata chunk unaffected
-- Paragraph-level reuse: only new/changed paragraphs are embedded, unchanged paragraphs keep their embeddings
-- Chunk diff + state update execute in single transaction — no mixed chunk state visible to search
-- Worker crash before transaction commit → DB unchanged, hash mismatch triggers retry
-- Worker crash after transaction commit → everything consistent, no retry needed
-- Crash-window test: commit chunk diff, simulate crash before state hash update, rerun job → no duplicate chunks, no stale chunks, state repaired
-- content_embedding_state updated correctly: status transitions (pending → embedding → embedded/failed)
-- Non-content update (archive, last_used_at) does NOT trigger embedding
-- Hard-delete cleans up associated chunks and state row
-- Soft-delete preserves chunks
-- Restore does NOT re-trigger embedding (chunks still valid)
-- Worker handles entity not found (deleted between enqueue and execution)
-- Duplicate jobs for same entity: second job skips via metadata_hash + content_hash check
-- Malformed job data (bad JSON) → logged error, not crash
-- Dead letter: permanently failed job appears in `embed_jobs_dead` with error context
-- BLMOVE: job moves to processing queue before execution, removed on success
-- Worker startup reclaims stale jobs from processing queue (crash recovery)
-- Graceful shutdown: SIGTERM waits for in-flight tasks before exiting
-- Concurrency: multiple jobs process in parallel up to semaphore limit
-- Job serialization round-trip: enqueue → dequeue → parse works with UUID strings
+
+This is critical infrastructure — the embedding pipeline touches every content mutation, runs as a separate process, and coordinates across Redis and Postgres. Testing must cover correctness at every layer.
+
+**Testing infrastructure:**
+- **Testcontainers for both Redis and Postgres** (pgvector image). All integration tests run against real instances, not mocks. The codebase already uses testcontainers for Postgres; extend the same pattern for Redis.
+- **Mock embedding API** for unit and integration tests — don't call OpenAI in CI. Use `respx` (already in dev dependencies) or a simple mock that returns deterministic vectors.
+- **Worker test harness**: a helper that runs the worker loop for a controlled number of iterations or until the queue is empty, then stops. Avoids needing to manage background processes in tests.
+
+**Test categories:**
+
+**1. Unit tests (no Redis, no Postgres):**
+- Chunking service: paragraph splitting, hash computation, metadata format, oversized paragraph handling
+- Hash stability: same text → same hash regardless of context
+- Canonical metadata format: field ordering, empty field handling
+- Token count approximation: `len(text) // 4` produces reasonable estimates
+
+**2. Redis queue integration tests (real Redis via testcontainers, no Postgres):**
+- Enqueue → BLMOVE → job arrives in processing queue with correct data
+- Job serialization round-trip: enqueue → dequeue → parse preserves all fields including job_id
+- LREM acknowledgment: processed job removed from processing queue by raw payload
+- Delayed queue: failed job goes to `embed_jobs_delayed` sorted set with correct score
+- Delayed queue promotion: Lua script atomically moves ready jobs to main queue, leaves future jobs untouched
+- Delayed queue under load: multiple delayed jobs with different not_before values promoted in correct order
+- No spin loop: with only delayed (not-yet-ready) jobs, worker loop blocks on BLMOVE timeout — does not busy-loop
+- Dead letter: job exceeding MAX_RETRIES lands in `embed_jobs_dead` with error context
+- Crash recovery: jobs left in `embed_jobs_processing` (simulating crash) are reclaimed on worker startup
+- BLMOVE atomicity: job disappears from main queue and appears in processing queue in one operation
+
+**3. Worker integration tests (real Redis + real Postgres via testcontainers, mock embedding API):**
+- Happy path: enqueue job → worker processes → metadata chunk + content chunks appear in DB with correct embeddings, hashes, indexes
+- Paragraph-level reuse: edit one paragraph → only that paragraph re-embedded, unchanged paragraphs keep old embeddings (verify by checking embedding vectors are identical)
+- Metadata-only edit (title change): only metadata chunk re-embedded, all content chunks preserved
+- Content-only edit: only changed content chunks re-embedded, metadata chunk preserved
+- Both hashes + model unchanged → no-op (no API calls, no DB writes, no chunks modified)
+- Model mismatch → full re-embed regardless of hash matches
+- Duplicate paragraphs: document with repeated text → correct number of chunks, each with distinct chunk_index
+- Oversized paragraph: paragraph >2048 tokens → split at 512-token boundaries, each sub-chunk embedded
+- Entity not found (deleted between enqueue and execution) → job skipped silently, no error
+- Embedding API failure → status set to 'failed', last_error recorded, existing chunks preserved (last-good)
+- Retry with exponential backoff: first failure → delayed 1s, second → 2s, third → 4s, then dead letter
+- Max retries exceeded → dead letter queue, entity retains last-good embeddings
+- Malformed job data (bad JSON) → logged error, worker continues processing other jobs
+
+**4. Transaction safety tests (real Redis + real Postgres):**
+- Single transaction: chunk inserts + deletes + state update commit atomically — verify by checking DB state before and after
+- Worker crash before commit (simulate by raising exception after embedding but before commit) → DB unchanged, hashes mismatch, retry succeeds
+- Worker crash after commit → everything consistent, retry is a no-op
+- Unique constraint: attempt to insert duplicate `(entity_type, entity_id, chunk_type, chunk_index)` → DB rejects
+- SELECT FOR UPDATE serialization: two concurrent jobs for same entity → second blocks until first commits, then skips (hashes match)
+
+**5. Post-commit enqueue tests (real Redis + real Postgres):**
+- Entity create via service → post-commit callback fires → job appears in Redis
+- Entity update (content changed) via service → job enqueued
+- Entity update (no content change, e.g., archive) → no job enqueued
+- str_replace endpoint → post-commit callback fires → job appears in Redis
+- Request rollback after flush (simulate by raising exception after flush but before commit) → no job in Redis
+- session.info["post_commit_callbacks"] cleared between requests (no leakage)
+
+**6. Hard-delete cleanup tests (real Postgres):**
+- `BaseEntityService.delete(permanent=True)` → chunks and state row deleted before entity
+- `tasks/cleanup.py` `cleanup_soft_deleted_items()` → chunks and state deleted for expired soft-deleted entities
+- User deletion (cascade) → all chunks and state rows for that user automatically deleted
 
 ### Deployment (after M1-M4 are tested locally)
 
@@ -673,12 +710,13 @@ async def hybrid_search(
 - Vector search overfetches 200 candidates (scoped to user_id + entity_types) for filter headroom.
 - Vector-only results (semantic matches that FTS missed) are filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. Filter check only runs when the user has active filters (tags, non-default view, or filter_expression).
 - RRF merge and pagination happen **before** hydrating full entity data. Only the final page of results is loaded.
-- **Total results capped at 100.** The merged candidate set (FTS top 100 ∪ filter-passing vector-only results) is capped at 100 final results. This is an intentional simplification — exact total counts across both search sources would require uncapped retrieval. In practice, nobody pages past 100 search results.
+- **Total results capped at 100.** The merged candidate set (FTS top 100 ∪ filter-passing vector-only results) is capped at 100 final results. This is an intentional and explicit API contract change for hybrid search — the existing FTS-only path returns exact totals, but hybrid search returns `min(actual, 100)`. This should be reflected in API documentation. In practice, nobody pages past 100 search results.
 
-**Tier gating:**
+**Tier gating (v1: query-time enforcement only):**
 - Hybrid search (FTS + vector) is Pro tier only
 - Free tier users always get FTS-only (current behavior, no code change needed for them)
 - Check user tier before embedding the query — skip vector search path entirely for free tier
+- v1 does NOT delete embeddings on tier downgrade — just gates query-time access. Destructive cleanup deferred to KAN-109 when the billing/tier-change event source exists.
 
 **Sort mode scoping:**
 - Hybrid search (RRF merge) activates **only when `sort_by="relevance"`**. This is the only mode where semantic ranking adds value.
@@ -699,7 +737,7 @@ async def hybrid_search(
 2. **Partitioned tables**: Partition `content_chunks` by `user_id` with per-partition HNSW indexes. PostgreSQL 17 supports this natively. Required if user count grows significantly.
 
 **Query embedding cache:** Embedding the query adds ~200-500ms latency per search request (OpenAI API round-trip). To mitigate, cache query embeddings in Redis:
-- Key: `embed_cache:{model}:{hash(normalized_query)}` — model name in the key prevents cache poisoning across model changes.
+- Key: `embed_cache:{model}:{sha256(normalized_query)}` — SHA-256 consistent with the rest of the plan. Model name in the key prevents cache poisoning across model changes.
 - Query normalization: lowercase, strip whitespace before hashing.
 - TTL: 1 hour.
 - On cache hit, skip the OpenAI call entirely. First search for a novel query pays the latency; subsequent identical queries are instant.
@@ -747,23 +785,26 @@ Embed all existing content and provide monitoring for embedding health. After th
 ```python
 async def backfill_embeddings(
     db: AsyncSession,
+    redis_client,
     batch_size: int = 50,
     entity_types: list[str] | None = None,
+    throttle_ms: int = 100,
 ):
-    """Embed all Pro tier entities that have no chunks or stale chunks.
+    """Enqueue embedding jobs for all Pro tier entities that need (re-)embedding.
 
-    - Finds Pro tier entities with no rows in content_chunks, or where
+    - Finds Pro tier entities with no content_embedding_state row, or where
       metadata_hash, content_hash, or model doesn't match current values
-    - Processes in batches to respect API rate limits
-    - Idempotent: safe to run multiple times
+    - Enqueues jobs to Redis — the async worker handles actual embedding
+    - Throttles enqueue rate to avoid overwhelming the worker/API
+    - Idempotent: safe to run multiple times (worker's hash check skips already-current entities)
     """
 ```
 
 - Run as: `python -m tasks.backfill_embeddings`
 - Only processes Pro tier users' content (no point embedding for free tier)
-- Batch entities, chunk each, embed chunks, store — same logic as the async worker but sequential
-- Rate limiting: pause between batches to respect API limits
-- Progress logging: `Processed 50/345 entities...`
+- Enqueues jobs to the same `embed_jobs` Redis queue the worker listens to — **single code path** for all embedding logic (chunking, hash checks, API calls, transactional updates). No duplicated embedding logic.
+- Throttles enqueue rate (e.g., 100ms between batches) to respect API rate limits
+- Progress logging: `Enqueued 50/345 entities...`
 
 **Orphan chunk cleanup** (add to backfill command or run separately):
 - Delete chunks for entities that no longer exist (hard-deleted entities whose chunks weren't cleaned up).
@@ -789,20 +830,19 @@ SELECT entity_type, count(*) FROM (
 ```
 
 ### Testing Strategy
-- Backfill processes all Pro tier entities without embedding state
-- Backfill skips entities where metadata_hash, content_hash, and model all match current values
+- Backfill enqueues jobs for all Pro tier entities without embedding state
+- Backfill enqueues jobs for entities where metadata_hash, content_hash, or model doesn't match
+- Worker processes backfill jobs using the same code path as real-time jobs
 - Backfill skips free tier users' content
 - Backfill handles empty database (no entities)
 - Backfill respects entity_types filter
-- Backfill is idempotent (running twice produces same result)
-- Backfill catches stale content (metadata_hash, content_hash, or model doesn't match)
+- Backfill is idempotent (running twice produces same result — worker skips already-current entities)
 - Model upgrade triggers full re-embed for all entities (model mismatch = stale)
 - Backfill picks up entities with status = 'failed'
+- Enqueue throttling respects configured rate
 - Orphan chunk cleanup removes chunks for hard-deleted entities only
 - Failed entities retain their last-good chunks (not deleted by cleanup)
-- Backfill handles API failures gracefully (skips failed entities, continues)
 - Progress logging works correctly
-- Batch size is respected
 
 ---
 
