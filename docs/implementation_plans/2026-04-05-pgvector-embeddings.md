@@ -189,7 +189,7 @@ This table keeps embedding lifecycle state out of the entity models. Three field
 ### Goal & Outcome
 Implement the logic that splits entity content into metadata and content chunks. After this milestone:
 - A chunking service can take any entity (note, bookmark, prompt) and produce chunks
-- One `metadata` chunk per entity (title + description + name where applicable)
+- Zero or one `metadata` chunk per entity (title + description + name where applicable; omitted when all fields empty)
 - One `content` chunk per paragraph, with an independent hash for reuse tracking
 - Oversized paragraphs (>2048 tokens) are split at 512-token boundaries
 - All entity types use the same algorithm — no special cases
@@ -234,9 +234,11 @@ Description: {description}
 ```
 Stability of this format matters for hash consistency — don't change field order or formatting.
 
+**Content paragraph normalization:** Strip leading/trailing whitespace per paragraph. No case folding. Hash the stripped UTF-8 bytes via SHA-256. This is the `content_hash` stored per chunk for reuse. The entity-level `content_hash` on `content_embedding_state` hashes the raw content field as-is (not the normalized paragraphs) — it's a fast-path "did anything change at all" check, not a per-paragraph identity.
+
 **Chunking algorithm:**
-1. Build metadata chunk from entity fields (canonical format above). Hash the metadata text.
-2. Split `content` on `\n\n` → paragraphs. Hash each paragraph (SHA-256 of normalized text).
+1. Build metadata chunk from entity fields (canonical format above). Hash the metadata text. If all metadata fields are empty/NULL → skip metadata chunk entirely (don't embed empty string), but still store `metadata_hash = SHA-256("")` in the state table.
+2. Split `content` on `\n\n` → paragraphs. Normalize and hash each paragraph (see above).
 3. Each paragraph becomes its own `content` chunk (index 0..N).
 4. If a paragraph exceeds 2048 tokens (~8K characters), split it at fixed 512-token boundaries. Each sub-chunk gets its own hash.
 5. No title prefix on content chunks — title/description are in the metadata chunk.
@@ -247,7 +249,8 @@ Stability of this format matters for hash consistency — don't change field ord
 - **Bookmarks:** Same as notes. The bookmark `summary` field is deliberately excluded — it is not currently populated in the product. Can be added to the metadata chunk later if summary generation is implemented.
 
 ### Testing Strategy
-- Every entity produces exactly one metadata chunk (chunk_type="metadata", index=0)
+- Entity with at least one non-empty metadata field → one metadata chunk (chunk_type="metadata", index=0)
+- Entity with all metadata fields empty/NULL → no metadata chunk (metadata_hash still stored as SHA-256("") in state table)
 - Multi-paragraph content → one content chunk per paragraph (chunk_type="content", index=0..N)
 - Entity with no content → metadata chunk only
 - Entity with empty title/description → metadata chunk with only non-empty fields
@@ -307,6 +310,8 @@ openai_api_key: str | None = None  # None = embeddings disabled
 - No API key configured → raise `EmbeddingNotConfiguredError`
 
 **Batch limits:** OpenAI supports up to 2048 inputs per call. For a single entity's chunks (typically 1-50), one API call suffices.
+
+**Note:** `embed_single()` is a pure API call with no caching. In M5, search queries are wrapped by `embed_query()` which adds a Redis cache layer. The EmbeddingService itself stays simple — caching is a search concern.
 
 ### Testing Strategy
 - Successful single embedding returns correct dimensionality
@@ -463,12 +468,18 @@ async def worker_loop():
             async with sem:
                 try:
                     data = json.loads(raw_data)
+                except json.JSONDecodeError:
+                    # Malformed payload — can't retry, send to dead letter and remove
+                    logger.error("Malformed job payload (bad JSON), sending to dead letter: %s", raw_data[:200])
+                    await redis.lrem("embed_jobs_processing", 1, raw_data)
+                    await redis.lpush("embed_jobs_dead", raw_data)
+                    return
 
+                try:
                     await process_job(data)
-                    # Success — remove from processing queue by job_id
+                    # Success — remove from processing queue (by raw payload match)
                     await redis.lrem("embed_jobs_processing", 1, raw_data)
                 except Exception as e:
-                    data = json.loads(raw_data) if isinstance(raw_data, (str, bytes)) else {}
                     retries = data.get("retries", 0)
                     # Remove from processing queue regardless
                     await redis.lrem("embed_jobs_processing", 1, raw_data)
@@ -507,7 +518,7 @@ async def worker_loop():
 async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user_id: str):
     """Push an embedding job onto the Redis queue."""
     await redis_client.lpush("embed_jobs", json.dumps({
-        "job_id": str(uuid7()),  # unique ID for LREM acknowledgment
+        "job_id": str(uuid7()),  # unique ID for logging/debugging (LREM uses raw payload, not job_id)
         "entity_type": entity_type,
         "entity_id": entity_id,
         "user_id": user_id,
@@ -523,9 +534,12 @@ Implementation: services register enqueue callbacks in `session.info["post_commi
 **Callback failure policy:** Post-commit callbacks are **fire-and-forget**. If Redis is unavailable, log a warning and continue — the entity save already succeeded. The entity will lack a `content_embedding_state` row (or have a stale one), so the backfill command (M6) catches it. A callback exception must never turn a successful save into a 500 response. See "Consistency Model" in Decisions section.
 
 - Do NOT call on archive/unarchive/soft-delete — content hasn't changed
-- Only trigger when content-relevant fields change (title, description, content, name). Note: bookmark `summary` is deliberately excluded from chunking, so summary-only edits should NOT trigger enqueue.
+- Only trigger when content-relevant fields change. Per-entity-type trigger fields:
+  - **Bookmark:** title, description, content (NOT url, NOT summary — summary excluded from chunking, url not embedded)
+  - **Note:** title, description, content
+  - **Prompt:** name, title, description, content
 
-Integration points (all 9 must be wired):
+Integration points (all 10 must be wired):
 
 Service layer (6):
 - `bookmark_service.create()` — register post-commit enqueue
@@ -535,10 +549,11 @@ Service layer (6):
 - `prompt_service.create()` — register post-commit enqueue
 - `prompt_service.update()` — register post-commit enqueue, only if content fields changed
 
-str_replace router endpoints (3) — these modify entity.content directly in the router, bypassing the service update path. MCP servers use str_replace heavily for AI agent edits:
+str_replace router endpoints (4) — these modify entity.content directly in the router, bypassing the service update path. MCP servers use str_replace heavily for AI agent edits:
 - `bookmarks.py` str_replace endpoint — register post-commit enqueue after content modification
 - `notes.py` str_replace endpoint — same
-- `prompts.py` str_replace endpoint — same
+- `prompts.py` str_replace endpoint (by ID) — same
+- `prompts.py` str_replace endpoint (by name) — same (`str_replace_prompt_by_name()`)
 
 **Chunk lifecycle (paragraph-level reuse via hash lookup):**
 - On entity update: check `content_embedding_state` — metadata_hash, content_hash, and model. If all match → no-op. If metadata changed → re-embed metadata chunk. If content changed → load existing chunks as `{content_hash: embedding}` dict, look up each new paragraph hash, reuse embeddings where found, embed new paragraphs only. Delete all old chunks, insert all new chunks (with correct indexes and reused/fresh embeddings) in a single transaction. Cascade-resistant — hashes are independent of position.
@@ -670,7 +685,7 @@ async def vector_search(
     """
 ```
 
-- Query: `SELECT entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid AND embedding IS NOT NULL ORDER BY distance LIMIT :limit`
+- Query: `SELECT entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid AND embedding IS NOT NULL [AND entity_type IN (:types) IF entity_types provided] ORDER BY distance LIMIT :limit`
 - **Note:** The `WHERE user_id` clause is a **post-filter** applied after the HNSW approximate nearest-neighbor scan, not an index-selective condition. HNSW scans globally across all users' vectors, then Postgres filters. See scaling limitation note below.
 - Deduplicate by entity (multiple chunks from same entity → best score wins)
 
@@ -679,13 +694,27 @@ async def vector_search(
 The whole point of semantic search is **recall** — finding "login flow" when the user searches "auth." If we only rerank FTS results, we never surface items that FTS missed. RRF merge preserves recall while respecting filters.
 
 ```python
+async def embed_query(query: str, embedding_service, redis_client) -> list[float]:
+    """Embed a search query with Redis caching. Cache lives here, not in EmbeddingService.
+    M3's embed_single() remains a pure API call — cache is a search concern, not an embedding concern.
+    Key: embed_cache:{model}:{sha256(normalized_query)}, TTL 1 hour."""
+    normalized = query.strip().lower()
+    cache_key = f"embed_cache:{embedding_service.model}:{sha256(normalized)}"
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return json.loads(cached)
+    vec = await embedding_service.embed_single(query)
+    await redis_client.setex(cache_key, 3600, json.dumps(vec))
+    return vec
+
 async def hybrid_search(
-    db, user_id, query, embedding_service,
+    db, user_id, query, embedding_service, redis_client,
     tags, tag_match, view, filter_expression, content_types,
-    sort_by, sort_order, offset, limit,
+    offset, limit,
 ) -> tuple[list[ContentListItem], int]:
     """Returns (items, total) matching the existing search_all_content() contract.
-    Total is capped at 100 (see design choices below)."""
+    Total is capped at 100 (see design choices below).
+    Only called when sort_by="relevance" — caller checks this."""
 
     # 1. Run FTS and query embedding concurrently (hides FTS latency behind embedding latency)
     fts_coro = search_all_content(
@@ -695,7 +724,7 @@ async def hybrid_search(
         sort_by="relevance", sort_order="desc",
         offset=0, limit=100,  # overfetch for RRF merge
     )
-    embed_coro = embedding_service.embed_single(query)  # check Redis cache first
+    embed_coro = embed_query(query, embedding_service, redis_client)
     (fts_results, fts_total), query_embedding = await asyncio.gather(fts_coro, embed_coro)
 
     # 2. Vector search (scoped to user_id + entity_types, overfetch 200 for filter headroom)
@@ -712,7 +741,8 @@ async def hybrid_search(
     # Note: entity_ids param must be split by entity type within search_all_content()
     # (e.g., WHERE Bookmark.id IN [...] for bookmarks, WHERE Note.id IN [...] for notes).
     # search_all_content() already supports query=None (skips FTS, uses default sort).
-    has_filters = tags or view != {"active"} or filter_expression
+    # view is set[ViewOption], default frozenset({"active"}) — compare against default
+    has_filters = tags or view != frozenset({"active"}) or filter_expression
     if vec_only and has_filters:
         filtered, _ = await search_all_content(
             db, user_id, query=None,
@@ -783,11 +813,7 @@ async def hybrid_search(
 1. **Overfetch + post-filter** (current approach): Set a higher HNSW limit (e.g., 500) to compensate for filtered-out rows. Also set `SET hnsw.ef_search = 200` at session level to increase the HNSW candidate pool. Works for moderate user counts.
 2. **Partitioned tables**: Partition `content_chunks` by `user_id` with per-partition HNSW indexes. PostgreSQL 17 supports this natively. Required if user count grows significantly.
 
-**Query embedding cache:** Embedding the query adds ~200-500ms latency per search request (OpenAI API round-trip). To mitigate, cache query embeddings in Redis:
-- Key: `embed_cache:{model}:{sha256(normalized_query)}` — SHA-256 consistent with the rest of the plan. Model name in the key prevents cache poisoning across model changes.
-- Query normalization: lowercase, strip whitespace before hashing.
-- TTL: 1 hour.
-- On cache hit, skip the OpenAI call entirely. First search for a novel query pays the latency; subsequent identical queries are instant.
+**Query embedding cache:** Implemented in `embed_query()` (defined above in the pseudocode). Cache lives in the search layer, not in M3's EmbeddingService — caching is a search concern. M3's `embed_single()` remains a pure API call. See the `embed_query()` function for key format, normalization, and TTL details.
 
 ### Testing Strategy
 - Vector search returns nearest neighbors by cosine similarity
@@ -834,8 +860,8 @@ async def hybrid_search(
 ### Goal & Outcome
 Embed all existing content and provide monitoring for embedding health. After this milestone:
 - A CLI command backfills embeddings for all existing Pro tier content
-- Monitoring queries can check how many entities are pending/stale/failed
-- Orphan chunks from crashed swaps are cleaned up
+- Monitoring queries can check embedding status (no state row / failed / embedded) and model mismatches
+- Orphan chunks for hard-deleted entities are cleaned up
 
 ### Implementation Outline
 
