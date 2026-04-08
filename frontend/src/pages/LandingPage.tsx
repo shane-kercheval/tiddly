@@ -254,11 +254,11 @@ function LandingContent({
                 .
               </p>
               <p>
-                <strong>Future AI features:</strong> In future versions, we plan to offer
-                optional AI-powered features (summarization, auto-suggestions, enhanced search)
-                that may send your content to third-party AI services (OpenAI, Anthropic). This
-                functionality is not yet implemented and will be completely opt-in and
-                configurable when available.
+                <strong>AI features:</strong> AI-powered suggestions (available on Pro)
+                send content snippets to third-party AI providers (Google, OpenAI, Anthropic)
+                to generate tag, metadata, and relationship suggestions. This is opt-in — AI
+                features only activate when you click the suggestion icons. You can also bring
+                your own API key for direct provider access.
               </p>
             </FAQItem>
 

@@ -276,7 +276,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - **Multi-tenant**: All content is isolated by user ID. There is no sharing functionality.
 - **Privacy**: No client-side/end-to-end encryption (would prevent full-text search). The database administrator could technically access user data. Self-hosting is available for complete privacy.
 - **Data export**: The CLI provides `tiddly export` for bulk JSON export of bookmarks, notes, and prompts. Supports filtering by content type (`--types`), writing to file (`--output`), and including archived items (`--include-archived`). The full REST API can also be used with a PAT to export content programmatically.
-- **Future plans**: Optional AI-powered features (summarization, auto-suggestions, enhanced search) are planned but not yet implemented — these will be completely opt-in and may be priced separately.
+- **AI features**: AI-powered suggestions (tags, titles, descriptions, relationships, prompt arguments) are available on Pro. Users can also bring their own API key for higher limits and custom model selection. AI features are opt-in — they only activate when the user clicks suggestion icons.
 
 ## Tier Limits
 
@@ -288,6 +288,7 @@ Currently in beta — all accounts have Pro access at no charge.
 - **Personal Access Tokens**: Up to 3 active tokens.
 - **Version history**: 1-day retention, up to 100 versions per entity.
 - **Rate limits**: 60 reads/min, 500 reads/day; 20 writes/min, 200 writes/day; 5 sensitive/min, 25 sensitive/day.
+- **AI rate limits**: No AI calls (AI features not available on Free tier).
 - **Field limits**: Titles up to 200 characters, descriptions up to 1,000 characters, tag names up to 50 characters, URLs up to 2,048 characters.
 - **Relationships**: Up to 50 per entity.
 - **Tags**: Up to 100 per entity.
@@ -298,6 +299,7 @@ Currently in beta — all accounts have Pro access at no charge.
 - **Personal Access Tokens**: Up to 10 active tokens.
 - **Version history**: 5-day retention, up to 100 versions per entity.
 - **Rate limits**: 120 reads/min, 2,000 reads/day; 60 writes/min, 1,000 writes/day; 15 sensitive/min, 100 sensitive/day.
+- **AI rate limits**: No AI calls (AI features not available on Standard tier).
 - All other limits same as Free tier.
 
 ### Pro Tier ($5/month or $4/month billed annually)
@@ -306,6 +308,7 @@ Currently in beta — all accounts have Pro access at no charge.
 - **Personal Access Tokens**: Up to 50 active tokens.
 - **Version history**: 15-day retention, up to 100 versions per entity.
 - **Rate limits**: 300 reads/min, 10,000 reads/day; 200 writes/min, 5,000 writes/day; 30 sensitive/min, 250 sensitive/day.
+- **AI rate limits**: 30 AI calls/min, 500 AI calls/day; with BYOK (bring your own key): 120 calls/min, 2,000 calls/day.
 - All other limits same as Free tier.
 
 ## Use Cases and Examples

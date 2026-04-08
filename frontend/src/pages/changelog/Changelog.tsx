@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
 
-type ChangelogTag = 'web' | 'api' | 'cli' | 'extension' | 'site' | 'performance'
+type ChangelogTag = 'web' | 'api' | 'cli' | 'extension' | 'site' | 'performance' | 'ai'
 
 const tagConfig: Record<ChangelogTag, { label: string; className: string }> = {
   web: { label: 'Web', className: 'bg-blue-50 text-blue-600 border-blue-200' },
@@ -10,6 +10,7 @@ const tagConfig: Record<ChangelogTag, { label: string; className: string }> = {
   extension: { label: 'Extension', className: 'bg-orange-50 text-orange-600 border-orange-200' },
   site: { label: 'Site', className: 'bg-cyan-50 text-cyan-600 border-cyan-200' },
   performance: { label: 'Performance', className: 'bg-amber-50 text-amber-600 border-amber-200' },
+  ai: { label: 'AI', className: 'bg-pink-50 text-pink-600 border-pink-200' },
 }
 
 function TagBadge({ tag }: { tag: ChangelogTag }): ReactNode {
@@ -41,6 +42,54 @@ interface ChangelogMonth {
 }
 
 const CHANGELOG: ChangelogMonth[] = [
+  {
+    month: 'April 2026',
+    theme: 'AI-Powered Suggestions',
+    categories: [
+      {
+        label: 'New',
+        emoji: '🚀',
+        entries: [
+          {
+            title: 'AI tag suggestions',
+            description: 'Open the tag input to get AI-suggested tags based on your content. Click to add.',
+            tag: 'ai',
+          },
+          {
+            title: 'AI metadata suggestions',
+            description: 'Sparkle icons on title and description fields generate suggestions from your content.',
+            tag: 'ai',
+          },
+          {
+            title: 'AI relationship suggestions',
+            description: 'Open the link input to get suggestions for related bookmarks, notes, and prompts.',
+            tag: 'ai',
+          },
+          {
+            title: 'AI prompt argument suggestions',
+            description: 'Generate prompt arguments from template placeholders, or suggest names and descriptions for individual arguments.',
+            tag: 'ai',
+          },
+        ],
+      },
+      {
+        label: 'Improved',
+        emoji: '✨',
+        entries: [
+          {
+            title: 'Collapsible sidebar settings',
+            description: 'Settings section in the sidebar is now collapsible with persisted state.',
+            tag: 'web',
+          },
+          {
+            title: 'Docs link in sidebar',
+            description: 'Quick access to documentation from the sidebar settings section.',
+            tag: 'web',
+          },
+        ],
+      },
+    ],
+  },
   {
     month: 'March 2026',
     theme: 'CLI, Extensions, & Polish',
