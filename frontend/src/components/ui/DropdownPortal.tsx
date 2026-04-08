@@ -68,7 +68,8 @@ export const DropdownPortal = forwardRef(function DropdownPortal(
 
   useEffect(() => {
     if (!open) {
-      setStyle(null)
+      // Runs synchronously when open flips to false — single commit, no extra render
+      setStyle(null) // eslint-disable-line react-hooks/set-state-in-effect -- intentional: reset position on close
       return
     }
 
