@@ -496,6 +496,7 @@ async def suggest_arguments(
                 type(arg).model_validate({
                     "name": validated_name,
                     "description": arg.description,
+                    "required": arg.required,
                 }),
             )
         except ValueError:

@@ -611,6 +611,23 @@ class TestSuggestArguments:
         names = [a["name"] for a in data["arguments"]]
         assert "Invalid Name" not in names
 
+    async def test_required_field_included_in_response(self, client: AsyncClient) -> None:
+        """The required field from the LLM response is preserved in the API response."""
+        content = json.dumps({"arguments": [
+            {"name": "topic", "description": "The topic", "required": True},
+            {"name": "context", "description": "Optional context", "required": False},
+        ]})
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-arguments",
+                json={"prompt_content": "Explain {{ topic }}. {% if context %}Context: {{ context }}{% endif %}"},
+            )
+        data = response.json()
+        args_by_name = {a["name"]: a for a in data["arguments"]}
+        assert args_by_name["topic"]["required"] is True
+        assert args_by_name["context"]["required"] is False
+
     async def test_generate_all_returns_empty_when_all_placeholders_exist(
         self, client: AsyncClient,
     ) -> None:

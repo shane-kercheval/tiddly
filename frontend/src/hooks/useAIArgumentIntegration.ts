@@ -55,7 +55,7 @@ export function useAIArgumentIntegration<T extends PromptLikeState>(
           ...newArgs.map((a) => ({
             name: a.name,
             description: a.description,
-            required: false,
+            required: a.required,
           })),
         ],
       }))

@@ -90,8 +90,8 @@ describe('useAIArgumentIntegration', () => {
 
   it('handleSuggestAll appends suggested arguments to state', async () => {
     const suggestions = [
-      { name: 'topic', description: 'The topic' },
-      { name: 'tone', description: 'The tone' },
+      { name: 'topic', description: 'The topic', required: true },
+      { name: 'tone', description: 'The tone', required: false },
     ]
     mockSuggestArguments.mockResolvedValue({ arguments: suggestions })
 
@@ -119,18 +119,18 @@ describe('useAIArgumentIntegration', () => {
 
     expect(newState.arguments).toHaveLength(3)
     expect(newState.arguments[0]).toEqual({ name: 'existing', description: 'Already here', required: true })
-    expect(newState.arguments[1]).toEqual({ name: 'topic', description: 'The topic', required: false })
+    expect(newState.arguments[1]).toEqual({ name: 'topic', description: 'The topic', required: true })
     expect(newState.arguments[2]).toEqual({ name: 'tone', description: 'The tone', required: false })
   })
 
-  it('handleSuggestName updates correct argument name in state', async () => {
-    mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'better_name', description: 'desc' }] })
+  it('handleSuggestName updates name without modifying required', async () => {
+    mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'better_name', description: 'desc', required: true }] })
 
     const state: TestState = {
       content: 'content',
       arguments: [
         { name: 'arg1', description: 'First', required: false },
-        { name: '', description: 'Second desc', required: false },
+        { name: '', description: 'Second desc', required: true },
       ],
     }
     const setCurrent = vi.fn()
@@ -152,16 +152,18 @@ describe('useAIArgumentIntegration', () => {
 
     expect(newState.arguments[0].name).toBe('arg1')
     expect(newState.arguments[1].name).toBe('better_name')
+    // required is preserved from user's original value, not overwritten by LLM response
+    expect(newState.arguments[1].required).toBe(true)
   })
 
-  it('handleSuggestDescription updates correct argument description in state', async () => {
-    mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'arg1', description: 'AI description' }] })
+  it('handleSuggestDescription updates description without modifying required', async () => {
+    mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'arg1', description: 'AI description', required: true }] })
 
     const state: TestState = {
       content: 'content',
       arguments: [
         { name: 'arg1', description: null, required: false },
-        { name: 'arg2', description: null, required: false },
+        { name: 'arg2', description: null, required: true },
       ],
     }
     const setCurrent = vi.fn()
@@ -182,6 +184,8 @@ describe('useAIArgumentIntegration', () => {
     const newState = updater(state)
 
     expect(newState.arguments[0].description).toBe('AI description')
+    // required is preserved from user's original value, not overwritten by LLM response
+    expect(newState.arguments[0].required).toBe(false)
     expect(newState.arguments[1].description).toBeNull()
   })
 })

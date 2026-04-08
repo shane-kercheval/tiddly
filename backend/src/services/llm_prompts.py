@@ -217,6 +217,9 @@ def build_argument_suggestion_messages(
             "Guidelines:\n"
             "- Keep the argument names exactly as provided — do not rename them\n"
             "- Descriptions should explain what the argument represents and give an example\n"
+            "- Mark an argument as required if it appears unconditionally in the template "
+            "(e.g. {{ variable }}). Mark it as not required if it is inside a Jinja2 "
+            "conditional block (e.g. {% if variable %} ... {% endif %})\n"
         )
     else:
         system = (
@@ -225,6 +228,9 @@ def build_argument_suggestion_messages(
             "Guidelines:\n"
             "- Use lowercase_with_underscores for argument names\n"
             "- Descriptions should explain what the argument represents and give an example\n"
+            "- Mark an argument as required if it appears unconditionally in the template "
+            "(e.g. {{ variable }}). Mark it as not required if it is inside a Jinja2 "
+            "conditional block (e.g. {% if variable %} ... {% endif %})\n"
         )
 
     user_parts = []

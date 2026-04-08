@@ -789,6 +789,7 @@ export interface SuggestArgumentsRequest {
 export interface ArgumentSuggestion {
   name: string
   description: string
+  required: boolean
 }
 
 /** Response from POST /ai/suggest-arguments */

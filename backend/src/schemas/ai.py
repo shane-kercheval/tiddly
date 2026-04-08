@@ -154,10 +154,11 @@ class SuggestArgumentsRequest(BaseModel):
 
 
 class ArgumentSuggestion(BaseModel):
-    """A suggested argument with name and description."""
+    """A suggested argument with name, description, and required flag."""
 
     name: str
     description: str
+    required: bool = False
 
 
 class SuggestArgumentsResponse(BaseModel):
