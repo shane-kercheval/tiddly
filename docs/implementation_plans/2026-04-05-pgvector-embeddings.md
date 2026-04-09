@@ -57,7 +57,7 @@ OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/
   - `content_hash` (SHA-256 of full content field) — if unchanged, skip all content chunks
   - `model` — if embedding model changed since last embed, treat everything as stale regardless of hash matches
   - Both hashes match AND model matches → entire job is a no-op
-  - If content changed: load existing chunk embeddings as `{chunk_hash: embedding}` dict, look up each new paragraph hash — reuse embedding if found, embed if not. Delete all old chunks, insert all new chunks (with reused or fresh embeddings) in a single transaction.
+  - If content changed: load existing chunk embeddings as `{chunk_hash: embedding}` dict, look up each new paragraph hash — reuse embedding if found, embed if not. Delete old chunks of the changed type(s), insert new chunks (with reused or fresh embeddings) in a single transaction. See M4 step 8 for the three paths (metadata-only, content-only, both).
   - Cascade-resistant: paragraph hashes are independent of position, so inserting a paragraph doesn't invalidate any existing embeddings.
   - Per-edit cost savings are 95%+ for typical edits at 25K+ characters.
 
@@ -464,7 +464,7 @@ async def worker_loop():
     # Assumes single worker instance. For multi-worker scaling, add
     # worker_id + timestamp to job metadata and only reclaim jobs older
     # than N minutes from other workers.
-    await reclaim_stale_processing_jobs(redis)
+    await redis.reclaim_stale_processing_jobs()
 
     logger.info("Embedding worker started (concurrency=%d)", CONCURRENCY)
 
@@ -500,6 +500,11 @@ async def worker_loop():
                     await process_job(data)
                     # Success — remove from processing queue (by raw payload match)
                     await redis.lrem("embed_jobs_processing", 1, raw_data)
+                except EmbeddingNotConfiguredError:
+                    # Non-retryable: embeddings disabled (no API key). Skip, don't retry/DLQ.
+                    logger.warning("Embeddings not configured, skipping job: %s", data.get("entity_id"))
+                    await redis.lrem("embed_jobs_processing", 1, raw_data)
+                    return
                 except Exception as e:
                     retries = data.get("retries", 0)
                     # Remove from processing queue regardless
@@ -549,7 +554,7 @@ async def enqueue_embedding(redis_client, entity_type: str, entity_id: str, user
 
 **Triggering from service layer (post-commit):**
 
-Embedding jobs must be enqueued **after the DB transaction commits**, not after `flush()`. This prevents the worker from seeing uncommitted or rolled-back data.
+Embedding jobs must be enqueued **after the DB transaction commits**, not after `flush()`. This prevents the worker from seeing uncommitted or rolled-back data. The enqueue path should also check if embeddings are configured (`settings.openai_api_key is not None`) before enqueuing — don't create jobs when there's no API key.
 
 Implementation: services register enqueue callbacks in `session.info["post_commit_callbacks"]` (a list stored on SQLAlchemy's session info dict). In `get_async_session()`, after `await session.commit()` succeeds, execute all callbacks. On rollback, the callbacks are never executed. This is ~10 lines of code in the session dependency — no external libraries needed.
 
@@ -665,7 +670,7 @@ This is critical infrastructure — the embedding pipeline touches every content
 Deploy the embedding pipeline to production. This is the only milestone that introduces a new Railway service.
 
 1. **Add `OPENAI_API_KEY`** to Railway shared env vars (new external dependency)
-2. **Run Alembic migration** on production (`alembic upgrade head`) to create `content_chunks` table (M1)
+2. **Run Alembic migration** on production (`alembic upgrade head`) to create `content_chunks` and `content_embedding_state` tables (M1)
 3. **Deploy API** with the updated codebase (chunking service, embedding service, enqueue helper)
 4. **Create Railway service** for the embedding worker:
    - Same Docker image / repo as the API
@@ -707,9 +712,9 @@ async def vector_search(
     """
 ```
 
-- Query: `SELECT entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid [AND entity_type IN (:types) IF entity_types provided] ORDER BY distance LIMIT :limit`
+- Query (with entity-level dedup): `SELECT DISTINCT ON (entity_type, entity_id) entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid [AND entity_type IN (:types) IF entity_types provided] ORDER BY entity_type, entity_id, distance LIMIT :limit`
+- Alternatively, dedup in application code after the query (simpler SQL, easier to tune the overfetch separately from the final limit).
 - **Note:** The `WHERE user_id` clause is a **post-filter** applied after the HNSW approximate nearest-neighbor scan, not an index-selective condition. HNSW scans globally across all users' vectors, then Postgres filters. See scaling limitation note below.
-- Deduplicate by entity (multiple chunks from same entity → best score wins)
 
 **Hybrid search with RRF:**
 
@@ -749,7 +754,11 @@ async def hybrid_search(
     embed_coro = embed_query(query, embedding_service, redis_client)
     # Graceful degradation: if embedding fails, fall back to FTS-only
     results = await asyncio.gather(fts_coro, embed_coro, return_exceptions=True)
+    # FTS failure is fatal — no fallback for the primary search path
+    if isinstance(results[0], Exception):
+        raise results[0]
     fts_results, fts_total = results[0]
+    # Embedding failure is recoverable — fall back to FTS-only
     if isinstance(results[1], Exception):
         logger.warning("Query embedding failed, falling back to FTS-only: %s", results[1])
         return fts_results[:limit], min(fts_total, 100)
@@ -806,11 +815,6 @@ async def hybrid_search(
     page = merged[offset:offset + limit]
 
     # 8. Hydrate final page into ContentListItem shape
-    # load_entities_by_ids(): factored from existing _row_to_content_item() and
-    # tag-loading logic in content_service.py. Loads full entity data + tags for
-    # a mixed set of (entity_type, entity_id) pairs.
-    # MUST preserve the input order — the ranked RRF order would be lost if rows
-    # are returned in DB/default order.
     items = await load_entities_by_ids(db, user_id, [key for key, _ in page])
     return items, total
 ```
@@ -821,7 +825,23 @@ async def hybrid_search(
 - Vector search overfetches 200 candidates (scoped to user_id + entity_types) for filter headroom.
 - Vector-only results (semantic matches that FTS missed) are **always** filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. This is required even with default view settings because the vector search query has no archive/delete filter (HNSW can't filter efficiently), so unfiltered vector-only results could leak archived/deleted content. **Implementation note:** new parameter `entity_ids: list[tuple[str, UUID]] | None = None`. Inside `search_all_content()`: group by entity_type, add `WHERE Bookmark.id IN [bookmark_ids]` to the bookmark subquery, `WHERE Note.id IN [note_ids]` to notes, etc.
 - RRF merge breaks ties deterministically by `(entity_type, entity_id)` tuple for stable offset-based pagination.
-- RRF merge and pagination happen **before** hydrating full entity data. Only the final page is hydrated via `load_entities_by_ids()` — a utility factored from existing search code that loads full `ContentListItem` data (tags, content_preview, etc.) for a mixed set of entity IDs.
+- RRF merge and pagination happen **before** hydrating full entity data. Only the final page is hydrated via `load_entities_by_ids()`.
+
+**`load_entities_by_ids()`** (`services/content_service.py`):
+
+```python
+async def load_entities_by_ids(
+    db: AsyncSession,
+    user_id: UUID,
+    entity_keys: list[tuple[str, UUID]],
+) -> list[ContentListItem]:
+    """Load full ContentListItem data for a mixed set of entity IDs.
+
+    Factored from existing _row_to_content_item() and tag-loading logic.
+    MUST preserve the input order of entity_keys — the ranked RRF order
+    would be lost if rows are returned in DB/default order.
+    """
+```
 - **Total results capped at 100.** The merged candidate set (FTS top 100 ∪ filter-passing vector-only results) is capped at 100 final results. This is an intentional and explicit API contract change for hybrid search — the existing FTS-only path returns exact totals, but hybrid search returns `min(actual, 100)`. This should be reflected in API documentation. In practice, nobody pages past 100 search results.
 
 **Tier gating (v1: query-time enforcement only):**
@@ -910,8 +930,10 @@ async def backfill_embeddings(
     entity_types: list[str] | None = None,
     throttle_ms: int = 100,
     force: bool = False,
+    cleanup: bool = False,
 ):
     """Enqueue embedding jobs for Pro tier entities that may need embedding.
+    If cleanup=True, also delete orphan chunks for hard-deleted entities.
 
     Selection criteria:
     - force=False (routine): Pro tier entities with no content_embedding_state row
