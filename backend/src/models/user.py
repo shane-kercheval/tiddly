@@ -9,6 +9,8 @@ from models.base import Base, TimestampMixin, UUIDv7Mixin
 if TYPE_CHECKING:
     from models.api_token import ApiToken
     from models.bookmark import Bookmark
+    from models.content_chunk import ContentChunk
+    from models.content_embedding_state import ContentEmbeddingState
     from models.content_filter import ContentFilter
     from models.content_history import ContentHistory
     from models.note import Note
@@ -75,6 +77,14 @@ class User(Base, UUIDv7Mixin, TimestampMixin):
         uselist=False,
     )
     content_history: Mapped[list["ContentHistory"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    content_chunks: Mapped[list["ContentChunk"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    content_embedding_states: Mapped[list["ContentEmbeddingState"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

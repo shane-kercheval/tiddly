@@ -118,8 +118,6 @@ content_chunks:
     chunk_hash      Text (SHA-256 of normalized chunk text — for paragraph-level reuse)
     model           Text (embedding model that generated the vector, e.g. "text-embedding-3-small")
     embedding       Vector(1536) (not nullable — chunks are only inserted with embeddings ready)
-    created_at      DateTime
-    updated_at      DateTime
 ```
 
 - Create HNSW index on `embedding` column:
@@ -146,9 +144,6 @@ content_embedding_state:
     model           Text (embedding model used, e.g. "text-embedding-3-small")
     status          String (embedded/failed) — only two states. Transitions atomically in same transaction as chunk writes.
     last_error      Text (nullable — error message on last failure)
-    embedded_at     DateTime (nullable — last successful embedding)
-    created_at      DateTime
-    updated_at      DateTime
 ```
 
 - Unique constraint on `(entity_type, entity_id)`
@@ -167,8 +162,8 @@ This table keeps embedding lifecycle state out of the entity models. Three field
 **Crash safety:** The worker executes chunk inserts, chunk deletes, and state updates in a single DB transaction. If the worker crashes before commit, the transaction rolls back and the DB is unchanged — hashes still mismatch, so the next job retries from scratch. If the worker crashes after commit, everything is consistent. There is no window where search sees a mix of old and new chunks.
 
 **SQLAlchemy models:**
-- `models/content_chunk.py`: Uses `UUIDv7Mixin`, `TimestampMixin`. `embedding` column uses pgvector's `Vector(1536)` type via `mapped_column` (follow existing model patterns). Relationship to User (for query scoping).
-- `models/content_embedding_state.py`: Uses `UUIDv7Mixin`, `TimestampMixin`. One row per entity.
+- `models/content_chunk.py`: Uses `UUIDv7Mixin` (no `TimestampMixin` — chunks are immutable, deleted and re-inserted, never updated; timestamps can be added later if needed). `embedding` column uses pgvector's `Vector(1536)` type via `mapped_column`. Relationship to User (for query scoping).
+- `models/content_embedding_state.py`: Uses `UUIDv7Mixin` (no `TimestampMixin` — no planned query uses timestamps; UUIDv7 encodes creation time if needed). One row per entity.
 - Both models must be added as relationships on the `User` model with `cascade="all, delete-orphan"` — matching the existing pattern for bookmarks, notes, prompts, etc. This ensures user deletion automatically cleans up chunks and state.
 
 **Dependency:** Add `pgvector` Python package to `pyproject.toml` (provides `pgvector.sqlalchemy` for the `Vector` type).

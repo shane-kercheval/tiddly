@@ -2,6 +2,8 @@
 from models.api_token import ApiToken
 from models.base import ArchivableMixin, Base, TimestampMixin
 from models.bookmark import Bookmark
+from models.content_chunk import ContentChunk
+from models.content_embedding_state import ContentEmbeddingState
 from models.content_filter import ContentFilter
 from models.content_history import ActionType, ContentHistory, EntityType
 from models.content_relationship import ContentRelationship
@@ -19,6 +21,8 @@ __all__ = [
     "ArchivableMixin",
     "Base",
     "Bookmark",
+    "ContentChunk",
+    "ContentEmbeddingState",
     "ContentFilter",
     "ContentHistory",
     "ContentRelationship",

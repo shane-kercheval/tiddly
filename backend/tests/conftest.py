@@ -157,12 +157,19 @@ async def async_engine(database_url: str) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(database_url, echo=False)
 
     async with engine.begin() as conn:
+        # Enable pgvector extension before create_all so Vector columns work
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
         await conn.run_sync(Base.metadata.create_all)
         # Create search_vector trigger functions, triggers, and GIN indexes.
         # These are defined in the Alembic migration but not in SQLAlchemy model
         # metadata, so create_all doesn't include them.
         for stmt in _SEARCH_VECTOR_TRIGGER_STATEMENTS:
             await conn.execute(text(stmt))
+        # Create HNSW index for vector similarity search (not created by create_all)
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_content_chunks_embedding "
+            "ON content_chunks USING hnsw (embedding vector_cosine_ops);",
+        ))
 
     yield engine
 

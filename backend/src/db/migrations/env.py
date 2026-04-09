@@ -11,6 +11,8 @@ from alembic import context
 from core.config import get_settings
 from models.base import Base
 from models.bookmark import Bookmark  # noqa: F401 - imported for Alembic autogenerate
+from models.content_chunk import ContentChunk  # noqa: F401 - imported for Alembic autogenerate
+from models.content_embedding_state import ContentEmbeddingState  # noqa: F401 - imported for Alembic autogenerate
 from models.content_filter import ContentFilter  # noqa: F401 - imported for Alembic autogenerate
 from models.content_relationship import ContentRelationship  # noqa: F401 - imported for Alembic autogenerate
 from models.filter_group import FilterGroup  # noqa: F401 - imported for Alembic autogenerate
