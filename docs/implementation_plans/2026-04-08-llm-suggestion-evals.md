@@ -51,8 +51,11 @@ After this milestone:
 - Suggestion logic is extracted from the API router into `services/suggestion_service.py`
 - Each suggestion type is a standalone async function that accepts all context as parameters
 - The API router delegates to these functions (thin HTTP wrapper)
-- All existing unit tests pass unchanged
-- No behavior changes — pure refactor
+- Prompt quality improvements: expanded tag vocabulary (100 with counts), richer few-shot examples (20, type-scoped, with descriptions), relationship search uses title + description
+- Response caps enforced in service layer (7 tags, 5 relationships)
+- `content_type` field added to `SuggestTagsRequest` (required) — frontend updated to pass it
+- Service-level unit tests cover core logic (dedup, caps, filtering, error handling)
+- All existing API-level tests pass unchanged
 
 ### Implementation Outline
 
@@ -67,14 +70,21 @@ Extract four functions, one per suggestion type. Each function takes pre-fetched
 ```python
 # schemas/ai.py — new context models
 
+class TagVocabularyEntry(BaseModel):
+    """A tag from the user's vocabulary with usage count."""
+    name: str
+    count: int
+
 class TagFewShotExample(BaseModel):
     """A recent item used as a tagging style reference in tag suggestion prompts."""
     title: str
     description: str
     tags: list[str]
 
-class RelationshipCandidate(BaseModel):
-    """A candidate item for relationship suggestion."""
+class RelationshipCandidateContext(BaseModel):
+    """A candidate item passed to the relationship suggestion service.
+    Distinct from RelationshipCandidate (the public API response schema)
+    — this includes description and content_preview for prompt building."""
     entity_id: str
     entity_type: str
     title: str
@@ -82,7 +92,7 @@ class RelationshipCandidate(BaseModel):
     content_preview: str
 ```
 
-These replace the `list[dict]` parameters currently used in `build_tag_suggestion_messages()` and `build_relationship_suggestion_messages()`. Update the prompt builders to accept the Pydantic models.
+These replace the `list[dict]` parameters currently used in `build_tag_suggestion_messages()` and `build_relationship_suggestion_messages()`. `RelationshipCandidate` (the existing public response schema with `entity_id`, `entity_type`, `title`) remains unchanged. Update the prompt builders to accept the Pydantic models.
 
 ```python
 # services/suggestion_service.py
@@ -94,12 +104,14 @@ async def suggest_tags(
     description: str | None,
     content_snippet: str | None,
     current_tags: list[str],
-    tag_vocabulary: list[str],
+    tag_vocabulary: list[TagVocabularyEntry],
     few_shot_examples: list[TagFewShotExample],
     llm_service: LLMService,
     config: ResolvedConfig,
-) -> list[str]:
-    """Build prompt, call LLM, filter results. Returns deduplicated tag list."""
+) -> tuple[list[str], float | None]:
+    """Build prompt, call LLM, filter results.
+    Returns (deduplicated tag list capped at 7, cost).
+    Case-insensitive dedup against current_tags is handled here."""
     ...
 
 
@@ -112,7 +124,7 @@ async def suggest_metadata(
     content_snippet: str | None,
     llm_service: LLMService,
     config: ResolvedConfig,
-) -> SuggestMetadataResponse:
+) -> tuple[SuggestMetadataResponse, float | None]:
     """Build prompt, call LLM, return title/description."""
     ...
 
@@ -123,11 +135,12 @@ async def suggest_relationships(
     url: str | None,
     description: str | None,
     content_snippet: str | None,
-    candidates: list[RelationshipCandidate],
+    candidates: list[RelationshipCandidateContext],
     llm_service: LLMService,
     config: ResolvedConfig,
-) -> list[RelationshipCandidate]:
-    """Build prompt, call LLM, filter to valid candidate IDs."""
+) -> tuple[list[RelationshipCandidate], float | None]:
+    """Build prompt, call LLM, filter to valid candidate IDs, cap at 5.
+    Validates returned IDs are a subset of input candidates."""
     ...
 
 
@@ -139,12 +152,12 @@ async def suggest_arguments(
     placeholder_names: list[str] | None,  # Pre-extracted by router for generate-all
     llm_service: LLMService,
     config: ResolvedConfig,
-) -> list[ArgumentSuggestion]:
+) -> tuple[list[ArgumentSuggestion], float | None]:
     """Build prompt, call LLM, filter invalid names."""
     ...
 ```
 
-Each function returns a tuple of `(result, cost)` so the router can track cost. Or the router can time + track cost itself — defer this detail to implementation.
+Each function returns `(result, cost)`. The router uses `cost` for `track_cost()`.
 
 #### Response limits (enforced in service layer)
 
@@ -182,7 +195,7 @@ Currently 5 generic recent items regardless of content type. Change to up to 20 
 2. **Up to 10 most recent items of the same entity type** — e.g., 10 most recent bookmarks regardless of tags
 3. **Dedup** — if an item appears in both sets, keep it once
 
-This requires adding `content_type: str` (`"bookmark"` | `"note"` | `"prompt"`) to `SuggestTagsRequest`. The frontend passes this when calling the endpoint. The router uses it to scope the few-shot queries. The service function receives the pre-fetched examples.
+This requires adding `content_type: str` (`"bookmark"` | `"note"` | `"prompt"`) as a **required** field on `SuggestTagsRequest`. The frontend passes this when calling the endpoint. The router uses it to scope the few-shot queries by entity type. The service function receives the pre-fetched examples.
 
 **Few-shot examples — include description:**
 
@@ -228,11 +241,16 @@ async def suggest_tags_endpoint(data, current_user, llm_api_key, _rate_limit, db
     config = llm_service.resolve_config(AIUseCase.SUGGESTIONS, ...)
 
     tag_counts = await get_user_tags_with_counts(db, current_user.id)
-    few_shot_examples = await _get_few_shot_examples(db, current_user.id, data.current_tags)
+    few_shot_examples = await _get_few_shot_examples(
+        db, current_user.id, data.current_tags, data.content_type,
+    )
 
     tags, cost = await suggestion_service.suggest_tags(
         title=data.title, url=data.url, ...,
-        tag_vocabulary=[tc.name for tc in tag_counts],
+        tag_vocabulary=[
+            TagVocabularyEntry(name=tc.name, count=tc.content_count)
+            for tc in tag_counts[:100]
+        ],
         few_shot_examples=few_shot_examples,
         llm_service=llm_service, config=config,
     )
@@ -245,19 +263,41 @@ async def suggest_tags_endpoint(data, current_user, llm_api_key, _rate_limit, db
 
 These are currently private functions in the router. They belong in the service since the service handles LLM response parsing.
 
+**Error handling change:** `_parse_llm_response` currently raises `HTTPException(502)` on invalid LLM responses. Service functions should not raise HTTP exceptions. Add a `LLMResponseParseError` exception class in the service layer. The router catches it and returns HTTP 502 with the existing `llm_invalid_response` error code. This follows the same pattern as the existing LiteLLM exception handler on the AI router.
+
 #### 4. Update prompt builders to accept Pydantic models
 
-`build_tag_suggestion_messages()` currently takes `few_shot_examples: list[dict]` and accesses `.get("title")`, `.get("tags")`, etc. Update to accept `list[TagFewShotExample]` and use attribute access. Same for `build_relationship_suggestion_messages()` — update to accept `list[RelationshipCandidate]`.
+`build_tag_suggestion_messages()` currently takes `few_shot_examples: list[dict]` and accesses `.get("title")`, `.get("tags")`, etc. Update to accept `list[TagFewShotExample]` and use attribute access. Same for `build_relationship_suggestion_messages()` — update to accept `list[RelationshipCandidateContext]`.
 
-#### 4. Relationship candidate search stays in the router
+#### 5. Relationship candidate search stays in the router
 
-The relationship endpoint's search logic (title search + tag search + dedup) remains in the router because it requires DB access. The service function receives pre-built `candidates: list[dict]` — the same format the current router builds before calling the LLM.
+The relationship endpoint's search logic (title search + tag search + dedup) remains in the router because it requires DB access. The service function receives pre-built `candidates: list[RelationshipCandidateContext]`. The service validates that returned entity_ids are a subset of the input candidates (no hallucinated IDs) — this filtering logic moves from the router to the service.
+
+#### 6. Frontend: pass `content_type` to suggest-tags
+
+Update `frontend/src/types.ts` to add `content_type: string` to `SuggestTagsRequest`. Update the frontend call sites (hooks that call `suggestTags()`) to pass the content type (`'bookmark'`, `'note'`, or `'prompt'`). The content type is known at each call site from the component context.
 
 ### Testing Strategy
 
-- All existing tests in `test_ai_suggestions.py` and `test_ai.py` must pass unchanged (the router behavior is identical)
-- No new tests needed — this is a pure refactor. The eval milestones add new tests.
-- Run `make backend-verify` to confirm nothing breaks
+**Existing API-level tests** (`test_ai_suggestions.py`, `test_ai.py`) must pass unchanged — they verify the router wiring is correct after the refactor.
+
+**New service-level tests** (`test_suggestion_service.py`) — mock `llm_service.complete()` and test the core logic:
+
+- **Tag dedup:** LLM returns tags including one matching `current_tags` (case-insensitive) → filtered out
+- **Tag cap:** LLM returns 10 tags → only 7 returned
+- **Tag empty response:** LLM returns empty tags list → empty list returned
+- **Relationship ID validation:** LLM returns candidate IDs not in input set → hallucinated IDs filtered out
+- **Relationship cap:** LLM returns 8 candidates → only 5 returned
+- **Relationship empty candidates:** Empty candidates input → empty result, no LLM call
+- **Argument name filtering:** LLM returns invalid names (spaces, uppercase) → filtered out
+- **Metadata field selection:** `fields=["title"]` → uses `_TitleOnly` response format, `description` is null in response
+- **Metadata both fields:** `fields=["title", "description"]` → both populated
+- **Parse error:** LLM returns invalid JSON → raises `LLMResponseParseError` (not HTTPException)
+- **Cost passthrough:** Cost from `llm_service.complete()` is returned in the tuple
+
+**New frontend tests:** Verify `content_type` is passed in `SuggestTagsRequest` from each call site.
+
+Run `make backend-verify` and `make frontend-verify` to confirm everything passes.
 
 ---
 
@@ -324,7 +364,8 @@ Each test case defines realistic content and expected tags that should appear in
 - `current_tags` are excluded from response (`contains` with `negate`)
 
 **LLM-as-judge check (for quality):**
-- Prompt: "Given this content about [topic], are these suggested tags relevant and useful? Tags: [tags]. Rate as pass/fail."
+- Use a specific rubric, not a vague quality question. Example: "The content is about [brief topic]. For each suggested tag, score 1 if it is directly related to the content's topic or domain, 0 if not. Pass if all tags score 1."
+- Use a Pydantic response format for structured judge output (e.g. `pass: bool, reasoning: str`)
 - This catches cases where the tags are structurally valid but semantically wrong
 
 ### Testing Strategy
@@ -369,9 +410,9 @@ No database entities needed — evals call `suggest_metadata()` directly with al
 - Title length ≤ 200 characters (schema limit)
 - Description length ≤ 1000 characters (schema limit)
 
-**LLM-as-judge checks:**
-- "Is this title a concise, accurate summary of the content?"
-- "Is this description a useful 1-2 sentence summary?"
+**LLM-as-judge checks (with specific rubrics):**
+- Title: "Given this content, score the suggested title: 1 if it accurately summarizes the main topic in under 100 characters, 0 if it is misleading, too vague, or too long. Pass if score is 1."
+- Description: "Given this content, score the suggested description: 1 if it is a useful 1-2 sentence summary that captures the key information, 0 if it is vague, inaccurate, or too long. Pass if score is 1."
 
 ### Testing Strategy
 
@@ -393,11 +434,11 @@ After this milestone:
 
 #### 1. Test data
 
-Evals call `suggest_relationships()` directly, passing curated `candidates` as a parameter. This bypasses the database search entirely — the eval controls exactly which candidates the LLM sees.
+Evals call `suggest_relationships()` directly, passing curated `candidates: list[RelationshipCandidateContext]` as a parameter. This bypasses the database search entirely — the eval controls exactly which candidates the LLM sees.
 
 Each test case defines:
 - Source item context (`title`, `description`, `content_snippet`)
-- A `candidates` list with a mix of related and unrelated items (same format the router builds: `entity_id`, `entity_type`, `title`, `description`, `content_preview`)
+- A `candidates` list of `RelationshipCandidateContext` objects with a mix of related and unrelated items
 - Expected candidate IDs that should be selected
 
 This is cleaner than creating real DB items — we control the candidate set precisely.
@@ -468,8 +509,8 @@ No database entities needed — evals call `suggest_arguments()` directly with a
 - Suggested name passes `ARG_NAME_PATTERN`
 - Suggested description is non-empty
 
-**LLM-as-judge (for description quality):**
-- "Given a prompt template argument named [name] used in [template context], is this description clear and helpful?"
+**LLM-as-judge (for description quality, with specific rubric):**
+- "Given a prompt template argument named [name] in the context of this template, score the suggested description: 1 if it clearly explains what the argument represents and includes an example or expected format, 0 if it is vague or unhelpful. Pass if score is 1."
 
 ### Testing Strategy
 
