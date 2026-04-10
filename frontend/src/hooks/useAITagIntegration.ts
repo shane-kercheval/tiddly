@@ -33,6 +33,7 @@ export function useAITagIntegration<T extends TaggableState>(
   current: T,
   setCurrent: React.Dispatch<React.SetStateAction<T>>,
   available: boolean = false,
+  contentType: 'bookmark' | 'note' | 'prompt' = 'bookmark',
 ): UseAITagIntegrationReturn {
   const { suggestions: aiTagSuggestions, fetchSuggestions, clearSuggestions, dismissSuggestion } =
     useTagSuggestions({ available })
@@ -43,9 +44,10 @@ export function useAITagIntegration<T extends TaggableState>(
       url: current.url,
       description: current.description,
       content: current.content,
+      contentType,
       currentTags: current.tags,
     })
-  }, [fetchSuggestions, current.title, current.url, current.description, current.content, current.tags])
+  }, [fetchSuggestions, current.title, current.url, current.description, current.content, current.tags, contentType])
 
   const handleTagInputClose = useCallback(() => {
     clearSuggestions()

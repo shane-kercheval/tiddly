@@ -1,10 +1,10 @@
 """AI feature endpoints."""
 import logging
 import time
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from litellm.exceptions import AuthenticationError
-from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_limits_ai, get_current_user_ai
@@ -14,6 +14,7 @@ from core.tier_limits import TierLimits, get_tier_safely
 from db.session import get_async_session
 from models.user import User
 from schemas.ai import (
+    RelationshipCandidateContext,
     SuggestArgumentsRequest,
     SuggestArgumentsResponse,
     SuggestMetadataRequest,
@@ -22,25 +23,24 @@ from schemas.ai import (
     SuggestRelationshipsResponse,
     SuggestTagsRequest,
     SuggestTagsResponse,
+    TagFewShotExample,
+    TagVocabularyEntry,
     ValidateKeyRequest,
-    _DescriptionOnly,
-    _TitleAndDescription,
-    _TitleOnly,
 )
 from schemas.cached_user import CachedUser
-from schemas.validators import validate_argument_name
 from services.ai_cost_tracking import track_cost
 from services.content_service import search_all_content
-from services.llm_prompts import (
-    build_argument_suggestion_messages,
-    build_metadata_suggestion_messages,
-    build_relationship_suggestion_messages,
-    build_tag_suggestion_messages,
-    extract_template_placeholders,
-)
 from services.llm_service import (
     AIUseCase,
+    LLMConfig,
     get_llm_service,
+)
+from services.suggestion_service import (
+    LLMResponseParseError,
+    suggest_arguments,
+    suggest_metadata,
+    suggest_relationships,
+    suggest_tags,
 )
 from services.tag_service import get_user_tags_with_counts
 
@@ -182,42 +182,12 @@ async def ai_models(
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _parse_llm_response(response: object, response_model: type) -> object:
-    """
-    Parse LLM response content as a Pydantic model.
-
-    Raises HTTPException(502) if the LLM returned invalid JSON/schema,
-    so the user gets a clear 'llm_invalid_response' error instead of a 500.
-    """
-    try:
-        return response_model.model_validate_json(
-            response.choices[0].message.content,
-        )
-    except ValidationError as exc:
-        logger.warning(
-            "llm_invalid_response",
-            extra={
-                "model": getattr(response, "model", "unknown"),
-                "content_preview": (response.choices[0].message.content or "")[:200],
-                "validation_errors": str(exc),
-            },
-        )
-        raise HTTPException(
-            status_code=502,
-            detail="LLM returned an invalid response. Try again or use a different model.",
-        ) from exc
-
-
-# ---------------------------------------------------------------------------
 # Suggestion endpoints (consume AI rate limit)
 # ---------------------------------------------------------------------------
 
 
 @router.post("/suggest-tags", response_model=SuggestTagsResponse)
-async def suggest_tags(
+async def suggest_tags_endpoint(
     data: SuggestTagsRequest,
     current_user: User | CachedUser = Depends(get_current_user_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
@@ -230,52 +200,49 @@ async def suggest_tags(
         AIUseCase.SUGGESTIONS, user_api_key=llm_api_key, user_model=data.model,
     )
 
-    # Load user's tag vocabulary sorted by frequency
+    # Load user's tag vocabulary sorted by frequency (up to 100 with counts)
+    # NOTE: Eval test data mirrors this structure — update evals/ai_suggestions/
+    # config_suggest_tags.yaml if you change the number of entries or fields fetched.
     tag_counts = await get_user_tags_with_counts(db, current_user.id)
-    tag_vocabulary = [tc.name for tc in tag_counts]
+    tag_vocabulary = [
+        TagVocabularyEntry(name=tc.name, count=tc.content_count)
+        for tc in tag_counts[:100]
+    ]
 
-    # Load few-shot examples: items sharing current_tags, or recent items
+    # Load few-shot examples: type-scoped, tag-matching + recent, deduped
     few_shot_examples = await _get_few_shot_examples(
-        db, current_user.id, data.current_tags,
-    )
-
-    messages = build_tag_suggestion_messages(
-        title=data.title,
-        url=data.url,
-        description=data.description,
-        content_snippet=data.content_snippet,
-        tag_vocabulary=tag_vocabulary,
-        few_shot_examples=few_shot_examples,
+        db, current_user.id, data.current_tags, data.content_type,
     )
 
     start = time.monotonic()
-    response, cost = await llm_service.complete(
-        messages=messages,
-        config=config,
-        response_format=SuggestTagsResponse,
-    )
+    try:
+        tags, cost = await suggest_tags(
+            title=data.title,
+            url=data.url,
+            description=data.description,
+            content_snippet=data.content_snippet,
+            content_type=data.content_type,
+            current_tags=data.current_tags,
+            tag_vocabulary=tag_vocabulary,
+            few_shot_examples=few_shot_examples,
+            llm_service=llm_service,
+            config=config,
+        )
+    except LLMResponseParseError as exc:
+        await _handle_parse_error(exc, start=start, user_id=current_user.id, config=config)
     latency_ms = int((time.monotonic() - start) * 1000)
 
     await track_cost(
-        user_id=current_user.id,
-        use_case=AIUseCase.SUGGESTIONS,
-        model=config.model,
-        key_source=config.key_source,
-        cost=cost,
-        latency_ms=latency_ms,
+        user_id=current_user.id, use_case=AIUseCase.SUGGESTIONS,
+        model=config.model, key_source=config.key_source,
+        cost=cost, latency_ms=latency_ms,
     )
 
-    parsed = _parse_llm_response(response, SuggestTagsResponse)
-
-    # Server-side deduplication (case-insensitive)
-    current_lower = {t.lower() for t in data.current_tags}
-    filtered_tags = [t for t in parsed.tags if t.lower() not in current_lower]
-
-    return SuggestTagsResponse(tags=filtered_tags)
+    return SuggestTagsResponse(tags=tags)
 
 
 @router.post("/suggest-metadata", response_model=SuggestMetadataResponse)
-async def suggest_metadata(
+async def suggest_metadata_endpoint(
     data: SuggestMetadataRequest,
     current_user: User | CachedUser = Depends(get_current_user_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
@@ -287,57 +254,37 @@ async def suggest_metadata(
     The `fields` parameter controls which fields are generated.
     Existing values for non-requested fields are used as context.
     """
-    generate_title = "title" in data.fields
-    generate_desc = "description" in data.fields
-
-    # Select the response format based on which fields are requested
-    if generate_title and generate_desc:
-        response_format = _TitleAndDescription
-    elif generate_title:
-        response_format = _TitleOnly
-    else:
-        response_format = _DescriptionOnly
-
     llm_service = get_llm_service()
     config = llm_service.resolve_config(
         AIUseCase.SUGGESTIONS, user_api_key=llm_api_key, user_model=data.model,
     )
 
-    messages = build_metadata_suggestion_messages(
-        fields=data.fields,
-        url=data.url,
-        title=data.title,
-        description=data.description,
-        content_snippet=data.content_snippet,
-    )
-
     start = time.monotonic()
-    response, cost = await llm_service.complete(
-        messages=messages,
-        config=config,
-        response_format=response_format,
-    )
+    try:
+        result, cost = await suggest_metadata(
+            fields=data.fields,
+            url=data.url,
+            title=data.title,
+            description=data.description,
+            content_snippet=data.content_snippet,
+            llm_service=llm_service,
+            config=config,
+        )
+    except LLMResponseParseError as exc:
+        await _handle_parse_error(exc, start=start, user_id=current_user.id, config=config)
     latency_ms = int((time.monotonic() - start) * 1000)
 
     await track_cost(
-        user_id=current_user.id,
-        use_case=AIUseCase.SUGGESTIONS,
-        model=config.model,
-        key_source=config.key_source,
-        cost=cost,
-        latency_ms=latency_ms,
+        user_id=current_user.id, use_case=AIUseCase.SUGGESTIONS,
+        model=config.model, key_source=config.key_source,
+        cost=cost, latency_ms=latency_ms,
     )
 
-    parsed = _parse_llm_response(response, response_format)
-
-    return SuggestMetadataResponse(
-        title=getattr(parsed, "title", None),
-        description=getattr(parsed, "description", None),
-    )
+    return SuggestMetadataResponse(title=result.title, description=result.description)
 
 
 @router.post("/suggest-relationships", response_model=SuggestRelationshipsResponse)
-async def suggest_relationships(
+async def suggest_relationships_endpoint(
     data: SuggestRelationshipsRequest,
     current_user: User | CachedUser = Depends(get_current_user_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
@@ -348,43 +295,7 @@ async def suggest_relationships(
     if not data.title and not data.current_tags:
         return SuggestRelationshipsResponse(candidates=[])
 
-    # Search by title (relevance-ranked) then tags (recency-ranked), sequentially.
-    # Two orthogonal signals: text similarity + topical grouping.
-    search_results: list[tuple] = []
-    if data.title:
-        search_results.append(await search_all_content(
-            db=db, user_id=current_user.id, query=data.title,
-            sort_by="relevance", limit=10,
-        ))
-    if data.current_tags:
-        search_results.append(await search_all_content(
-            db=db, user_id=current_user.id, tags=data.current_tags,
-            tag_match="any", sort_by="updated_at", limit=10,
-        ))
-
-    # Dedup by ID, title results first (highest signal)
-    exclude_ids = set(data.existing_relationship_ids)
-    if data.source_id:
-        exclude_ids.add(data.source_id)
-    seen_ids: set[str] = set()
-    candidates = []
-    for items, _total in search_results:
-        for item in items:
-            item_id = str(item.id)
-            if item_id in exclude_ids or item_id in seen_ids:
-                continue
-            seen_ids.add(item_id)
-            candidates.append({
-                "entity_id": item_id,
-                "entity_type": item.type,
-                "title": item.title or "",
-                "description": (item.description or "")[:200],
-                "content_preview": (item.content_preview or "")[:200],
-            })
-            if len(candidates) >= 10:
-                break
-        if len(candidates) >= 10:
-            break
+    candidates = await _search_relationship_candidates(db, current_user.id, data)
 
     if not candidates:
         return SuggestRelationshipsResponse(candidates=[])
@@ -394,42 +305,32 @@ async def suggest_relationships(
         AIUseCase.SUGGESTIONS, user_api_key=llm_api_key, user_model=data.model,
     )
 
-    messages = build_relationship_suggestion_messages(
-        source_title=data.title,
-        source_url=data.url,
-        source_description=data.description,
-        source_content_snippet=data.content_snippet,
-        candidates=candidates,
-    )
-
     start = time.monotonic()
-    response, cost = await llm_service.complete(
-        messages=messages,
-        config=config,
-        response_format=SuggestRelationshipsResponse,
-    )
+    try:
+        filtered, cost = await suggest_relationships(
+            title=data.title,
+            url=data.url,
+            description=data.description,
+            content_snippet=data.content_snippet,
+            candidates=candidates,
+            llm_service=llm_service,
+            config=config,
+        )
+    except LLMResponseParseError as exc:
+        await _handle_parse_error(exc, start=start, user_id=current_user.id, config=config)
     latency_ms = int((time.monotonic() - start) * 1000)
 
     await track_cost(
-        user_id=current_user.id,
-        use_case=AIUseCase.SUGGESTIONS,
-        model=config.model,
-        key_source=config.key_source,
-        cost=cost,
-        latency_ms=latency_ms,
+        user_id=current_user.id, use_case=AIUseCase.SUGGESTIONS,
+        model=config.model, key_source=config.key_source,
+        cost=cost, latency_ms=latency_ms,
     )
-
-    parsed = _parse_llm_response(response, SuggestRelationshipsResponse)
-
-    # Only return candidates that were in our search results
-    valid_ids = {c["entity_id"] for c in candidates}
-    filtered = [c for c in parsed.candidates if c.entity_id in valid_ids]
 
     return SuggestRelationshipsResponse(candidates=filtered)
 
 
 @router.post("/suggest-arguments", response_model=SuggestArgumentsResponse)
-async def suggest_arguments(
+async def suggest_arguments_endpoint(
     data: SuggestArgumentsRequest,
     current_user: User | CachedUser = Depends(get_current_user_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
@@ -441,66 +342,24 @@ async def suggest_arguments(
         AIUseCase.SUGGESTIONS, user_api_key=llm_api_key, user_model=data.model,
     )
 
-    existing_args = [
-        {"name": a.name, "description": a.description}
-        for a in data.arguments
-    ]
-
-    # For "generate all", extract placeholders deterministically from template
-    placeholder_names = None
-    if data.target is None and data.prompt_content:
-        all_placeholders = extract_template_placeholders(data.prompt_content)
-        existing_names = {
-            (a["name"] or "").lower()
-            for a in existing_args
-            if a.get("name")
-        }
-        placeholder_names = [
-            p for p in all_placeholders if p.lower() not in existing_names
-        ]
-        if not placeholder_names:
-            return SuggestArgumentsResponse(arguments=[])
-
-    messages = build_argument_suggestion_messages(
-        prompt_content=data.prompt_content,
-        existing_arguments=existing_args,
-        target=data.target,
-        placeholder_names=placeholder_names,
-    )
-
     start = time.monotonic()
-    response, cost = await llm_service.complete(
-        messages=messages,
-        config=config,
-        response_format=SuggestArgumentsResponse,
-    )
+    try:
+        valid_args, cost = await suggest_arguments(
+            prompt_content=data.prompt_content,
+            arguments=data.arguments,
+            target=data.target,
+            llm_service=llm_service,
+            config=config,
+        )
+    except LLMResponseParseError as exc:
+        await _handle_parse_error(exc, start=start, user_id=current_user.id, config=config)
     latency_ms = int((time.monotonic() - start) * 1000)
 
     await track_cost(
-        user_id=current_user.id,
-        use_case=AIUseCase.SUGGESTIONS,
-        model=config.model,
-        key_source=config.key_source,
-        cost=cost,
-        latency_ms=latency_ms,
+        user_id=current_user.id, use_case=AIUseCase.SUGGESTIONS,
+        model=config.model, key_source=config.key_source,
+        cost=cost, latency_ms=latency_ms,
     )
-
-    parsed = _parse_llm_response(response, SuggestArgumentsResponse)
-
-    # Filter out arguments with invalid names
-    valid_args = []
-    for arg in parsed.arguments:
-        try:
-            validated_name = validate_argument_name(arg.name)
-            valid_args.append(
-                type(arg).model_validate({
-                    "name": validated_name,
-                    "description": arg.description,
-                    "required": arg.required,
-                }),
-            )
-        except ValueError:
-            logger.debug("filtered_invalid_argument_name", extra={"name": arg.name})
 
     return SuggestArgumentsResponse(arguments=valid_args)
 
@@ -510,17 +369,99 @@ async def suggest_arguments(
 # ---------------------------------------------------------------------------
 
 
+async def _handle_parse_error(
+    exc: LLMResponseParseError,
+    *,
+    start: float,
+    user_id: UUID,
+    config: LLMConfig,
+) -> None:
+    """Track cost from failed LLM parse and raise HTTP 502."""
+    latency_ms = int((time.monotonic() - start) * 1000)
+    try:
+        await track_cost(
+            user_id=user_id, use_case=AIUseCase.SUGGESTIONS,
+            model=config.model, key_source=config.key_source,
+            cost=exc.cost, latency_ms=latency_ms,
+        )
+    except Exception:
+        logger.warning("track_cost_failed_on_parse_error")
+    raise HTTPException(
+        status_code=502,
+        detail="LLM returned an invalid response. Try again or use a different model.",
+    ) from exc
+
+
+async def _search_relationship_candidates(
+    db: AsyncSession,
+    user_id: int,
+    data: SuggestRelationshipsRequest,
+) -> list[RelationshipCandidateContext]:
+    """Search for relationship candidates by title+description and tags, deduped."""
+    # Search by title+description (relevance-ranked) then tags (recency-ranked).
+    search_results: list[tuple] = []
+    if data.title:
+        # Truncate description for search query (not prompt budget — search performance)
+        query = data.title
+        if data.description:
+            query = f"{query} {data.description[:200]}".strip()
+        search_results.append(await search_all_content(
+            db=db, user_id=user_id, query=query,
+            sort_by="relevance", limit=10,
+        ))
+    if data.current_tags:
+        search_results.append(await search_all_content(
+            db=db, user_id=user_id, tags=data.current_tags,
+            tag_match="any", sort_by="updated_at", limit=10,
+        ))
+
+    # Dedup by ID, title results first (highest signal)
+    exclude_ids = set(data.existing_relationship_ids)
+    if data.source_id:
+        exclude_ids.add(data.source_id)
+    seen_ids: set[str] = set()
+    candidates: list[RelationshipCandidateContext] = []
+    for items, _total in search_results:
+        for item in items:
+            item_id = str(item.id)
+            if item_id in exclude_ids or item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            candidates.append(RelationshipCandidateContext(
+                entity_id=item_id,
+                entity_type=item.type,
+                title=item.title or "",
+                description=item.description or "",
+                content_preview=item.content_preview or "",
+            ))
+            if len(candidates) >= 10:
+                break
+        if len(candidates) >= 10:
+            break
+    return candidates
+
+
 async def _get_few_shot_examples(
     db: AsyncSession,
     user_id: int,
     current_tags: list[str],
-) -> list[dict]:
+    content_type: str,
+) -> list[TagFewShotExample]:
     """
     Get recent items for few-shot examples in tag suggestion prompts.
 
-    If current_tags are provided, finds items sharing those tags.
-    Otherwise falls back to the user's most recently updated items.
+    Fetches up to 20 deduplicated examples, scoped to the same content type:
+    1. Up to 10 items sharing any of the current tags (recency-ranked)
+    2. Up to 10 most recent items regardless of tags
+    Deduped by ID — items appearing in both sets are included once.
+
+    NOTE: Eval test data mirrors this structure — update evals/ai_suggestions/
+    config_suggest_tags.yaml if you change the number of examples or fields fetched.
     """
+    seen_ids: set[str] = set()
+    examples: list[TagFewShotExample] = []
+
+    # Query 1: items sharing current tags (if any)
     if current_tags:
         items, _total = await search_all_content(
             db=db,
@@ -529,22 +470,36 @@ async def _get_few_shot_examples(
             tag_match="any",
             sort_by="updated_at",
             sort_order="desc",
-            limit=5,
+            limit=10,
+            content_types=[content_type],
         )
-    else:
-        items, _total = await search_all_content(
-            db=db,
-            user_id=user_id,
-            sort_by="updated_at",
-            sort_order="desc",
-            limit=5,
-        )
+        for item in items:
+            item_id = str(item.id)
+            if item_id not in seen_ids:
+                seen_ids.add(item_id)
+                examples.append(TagFewShotExample(
+                    title=item.title or "",
+                    description=item.description or "",
+                    tags=item.tags or [],
+                ))
 
-    return [
-        {
-            "title": item.title or "",
-            "description": item.description or "",
-            "tags": item.tags or [],
-        }
-        for item in items
-    ]
+    # Query 2: most recent items of same type
+    items, _total = await search_all_content(
+        db=db,
+        user_id=user_id,
+        sort_by="updated_at",
+        sort_order="desc",
+        limit=10,
+        content_types=[content_type],
+    )
+    for item in items:
+        item_id = str(item.id)
+        if item_id not in seen_ids:
+            seen_ids.add(item_id)
+            examples.append(TagFewShotExample(
+                title=item.title or "",
+                description=item.description or "",
+                tags=item.tags or [],
+            ))
+
+    return examples

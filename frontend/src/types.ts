@@ -719,6 +719,7 @@ export interface AIValidateKeyResponse {
 /** Request for POST /ai/suggest-tags */
 export interface SuggestTagsRequest {
   model?: string | null
+  content_type: 'bookmark' | 'note' | 'prompt'
   title?: string | null
   url?: string | null
   description?: string | null

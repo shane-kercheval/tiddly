@@ -13,6 +13,7 @@ interface TagSuggestionContext {
   url?: string | null
   description?: string | null
   content?: string | null
+  contentType: 'bookmark' | 'note' | 'prompt'
   currentTags: string[]
 }
 
@@ -50,6 +51,7 @@ function buildCacheKey(ctx: TagSuggestionContext): string {
     url: ctx.url,
     description: ctx.description,
     content_snippet: ctx.content?.slice(0, 2000),
+    content_type: ctx.contentType,
   })
 }
 
@@ -92,6 +94,7 @@ export function useTagSuggestions({ available = true }: UseTagSuggestionsOptions
       url: context.url,
       description: context.description,
       content_snippet: context.content?.slice(0, 2000),
+      content_type: context.contentType,
       current_tags: context.currentTags,
     })
       .then((response) => {

@@ -123,6 +123,7 @@ export function NoteCard({
                       title: note.title,
                       description: note.description,
                       content: note.content_preview,
+                      contentType: 'note',
                     }}
                   />
                 )}
@@ -250,6 +251,7 @@ export function NoteCard({
                       title: note.title,
                       description: note.description,
                       content: note.content_preview,
+                      contentType: 'note',
                     }}
                   />
                 )}

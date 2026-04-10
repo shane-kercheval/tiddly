@@ -143,11 +143,11 @@ describe('aiApi', () => {
       useAIStore.getState().setModel('suggestions', 'anthropic/claude-sonnet-4-6')
       mockPost.mockResolvedValue({ data: { tags: ['test'] } })
 
-      const result = await suggestTags({ title: 'Test' })
+      const result = await suggestTags({ title: 'Test', content_type: 'bookmark' })
 
       expect(mockPost).toHaveBeenCalledWith(
         '/ai/suggest-tags',
-        { title: 'Test', model: 'anthropic/claude-sonnet-4-6' },
+        { title: 'Test', content_type: 'bookmark', model: 'anthropic/claude-sonnet-4-6' },
         { headers: { 'X-LLM-Api-Key': 'sk-test' } },
       )
       expect(result).toEqual({ tags: ['test'] })
@@ -156,11 +156,11 @@ describe('aiApi', () => {
 
     it('suggestTags sends null model and no header when unconfigured', async () => {
       mockPost.mockResolvedValue({ data: { tags: [] } })
-      await suggestTags({ title: 'Test' })
+      await suggestTags({ title: 'Test', content_type: 'bookmark' })
 
       expect(mockPost).toHaveBeenCalledWith(
         '/ai/suggest-tags',
-        { title: 'Test', model: null },
+        { title: 'Test', content_type: 'bookmark', model: null },
         { headers: {} },
       )
     })

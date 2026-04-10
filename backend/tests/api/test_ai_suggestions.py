@@ -37,7 +37,7 @@ class TestSuggestTags:
         with p1, p2:
             response = await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Flask REST API Tutorial"},
+                json={"title": "Flask REST API Tutorial", "content_type": "bookmark"},
             )
         assert response.status_code == 200
         data = response.json()
@@ -51,6 +51,7 @@ class TestSuggestTags:
                 "/ai/suggest-tags",
                 json={
                     "title": "Flask Tutorial",
+                    "content_type": "bookmark",
                     "current_tags": ["python", "api"],
                 },
             )
@@ -65,21 +66,29 @@ class TestSuggestTags:
         with p1, p2:
             response = await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Something"},
+                json={"title": "Something", "content_type": "bookmark"},
             )
         assert response.status_code == 200
 
-    async def test_works_with_no_context(self, client: AsyncClient) -> None:
-        """Endpoint works with empty request — LLM does best effort."""
+    async def test_works_with_content_type_only(self, client: AsyncClient) -> None:
+        """Endpoint handles minimal valid request — content_type with no other context."""
         p1, p2 = _patch_llm('{"tags": []}')
         with p1, p2:
-            response = await client.post("/ai/suggest-tags", json={})
+            response = await client.post(
+                "/ai/suggest-tags",
+                json={"content_type": "bookmark"},
+            )
         assert response.status_code == 200
+
+    async def test_missing_content_type_rejected(self, client: AsyncClient) -> None:
+        """content_type is required — 422 without it."""
+        response = await client.post("/ai/suggest-tags", json={"title": "Test"})
+        assert response.status_code == 422
 
     async def test_oversized_content_snippet_rejected(self, client: AsyncClient) -> None:
         response = await client.post(
             "/ai/suggest-tags",
-            json={"content_snippet": "x" * 2501},
+            json={"content_snippet": "x" * 10_001, "content_type": "bookmark"},
         )
         assert response.status_code == 422
 
@@ -88,7 +97,7 @@ class TestSuggestTags:
         with p1, p2:
             response = await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Test"},
+                json={"title": "Test", "content_type": "bookmark"},
             )
         assert "x-ratelimit-limit" in response.headers
 
@@ -97,7 +106,7 @@ class TestSuggestTags:
         with p1, p2, patch("api.routers.ai.track_cost", new_callable=AsyncMock) as mock_track:
             await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Test"},
+                json={"title": "Test", "content_type": "bookmark"},
             )
         mock_track.assert_called_once()
         call_kwargs = mock_track.call_args.kwargs
@@ -109,7 +118,7 @@ class TestSuggestTags:
         with p1 as mock_acomp, p2:
             await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Test"},
+                json={"title": "Test", "content_type": "bookmark"},
                 headers={"X-LLM-Api-Key": "user-key-123"},
             )
         # Verify the user's key was used
@@ -657,18 +666,18 @@ class TestLLMResponseValidation:
         with p1, p2:
             response = await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Test"},
+                json={"title": "Test", "content_type": "bookmark"},
             )
         assert response.status_code == 502
         assert "invalid response" in response.json()["detail"].lower()
 
     async def test_cost_tracked_even_on_parse_failure(self, client: AsyncClient) -> None:
-        """Cost is tracked before parsing — provider was still billed."""
+        """Cost is tracked on parse failure — provider was still billed."""
         p1, p2 = _patch_llm("Not valid JSON")
         with p1, p2, patch("api.routers.ai.track_cost", new_callable=AsyncMock) as mock_track:
             response = await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Test"},
+                json={"title": "Test", "content_type": "bookmark"},
             )
         assert response.status_code == 502
         mock_track.assert_called_once()
@@ -679,7 +688,7 @@ class TestLLMResponseValidation:
         with p1, p2:
             response = await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Test"},
+                json={"title": "Test", "content_type": "bookmark"},
             )
         assert response.status_code == 502
 
@@ -701,7 +710,7 @@ class TestSuggestionRateLimiting:
         with p1, p2:
             await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Test"},
+                json={"title": "Test", "content_type": "bookmark"},
             )
 
         resp2 = await client.get("/ai/health")
@@ -721,6 +730,6 @@ class TestSuggestionRateLimiting:
         }):
             response = await client.post(
                 "/ai/suggest-tags",
-                json={"title": "Test"},
+                json={"title": "Test", "content_type": "bookmark"},
             )
         assert response.status_code == 429

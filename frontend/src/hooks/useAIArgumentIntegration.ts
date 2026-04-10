@@ -45,6 +45,10 @@ export function useAIArgumentIntegration<T extends PromptLikeState>(
   } = useArgumentSuggestions({ available })
 
   const hasContent = current.content.trim().length > 0
+  // Quick check for {{ placeholder }} — skip the request entirely if none exist.
+  // The backend would return early too, but this avoids a wasted network request
+  // and rate limit consumption.
+  const hasPlaceholders = /\{\{\s*\w+\s*\}\}/.test(current.content)
 
   const handleSuggestAll = useCallback((): void => {
     suggestAll(current.content, current.arguments, (newArgs) => {
@@ -102,8 +106,12 @@ export function useAIArgumentIntegration<T extends PromptLikeState>(
     argumentSuggestProps: {
       onSuggestAll: handleSuggestAll,
       isSuggestingAll: isGeneratingAll,
-      suggestAllDisabled: !hasContent,
-      suggestAllTooltip: 'Add prompt content to enable AI argument generation',
+      suggestAllDisabled: !hasContent || !hasPlaceholders,
+      suggestAllTooltip: !hasContent
+        ? 'Add prompt content to enable AI argument generation'
+        : !hasPlaceholders
+          ? 'No {{ placeholders }} found in template'
+          : 'Generate arguments from template',
       onSuggestName: handleSuggestName,
       onSuggestDescription: handleSuggestDescription,
       suggestingIndex,

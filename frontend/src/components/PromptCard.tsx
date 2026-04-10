@@ -129,6 +129,7 @@ export function PromptCard({
                       title: prompt.title,
                       description: prompt.description,
                       content: prompt.content_preview,
+                      contentType: 'prompt',
                     }}
                   />
                 )}
@@ -258,6 +259,7 @@ export function PromptCard({
                       title: prompt.title,
                       description: prompt.description,
                       content: prompt.content_preview,
+                      contentType: 'prompt',
                     }}
                   />
                 )}

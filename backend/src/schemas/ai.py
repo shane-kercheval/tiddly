@@ -5,6 +5,41 @@ from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
+# Context models (passed from router → service → prompt builder)
+# ---------------------------------------------------------------------------
+
+
+class TagVocabularyEntry(BaseModel):
+    """A tag from the user's vocabulary with usage count."""
+
+    name: str
+    count: int
+
+
+class TagFewShotExample(BaseModel):
+    """A recent item used as a tagging style reference in tag suggestion prompts."""
+
+    title: str
+    description: str
+    tags: list[str]
+
+
+class RelationshipCandidateContext(BaseModel):
+    """
+    A candidate item passed to the relationship suggestion service.
+
+    Distinct from RelationshipCandidate (the public API response schema)
+    — this includes description and content_preview for prompt building.
+    """
+
+    entity_id: str
+    entity_type: str
+    title: str
+    description: str
+    content_preview: str
+
+
+# ---------------------------------------------------------------------------
 # Validate Key
 # ---------------------------------------------------------------------------
 
@@ -24,10 +59,11 @@ class SuggestTagsRequest(BaseModel):
     """Request for tag suggestions."""
 
     model: str | None = None
+    content_type: Literal["bookmark", "note", "prompt"]
     title: str | None = Field(None, max_length=500)
-    url: str | None = Field(None, max_length=2000)
-    description: str | None = Field(None, max_length=1000)
-    content_snippet: str | None = Field(None, max_length=2500)
+    url: str | None = Field(None, max_length=2048)
+    description: str | None = Field(None, max_length=2000)
+    content_snippet: str | None = Field(None, max_length=10_000)
     current_tags: list[str] = []
 
 
@@ -53,7 +89,7 @@ class SuggestMetadataRequest(BaseModel):
 
     model: str | None = None
     fields: list[Literal["title", "description"]] = ["title", "description"]
-    url: str | None = Field(None, max_length=2000)
+    url: str | None = Field(None, max_length=2048)
 
     @field_validator("fields")
     @classmethod
@@ -63,8 +99,8 @@ class SuggestMetadataRequest(BaseModel):
             raise ValueError("fields must contain at least one of 'title' or 'description'")
         return v
     title: str | None = Field(None, max_length=500)
-    description: str | None = Field(None, max_length=1000)
-    content_snippet: str | None = Field(None, max_length=2500)
+    description: str | None = Field(None, max_length=2000)
+    content_snippet: str | None = Field(None, max_length=10_000)
 
 
 class SuggestMetadataResponse(BaseModel):
@@ -111,9 +147,9 @@ class SuggestRelationshipsRequest(BaseModel):
     model: str | None = None
     source_id: str | None = None
     title: str | None = Field(None, max_length=500)
-    url: str | None = Field(None, max_length=2000)
-    description: str | None = Field(None, max_length=1000)
-    content_snippet: str | None = Field(None, max_length=2500)
+    url: str | None = Field(None, max_length=2048)
+    description: str | None = Field(None, max_length=2000)
+    content_snippet: str | None = Field(None, max_length=10_000)
     current_tags: list[str] = []
     existing_relationship_ids: list[str] = []
 
@@ -148,7 +184,7 @@ class SuggestArgumentsRequest(BaseModel):
     """Request for prompt argument suggestions."""
 
     model: str | None = None
-    prompt_content: str | None = Field(None, max_length=5000)
+    prompt_content: str | None = Field(None, max_length=50_000)
     arguments: list[ArgumentInput] = []
     target: str | None = None
 

@@ -260,6 +260,7 @@ export function BookmarkCard({
                       url: bookmark.url,
                       description: bookmark.description,
                       content: bookmark.content_preview,
+                      contentType: 'bookmark',
                     }}
                   />
                 )}
@@ -428,6 +429,7 @@ export function BookmarkCard({
                       url: bookmark.url,
                       description: bookmark.description,
                       content: bookmark.content_preview,
+                      contentType: 'bookmark',
                     }}
                   />
                 )}

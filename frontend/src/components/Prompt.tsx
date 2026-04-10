@@ -344,7 +344,7 @@ export function Prompt({
 
   // AI tag suggestions
   const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
-    useAITagIntegration(current, setCurrent, aiAvailable)
+    useAITagIntegration(current, setCurrent, aiAvailable, 'prompt')
   const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: prompt?.id ?? null }, aiAvailable)
   const { titleSuggestProps, descriptionSuggestProps } =

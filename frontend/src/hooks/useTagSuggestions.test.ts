@@ -38,7 +38,7 @@ describe('useTagSuggestions', () => {
       const { result } = renderHook(() => useTagSuggestions({ available: false }))
 
       act(() => {
-        result.current.fetchSuggestions({ title: 'Test', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Test', contentType: 'bookmark', currentTags: [] })
       })
 
       expect(mockSuggestTags).not.toHaveBeenCalled()
@@ -55,6 +55,7 @@ describe('useTagSuggestions', () => {
           url: 'https://example.com',
           description: 'About testing',
           content: 'Lots of content here',
+          contentType: 'bookmark',
           currentTags: ['existing'],
         })
       })
@@ -67,7 +68,7 @@ describe('useTagSuggestions', () => {
       const { result } = renderHook(() => useTagSuggestions({ available: true }))
 
       await act(async () => {
-        result.current.fetchSuggestions({ title: 'Test', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Test', contentType: 'bookmark', currentTags: [] })
       })
 
       await vi.waitFor(() => {
@@ -80,7 +81,7 @@ describe('useTagSuggestions', () => {
       const { result } = renderHook(() => useTagSuggestions())
 
       await act(async () => {
-        result.current.fetchSuggestions({ title: 'Test', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Test', contentType: 'bookmark', currentTags: [] })
       })
 
       expect(mockSuggestTags).toHaveBeenCalled()
@@ -101,6 +102,7 @@ describe('useTagSuggestions', () => {
           url: '',
           description: '',
           content: '',
+          contentType: 'bookmark',
           currentTags: [],
         })
       })
@@ -117,6 +119,7 @@ describe('useTagSuggestions', () => {
           url: null,
           description: null,
           content: null,
+          contentType: 'bookmark',
           currentTags: [],
         })
       })
@@ -131,6 +134,7 @@ describe('useTagSuggestions', () => {
         result.current.fetchSuggestions({
           title: '   ',
           description: '  ',
+          contentType: 'bookmark',
           currentTags: [],
         })
       })
@@ -155,6 +159,7 @@ describe('useTagSuggestions', () => {
           url: 'https://example.com',
           description: 'About React',
           content: 'React is a library',
+          contentType: 'bookmark',
           currentTags: ['existing'],
         })
       })
@@ -164,6 +169,7 @@ describe('useTagSuggestions', () => {
         url: 'https://example.com',
         description: 'About React',
         content_snippet: 'React is a library',
+        content_type: 'bookmark',
         current_tags: ['existing'],
       })
     })
@@ -178,6 +184,7 @@ describe('useTagSuggestions', () => {
         result.current.fetchSuggestions({
           title: 'Test',
           content: longContent,
+          contentType: 'bookmark',
           currentTags: [],
         })
       })
@@ -194,7 +201,7 @@ describe('useTagSuggestions', () => {
       const { result } = renderHook(() => useTagSuggestions({ available: true }))
 
       act(() => {
-        result.current.fetchSuggestions({ title: 'Test', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Test', contentType: 'bookmark', currentTags: [] })
       })
 
       expect(result.current.isLoading).toBe(true)
@@ -220,7 +227,7 @@ describe('useTagSuggestions', () => {
       const { result } = renderHook(() => useTagSuggestions({ available: true }))
 
       await act(async () => {
-        result.current.fetchSuggestions({ title: 'Test', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Test', contentType: 'bookmark', currentTags: [] })
       })
       await vi.waitFor(() => {
         expect(result.current.suggestions).toEqual(['javascript'])
@@ -234,7 +241,7 @@ describe('useTagSuggestions', () => {
 
       // Cache still works — same content returns cached result
       act(() => {
-        result.current.fetchSuggestions({ title: 'Test', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Test', contentType: 'bookmark', currentTags: [] })
       })
       expect(result.current.suggestions).toEqual(['javascript'])
       expect(mockSuggestTags).toHaveBeenCalledTimes(1) // no new call
@@ -246,7 +253,7 @@ describe('useTagSuggestions', () => {
       const { result } = renderHook(() => useTagSuggestions({ available: true }))
 
       await act(async () => {
-        result.current.fetchSuggestions({ title: 'Test', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Test', contentType: 'bookmark', currentTags: [] })
       })
       await vi.waitFor(() => {
         expect(result.current.suggestions).toHaveLength(3)
@@ -272,7 +279,7 @@ describe('useTagSuggestions', () => {
       const { result } = renderHook(() => useTagSuggestions({ available: true }))
 
       await act(async () => {
-        result.current.fetchSuggestions({ title: 'Test', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Test', contentType: 'bookmark', currentTags: [] })
       })
 
       await vi.waitFor(() => {
@@ -295,7 +302,7 @@ describe('useTagSuggestions', () => {
 
       const { result } = renderHook(() => useTagSuggestions({ available: true }))
 
-      const context = { title: 'My Article', description: 'About JS', currentTags: [] as string[] }
+      const context = { title: 'My Article', description: 'About JS', contentType: 'bookmark' as const, currentTags: [] as string[] }
 
       // First fetch
       await act(async () => {
@@ -320,6 +327,32 @@ describe('useTagSuggestions', () => {
       expect(mockSuggestTags).toHaveBeenCalledTimes(1) // no new API call
     })
 
+    it('fetches fresh when contentType changes', async () => {
+      mockSuggestTags
+        .mockResolvedValueOnce({ tags: ['javascript'] })
+        .mockResolvedValueOnce({ tags: ['web-dev'] })
+
+      const { result } = renderHook(() => useTagSuggestions({ available: true }))
+
+      // First fetch as bookmark
+      await act(async () => {
+        result.current.fetchSuggestions({ title: 'My Article', contentType: 'bookmark', currentTags: [] })
+      })
+      await vi.waitFor(() => {
+        expect(result.current.suggestions).toEqual(['javascript'])
+      })
+
+      // Same title but different contentType — should NOT use cache
+      await act(async () => {
+        result.current.fetchSuggestions({ title: 'My Article', contentType: 'note', currentTags: [] })
+      })
+      await vi.waitFor(() => {
+        expect(result.current.suggestions).toEqual(['web-dev'])
+      })
+
+      expect(mockSuggestTags).toHaveBeenCalledTimes(2)
+    })
+
     it('fetches fresh when content changes', async () => {
       mockSuggestTags
         .mockResolvedValueOnce({ tags: ['javascript'] })
@@ -329,7 +362,7 @@ describe('useTagSuggestions', () => {
 
       // First fetch
       await act(async () => {
-        result.current.fetchSuggestions({ title: 'JS Article', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'JS Article', contentType: 'bookmark', currentTags: [] })
       })
       await vi.waitFor(() => {
         expect(result.current.suggestions).toEqual(['javascript'])
@@ -337,7 +370,7 @@ describe('useTagSuggestions', () => {
 
       // Second fetch with different content
       await act(async () => {
-        result.current.fetchSuggestions({ title: 'Python Article', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Python Article', contentType: 'bookmark', currentTags: [] })
       })
       await vi.waitFor(() => {
         expect(result.current.suggestions).toEqual(['python'])
@@ -351,7 +384,7 @@ describe('useTagSuggestions', () => {
 
       const { result } = renderHook(() => useTagSuggestions({ available: true }))
 
-      const context = { title: 'My Article', currentTags: [] as string[] }
+      const context = { title: 'My Article', contentType: 'bookmark' as const, currentTags: [] as string[] }
 
       await act(async () => {
         result.current.fetchSuggestions(context)
@@ -383,7 +416,7 @@ describe('useTagSuggestions', () => {
       const { result } = renderHook(() => useTagSuggestions({ available: true }))
 
       await act(async () => {
-        result.current.fetchSuggestions({ title: 'My Article', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'My Article', contentType: 'bookmark', currentTags: [] })
       })
       await vi.waitFor(() => {
         expect(result.current.suggestions).toEqual(['javascript', 'react'])
@@ -398,7 +431,7 @@ describe('useTagSuggestions', () => {
         result.current.clearSuggestions()
       })
       act(() => {
-        result.current.fetchSuggestions({ title: 'My Article', currentTags: ['react'] })
+        result.current.fetchSuggestions({ title: 'My Article', contentType: 'bookmark', currentTags: ['react'] })
       })
 
       expect(result.current.suggestions).toEqual(['javascript'])
@@ -426,13 +459,13 @@ describe('useTagSuggestions', () => {
 
       // Start request A
       act(() => {
-        result.current.fetchSuggestions({ title: 'JS Article', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'JS Article', contentType: 'bookmark', currentTags: [] })
       })
       expect(mockSuggestTags).toHaveBeenCalledTimes(1)
 
       // Start request B (different content, so no cache hit)
       act(() => {
-        result.current.fetchSuggestions({ title: 'Python Article', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Python Article', contentType: 'bookmark', currentTags: [] })
       })
       expect(mockSuggestTags).toHaveBeenCalledTimes(2)
 
@@ -462,7 +495,7 @@ describe('useTagSuggestions', () => {
 
       // Start request
       act(() => {
-        result.current.fetchSuggestions({ title: 'Test', currentTags: [] })
+        result.current.fetchSuggestions({ title: 'Test', contentType: 'bookmark', currentTags: [] })
       })
       expect(result.current.isLoading).toBe(true)
 

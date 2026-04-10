@@ -25,6 +25,7 @@ interface AddTagActionProps {
     url?: string | null
     description?: string | null
     content?: string | null
+    contentType: 'bookmark' | 'note' | 'prompt'
   }
 }
 

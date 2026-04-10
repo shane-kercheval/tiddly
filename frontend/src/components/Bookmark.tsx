@@ -289,7 +289,7 @@ export function Bookmark({
 
   // AI tag suggestions
   const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
-    useAITagIntegration(current, setCurrent, aiAvailable)
+    useAITagIntegration(current, setCurrent, aiAvailable, 'bookmark')
   const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: bookmark?.id ?? null }, aiAvailable)
   const { titleSuggestProps, descriptionSuggestProps } =

@@ -293,7 +293,7 @@ export function Note({
 
   // AI tag suggestions
   const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
-    useAITagIntegration(current, setCurrent, aiAvailable)
+    useAITagIntegration(current, setCurrent, aiAvailable, 'note')
   const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: note?.id ?? null }, aiAvailable)
   const { titleSuggestProps, descriptionSuggestProps } =

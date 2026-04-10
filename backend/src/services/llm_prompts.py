@@ -6,14 +6,22 @@ The system prompt provides instructions; the user message provides context.
 """
 import re
 
+from schemas.ai import (
+    ArgumentInput,
+    RelationshipCandidateContext,
+    TagFewShotExample,
+    TagVocabularyEntry,
+)
+
 
 def build_tag_suggestion_messages(
     title: str | None,
     url: str | None,
     description: str | None,
     content_snippet: str | None,
-    tag_vocabulary: list[str],
-    few_shot_examples: list[dict],
+    content_type: str,
+    tag_vocabulary: list[TagVocabularyEntry],
+    few_shot_examples: list[TagFewShotExample],
 ) -> list[dict]:
     """
     Build messages for tag suggestion.
@@ -22,13 +30,16 @@ def build_tag_suggestion_messages(
         title: Item title.
         url: Item URL (bookmarks only).
         description: Item description.
-        content_snippet: First ~2500 chars of content.
-        tag_vocabulary: User's existing tags sorted by frequency.
-        few_shot_examples: Recent items with tags for style reference.
-            Each dict has keys: title, description, tags (list[str]).
+        content_snippet: Item content.
+        content_type: Entity type ("bookmark", "note", "prompt").
+        tag_vocabulary: User's existing tags sorted by frequency, up to 100
+            entries with usage counts.
+        few_shot_examples: Recent items with tags for style reference, up to 20.
     """
+    # NOTE: Eval configs pass these parameters directly — update eval YAML configs
+    # if you change the parameter contract.
     system = (
-        "You are a tagging assistant. Suggest relevant tags for the given item.\n\n"
+        f"You are a tagging assistant. Suggest relevant tags for the given {content_type}.\n\n"
         "Guidelines:\n"
         "- Prefer reusing tags from the user's existing vocabulary below\n"
         "- Use lowercase hyphenated format (e.g. machine-learning, web-dev)\n"
@@ -38,14 +49,17 @@ def build_tag_suggestion_messages(
     )
 
     if tag_vocabulary:
-        vocab_str = ", ".join(tag_vocabulary[:50])
+        vocab_str = ", ".join(
+            f"{entry.name} ({entry.count})" for entry in tag_vocabulary[:100]
+        )
         system += f"\nUser's existing tags (most used first): {vocab_str}\n"
 
     if few_shot_examples:
         system += "\nRecent items for style reference:\n"
-        for ex in few_shot_examples[:5]:
-            tags_str = ", ".join(ex.get("tags", []))
-            system += f"- \"{ex.get('title', '')}\" → {tags_str}\n"
+        for ex in few_shot_examples[:20]:
+            tags_str = ", ".join(ex.tags)
+            desc_preview = f" ({ex.description[:200]})" if ex.description else ""
+            system += f"- \"{ex.title}\"{desc_preview} → {tags_str}\n"
 
     user_parts = []
     if title:
@@ -61,7 +75,7 @@ def build_tag_suggestion_messages(
 
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"Suggest tags for this item:\n\n{user_msg}"},
+        {"role": "user", "content": f"Suggest tags for this {content_type}:\n\n{user_msg}"},
     ]
 
 
@@ -126,7 +140,7 @@ def build_relationship_suggestion_messages(
     source_url: str | None,
     source_description: str | None,
     source_content_snippet: str | None,
-    candidates: list[dict],
+    candidates: list[RelationshipCandidateContext],
 ) -> list[dict]:
     """
     Build messages for relationship suggestion.
@@ -136,9 +150,10 @@ def build_relationship_suggestion_messages(
         source_url: Source item URL.
         source_description: Source item description.
         source_content_snippet: Source item content.
-        candidates: List of candidate items, each with keys:
-            entity_id, entity_type, title, description, content_preview.
+        candidates: Candidate items with full context for prompt building.
     """
+    # NOTE: Eval configs pass these parameters directly — update eval YAML configs
+    # if you change the parameter contract.
     system = (
         "You are a content relationship assistant. "
         "Given a source item and a list of candidates, identify which candidates "
@@ -163,9 +178,9 @@ def build_relationship_suggestion_messages(
 
     candidate_lines = []
     for i, c in enumerate(candidates, 1):
-        desc = (c.get("description") or "")[:200]
-        preview = (c.get("content_preview") or "")[:200]
-        line = f"{i}. [{c['entity_type']}] \"{c['title']}\" (id: {c['entity_id']})"
+        desc = c.description[:200] if c.description else ""
+        preview = c.content_preview[:200] if c.content_preview else ""
+        line = f"{i}. [{c.entity_type}] \"{c.title}\" (id: {c.entity_id})"
         if desc:
             line += f" — {desc}"
         if preview:
@@ -196,7 +211,7 @@ def extract_template_placeholders(prompt_content: str) -> list[str]:
 
 def build_argument_suggestion_messages(
     prompt_content: str | None,
-    existing_arguments: list[dict],
+    existing_arguments: list[ArgumentInput],
     target: str | None,
     placeholder_names: list[str] | None = None,
 ) -> list[dict]:
@@ -205,7 +220,7 @@ def build_argument_suggestion_messages(
 
     Args:
         prompt_content: The Jinja2 prompt template text.
-        existing_arguments: Current arguments with name/description.
+        existing_arguments: Current arguments.
         target: Argument name to suggest for, or None for "generate all."
         placeholder_names: Deterministically extracted placeholder names
             (for "generate all" mode). The LLM describes these, not invents them.
@@ -243,20 +258,20 @@ def build_argument_suggestion_messages(
 
     if existing_arguments:
         args_str = "\n".join(
-            f"- {a.get('name', '?')}: {a.get('description', '(no description)')}"
+            f"- {a.name or '?'}: {a.description or '(no description)'}"
             for a in existing_arguments
         )
         user_parts.append(f"Existing arguments:\n{args_str}")
 
     if target is not None:
         target_arg = next(
-            (a for a in existing_arguments if a.get("name") == target),
+            (a for a in existing_arguments if a.name == target),
             None,
         )
         if target_arg:
             user_parts.append(
-                f"Suggest for argument: name={target_arg.get('name', '?')}, "
-                f"description={target_arg.get('description', '(none)')}",
+                f"Suggest for argument: name={target_arg.name or '?'}, "
+                f"description={target_arg.description or '(none)'}",
             )
         else:
             user_parts.append(f"Suggest for argument named: {target}")
