@@ -1,6 +1,7 @@
 """AI feature endpoints."""
 import logging
 import time
+from typing import NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -375,7 +376,7 @@ async def _handle_parse_error(
     start: float,
     user_id: UUID,
     config: LLMConfig,
-) -> None:
+) -> NoReturn:
     """Track cost from failed LLM parse and raise HTTP 502."""
     latency_ms = int((time.monotonic() - start) * 1000)
     try:
