@@ -1,114 +1,100 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Tiddly — a multi-tenant SaaS for managing bookmarks, notes, and prompt templates. Monorepo: FastAPI backend, React frontend, Go CLI, Chrome extension, and two MCP servers for AI agent integration.
 
-## Project Overview
+## Commands
 
-Tiddly — a multi-tenant SaaS for managing bookmarks, notes, and prompt templates. Monorepo with four components: FastAPI backend, React frontend, Go CLI, and Chrome extension. Includes two MCP servers for AI agent integration.
+Run `make help` or see the `Makefile` for all targets. Key commands:
 
-## Common Commands
-
-### Backend
 ```bash
-make build                # Install Python deps (uv sync)
-make api-run              # Start API server (port 8000, hot-reload)
-make backend-lint         # Ruff linter with auto-fixes
-make backend-tests        # pytest with coverage
-make backend-verify       # lint + tests
-make migrate              # Run Alembic migrations
-make migration message="description"  # Create new migration
+make backend-verify       # lint + tests (always run before backend PRs)
+make frontend-verify      # lint + typecheck + tests
+make cli-verify           # lint + tests
+make tests                # full suite across all components
+make migration message="description"  # create new Alembic migration
 ```
 
-**Note**: never create migrations manually — always use `make migration ...` or underlying command to ensure they are properly generated and named.
-
-**Note**: uv is used instead of pip for dependency management. Use `uv run` to execute commands in the virtual environment (e.g., `uv run pytest`).
-
-Run a single backend test:
+**Run a single backend test:**
 ```bash
 PYTHONPATH=backend/src uv run pytest backend/tests/path/to/test_file.py::test_name -v
 ```
 
-### Frontend
-```bash
-make frontend-install     # npm install (requires Node 22 via nvm)
-make frontend-run         # Vite dev server
-make frontend-lint        # ESLint
-make frontend-typecheck   # tsc --noEmit
-make frontend-tests       # Vitest
-make frontend-verify      # lint + typecheck + tests
-```
-
-Run a single frontend test:
+**Run a single frontend test:**
 ```bash
 cd frontend && npx vitest run src/path/to/file.test.ts
-```
-
-### CLI (Go)
-```bash
-make cli-build            # Build binary to bin/tiddly
-make cli-test             # go test ./...
-make cli-lint             # golangci-lint
-make cli-verify           # lint + tests
-```
-
-### Infrastructure
-```bash
-make docker-up            # Start PostgreSQL + Redis
-make docker-down          # Stop containers
-make tests                # Full suite: cli + backend + frontend + chrome extension
-```
-
-### Evaluations (LLM-based MCP tool testing)
-```bash
-make evals                # All evals (requires API + MCP servers running)
-make evals-content-mcp    # Content MCP evals only
-make evals-prompt-mcp     # Prompt MCP evals only
 ```
 
 ## Architecture
 
 ### Backend (`backend/src/`)
-- **Framework**: FastAPI + async SQLAlchemy 2.0 + PostgreSQL 17 (pgvector)
-- **Python**: 3.13, dependencies managed by `uv`
-- **PYTHONPATH**: `backend/src` — all imports are relative to this root (e.g., `from api.routers import bookmarks`, `from services.bookmark_service import BookmarkService`)
-- **Entry point**: `api/main.py` → FastAPI app with lifespan manager
-- **Routers** (`api/routers/`): 16 endpoint modules — bookmarks, notes, prompts, content (unified search), ai, history, tags, filters, relationships, tokens, users, consent, settings, health, mcp
-- **Services** (`services/`): Business logic layer. `BaseEntityService` provides shared CRUD patterns for bookmark/note/prompt services. `ContentService` handles unified cross-type search/filtering. `LLMService` wraps LiteLLM for multi-provider AI (Gemini, OpenAI, Anthropic).
-- **Models** (`models/`): SQLAlchemy ORM with UUIDv7 primary keys, soft delete (`deleted_at`), archiving (`archived_at`), trigger-maintained full-text search vectors
-- **Schemas** (`schemas/`): Pydantic validation models
-- **Auth** (`core/auth.py`): Auth0 JWT + Personal Access Tokens (`bm_` prefix). Dev mode bypass via `VITE_DEV_MODE=true`. Auth cached in Redis (5-min TTL).
-- **Migrations** (`db/migrations/`): Alembic, auto-run on deploy
-- **Testing**: pytest-asyncio, testcontainers (PostgreSQL + Redis), 60s timeout per test
+- **FastAPI + async SQLAlchemy 2.0 + PostgreSQL 17** (pgvector). Python 3.13, deps managed by `uv`.
+- **PYTHONPATH is `backend/src`** — all imports relative to this root (e.g., `from api.routers import bookmarks`, `from services.bookmark_service import BookmarkService`). Never use `from backend.src...` or relative imports.
+- **Entry point**: `api/main.py`. Routers in `api/routers/`, services in `services/`, models in `models/`, schemas in `schemas/`.
+- **`BaseEntityService`** provides shared CRUD for bookmark/note/prompt services. `ContentService` handles unified cross-type search. `LLMService` wraps LiteLLM for multi-provider AI.
+- **Auth** (`core/auth.py`): Auth0 JWT + Personal Access Tokens (`bm_` prefix). Dev mode bypass via `VITE_DEV_MODE=true`. Cached in Redis (5-min TTL).
+- **Models**: UUIDv7 PKs, soft delete (`deleted_at`), archiving (`archived_at`), trigger-maintained FTS vectors.
 
 ### Frontend (`frontend/src/`)
-- **Stack**: React 19 + TypeScript + Vite + Tailwind CSS 4
-- **Node**: v22 (`.nvmrc`)
-- **State**: Zustand stores (`stores/`)
-- **Data fetching**: @tanstack/react-query (`hooks/`)
-- **Routing**: React Router v7
-- **Editor**: Milkdown (markdown with CodeMirror)
-- **Testing**: Vitest + @testing-library/react
+- React 19 + TypeScript + Vite + Tailwind CSS 4. Node v22 (`.nvmrc`).
+- State: Zustand (`stores/`). Data fetching: @tanstack/react-query (`hooks/`). Routing: React Router v7. Editor: Milkdown.
 
 ### MCP Servers
-- **Content MCP** (`backend/src/mcp_server/`, port 8001): Tools for bookmarks/notes CRUD and search
-- **Prompt MCP** (`backend/src/prompt_mcp_server/`, port 8002): Tools for prompt template management
-- Both proxy through the backend API (require API server running on port 8000)
+- **Content MCP** (`backend/src/mcp_server/`, port 8001): bookmarks/notes CRUD and search.
+- **Prompt MCP** (`backend/src/prompt_mcp_server/`, port 8002): prompt template management.
+- Both proxy through the backend API (require API server on port 8000).
 
 ### CLI (`cli/`)
-- **Go** with Cobra framework, Viper config
-- OAuth device code flow + keyring credential storage
-- Commands: login, auth, mcp configure, skills configure, export, tokens, update
+- Go + Cobra + Viper. OAuth device code flow + keyring credential storage.
 
 ### Chrome Extension (`chrome-extension/`)
-- Bookmark saver popup, background service worker
-- Tests via npm test
+- Bookmark saver popup + background service worker. Manifest V3.
 
 ## Key Patterns
 
-- **Multi-tenant**: All queries scoped to authenticated user via `user_id`
-- **Subscription tiers**: FREE and PRO with different rate limits and quotas — always test tier gating for AI features
-- **Rate limiting**: In-memory with Redis fallback, per-user and per-operation limits
-- **ETag caching**: HTTP 304 responses for unchanged content
-- **Content versioning**: `ContentHistory` tracks changes with diff-match-patch
-- **SSRF protection**: URL scraping validates against internal networks
-- **pytest config**: `asyncio_mode = "auto"` in `pyproject.toml` — no need for `@pytest.mark.asyncio`
+- **Multi-tenant**: All queries scoped to authenticated user via `user_id`.
+- **Subscription tiers**: FREE and PRO with different rate limits and quotas — always test tier gating for AI features.
+- **Rate limiting**: In-memory with Redis fallback, per-user and per-operation.
+- **ETag caching**: HTTP 304 responses for unchanged content.
+- **Content versioning**: `ContentHistory` tracks changes with diff-match-patch.
+- **SSRF protection**: URL scraping validates against internal networks.
+- **Background tasks** (`backend/src/tasks/`): Cron jobs for cleanup, orphan detection, etc. Not yet deployed — deployment to Railway is in progress.
+
+## Evals (`evals/`)
+
+LLM-based evaluations for agentic tool behavior. Currently covers MCP servers; expanding to AI suggestion endpoints. Run with `make evals` (requires API + MCP servers running). After modifying MCP tools or AI endpoints, run relevant evals to catch regressions.
+
+## Design Docs (`docs/`)
+
+`docs/implementation_plans/` contains dated plans for past and in-progress features. `docs/` also has high-level design documents (e.g., `ai-integration.md`, `content-versioning.md`, `connection-pool-tuning.md`). **Before designing a new feature or refactoring a system, check `docs/` for existing plans and design decisions.**
+
+## Security Tests (`backend/tests/security/`)
+
+Includes SSRF tests (run locally) and live penetration tests (`deployed/test_live_penetration.py`) that run against production. **After changes to auth, API endpoints, or input validation, update these tests and remind the user to run the deployed security tests against production.**
+
+## Don't
+
+- **Don't create migrations manually** — always use `make migration message="..."`.
+- **Don't add `@pytest.mark.asyncio`** — `asyncio_mode = "auto"` is set in `pyproject.toml`.
+- **Don't use `pip`** — use `uv`. Run commands via `uv run` (e.g., `uv run pytest`).
+- **Don't mutate `deleted_at`/`archived_at` directly** — use the service layer methods.
+- **Don't use synchronous DB calls** — all database access is async.
+- **Don't bypass auth outside dev mode** — `VITE_DEV_MODE=true` is for local development only.
+
+## Files to Keep in Sync
+
+After any feature, API, pricing, or UI change, review whether these need updating:
+
+**User-facing content pages** (`frontend/src/pages/`):
+- `FeaturesPage.tsx`, `Pricing.tsx`, `LandingPage.tsx`
+- `changelog/Changelog.tsx`, `roadmap/Roadmap.tsx`
+- `docs/DocsFAQ.tsx`, `settings/SettingsFAQ.tsx`
+- `docs/Docs*.tsx` — especially `DocsAPI.tsx`, `DocsAIFeatures.tsx`, `DocsCLIReference.tsx`, `DocsContentTypes.tsx`, `DocsShortcuts.tsx`, `DocsKnownIssues.tsx`
+- `../components/FAQContent.tsx` (shared FAQ content)
+
+**LLM/AI discoverability:**
+- `frontend/public/llms.txt` — LLM-friendly site index; update when features, API, or tiers change.
+
+**Project-level docs:**
+- `README.md` — feature list and setup instructions.
+- `.env.example` — when adding/removing/renaming environment variables.
+- `CLAUDE.md` — when build commands, architecture, conventions, or project structure change.
