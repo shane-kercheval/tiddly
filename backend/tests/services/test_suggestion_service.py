@@ -472,6 +472,20 @@ class TestSuggestArguments:
         assert cost is None
         service.complete.assert_not_called()
 
+    async def test_generate_all_no_placeholders(self) -> None:
+        """Content exists but has no {{ }} placeholders — no LLM call."""
+        service = _mock_llm_service("should not be called")
+        result, cost = await suggest_arguments(
+            prompt_content="Write a poem about nature. No variables here.",
+            arguments=[],
+            target=None,
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert result == []
+        assert cost is None
+        service.complete.assert_not_called()
+
     async def test_filters_invalid_names(self) -> None:
         content = json.dumps({"arguments": [
             {"name": "valid_name", "description": "Good"},
