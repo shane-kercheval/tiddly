@@ -13,6 +13,8 @@ Add evaluation tests for the four AI suggestion endpoints (`suggest-tags`, `sugg
 
 **Model under test:** The default platform model (`gemini/gemini-2.5-flash-lite`) since it's the cheapest and most likely to surface prompt quality issues. Better models would mask weak prompts.
 
+**LLM-as-judge model:** `gemini/gemini-2.5-flash` — a stronger model than the one being tested. The judge should not be the same budget model evaluating its own output.
+
 **Pass threshold:** 80%, lowered if needed after observing real variance.
 
 **Structure:**
@@ -54,8 +56,9 @@ After this milestone:
 - Prompt quality improvements: expanded tag vocabulary (100 with counts), richer few-shot examples (20, type-scoped, with descriptions), relationship search uses title + description
 - Response caps enforced in service layer (7 tags, 5 relationships)
 - `content_type` field added to `SuggestTagsRequest` (required) — frontend updated to pass it
+- Request schema `max_length` constraints relaxed — abuse prevention only, service controls prompt truncation
 - Service-level unit tests cover core logic (dedup, caps, filtering, error handling)
-- All existing API-level tests pass unchanged
+- All existing API-level tests pass (tag suggestion tests updated for required `content_type` field)
 
 ### Implementation Outline
 
@@ -94,8 +97,25 @@ class RelationshipCandidateContext(BaseModel):
 
 These replace the `list[dict]` parameters currently used in `build_tag_suggestion_messages()` and `build_relationship_suggestion_messages()`. `RelationshipCandidate` (the existing public response schema with `entity_id`, `entity_type`, `title`) remains unchanged. Update the prompt builders to accept the Pydantic models.
 
+**Docstring requirements:** Every service function must have a clear docstring that specifies:
+- What the function does (purpose)
+- Implicit constraints on list inputs/outputs (min/max lengths, caps, filtering rules)
+- What post-processing is applied (dedup, validation, truncation)
+- What errors it raises
+
+This makes the contract self-documenting for both router callers and eval callers.
+
+**Return types:** Service functions return raw data (not HTTP response models). Use dataclasses or Pydantic models where applicable to keep the contract explicit. The router wraps results in API response schemas.
+
 ```python
 # services/suggestion_service.py
+
+@dataclass
+class MetadataSuggestion:
+    """Result from suggest_metadata. Only requested fields are non-None."""
+    title: str | None
+    description: str | None
+
 
 async def suggest_tags(
     *,
@@ -103,15 +123,39 @@ async def suggest_tags(
     url: str | None,
     description: str | None,
     content_snippet: str | None,
+    content_type: str,
     current_tags: list[str],
     tag_vocabulary: list[TagVocabularyEntry],
     few_shot_examples: list[TagFewShotExample],
     llm_service: LLMService,
     config: ResolvedConfig,
 ) -> tuple[list[str], float | None]:
-    """Build prompt, call LLM, filter results.
-    Returns (deduplicated tag list capped at 7, cost).
-    Case-insensitive dedup against current_tags is handled here."""
+    """Suggest tags for a content item based on its metadata and the user's tag vocabulary.
+
+    Builds a prompt with the item context, user's tag vocabulary (up to 100 entries
+    with usage counts), and few-shot examples (up to 20 items of the same content
+    type). Calls the LLM and post-processes the response.
+
+    Args:
+        content_type: The entity type ("bookmark", "note", "prompt"). Included in
+            the system prompt so the LLM can tailor suggestions to the content type.
+        current_tags: Tags already on this item. Used for case-insensitive dedup
+            against the LLM response.
+        tag_vocabulary: User's existing tags sorted by frequency, up to 100 entries.
+            Each entry includes name and usage count. Rendered in the prompt as
+            "python (47), flask (12), api (8)" format.
+        few_shot_examples: Recent items for tagging style reference, up to 20 items.
+            Should be scoped to the same content_type by the caller.
+
+    Returns:
+        Tuple of (tags, cost). Tags are deduplicated against current_tags
+        (case-insensitive) and capped at 7.
+
+    Raises:
+        LLMResponseParseError: If the LLM returns invalid/unparseable output
+            (including empty response.choices). Carries cost so the caller can
+            still track spend.
+    """
     ...
 
 
@@ -124,8 +168,27 @@ async def suggest_metadata(
     content_snippet: str | None,
     llm_service: LLMService,
     config: ResolvedConfig,
-) -> tuple[SuggestMetadataResponse, float | None]:
-    """Build prompt, call LLM, return title/description."""
+) -> tuple[MetadataSuggestion, float | None]:
+    """Suggest title and/or description for a content item.
+
+    The fields parameter controls which fields are generated. Existing values
+    for non-requested fields are sent as context but not regenerated.
+
+    Args:
+        fields: Which fields to generate. Must contain at least one of
+            "title", "description". Controls which structured output schema
+            is used (_TitleOnly, _DescriptionOnly, _TitleAndDescription).
+
+    Returns:
+        Tuple of (MetadataSuggestion, cost). Only requested fields are non-None
+        in the result. Generated title is prompted to be under 100 characters;
+        no server-side truncation (the prompt instruction is the constraint).
+
+    Raises:
+        LLMResponseParseError: If the LLM returns invalid/unparseable output
+            (including empty response.choices). Carries cost so the caller can
+            still track spend.
+    """
     ...
 
 
@@ -139,25 +202,72 @@ async def suggest_relationships(
     llm_service: LLMService,
     config: ResolvedConfig,
 ) -> tuple[list[RelationshipCandidate], float | None]:
-    """Build prompt, call LLM, filter to valid candidate IDs, cap at 5.
-    Validates returned IDs are a subset of input candidates."""
+    """Suggest related items from a pre-built candidate list.
+
+    The caller is responsible for searching and deduplicating candidates.
+    This function sends candidates to the LLM for relevance judgment and
+    filters the response.
+
+    Args:
+        candidates: Pre-searched, pre-deduped candidate items, up to 10.
+            Each includes entity_id, entity_type, title, description, and
+            content_preview for prompt building.
+
+    Returns:
+        Tuple of (candidates, cost). Returned candidates are validated as a
+        subset of input candidate IDs (no hallucinated IDs) and capped at 5.
+        Returns ([], cost=None) immediately if candidates is empty (no LLM call).
+
+    Raises:
+        LLMResponseParseError: If the LLM returns invalid/unparseable output
+            (including empty response.choices). Carries cost so the caller can
+            still track spend.
+    """
     ...
 
 
 async def suggest_arguments(
     *,
     prompt_content: str | None,
-    arguments: list[dict],
+    arguments: list[ArgumentInput],
     target: str | None,
-    placeholder_names: list[str] | None,  # Pre-extracted by router for generate-all
     llm_service: LLMService,
     config: ResolvedConfig,
 ) -> tuple[list[ArgumentSuggestion], float | None]:
-    """Build prompt, call LLM, filter invalid names."""
+    """Suggest prompt template arguments.
+
+    Two modes based on target:
+    - target=None (generate-all): Extracts {{ placeholder }} names from
+      prompt_content, excludes names already in arguments, and asks the LLM
+      to generate descriptions for new placeholders. Returns early with an
+      empty list if no new placeholders are found (no LLM call).
+    - target=<name> (individual): Suggests a name and/or description for
+      a specific argument.
+
+    Args:
+        prompt_content: The Jinja2 template text. Used for placeholder
+            extraction in generate-all mode and as context in both modes.
+        arguments: Existing arguments with name/description. In generate-all
+            mode, names are excluded from placeholder extraction.
+        target: Argument name to suggest for, or None for generate-all.
+
+    Returns:
+        Tuple of (suggestions, cost). Argument names are validated against
+        ARG_NAME_PATTERN (lowercase_with_underscores, starts with letter);
+        invalid names are filtered out. If the LLM omits `required`, it
+        defaults to False (ArgumentSuggestion schema default).
+        Returns ([], cost=None) in generate-all mode if prompt_content is
+        None or all placeholders already have arguments (no LLM call).
+
+    Raises:
+        LLMResponseParseError: If the LLM returns invalid/unparseable output
+            (including empty response.choices). Carries cost so the caller can
+            still track spend.
+    """
     ...
 ```
 
-Each function returns `(result, cost)`. The router uses `cost` for `track_cost()`.
+Each function returns `(result, cost)`. The router uses `cost` for `track_cost()`. On `LLMResponseParseError`, the router extracts `error.cost` and still tracks it (the provider was billed regardless of parse failure).
 
 #### Response limits (enforced in service layer)
 
@@ -208,7 +318,23 @@ Update the prompt builder to render:
 
 **Relationship search — use title + description as query:**
 
-Currently the title-based search uses only `data.title` as the query. Change to concatenate `title + description` (truncated to a reasonable length) when both are available. This gives the full-text search more signal for finding relevant candidates.
+Currently the title-based search uses only `data.title` as the query. Change to concatenate title + first 200 characters of description when both are available. This gives the full-text search more signal for finding relevant candidates.
+
+#### Request schema `max_length` changes
+
+The current `max_length` constraints on request schemas conflate abuse prevention with prompt quality control. The service layer should control truncation for prompt building (it knows the prompt budget). The API schema limits should only prevent abuse.
+
+Changes to `schemas/ai.py`:
+
+| Field | Current limit | New limit | Rationale |
+|-------|--------------|-----------|-----------|
+| `title` | 500 | Remove | Naturally short, service truncates if needed |
+| `description` | 1000 | Remove | Naturally bounded, service truncates if needed |
+| `url` | 2000 | 2048 | RFC standard, real constraint |
+| `content_snippet` | 2500 | 10,000 | Service truncates for prompt budget |
+| `prompt_content` | 5000 | 50,000 | Long templates need full context for accurate argument suggestions |
+
+These apply across all four request schemas (`SuggestTagsRequest`, `SuggestMetadataRequest`, `SuggestRelationshipsRequest`, `SuggestArgumentsRequest`). The service functions handle truncation internally based on prompt budget.
 
 #### Cross-references between API and evals
 
@@ -259,15 +385,29 @@ async def suggest_tags_endpoint(data, current_user, llm_api_key, _rate_limit, db
     return SuggestTagsResponse(tags=tags)
 ```
 
-#### 3. Move `_parse_llm_response` and `_sanitize_structured_content` to service layer
+#### 3. Move `_parse_llm_response` to service layer
 
-These are currently private functions in the router. They belong in the service since the service handles LLM response parsing.
+This is currently a private function in the router. It belongs in the service since the service handles LLM response parsing. (`_sanitize_structured_content` is already in `llm_service.py` — no move needed.)
 
-**Error handling change:** `_parse_llm_response` currently raises `HTTPException(502)` on invalid LLM responses. Service functions should not raise HTTP exceptions. Add a `LLMResponseParseError` exception class in the service layer. The router catches it and returns HTTP 502 with the existing `llm_invalid_response` error code. This follows the same pattern as the existing LiteLLM exception handler on the AI router.
+**Error handling change:** `_parse_llm_response` currently raises `HTTPException(502)` on invalid LLM responses. Service functions should not raise HTTP exceptions. Add a `LLMResponseParseError` exception class in the service layer with a `cost: float | None` field — the provider was billed even if the response is unparseable. The router catches it, calls `track_cost()` with `error.cost`, and returns HTTP 502 with the existing `llm_invalid_response` error code.
+
+```python
+class LLMResponseParseError(Exception):
+    """Raised when the LLM returns a response that cannot be parsed into the expected schema."""
+    def __init__(self, message: str, cost: float | None = None):
+        super().__init__(message)
+        self.cost = cost
+```
+
+LiteLLM provider exceptions (`AuthenticationError`, `RateLimitError`, `Timeout`, etc.) are NOT caught by the service — they propagate through to the router's existing exception handler. This is the same boundary as today.
+
+**Cost tracking on error:** The router always calls `track_cost()` when catching `LLMResponseParseError`, even when `error.cost` is None — `track_cost()` handles None gracefully (logs warning, skips Redis write). The service function should also check for empty `response.choices` before accessing `[0]` and raise `LLMResponseParseError` with whatever cost is available.
+
+**Router maps `_get_few_shot_examples` output:** The router's `_get_few_shot_examples` helper returns data from DB queries. The router converts this to `list[TagFewShotExample]` before passing to the service function.
 
 #### 4. Update prompt builders to accept Pydantic models
 
-`build_tag_suggestion_messages()` currently takes `few_shot_examples: list[dict]` and accesses `.get("title")`, `.get("tags")`, etc. Update to accept `list[TagFewShotExample]` and use attribute access. Same for `build_relationship_suggestion_messages()` — update to accept `list[RelationshipCandidateContext]`.
+`build_tag_suggestion_messages()` currently takes `few_shot_examples: list[dict]` and accesses `.get("title")`, `.get("tags")`, etc. Update to accept `list[TagFewShotExample]` and use attribute access. Also add `content_type: str` parameter so the system prompt can say "You are tagging a {content_type}." Same for `build_relationship_suggestion_messages()` — update to accept `list[RelationshipCandidateContext]`.
 
 #### 5. Relationship candidate search stays in the router
 
@@ -279,7 +419,7 @@ Update `frontend/src/types.ts` to add `content_type: string` to `SuggestTagsRequ
 
 ### Testing Strategy
 
-**Existing API-level tests** (`test_ai_suggestions.py`, `test_ai.py`) must pass unchanged — they verify the router wiring is correct after the refactor.
+**Existing API-level tests** (`test_ai_suggestions.py`, `test_ai.py`) verify the router wiring is correct after the refactor. Tag suggestion tests will need `content_type` added to their request payloads since it's now a required field. All other endpoint tests should pass unchanged.
 
 **New service-level tests** (`test_suggestion_service.py`) — mock `llm_service.complete()` and test the core logic:
 
@@ -293,7 +433,10 @@ Update `frontend/src/types.ts` to add `content_type: string` to `SuggestTagsRequ
 - **Metadata field selection:** `fields=["title"]` → uses `_TitleOnly` response format, `description` is null in response
 - **Metadata both fields:** `fields=["title", "description"]` → both populated
 - **Parse error:** LLM returns invalid JSON → raises `LLMResponseParseError` (not HTTPException)
+- **Parse error carries cost:** `LLMResponseParseError.cost` is populated so the router can still track spend
 - **Cost passthrough:** Cost from `llm_service.complete()` is returned in the tuple
+- **Argument placeholder extraction:** `suggest_arguments` with `target=None` extracts placeholders from `prompt_content`, excludes existing argument names, returns early if none are new
+- **Argument early return:** All placeholders already have arguments → empty list returned, no LLM call
 
 **New frontend tests:** Verify `content_type` is passed in `SuggestTagsRequest` from each call site.
 
@@ -317,7 +460,33 @@ After this milestone:
 
 Add to `evals/utils.py`:
 
-- `create_bookmark_via_api(url, title, description, content, tags)` — Create a bookmark for test data setup. Needed for relationship evals (Milestone 3) but added here alongside the existing `create_note_via_api`.
+- `create_bookmark_via_api(url, title, description, content, tags)` — Create a bookmark for test data setup. General utility alongside the existing `create_note_via_api`.
+
+- `create_suggestion_checks(check_specs, llm_function, judge_models)` — Wraps `create_checks_from_config()`. For `type: "llm_judge"` checks, injects `llm_function` and `response_format` into `arguments` at load time. All other check types pass through unchanged. This keeps all check definitions in YAML while providing the runtime objects that `LLMJudgeCheck` requires.
+
+```python
+def create_suggestion_checks(
+    check_specs: list[dict],
+    llm_function: Callable,
+    judge_response_models: dict[str, type[BaseModel]],
+) -> list[Check]:
+    """Create checks from YAML specs, injecting runtime objects for llm_judge checks."""
+    checks = []
+    for spec in check_specs:
+        if spec["type"] == "llm_judge":
+            # Inject runtime objects that can't be expressed in YAML
+            spec["arguments"]["llm_function"] = llm_function
+            model_key = spec["arguments"].get("response_model", "default")
+            spec["arguments"]["response_format"] = judge_response_models[model_key]
+        checks.append(Check(
+            type=spec["type"],
+            arguments=spec["arguments"],
+            metadata=spec.get("metadata"),
+        ))
+    return checks
+```
+
+The `llm_function` callable uses `gemini/gemini-2.5-flash` (the judge model) with structured output. The `judge_response_models` dict maps check-specific model keys to Pydantic classes (e.g. `"tags": TagJudgeResult, "default": DefaultJudgeResult`).
 
 #### 2. Makefile target
 
@@ -335,8 +504,8 @@ Evals call `suggest_tags()` directly from `services/suggestion_service.py` — n
 
 - `title`, `description`, `content_snippet`, `url` — defined in YAML test cases
 - `current_tags` — defined in YAML test cases
-- `tag_vocabulary` — curated list defined in the test file (e.g. `["python", "javascript", "react", "flask", "api", "tutorial", "devops", "docker", "machine-learning", "testing"]`)
-- `few_shot_examples` — curated list defined in the test file (realistic items with tags)
+- `tag_vocabulary` — curated list of ~30 tags defined in the test file (e.g. covering web dev, data science, devops, general programming). Larger than trivial to test vocabulary navigation, not just recognition. Each entry includes a realistic usage count.
+- `few_shot_examples` — curated list defined in the test file. Examples use 2-4 lowercase hyphenated tags drawn from the curated vocabulary (consistent style). Include title + description + tags per example.
 - `llm_service` + `config` — real LLM service with default model
 
 This makes evals fully reproducible regardless of dev database state.
@@ -355,6 +524,8 @@ Each test case defines realistic content and expected tags that should appear in
 | `machine-learning-paper` | Bookmark: ML paper about neural networks | `machine-learning` |
 | `minimal-context` | Bookmark with only a title, no content/description | Still produces tags (from title alone) |
 | `existing-tags-excluded` | Bookmark with `current_tags: ["python"]` | `python` NOT in response |
+| `vocabulary-preference` | Content about "ML" where vocabulary contains `machine-learning` but not `ml` | `machine-learning` (prefers vocabulary form) |
+| `tag-count-boundary` | Broad "2024 Year in Review" post covering many topics | Returns 3-7 tags (not more, even though many topics) |
 
 #### 5. Checks
 
@@ -364,9 +535,38 @@ Each test case defines realistic content and expected tags that should appear in
 - `current_tags` are excluded from response (`contains` with `negate`)
 
 **LLM-as-judge check (for quality):**
-- Use a specific rubric, not a vague quality question. Example: "The content is about [brief topic]. For each suggested tag, score 1 if it is directly related to the content's topic or domain, 0 if not. Pass if all tags score 1."
-- Use a Pydantic response format for structured judge output (e.g. `pass: bool, reasoning: str`)
-- This catches cases where the tags are structurally valid but semantically wrong
+
+All checks (deterministic and judge) are defined in the YAML config. The check loader detects `type: "llm_judge"` entries and injects the runtime objects (`llm_function` callable, `response_format` Pydantic class) at load time. This keeps all check definitions centralized in YAML.
+
+Judge checks use `gemini/gemini-2.5-flash` (stronger than the model under test) and return structured responses with counts and reasoning for diagnosability:
+
+```python
+# Pydantic response model for tag judge
+class TagJudgeResult(BaseModel):
+    relevant_count: int
+    total_count: int
+    passed: bool
+    reasoning: str
+```
+
+Example YAML judge check:
+```yaml
+- type: "llm_judge"
+  arguments:
+    prompt: |
+      The content has this title: "{{$.test_case.input.title}}"
+      and this description: "{{$.test_case.input.description}}".
+
+      The suggested tags are: {{$.output.value.tags}}
+
+      For each tag, score 1 if directly related to the content's topic or domain, 0 if not.
+      Return relevant_count, total_count, and passed=true if all tags score 1.
+      Include brief reasoning.
+  metadata:
+    name: "Tags are relevant"
+```
+
+The loader injects `response_format: TagJudgeResult` and `llm_function` (a callable that calls gemini-2.5-flash with structured output) when it sees `type: "llm_judge"`.
 
 ### Testing Strategy
 
@@ -407,12 +607,15 @@ No database entities needed — evals call `suggest_metadata()` directly with al
 **Deterministic checks:**
 - Requested fields are non-null in response
 - Unrequested fields are null in response
-- Title length ≤ 200 characters (schema limit)
-- Description length ≤ 1000 characters (schema limit)
+- Title length ≤ 100 characters (prompt instruction, not schema)
+- Description is 1-2 sentences (prompt instruction)
 
-**LLM-as-judge checks (with specific rubrics):**
-- Title: "Given this content, score the suggested title: 1 if it accurately summarizes the main topic in under 100 characters, 0 if it is misleading, too vague, or too long. Pass if score is 1."
-- Description: "Given this content, score the suggested description: 1 if it is a useful 1-2 sentence summary that captures the key information, 0 if it is vague, inaccurate, or too long. Pass if score is 1."
+**LLM-as-judge checks:**
+
+Same YAML-defined + runtime-injected approach as tag evals. Judge response model: `{passed: bool, reasoning: str}`.
+
+- Title rubric: "Given this content, does the suggested title accurately summarize the main topic in under 100 characters? Return passed=true if accurate and concise, false if misleading, too vague, or too long. Include reasoning."
+- Description rubric: "Given this content, is the suggested description a useful 1-2 sentence summary that captures the key information? Return passed=true if it is a clear summary, false if vague, inaccurate, or too long. Include reasoning."
 
 ### Testing Strategy
 
@@ -451,6 +654,7 @@ This is cleaner than creating real DB items — we control the candidate set pre
 | `react-frontend` | "React Component Design Patterns" | 2 related (React hooks, CSS-in-JS) + 3 unrelated (database indexing, cooking, astronomy) | The 2 React-related candidates |
 | `all-unrelated` | "Machine Learning with PyTorch" | 4 candidates none related to ML (cooking, gardening, knitting, woodworking) | Empty or minimal candidates |
 | `all-related` | "Web Development Overview" | 4 candidates all web-related (HTML, CSS, JavaScript, REST APIs) | All 4 selected |
+| `misleading-title` | "Python Testing with Pytest" | 1 candidate titled "Python Testing" but about testing pythons (herpetology), 2 genuinely related (unittest, TDD) | Herpetology candidate NOT selected, testing candidates selected |
 
 #### 3. Checks
 
@@ -495,6 +699,7 @@ No database entities needed — evals call `suggest_arguments()` directly with a
 | `generate-all-complex` | generate-all | Template with 4+ variables, mix of conditional/unconditional | All placeholders returned with descriptions, correct `required` |
 | `suggest-name` | individual (target) | Argument with description "The programming language to use" | Suggested name is something like `language` or `programming_language` |
 | `suggest-description` | individual (target) | Argument named `output_format` | Suggested description is non-empty and explains the argument |
+| `generate-all-no-content` | generate-all | `prompt_content=None`, `target=None` | Empty list returned (no extraction possible, no LLM call) |
 
 #### 3. Checks
 
@@ -509,8 +714,11 @@ No database entities needed — evals call `suggest_arguments()` directly with a
 - Suggested name passes `ARG_NAME_PATTERN`
 - Suggested description is non-empty
 
-**LLM-as-judge (for description quality, with specific rubric):**
-- "Given a prompt template argument named [name] in the context of this template, score the suggested description: 1 if it clearly explains what the argument represents and includes an example or expected format, 0 if it is vague or unhelpful. Pass if score is 1."
+**LLM-as-judge (for description quality):**
+
+Same approach. Judge response: `{passed: bool, reasoning: str}`.
+
+- Rubric: "Given a prompt template argument named [name] in the context of this template, does the suggested description clearly explain what the argument represents? Return passed=true if the description is clear and helpful, false if vague or unhelpful. Include reasoning."
 
 ### Testing Strategy
 
@@ -533,7 +741,11 @@ make evals                                    # All evals (including MCP + AI su
 
 ### Cost awareness
 
-Each eval run makes real LLM calls. With the default model (gemini-2.5-flash-lite at $0.10/M input, $0.40/M output), ~210 calls at ~500 tokens each ≈ ~$0.05 per full eval run. Negligible.
+Each eval run makes real LLM calls. Per-call context overhead: ~1500 tokens for 20 few-shot examples (title + description + tags each) + ~500 tokens for 100-tag vocabulary with counts ≈ ~2000 tokens input per tag suggestion call. Other endpoints are lighter. With the default model (gemini-2.5-flash-lite at $0.10/M input, $0.40/M output), ~210 calls ≈ ~$0.05 per full eval run. LLM-as-judge calls (gemini-2.5-flash) add a small additional cost. Total is negligible.
+
+### LLM provider errors
+
+LLM provider errors (timeouts, rate limits, connection failures) will fail the eval as unhandled exceptions. These are infrastructure issues, not prompt quality failures — don't confuse them with test failures. If evals are flaky due to provider issues, investigate the provider, not the prompts.
 
 ### Results
 
