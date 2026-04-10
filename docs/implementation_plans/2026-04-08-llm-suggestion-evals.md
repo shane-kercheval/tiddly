@@ -456,11 +456,17 @@ After this milestone:
 
 ### Implementation Outline
 
-#### 1. Shared helpers
+#### 1. Infrastructure setup
 
-Add to `evals/utils.py`:
+**conftest.py restructure:** The root `evals/conftest.py` currently calls `check_api_health()` at module load time. This blocks suggestion evals from running without a server. Move `check_api_health()` into `evals/content_mcp/conftest.py` and `evals/prompt_mcp/conftest.py` (the MCP evals that actually need a running server). The root `evals/conftest.py` becomes empty or is removed. Add `evals/ai_suggestions/conftest.py` with no health check — suggestion evals only need LLM API keys in the environment.
 
-- `create_bookmark_via_api(url, title, description, content, tags)` — Create a bookmark for test data setup. General utility alongside the existing `create_note_via_api`.
+**Eval viewer:** The viewer server (`evals/viewer/server/routes/runs.ts`) has a hardcoded `RESULT_DIRS` array that only includes `content_mcp/results` and `prompt_mcp/results`. Add `ai_suggestions/results` to that array so suggestion eval results appear in the viewer.
+
+**LLMService instantiation:** Evals need a real `LLMService` for `complete()` (handles sanitization, cost calculation). Construct it with a `Settings` object — `Settings` reads `GEMINI_API_KEY` from environment/.env. `Settings` requires `database_url` (no default), so set a dummy value since the eval never uses it. Create a shared helper in `evals/ai_suggestions/helpers.py` for this.
+
+#### 2. Shared helpers
+
+Add `evals/ai_suggestions/helpers.py`:
 
 - `create_suggestion_checks(check_specs, llm_function, judge_models)` — Wraps `create_checks_from_config()`. For `type: "llm_judge"` checks, injects `llm_function` and `response_format` into `arguments` at load time. All other check types pass through unchanged. This keeps all check definitions in YAML while providing the runtime objects that `LLMJudgeCheck` requires.
 
@@ -488,17 +494,20 @@ def create_suggestion_checks(
 
 The `llm_function` callable uses `gemini/gemini-2.5-flash` (the judge model) with structured output. The `judge_response_models` dict maps check-specific model keys to Pydantic classes (e.g. `"tags": TagJudgeResult, "default": DefaultJudgeResult`).
 
-#### 2. Makefile target
+#### 3. Makefile targets
 
-Add `evals-ai-suggestions` target:
+Add per-suggestion-type targets and an umbrella target:
 ```makefile
-evals-ai-suggestions:  ## Run AI suggestion evaluations only
+evals-ai-suggestions:  ## Run all AI suggestion evaluations
 	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/ai_suggestions/ -vs --timeout=300
+
+evals-ai-suggestions-tags:  ## Run tag suggestion evaluations only
+	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/ai_suggestions/test_suggest_tags.py -vs --timeout=300
 ```
 
-Also add to the existing `evals` target so `make evals` runs everything.
+Also add to the existing `evals` target so `make evals` runs everything. Add per-type targets for M2-M4 as each milestone is implemented.
 
-#### 3. Test data strategy
+#### 4. Test data strategy
 
 Evals call `suggest_tags()` directly from `services/suggestion_service.py` — no HTTP server or database needed. All context is passed as parameters:
 
@@ -510,7 +519,7 @@ Evals call `suggest_tags()` directly from `services/suggestion_service.py` — n
 
 This makes evals fully reproducible regardless of dev database state.
 
-#### 4. Tag suggestion test cases (~10 cases)
+#### 5. Tag suggestion test cases (~10 cases)
 
 Each test case defines realistic content and expected tags that should appear in the response.
 
@@ -529,7 +538,7 @@ Each test case defines realistic content and expected tags that should appear in
 | `vocabulary-preference` | Content about "ML" where vocabulary contains `machine-learning` but not `ml` | `machine-learning` (prefers vocabulary form) |
 | `tag-count-boundary` | Broad "2024 Year in Review" post covering many topics (title + description + content) | Returns 3-7 tags (not more, even though many topics) |
 
-#### 5. Checks
+#### 6. Checks
 
 **Deterministic checks:**
 - Tags is a non-empty list
@@ -589,6 +598,8 @@ After this milestone:
 
 ### Implementation Outline
 
+Uses infrastructure from M1: `evals/ai_suggestions/helpers.py` (LLMService setup, `create_suggestion_checks`), conftest, Makefile pattern. Add `evals-ai-suggestions-metadata` Makefile target.
+
 #### 1. Test data
 
 No database entities needed — evals call `suggest_metadata()` directly with all context as parameters. Test cases define content with deliberately weak/missing titles and descriptions directly in the YAML config.
@@ -625,6 +636,7 @@ Same YAML-defined + runtime-injected approach as tag evals. Judge response model
 
 - 8 test cases × 10 samples × 1 model = 80 LLM calls
 - Pass threshold: 80%
+- Results written to `evals/ai_suggestions/results/` (same directory as tag evals — all suggestion eval results share one `results/` dir)
 
 ---
 
@@ -638,6 +650,8 @@ After this milestone:
 - Tests cover both precision (correct selections) and the empty-result case
 
 ### Implementation Outline
+
+Uses infrastructure from M1: `evals/ai_suggestions/helpers.py` (LLMService setup, `create_suggestion_checks`), conftest, Makefile pattern. Add `evals-ai-suggestions-relationships` Makefile target.
 
 #### 1. Test data
 
@@ -677,6 +691,7 @@ This is cleaner than creating real DB items — we control the candidate set pre
 - 6 test cases × 10 samples × 1 model = 60 LLM calls
 - Pass threshold: 80%
 - No database needed — candidates are passed directly
+- Results written to `evals/ai_suggestions/results/`
 
 ---
 
@@ -690,6 +705,8 @@ After this milestone:
 - Checks verify argument names, descriptions, and the `required` field inference
 
 ### Implementation Outline
+
+Uses infrastructure from M1: `evals/ai_suggestions/helpers.py` (LLMService setup, `create_suggestion_checks`), conftest, Makefile pattern. Add `evals-ai-suggestions-arguments` Makefile target.
 
 #### 1. Test data
 
@@ -730,6 +747,7 @@ Same approach. Judge response: `{passed: bool, reasoning: str}`.
 - 5 test cases × 10 samples × 1 model = 50 LLM calls
 - Pass threshold: 80%
 - No database or HTTP server needed — calls service function directly
+- Results written to `evals/ai_suggestions/results/`
 
 ---
 
@@ -741,6 +759,10 @@ Unlike MCP evals, AI suggestion evals do **not** require a running API server. T
 
 ```bash
 make evals-ai-suggestions                    # All AI suggestion evals
+make evals-ai-suggestions-tags               # Tag suggestion evals only
+make evals-ai-suggestions-metadata           # Metadata suggestion evals only
+make evals-ai-suggestions-relationships      # Relationship suggestion evals only
+make evals-ai-suggestions-arguments          # Argument suggestion evals only
 make evals                                    # All evals (including MCP + AI suggestions)
 ```
 
@@ -754,4 +776,8 @@ LLM provider errors (timeouts, rate limits, connection failures) will fail the e
 
 ### Results
 
-Results are written to `evals/ai_suggestions/results/` (gitignored). Use `make eval-viewer` to inspect.
+Results are written to `evals/ai_suggestions/results/` by the `@evaluate` decorator's `output_dir` parameter (same pattern as MCP evals). Each test file uses `output_dir=Path(__file__).parent / "results"`.
+
+The eval viewer (`make eval-viewer`) reads results from hardcoded directories in `evals/viewer/server/routes/runs.ts`. The `RESULT_DIRS` array must include `ai_suggestions/results` alongside the existing `content_mcp/results` and `prompt_mcp/results` entries. This is done in M1 infrastructure setup.
+
+Use `make eval-viewer` to inspect results in the browser.
