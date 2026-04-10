@@ -293,7 +293,7 @@ async def suggest_relationships_endpoint(
     db: AsyncSession = Depends(get_async_session),
 ) -> SuggestRelationshipsResponse:
     """Suggest related items by searching for candidates and asking the LLM to judge relevance."""
-    if not data.title and not data.current_tags:
+    if not data.title and not data.description and not data.current_tags:
         return SuggestRelationshipsResponse(candidates=[])
 
     candidates = await _search_relationship_candidates(db, current_user.id, data)
@@ -401,11 +401,9 @@ async def _search_relationship_candidates(
     """Search for relationship candidates by title+description and tags, deduped."""
     # Search by title+description (relevance-ranked) then tags (recency-ranked).
     search_results: list[tuple] = []
-    if data.title:
-        # Truncate description for search query (not prompt budget — search performance)
-        query = data.title
-        if data.description:
-            query = f"{query} {data.description[:200]}".strip()
+    query_parts = [p for p in (data.title, data.description) if p]
+    if query_parts:
+        query = " ".join(query_parts)
         search_results.append(await search_all_content(
             db=db, user_id=user_id, query=query,
             sort_by="relevance", limit=10,

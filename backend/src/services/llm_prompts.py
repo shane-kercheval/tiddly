@@ -58,7 +58,7 @@ def build_tag_suggestion_messages(
         system += "\nRecent items for style reference:\n"
         for ex in few_shot_examples[:20]:
             tags_str = ", ".join(ex.tags)
-            desc_preview = f" ({ex.description[:200]})" if ex.description else ""
+            desc_preview = f" ({ex.description})" if ex.description else ""
             system += f"- \"{ex.title}\"{desc_preview} → {tags_str}\n"
 
     user_parts = []
@@ -69,7 +69,7 @@ def build_tag_suggestion_messages(
     if description:
         user_parts.append(f"Description: {description}")
     if content_snippet:
-        user_parts.append(f"Content: {content_snippet}")
+        user_parts.append(f"Content: {content_snippet[:5000]}")
 
     user_msg = "\n".join(user_parts) if user_parts else "No context provided."
 
@@ -118,7 +118,7 @@ def build_metadata_suggestion_messages(
     if url:
         user_parts.append(f"URL: {url}")
     if content_snippet:
-        user_parts.append(f"Content: {content_snippet}")
+        user_parts.append(f"Content: {content_snippet[:5000]}")
 
     user_msg = "\n".join(user_parts) if user_parts else "No context provided."
 
@@ -172,14 +172,14 @@ def build_relationship_suggestion_messages(
     if source_description:
         source_parts.append(f"Description: {source_description}")
     if source_content_snippet:
-        source_parts.append(f"Content: {source_content_snippet[:500]}")
+        source_parts.append(f"Content: {source_content_snippet[:5000]}")
 
     source_str = "\n".join(source_parts) if source_parts else "No context provided."
 
     candidate_lines = []
     for i, c in enumerate(candidates, 1):
-        desc = c.description[:200] if c.description else ""
-        preview = c.content_preview[:200] if c.content_preview else ""
+        desc = c.description if c.description else ""
+        preview = c.content_preview[:1000] if c.content_preview else ""
         line = f"{i}. [{c.entity_type}] \"{c.title}\" (id: {c.entity_id})"
         if desc:
             line += f" — {desc}"

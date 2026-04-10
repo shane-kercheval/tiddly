@@ -121,8 +121,7 @@ async def suggest_tags(
             Each entry includes name and usage count. Rendered in the prompt as
             "python (47), flask (12), api (8)" format.
         few_shot_examples: Recent items for tagging style reference, up to 20 items.
-            Should be scoped to the same content_type by the caller. Descriptions
-            are truncated to 200 chars in the prompt.
+            Should be scoped to the same content_type by the caller.
         llm_service: LLM service instance for making completion calls.
         config: Resolved LLM config (model, key, key source).
 
@@ -258,12 +257,12 @@ async def suggest_relationships(
         title: Source item title.
         url: Source item URL.
         description: Source item description.
-        content_snippet: Source item content. Truncated to 500 chars in
+        content_snippet: Source item content. Truncated to 5000 chars in
             the prompt.
         candidates: Pre-searched, pre-deduped candidate items, up to 10.
             Each includes entity_id, entity_type, title, description, and
-            content_preview for prompt building. Descriptions and content
-            previews are truncated to 200 chars in the prompt.
+            content_preview for prompt building. Content previews are
+            truncated to 1000 chars in the prompt.
         llm_service: LLM service instance for making completion calls.
         config: Resolved LLM config (model, key, key source).
 
