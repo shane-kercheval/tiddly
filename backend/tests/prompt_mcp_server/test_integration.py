@@ -2,7 +2,6 @@
 
 from contextlib import asynccontextmanager
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -14,7 +13,6 @@ from prompt_mcp_server.auth import AuthenticationError, clear_current_token, get
 from prompt_mcp_server.main import AuthMiddleware, app, session_manager
 
 
-@pytest.mark.asyncio
 async def test__health_check__returns_healthy() -> None:
     """Test health check endpoint returns healthy status."""
     async with AsyncClient(
@@ -27,7 +25,6 @@ async def test__health_check__returns_healthy() -> None:
     assert response.json() == {"status": "healthy"}
 
 
-@pytest.mark.asyncio
 async def test__mcp_endpoint__exists() -> None:
     """Test that MCP endpoint is mounted and accepts requests without trailing slash."""
     # Use lifespan context to properly initialize the session manager
@@ -59,7 +56,6 @@ async def test__mcp_endpoint__exists() -> None:
             assert "result" in data
 
 
-@pytest.mark.asyncio
 async def test__auth_middleware__extracts_bearer_token_from_header() -> None:
     """
     Test that AuthMiddleware extracts Bearer token from Authorization header.
@@ -116,7 +112,6 @@ async def test__auth_middleware__extracts_bearer_token_from_header() -> None:
     assert len(captured_errors) == 2  # Two requests without valid Bearer token
 
 
-@pytest.mark.asyncio
 async def test__auth_middleware__clears_token_after_request() -> None:
     """
     Test that AuthMiddleware clears the token after request completes.

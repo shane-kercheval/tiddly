@@ -70,7 +70,6 @@ async def test_note(db_session: AsyncSession, test_user: User) -> Note:
 class TestHistoryServiceRecordAction:
     """Tests for HistoryService.record_action()."""
 
-    @pytest.mark.asyncio
     async def test__record_action__create_stores_snapshot(
         self,
         db_session: AsyncSession,
@@ -99,7 +98,6 @@ class TestHistoryServiceRecordAction:
         assert history.content_diff is None
         assert history.action == ActionType.CREATE.value
 
-    @pytest.mark.asyncio
     async def test__record_action__update_stores_diff(
         self,
         db_session: AsyncSession,
@@ -141,7 +139,6 @@ class TestHistoryServiceRecordAction:
         assert history.content_diff is not None
         assert history.action == ActionType.UPDATE.value
 
-    @pytest.mark.asyncio
     async def test__record_action__metadata_only_change(
         self,
         db_session: AsyncSession,
@@ -183,7 +180,6 @@ class TestHistoryServiceRecordAction:
         assert history.content_diff is None
         assert history.metadata_snapshot == {"title": "Updated Title", "tags": ["new-tag"]}
 
-    @pytest.mark.asyncio
     async def test__record_action__delete_stores_audit_record(
         self,
         db_session: AsyncSession,
@@ -227,7 +223,6 @@ class TestHistoryServiceRecordAction:
         assert history.action == ActionType.DELETE.value
         assert history.metadata_snapshot == metadata
 
-    @pytest.mark.asyncio
     async def test__record_action__periodic_snapshot_stores_both(
         self,
         db_session: AsyncSession,
@@ -273,7 +268,6 @@ class TestHistoryServiceRecordAction:
         assert history.content_snapshot == content_v10  # Full content
         assert history.content_diff is not None  # Also has diff for chain traversal
 
-    @pytest.mark.asyncio
     async def test__record_action__metadata_only_at_snapshot_interval(
         self,
         db_session: AsyncSession,
@@ -318,7 +312,6 @@ class TestHistoryServiceRecordAction:
         assert history.content_snapshot == content  # Snapshot for bounded reconstruction
         assert history.content_diff is None  # No content change
 
-    @pytest.mark.asyncio
     async def test__record_action__stores_request_context(
         self,
         db_session: AsyncSession,
@@ -344,7 +337,6 @@ class TestHistoryServiceRecordAction:
         assert history.auth_type == AuthType.PAT.value
         assert history.token_prefix == "bm_test1234567"
 
-    @pytest.mark.asyncio
     async def test__record_action__archive_stores_audit_record(
         self,
         db_session: AsyncSession,
@@ -392,7 +384,6 @@ class TestHistoryServiceRecordAction:
 class TestHistoryServiceDiffComputation:
     """Tests for diff computation and application."""
 
-    @pytest.mark.asyncio
     async def test__diff__simple_text_change_produces_valid_diff(
         self,
         db_session: AsyncSession,
@@ -438,7 +429,6 @@ class TestHistoryServiceDiffComputation:
         result, _ = dmp.patch_apply(patches, modified)
         assert result == original
 
-    @pytest.mark.asyncio
     async def test__diff__large_content_changes_work(
         self,
         db_session: AsyncSession,
@@ -485,7 +475,6 @@ class TestHistoryServiceDiffComputation:
         result, _ = dmp.patch_apply(patches, modified)
         assert result == original
 
-    @pytest.mark.asyncio
     async def test__diff__empty_content_handled_correctly(
         self,
         db_session: AsyncSession,
@@ -512,7 +501,6 @@ class TestHistoryServiceDiffComputation:
         assert history.content_snapshot == ""
         assert history.content_diff is None
 
-    @pytest.mark.asyncio
     async def test__diff__null_to_value_creates_diff_not_snapshot(
         self,
         db_session: AsyncSession,
@@ -564,7 +552,6 @@ class TestHistoryServiceDiffComputation:
         result, _ = dmp.patch_apply(patches, "1")
         assert result == ""  # Reverse diff from "1" to None/""
 
-    @pytest.mark.asyncio
     async def test__diff__unicode_content_handled_correctly(
         self,
         db_session: AsyncSession,
@@ -613,7 +600,6 @@ class TestHistoryServiceDiffComputation:
 class TestHistoryServiceReconstruction:
     """Tests for content reconstruction at specific versions."""
 
-    @pytest.mark.asyncio
     async def test__reconstruct__latest_version_returns_directly(
         self,
         db_session: AsyncSession,
@@ -647,7 +633,6 @@ class TestHistoryServiceReconstruction:
         assert result.content == test_note.content
         assert result.warnings is None
 
-    @pytest.mark.asyncio
     async def test__reconstruct__non_existent_version_returns_not_found(
         self,
         db_session: AsyncSession,
@@ -680,7 +665,6 @@ class TestHistoryServiceReconstruction:
         assert result.found is False
         assert result.content is None
 
-    @pytest.mark.asyncio
     async def test__reconstruct__invalid_version_returns_not_found(
         self,
         db_session: AsyncSession,
@@ -712,7 +696,6 @@ class TestHistoryServiceReconstruction:
 
         assert result.found is False
 
-    @pytest.mark.asyncio
     async def test__reconstruct__hard_deleted_entity_returns_not_found(
         self,
         db_session: AsyncSession,
@@ -732,7 +715,6 @@ class TestHistoryServiceReconstruction:
         assert result.found is False
         assert result.content is None
 
-    @pytest.mark.asyncio
     async def test__reconstruct__applies_reverse_diffs_correctly(
         self,
         db_session: AsyncSession,
@@ -801,7 +783,6 @@ class TestHistoryServiceReconstruction:
         assert result.found is True
         assert result.content == "Content v3"
 
-    @pytest.mark.asyncio
     async def test__reconstruct__through_metadata_snapshot(
         self,
         db_session: AsyncSession,
@@ -891,7 +872,6 @@ class TestHistoryServiceReconstruction:
 class TestReconstructionChainIntegrity:
     """[P0] End-to-end reconstruction chain integrity tests."""
 
-    @pytest.mark.asyncio
     async def test__reconstruction_chain__all_versions_reconstruct_correctly(
         self,
         db_session: AsyncSession,
@@ -985,7 +965,6 @@ class TestReconstructionChainIntegrity:
 class TestPeriodicSnapshotDualStorage:
     """[P0] Tests for periodic snapshot dual-storage traversal."""
 
-    @pytest.mark.asyncio
     async def test__periodic_snapshot__stores_both_snapshot_and_diff(
         self,
         db_session: AsyncSession,
@@ -1030,7 +1009,6 @@ class TestPeriodicSnapshotDualStorage:
 class TestDeleteVersionReconstruction:
     """[P0] DELETE produces audit record; surrounding versions still work."""
 
-    @pytest.mark.asyncio
     async def test__reconstruct__version_before_delete_still_works(
         self,
         db_session: AsyncSession,
@@ -1090,7 +1068,6 @@ class TestDeleteVersionReconstruction:
 class TestNearestSnapshotSelection:
     """[P1] Tests for nearest snapshot selection optimization."""
 
-    @pytest.mark.asyncio
     async def test__reconstruct__uses_nearest_snapshot(
         self,
         db_session: AsyncSession,
@@ -1148,7 +1125,6 @@ class TestNearestSnapshotSelection:
 class TestAuditRecordTraversal:
     """[P1] Tests for audit record behavior in reconstruction."""
 
-    @pytest.mark.asyncio
     async def test__reconstruct__audit_records_dont_affect_version_chain(
         self,
         db_session: AsyncSession,
@@ -1232,7 +1208,6 @@ class TestAuditRecordTraversal:
 class TestReconstructionAtSnapshot:
     """[P1] Tests for reconstruction starting AT a snapshot."""
 
-    @pytest.mark.asyncio
     async def test__reconstruct__at_periodic_snapshot_returns_directly(
         self,
         db_session: AsyncSession,
@@ -1280,7 +1255,6 @@ class TestReconstructionAtSnapshot:
 class TestEmptyDiffHandling:
     """[P2] Tests for empty diff vs None diff handling."""
 
-    @pytest.mark.asyncio
     async def test__reconstruct__empty_string_diff_behaves_like_none(
         self,
         db_session: AsyncSession,
@@ -1341,7 +1315,6 @@ class TestEmptyDiffHandling:
 class TestCorruptedDiffHandling:
     """Tests for corrupted diff handling (graceful degradation)."""
 
-    @pytest.mark.asyncio
     async def test__reconstruct__corrupted_diff_returns_warning_not_exception(
         self,
         db_session: AsyncSession,
@@ -1428,7 +1401,6 @@ class TestCorruptedDiffHandling:
         assert len(result.warnings) == 1
         assert "Corrupted diff at v3" in result.warnings[0]
 
-    @pytest.mark.asyncio
     async def test__reconstruct__continues_after_corrupted_diff(
         self,
         db_session: AsyncSession,
@@ -1543,7 +1515,6 @@ class TestCorruptedDiffHandling:
 class TestHistoryRetrieval:
     """Tests for history retrieval methods."""
 
-    @pytest.mark.asyncio
     async def test__get_entity_history__returns_records_and_count(
         self,
         db_session: AsyncSession,
@@ -1584,7 +1555,6 @@ class TestHistoryRetrieval:
         versions = [item.version for item in items]
         assert versions == [5, 4, 3, 2, 1]
 
-    @pytest.mark.asyncio
     async def test__get_entity_history__pagination_works(
         self,
         db_session: AsyncSession,
@@ -1642,7 +1612,6 @@ class TestHistoryRetrieval:
         assert len(items) == 3
         assert items[0].version == 7
 
-    @pytest.mark.asyncio
     async def test__get_user_history__returns_all_entity_types(
         self,
         db_session: AsyncSession,
@@ -1676,7 +1645,6 @@ class TestHistoryRetrieval:
         entity_types = {item.entity_type for item in items}
         assert entity_types == {"note", "bookmark", "prompt"}
 
-    @pytest.mark.asyncio
     async def test__get_user_history__filters_by_entity_type(
         self,
         db_session: AsyncSession,
@@ -1710,7 +1678,6 @@ class TestHistoryRetrieval:
         assert len(items) == 2
         assert all(item.entity_type == "note" for item in items)
 
-    @pytest.mark.asyncio
     async def test__get_history_at_version__returns_correct_record(
         self,
         db_session: AsyncSession,
@@ -1755,7 +1722,6 @@ class TestHistoryRetrieval:
 class TestDeleteEntityHistory:
     """Tests for delete_entity_history method."""
 
-    @pytest.mark.asyncio
     async def test__delete_entity_history__removes_all_records(
         self,
         db_session: AsyncSession,
@@ -1815,7 +1781,6 @@ class TestDeleteEntityHistory:
 class TestVersionNumbering:
     """Tests for version number allocation."""
 
-    @pytest.mark.asyncio
     async def test__version_numbers__increment_correctly(
         self,
         db_session: AsyncSession,
@@ -1846,7 +1811,6 @@ class TestVersionNumbering:
 
         assert versions == [1, 2, 3, 4, 5]
 
-    @pytest.mark.asyncio
     async def test__version_numbers__independent_per_entity(
         self,
         db_session: AsyncSession,
@@ -1894,7 +1858,6 @@ class TestVersionNumbering:
 class TestRaceConditionHandling:
     """Tests for race condition handling in version allocation."""
 
-    @pytest.mark.asyncio
     async def test__record_action__retries_on_version_uniqueness_violation(
         self,
         db_session: AsyncSession,
@@ -1938,7 +1901,6 @@ class TestRaceConditionHandling:
         assert history.version == 1
         assert call_count == 2  # First failed, second succeeded
 
-    @pytest.mark.asyncio
     async def test__record_action__raises_other_integrity_errors_immediately(
         self,
         db_session: AsyncSession,
@@ -1978,7 +1940,6 @@ class TestRaceConditionHandling:
         assert call_count == 1
         assert "fk_user_id" in str(exc_info.value)
 
-    @pytest.mark.asyncio
     async def test__record_action__raises_after_max_retries_exceeded(
         self,
         db_session: AsyncSession,
@@ -2022,7 +1983,6 @@ class TestRaceConditionHandling:
 class TestBoundaryConditions:
     """Tests for boundary conditions in content and metadata."""
 
-    @pytest.mark.asyncio
     async def test__diff__100kb_content_handled_correctly(
         self,
         db_session: AsyncSession,
@@ -2073,7 +2033,6 @@ class TestBoundaryConditions:
         assert all(success)
         assert result == original_100kb
 
-    @pytest.mark.asyncio
     async def test__metadata__long_tag_list_handled_correctly(
         self,
         db_session: AsyncSession,
@@ -2119,7 +2078,6 @@ class TestBoundaryConditions:
         assert retrieved is not None
         assert retrieved.metadata_snapshot["tags"] == tags
 
-    @pytest.mark.asyncio
     async def test__metadata__deeply_nested_structure_handled_correctly(
         self,
         db_session: AsyncSession,
@@ -2173,7 +2131,6 @@ class TestBoundaryConditions:
 class TestCountBasedPruning:
     """Tests for count-based history pruning."""
 
-    @pytest.mark.asyncio
     async def test__prune_to_limit__deletes_oldest_records(
         self,
         db_session: AsyncSession,
@@ -2236,7 +2193,6 @@ class TestCountBasedPruning:
         versions = sorted([item.version for item in items])
         assert versions == list(range(11, 21))
 
-    @pytest.mark.asyncio
     async def test__prune_to_limit__no_op_when_under_limit(
         self,
         db_session: AsyncSession,
@@ -2285,7 +2241,6 @@ class TestCountBasedPruning:
         )
         assert total == 5
 
-    @pytest.mark.asyncio
     async def test__record_action__triggers_pruning_at_interval(
         self,
         db_session: AsyncSession,
@@ -2363,7 +2318,6 @@ class TestCountBasedPruning:
         # Should have at most max_history_per_entity records
         assert total <= limits.max_history_per_entity
 
-    @pytest.mark.asyncio
     async def test__record_action__no_pruning_without_limits(
         self,
         db_session: AsyncSession,
@@ -2405,7 +2359,6 @@ class TestCountBasedPruning:
 class TestGetUserHistoryFilters:
     """Tests for get_user_history filter functionality."""
 
-    @pytest.mark.asyncio
     async def test__get_user_history__filter_by_single_entity_type(
         self,
         db_session: AsyncSession,
@@ -2452,7 +2405,6 @@ class TestGetUserHistoryFilters:
         assert total == 1
         assert items[0].entity_type == EntityType.NOTE.value
 
-    @pytest.mark.asyncio
     async def test__get_user_history__filter_by_multiple_entity_types(
         self,
         db_session: AsyncSession,
@@ -2510,7 +2462,6 @@ class TestGetUserHistoryFilters:
         entity_types = {item.entity_type for item in items}
         assert entity_types == {"note", "bookmark"}
 
-    @pytest.mark.asyncio
     async def test__get_user_history__filter_by_actions(
         self,
         db_session: AsyncSession,
@@ -2561,7 +2512,6 @@ class TestGetUserHistoryFilters:
         )
         assert total == 2
 
-    @pytest.mark.asyncio
     async def test__get_user_history__filter_by_sources(
         self,
         db_session: AsyncSession,
@@ -2617,7 +2567,6 @@ class TestGetUserHistoryFilters:
         assert total == 1
         assert items[0].source == "mcp-content"
 
-    @pytest.mark.asyncio
     async def test__get_user_history__filter_by_date_range(
         self,
         db_session: AsyncSession,
@@ -2675,7 +2624,6 @@ class TestGetUserHistoryFilters:
         )
         assert total == 0
 
-    @pytest.mark.asyncio
     async def test__get_user_history__combined_filters(
         self,
         db_session: AsyncSession,
@@ -2736,7 +2684,6 @@ class TestGetUserHistoryFilters:
         assert items[0].entity_type == "note"
         assert items[0].action == "update"
 
-    @pytest.mark.asyncio
     async def test__get_user_history__empty_filters_return_all(
         self,
         db_session: AsyncSession,
@@ -2772,7 +2719,6 @@ class TestGetUserHistoryFilters:
 class TestAuditActions:
     """Tests for audit action behavior (DELETE/UNDELETE/ARCHIVE/UNARCHIVE)."""
 
-    @pytest.mark.asyncio
     async def test__record_action__all_audit_actions_have_null_version(
         self,
         db_session: AsyncSession,
@@ -2820,7 +2766,6 @@ class TestAuditActions:
             assert history.content_snapshot is None, f"{action} should have no content"
             assert history.content_diff is None, f"{action} should have no diff"
 
-    @pytest.mark.asyncio
     async def test__record_action__audit_doesnt_affect_version_sequence(
         self,
         db_session: AsyncSession,
@@ -2873,7 +2818,6 @@ class TestAuditActions:
         )
         assert v2.version == 2
 
-    @pytest.mark.asyncio
     async def test__record_action__audit_skips_prune_check(
         self,
         db_session: AsyncSession,
@@ -2943,7 +2887,6 @@ class TestAuditActions:
         )
         assert history.version is None
 
-    @pytest.mark.asyncio
     async def test__record_action__audit_stores_identifying_metadata(
         self,
         db_session: AsyncSession,
@@ -2982,7 +2925,6 @@ class TestAuditActions:
 
         assert history.metadata_snapshot == audit_metadata
 
-    @pytest.mark.asyncio
     async def test__record_action__restore_stores_diff_and_increments_version(
         self,
         db_session: AsyncSession,
@@ -3036,7 +2978,6 @@ class TestAuditActions:
         assert history.action == ActionType.RESTORE.value
         assert history.content_diff is not None
 
-    @pytest.mark.asyncio
     async def test__get_latest_version__ignores_audit_events(
         self,
         db_session: AsyncSession,
@@ -3081,7 +3022,6 @@ class TestAuditActions:
         )
         assert latest == 1  # Not None or affected by DELETE audit
 
-    @pytest.mark.asyncio
     async def test__get_entity_history__orders_by_created_at(
         self,
         db_session: AsyncSession,
@@ -3145,7 +3085,6 @@ class TestAuditActions:
         assert items[1].action == ActionType.DELETE.value
         assert items[2].version == 1
 
-    @pytest.mark.asyncio
     async def test__get_entity_history_count__excludes_audit(
         self,
         db_session: AsyncSession,
@@ -3191,7 +3130,6 @@ class TestAuditActions:
         )
         assert count == 1  # Only v1, not the 3 audit events
 
-    @pytest.mark.asyncio
     async def test__prune_to_limit__excludes_audit_records(
         self,
         db_session: AsyncSession,
@@ -3265,7 +3203,6 @@ class TestAuditActions:
 class TestGetVersionDiff:
     """Tests for HistoryService.get_version_diff()."""
 
-    @pytest.mark.asyncio
     async def test__get_version_diff__basic_content_change(
         self,
         db_session: AsyncSession,
@@ -3321,7 +3258,6 @@ class TestGetVersionDiff:
         assert result.before_metadata == metadata
         assert result.warnings is None
 
-    @pytest.mark.asyncio
     async def test__get_version_diff__version_1_no_predecessor(
         self,
         db_session: AsyncSession,
@@ -3360,7 +3296,6 @@ class TestGetVersionDiff:
         assert result.before_metadata is None
         assert result.warnings is None
 
-    @pytest.mark.asyncio
     async def test__get_version_diff__metadata_only_change(
         self,
         db_session: AsyncSession,
@@ -3417,7 +3352,6 @@ class TestGetVersionDiff:
         assert result.after_metadata == metadata_v2
         assert result.before_metadata == metadata_v1
 
-    @pytest.mark.asyncio
     async def test__get_version_diff__content_and_metadata_change(
         self,
         db_session: AsyncSession,
@@ -3473,7 +3407,6 @@ class TestGetVersionDiff:
         assert result.after_metadata == metadata_v2
         assert result.before_metadata == metadata_v1
 
-    @pytest.mark.asyncio
     async def test__get_version_diff__pruned_predecessor(
         self,
         db_session: AsyncSession,
@@ -3556,7 +3489,6 @@ class TestGetVersionDiff:
         assert result.before_content == "Second"  # Derived from v3's diff, not v2's record
         assert result.before_metadata is None  # v2's record was pruned
 
-    @pytest.mark.asyncio
     async def test__get_version_diff__multiple_versions_sequential(
         self,
         db_session: AsyncSession,
@@ -3610,7 +3542,6 @@ class TestGetVersionDiff:
 
             prev_after = result.after_content
 
-    @pytest.mark.asyncio
     async def test__get_version_diff__version_not_found(
         self,
         db_session: AsyncSession,
@@ -3626,7 +3557,6 @@ class TestGetVersionDiff:
         )
         assert result.found is False
 
-    @pytest.mark.asyncio
     async def test__get_version_diff__corrupted_diff_returns_warning_not_error(
         self,
         db_session: AsyncSession,

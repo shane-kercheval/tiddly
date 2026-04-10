@@ -59,7 +59,6 @@ def headers_user_b() -> dict[str, str]:
 class TestAuthenticationEnforcement:
     """Verify authentication is required on protected endpoints."""
 
-    @pytest.mark.asyncio
     async def test__unauthenticated_request__returns_401(self) -> None:
         """Requests without authentication are rejected."""
         async with httpx.AsyncClient() as client:
@@ -68,7 +67,6 @@ class TestAuthenticationEnforcement:
         assert response.status_code == 401
         assert response.json()["detail"] == "Not authenticated"
 
-    @pytest.mark.asyncio
     async def test__invalid_token__returns_401(self) -> None:
         """Requests with invalid tokens are rejected."""
         async with httpx.AsyncClient() as client:
@@ -79,7 +77,6 @@ class TestAuthenticationEnforcement:
 
         assert response.status_code == 401
 
-    @pytest.mark.asyncio
     async def test__valid_token_user_a__returns_user(
         self,
         headers_user_a: dict[str, str],
@@ -94,7 +91,6 @@ class TestAuthenticationEnforcement:
         assert response.status_code == 200
         assert "id" in response.json()
 
-    @pytest.mark.asyncio
     async def test__valid_token_user_b__returns_user(
         self,
         headers_user_b: dict[str, str],
@@ -109,7 +105,6 @@ class TestAuthenticationEnforcement:
         assert response.status_code == 200
         assert "id" in response.json()
 
-    @pytest.mark.asyncio
     async def test__user_a_and_user_b__are_different_users(
         self,
         headers_user_a: dict[str, str],
@@ -137,7 +132,6 @@ class TestAuthenticationEnforcement:
 class TestBookmarkIDOR:
     """Verify users cannot access other users' bookmarks."""
 
-    @pytest.mark.asyncio
     async def test__cross_user_bookmark_access__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -207,7 +201,6 @@ class TestBookmarkIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_bookmark_update__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -258,7 +251,6 @@ class TestBookmarkIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_bookmark_delete__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -308,7 +300,6 @@ class TestBookmarkIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__bookmark_list__excludes_other_users_data(
         self,
         headers_user_a: dict[str, str],
@@ -358,7 +349,6 @@ class TestBookmarkIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_bookmark_str_replace__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -419,7 +409,6 @@ class TestNoteIDOR:
     OWASP Reference: A01:2021 - Broken Access Control
     """
 
-    @pytest.mark.asyncio
     async def test__cross_user_note_str_replace__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -476,7 +465,6 @@ class TestPromptIDOR:
     OWASP Reference: A01:2021 - Broken Access Control
     """
 
-    @pytest.mark.asyncio
     async def test__cross_user_prompt_access_by_id__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -546,7 +534,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_prompt_access_by_name__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -592,7 +579,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_prompt_update__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -643,7 +629,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_prompt_str_replace__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -694,7 +679,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_prompt_delete__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -744,7 +728,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_prompt_archive__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -794,7 +777,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_prompt_unarchive__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -851,7 +833,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_prompt_restore__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -901,7 +882,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_prompt_track_usage__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -944,7 +924,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__prompt_list__excludes_other_users_data(
         self,
         headers_user_a: dict[str, str],
@@ -1006,7 +985,6 @@ class TestPromptIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__prompt_name_isolation__users_can_have_same_name(
         self,
         headers_user_a: dict[str, str],
@@ -1096,7 +1074,6 @@ class TestPromptIDOR:
 class TestPromptRaceConditions:
     """Test for race condition vulnerabilities in prompts."""
 
-    @pytest.mark.asyncio
     async def test__concurrent_prompt_creation__no_duplicates(
         self,
         headers_user_a: dict[str, str],
@@ -1164,7 +1141,6 @@ class TestPromptRaceConditions:
 class TestPromptAuthentication:
     """Verify authentication is required on prompt endpoints."""
 
-    @pytest.mark.asyncio
     async def test__unauthenticated_prompt_list__returns_401(self) -> None:
         """Prompt list requires authentication."""
         async with httpx.AsyncClient() as client:
@@ -1173,7 +1149,6 @@ class TestPromptAuthentication:
         assert response.status_code == 401
         assert response.json()["detail"] == "Not authenticated"
 
-    @pytest.mark.asyncio
     async def test__unauthenticated_prompt_create__returns_401(self) -> None:
         """Prompt creation requires authentication."""
         async with httpx.AsyncClient() as client:
@@ -1184,7 +1159,6 @@ class TestPromptAuthentication:
 
         assert response.status_code == 401
 
-    @pytest.mark.asyncio
     async def test__unauthenticated_prompt_get__returns_401(self) -> None:
         """Getting a prompt requires authentication."""
         async with httpx.AsyncClient() as client:
@@ -1192,7 +1166,6 @@ class TestPromptAuthentication:
 
         assert response.status_code == 401
 
-    @pytest.mark.asyncio
     async def test__unauthenticated_prompt_get_by_name__returns_401(self) -> None:
         """Getting a prompt by name requires authentication."""
         async with httpx.AsyncClient() as client:
@@ -1204,7 +1177,6 @@ class TestPromptAuthentication:
 class TestCORSProtection:
     """Verify CORS is properly configured."""
 
-    @pytest.mark.asyncio
     async def test__malicious_origin__is_rejected(self) -> None:
         """Requests from unauthorized origins are rejected."""
         async with httpx.AsyncClient() as client:
@@ -1231,7 +1203,6 @@ class TestCORSProtection:
 class TestRaceConditions:
     """Test for race condition vulnerabilities."""
 
-    @pytest.mark.asyncio
     async def test__concurrent_bookmark_creation__no_duplicates(
         self,
         headers_user_a: dict[str, str],
@@ -1281,7 +1252,6 @@ class TestRaceConditions:
 class TestConsentEnforcement:
     """Verify consent enforcement is working in production."""
 
-    @pytest.mark.asyncio
     async def test__consent_status__returns_valid_structure(
         self,
         headers_user_a: dict[str, str],
@@ -1305,7 +1275,6 @@ class TestConsentEnforcement:
             "Test user hasn't consented - protected endpoint tests may fail with 451"
         )
 
-    @pytest.mark.asyncio
     async def test__authenticated_user_with_consent__not_blocked(
         self,
         headers_user_a: dict[str, str],
@@ -1323,7 +1292,6 @@ class TestConsentEnforcement:
         )
         assert response.status_code == 200
 
-    @pytest.mark.asyncio
     async def test__consent_can_be_updated(
         self,
         headers_user_a: dict[str, str],
@@ -1353,7 +1321,6 @@ class TestConsentEnforcement:
             assert data["privacy_policy_version"] == current_versions["current_privacy_version"]
             assert data["terms_of_service_version"] == current_versions["current_terms_version"]
 
-    @pytest.mark.asyncio
     async def test__unauthenticated_consent_status__returns_401(self) -> None:
         """Consent status requires authentication."""
         async with httpx.AsyncClient() as client:
@@ -1372,7 +1339,6 @@ class TestPATRestrictedEndpoints:
     Rate limiting provides the additional layer to cap any abuse.
     """
 
-    @pytest.mark.asyncio
     async def test__fetch_metadata__rejects_pat(
         self,
         headers_user_a: dict[str, str],
@@ -1395,7 +1361,6 @@ class TestPATRestrictedEndpoints:
         )
         assert "not available for API tokens" in response.json()["detail"]
 
-    @pytest.mark.asyncio
     async def test__tokens_create__rejects_pat(
         self,
         headers_user_a: dict[str, str],
@@ -1414,7 +1379,6 @@ class TestPATRestrictedEndpoints:
         )
         assert "not available for API tokens" in response.json()["detail"]
 
-    @pytest.mark.asyncio
     async def test__tokens_list__rejects_pat(
         self,
         headers_user_a: dict[str, str],
@@ -1432,7 +1396,6 @@ class TestPATRestrictedEndpoints:
         )
         assert "not available for API tokens" in response.json()["detail"]
 
-    @pytest.mark.asyncio
     async def test__tokens_delete__rejects_pat(
         self,
         headers_user_a: dict[str, str],
@@ -1451,7 +1414,6 @@ class TestPATRestrictedEndpoints:
         )
         assert "not available for API tokens" in response.json()["detail"]
 
-    @pytest.mark.asyncio
     async def test__settings_sidebar_get__rejects_pat(
         self,
         headers_user_a: dict[str, str],
@@ -1469,7 +1431,6 @@ class TestPATRestrictedEndpoints:
         )
         assert "not available for API tokens" in response.json()["detail"]
 
-    @pytest.mark.asyncio
     async def test__settings_sidebar_update__rejects_pat(
         self,
         headers_user_a: dict[str, str],
@@ -1498,7 +1459,6 @@ class TestHistoryIDOR:
     OWASP Reference: A01:2021 - Broken Access Control
     """
 
-    @pytest.mark.asyncio
     async def test__cross_user_entity_history__returns_empty(
         self,
         headers_user_a: dict[str, str],
@@ -1550,7 +1510,6 @@ class TestHistoryIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_version_diff__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -1600,7 +1559,6 @@ class TestHistoryIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_content_at_version__returns_404(
         self,
         headers_user_a: dict[str, str],
@@ -1651,7 +1609,6 @@ class TestHistoryIDOR:
                     params={"permanent": "true"},
                 )
 
-    @pytest.mark.asyncio
     async def test__cross_user_restore__returns_404(
         self,
         headers_user_a: dict[str, str],

@@ -45,7 +45,6 @@ async def test_note(db_session: AsyncSession, test_user: User) -> Note:
 class TestContentRelationshipModel:
     """Tests for ContentRelationship model creation and constraints."""
 
-    @pytest.mark.asyncio
     async def test__create__basic_relationship(
         self,
         db_session: AsyncSession,
@@ -78,7 +77,6 @@ class TestContentRelationshipModel:
         assert rel.created_at is not None
         assert rel.updated_at is not None
 
-    @pytest.mark.asyncio
     async def test__create__without_description(
         self,
         db_session: AsyncSession,
@@ -101,7 +99,6 @@ class TestContentRelationshipModel:
 
         assert rel.description is None
 
-    @pytest.mark.asyncio
     async def test__constraint__self_reference_rejected(
         self,
         db_session: AsyncSession,
@@ -121,7 +118,6 @@ class TestContentRelationshipModel:
         with pytest.raises(IntegrityError, match='ck_no_self_reference'):
             await db_session.flush()
 
-    @pytest.mark.asyncio
     async def test__constraint__invalid_source_type_rejected(
         self,
         db_session: AsyncSession,
@@ -140,7 +136,6 @@ class TestContentRelationshipModel:
         with pytest.raises(IntegrityError, match='ck_source_type'):
             await db_session.flush()
 
-    @pytest.mark.asyncio
     async def test__constraint__invalid_target_type_rejected(
         self,
         db_session: AsyncSession,
@@ -159,7 +154,6 @@ class TestContentRelationshipModel:
         with pytest.raises(IntegrityError, match='ck_target_type'):
             await db_session.flush()
 
-    @pytest.mark.asyncio
     async def test__constraint__invalid_relationship_type_rejected(
         self,
         db_session: AsyncSession,
@@ -178,7 +172,6 @@ class TestContentRelationshipModel:
         with pytest.raises(IntegrityError, match='ck_relationship_type'):
             await db_session.flush()
 
-    @pytest.mark.asyncio
     async def test__constraint__duplicate_rejected(
         self,
         db_session: AsyncSession,
@@ -210,7 +203,6 @@ class TestContentRelationshipModel:
         with pytest.raises(IntegrityError, match='uq_content_relationship'):
             await db_session.flush()
 
-    @pytest.mark.asyncio
     async def test__constraint__same_type_different_ids_allowed(
         self,
         db_session: AsyncSession,
@@ -236,7 +228,6 @@ class TestContentRelationshipModel:
 
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__constraint__user_cascade_delete(
         self,
         db_session: AsyncSession,
@@ -266,7 +257,6 @@ class TestContentRelationshipModel:
         result = await db_session.get(ContentRelationship, rel_id)
         assert result is None
 
-    @pytest.mark.asyncio
     async def test__constraint__cross_user_isolation(
         self,
         db_session: AsyncSession,

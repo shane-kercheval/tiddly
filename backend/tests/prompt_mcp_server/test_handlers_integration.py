@@ -109,7 +109,6 @@ def setup_auth_token() -> None: # type: ignore
 # --- Integration Tests ---
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__returns_real_prompts(
     mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
     test_prompt: dict[str, Any],
@@ -122,7 +121,6 @@ async def test__list_prompts__returns_real_prompts(
     assert test_prompt["name"] in prompt_names
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__includes_arguments_from_db(
     mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
     test_prompt: dict[str, Any],  # noqa: ARG001 - creates test data
@@ -144,7 +142,6 @@ async def test__list_prompts__includes_arguments_from_db(
     assert "place" in arg_names
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__renders_template_from_db(
     mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
     test_prompt: dict[str, Any],  # noqa: ARG001 - creates test data
@@ -162,7 +159,6 @@ async def test__get_prompt__renders_template_from_db(
     assert "Welcome to Wonderland" in result.messages[0].content.text
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__optional_argument_works(
     mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
     test_prompt: dict[str, Any],  # noqa: ARG001 - creates test data
@@ -176,7 +172,6 @@ async def test__get_prompt__optional_argument_works(
     assert "Hello, Bob!" in result.messages[0].content.text
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__creates_in_db(
     mcp_integration_client: AsyncClient,
 ) -> None:
@@ -203,7 +198,6 @@ async def test__create_prompt_tool__creates_in_db(
     assert data["title"] == "Integration Test"
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__duplicate_name_error(
     mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
     test_prompt: dict[str, Any],
@@ -218,7 +212,6 @@ async def test__create_prompt_tool__duplicate_name_error(
     assert "already exists" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__not_found_error(
     mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
 ) -> None:
@@ -229,7 +222,6 @@ async def test__get_prompt__not_found_error(
     assert "not found" in str(exc_info.value).lower()
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__pagination_with_real_data(
     mcp_integration_client: AsyncClient,
 ) -> None:
@@ -250,7 +242,6 @@ async def test__list_prompts__pagination_with_real_data(
         assert f"pagination-test-{i}" in prompt_names
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__tracks_usage_in_db(
     mcp_integration_client: AsyncClient,
     test_prompt: dict[str, Any],
@@ -273,7 +264,6 @@ async def test__get_prompt__tracks_usage_in_db(
     assert data.get("last_used_at") is not None
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__excludes_archived_prompts(
     mcp_integration_client: AsyncClient,
 ) -> None:
@@ -301,7 +291,6 @@ async def test__list_prompts__excludes_archived_prompts(
     assert "archived-test-prompt" not in prompt_names
 
 
-@pytest.mark.asyncio
 async def test__search_prompts__excludes_archived_prompts(
     mcp_integration_client: AsyncClient,
 ) -> None:
@@ -335,7 +324,6 @@ async def test__search_prompts__excludes_archived_prompts(
     assert "searchable-archived-prompt" not in prompt_names
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_metadata__returns_tags(
     mcp_integration_client: AsyncClient,  # noqa: ARG001 - triggers fixture
     test_prompt: dict[str, Any],

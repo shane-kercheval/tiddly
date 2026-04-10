@@ -77,7 +77,6 @@ class TestBookmarkHistoryIntegration:
     def context(self) -> RequestContext:
         return make_context()
 
-    @pytest.mark.asyncio
     async def test__create__records_history(
         self,
         db_session: AsyncSession,
@@ -111,7 +110,6 @@ class TestBookmarkHistoryIntegration:
         assert record.source == "web"
         assert record.auth_type == AuthType.AUTH0.value
 
-    @pytest.mark.asyncio
     async def test__update__records_history_on_content_change(
         self,
         db_session: AsyncSession,
@@ -141,7 +139,6 @@ class TestBookmarkHistoryIntegration:
         assert update_record.content_snapshot is None
         assert update_record.content_diff is not None  # Reverse diff stored
 
-    @pytest.mark.asyncio
     async def test__update__records_history_on_metadata_change(
         self,
         db_session: AsyncSession,
@@ -170,7 +167,6 @@ class TestBookmarkHistoryIntegration:
         assert update_record.action == ActionType.UPDATE.value
         assert update_record.metadata_snapshot["title"] == "New Title"
 
-    @pytest.mark.asyncio
     async def test__update__skips_history_on_no_change(
         self,
         db_session: AsyncSession,
@@ -198,7 +194,6 @@ class TestBookmarkHistoryIntegration:
         assert len(history) == 1
         assert history[0].action == ActionType.CREATE.value
 
-    @pytest.mark.asyncio
     async def test__delete__records_history(
         self,
         db_session: AsyncSession,
@@ -228,7 +223,6 @@ class TestBookmarkHistoryIntegration:
         assert delete_record.content_diff is None
         assert "url" in delete_record.metadata_snapshot
 
-    @pytest.mark.asyncio
     async def test__hard_delete__cascades_history(
         self,
         db_session: AsyncSession,
@@ -254,7 +248,6 @@ class TestBookmarkHistoryIntegration:
         history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
         assert len(history) == 0
 
-    @pytest.mark.asyncio
     async def test__restore__records_history(
         self,
         db_session: AsyncSession,
@@ -277,7 +270,6 @@ class TestBookmarkHistoryIntegration:
         assert restore_record.action == ActionType.UNDELETE.value
         assert restore_record.version is None
 
-    @pytest.mark.asyncio
     async def test__archive__records_history(
         self,
         db_session: AsyncSession,
@@ -298,7 +290,6 @@ class TestBookmarkHistoryIntegration:
         assert archive_record.action == ActionType.ARCHIVE.value
         assert archive_record.version is None
 
-    @pytest.mark.asyncio
     async def test__archive__idempotent_no_duplicate_history(
         self,
         db_session: AsyncSession,
@@ -318,7 +309,6 @@ class TestBookmarkHistoryIntegration:
         # Only CREATE + one ARCHIVE
         assert len(history) == 2
 
-    @pytest.mark.asyncio
     async def test__unarchive__records_history(
         self,
         db_session: AsyncSession,
@@ -344,7 +334,6 @@ class TestBookmarkHistoryIntegration:
 class TestContextPropagation:
     """Tests for request context propagation to history records."""
 
-    @pytest.mark.asyncio
     async def test__context_web_auth0(
         self,
         db_session: AsyncSession,
@@ -364,7 +353,6 @@ class TestContextPropagation:
         assert history[0].auth_type == "auth0"
         assert history[0].token_prefix is None
 
-    @pytest.mark.asyncio
     async def test__context_api_pat(
         self,
         db_session: AsyncSession,
@@ -388,7 +376,6 @@ class TestContextPropagation:
         assert history[0].auth_type == "pat"
         assert history[0].token_prefix == "bm_test123..."
 
-    @pytest.mark.asyncio
     async def test__context_mcp_content(
         self,
         db_session: AsyncSession,
@@ -426,7 +413,6 @@ class TestNoteHistoryIntegration:
     def context(self) -> RequestContext:
         return make_context()
 
-    @pytest.mark.asyncio
     async def test__create__records_history(
         self,
         db_session: AsyncSession,
@@ -458,7 +444,6 @@ class TestNoteHistoryIntegration:
         assert record.source == "web"
         assert record.auth_type == AuthType.AUTH0.value
 
-    @pytest.mark.asyncio
     async def test__update__records_history_on_content_change(
         self,
         db_session: AsyncSession,
@@ -483,7 +468,6 @@ class TestNoteHistoryIntegration:
         assert update_record.content_snapshot is None
         assert update_record.content_diff is not None
 
-    @pytest.mark.asyncio
     async def test__update__records_history_on_metadata_change(
         self,
         db_session: AsyncSession,
@@ -506,7 +490,6 @@ class TestNoteHistoryIntegration:
         assert update_record.action == ActionType.UPDATE.value
         assert update_record.metadata_snapshot["title"] == "New Title"
 
-    @pytest.mark.asyncio
     async def test__update__skips_history_on_no_change(
         self,
         db_session: AsyncSession,
@@ -527,7 +510,6 @@ class TestNoteHistoryIntegration:
         assert len(history) == 1
         assert history[0].action == ActionType.CREATE.value
 
-    @pytest.mark.asyncio
     async def test__delete__records_history(
         self,
         db_session: AsyncSession,
@@ -552,7 +534,6 @@ class TestNoteHistoryIntegration:
         assert delete_record.content_diff is None
         assert "title" in delete_record.metadata_snapshot
 
-    @pytest.mark.asyncio
     async def test__hard_delete__cascades_history(
         self,
         db_session: AsyncSession,
@@ -574,7 +555,6 @@ class TestNoteHistoryIntegration:
         history = await get_entity_history(db_session, test_user.id, EntityType.NOTE, note.id)
         assert len(history) == 0
 
-    @pytest.mark.asyncio
     async def test__restore__records_history(
         self,
         db_session: AsyncSession,
@@ -596,7 +576,6 @@ class TestNoteHistoryIntegration:
         assert restore_record.action == ActionType.UNDELETE.value
         assert restore_record.version is None
 
-    @pytest.mark.asyncio
     async def test__archive__records_history(
         self,
         db_session: AsyncSession,
@@ -617,7 +596,6 @@ class TestNoteHistoryIntegration:
         assert archive_record.action == ActionType.ARCHIVE.value
         assert archive_record.version is None
 
-    @pytest.mark.asyncio
     async def test__archive__idempotent_no_duplicate_history(
         self,
         db_session: AsyncSession,
@@ -636,7 +614,6 @@ class TestNoteHistoryIntegration:
 
         assert len(history) == 2
 
-    @pytest.mark.asyncio
     async def test__unarchive__records_history(
         self,
         db_session: AsyncSession,
@@ -674,7 +651,6 @@ class TestPromptHistoryIntegration:
     def context(self) -> RequestContext:
         return make_context()
 
-    @pytest.mark.asyncio
     async def test__create__records_history_with_arguments(
         self,
         db_session: AsyncSession,
@@ -703,7 +679,6 @@ class TestPromptHistoryIntegration:
             {"name": "name", "description": "User name", "required": None},
         ]
 
-    @pytest.mark.asyncio
     async def test__update__records_history_on_content_change(
         self,
         db_session: AsyncSession,
@@ -728,7 +703,6 @@ class TestPromptHistoryIntegration:
         assert update_record.content_snapshot is None
         assert update_record.content_diff is not None
 
-    @pytest.mark.asyncio
     async def test__update__records_history_on_metadata_change(
         self,
         db_session: AsyncSession,
@@ -755,7 +729,6 @@ class TestPromptHistoryIntegration:
         assert update_record.action == ActionType.UPDATE.value
         assert update_record.metadata_snapshot["title"] == "New Title"
 
-    @pytest.mark.asyncio
     async def test__update__skips_history_on_no_change(
         self,
         db_session: AsyncSession,
@@ -776,7 +749,6 @@ class TestPromptHistoryIntegration:
         assert len(history) == 1
         assert history[0].action == ActionType.CREATE.value
 
-    @pytest.mark.asyncio
     async def test__delete__records_history(
         self,
         db_session: AsyncSession,
@@ -801,7 +773,6 @@ class TestPromptHistoryIntegration:
         assert delete_record.content_diff is None
         assert "name" in delete_record.metadata_snapshot
 
-    @pytest.mark.asyncio
     async def test__hard_delete__cascades_history(
         self,
         db_session: AsyncSession,
@@ -823,7 +794,6 @@ class TestPromptHistoryIntegration:
         history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
         assert len(history) == 0
 
-    @pytest.mark.asyncio
     async def test__restore__records_history(
         self,
         db_session: AsyncSession,
@@ -845,7 +815,6 @@ class TestPromptHistoryIntegration:
         assert restore_record.action == ActionType.UNDELETE.value
         assert restore_record.version is None
 
-    @pytest.mark.asyncio
     async def test__archive__records_history(
         self,
         db_session: AsyncSession,
@@ -866,7 +835,6 @@ class TestPromptHistoryIntegration:
         assert archive_record.action == ActionType.ARCHIVE.value
         assert archive_record.version is None
 
-    @pytest.mark.asyncio
     async def test__archive__idempotent_no_duplicate_history(
         self,
         db_session: AsyncSession,
@@ -885,7 +853,6 @@ class TestPromptHistoryIntegration:
 
         assert len(history) == 2
 
-    @pytest.mark.asyncio
     async def test__unarchive__records_history(
         self,
         db_session: AsyncSession,
@@ -911,7 +878,6 @@ class TestPromptHistoryIntegration:
 class TestTransactionRollbackSafety:
     """P0 test: Verify history survives transaction rollback scenarios."""
 
-    @pytest.mark.asyncio
     async def test__service_error_after_history__history_rolled_back(
         self,
         db_session: AsyncSession,
@@ -945,7 +911,6 @@ class TestTransactionRollbackSafety:
 class TestHistoryWithoutContext:
     """Tests for operations without context (history skipped)."""
 
-    @pytest.mark.asyncio
     async def test__create_without_context__no_history(
         self,
         db_session: AsyncSession,
@@ -962,7 +927,6 @@ class TestHistoryWithoutContext:
 
         assert len(history) == 0
 
-    @pytest.mark.asyncio
     async def test__update_without_context__no_history(
         self,
         db_session: AsyncSession,
@@ -991,7 +955,6 @@ class TestHistoryWithoutContext:
 class TestRestoreUrlConflict:
     """Tests for history behavior when restore fails due to URL conflict."""
 
-    @pytest.mark.asyncio
     async def test__restore__url_conflict_does_not_record_history(
         self,
         db_session: AsyncSession,
@@ -1045,7 +1008,6 @@ class TestStrReplaceHistory:
         assert response.status_code == 200
         return UUID(response.json()["id"])
 
-    @pytest.mark.asyncio
     async def test__str_replace_bookmark__records_history(
         self,
         client: AsyncClient,
@@ -1081,7 +1043,6 @@ class TestStrReplaceHistory:
         # Source is recorded (actual value depends on test client headers)
         assert update_record.source is not None
 
-    @pytest.mark.asyncio
     async def test__str_replace_note__records_history(
         self,
         client: AsyncClient,
@@ -1115,7 +1076,6 @@ class TestStrReplaceHistory:
         assert update_record.action == ActionType.UPDATE.value
         assert update_record.content_diff is not None
 
-    @pytest.mark.asyncio
     async def test__str_replace_prompt__records_history(
         self,
         client: AsyncClient,
@@ -1156,7 +1116,6 @@ class TestStrReplaceHistory:
         assert update_record.action == ActionType.UPDATE.value
         assert update_record.content_diff is not None
 
-    @pytest.mark.asyncio
     async def test__str_replace__history_has_correct_content(
         self,
         client: AsyncClient,
@@ -1193,7 +1152,6 @@ class TestStrReplaceHistory:
         result, _ = dmp.patch_apply(patches, new_content)
         assert result == "First line\nSecond line\nThird line"  # Original content
 
-    @pytest.mark.asyncio
     async def test__str_replace_noop__no_history_recorded(
         self,
         client: AsyncClient,
@@ -1225,7 +1183,6 @@ class TestStrReplaceHistory:
         assert len(history) == 1
         assert history[0].action == ActionType.CREATE.value
 
-    @pytest.mark.asyncio
     async def test__str_replace__triggers_count_based_pruning(
         self,
         client: AsyncClient,
@@ -1326,7 +1283,6 @@ class TestStrReplaceHistory:
 class TestAuditMetadata:
     """Tests for _get_audit_metadata returning only identifying fields."""
 
-    @pytest.mark.asyncio
     async def test__get_audit_metadata__bookmark(
         self,
         db_session: AsyncSession,
@@ -1354,7 +1310,6 @@ class TestAuditMetadata:
             "url": "https://audit-meta.com/",  # URL normalized
         }
 
-    @pytest.mark.asyncio
     async def test__get_audit_metadata__bookmark_no_title(
         self,
         db_session: AsyncSession,
@@ -1376,7 +1331,6 @@ class TestAuditMetadata:
             "url": "https://no-title-audit.com/",
         }
 
-    @pytest.mark.asyncio
     async def test__get_audit_metadata__note(
         self,
         db_session: AsyncSession,
@@ -1396,7 +1350,6 @@ class TestAuditMetadata:
 
         assert archive_record.metadata_snapshot == {"title": "Note Audit Test"}
 
-    @pytest.mark.asyncio
     async def test__get_audit_metadata__prompt_with_title(
         self,
         db_session: AsyncSession,
@@ -1423,7 +1376,6 @@ class TestAuditMetadata:
             "name": "audit-prompt",
         }
 
-    @pytest.mark.asyncio
     async def test__get_audit_metadata__prompt_without_title(
         self,
         db_session: AsyncSession,
@@ -1447,7 +1399,6 @@ class TestAuditMetadata:
 class TestUpdateActionParameter:
     """Tests for the action parameter on update methods."""
 
-    @pytest.mark.asyncio
     async def test__update_with_restore_action__records_restore(
         self,
         db_session: AsyncSession,
@@ -1473,7 +1424,6 @@ class TestUpdateActionParameter:
         assert restore_record.action == ActionType.RESTORE.value
         assert restore_record.version == 2  # Content version, not audit
 
-    @pytest.mark.asyncio
     async def test__update_default_action__records_update(
         self,
         db_session: AsyncSession,
@@ -1513,7 +1463,6 @@ class TestRelationshipHistoryIntegration:
     def context(self) -> RequestContext:
         return make_context()
 
-    @pytest.mark.asyncio
     async def test__create_bookmark_with_relationships__snapshot_includes_relationships(
         self,
         db_session: AsyncSession,
@@ -1551,7 +1500,6 @@ class TestRelationshipHistoryIntegration:
         assert metadata['relationships'][0]['target_type'] == 'note'
         assert metadata['relationships'][0]['target_id'] == str(note.id)
 
-    @pytest.mark.asyncio
     async def test__update_bookmark_add_relationship__records_history(
         self,
         db_session: AsyncSession,
@@ -1590,7 +1538,6 @@ class TestRelationshipHistoryIntegration:
         assert update_record.version == 2
         assert len(update_record.metadata_snapshot['relationships']) == 1
 
-    @pytest.mark.asyncio
     async def test__update_bookmark_remove_relationship__records_history(
         self,
         db_session: AsyncSession,
@@ -1628,7 +1575,6 @@ class TestRelationshipHistoryIntegration:
         update_record = history[1]
         assert update_record.metadata_snapshot['relationships'] == []
 
-    @pytest.mark.asyncio
     async def test__update_with_relationships_none__no_change(
         self,
         db_session: AsyncSession,
@@ -1669,7 +1615,6 @@ class TestRelationshipHistoryIntegration:
         # Relationships unchanged
         assert len(history[1].metadata_snapshot['relationships']) == 1
 
-    @pytest.mark.asyncio
     async def test__create_note_with_relationships__snapshot_includes_relationships(
         self,
         db_session: AsyncSession,
@@ -1703,7 +1648,6 @@ class TestRelationshipHistoryIntegration:
         assert len(history[0].metadata_snapshot['relationships']) == 1
         assert history[0].metadata_snapshot['relationships'][0]['target_type'] == 'bookmark'
 
-    @pytest.mark.asyncio
     async def test__create_prompt_with_relationships__snapshot_includes_relationships(
         self,
         db_session: AsyncSession,

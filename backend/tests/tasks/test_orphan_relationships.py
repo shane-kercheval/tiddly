@@ -63,7 +63,6 @@ class TestFindOrphanedRelationships:
         await db_session.refresh(user)
         return user
 
-    @pytest.mark.asyncio
     async def test__no_orphans__returns_empty(
         self,
         db_session: AsyncSession,
@@ -88,7 +87,6 @@ class TestFindOrphanedRelationships:
 
         assert len(orphans) == 0
 
-    @pytest.mark.asyncio
     async def test__source_entity_missing__detected(
         self,
         db_session: AsyncSession,
@@ -114,7 +112,6 @@ class TestFindOrphanedRelationships:
         assert len(orphans) == 1
         assert orphans[0].id == rel.id
 
-    @pytest.mark.asyncio
     async def test__target_entity_missing__detected(
         self,
         db_session: AsyncSession,
@@ -140,7 +137,6 @@ class TestFindOrphanedRelationships:
         assert len(orphans) == 1
         assert orphans[0].id == rel.id
 
-    @pytest.mark.asyncio
     async def test__both_endpoints_missing__detected_once(
         self,
         db_session: AsyncSession,
@@ -162,7 +158,6 @@ class TestFindOrphanedRelationships:
         assert len(orphans) == 1
         assert orphans[0].id == rel.id
 
-    @pytest.mark.asyncio
     async def test__soft_deleted_entity__not_orphaned(
         self,
         db_session: AsyncSession,
@@ -206,7 +201,6 @@ class TestCleanupOrphanedRelationships:
         await db_session.refresh(user)
         return user
 
-    @pytest.mark.asyncio
     async def test__report_mode__does_not_delete(
         self,
         db_session: AsyncSession,
@@ -228,7 +222,6 @@ class TestCleanupOrphanedRelationships:
         assert stats.total_deleted == 0
         assert await count_relationships(db_session, user.id) == 1
 
-    @pytest.mark.asyncio
     async def test__delete_mode__source_orphan__removed(
         self,
         db_session: AsyncSession,
@@ -255,7 +248,6 @@ class TestCleanupOrphanedRelationships:
         assert stats.total_deleted == 1
         assert await count_relationships(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__delete_mode__target_orphan__removed(
         self,
         db_session: AsyncSession,
@@ -282,7 +274,6 @@ class TestCleanupOrphanedRelationships:
         assert stats.total_deleted == 1
         assert await count_relationships(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__delete_mode__both_sides_missing__deleted_once(
         self,
         db_session: AsyncSession,
@@ -311,7 +302,6 @@ class TestCleanupOrphanedRelationships:
         assert stats.orphaned_target == 0
         assert await count_relationships(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__mixed_valid_and_orphaned__only_orphans_deleted(
         self,
         db_session: AsyncSession,
@@ -354,7 +344,6 @@ class TestCleanupOrphanedRelationships:
         remaining = result.scalar_one()
         assert remaining.id == valid_rel.id
 
-    @pytest.mark.asyncio
     async def test__idempotent__second_run_finds_nothing(
         self,
         db_session: AsyncSession,
@@ -379,7 +368,6 @@ class TestCleanupOrphanedRelationships:
         assert second.orphaned_target == 0
         assert second.by_content_type == {}
 
-    @pytest.mark.asyncio
     async def test__stats_breakdown_by_content_type(
         self,
         db_session: AsyncSession,
@@ -424,7 +412,6 @@ class TestCleanupOrphanedRelationships:
         assert stats.orphaned_source == 2  # bookmark + prompt sources
         assert stats.orphaned_target == 1  # prompt target
 
-    @pytest.mark.asyncio
     async def test__all_three_entity_types__delete_mode(
         self,
         db_session: AsyncSession,
@@ -475,7 +462,6 @@ class TestCleanupOrphanedRelationships:
         assert "note" in stats.by_content_type
         assert "prompt" in stats.by_content_type
 
-    @pytest.mark.asyncio
     async def test__empty_database__completes_without_error(
         self,
         db_session: AsyncSession,
@@ -488,7 +474,6 @@ class TestCleanupOrphanedRelationships:
         assert stats.total_deleted == 0
         assert stats.by_content_type == {}
 
-    @pytest.mark.asyncio
     async def test__report_then_delete__counts_consistent(
         self,
         db_session: AsyncSession,
@@ -542,7 +527,6 @@ class TestCleanupOrphanedRelationships:
         assert result.total_deleted == 3
         assert await count_relationships(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__cross_user__entity_exists_for_other_user__is_orphaned(
         self,
         db_session: AsyncSession,
@@ -589,7 +573,6 @@ class TestCleanupOrphanedRelationships:
         assert stats.orphaned_target == 1
         assert await count_relationships(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__soft_deleted_entity__not_treated_as_orphan(
         self,
         db_session: AsyncSession,
@@ -639,7 +622,6 @@ class TestRunOrphanCleanup:
         await db_session.refresh(user)
         return user
 
-    @pytest.mark.asyncio
     async def test__with_db__delegates_to_cleanup(
         self,
         db_session: AsyncSession,
@@ -661,7 +643,6 @@ class TestRunOrphanCleanup:
         assert stats.total_deleted == 0
         assert await count_relationships(db_session, user.id) == 1
 
-    @pytest.mark.asyncio
     async def test__delete_flag__passed_through(
         self,
         db_session: AsyncSession,

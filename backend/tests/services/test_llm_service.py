@@ -234,7 +234,6 @@ class TestGetModelForUseCase:
 class TestComplete:
     """Tests for LLMService.complete."""
 
-    @pytest.mark.asyncio
     async def test_calls_acompletion_with_correct_args(self) -> None:
         service = LLMService(_make_settings())
         config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
@@ -260,7 +259,6 @@ class TestComplete:
             assert response is mock_response
             assert cost == 0.001
 
-    @pytest.mark.asyncio
     async def test_passes_response_format(self) -> None:
         class TestSchema(BaseModel):
             name: str
@@ -279,7 +277,6 @@ class TestComplete:
             )
             assert mock_acomp.call_args.kwargs["response_format"] is TestSchema
 
-    @pytest.mark.asyncio
     async def test_passes_max_tokens(self) -> None:
         service = LLMService(_make_settings())
         config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
@@ -295,7 +292,6 @@ class TestComplete:
             )
             assert mock_acomp.call_args.kwargs["max_tokens"] == 5
 
-    @pytest.mark.asyncio
     async def test_o_series_temperature_normalized(self) -> None:
         service = LLMService(_make_settings())
         config = LLMConfig(model="openai/o4-mini", api_key="key", key_source=KeySource.USER)
@@ -311,7 +307,6 @@ class TestComplete:
             )
             assert mock_acomp.call_args.kwargs["temperature"] == 1.0
 
-    @pytest.mark.asyncio
     async def test_sanitizes_structured_content(self) -> None:
         class TestSchema(BaseModel):
             name: str
@@ -334,7 +329,6 @@ class TestComplete:
             )
             assert response.choices[0].message.content == '{"name": "test"}'
 
-    @pytest.mark.asyncio
     async def test_no_sanitize_without_response_format(self) -> None:
         service = LLMService(_make_settings())
         config = LLMConfig(model="gemini/gemini-2.5-flash", api_key="key", key_source=KeySource.PLATFORM)
@@ -353,7 +347,6 @@ class TestComplete:
             )
             assert response.choices[0].message.content == "Here is some text with no JSON"
 
-    @pytest.mark.asyncio
     async def test_completion_cost_failure_returns_none(self) -> None:
         service = LLMService(_make_settings())
         config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
@@ -370,7 +363,6 @@ class TestComplete:
             assert response is mock_response
             assert cost is None
 
-    @pytest.mark.asyncio
     async def test_cost_from_completion_cost(self) -> None:
         service = LLMService(_make_settings())
         config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
@@ -396,7 +388,6 @@ class TestComplete:
 class TestStream:
     """Tests for LLMService.stream."""
 
-    @pytest.mark.asyncio
     async def test_calls_acompletion_with_stream_args(self) -> None:
         service = LLMService(_make_settings())
         config = LLMConfig(model="gemini/gemini-2.5-flash", api_key="key", key_source=KeySource.PLATFORM)
