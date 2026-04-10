@@ -510,7 +510,7 @@ Evals call `suggest_tags()` directly from `services/suggestion_service.py` — n
 
 This makes evals fully reproducible regardless of dev database state.
 
-#### 4. Tag suggestion test cases (~6 cases)
+#### 4. Tag suggestion test cases (~10 cases)
 
 Each test case defines realistic content and expected tags that should appear in the response.
 
@@ -518,14 +518,16 @@ Each test case defines realistic content and expected tags that should appear in
 
 | ID | Content | Expected tags (contains) |
 |----|---------|------------------------|
-| `python-flask-tutorial` | Bookmark: "Building REST APIs with Flask" + tutorial content | `python`, `flask` |
-| `javascript-react-guide` | Bookmark: "React Hooks Deep Dive" + React content | `javascript`, `react` |
-| `devops-docker-note` | Note: "Docker Compose for Local Development" | `devops`, `docker` |
-| `machine-learning-paper` | Bookmark: ML paper about neural networks | `machine-learning` |
-| `minimal-context` | Bookmark with only a title, no content/description | Still produces tags (from title alone) |
+| `python-flask-tutorial` | Bookmark: title + description + content about Flask REST APIs | `python`, `flask` |
+| `javascript-react-guide` | Bookmark: title + description + content about React hooks | `javascript`, `react` |
+| `devops-docker-note` | Note: title + description about Docker Compose (no content) | `devops`, `docker` |
+| `machine-learning-paper` | Bookmark: title + content about neural networks (no description) | `machine-learning` |
+| `title-only` | Bookmark with only a title ("Flask REST API Tutorial"), no description or content | Still produces relevant tags from title alone |
+| `description-only` | Note with only a description (paragraph about Kubernetes deployment), no title or content | Produces relevant tags from description alone |
+| `description-and-content` | Bookmark with description + content but no title | Produces relevant tags from description and content |
 | `existing-tags-excluded` | Bookmark with `current_tags: ["python"]` | `python` NOT in response |
 | `vocabulary-preference` | Content about "ML" where vocabulary contains `machine-learning` but not `ml` | `machine-learning` (prefers vocabulary form) |
-| `tag-count-boundary` | Broad "2024 Year in Review" post covering many topics | Returns 3-7 tags (not more, even though many topics) |
+| `tag-count-boundary` | Broad "2024 Year in Review" post covering many topics (title + description + content) | Returns 3-7 tags (not more, even though many topics) |
 
 #### 5. Checks
 
@@ -570,7 +572,7 @@ The loader injects `response_format: TagJudgeResult` and `llm_function` (a calla
 
 ### Testing Strategy
 
-- 6 test cases × 10 samples × 1 model = 60 LLM calls
+- 10 test cases × 10 samples × 1 model = 100 LLM calls
 - Pass threshold: 80%
 - No database or HTTP server needed — calls service function directly
 
@@ -591,16 +593,18 @@ After this milestone:
 
 No database entities needed — evals call `suggest_metadata()` directly with all context as parameters. Test cases define content with deliberately weak/missing titles and descriptions directly in the YAML config.
 
-#### 2. Metadata suggestion test cases (~6 cases)
+#### 2. Metadata suggestion test cases (~8 cases)
 
-| ID | Content type | Fields requested | Expected behavior |
+| ID | Input fields | Fields requested | Expected behavior |
 |----|-------------|-----------------|-------------------|
-| `title-from-content` | Bookmark with rich content, no title | `["title"]` | Title is concise, relevant to content |
-| `description-from-content` | Note with title + content, no description | `["description"]` | Description summarizes content in 1-2 sentences |
-| `both-fields` | Bookmark with content, no title or description | `["title", "description"]` | Both populated, title concise, description longer |
-| `title-with-existing-description` | Bookmark with description, requesting title | `["title"]` | `description` field is null in response |
-| `description-with-existing-title` | Note with title, requesting description | `["description"]` | `title` field is null in response |
-| `url-context` | Bookmark with URL + content | `["title", "description"]` | Suggestions are relevant to the URL's domain/topic |
+| `title-from-content` | content only (no title, no description) | `["title"]` | Title is concise, relevant to content |
+| `description-from-content` | title + content (no description) | `["description"]` | Description summarizes content in 1-2 sentences |
+| `both-fields` | content only (no title, no description) | `["title", "description"]` | Both populated, title concise, description longer |
+| `title-with-existing-description` | description + content (no title) | `["title"]` | `description` field is null in response; title relevant to content |
+| `description-with-existing-title` | title + content (no description) | `["description"]` | `title` field is null in response; description relevant to content |
+| `url-context` | url + content (no title, no description) | `["title", "description"]` | Suggestions are relevant to the URL's domain/topic |
+| `description-only-input` | description only (no title, no url, no content) | `["title"]` | Still generates a relevant title from description alone |
+| `title-only-input` | title only (no description, no url, no content) | `["description"]` | Still generates a relevant description from title alone |
 
 #### 3. Checks
 
@@ -619,7 +623,7 @@ Same YAML-defined + runtime-injected approach as tag evals. Judge response model
 
 ### Testing Strategy
 
-- 6 test cases × 10 samples × 1 model = 60 LLM calls
+- 8 test cases × 10 samples × 1 model = 80 LLM calls
 - Pass threshold: 80%
 
 ---
@@ -646,15 +650,16 @@ Each test case defines:
 
 This is cleaner than creating real DB items — we control the candidate set precisely.
 
-#### 2. Relationship suggestion test cases (~4 cases)
+#### 2. Relationship suggestion test cases (~6 cases)
 
-| ID | Source | Candidates | Expected selections |
-|----|--------|-----------|-------------------|
-| `python-testing` | "Python Testing Best Practices" | 3 related (pytest, unittest, TDD) + 2 unrelated (cooking, gardening) | The 3 testing-related candidates |
-| `react-frontend` | "React Component Design Patterns" | 2 related (React hooks, CSS-in-JS) + 3 unrelated (database indexing, cooking, astronomy) | The 2 React-related candidates |
-| `all-unrelated` | "Machine Learning with PyTorch" | 4 candidates none related to ML (cooking, gardening, knitting, woodworking) | Empty or minimal candidates |
-| `all-related` | "Web Development Overview" | 4 candidates all web-related (HTML, CSS, JavaScript, REST APIs) | All 4 selected |
-| `misleading-title` | "Python Testing with Pytest" | 1 candidate titled "Python Testing" but about testing pythons (herpetology), 2 genuinely related (unittest, TDD) | Herpetology candidate NOT selected, testing candidates selected |
+| ID | Source (input fields) | Candidates | Expected selections |
+|----|----------------------|-----------|-------------------|
+| `python-testing` | title + description + content about Python testing | 3 related (pytest, unittest, TDD) + 2 unrelated (cooking, gardening) | The 3 testing-related candidates |
+| `react-frontend` | title + content about React (no description) | 2 related (React hooks, CSS-in-JS) + 3 unrelated (database indexing, cooking, astronomy) | The 2 React-related candidates |
+| `description-only-source` | description only ("A comprehensive guide to deploying microservices with Kubernetes"), no title or content | 2 related (Docker, CI/CD) + 2 unrelated (cooking, gardening) | The 2 deployment-related candidates |
+| `all-unrelated` | title + description about ML with PyTorch | 4 candidates none related to ML (cooking, gardening, knitting, woodworking) | Empty or minimal candidates |
+| `all-related` | title + description about web development | 4 candidates all web-related (HTML, CSS, JavaScript, REST APIs) | All 4 selected |
+| `misleading-title` | title + description about Python testing with Pytest | 1 candidate titled "Python Testing" but about testing pythons (herpetology), 2 genuinely related (unittest, TDD) | Herpetology candidate NOT selected, testing candidates selected |
 
 #### 3. Checks
 
@@ -669,7 +674,7 @@ This is cleaner than creating real DB items — we control the candidate set pre
 
 ### Testing Strategy
 
-- 4 test cases × 10 samples × 1 model = 40 LLM calls
+- 6 test cases × 10 samples × 1 model = 60 LLM calls
 - Pass threshold: 80%
 - No database needed — candidates are passed directly
 
@@ -741,7 +746,7 @@ make evals                                    # All evals (including MCP + AI su
 
 ### Cost awareness
 
-Each eval run makes real LLM calls. Per-call context overhead: ~1500 tokens for 20 few-shot examples (title + description + tags each) + ~500 tokens for 100-tag vocabulary with counts ≈ ~2000 tokens input per tag suggestion call. Other endpoints are lighter. With the default model (gemini-2.5-flash-lite at $0.10/M input, $0.40/M output), ~210 calls ≈ ~$0.05 per full eval run. LLM-as-judge calls (gemini-2.5-flash) add a small additional cost. Total is negligible.
+Each eval run makes real LLM calls. Per-call context overhead: ~1500 tokens for 20 few-shot examples (title + description + tags each) + ~500 tokens for 100-tag vocabulary with counts ≈ ~2000 tokens input per tag suggestion call. Other endpoints are lighter. With the default model (gemini-2.5-flash-lite at $0.10/M input, $0.40/M output), ~290 calls ≈ ~$0.07 per full eval run. LLM-as-judge calls (gemini-2.5-flash) add a small additional cost. Total is negligible.
 
 ### LLM provider errors
 
