@@ -112,7 +112,7 @@ def _parse_key(key: str) -> dict | None:
     Parse an ai_stats Redis key into its components.
 
     Key format: ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}
-    Model IDs contain slashes (e.g. gemini/gemini-2.5-flash), so we split
+    Model IDs contain slashes (e.g. gemini/gemini-flash-lite-latest), so we split
     from the right to handle the key_source, then from the left for the rest.
     """
     # Remove prefix
@@ -127,7 +127,7 @@ def _parse_key(key: str) -> dict | None:
     before_key_source, key_source = parts
 
     # Remaining format: {user_id}:{hour}:{use_case}:{model}
-    # Model IDs use slashes (gemini/gemini-2.5-flash), not colons.
+    # Model IDs use slashes (gemini/gemini-flash-lite-latest), not colons.
     segments = before_key_source.split(":")
     if len(segments) < 4:
         return None

@@ -30,15 +30,17 @@ vi.mock('../../hooks/useAuthStatus', () => ({
 
 const MOCK_MODELS_RESPONSE: AIModelsResponse = {
   models: [
-    { id: 'gemini/gemini-2.5-flash-lite', provider: 'google', tier: 'budget' },
+    { id: 'gemini/gemini-flash-lite-latest', provider: 'google', tier: 'budget' },
+    { id: 'openai/gpt-5.4-nano', provider: 'openai', tier: 'budget' },
+    { id: 'openai/gpt-5.4-mini', provider: 'openai', tier: 'balanced' },
+    { id: 'anthropic/claude-haiku-4-5', provider: 'anthropic', tier: 'budget' },
     { id: 'anthropic/claude-sonnet-4-6', provider: 'anthropic', tier: 'balanced' },
-    { id: 'openai/gpt-4o-mini', provider: 'openai', tier: 'budget' },
   ],
   defaults: {
-    suggestions: 'gemini/gemini-2.5-flash-lite',
-    transform: 'gemini/gemini-2.5-flash-lite',
-    auto_complete: 'gemini/gemini-2.5-flash-lite',
-    chat: 'gemini/gemini-2.5-flash-lite',
+    suggestions: 'gemini/gemini-flash-lite-latest',
+    transform: 'gemini/gemini-flash-lite-latest',
+    auto_complete: 'gemini/gemini-flash-lite-latest',
+    chat: 'openai/gpt-5.4-mini',
   },
 }
 
@@ -229,7 +231,7 @@ describe('SettingsAI', () => {
       await waitFor(() => {
         const button = screen.getByRole('button', { name: /Suggestions configuration/ })
         expect(button.textContent).toContain('Tags, metadata, and relationships')
-        expect(button.textContent).toContain('gemini/gemini-2.5-flash-lite')
+        expect(button.textContent).toContain('gemini/gemini-flash-lite-latest')
       })
     })
 
@@ -352,9 +354,9 @@ describe('SettingsAI', () => {
       await waitFor(() => {
         const select = screen.getByRole('combobox')
         const options = select.querySelectorAll('option')
-        expect(options[0]).toHaveTextContent('gemini/gemini-2.5-flash-lite')
-        expect(options[1]).toHaveTextContent('anthropic/claude-sonnet-4-6')
-        expect(options[2]).toHaveTextContent('openai/gpt-4o-mini')
+        expect(options[0]).toHaveTextContent('gemini/gemini-flash-lite-latest')
+        expect(options[1]).toHaveTextContent('openai/gpt-5.4-nano')
+        expect(options[2]).toHaveTextContent('openai/gpt-5.4-mini')
       })
     })
 
@@ -380,7 +382,7 @@ describe('SettingsAI', () => {
       await waitFor(() => {
         expect(screen.getByRole('combobox')).toBeInTheDocument()
       })
-      await user.selectOptions(screen.getByRole('combobox'), 'gemini/gemini-2.5-flash-lite')
+      await user.selectOptions(screen.getByRole('combobox'), 'gemini/gemini-flash-lite-latest')
 
       expect(useAIStore.getState().useCaseConfigs.suggestions.model).toBeNull()
     })

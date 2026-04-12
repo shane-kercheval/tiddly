@@ -697,7 +697,7 @@ export interface AIHealthResponse {
 
 /** A supported model definition from GET /ai/models */
 export interface AIModelDef {
-  id: string            // e.g. "gemini/gemini-2.5-flash-lite"
+  id: string            // e.g. "gemini/gemini-flash-lite-latest"
   provider: string      // "google" | "openai" | "anthropic"
   tier: string          // "budget" | "balanced" | "flagship"
   input_cost_per_million?: number

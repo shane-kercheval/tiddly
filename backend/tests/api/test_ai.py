@@ -103,7 +103,7 @@ class TestValidateKey:
             new_callable=AsyncMock,
             side_effect=AuthenticationError(
                 message="Invalid key",
-                model="gemini/gemini-2.5-flash-lite",
+                model="gemini/gemini-flash-lite-latest",
                 llm_provider="gemini",
             ),
         ):
@@ -164,7 +164,7 @@ class TestValidateKey:
             new_callable=AsyncMock,
             side_effect=Timeout(
                 message="timed out",
-                model="gemini/gemini-2.5-flash-lite",
+                model="gemini/gemini-flash-lite-latest",
                 llm_provider="gemini",
             ),
         ):
@@ -182,7 +182,7 @@ class TestValidateKey:
             new_callable=AsyncMock,
             side_effect=RateLimitError(
                 message="rate limited",
-                model="gemini/gemini-2.5-flash-lite",
+                model="gemini/gemini-flash-lite-latest",
                 llm_provider="gemini",
             ),
         ):
@@ -208,7 +208,7 @@ class TestAIModels:
         data = response.json()
         assert "models" in data
         assert "defaults" in data
-        assert len(data["models"]) == 9
+        assert len(data["models"]) == 7  # 1 Google + 3 OpenAI + 3 Anthropic
 
     async def test_model_fields(self, client: AsyncClient) -> None:
         response = await client.get("/ai/models")

@@ -8,6 +8,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const RESULT_DIRS = [
   join(__dirname, '..', '..', '..', 'content_mcp', 'results'),
   join(__dirname, '..', '..', '..', 'prompt_mcp', 'results'),
+  join(__dirname, '..', '..', '..', 'ai_suggestions', 'results'),
 ]
 
 const router = Router()

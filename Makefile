@@ -1,4 +1,4 @@
-.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp api-run-bench eval-viewer-install eval-viewer test-data test-data-clear cli-build cli-test cli-lint cli-snapshot cli-release-check
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp evals-ai-suggestions evals-ai-suggestions-tags api-run-bench eval-viewer-install eval-viewer test-data test-data-clear cli-build cli-test cli-lint cli-snapshot cli-release-check
 
 -include .env
 export
@@ -136,6 +136,12 @@ evals-content-mcp:  ## Run Content MCP evaluations only
 
 evals-prompt-mcp:  ## Run Prompt MCP evaluations only
 	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/prompt_mcp/ -vs --timeout=300
+
+evals-ai-suggestions:  ## Run all AI suggestion evaluations (no server needed)
+	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/ai_suggestions/ -vs --timeout=300
+
+evals-ai-suggestions-tags:  ## Run tag suggestion evaluations only
+	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/ai_suggestions/test_suggest_tags.py -vs --timeout=300
 
 ####
 # Eval Viewer

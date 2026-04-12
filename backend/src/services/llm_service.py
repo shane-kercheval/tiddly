@@ -47,13 +47,15 @@ class LLMConfig(BaseModel):
 
 _SUPPORTED_MODEL_DEFS: list[dict] = [
     # Google Gemini
-    {"id": "gemini/gemini-2.5-flash-lite", "provider": "google", "tier": "budget"},
-    {"id": "gemini/gemini-2.5-flash", "provider": "google", "tier": "balanced"},
-    {"id": "gemini/gemini-2.5-pro", "provider": "google", "tier": "flagship"},
+    {"id": "gemini/gemini-flash-lite-latest", "provider": "google", "tier": "budget"},
+    # Gemini flash/pro disabled — chronic 503 "high demand" errors from Google's API
+    # make these unreliable for production use. See evals/LEARNINGS.md.
+    # {"id": "gemini/gemini-flash-latest", "provider": "google", "tier": "balanced"},
+    # {"id": "gemini/gemini-pro-latest", "provider": "google", "tier": "flagship"},
     # OpenAI
-    {"id": "openai/gpt-4o-mini", "provider": "openai", "tier": "budget"},
-    {"id": "openai/o4-mini", "provider": "openai", "tier": "balanced"},
-    {"id": "openai/gpt-4o", "provider": "openai", "tier": "flagship"},
+    {"id": "openai/gpt-5.4-nano", "provider": "openai", "tier": "budget"},
+    {"id": "openai/gpt-5.4-mini", "provider": "openai", "tier": "balanced"},
+    {"id": "openai/gpt-5.4", "provider": "openai", "tier": "flagship"},
     # Anthropic
     {"id": "anthropic/claude-haiku-4-5", "provider": "anthropic", "tier": "budget"},
     {"id": "anthropic/claude-sonnet-4-6", "provider": "anthropic", "tier": "balanced"},

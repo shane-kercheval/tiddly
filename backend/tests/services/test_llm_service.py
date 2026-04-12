@@ -26,10 +26,10 @@ from services.llm_service import (
 def _make_settings(**overrides: str) -> MagicMock:
     """Create a mock Settings with LLM defaults."""
     defaults = {
-        "llm_model_suggestions": "gemini/gemini-2.5-flash-lite",
-        "llm_model_transform": "gemini/gemini-2.5-flash-lite",
-        "llm_model_auto_complete": "gemini/gemini-2.5-flash-lite",
-        "llm_model_chat": "gemini/gemini-2.5-flash",
+        "llm_model_suggestions": "gemini/gemini-flash-lite-latest",
+        "llm_model_transform": "gemini/gemini-flash-lite-latest",
+        "llm_model_auto_complete": "gemini/gemini-flash-lite-latest",
+        "llm_model_chat": "openai/gpt-5.4-mini",
         "gemini_api_key": "test-gemini-key",
         "openai_api_key": "test-openai-key",
         "anthropic_api_key": "test-anthropic-key",
@@ -53,7 +53,7 @@ class TestResolvePlatformKey:
 
     def test_gemini_prefix(self) -> None:
         settings = _make_settings()
-        assert _resolve_platform_key("gemini/gemini-2.5-flash", settings) == "test-gemini-key"
+        assert _resolve_platform_key("gemini/gemini-flash-latest", settings) == "test-gemini-key"
 
     def test_openai_prefix(self) -> None:
         settings = _make_settings()
@@ -79,7 +79,7 @@ class TestGetModelCost:
 
     def test_prefixed_key_found(self) -> None:
         """Gemini models are in cost map with prefix."""
-        cost = _get_model_cost("gemini/gemini-2.5-flash-lite")
+        cost = _get_model_cost("gemini/gemini-flash-lite-latest")
         assert cost is not None
         assert "input_cost_per_token" in cost
 
@@ -104,7 +104,7 @@ class TestBuildSupportedModels:
 
     def test_returns_all_models(self) -> None:
         models = build_supported_models()
-        assert len(models) == 9
+        assert len(models) == 7  # 1 Google + 3 OpenAI + 3 Anthropic (Gemini flash/pro disabled)
 
     def test_all_models_have_required_fields(self) -> None:
         models = build_supported_models()
@@ -122,18 +122,20 @@ class TestBuildSupportedModels:
             assert model["input_cost_per_million"] > 0
             assert model["output_cost_per_million"] > 0
 
-    def test_three_tiers_per_provider(self) -> None:
-        """Each provider should have budget, balanced, and flagship tiers."""
+    def test_tiers_per_provider(self) -> None:
+        """OpenAI and Anthropic have all three tiers. Google has budget only (flash/pro disabled)."""
         models = build_supported_models()
-        for provider in ["google", "openai", "anthropic"]:
+        for provider in ["openai", "anthropic"]:
             provider_models = [m for m in models if m["provider"] == provider]
             tiers = {m["tier"] for m in provider_models}
             assert tiers == {"budget", "balanced", "flagship"}, f"Missing tiers for {provider}"
+        google_models = [m for m in models if m["provider"] == "google"]
+        assert {m["tier"] for m in google_models} == {"budget"}
 
     def test_service_stores_supported_models(self) -> None:
         """LLMService instance should have supported_models populated."""
         service = LLMService(_make_settings())
-        assert len(service.supported_models) == 9
+        assert len(service.supported_models) == 7
 
 
 # ---------------------------------------------------------------------------
@@ -147,14 +149,14 @@ class TestResolveConfig:
     def test_platform_config_suggestions(self) -> None:
         service = LLMService(_make_settings())
         config = service.resolve_config(AIUseCase.SUGGESTIONS)
-        assert config.model == "gemini/gemini-2.5-flash-lite"
+        assert config.model == "gemini/gemini-flash-lite-latest"
         assert config.api_key == "test-gemini-key"
         assert config.key_source == KeySource.PLATFORM
 
     def test_chat_uses_different_model(self) -> None:
         service = LLMService(_make_settings())
         config = service.resolve_config(AIUseCase.CHAT)
-        assert config.model == "gemini/gemini-2.5-flash"
+        assert config.model == "openai/gpt-5.4-mini"
 
     def test_user_key_overrides_platform(self) -> None:
         service = LLMService(_make_settings())
@@ -162,7 +164,7 @@ class TestResolveConfig:
         assert config.api_key == "user-key-123"
         assert config.key_source == KeySource.USER
         # Falls back to use-case default model
-        assert config.model == "gemini/gemini-2.5-flash-lite"
+        assert config.model == "gemini/gemini-flash-lite-latest"
 
     def test_user_key_with_user_model(self) -> None:
         service = LLMService(_make_settings())
@@ -192,7 +194,7 @@ class TestResolveConfig:
             AIUseCase.SUGGESTIONS,
             user_model="openai/evil-model",
         )
-        assert config.model == "gemini/gemini-2.5-flash-lite"
+        assert config.model == "gemini/gemini-flash-lite-latest"
         assert config.key_source == KeySource.PLATFORM
 
     def test_user_model_ignored_without_user_key(self) -> None:
@@ -201,7 +203,7 @@ class TestResolveConfig:
             AIUseCase.SUGGESTIONS,
             user_model="anthropic/claude-sonnet-4-6",
         )
-        assert config.model == "gemini/gemini-2.5-flash-lite"
+        assert config.model == "gemini/gemini-flash-lite-latest"
         assert config.key_source == KeySource.PLATFORM
 
     def test_all_use_cases_resolve(self) -> None:
@@ -222,8 +224,8 @@ class TestGetModelForUseCase:
 
     def test_returns_platform_model(self) -> None:
         service = LLMService(_make_settings())
-        assert service.get_model_for_use_case(AIUseCase.SUGGESTIONS) == "gemini/gemini-2.5-flash-lite"
-        assert service.get_model_for_use_case(AIUseCase.CHAT) == "gemini/gemini-2.5-flash"
+        assert service.get_model_for_use_case(AIUseCase.SUGGESTIONS) == "gemini/gemini-flash-lite-latest"
+        assert service.get_model_for_use_case(AIUseCase.CHAT) == "openai/gpt-5.4-mini"
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +238,7 @@ class TestComplete:
 
     async def test_calls_acompletion_with_correct_args(self) -> None:
         service = LLMService(_make_settings())
-        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+        config = LLMConfig(model="gemini/gemini-flash-lite-latest", api_key="key", key_source=KeySource.PLATFORM)
 
         mock_response = MagicMock()
         with (
@@ -250,7 +252,7 @@ class TestComplete:
 
             mock_acomp.assert_called_once()
             call_kwargs = mock_acomp.call_args.kwargs
-            assert call_kwargs["model"] == "gemini/gemini-2.5-flash-lite"
+            assert call_kwargs["model"] == "gemini/gemini-flash-lite-latest"
             assert call_kwargs["api_key"] == "key"
             assert call_kwargs["timeout"] == 30
             assert call_kwargs["num_retries"] == 1
@@ -264,7 +266,7 @@ class TestComplete:
             name: str
 
         service = LLMService(_make_settings())
-        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+        config = LLMConfig(model="gemini/gemini-flash-lite-latest", api_key="key", key_source=KeySource.PLATFORM)
 
         with (
             patch("services.llm_service.acompletion", new_callable=AsyncMock) as mock_acomp,
@@ -279,7 +281,7 @@ class TestComplete:
 
     async def test_passes_max_tokens(self) -> None:
         service = LLMService(_make_settings())
-        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+        config = LLMConfig(model="gemini/gemini-flash-lite-latest", api_key="key", key_source=KeySource.PLATFORM)
 
         with (
             patch("services.llm_service.acompletion", new_callable=AsyncMock) as mock_acomp,
@@ -312,7 +314,7 @@ class TestComplete:
             name: str
 
         service = LLMService(_make_settings())
-        config = LLMConfig(model="gemini/gemini-2.5-flash", api_key="key", key_source=KeySource.PLATFORM)
+        config = LLMConfig(model="gemini/gemini-flash-latest", api_key="key", key_source=KeySource.PLATFORM)
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -331,7 +333,7 @@ class TestComplete:
 
     async def test_no_sanitize_without_response_format(self) -> None:
         service = LLMService(_make_settings())
-        config = LLMConfig(model="gemini/gemini-2.5-flash", api_key="key", key_source=KeySource.PLATFORM)
+        config = LLMConfig(model="gemini/gemini-flash-latest", api_key="key", key_source=KeySource.PLATFORM)
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -349,7 +351,7 @@ class TestComplete:
 
     async def test_completion_cost_failure_returns_none(self) -> None:
         service = LLMService(_make_settings())
-        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+        config = LLMConfig(model="gemini/gemini-flash-lite-latest", api_key="key", key_source=KeySource.PLATFORM)
 
         mock_response = MagicMock()
         with (
@@ -365,7 +367,7 @@ class TestComplete:
 
     async def test_cost_from_completion_cost(self) -> None:
         service = LLMService(_make_settings())
-        config = LLMConfig(model="gemini/gemini-2.5-flash-lite", api_key="key", key_source=KeySource.PLATFORM)
+        config = LLMConfig(model="gemini/gemini-flash-lite-latest", api_key="key", key_source=KeySource.PLATFORM)
 
         mock_response = MagicMock()
         with (
@@ -390,7 +392,7 @@ class TestStream:
 
     async def test_calls_acompletion_with_stream_args(self) -> None:
         service = LLMService(_make_settings())
-        config = LLMConfig(model="gemini/gemini-2.5-flash", api_key="key", key_source=KeySource.PLATFORM)
+        config = LLMConfig(model="gemini/gemini-flash-latest", api_key="key", key_source=KeySource.PLATFORM)
 
         mock_iter = AsyncMock()
         with patch("services.llm_service.acompletion", new_callable=AsyncMock, return_value=mock_iter) as mock_acomp:
@@ -416,7 +418,7 @@ class TestNormalizeTemperature:
     """Tests for _normalize_temperature."""
 
     def test_regular_model_passes_through(self) -> None:
-        assert _normalize_temperature("gemini/gemini-2.5-flash", 0.7) == 0.7
+        assert _normalize_temperature("gemini/gemini-flash-latest", 0.7) == 0.7
         assert _normalize_temperature("openai/gpt-4o-mini", 0.0) == 0.0
         assert _normalize_temperature("anthropic/claude-haiku-4-5", 0.5) == 0.5
         assert _normalize_temperature("openai/gpt-4o", 0.3) == 0.3

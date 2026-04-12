@@ -21,7 +21,6 @@ from schemas.ai import (
     SuggestArgumentsResponse,
     SuggestRelationshipsResponse,
     SuggestTagsResponse,
-    TagFewShotExample,
     TagVocabularyEntry,
     _DescriptionOnly,
     _TitleAndDescription,
@@ -97,16 +96,14 @@ async def suggest_tags(
     content_type: str,
     current_tags: list[str],
     tag_vocabulary: list[TagVocabularyEntry],
-    few_shot_examples: list[TagFewShotExample],
     llm_service: LLMService,
     config: LLMConfig,
 ) -> tuple[list[str], float | None]:
     """
     Suggest tags for a content item based on its metadata and the user's tag vocabulary.
 
-    Builds a prompt with the item context, user's tag vocabulary (up to 100 entries
-    with usage counts), and few-shot examples (up to 20 items of the same content
-    type). Calls the LLM and post-processes the response.
+    Builds a prompt with the item context and user's tag vocabulary (up to 100
+    entries with usage counts). Calls the LLM and post-processes the response.
 
     Args:
         title: Item title.
@@ -120,8 +117,6 @@ async def suggest_tags(
         tag_vocabulary: User's existing tags sorted by frequency, up to 100 entries.
             Each entry includes name and usage count. Rendered in the prompt as
             "python (47), flask (12), api (8)" format.
-        few_shot_examples: Recent items for tagging style reference, up to 20 items.
-            Should be scoped to the same content_type by the caller.
         llm_service: LLM service instance for making completion calls.
         config: Resolved LLM config (model, key, key source).
 
@@ -141,7 +136,6 @@ async def suggest_tags(
         content_snippet=content_snippet,
         content_type=content_type,
         tag_vocabulary=tag_vocabulary,
-        few_shot_examples=few_shot_examples,
     )
 
     response, cost = await llm_service.complete(

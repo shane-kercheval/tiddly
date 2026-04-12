@@ -64,10 +64,17 @@ export default function RunsList() {
             {filtered.map((run) => {
               const config = run.metadata._test_config
               const results = run.metadata._test_results
+              const runUrl = `/runs/${run.evaluation_id}`
               return (
                 <tr
                   key={run.evaluation_id}
-                  onClick={() => navigate(`/runs/${run.evaluation_id}`)}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey) {
+                      window.open(runUrl, '_blank')
+                    } else {
+                      navigate(runUrl)
+                    }
+                  }}
                   className="hover:bg-blue-50 cursor-pointer transition-colors"
                 >
                   <td className="px-3 py-2 text-sm text-gray-500 whitespace-nowrap tabular-nums">

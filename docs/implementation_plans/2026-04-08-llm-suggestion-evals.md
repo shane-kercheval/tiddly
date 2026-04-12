@@ -468,31 +468,26 @@ After this milestone:
 
 Add `evals/ai_suggestions/helpers.py`:
 
-- `create_suggestion_checks(check_specs, llm_function, judge_models)` — Wraps `create_checks_from_config()`. For `type: "llm_judge"` checks, injects `llm_function` and `response_format` into `arguments` at load time. All other check types pass through unchanged. This keeps all check definitions in YAML while providing the runtime objects that `LLMJudgeCheck` requires.
+- `create_llm_service()` — creates an `LLMService` with a dummy `database_url` (evals never touch the DB). Reads LLM API keys from environment/.env.
+- `create_eval_config(llm_service)` — creates an `LLMConfig` for the model under test.
+- `judge_llm_function(prompt, response_format)` — async callable for `LLMJudgeCheck`. Calls `gemini/gemini-2.5-flash` (the judge model) with structured output. Returns `(parsed_response, metadata)`.
+- `create_suggestion_checks(check_specs, llm_function, judge_response_models)` — only used for `llm_judge` checks. Injects `llm_function` and `response_format` into check arguments at load time.
 
+**Check loading pattern (applies to all milestones):**
 ```python
-def create_suggestion_checks(
-    check_specs: list[dict],
-    llm_function: Callable,
-    judge_response_models: dict[str, type[BaseModel]],
-) -> list[Check]:
-    """Create checks from YAML specs, injecting runtime objects for llm_judge checks."""
-    checks = []
-    for spec in check_specs:
-        if spec["type"] == "llm_judge":
-            # Inject runtime objects that can't be expressed in YAML
-            spec["arguments"]["llm_function"] = llm_function
-            model_key = spec["arguments"].get("response_model", "default")
-            spec["arguments"]["response_format"] = judge_response_models[model_key]
-        checks.append(Check(
-            type=spec["type"],
-            arguments=spec["arguments"],
-            metadata=spec.get("metadata"),
-        ))
-    return checks
+# Deterministic checks — built-in flex-evals types, no injection needed
+DETERMINISTIC_CHECKS = create_checks_from_config(
+    [s for s in CONFIG["checks"] if s["type"] != "llm_judge"],
+)
+# Judge checks — need runtime objects injected
+JUDGE_CHECKS = create_suggestion_checks(
+    check_specs=[s for s in CONFIG["checks"] if s["type"] == "llm_judge"],
+    llm_function=judge_llm_function,
+    judge_response_models={"tags": TagJudgeResult},
+)
+GLOBAL_CHECKS = DETERMINISTIC_CHECKS + JUDGE_CHECKS
+# Per-test-case checks are defined in YAML and loaded by create_test_cases_from_config
 ```
-
-The `llm_function` callable uses `gemini/gemini-2.5-flash` (the judge model) with structured output. The `judge_response_models` dict maps check-specific model keys to Pydantic classes (e.g. `"tags": TagJudgeResult, "default": DefaultJudgeResult`).
 
 #### 3. Makefile targets
 
@@ -540,44 +535,43 @@ Each test case defines realistic content and expected tags that should appear in
 
 #### 6. Checks
 
-**Deterministic checks:**
-- Tags is a non-empty list
-- Each expected tag appears in the response (`contains` check)
-- `current_tags` are excluded from response (`contains` with `negate`)
+Checks are defined in YAML. **Per-test-case checks** are defined on individual test cases for assertions that only apply to some cases (e.g., `subset` for expected tags, `disjoint` for excluded tags, `threshold` for count bounds). **Global checks** apply to every test case (e.g., `is_empty` with negate for non-empty, `llm_judge` for relevance).
 
-**LLM-as-judge check (for quality):**
+**Per-test-case checks (defined on individual test cases in YAML):**
+- `subset` — expected tags are present in the output (case-insensitive)
+- `disjoint` — excluded tags are absent from the output (case-insensitive)
+- `threshold` — tag count within min/max bounds (uses `tag_count` from output)
 
-All checks (deterministic and judge) are defined in the YAML config. The check loader detects `type: "llm_judge"` entries and injects the runtime objects (`llm_function` callable, `response_format` Pydantic class) at load time. This keeps all check definitions centralized in YAML.
+**Global checks (applied to every test case):**
+- `is_empty` with `negate: true` — tags list is non-empty
+- `llm_judge` — all tags are relevant to the content (semantic quality)
 
-Judge checks use `gemini/gemini-2.5-flash` (stronger than the model under test) and return structured responses with counts and reasoning for diagnosability:
+**Check wiring pattern (applies to all milestones):**
+- Deterministic checks (built-in flex-evals types) are loaded via `create_checks_from_config()`
+- Judge checks need runtime objects injected (`llm_function`, `response_format`) and are loaded via `create_suggestion_checks()` from `helpers.py`
 
+**Output format (applies to all milestones):**
+The test function must return a dict with `model_name` and `usage: { total_cost }` for the eval viewer to display correctly:
 ```python
-# Pydantic response model for tag judge
+return {
+    "tags": tags,
+    "tag_count": len(tags),
+    "model_name": config.model,
+    "usage": {"total_cost": cost},
+}
+```
+
+**Metadata descriptions (applies to all milestones):**
+Every test case and check should have `metadata: { description: "..." }` for the eval viewer. Test case descriptions explain the input scenario. Check descriptions explain what's being verified and why.
+
+**Judge response model:**
+```python
 class TagJudgeResult(BaseModel):
     relevant_count: int
     total_count: int
     passed: bool
     reasoning: str
 ```
-
-Example YAML judge check:
-```yaml
-- type: "llm_judge"
-  arguments:
-    prompt: |
-      The content has this title: "{{$.test_case.input.title}}"
-      and this description: "{{$.test_case.input.description}}".
-
-      The suggested tags are: {{$.output.value.tags}}
-
-      For each tag, score 1 if directly related to the content's topic or domain, 0 if not.
-      Return relevant_count, total_count, and passed=true if all tags score 1.
-      Include brief reasoning.
-  metadata:
-    name: "Tags are relevant"
-```
-
-The loader injects `response_format: TagJudgeResult` and `llm_function` (a callable that calls gemini-2.5-flash with structured output) when it sees `type: "llm_judge"`.
 
 ### Testing Strategy
 
@@ -619,15 +613,18 @@ No database entities needed — evals call `suggest_metadata()` directly with al
 
 #### 3. Checks
 
-**Deterministic checks:**
-- Requested fields are non-null in response
-- Unrequested fields are null in response
-- Title length ≤ 100 characters (prompt instruction, not schema)
-- Description is 1-2 sentences (prompt instruction)
+Follow the check wiring pattern from M1 (per-test-case checks for conditional assertions, global checks for universal ones, output includes `model_name` and `usage: { total_cost }`).
 
-**LLM-as-judge checks:**
+**Per-test-case checks:**
+- `attribute_exists` — requested fields are non-null in response
+- `attribute_exists` with `negate: true` — unrequested fields are null in response
+- `threshold` — title length ≤ 100 characters (on test cases requesting title)
 
-Same YAML-defined + runtime-injected approach as tag evals. Judge response model: `{passed: bool, reasoning: str}`.
+**Global checks:**
+- `llm_judge` — title quality (concise, accurate, relevant)
+- `llm_judge` — description quality (clear summary, 1-2 sentences)
+
+Judge checks use the same `create_suggestion_checks` pattern from M1. Judge response model: `{passed: bool, reasoning: str}`.
 
 - Title rubric: "Given this content, does the suggested title accurately summarize the main topic in under 100 characters? Return passed=true if accurate and concise, false if misleading, too vague, or too long. Include reasoning."
 - Description rubric: "Given this content, is the suggested description a useful 1-2 sentence summary that captures the key information? Return passed=true if it is a clear summary, false if vague, inaccurate, or too long. Include reasoning."
@@ -677,14 +674,15 @@ This is cleaner than creating real DB items — we control the candidate set pre
 
 #### 3. Checks
 
-**Deterministic checks:**
-- `candidates` is a list
-- Each candidate has `entity_id`, `entity_type`, `title`
-- Returned entity_ids are a subset of the input candidate IDs (no hallucinated IDs)
+Follow the check wiring pattern from M1 (per-test-case checks, global checks, output includes `model_name` and `usage: { total_cost }`). Output should include `candidate_ids` (list of returned entity_ids) for set checks.
 
-**Semantic checks:**
-- Expected related items appear in candidates (by entity_id)
-- Unrelated items do not appear
+**Per-test-case checks:**
+- `subset` — expected related candidate IDs appear in the output (by entity_id)
+- `disjoint` — unrelated candidate IDs do not appear in the output (by entity_id)
+
+**Global checks:**
+- `is_empty` with `negate: true` on `candidate_ids` — skipped for test cases that expect empty results (use per-test-case `is_empty` with `negate: false` for `all-unrelated`)
+- `llm_judge` — selected candidates are genuinely related to the source item
 
 ### Testing Strategy
 
@@ -725,20 +723,23 @@ No database entities needed — evals call `suggest_arguments()` directly with a
 
 #### 3. Checks
 
-**Deterministic checks (generate-all):**
-- Number of returned arguments matches number of new placeholders
-- All argument names pass `ARG_NAME_PATTERN` (lowercase, underscores, starts with letter)
-- Each argument has a non-empty description
-- `required` field matches template structure (unconditional = true, conditional = false)
+Follow the check wiring pattern from M1 (per-test-case checks, global checks, output includes `model_name` and `usage: { total_cost }`). Output should include `argument_names` (list of returned names) and `argument_count` for set/threshold checks.
 
-**Deterministic checks (individual):**
-- Response contains at least 1 argument
-- Suggested name passes `ARG_NAME_PATTERN`
-- Suggested description is non-empty
+**Per-test-case checks (generate-all):**
+- `threshold` — argument count equals number of new placeholders
+- `subset` — expected argument names appear in the output
+- `regex` — all argument names match `^[a-z][a-z0-9_]*$` (ARG_NAME_PATTERN)
 
-**LLM-as-judge (for description quality):**
+**Per-test-case checks (individual):**
+- `is_empty` with `negate: true` — response contains at least 1 argument
+- `regex` — suggested name matches ARG_NAME_PATTERN
 
-Same approach. Judge response: `{passed: bool, reasoning: str}`.
+**Global checks:**
+- `llm_judge` — argument descriptions are clear and helpful
+
+Judge response model: `{passed: bool, reasoning: str}`.
+
+Judge checks use the same `create_suggestion_checks` pattern from M1.
 
 - Rubric: "Given a prompt template argument named [name] in the context of this template, does the suggested description clearly explain what the argument represents? Return passed=true if the description is clear and helpful, false if vague or unhelpful. Include reasoning."
 

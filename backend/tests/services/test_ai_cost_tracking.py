@@ -17,7 +17,7 @@ class TestTrackCost:
         await track_cost(
             user_id=user_id,
             use_case=AIUseCase.SUGGESTIONS,
-            model="gemini/gemini-2.5-flash-lite",
+            model="gemini/gemini-flash-lite-latest",
             key_source=KeySource.PLATFORM,
             cost=0.001,
             latency_ms=150,
@@ -28,7 +28,7 @@ class TestTrackCost:
         key = keys[0]
         assert key.startswith(f"ai_stats:{user_id}:")
         assert ":suggestions:" in key
-        assert ":gemini/gemini-2.5-flash-lite:" in key
+        assert ":gemini/gemini-flash-lite-latest:" in key
         assert key.endswith(":platform")
 
     async def test_writes_cost_and_count(self, redis_client: RedisClient) -> None:
@@ -36,7 +36,7 @@ class TestTrackCost:
         await track_cost(
             user_id=user_id,
             use_case=AIUseCase.SUGGESTIONS,
-            model="gemini/gemini-2.5-flash-lite",
+            model="gemini/gemini-flash-lite-latest",
             key_source=KeySource.PLATFORM,
             cost=0.005,
             latency_ms=100,
@@ -54,7 +54,7 @@ class TestTrackCost:
             await track_cost(
                 user_id=user_id,
                 use_case=AIUseCase.SUGGESTIONS,
-                model="gemini/gemini-2.5-flash-lite",
+                model="gemini/gemini-flash-lite-latest",
                 key_source=KeySource.PLATFORM,
                 cost=0.001,
                 latency_ms=100,
@@ -74,7 +74,7 @@ class TestTrackCost:
         await track_cost(
             user_id=user_id,
             use_case=AIUseCase.SUGGESTIONS,
-            model="gemini/gemini-2.5-flash-lite",
+            model="gemini/gemini-flash-lite-latest",
             key_source=KeySource.PLATFORM,
             cost=None,
             latency_ms=100,
@@ -95,7 +95,7 @@ class TestTrackCost:
             await track_cost(
                 user_id=user_id,
                 use_case=AIUseCase.SUGGESTIONS,
-                model="gemini/gemini-2.5-flash-lite",
+                model="gemini/gemini-flash-lite-latest",
                 key_source=KeySource.PLATFORM,
                 cost=None,
                 latency_ms=100,
@@ -126,7 +126,7 @@ class TestTrackCost:
             await track_cost(
                 user_id=user_id,
                 use_case=AIUseCase.CHAT,
-                model="gemini/gemini-2.5-flash",
+                model="gemini/gemini-flash-latest",
                 key_source=KeySource.USER,
                 cost=0.01,
                 latency_ms=250,
@@ -137,7 +137,7 @@ class TestTrackCost:
         record = llm_records[0]
         assert record.user_id == str(user_id)
         assert record.use_case == "chat"
-        assert record.model == "gemini/gemini-2.5-flash"
+        assert record.model == "gemini/gemini-flash-latest"
         assert record.key_source == "user"
         assert record.cost == 0.01
         assert record.latency_ms == 250
@@ -169,7 +169,7 @@ class TestTrackCost:
         await track_cost(
             user_id=user_id,
             use_case=AIUseCase.SUGGESTIONS,
-            model="gemini/gemini-2.5-flash-lite",
+            model="gemini/gemini-flash-lite-latest",
             key_source=KeySource.PLATFORM,
             cost=0.001,
             latency_ms=100,
@@ -177,7 +177,7 @@ class TestTrackCost:
         await track_cost(
             user_id=user_id,
             use_case=AIUseCase.CHAT,
-            model="gemini/gemini-2.5-flash-lite",
+            model="gemini/gemini-flash-lite-latest",
             key_source=KeySource.PLATFORM,
             cost=0.002,
             latency_ms=200,

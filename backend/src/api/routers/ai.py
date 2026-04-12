@@ -24,7 +24,6 @@ from schemas.ai import (
     SuggestRelationshipsResponse,
     SuggestTagsRequest,
     SuggestTagsResponse,
-    TagFewShotExample,
     TagVocabularyEntry,
     ValidateKeyRequest,
 )
@@ -210,11 +209,6 @@ async def suggest_tags_endpoint(
         for tc in tag_counts[:100]
     ]
 
-    # Load few-shot examples: type-scoped, tag-matching + recent, deduped
-    few_shot_examples = await _get_few_shot_examples(
-        db, current_user.id, data.current_tags, data.content_type,
-    )
-
     start = time.monotonic()
     try:
         tags, cost = await suggest_tags(
@@ -225,7 +219,6 @@ async def suggest_tags_endpoint(
             content_type=data.content_type,
             current_tags=data.current_tags,
             tag_vocabulary=tag_vocabulary,
-            few_shot_examples=few_shot_examples,
             llm_service=llm_service,
             config=config,
         )
@@ -440,65 +433,3 @@ async def _search_relationship_candidates(
     return candidates
 
 
-async def _get_few_shot_examples(
-    db: AsyncSession,
-    user_id: int,
-    current_tags: list[str],
-    content_type: str,
-) -> list[TagFewShotExample]:
-    """
-    Get recent items for few-shot examples in tag suggestion prompts.
-
-    Fetches up to 20 deduplicated examples, scoped to the same content type:
-    1. Up to 10 items sharing any of the current tags (recency-ranked)
-    2. Up to 10 most recent items regardless of tags
-    Deduped by ID — items appearing in both sets are included once.
-
-    NOTE: Eval test data mirrors this structure — update evals/ai_suggestions/
-    config_suggest_tags.yaml if you change the number of examples or fields fetched.
-    """
-    seen_ids: set[str] = set()
-    examples: list[TagFewShotExample] = []
-
-    # Query 1: items sharing current tags (if any)
-    if current_tags:
-        items, _total = await search_all_content(
-            db=db,
-            user_id=user_id,
-            tags=current_tags,
-            tag_match="any",
-            sort_by="updated_at",
-            sort_order="desc",
-            limit=10,
-            content_types=[content_type],
-        )
-        for item in items:
-            item_id = str(item.id)
-            if item_id not in seen_ids:
-                seen_ids.add(item_id)
-                examples.append(TagFewShotExample(
-                    title=item.title or "",
-                    description=item.description or "",
-                    tags=item.tags or [],
-                ))
-
-    # Query 2: most recent items of same type
-    items, _total = await search_all_content(
-        db=db,
-        user_id=user_id,
-        sort_by="updated_at",
-        sort_order="desc",
-        limit=10,
-        content_types=[content_type],
-    )
-    for item in items:
-        item_id = str(item.id)
-        if item_id not in seen_ids:
-            seen_ids.add(item_id)
-            examples.append(TagFewShotExample(
-                title=item.title or "",
-                description=item.description or "",
-                tags=item.tags or [],
-            ))
-
-    return examples

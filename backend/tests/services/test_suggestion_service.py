@@ -12,7 +12,6 @@ import pytest
 from schemas.ai import (
     ArgumentInput,
     RelationshipCandidateContext,
-    TagFewShotExample,
     TagVocabularyEntry,
 )
 from services.suggestion_service import (
@@ -39,7 +38,7 @@ def _mock_llm_service(content: str, cost: float | None = 0.001) -> MagicMock:
 def _mock_config() -> MagicMock:
     """Create a mock LLMConfig."""
     config = MagicMock()
-    config.model = "gemini/gemini-2.5-flash-lite"
+    config.model = "gemini/gemini-flash-lite-latest"
     config.key_source = "platform"
     return config
 
@@ -85,7 +84,6 @@ class TestSuggestTags:
             content_type="bookmark",
             current_tags=[],
             tag_vocabulary=[],
-            few_shot_examples=[],
             llm_service=service,
             config=_mock_config(),
         )
@@ -102,7 +100,6 @@ class TestSuggestTags:
             content_type="bookmark",
             current_tags=["python", "api"],
             tag_vocabulary=[],
-            few_shot_examples=[],
             llm_service=service,
             config=_mock_config(),
         )
@@ -119,7 +116,6 @@ class TestSuggestTags:
             content_type="bookmark",
             current_tags=[],
             tag_vocabulary=[],
-            few_shot_examples=[],
             llm_service=service,
             config=_mock_config(),
         )
@@ -135,7 +131,6 @@ class TestSuggestTags:
             content_type="bookmark",
             current_tags=[],
             tag_vocabulary=[],
-            few_shot_examples=[],
             llm_service=service,
             config=_mock_config(),
         )
@@ -152,7 +147,7 @@ class TestSuggestTags:
                 content_type="bookmark",
                 current_tags=[],
                 tag_vocabulary=[],
-                few_shot_examples=[],
+
                 llm_service=service,
                 config=_mock_config(),
             )
@@ -169,7 +164,7 @@ class TestSuggestTags:
                 content_type="bookmark",
                 current_tags=[],
                 tag_vocabulary=[],
-                few_shot_examples=[],
+
                 llm_service=service,
                 config=_mock_config(),
             )
@@ -186,7 +181,7 @@ class TestSuggestTags:
                 content_type="bookmark",
                 current_tags=[],
                 tag_vocabulary=[],
-                few_shot_examples=[],
+
                 llm_service=service,
                 config=_mock_config(),
             )
@@ -202,7 +197,6 @@ class TestSuggestTags:
             content_type="bookmark",
             current_tags=[],
             tag_vocabulary=[],
-            few_shot_examples=[],
             llm_service=service,
             config=_mock_config(),
         )
@@ -218,17 +212,15 @@ class TestSuggestTags:
             content_type="bookmark",
             current_tags=[],
             tag_vocabulary=[],
-            few_shot_examples=[],
             llm_service=service,
             config=_mock_config(),
         )
         assert cost is None
 
-    async def test_passes_vocabulary_and_examples_to_prompt(self) -> None:
-        """Verify vocabulary and examples are passed through to the LLM call."""
+    async def test_passes_vocabulary_to_prompt(self) -> None:
+        """Verify vocabulary is passed through to the LLM call."""
         service = _mock_llm_service('{"tags": ["python"]}')
         vocab = [TagVocabularyEntry(name="python", count=47)]
-        examples = [TagFewShotExample(title="Pytest Guide", description="Testing", tags=["python", "testing"])]
         await suggest_tags(
             title="Test",
             url=None,
@@ -237,15 +229,12 @@ class TestSuggestTags:
             content_type="bookmark",
             current_tags=[],
             tag_vocabulary=vocab,
-            few_shot_examples=examples,
             llm_service=service,
             config=_mock_config(),
         )
         call_kwargs = service.complete.call_args.kwargs
         system_msg = call_kwargs["messages"][0]["content"]
         assert "python (47)" in system_msg
-        assert "Pytest Guide" in system_msg
-        assert "Testing" in system_msg
 
 
 # ---------------------------------------------------------------------------

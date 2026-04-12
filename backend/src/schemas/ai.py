@@ -16,14 +16,6 @@ class TagVocabularyEntry(BaseModel):
     count: int
 
 
-class TagFewShotExample(BaseModel):
-    """A recent item used as a tagging style reference in tag suggestion prompts."""
-
-    title: str
-    description: str
-    tags: list[str]
-
-
 class RelationshipCandidateContext(BaseModel):
     """
     A candidate item passed to the relationship suggestion service.

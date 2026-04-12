@@ -103,11 +103,15 @@ def create_test_cases_from_config(
     """
     test_cases = []
     for spec in test_case_specs:
+        checks = None
+        if spec.get("checks"):
+            checks = create_checks_from_config(spec["checks"])
         test_case = TestCase(
             id=spec.get("id"),
             input=spec["input"],
             expected=spec.get("expected"),
             metadata=spec.get("metadata"),
+            checks=checks,
         )
         test_cases.append(test_case)
     return test_cases

@@ -4,7 +4,7 @@ export interface CheckResult {
   status: 'completed' | 'error'
   results: {
     passed: boolean
-    found?: string[]
+    [key: string]: unknown
   }
   resolved_arguments: Record<string, unknown>
   evaluated_at: string
@@ -25,17 +25,17 @@ export interface TestCase {
   id: string
   input: Record<string, unknown>
   expected: Record<string, unknown>
-  metadata: {
-    description: string
-  }
+  metadata?: {
+    description?: string
+  } | null
   checks: unknown
 }
 
 export interface TestOutput {
   value: Record<string, unknown>
   id: string | null
-  metadata: {
-    duration_seconds: number
+  metadata?: {
+    duration_seconds?: number
   }
 }
 

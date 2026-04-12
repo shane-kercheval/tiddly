@@ -15,7 +15,7 @@ def _make_redis_key(
     user_id: str,
     hour: str,
     use_case: str = "suggestions",
-    model: str = "gemini/gemini-2.5-flash-lite",
+    model: str = "gemini/gemini-flash-lite-latest",
     key_source: str = "platform",
 ) -> str:
     return f"ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}"
@@ -40,7 +40,7 @@ class TestParseKey:
         assert str(parsed["user_id"]) == user_id
         assert parsed["bucket_start"] == datetime(2026, 4, 5, 14, tzinfo=UTC)
         assert parsed["use_case"] == "suggestions"
-        assert parsed["model"] == "gemini/gemini-2.5-flash-lite"
+        assert parsed["model"] == "gemini/gemini-flash-lite-latest"
         assert parsed["key_source"] == "platform"
 
     def test_model_with_slash(self) -> None:
@@ -90,7 +90,7 @@ class TestFlushAiUsage:
         assert row.request_count == 3
         assert row.total_cost == Decimal("0.005")
         assert row.use_case == "suggestions"
-        assert row.model == "gemini/gemini-2.5-flash-lite"
+        assert row.model == "gemini/gemini-flash-lite-latest"
         assert row.key_source == "platform"
 
     async def test_does_not_flush_current_hour(

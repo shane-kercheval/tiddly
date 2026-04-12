@@ -9,7 +9,6 @@ import re
 from schemas.ai import (
     ArgumentInput,
     RelationshipCandidateContext,
-    TagFewShotExample,
     TagVocabularyEntry,
 )
 
@@ -21,7 +20,6 @@ def build_tag_suggestion_messages(
     content_snippet: str | None,
     content_type: str,
     tag_vocabulary: list[TagVocabularyEntry],
-    few_shot_examples: list[TagFewShotExample],
 ) -> list[dict]:
     """
     Build messages for tag suggestion.
@@ -34,18 +32,27 @@ def build_tag_suggestion_messages(
         content_type: Entity type ("bookmark", "note", "prompt").
         tag_vocabulary: User's existing tags sorted by frequency, up to 100
             entries with usage counts.
-        few_shot_examples: Recent items with tags for style reference, up to 20.
     """
     # NOTE: Eval configs pass these parameters directly — update eval YAML configs
     # if you change the parameter contract.
     system = (
         f"You are a tagging assistant. Suggest relevant tags for the given {content_type}.\n\n"
         "Guidelines:\n"
-        "- Prefer reusing tags from the user's existing vocabulary below\n"
+        "- Reuse tags from the user's existing vocabulary when relevant. If the "
+        "vocabulary contains the user's preferred form of a common term (e.g., "
+        "'ml' instead of 'machine-learning'), use their form rather than "
+        "substituting the canonical name\n"
         "- Use lowercase hyphenated format (e.g. machine-learning, web-dev)\n"
-        "- Be consistent with the user's tagging style shown in the examples\n"
         "- Suggest 3-7 tags unless fewer are appropriate\n"
-        "- The examples are for style reference only — do not simply copy their tags\n"
+        "- A tag is relevant if it directly describes a topic in the item's "
+        "title, description, or content, OR is a closely related concept that "
+        "is present in the vocabulary. A tag from the vocabulary with no topical "
+        "connection to the item is not relevant, even if it is frequently used\n"
+        "- Avoid broad category tags unless the item actually discusses that "
+        "category. A tag is not relevant just because the item's topic is "
+        "commonly associated with that category. For example, a tutorial about "
+        "pandas DataFrames warrants 'python' (directly used) but not "
+        "'machine-learning' (commonly associated but not discussed)\n"
     )
 
     if tag_vocabulary:
@@ -53,13 +60,6 @@ def build_tag_suggestion_messages(
             f"{entry.name} ({entry.count})" for entry in tag_vocabulary[:100]
         )
         system += f"\nUser's existing tags (most used first): {vocab_str}\n"
-
-    if few_shot_examples:
-        system += "\nRecent items for style reference:\n"
-        for ex in few_shot_examples[:20]:
-            tags_str = ", ".join(ex.tags)
-            desc_preview = f" ({ex.description})" if ex.description else ""
-            system += f"- \"{ex.title}\"{desc_preview} → {tags_str}\n"
 
     user_parts = []
     if title:
@@ -69,7 +69,7 @@ def build_tag_suggestion_messages(
     if description:
         user_parts.append(f"Description: {description}")
     if content_snippet:
-        user_parts.append(f"Content: {content_snippet[:5000]}")
+        user_parts.append(f"Content snippet: {content_snippet[:5000]}")
 
     user_msg = "\n".join(user_parts) if user_parts else "No context provided."
 
@@ -118,7 +118,7 @@ def build_metadata_suggestion_messages(
     if url:
         user_parts.append(f"URL: {url}")
     if content_snippet:
-        user_parts.append(f"Content: {content_snippet[:5000]}")
+        user_parts.append(f"Content snippet: {content_snippet[:5000]}")
 
     user_msg = "\n".join(user_parts) if user_parts else "No context provided."
 
@@ -172,7 +172,7 @@ def build_relationship_suggestion_messages(
     if source_description:
         source_parts.append(f"Description: {source_description}")
     if source_content_snippet:
-        source_parts.append(f"Content: {source_content_snippet[:5000]}")
+        source_parts.append(f"Content snippet: {source_content_snippet[:5000]}")
 
     source_str = "\n".join(source_parts) if source_parts else "No context provided."
 
@@ -184,7 +184,7 @@ def build_relationship_suggestion_messages(
         if desc:
             line += f" — {desc}"
         if preview:
-            line += f"\n   Content: {preview}"
+            line += f"\n   Content snippet: {preview}"
         candidate_lines.append(line)
 
     candidates_str = "\n".join(candidate_lines) if candidate_lines else "No candidates."

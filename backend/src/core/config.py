@@ -60,19 +60,19 @@ class Settings(BaseSettings):
 
     # LLM models per use case
     llm_model_suggestions: str = Field(
-        default="gemini/gemini-2.5-flash-lite",
+        default="gemini/gemini-flash-lite-latest",
         validation_alias="LLM_MODEL_SUGGESTIONS",
     )
     llm_model_transform: str = Field(
-        default="gemini/gemini-2.5-flash-lite",
+        default="gemini/gemini-flash-lite-latest",
         validation_alias="LLM_MODEL_TRANSFORM",
     )
     llm_model_auto_complete: str = Field(
-        default="gemini/gemini-2.5-flash-lite",
+        default="gemini/gemini-flash-lite-latest",
         validation_alias="LLM_MODEL_AUTO_COMPLETE",
     )
     llm_model_chat: str = Field(
-        default="gemini/gemini-2.5-flash",
+        default="openai/gpt-5.4-mini",
         validation_alias="LLM_MODEL_CHAT",
     )
 
