@@ -1,14 +1,14 @@
 """
-Evaluation tests for relationship suggestion quality.
+Evaluation tests for metadata (title/description) suggestion quality.
 
-Calls suggest_relationships() directly with curated candidates — no HTTP
-server or database needed. Tests verify that the LLM selects genuinely
-related items and rejects unrelated ones.
+Calls suggest_metadata() directly with curated context — no HTTP server
+or database needed. Tests verify the fields parameter logic (only requested
+fields are generated) and that generated content is relevant and well-formatted.
 
 Checks:
-- Per-test-case: subset (expected candidates selected), disjoint (unrelated
-  excluded), is_empty — defined in YAML
-- Global: threshold (max 5 candidates), llm_judge (semantic relevance)
+- Per-test-case: attribute_exists (requested fields present, unrequested null),
+  threshold (title length) — defined in YAML
+- Global: llm_judge (quality of generated title/description)
 """
 from pathlib import Path
 from typing import Any
@@ -29,14 +29,13 @@ from evals.utils import (
     create_test_cases_from_config,
     load_yaml_config,
 )
-from schemas.ai import RelationshipCandidateContext
-from services.suggestion_service import suggest_relationships
+from services.suggestion_service import suggest_metadata
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-CONFIG_PATH = Path(__file__).parent / "config_suggest_relationships.yaml"
+CONFIG_PATH = Path(__file__).parent / "config_suggest_metadata.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 MODELS = CONFIG["models"]
@@ -51,11 +50,9 @@ TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 # ---------------------------------------------------------------------------
 
 
-class RelationshipJudgeResult(BaseModel):
-    """Structured response from the LLM judge for relationship relevance."""
+class MetadataJudgeResult(BaseModel):
+    """Structured response from the LLM judge for metadata quality."""
 
-    relevant_count: int
-    total_selected: int
     passed: bool
     reasoning: str
 
@@ -72,7 +69,7 @@ DETERMINISTIC_CHECKS = create_checks_from_config(
 JUDGE_CHECKS = create_suggestion_checks(
     check_specs=[s for s in _global_checks if s["type"] == "llm_judge"],
     llm_function=_judge_llm_function,
-    judge_response_models={"relationships": RelationshipJudgeResult},
+    judge_response_models={"metadata": MetadataJudgeResult},
 )
 GLOBAL_CHECKS = DETERMINISTIC_CHECKS + JUDGE_CHECKS
 
@@ -103,16 +100,16 @@ _llm_service = create_llm_service()
 )
 @pytest.mark.timeout(300)
 @pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
-async def test_suggest_relationships(
+async def test_suggest_metadata(
     test_case: TestCase,
     model_config: dict[str, Any],
 ) -> dict[str, Any]:
     """
-    Test that suggest_relationships selects genuinely related candidates.
+    Test that suggest_metadata generates appropriate titles and descriptions.
 
-    Each test case provides source item context and a curated candidate list.
-    Per-test-case checks verify correct selections (subset, disjoint).
-    Global checks verify candidate count bounds and semantic relevance (judge).
+    Each test case specifies which fields to generate and provides context.
+    Per-test-case checks verify the fields parameter logic (requested fields
+    present, unrequested null, title length). Global judge verifies quality.
     """
     config = create_eval_config(_llm_service, model_config["name"])
     # Temperature is informational — records the LLMService default (0.7) for the viewer.
@@ -120,35 +117,20 @@ async def test_suggest_relationships(
     temperature = model_config.get("temperature", 0.7)
     input_data = test_case.input
 
-    # Build candidates from YAML (KeyError on missing key — fail fast on typos)
-    candidates = [
-        RelationshipCandidateContext(**c)
-        for c in input_data["candidates"]
-    ]
-
-    # Build candidate summaries for the judge prompt (includes content_preview
-    # so the judge sees the same context the suggestion model saw)
-    candidate_summaries = "\n".join(
-        f"- {c.entity_id}: \"{c.title}\" — {c.description} | Content: {c.content_preview}"
-        for c in candidates
-    )
-
-    result, cost = await suggest_relationships(
-        title=input_data.get("title"),
+    result, cost = await suggest_metadata(
+        fields=input_data["fields"],
         url=input_data.get("url"),
+        title=input_data.get("title"),
         description=input_data.get("description"),
         content_snippet=input_data.get("content_snippet"),
-        candidates=candidates,
         llm_service=_llm_service,
         config=config,
     )
 
-    candidate_ids = [c.entity_id for c in result]
-
     return {
-        "candidate_ids": candidate_ids,
-        "candidate_count": len(candidate_ids),
-        "all_candidate_summaries": candidate_summaries,
+        "title": result.title,
+        "description": result.description,
+        "title_length": len(result.title) if result.title else 0,
         "model_name": config.model,
         "temperature": temperature,
         "usage": {

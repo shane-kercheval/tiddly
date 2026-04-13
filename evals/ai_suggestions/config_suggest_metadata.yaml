@@ -1,0 +1,333 @@
+name: 'suggest_metadata: Metadata Suggestion Quality'
+description: 'Tests metadata (title/description) suggestion quality by calling
+
+  suggest_metadata() directly. Verifies that the fields parameter logic
+
+  works correctly and that generated content is relevant and well-formatted.
+
+  '
+models:
+- name: gemini/gemini-flash-lite-latest
+  temperature: 0.7
+- name: openai/gpt-5.4-nano
+  temperature: 0.7
+- name: anthropic/claude-haiku-4-5
+  temperature: 0.7
+eval:
+  judge_model: openai/gpt-5.4-mini
+  samples: 10
+  pass_threshold: 0.8
+  max_concurrency: 10
+test_cases:
+- id: title-from-content
+  metadata:
+    description: Content only, no title or description — generate title from content
+  input:
+    fields:
+    - title
+    url: null
+    title: null
+    description: null
+    content_snippet: Flask is a lightweight WSGI web application framework in Python.
+      It is designed to make getting started quick and easy, with the ability to scale
+      up to complex applications. Flask provides tools for routing, request handling,
+      and template rendering.
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Title was requested and should be non-null
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+    metadata:
+      name: Unrequested field null
+      description: Description was not requested and should be null
+  - type: threshold
+    arguments:
+      value: $.output.value.title_length
+      max_value: 100
+    metadata:
+      name: Title length
+      description: Title should be under 100 characters per prompt instruction
+- id: description-from-content
+  metadata:
+    description: Title + content, no description — generate description
+  input:
+    fields:
+    - description
+    url: null
+    title: Flask Web Framework Guide
+    description: null
+    content_snippet: Flask is a lightweight WSGI web application framework in Python.
+      It provides tools for routing, request handling, template rendering with Jinja2,
+      and integrates well with extensions for database access, authentication, and
+      more.
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Description was requested and should be non-null
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+    metadata:
+      name: Unrequested field null
+      description: Title was not requested and should be null
+- id: both-fields
+  metadata:
+    description: Content only — generate both title and description
+  input:
+    fields:
+    - title
+    - description
+    url: null
+    title: null
+    description: null
+    content_snippet: Kubernetes is an open-source container orchestration platform
+      that automates deployment, scaling, and management of containerized applications.
+      It groups containers into logical units for easy management and discovery, and
+      provides mechanisms for service discovery, load balancing, and rolling updates.
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Title was requested and should be non-null
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Description was requested and should be non-null
+  - type: threshold
+    arguments:
+      value: $.output.value.title_length
+      max_value: 100
+    metadata:
+      name: Title length
+      description: Title should be under 100 characters
+- id: title-with-existing-description
+  metadata:
+    description: Description + content provided, generate title only — description
+      should be null in response
+  input:
+    fields:
+    - title
+    url: null
+    title: null
+    description: A comprehensive guide to building REST APIs with Node.js and Express,
+      covering middleware, routing, and error handling.
+    content_snippet: This guide covers building RESTful APIs with Express.js, including
+      defining route handlers, using middleware for authentication and request validation,
+      handling errors with custom error classes, and structuring your API for maintainability.
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Title was requested and should be non-null
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+    metadata:
+      name: Unrequested field null
+      description: Description exists but was not requested — should be null in response
+  - type: threshold
+    arguments:
+      value: $.output.value.title_length
+      max_value: 100
+    metadata:
+      name: Title length
+      description: Title should be under 100 characters
+- id: description-with-existing-title
+  metadata:
+    description: Title + content provided, generate description only — title should
+      be null in response
+  input:
+    fields:
+    - description
+    url: null
+    title: Building REST APIs with Express.js
+    description: null
+    content_snippet: Express.js is a minimal and flexible Node.js web application
+      framework. This guide covers creating routes, using middleware for authentication
+      and logging, handling errors gracefully, and structuring your application for
+      maintainability.
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Description was requested and should be non-null
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+    metadata:
+      name: Unrequested field null
+      description: Title exists but was not requested — should be null in response
+- id: url-context
+  metadata:
+    description: URL + content, no title or description — URL provides domain context
+  input:
+    fields:
+    - title
+    - description
+    url: https://docs.python.org/3/library/asyncio.html
+    title: null
+    description: null
+    content_snippet: asyncio is a library to write concurrent code using the async/await
+      syntax. It is used as a foundation for multiple Python asynchronous frameworks
+      that provide high-performance network and web servers, database connection libraries,
+      and distributed task queues.
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Title was requested and should be non-null
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Description was requested and should be non-null
+  - type: threshold
+    arguments:
+      value: $.output.value.title_length
+      max_value: 100
+    metadata:
+      name: Title length
+      description: Title should be under 100 characters
+- id: description-only-input
+  metadata:
+    description: Description only, no title/url/content — generate title from description
+      alone
+  input:
+    fields:
+    - title
+    url: null
+    title: null
+    description: A detailed walkthrough of setting up monitoring and alerting for
+      production Kubernetes clusters using Prometheus and Grafana.
+    content_snippet: null
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Title should be generated from description alone
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+    metadata:
+      name: Unrequested field null
+      description: Description was not requested — should be null in response
+  - type: threshold
+    arguments:
+      value: $.output.value.title_length
+      max_value: 100
+    metadata:
+      name: Title length
+      description: Title should be under 100 characters
+- id: title-only-input
+  metadata:
+    description: Title only, no description/url/content — generate description from
+      title alone
+  input:
+    fields:
+    - description
+    url: null
+    title: Redis Caching Strategies for Web Applications
+    description: null
+    content_snippet: null
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Description should be generated from title alone
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+    metadata:
+      name: Unrequested field null
+      description: Title was not requested — should be null in response
+checks:
+- type: llm_judge
+  arguments:
+    prompt: 'You are evaluating metadata suggestions (title and/or description) for
+      a content item.
+
+
+      The item context:
+
+      - URL: "{{$.test_case.input.url}}"
+
+      - Existing title: "{{$.test_case.input.title}}"
+
+      - Existing description: "{{$.test_case.input.description}}"
+
+      - Content snippet: "{{$.test_case.input.content_snippet}}"
+
+
+      Fields requested: {{$.test_case.input.fields}}
+
+
+      The suggested metadata:
+
+      - Title: "{{$.output.value.title}}"
+
+      - Description: "{{$.output.value.description}}"
+
+
+      The recommender was instructed to:
+
+      - Generate a title that is short and descriptive, under 100 characters
+
+      - Generate a description that is 1-2 sentences summarizing the content
+
+      - Only generate the requested fields
+
+
+      Evaluate the generated fields:
+
+      - A title is good if it accurately summarizes the main topic, is concise (under
+      100 chars), and is not misleading or too vague.
+
+      - A description is good if it is a clear 1-2 sentence summary that captures
+      the key information, not vague or generic.
+
+      - Only evaluate the fields that were requested. If a field was not requested,
+      ignore it.
+
+
+      Return passed=true if all requested fields are good quality. Include brief reasoning
+      for any field that fails.
+
+      '
+    response_model: metadata
+  metadata:
+    name: Generated metadata is high quality
+    description: LLM judge evaluates whether generated title/description are accurate
+      and well-formatted
