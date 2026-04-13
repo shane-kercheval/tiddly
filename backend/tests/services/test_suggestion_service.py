@@ -410,7 +410,7 @@ class TestSuggestArguments:
         result, cost = await suggest_arguments(
             prompt_content="Explain {{ topic }} in {{ language }}.",
             arguments=[],
-            target=None,
+            target_index=None,
             llm_service=service,
             config=_mock_config(),
         )
@@ -427,7 +427,7 @@ class TestSuggestArguments:
         result, _ = await suggest_arguments(
             prompt_content="Explain {{ topic }} in {{ language }}.",
             arguments=[ArgumentInput(name="language", description="Already exists")],
-            target=None,
+            target_index=None,
             llm_service=service,
             config=_mock_config(),
         )
@@ -440,7 +440,7 @@ class TestSuggestArguments:
         result, cost = await suggest_arguments(
             prompt_content="Hello {{ name }}",
             arguments=[ArgumentInput(name="name", description="The name")],
-            target=None,
+            target_index=None,
             llm_service=service,
             config=_mock_config(),
         )
@@ -453,7 +453,7 @@ class TestSuggestArguments:
         result, cost = await suggest_arguments(
             prompt_content=None,
             arguments=[],
-            target=None,
+            target_index=None,
             llm_service=service,
             config=_mock_config(),
         )
@@ -467,7 +467,7 @@ class TestSuggestArguments:
         result, cost = await suggest_arguments(
             prompt_content="Write a poem about nature. No variables here.",
             arguments=[],
-            target=None,
+            target_index=None,
             llm_service=service,
             config=_mock_config(),
         )
@@ -485,7 +485,7 @@ class TestSuggestArguments:
         result, _ = await suggest_arguments(
             prompt_content="{{ valid_name }} {{ also_valid }}",
             arguments=[],
-            target="valid_name",
+            target_index=None,
             llm_service=service,
             config=_mock_config(),
         )
@@ -503,7 +503,7 @@ class TestSuggestArguments:
         result, _ = await suggest_arguments(
             prompt_content="{{ topic }} {% if context %}{{ context }}{% endif %}",
             arguments=[],
-            target=None,
+            target_index=None,
             llm_service=service,
             config=_mock_config(),
         )
@@ -519,7 +519,7 @@ class TestSuggestArguments:
         result, _ = await suggest_arguments(
             prompt_content="{{ topic }}",
             arguments=[],
-            target=None,
+            target_index=None,
             llm_service=service,
             config=_mock_config(),
         )
@@ -531,23 +531,79 @@ class TestSuggestArguments:
             await suggest_arguments(
                 prompt_content="{{ name }}",
                 arguments=[],
-                target=None,
+                target_index=None,
                 llm_service=service,
                 config=_mock_config(),
             )
         assert exc_info.value.cost == 0.01
 
-    async def test_individual_target_mode(self) -> None:
-        content = json.dumps({"arguments": [
-            {"name": "programming_language", "description": "The language to use"},
-        ]})
+    async def test_individual_suggest_description(self) -> None:
+        """Individual mode with name populated, no description → suggests description."""
+        content = json.dumps({"description": "The programming language to use"})
         service = _mock_llm_service(content)
         result, _ = await suggest_arguments(
             prompt_content="Write in {{ language }}",
-            arguments=[ArgumentInput(name="language", description="")],
-            target="language",
+            arguments=[ArgumentInput(name="language", description=None)],
+            target_index=0,
             llm_service=service,
             config=_mock_config(),
         )
-        assert len(result) >= 1
-        service.complete.assert_called_once()
+        assert len(result) == 1
+        assert result[0].name == "language"
+        assert result[0].description == "The programming language to use"
+        assert result[0].required is False
+
+    async def test_individual_suggest_name(self) -> None:
+        """Individual mode with description populated, no name → suggests name."""
+        content = json.dumps({"name": "programming_language"})
+        service = _mock_llm_service(content)
+        result, _ = await suggest_arguments(
+            prompt_content="Write in {{ lang }}",
+            arguments=[ArgumentInput(name=None, description="The programming language to use")],
+            target_index=0,
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert len(result) == 1
+        assert result[0].name == "programming_language"
+        assert result[0].description == "The programming language to use"
+
+    async def test_individual_target_index_out_of_range(self) -> None:
+        """target_index out of range raises ValueError."""
+        service = _mock_llm_service("should not be called")
+        with pytest.raises(ValueError, match="out of range"):
+            await suggest_arguments(
+                prompt_content="{{ name }}",
+                arguments=[ArgumentInput(name="name", description=None)],
+                target_index=5,
+                llm_service=service,
+                config=_mock_config(),
+            )
+        service.complete.assert_not_called()
+
+    async def test_individual_negative_index_raises(self) -> None:
+        """Negative target_index raises ValueError without calling the LLM."""
+        service = _mock_llm_service("should not be called")
+        with pytest.raises(ValueError, match="out of range"):
+            await suggest_arguments(
+                prompt_content="{{ name }}",
+                arguments=[ArgumentInput(name="name", description=None)],
+                target_index=-1,
+                llm_service=service,
+                config=_mock_config(),
+            )
+        service.complete.assert_not_called()
+
+    async def test_individual_both_fields_empty_returns_empty(self) -> None:
+        """Both name and description empty — early return, no LLM call."""
+        service = _mock_llm_service("should not be called")
+        result, cost = await suggest_arguments(
+            prompt_content="{{ something }}",
+            arguments=[ArgumentInput(name=None, description=None)],
+            target_index=0,
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert result == []
+        assert cost is None
+        service.complete.assert_not_called()

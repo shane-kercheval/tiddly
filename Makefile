@@ -1,4 +1,4 @@
-.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp evals-ai-suggestions evals-ai-suggestions-tags evals-ai-suggestions-metadata evals-ai-suggestions-relationships api-run-bench eval-viewer-install eval-viewer test-data test-data-clear cli-build cli-test cli-lint cli-snapshot cli-release-check
+.PHONY: tests build run content-mcp-server prompt-mcp-server migrate backend-lint unit_tests pen_tests frontend-install frontend-build frontend-dev frontend-tests frontend-lint frontend-typecheck docker-up docker-down docker-restart docker-rebuild docker-logs redis-cli evals evals-content-mcp evals-prompt-mcp evals-ai-suggestions evals-ai-suggestions-tags evals-ai-suggestions-metadata evals-ai-suggestions-relationships evals-ai-suggestions-arguments api-run-bench eval-viewer-install eval-viewer test-data test-data-clear cli-build cli-test cli-lint cli-snapshot cli-release-check
 
 -include .env
 export
@@ -145,6 +145,9 @@ evals-ai-suggestions-tags:  ## Run tag suggestion evaluations only
 
 evals-ai-suggestions-metadata:  ## Run metadata suggestion evaluations only
 	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/ai_suggestions/test_suggest_metadata.py -vs --timeout=300
+
+evals-ai-suggestions-arguments:  ## Run argument suggestion evaluations only
+	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/ai_suggestions/test_suggest_arguments.py -vs --timeout=300
 
 evals-ai-suggestions-relationships:  ## Run relationship suggestion evaluations only
 	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/ai_suggestions/test_suggest_relationships.py -vs --timeout=300

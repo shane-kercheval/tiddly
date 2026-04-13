@@ -546,44 +546,46 @@ class TestSuggestArguments:
         assert "topic" in names
 
     async def test_suggest_name_for_argument(self, client: AsyncClient) -> None:
-        content = json.dumps({"arguments": [
-            {"name": "programming_language", "description": "The language to use"},
-        ]})
+        """Individual mode: description populated, name empty → suggest name."""
+        content = json.dumps({"name": "programming_language"})
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
                 "/ai/suggest-arguments",
                 json={
-                    "target": "lang",
-                    "arguments": [{"name": "lang", "description": "The language to use"}],
+                    "target_index": 0,
+                    "arguments": [{"name": None, "description": "The language to use"}],
                 },
             )
         assert response.status_code == 200
+        data = response.json()
+        assert data["arguments"][0]["name"] == "programming_language"
 
     async def test_suggest_description_for_argument(self, client: AsyncClient) -> None:
-        content = json.dumps({"arguments": [
-            {"name": "language", "description": "The programming language (e.g. Python, Go)"},
-        ]})
+        """Individual mode: name populated, description empty → suggest description."""
+        content = json.dumps({"description": "The programming language (e.g. Python, Go)"})
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
                 "/ai/suggest-arguments",
                 json={
-                    "target": "language",
+                    "target_index": 0,
                     "arguments": [{"name": "language"}],
                 },
             )
         assert response.status_code == 200
+        data = response.json()
+        assert data["arguments"][0]["description"] == "The programming language (e.g. Python, Go)"
+        assert data["arguments"][0]["name"] == "language"
 
     async def test_works_with_no_template(self, client: AsyncClient) -> None:
-        content = json.dumps({"arguments": [
-            {"name": "input", "description": "The input text"},
-        ]})
+        """Individual mode works without prompt_content — less context but still functional."""
+        content = json.dumps({"description": "The input text"})
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
                 "/ai/suggest-arguments",
-                json={"target": "input", "arguments": [{"name": "input"}]},
+                json={"target_index": 0, "arguments": [{"name": "input"}]},
             )
         assert response.status_code == 200
 
@@ -600,7 +602,7 @@ class TestSuggestArguments:
         mock_track.assert_called_once()
 
     async def test_filters_invalid_argument_names(self, client: AsyncClient) -> None:
-        """LLM returns names that don't match argument naming rules — filtered out."""
+        """LLM returns names that don't match argument naming rules — filtered out (generate-all mode)."""
         content = json.dumps({"arguments": [
             {"name": "valid_name", "description": "Good"},
             {"name": "Invalid Name", "description": "Has spaces"},
@@ -612,8 +614,6 @@ class TestSuggestArguments:
                 "/ai/suggest-arguments",
                 json={
                     "prompt_content": "{{ valid_name }} {{ also_valid }}",
-                    "target": "valid_name",
-                    "arguments": [{"name": "valid_name"}],
                 },
             )
         data = response.json()
@@ -646,6 +646,47 @@ class TestSuggestArguments:
             json={
                 "prompt_content": "Hello {{ name }}",
                 "arguments": [{"name": "name", "description": "The name"}],
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["arguments"] == []
+
+    async def test_target_index_out_of_range_returns_400(
+        self, client: AsyncClient,
+    ) -> None:
+        """target_index beyond arguments length returns 400, not 500."""
+        response = await client.post(
+            "/ai/suggest-arguments",
+            json={
+                "target_index": 99,
+                "arguments": [{"name": "arg1", "description": "desc"}],
+            },
+        )
+        assert response.status_code == 400
+        assert "out of range" in response.json()["detail"]
+
+    async def test_negative_target_index_returns_422(
+        self, client: AsyncClient,
+    ) -> None:
+        """Negative target_index rejected by Pydantic schema validation."""
+        response = await client.post(
+            "/ai/suggest-arguments",
+            json={
+                "target_index": -1,
+                "arguments": [{"name": "arg1"}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_both_fields_empty_returns_empty(
+        self, client: AsyncClient,
+    ) -> None:
+        """Individual mode with both name and description empty returns empty list."""
+        response = await client.post(
+            "/ai/suggest-arguments",
+            json={
+                "target_index": 0,
+                "arguments": [{"name": None, "description": None}],
             },
         )
         assert response.status_code == 200

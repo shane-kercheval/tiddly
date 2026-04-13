@@ -22,6 +22,8 @@ from schemas.ai import (
     SuggestRelationshipsResponse,
     SuggestTagsResponse,
     TagVocabularyEntry,
+    _ArgumentDescriptionSuggestion,
+    _ArgumentNameSuggestion,
     _DescriptionOnly,
     _TitleAndDescription,
     _TitleOnly,
@@ -300,35 +302,36 @@ async def suggest_arguments(
     *,
     prompt_content: str | None,
     arguments: list[ArgumentInput],
-    target: str | None,
+    target_index: int | None,
     llm_service: LLMService,
     config: LLMConfig,
 ) -> tuple[list[ArgumentSuggestion], float | None]:
     """
     Suggest prompt template arguments.
 
-    Two modes based on target:
-    - target=None (generate-all): Extracts {{ placeholder }} names from
+    Three use cases based on target_index:
+    - target_index=None (generate-all): Extracts {{ placeholder }} names from
       prompt_content, excludes names already in arguments, and asks the LLM
-      to generate descriptions for new placeholders. Returns early with an
-      empty list if no new placeholders are found (no LLM call).
-    - target=<name> (individual): Suggests a name and/or description for
-      a specific argument.
+      to generate descriptions for new placeholders.
+    - target_index=N, name missing (suggest-name): arguments[N] has a
+      description but no name. LLM suggests a name.
+    - target_index=N, description missing (suggest-description): arguments[N]
+      has a name but no description. LLM suggests a description.
 
     Args:
         prompt_content: The Jinja2 template text. Used for placeholder
-            extraction in generate-all mode and as context in both modes.
+            extraction in generate-all mode and as context in all modes.
         arguments: Existing arguments. In generate-all mode, names are
             excluded from placeholder extraction.
-        target: Argument name to suggest for, or None for generate-all.
+        target_index: Index into arguments list for individual mode, or
+            None for generate-all.
         llm_service: LLM service instance for making completion calls.
         config: Resolved LLM config (model, key, key source).
 
     Returns:
         Tuple of (suggestions, cost). Argument names are validated against
         ARGUMENT_NAME_PATTERN (lowercase_with_underscores, starts with letter);
-        invalid names are filtered out. If the LLM omits `required`, it
-        defaults to False (ArgumentSuggestion schema default).
+        invalid names are filtered out.
         Returns ([], None) in generate-all mode if prompt_content is
         None or all placeholders already have arguments (no LLM call).
 
@@ -336,34 +339,98 @@ async def suggest_arguments(
         LLMResponseParseError: If the LLM returns invalid/unparseable output
             (including empty response.choices). Carries cost so the caller can
             still track spend.
+        ValueError: If target_index is out of range.
     """
-    # For "generate all", extract placeholders deterministically from template
-    placeholder_names = None
-    if target is None:
-        if not prompt_content:
-            return [], None
-        all_placeholders = extract_template_placeholders(prompt_content)
-        existing_names = {
-            (a.name or "").lower()
-            for a in arguments
-            if a.name
-        }
-        placeholder_names = [
-            p for p in all_placeholders if p.lower() not in existing_names
-        ]
-        if not placeholder_names:
-            return [], None
+    if target_index is None:
+        return await _suggest_arguments_generate_all(
+            prompt_content=prompt_content,
+            arguments=arguments,
+            llm_service=llm_service,
+            config=config,
+        )
+
+    if target_index < 0 or target_index >= len(arguments):
+        raise ValueError(
+            f"target_index {target_index} is out of range "
+            f"(arguments has {len(arguments)} items)",
+        )
+
+    target_arg = arguments[target_index]
+
+    # Nothing to suggest if both fields are empty — no context for the LLM
+    if not target_arg.name and not target_arg.description:
+        return [], None
+
+    # Determine which field to suggest based on what's missing
+    suggest_field = "name" if target_arg.description and not target_arg.name else "description"
 
     messages = build_argument_suggestion_messages(
         prompt_content=prompt_content,
         existing_arguments=arguments,
-        target=target,
+        target_arg=target_arg,
+        suggest_field=suggest_field,
+    )
+
+    if suggest_field == "name":
+        response, cost = await llm_service.complete(
+            messages=messages, config=config,
+            response_format=_ArgumentNameSuggestion,
+        )
+        parsed = _parse_response(response, _ArgumentNameSuggestion, cost)
+        try:
+            validated_name = validate_argument_name(parsed.name)
+        except ValueError:
+            return [], cost
+        return [ArgumentSuggestion(
+            name=validated_name,
+            description=target_arg.description or "",
+            required=False,
+        )], cost
+
+    # suggest_field == "description"
+    response, cost = await llm_service.complete(
+        messages=messages, config=config,
+        response_format=_ArgumentDescriptionSuggestion,
+    )
+    parsed = _parse_response(response, _ArgumentDescriptionSuggestion, cost)
+    return [ArgumentSuggestion(
+        name=target_arg.name or "",
+        description=parsed.description,
+        required=False,
+    )], cost
+
+
+async def _suggest_arguments_generate_all(
+    *,
+    prompt_content: str | None,
+    arguments: list[ArgumentInput],
+    llm_service: LLMService,
+    config: LLMConfig,
+) -> tuple[list[ArgumentSuggestion], float | None]:
+    """Generate descriptions for all new placeholders in the template."""
+    if not prompt_content:
+        return [], None
+    all_placeholders = extract_template_placeholders(prompt_content)
+    existing_names = {
+        (a.name or "").lower()
+        for a in arguments
+        if a.name
+    }
+    placeholder_names = [
+        p for p in all_placeholders if p.lower() not in existing_names
+    ]
+    if not placeholder_names:
+        return [], None
+
+    messages = build_argument_suggestion_messages(
+        prompt_content=prompt_content,
+        existing_arguments=arguments,
+        target_arg=None,
         placeholder_names=placeholder_names,
     )
 
     response, cost = await llm_service.complete(
-        messages=messages,
-        config=config,
+        messages=messages, config=config,
         response_format=SuggestArgumentsResponse,
     )
 

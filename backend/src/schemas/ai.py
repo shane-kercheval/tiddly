@@ -173,12 +173,19 @@ class ArgumentInput(BaseModel):
 
 
 class SuggestArgumentsRequest(BaseModel):
-    """Request for prompt argument suggestions."""
+    """
+    Request for prompt argument suggestions.
+
+    Two modes:
+    - Generate all (target_index=None): Extract and describe all new placeholders.
+    - Individual (target_index=N): Suggest name or description for arguments[N].
+      The backend determines which field to suggest based on which is missing.
+    """
 
     model: str | None = None
     prompt_content: str | None = Field(None, max_length=50_000)
     arguments: list[ArgumentInput] = []
-    target: str | None = None
+    target_index: int | None = Field(None, ge=0)
 
 
 class ArgumentSuggestion(BaseModel):
@@ -193,3 +200,18 @@ class SuggestArgumentsResponse(BaseModel):
     """Response with suggested arguments."""
 
     arguments: list[ArgumentSuggestion]
+
+
+# Internal response models for individual mode — each tells the LLM
+# exactly which field to generate (like _TitleOnly/_DescriptionOnly for metadata).
+
+class _ArgumentNameSuggestion(BaseModel):
+    """Internal: LLM response format when suggesting a name for an argument."""
+
+    name: str
+
+
+class _ArgumentDescriptionSuggestion(BaseModel):
+    """Internal: LLM response format when suggesting a description for an argument."""
+
+    description: str

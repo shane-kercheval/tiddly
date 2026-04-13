@@ -4,8 +4,8 @@
  * Covers:
  * - Availability gate: does not call API when available=false
  * - suggestAll: sends correct request, appends results via onUpdate
- * - suggestName: sends target, updates name via onUpdate
- * - suggestDescription: sends target, updates description via onUpdate
+ * - suggestName: sends target_index, updates name via onUpdate
+ * - suggestDescription: sends target_index, updates description via onUpdate
  * - Loading state lifecycle for generate-all and individual suggestions
  * - Error handling: silent console.error
  * - Race condition: stale response discarded
@@ -85,7 +85,7 @@ describe('useArgumentSuggestions', () => {
       expect(mockSuggestArguments).toHaveBeenCalledWith({
         prompt_content: 'Hello {{ name }}',
         arguments: [{ name: 'name', description: null }],
-        target: null,
+        target_index: null,
       })
     })
 
@@ -134,7 +134,7 @@ describe('useArgumentSuggestions', () => {
   // -------------------------------------------------------------------------
 
   describe('suggestName', () => {
-    it('sends target as current argument name', async () => {
+    it('sends target_index for the argument', async () => {
       mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'suggested_name', description: 'desc' }] })
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
       const args: PromptArgument[] = [{ name: 'old_name', description: 'A description', required: false }]
@@ -146,11 +146,11 @@ describe('useArgumentSuggestions', () => {
       expect(mockSuggestArguments).toHaveBeenCalledWith({
         prompt_content: 'template',
         arguments: [{ name: 'old_name', description: 'A description' }],
-        target: 'old_name',
+        target_index: 0,
       })
     })
 
-    it('sends empty string as target when name is empty', async () => {
+    it('sends target_index when name is empty', async () => {
       mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'suggested', description: 'desc' }] })
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
       const args: PromptArgument[] = [{ name: '', description: 'A description', required: false }]
@@ -162,7 +162,7 @@ describe('useArgumentSuggestions', () => {
       expect(mockSuggestArguments).toHaveBeenCalledWith({
         prompt_content: null,
         arguments: [{ name: null, description: 'A description' }],
-        target: '',
+        target_index: 0,
       })
     })
 
@@ -225,7 +225,7 @@ describe('useArgumentSuggestions', () => {
   // -------------------------------------------------------------------------
 
   describe('suggestDescription', () => {
-    it('sends target as current argument name', async () => {
+    it('sends target_index for the argument', async () => {
       mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'arg1', description: 'new desc' }] })
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
       const args: PromptArgument[] = [{ name: 'arg1', description: null, required: false }]
@@ -237,7 +237,7 @@ describe('useArgumentSuggestions', () => {
       expect(mockSuggestArguments).toHaveBeenCalledWith({
         prompt_content: 'template',
         arguments: [{ name: 'arg1', description: null }],
-        target: 'arg1',
+        target_index: 0,
       })
     })
 

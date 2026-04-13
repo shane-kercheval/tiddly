@@ -341,10 +341,12 @@ async def suggest_arguments_endpoint(
         valid_args, cost = await suggest_arguments(
             prompt_content=data.prompt_content,
             arguments=data.arguments,
-            target=data.target,
+            target_index=data.target_index,
             llm_service=llm_service,
             config=config,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LLMResponseParseError as exc:
         await _handle_parse_error(exc, start=start, user_id=current_user.id, config=config)
     latency_ms = int((time.monotonic() - start) * 1000)

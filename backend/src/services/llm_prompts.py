@@ -212,7 +212,8 @@ def extract_template_placeholders(prompt_content: str) -> list[str]:
 def build_argument_suggestion_messages(
     prompt_content: str | None,
     existing_arguments: list[ArgumentInput],
-    target: str | None,
+    target_arg: ArgumentInput | None,
+    suggest_field: str | None = None,
     placeholder_names: list[str] | None = None,
 ) -> list[dict]:
     """
@@ -221,38 +222,53 @@ def build_argument_suggestion_messages(
     Args:
         prompt_content: The Jinja2 prompt template text.
         existing_arguments: Current arguments.
-        target: Argument name to suggest for, or None for "generate all."
+        target_arg: The specific argument to suggest for in individual mode,
+            or None for "generate all" mode.
+        suggest_field: Which field to suggest in individual mode:
+            "name" (suggest a name given a description),
+            "description" (suggest a description given a name),
+            or None for generate-all mode.
         placeholder_names: Deterministically extracted placeholder names
             (for "generate all" mode). The LLM describes these, not invents them.
     """
-    if target is None:
+    required_guideline = (
+        "- Mark an argument as required if it appears unconditionally in the template "
+        "(e.g. {{ variable }}). Mark it as not required if it is inside a Jinja2 "
+        "conditional block (e.g. {% if variable %} ... {% endif %})\n"
+    )
+
+    if target_arg is None:
         system = (
             "You are a prompt template assistant. "
             "Generate a description for each of the listed prompt arguments.\n\n"
             "Guidelines:\n"
             "- Keep the argument names exactly as provided — do not rename them\n"
             "- Descriptions should explain what the argument represents and give an example\n"
-            "- Mark an argument as required if it appears unconditionally in the template "
-            "(e.g. {{ variable }}). Mark it as not required if it is inside a Jinja2 "
-            "conditional block (e.g. {% if variable %} ... {% endif %})\n"
+            + required_guideline
+        )
+    elif suggest_field == "name":
+        system = (
+            "You are a prompt template assistant. "
+            "Suggest a name for the specified prompt argument based on its description.\n\n"
+            "Guidelines:\n"
+            "- Use lowercase_with_underscores for argument names\n"
+            "- The name should clearly reflect what the argument represents\n"
+            "- If the description clearly maps to an existing placeholder in the "
+            "template (e.g. {{ variable_name }}), use that placeholder's name\n"
         )
     else:
         system = (
             "You are a prompt template assistant. "
-            "Suggest a name and/or description for the specified prompt argument.\n\n"
+            "Suggest a description for the specified prompt argument.\n\n"
             "Guidelines:\n"
-            "- Use lowercase_with_underscores for argument names\n"
-            "- Descriptions should explain what the argument represents and give an example\n"
-            "- Mark an argument as required if it appears unconditionally in the template "
-            "(e.g. {{ variable }}). Mark it as not required if it is inside a Jinja2 "
-            "conditional block (e.g. {% if variable %} ... {% endif %})\n"
+            "- The description should explain what the argument represents and give an example\n"
         )
 
     user_parts = []
     if prompt_content:
         user_parts.append(f"Template:\n{prompt_content}")
 
-    if placeholder_names and target is None:
+    if placeholder_names and target_arg is None:
         names_str = ", ".join(placeholder_names)
         user_parts.append(f"Arguments to describe: {names_str}")
 
@@ -263,18 +279,17 @@ def build_argument_suggestion_messages(
         )
         user_parts.append(f"Existing arguments:\n{args_str}")
 
-    if target is not None:
-        target_arg = next(
-            (a for a in existing_arguments if a.name == target),
-            None,
-        )
-        if target_arg:
+    if target_arg is not None:
+        if suggest_field == "name":
             user_parts.append(
-                f"Suggest for argument: name={target_arg.name or '?'}, "
-                f"description={target_arg.description or '(none)'}",
+                f"Suggest a name for the argument with description: "
+                f"\"{target_arg.description}\"",
             )
         else:
-            user_parts.append(f"Suggest for argument named: {target}")
+            user_parts.append(
+                f"Suggest a description for the argument named: "
+                f"{target_arg.name}",
+            )
 
     user_msg = "\n\n".join(user_parts) if user_parts else "No context provided."
 

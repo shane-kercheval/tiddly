@@ -783,7 +783,7 @@ export interface SuggestArgumentsRequest {
   model?: string | null
   prompt_content?: string | null
   arguments?: ArgumentInput[]
-  target?: string | null
+  target_index?: number | null
 }
 
 /** A suggested argument */

@@ -3,19 +3,13 @@
  *
  * Three modes:
  * - suggestAll: Generate arguments for all template placeholders (no target)
- * - suggestName: Suggest a name for a specific argument (target = current name)
- * - suggestDescription: Suggest a description for a specific argument (target = current name)
+ * - suggestName: Suggest a name for a specific argument (target_index = row index)
+ * - suggestDescription: Suggest a description for a specific argument (target_index = row index)
  *
  * No caching — argument suggestions replace content, so each click should
  * produce a fresh result (same rationale as metadata suggestions).
  *
  * Known limitations:
- * - Target identification by name: Per-argument suggestions identify the target
- *   row by name (`target: arg.name`). If two rows share the same name (e.g. both
- *   blank), the backend may build LLM context from the wrong row's description.
- *   The result is still written to the correct index client-side — only the LLM
- *   prompt quality is affected. Fixing this requires a backend API change to
- *   accept an index or row ID instead of a name string.
  * - Overwrite during loading: If the user edits a field while a suggestion is
  *   in flight, the response overwrites their edits. Same tradeoff exists in
  *   metadata suggestions (useMetadataSuggestions). A cross-cutting fix would
@@ -88,7 +82,7 @@ export function useArgumentSuggestions(
         name: a.name || null,
         description: a.description || null,
       })),
-      target: null,
+      target_index: null,
     })
       .then((response) => {
         if (requestIdRef.current === thisRequestId) {
@@ -123,15 +117,13 @@ export function useArgumentSuggestions(
     setSuggestingIndex(index)
     setSuggestingField('name')
 
-    const targetArg = existingArgs[index]
-
     suggestArguments({
       prompt_content: promptContent || null,
       arguments: existingArgs.map((a) => ({
         name: a.name || null,
         description: a.description || null,
       })),
-      target: targetArg.name || '',
+      target_index: index,
     })
       .then((response) => {
         if (requestIdRef.current === thisRequestId && response.arguments.length > 0) {
@@ -167,15 +159,13 @@ export function useArgumentSuggestions(
     setSuggestingIndex(index)
     setSuggestingField('description')
 
-    const targetArg = existingArgs[index]
-
     suggestArguments({
       prompt_content: promptContent || null,
       arguments: existingArgs.map((a) => ({
         name: a.name || null,
         description: a.description || null,
       })),
-      target: targetArg.name || '',
+      target_index: index,
     })
       .then((response) => {
         if (requestIdRef.current === thisRequestId && response.arguments.length > 0) {
