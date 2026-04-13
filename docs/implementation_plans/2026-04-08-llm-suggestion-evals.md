@@ -549,20 +549,39 @@ Checks are defined in YAML. **Per-test-case checks** are defined on individual t
 **Check wiring pattern (applies to all milestones):**
 - Deterministic checks (built-in flex-evals types) are loaded via `create_checks_from_config()`
 - Judge checks need runtime objects injected (`llm_function`, `response_format`) and are loaded via `create_suggestion_checks()` from `helpers.py`
+- Per-test-case checks in YAML are loaded by `create_test_cases_from_config()` — use these for checks that only apply to some test cases (subset, disjoint, etc.)
+- Global checks apply to ALL test cases — only use for universal assertions. If a check doesn't apply to every test case (e.g., `is_empty` when some cases expect empty results), make it per-test-case instead.
 
 **Output format (applies to all milestones):**
-The test function must return a dict with `model_name` and `usage: { total_cost }` for the eval viewer to display correctly:
+The test function must return a dict with `model_name`, `temperature`, and `usage: { total_cost }` for the eval viewer:
 ```python
 return {
     "tags": tags,
     "tag_count": len(tags),
     "model_name": config.model,
+    "temperature": temperature,
     "usage": {"total_cost": cost},
 }
 ```
 
+**Models (applies to all milestones):**
+Models under test are defined in the YAML `models` list and parametrized via `@pytest.mark.parametrize`. The judge model is defined in `eval.judge_model` in the YAML and loaded by `create_judge_llm_function()`. Current models:
+- Models under test: `gemini/gemini-flash-lite-latest`, `openai/gpt-5.4-nano`, `anthropic/claude-haiku-4-5`
+- Judge: `openai/gpt-5.4-mini`
+
+**Pass mode (applies to all milestones):**
+Use `per_test_case` mode (the flex-evals default). Each test case is evaluated independently across samples — a failure in one test case does not affect others. Use `pass_threshold: 0.8`.
+
 **Metadata descriptions (applies to all milestones):**
 Every test case and check should have `metadata: { description: "..." }` for the eval viewer. Test case descriptions explain the input scenario. Check descriptions explain what's being verified and why.
+
+**Judge prompt design (applies to all milestones):**
+The judge prompt should include:
+1. The recommender's instructions (so the judge evaluates against the same expectations)
+2. Correct scoring examples (showing tags/selections that should pass)
+3. Incorrect scoring examples (showing common judge mistakes to avoid, e.g., penalizing non-vocabulary tags)
+4. The user's vocabulary (when applicable)
+5. Clear pass/fail criteria (e.g., "passed=true if no more than 1 tag scores 0")
 
 **Judge response model:**
 ```python
@@ -575,8 +594,8 @@ class TagJudgeResult(BaseModel):
 
 ### Testing Strategy
 
-- 10 test cases × 10 samples × 1 model = 100 LLM calls
-- Pass threshold: 80%
+- 11 test cases × 10 samples × 3 models = 330 LLM calls (+ judge calls)
+- Pass threshold: 80%, per-test-case mode
 - No database or HTTP server needed — calls service function directly
 
 ---
@@ -631,9 +650,10 @@ Judge checks use the same `create_suggestion_checks` pattern from M1. Judge resp
 
 ### Testing Strategy
 
-- 8 test cases × 10 samples × 1 model = 80 LLM calls
-- Pass threshold: 80%
-- Results written to `evals/ai_suggestions/results/` (same directory as tag evals — all suggestion eval results share one `results/` dir)
+- 8 test cases × 10 samples × 3 models = 240 LLM calls (+ judge calls)
+- Pass threshold: 80%, per-test-case mode
+- Results written to `evals/ai_suggestions/results/`
+- Judge prompt should follow M1 patterns: include recommender instructions, correct/incorrect examples
 
 ---
 
@@ -674,22 +694,31 @@ This is cleaner than creating real DB items — we control the candidate set pre
 
 #### 3. Checks
 
-Follow the check wiring pattern from M1 (per-test-case checks, global checks, output includes `model_name` and `usage: { total_cost }`). Output should include `candidate_ids` (list of returned entity_ids) for set checks.
+Follow the check wiring pattern from M1 (per-test-case checks for conditional assertions, global checks for universal ones).
+
+Output should include `candidate_ids` (list of returned entity_ids), `candidate_count`, `model_name`, `temperature`, and `usage: { total_cost }`.
 
 **Per-test-case checks:**
 - `subset` — expected related candidate IDs appear in the output (by entity_id)
 - `disjoint` — unrelated candidate IDs do not appear in the output (by entity_id)
+- `is_empty` with `negate: true` — on test cases that should return results
+- `is_empty` with `negate: false` — on `all-unrelated` (expects empty/minimal results)
 
 **Global checks:**
-- `is_empty` with `negate: true` on `candidate_ids` — skipped for test cases that expect empty results (use per-test-case `is_empty` with `negate: false` for `all-unrelated`)
+- `threshold` — candidate count max 5 (service enforces this cap)
 - `llm_judge` — selected candidates are genuinely related to the source item
+
+Note: `is_empty` is per-test-case, NOT global, because `all-unrelated` expects empty results while other cases expect non-empty. Global checks apply to all test cases.
+
+**Judge prompt:** Follow M1 patterns — include the recommender's instructions, the candidate list with context, correct/incorrect scoring examples, and clear pass/fail criteria. The judge should evaluate whether each selected candidate is genuinely related, not just topically adjacent.
 
 ### Testing Strategy
 
-- 6 test cases × 10 samples × 1 model = 60 LLM calls
-- Pass threshold: 80%
+- 6 test cases × 10 samples × 3 models = 180 LLM calls (+ judge calls)
+- Pass threshold: 80%, per-test-case mode
 - No database needed — candidates are passed directly
 - Results written to `evals/ai_suggestions/results/`
+- Judge prompt should follow M1 patterns: include recommender instructions, correct/incorrect examples
 
 ---
 
@@ -745,10 +774,11 @@ Judge checks use the same `create_suggestion_checks` pattern from M1.
 
 ### Testing Strategy
 
-- 5 test cases × 10 samples × 1 model = 50 LLM calls
-- Pass threshold: 80%
+- 5 test cases × 10 samples × 3 models = 150 LLM calls (+ judge calls)
+- Pass threshold: 80%, per-test-case mode
 - No database or HTTP server needed — calls service function directly
 - Results written to `evals/ai_suggestions/results/`
+- Judge prompt should follow M1 patterns: include recommender instructions, correct/incorrect examples
 
 ---
 
@@ -769,11 +799,13 @@ make evals                                    # All evals (including MCP + AI su
 
 ### Cost awareness
 
-Each eval run makes real LLM calls. Per-call context overhead: ~1500 tokens for 20 few-shot examples (title + description + tags each) + ~500 tokens for 100-tag vocabulary with counts ≈ ~2000 tokens input per tag suggestion call. Other endpoints are lighter. With the default model (gemini-2.5-flash-lite at $0.10/M input, $0.40/M output), ~290 calls ≈ ~$0.07 per full eval run. LLM-as-judge calls (gemini-2.5-flash) add a small additional cost. Total is negligible.
+Each eval run makes real LLM calls. With 3 models under test and `openai/gpt-5.4-mini` as judge, costs per full eval run are small. The judge model ($0.75/$4.50 per M) dominates cost since it makes one call per test case per sample. Total is typically under $0.50 per full eval run across all milestones.
 
 ### LLM provider errors
 
 LLM provider errors (timeouts, rate limits, connection failures) will fail the eval as unhandled exceptions. These are infrastructure issues, not prompt quality failures — don't confuse them with test failures. If evals are flaky due to provider issues, investigate the provider, not the prompts.
+
+**Known issue:** Gemini flash/pro models have chronic 503 "high demand" errors. Gemini flash-lite-latest is stable. The judge uses `openai/gpt-5.4-mini` to avoid Gemini reliability issues. See `evals/LEARNINGS.md` for details.
 
 ### Results
 
