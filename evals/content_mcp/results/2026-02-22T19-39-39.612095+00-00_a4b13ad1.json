@@ -17180,7 +17180,7 @@
       "test_function": "test_update_item_notes",
       "test_module": "evals.content_mcp.test_update_item",
       "samples": 10,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "num_test_cases": 6
     },
     "_test_results": {
@@ -17188,7 +17188,7 @@
       "failed_samples": 2,
       "total_samples": 10,
       "success_rate": 0.8,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "passed": true
     }
   }

@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 import pytest
-from flex_evals import TestCase
+from flex_evals import PassMode, TestCase
 from flex_evals.pytest_decorator import evaluate
 from sik_llms.mcp_manager import MCPClientManager
 from evals.utils import (
@@ -172,7 +172,8 @@ Use the tool result above as context for the following instruction.
     test_cases=TEST_CASES,
     checks=CHECKS,
     samples=EVAL_CONFIG["samples"],
-    success_threshold=EVAL_CONFIG["success_threshold"],
+    pass_threshold=EVAL_CONFIG["pass_threshold"],
+    pass_mode=PassMode.SAMPLE,
     max_concurrency=EVAL_CONFIG.get("max_concurrency"),
     output_dir=Path(__file__).parent / "results",
     metadata={

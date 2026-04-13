@@ -4,6 +4,7 @@ import SampleRow, { samplePassed } from './SampleRow'
 
 interface TestCaseTableProps {
   results: SampleResult[]
+  passThreshold?: number
 }
 
 interface GroupedTestCase {
@@ -30,7 +31,7 @@ function groupByTestCase(results: SampleResult[]): GroupedTestCase[] {
   return Array.from(groups.values())
 }
 
-export default function TestCaseTable({ results }: TestCaseTableProps) {
+export default function TestCaseTable({ results, passThreshold }: TestCaseTableProps) {
   const groups = groupByTestCase(results)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const allExpanded = expandedGroups.size === groups.length
@@ -59,6 +60,7 @@ export default function TestCaseTable({ results }: TestCaseTableProps) {
         <TestCaseRow
           key={group.id}
           group={group}
+          passThreshold={passThreshold}
           expanded={expandedGroups.has(group.id)}
           onToggle={() => {
             setExpandedGroups((prev) => {
@@ -74,10 +76,12 @@ export default function TestCaseTable({ results }: TestCaseTableProps) {
   )
 }
 
-function TestCaseRow({ group, expanded, onToggle }: { group: GroupedTestCase; expanded: boolean; onToggle: () => void }) {
+function TestCaseRow({ group, passThreshold, expanded, onToggle }: { group: GroupedTestCase; passThreshold?: number; expanded: boolean; onToggle: () => void }) {
   const passedCount = group.samples.filter(samplePassed).length
   const total = group.samples.length
+  const rate = total > 0 ? passedCount / total : 0
   const allPassed = passedCount === total
+  const meetsThreshold = passThreshold != null ? rate >= passThreshold : allPassed
   const durations = group.samples
     .map((s) => s.execution_context.output.metadata?.duration_seconds)
     .filter((d): d is number => d != null)
@@ -101,7 +105,7 @@ function TestCaseRow({ group, expanded, onToggle }: { group: GroupedTestCase; ex
         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium tabular-nums ${
           allPassed
             ? 'bg-emerald-50 text-emerald-700'
-            : passedCount / total > 0.5
+            : meetsThreshold
               ? 'bg-amber-50 text-amber-700'
               : 'bg-red-50 text-red-700'
         }`}>

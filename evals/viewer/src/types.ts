@@ -62,17 +62,35 @@ export interface TestConfig {
   test_function: string
   test_module: string
   samples: number
-  success_threshold: number
+  pass_threshold: number
+  pass_mode: string
   num_test_cases: number
 }
 
 export interface TestResults {
+  pass_mode: string
+  pass_threshold: number
+  passed: boolean
+  // Sample-level stats
   passed_samples: number
   failed_samples: number
   total_samples: number
-  success_rate: number
-  success_threshold: number
-  passed: boolean
+  sample_pass_rate: number
+  // Per-test-case stats
+  per_test_case?: Array<{
+    index: number
+    id: string | null
+    passed: number
+    failed: number
+    total: number
+    rate: number
+  }>
+  failed_test_cases?: Array<{
+    index: number
+    id: string | null
+  }>
+  // Legacy field for old results
+  success_rate?: number
 }
 
 export interface RunMetadata {
