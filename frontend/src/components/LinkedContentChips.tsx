@@ -35,6 +35,8 @@ interface LinkedContentChipsProps {
   onQuickCreate?: (targetType: ContentType) => void
   /** AI-suggested relationship candidates to display as muted chips. */
   aiSuggestions?: RelationshipCandidate[]
+  /** Whether AI relationship suggestions are currently loading. */
+  isAiLoading?: boolean
   /** Called when the linked content input opens (isAdding becomes true). */
   onOpen?: () => void
   /** Called when the linked content input closes (isAdding becomes false). */
@@ -99,6 +101,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     showAddButton = true,
     onQuickCreate,
     aiSuggestions,
+    isAiLoading = false,
     onOpen,
     onClose,
   }: LinkedContentChipsProps,
@@ -407,6 +410,13 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
               })}
             </div>
           </DropdownPortal>
+        </div>
+      )}
+
+      {/* AI loading spinner — shown while relationship suggestions are being fetched */}
+      {isAiLoading && visibleAiSuggestions.length === 0 && (
+        <div className="inline-flex items-center px-1" aria-label="Loading relationship suggestions">
+          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
         </div>
       )}
 

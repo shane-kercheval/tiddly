@@ -11,6 +11,9 @@ from pydantic import BaseModel
 
 from core.config import Settings
 
+# Suppress LiteLLM's "Provider List: ..." stderr output on unrecognized model prefixes
+litellm.suppress_debug_info = True
+
 logger = logging.getLogger(__name__)
 
 
@@ -284,7 +287,14 @@ class LLMService:
             _sanitize_structured_content(response)
 
         try:
-            cost: float | None = completion_cost(completion_response=response)
+            # Strip provider prefix (e.g. "openai/gpt-5.4-nano" → "gpt-5.4-nano")
+            # because completion_cost() doesn't recognize prefixed OpenAI/Anthropic
+            # model names. Bare names work for all providers including Gemini.
+            cost_model = config.model.split("/")[-1] if "/" in config.model else config.model
+            cost: float | None = completion_cost(
+                completion_response=response,
+                model=cost_model,
+            )
         except Exception:
             logger.warning("completion_cost_failed", extra={"model": config.model})
             cost = None

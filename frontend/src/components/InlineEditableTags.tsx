@@ -35,6 +35,8 @@ interface InlineEditableTagsProps {
   showAddButton?: boolean
   /** AI-suggested tags to display as muted chips. */
   aiSuggestions?: string[]
+  /** Whether AI tag suggestions are currently loading. */
+  isAiLoading?: boolean
   /** Called when the tag input opens (isAddingTag becomes true). */
   onOpen?: () => void
   /** Called when the tag input closes (isAddingTag becomes false). */
@@ -64,6 +66,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
     disabled = false,
     showAddButton = true,
     aiSuggestions,
+    isAiLoading = false,
     onOpen,
     onClose,
   }: InlineEditableTagsProps,
@@ -258,6 +261,13 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
               ))}
             </div>
           </DropdownPortal>
+        </div>
+      )}
+
+      {/* AI loading spinner — shown while suggestions are being fetched */}
+      {isAiLoading && visibleAiSuggestions.length === 0 && (
+        <div className="inline-flex items-center px-1" aria-label="Loading tag suggestions">
+          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
         </div>
       )}
 

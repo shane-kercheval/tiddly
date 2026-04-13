@@ -378,7 +378,7 @@ class TestComplete:
                 messages=[{"role": "user", "content": "Hi"}],
                 config=config,
             )
-            mock_cost.assert_called_once_with(completion_response=mock_response)
+            mock_cost.assert_called_once_with(completion_response=mock_response, model="gemini-flash-lite-latest")
             assert cost == 0.0042
 
 

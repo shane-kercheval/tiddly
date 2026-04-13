@@ -13,7 +13,7 @@ Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction l
 
 **Key decisions:**
 - **LiteLLM SDK** (in-process, no proxy) for provider abstraction. The SDK is a pure translation layer that calls provider APIs (OpenAI, Anthropic, Google, etc.) directly — no LiteLLM servers involved.
-- **Pro tier** gets AI features with platform keys (Gemini 2.5 Flash Lite as default model — cheapest viable option at $0.10/$0.40 per M tokens in/out)
+- **Pro tier** gets AI features with platform keys (OpenAI gpt-5.4-nano as default suggestions model — $0.20/$1.25 per M tokens in/out. Originally Gemini Flash Lite but switched due to chronic 503 reliability issues.)
 - **BYOK (Bring Your Own Key)** lets users bypass platform rate limits and choose their own model/provider
 - **User API keys** stored in browser `localStorage`, passed via `X-LLM-Api-Key` header, never persisted server-side
 - **All AI endpoints** live under a new `/ai/` router
@@ -1263,10 +1263,10 @@ These are the platform API keys used for Pro-tier AI features. BYOK users provid
 
 Optional model overrides (defaults are fine for initial deployment):
 ```
-LLM_MODEL_SUGGESTIONS=gemini/gemini-2.5-flash-lite
-LLM_MODEL_TRANSFORM=gemini/gemini-2.5-flash-lite
-LLM_MODEL_AUTO_COMPLETE=gemini/gemini-2.5-flash-lite
-LLM_MODEL_CHAT=gemini/gemini-2.5-flash
+LLM_MODEL_SUGGESTIONS=openai/gpt-5.4-nano
+LLM_MODEL_TRANSFORM=gemini/gemini-flash-lite-latest
+LLM_MODEL_AUTO_COMPLETE=gemini/gemini-flash-lite-latest
+LLM_MODEL_CHAT=openai/gpt-5.4-mini
 ```
 
 #### 2. Run the database migration

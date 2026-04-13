@@ -22,6 +22,8 @@ interface AddTagButtonProps {
   onAdd: (tag: string) => void
   /** AI-suggested tags to display as muted chips in the dropdown. */
   aiSuggestions?: string[]
+  /** Whether AI tag suggestions are currently loading. */
+  isAiLoading?: boolean
   /** Called when the dropdown opens. */
   onOpen?: () => void
   /** Called when the dropdown closes. */
@@ -36,6 +38,7 @@ export function AddTagButton({
   suggestions,
   onAdd,
   aiSuggestions,
+  isAiLoading = false,
   onOpen,
   onClose,
 }: AddTagButtonProps): ReactNode {
@@ -200,7 +203,7 @@ export function AddTagButton({
           <DropdownPortal
             ref={dropdownPortalRef}
             anchorRef={inputRef}
-            open={(showSuggestions && filteredSuggestions.length > 0) || visibleAiSuggestions.length > 0}
+            open={(showSuggestions && filteredSuggestions.length > 0) || visibleAiSuggestions.length > 0 || (isAiLoading && visibleAiSuggestions.length === 0)}
           >
             <div className="mt-1 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
               {/* Autocomplete suggestions */}
@@ -220,6 +223,18 @@ export function AddTagButton({
                   <span className="text-gray-400">{suggestion.content_count}</span>
                 </button>
               ))}
+
+              {/* AI loading spinner */}
+              {isAiLoading && visibleAiSuggestions.length === 0 && (
+                <>
+                  {showSuggestions && filteredSuggestions.length > 0 && (
+                    <div className="border-t border-gray-100 my-1" />
+                  )}
+                  <div className="flex items-center justify-center py-2" aria-label="Loading tag suggestions">
+                    <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                  </div>
+                </>
+              )}
 
               {/* AI suggestions — muted, separated */}
               {visibleAiSuggestions.length > 0 && (

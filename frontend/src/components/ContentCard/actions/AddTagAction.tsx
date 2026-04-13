@@ -31,7 +31,7 @@ interface AddTagActionProps {
 
 export function AddTagAction({ existingTags, suggestions, onAdd, aiContext }: AddTagActionProps): ReactNode {
   const { available } = useAIAvailability()
-  const { suggestions: aiSuggestions, fetchSuggestions, clearSuggestions, dismissSuggestion } = useTagSuggestions({ available })
+  const { suggestions: aiSuggestions, isLoading: isAiLoading, fetchSuggestions, clearSuggestions, dismissSuggestion } = useTagSuggestions({ available })
 
   const handleOpen = useCallback(() => {
     if (aiContext) {
@@ -57,6 +57,7 @@ export function AddTagAction({ existingTags, suggestions, onAdd, aiContext }: Ad
       suggestions={suggestions}
       onAdd={handleAdd}
       aiSuggestions={aiSuggestions}
+      isAiLoading={isAiLoading}
       onOpen={handleOpen}
       onClose={handleClose}
     />

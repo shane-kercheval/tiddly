@@ -11,9 +11,9 @@ Add evaluation tests for the four AI suggestion endpoints (`suggest-tags`, `sugg
 
 **Framework:** Uses `flex-evals` with YAML config files, the `@evaluate` decorator, `contains`/`exact_match`/`equals` checks for deterministic assertions, and `LLMJudgeCheck` for semantic quality where exact matching is too brittle.
 
-**Model under test:** The default platform model (`gemini/gemini-2.5-flash-lite`) since it's the cheapest and most likely to surface prompt quality issues. Better models would mask weak prompts.
+**Models under test:** Multiple budget-tier models (`gemini/gemini-flash-lite-latest`, `openai/gpt-5.4-nano`, `anthropic/claude-haiku-4-5`) to validate prompt quality across providers. Budget models surface prompt issues that stronger models would mask. Default platform model is `openai/gpt-5.4-nano` (switched from Gemini Flash Lite due to chronic 503 reliability issues).
 
-**LLM-as-judge model:** `gemini/gemini-2.5-flash` — a stronger model than the one being tested. The judge should not be the same budget model evaluating its own output.
+**LLM-as-judge model:** `openai/gpt-5.4-mini` — a stronger model than the ones being tested. The judge should not be the same budget model evaluating its own output. (Switched from Gemini Flash due to the same 503 reliability issues.)
 
 **Pass threshold:** 80%, lowered if needed after observing real variance.
 

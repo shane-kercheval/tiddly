@@ -292,9 +292,9 @@ export function Note({
   }, [note?.id, initialTags, initialRelationships])
 
   // AI tag suggestions
-  const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+  const { aiTagSuggestions, isAiTagsLoading, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
     useAITagIntegration(current, setCurrent, aiAvailable, 'note')
-  const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
+  const { aiRelationshipSuggestions, isAiRelationshipsLoading, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: note?.id ?? null }, aiAvailable)
   const { titleSuggestProps, descriptionSuggestProps } =
     useAIMetadataIntegration(current, setCurrent, aiAvailable)
@@ -904,6 +904,7 @@ export function Note({
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
                 aiSuggestions={aiTagSuggestions}
+                isAiLoading={isAiTagsLoading}
                 onOpen={handleTagInputOpen}
                 onClose={handleTagInputClose}
               />
@@ -920,6 +921,7 @@ export function Note({
                 showAddButton={false}
                 onQuickCreate={handleQuickCreate}
                 aiSuggestions={aiRelationshipSuggestions}
+                isAiLoading={isAiRelationshipsLoading}
                 onOpen={handleLinkedContentOpen}
                 onClose={handleLinkedContentClose}
               />

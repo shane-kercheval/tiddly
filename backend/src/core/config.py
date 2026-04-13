@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # LLM models per use case
     llm_model_suggestions: str = Field(
-        default="gemini/gemini-flash-lite-latest",
+        default="openai/gpt-5.4-nano",
         validation_alias="LLM_MODEL_SUGGESTIONS",
     )
     llm_model_transform: str = Field(

@@ -343,9 +343,9 @@ export function Prompt({
   }, [prompt?.id, initialTags, initialRelationships])
 
   // AI tag suggestions
-  const { aiTagSuggestions, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+  const { aiTagSuggestions, isAiTagsLoading, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
     useAITagIntegration(current, setCurrent, aiAvailable, 'prompt')
-  const { aiRelationshipSuggestions, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
+  const { aiRelationshipSuggestions, isAiRelationshipsLoading, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: prompt?.id ?? null }, aiAvailable)
   const { titleSuggestProps, descriptionSuggestProps } =
     useAIMetadataIntegration(current, setCurrent, aiAvailable)
@@ -1132,6 +1132,7 @@ export function Prompt({
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
                 aiSuggestions={aiTagSuggestions}
+                isAiLoading={isAiTagsLoading}
                 onOpen={handleTagInputOpen}
                 onClose={handleTagInputClose}
               />
@@ -1148,6 +1149,7 @@ export function Prompt({
                 showAddButton={false}
                 onQuickCreate={handleQuickCreate}
                 aiSuggestions={aiRelationshipSuggestions}
+                isAiLoading={isAiRelationshipsLoading}
                 onOpen={handleLinkedContentOpen}
                 onClose={handleLinkedContentClose}
               />
