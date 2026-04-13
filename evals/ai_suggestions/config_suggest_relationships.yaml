@@ -1,0 +1,495 @@
+name: "suggest_relationships: Relationship Suggestion Quality"
+description: |
+  Tests relationship suggestion quality by calling suggest_relationships()
+  directly with curated candidates. Verifies that the LLM selects genuinely
+  related items and rejects unrelated ones.
+
+models:
+  - name: "gemini/gemini-flash-lite-latest"
+    temperature: 0.7
+  - name: "openai/gpt-5.4-nano"
+    temperature: 0.7
+  - name: "anthropic/claude-haiku-4-5"
+    temperature: 0.7
+
+eval:
+  judge_model: "openai/gpt-5.4-mini"
+  samples: 10
+  pass_threshold: 0.8
+  max_concurrency: 10
+
+test_cases:
+  - id: "python-testing"
+    metadata:
+      description: "Full context — should select testing-related candidates and reject unrelated ones"
+    input:
+      title: "Python Testing Best Practices"
+      description: "A comprehensive guide to writing reliable Python tests using modern testing frameworks and patterns."
+      content_snippet: "Testing is essential for maintaining code quality. This guide covers unit testing with pytest, mocking with unittest.mock, test-driven development workflows, and continuous integration setup for Python projects."
+      url: null
+      candidates:
+        - entity_id: "c1-pytest"
+          entity_type: "bookmark"
+          title: "Getting Started with Pytest"
+          description: "Introduction to the pytest framework for Python testing."
+          content_preview: "Pytest is a mature full-featured testing tool for Python."
+        - entity_id: "c2-unittest"
+          entity_type: "note"
+          title: "unittest.mock Patterns"
+          description: "Common mocking patterns for Python unit tests."
+          content_preview: "The mock library lets you replace parts of your system under test."
+        - entity_id: "c3-tdd"
+          entity_type: "bookmark"
+          title: "Test-Driven Development in Practice"
+          description: "How to apply TDD methodology to real projects."
+          content_preview: "TDD follows a red-green-refactor cycle to drive software design."
+        - entity_id: "c4-cooking"
+          entity_type: "note"
+          title: "Mediterranean Cooking Basics"
+          description: "Essential techniques for Mediterranean cuisine."
+          content_preview: "Start with quality olive oil, fresh herbs, and seasonal vegetables."
+        - entity_id: "c5-gardening"
+          entity_type: "note"
+          title: "Container Gardening for Beginners"
+          description: "Growing vegetables in small spaces using containers."
+          content_preview: "Choose containers with good drainage and use quality potting mix."
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          required: ["c1-pytest", "c2-unittest", "c3-tdd"]
+          case_sensitive: true
+        metadata:
+          name: "Expected candidates selected"
+          description: "All three testing-related candidates should be selected"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          forbidden: ["c4-cooking", "c5-gardening"]
+          case_sensitive: true
+        metadata:
+          name: "Excluded candidates absent"
+          description: "Cooking and gardening candidates should not be selected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.candidate_ids"
+          negate: true
+        metadata:
+          name: "Candidates non-empty"
+          description: "Should return at least one candidate"
+
+  - id: "react-frontend"
+    metadata:
+      description: "Title + content, no description — should select React-related candidates"
+    input:
+      title: "React Component Design Patterns"
+      description: null
+      content_snippet: "React components can be organized using composition, render props, and custom hooks. This guide covers common patterns for building reusable, maintainable React components including compound components and the provider pattern."
+      url: null
+      candidates:
+        - entity_id: "c1-hooks"
+          entity_type: "bookmark"
+          title: "Advanced React Hooks"
+          description: "Deep dive into useReducer, useContext, and custom hooks."
+          content_preview: "Custom hooks let you extract component logic into reusable functions."
+        - entity_id: "c2-render-props"
+          entity_type: "note"
+          title: "React Render Props Pattern"
+          description: "Sharing component logic using the render props pattern in React."
+          content_preview: "A render prop is a function that a component uses to know what to render, enabling code reuse across components."
+        - entity_id: "c3-dbindex"
+          entity_type: "bookmark"
+          title: "Database Indexing Strategies"
+          description: "B-tree, hash, and GIN indexes for PostgreSQL."
+          content_preview: "Indexes speed up queries by providing fast lookup paths to rows."
+        - entity_id: "c4-cooking"
+          entity_type: "note"
+          title: "Thai Curry Recipes"
+          description: "Authentic Thai curry recipes with coconut milk."
+          content_preview: "Start with a homemade curry paste using lemongrass and galangal."
+        - entity_id: "c5-astronomy"
+          entity_type: "bookmark"
+          title: "Introduction to Astrophotography"
+          description: "Capturing the night sky with a DSLR camera."
+          content_preview: "Use a tracking mount to compensate for Earth's rotation."
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          required: ["c1-hooks", "c2-render-props"]
+          case_sensitive: true
+        metadata:
+          name: "Expected candidates selected"
+          description: "React hooks and render props candidates should be selected"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          forbidden: ["c3-dbindex", "c4-cooking", "c5-astronomy"]
+          case_sensitive: true
+        metadata:
+          name: "Excluded candidates absent"
+          description: "Database, cooking, and astronomy candidates should not be selected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.candidate_ids"
+          negate: true
+        metadata:
+          name: "Candidates non-empty"
+          description: "Should return at least one candidate"
+
+  - id: "description-only-source"
+    metadata:
+      description: "Description only, no title or content — tests relationship finding from description alone"
+    input:
+      title: null
+      description: "A comprehensive guide to deploying microservices with Kubernetes, covering pod scheduling, service discovery, and automated scaling."
+      content_snippet: null
+      url: null
+      candidates:
+        - entity_id: "c1-docker"
+          entity_type: "bookmark"
+          title: "Docker Container Orchestration"
+          description: "Managing multi-container applications with Docker Compose and Swarm."
+          content_preview: "Docker Compose defines multi-container applications in a single YAML file."
+        - entity_id: "c2-cicd"
+          entity_type: "note"
+          title: "CI/CD Pipeline for Kubernetes"
+          description: "Automating deployments to Kubernetes clusters with GitHub Actions."
+          content_preview: "Use kubectl apply in your CI pipeline to deploy to staging automatically."
+        - entity_id: "c3-cooking"
+          entity_type: "note"
+          title: "Sourdough Bread Baking"
+          description: "Making sourdough bread from a starter culture."
+          content_preview: "Feed your starter every 12 hours with equal parts flour and water."
+        - entity_id: "c4-gardening"
+          entity_type: "bookmark"
+          title: "Perennial Garden Planning"
+          description: "Designing a low-maintenance perennial garden."
+          content_preview: "Choose plants that bloom at different times for year-round color."
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          required: ["c1-docker", "c2-cicd"]
+          case_sensitive: true
+        metadata:
+          name: "Expected candidates selected"
+          description: "Docker and CI/CD candidates should be selected — both related to Kubernetes deployment"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          forbidden: ["c3-cooking", "c4-gardening"]
+          case_sensitive: true
+        metadata:
+          name: "Excluded candidates absent"
+          description: "Cooking and gardening candidates should not be selected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.candidate_ids"
+          negate: true
+        metadata:
+          name: "Candidates non-empty"
+          description: "Should return at least one candidate"
+
+  - id: "all-unrelated"
+    metadata:
+      description: "All candidates are unrelated to the source — should return empty or minimal results"
+    input:
+      title: "Machine Learning with PyTorch"
+      description: "Training neural networks using PyTorch's autograd and nn modules."
+      content_snippet: null
+      url: null
+      candidates:
+        - entity_id: "c1-cooking"
+          entity_type: "note"
+          title: "French Pastry Techniques"
+          description: "Mastering puff pastry, choux, and croissant dough."
+          content_preview: "Laminated dough requires precise temperature control during folding."
+        - entity_id: "c2-gardening"
+          entity_type: "bookmark"
+          title: "Composting for Beginners"
+          description: "How to start a compost bin in your backyard."
+          content_preview: "Maintain a balance of green and brown materials for healthy compost."
+        - entity_id: "c3-knitting"
+          entity_type: "note"
+          title: "Cable Knitting Patterns"
+          description: "Creating cable stitch patterns for sweaters and scarves."
+          content_preview: "Cable needles hold stitches while you cross them over each other."
+        - entity_id: "c4-woodworking"
+          entity_type: "bookmark"
+          title: "Hand-Cut Dovetail Joints"
+          description: "Traditional woodworking joinery techniques."
+          content_preview: "Mark your tails first, then transfer to the pin board for a tight fit."
+    checks:
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.candidate_ids"
+        metadata:
+          name: "Candidates empty"
+          description: "No candidates are related to ML/PyTorch — should return empty list"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          forbidden: ["c1-cooking", "c2-gardening", "c3-knitting", "c4-woodworking"]
+          case_sensitive: true
+        metadata:
+          name: "Excluded candidates absent"
+          description: "All candidates are unrelated — none should leak through"
+
+  - id: "all-related"
+    metadata:
+      description: "All candidates are related to the source — should select all"
+    input:
+      title: "Web Development Overview"
+      description: "A broad introduction to modern web development technologies and practices."
+      content_snippet: null
+      url: null
+      candidates:
+        - entity_id: "c1-html"
+          entity_type: "bookmark"
+          title: "HTML5 Semantic Elements"
+          description: "Using semantic HTML for better accessibility and SEO."
+          content_preview: "Elements like article, section, and nav provide meaning to content structure."
+        - entity_id: "c2-css"
+          entity_type: "note"
+          title: "CSS Grid Layout Guide"
+          description: "Building responsive layouts with CSS Grid."
+          content_preview: "Grid provides a two-dimensional layout system for the web."
+        - entity_id: "c3-js"
+          entity_type: "bookmark"
+          title: "Modern JavaScript ES2024 Features"
+          description: "New JavaScript language features and syntax."
+          content_preview: "Array grouping, decorators, and temporal API are among the latest additions."
+        - entity_id: "c4-rest"
+          entity_type: "note"
+          title: "REST API Design Principles"
+          description: "Best practices for designing RESTful web APIs."
+          content_preview: "Use nouns for resources, HTTP verbs for actions, and proper status codes."
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          required: ["c1-html", "c2-css", "c3-js", "c4-rest"]
+          case_sensitive: true
+        metadata:
+          name: "Expected candidates selected"
+          description: "All four web development candidates should be selected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.candidate_ids"
+          negate: true
+        metadata:
+          name: "Candidates non-empty"
+          description: "Should return at least one candidate"
+
+  - id: "misleading-title"
+    metadata:
+      description: "One candidate has a misleading title — tests semantic understanding over keyword matching"
+    input:
+      title: "Python Testing with Pytest"
+      description: "Best practices for testing Python applications using the Pytest framework."
+      content_snippet: null
+      url: null
+      candidates:
+        - entity_id: "c1-herpetology"
+          entity_type: "bookmark"
+          title: "Python Testing in the Wild"
+          description: "Field methods for testing wild python populations in Southeast Asia."
+          content_preview: "Researchers use radio telemetry and capture-recapture methods to estimate Burmese python population sizes in their native habitat."
+        - entity_id: "c2-unittest"
+          entity_type: "note"
+          title: "Python unittest Module"
+          description: "Using the built-in unittest framework for Python test suites."
+          content_preview: "The unittest module provides TestCase classes with setUp and tearDown methods."
+        - entity_id: "c3-tdd"
+          entity_type: "bookmark"
+          title: "TDD with Python"
+          description: "Applying test-driven development methodology in Python projects."
+          content_preview: "Write a failing test first, then implement the minimum code to pass it."
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          required: ["c2-unittest", "c3-tdd"]
+          case_sensitive: true
+        metadata:
+          name: "Expected candidates selected"
+          description: "unittest and TDD candidates should be selected"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          forbidden: ["c1-herpetology"]
+          case_sensitive: true
+        metadata:
+          name: "Excluded candidates absent"
+          description: "Herpetology candidate about testing pythons (snakes) should not be selected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.candidate_ids"
+          negate: true
+        metadata:
+          name: "Candidates non-empty"
+          description: "Should return at least one candidate"
+
+  - id: "title-only-source"
+    metadata:
+      description: "Title only, no description or content — most common scenario for new bookmarks"
+    input:
+      title: "Docker Compose Best Practices"
+      description: null
+      content_snippet: null
+      url: null
+      candidates:
+        - entity_id: "c1-k8s"
+          entity_type: "bookmark"
+          title: "Kubernetes vs Docker Compose"
+          description: "Comparing container orchestration approaches for different use cases."
+          content_preview: "Docker Compose works well for local development, while Kubernetes handles production-scale orchestration."
+        - entity_id: "c2-dockerfile"
+          entity_type: "note"
+          title: "Writing Efficient Dockerfiles"
+          description: "Optimizing Docker image builds with multi-stage builds and layer caching."
+          content_preview: "Order your commands so that frequently changing layers come last."
+        - entity_id: "c3-astronomy"
+          entity_type: "bookmark"
+          title: "Deep Space Photography"
+          description: "Techniques for photographing galaxies and nebulae."
+          content_preview: "Long exposure times and dark frame subtraction reduce sensor noise."
+        - entity_id: "c4-cooking"
+          entity_type: "note"
+          title: "Wok Cooking Techniques"
+          description: "High-heat stir-frying with a carbon steel wok."
+          content_preview: "Preheat the wok until it just starts to smoke before adding oil."
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          required: ["c1-k8s", "c2-dockerfile"]
+          case_sensitive: true
+        metadata:
+          name: "Expected candidates selected"
+          description: "Kubernetes and Dockerfile candidates should be selected from title alone"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          forbidden: ["c3-astronomy", "c4-cooking"]
+          case_sensitive: true
+        metadata:
+          name: "Excluded candidates absent"
+          description: "Astronomy and cooking candidates should not be selected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.candidate_ids"
+          negate: true
+        metadata:
+          name: "Candidates non-empty"
+          description: "Should return at least one candidate even from title alone"
+
+  - id: "tangentially-related"
+    metadata:
+      description: "Mix of directly related, tangentially related, and unrelated — tests the quality boundary"
+    input:
+      title: "Setting Up CI/CD Pipelines"
+      description: "How to build continuous integration and deployment pipelines for a web application."
+      content_snippet: null
+      url: null
+      candidates:
+        - entity_id: "c1-github-actions"
+          entity_type: "bookmark"
+          title: "GitHub Actions Workflow Syntax"
+          description: "Reference for GitHub Actions YAML workflow configuration."
+          content_preview: "Workflows are defined in .github/workflows/ and triggered by events."
+        - entity_id: "c2-git-branching"
+          entity_type: "note"
+          title: "Git Branching Strategies"
+          description: "Comparing Git Flow, trunk-based development, and GitHub Flow."
+          content_preview: "Trunk-based development uses short-lived feature branches merged frequently."
+        - entity_id: "c3-docker-builds"
+          entity_type: "bookmark"
+          title: "Docker Image Build Optimization"
+          description: "Reducing Docker build times and image sizes."
+          content_preview: "Use multi-stage builds to separate build dependencies from runtime."
+        - entity_id: "c4-cooking"
+          entity_type: "note"
+          title: "Meal Prep Strategies"
+          description: "Efficient weekly meal preparation techniques."
+          content_preview: "Batch cook grains and proteins on Sunday for the entire week."
+        - entity_id: "c5-gardening"
+          entity_type: "bookmark"
+          title: "Raised Bed Garden Design"
+          description: "Planning and building raised garden beds."
+          content_preview: "Use untreated cedar for frames and fill with a mix of topsoil and compost."
+    # c2-git-branching and c3-docker-builds are intentionally unchecked — they're in the
+    # gray zone between "related" and "unrelated" for CI/CD content. Selecting them is
+    # acceptable; not selecting them is also fine. The LLM judge provides quality signal here.
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          required: ["c1-github-actions"]
+          case_sensitive: true
+        metadata:
+          name: "Expected candidates selected"
+          description: "GitHub Actions is directly related to CI/CD"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.candidate_ids"
+          forbidden: ["c4-cooking", "c5-gardening"]
+          case_sensitive: true
+        metadata:
+          name: "Excluded candidates absent"
+          description: "Cooking and gardening are clearly unrelated"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.candidate_ids"
+          negate: true
+        metadata:
+          name: "Candidates non-empty"
+          description: "Should return at least one candidate"
+
+# Global checks — applied to every test case
+checks:
+  # Candidate count max 5 (service enforces this cap)
+  - type: "threshold"
+    arguments:
+      value: "$.output.value.candidate_count"
+      max_value: 5
+    metadata:
+      name: "Candidate count within bounds"
+      description: "Service caps at 5 candidates"
+
+  # All selected candidates are genuinely related (LLM judge)
+  - type: "llm_judge"
+    arguments:
+      prompt: |
+        You are evaluating relationship suggestions for a content item.
+
+        The source item:
+        - Title: "{{$.test_case.input.title}}"
+        - Description: "{{$.test_case.input.description}}"
+        - Content snippet: "{{$.test_case.input.content_snippet}}"
+
+        The available candidates were:
+        {{$.output.value.all_candidate_summaries}}
+
+        The selected candidates are: {{$.output.value.candidate_ids}}
+
+        The recommender was instructed to:
+        - Only select candidates that have a genuine topical or conceptual relationship to the source item
+        - Return the entity_id, entity_type, and title of each related candidate
+        - Return an empty list if no candidates are meaningfully related
+
+        Score the overall selection as passed or failed. A selection passes if:
+        - All selected candidates are genuinely related to the source item (not just superficially similar)
+        - No obviously unrelated candidates were selected
+        - If no candidates are related, returning an empty list is correct
+
+        A selection fails if:
+        - An unrelated candidate was selected (e.g., a cooking article for a programming source)
+        - A candidate with a misleading title was selected based on keyword overlap rather than actual content relevance
+
+        Return relevant_count (number of correctly selected candidates), total_selected (total candidates selected), and passed=true if the selection is correct. Include brief reasoning for any incorrectly selected candidate.
+      response_model: "relationships"
+    metadata:
+      name: "Selected candidates are genuinely related"
+      description: "LLM judge verifies relationship selections are topically relevant, not just keyword matches"
