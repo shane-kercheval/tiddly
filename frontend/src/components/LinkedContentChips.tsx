@@ -109,6 +109,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
 ): ReactNode {
   const [isAdding, setIsAdding] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const inputWrapperRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dropdownPortalRef = useRef<DropdownPortalHandle>(null)
 
@@ -329,9 +330,34 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         )
       })}
 
+      {/* AI loading spinner — shown next to existing chips while suggestions load */}
+      {isAiLoading && visibleAiSuggestions.length === 0 && (
+        <div className="inline-flex items-center px-1" aria-label="Loading relationship suggestions">
+          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+        </div>
+      )}
+
+      {/* AI-suggested relationship chips — muted, next to existing linked content chips */}
+      {visibleAiSuggestions.length > 0 && visibleAiSuggestions.map((candidate) => {
+        const Icon = CONTENT_TYPE_ICONS[candidate.entity_type as ContentType]
+        const iconColor = CONTENT_TYPE_ICON_COLORS[candidate.entity_type as ContentType]
+        return (
+          <button
+            key={`ai-${candidate.entity_id}`}
+            type="button"
+            onClick={() => handleAiSuggestionClick(candidate)}
+            className="group/ai-link inline-flex items-center gap-1 rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
+            aria-label={`Add suggested link: ${candidate.title}`}
+          >
+            {Icon && <span className={iconColor}><Icon className="h-3 w-3" /></span>}
+            <span className="max-w-[120px] truncate">{candidate.title}</span>
+          </button>
+        )
+      })}
+
       {/* Inline search + quick-create widget (shown when in add mode) */}
       {isAdding && !disabled && (
-        <div className="relative inline-flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-md px-1.5 py-px focus-within:border-gray-400 focus-within:ring-1 focus-within:ring-gray-400/20">
+        <div ref={inputWrapperRef} className="relative inline-flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-md px-1.5 py-px focus-within:border-gray-400 focus-within:ring-1 focus-within:ring-gray-400/20">
           <input
             ref={inputRef}
             type="text"
@@ -372,7 +398,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
           )}
 
           {/* Results dropdown — rendered via portal to escape overflow containers */}
-          <DropdownPortal ref={dropdownPortalRef} anchorRef={inputRef} open={showDropdown && inputValue.length >= 1}>
+          <DropdownPortal ref={dropdownPortalRef} anchorRef={inputWrapperRef} open={showDropdown && inputValue.length >= 1}>
             <div id="linked-content-listbox" role="listbox" className="mt-1 max-h-48 w-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
               {isSearching && results.length === 0 && (
                 <p className="text-xs text-gray-400 py-3 text-center">Searching...</p>
@@ -412,31 +438,6 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
           </DropdownPortal>
         </div>
       )}
-
-      {/* AI loading spinner — shown while relationship suggestions are being fetched */}
-      {isAiLoading && visibleAiSuggestions.length === 0 && (
-        <div className="inline-flex items-center px-1" aria-label="Loading relationship suggestions">
-          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-        </div>
-      )}
-
-      {/* AI-suggested relationship chips — muted, to the right of existing chips */}
-      {visibleAiSuggestions.length > 0 && visibleAiSuggestions.map((candidate) => {
-        const Icon = CONTENT_TYPE_ICONS[candidate.entity_type as ContentType]
-        const iconColor = CONTENT_TYPE_ICON_COLORS[candidate.entity_type as ContentType]
-        return (
-          <button
-            key={`ai-${candidate.entity_id}`}
-            type="button"
-            onClick={() => handleAiSuggestionClick(candidate)}
-            className="group/ai-link inline-flex items-center gap-1 rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
-            aria-label={`Add suggested link: ${candidate.title}`}
-          >
-            {Icon && <span className={iconColor}><Icon className="h-3 w-3" /></span>}
-            <span className="max-w-[120px] truncate">{candidate.title}</span>
-          </button>
-        )
-      })}
 
       {/* Inline add button (only when showAddButton is true and not already adding) */}
       {showAddButton && !isAdding && !disabled && (

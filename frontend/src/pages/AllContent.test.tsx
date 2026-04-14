@@ -1028,7 +1028,7 @@ describe('AllContent', () => {
       await screen.findByPlaceholderText('Add tag...')
 
       // Wait for and click the 'example' suggestion button (it's in tagsStore but not on this bookmark)
-      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      const suggestionButton = await screen.findByRole('option', { name: /^example/ })
       await user.click(suggestionButton)
 
       expect(mockUpdateBookmark).toHaveBeenCalledWith({
@@ -1056,7 +1056,7 @@ describe('AllContent', () => {
       await screen.findByPlaceholderText('Add tag...')
 
       // Wait for and click the 'example' suggestion button
-      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      const suggestionButton = await screen.findByRole('option', { name: /^example/ })
       await user.click(suggestionButton)
 
       expect(mockUpdateNote).toHaveBeenCalledWith({
@@ -1084,7 +1084,7 @@ describe('AllContent', () => {
       await screen.findByPlaceholderText('Add tag...')
 
       // Wait for and click the 'example' suggestion button
-      const suggestionButton = await screen.findByRole('button', { name: /^example/ })
+      const suggestionButton = await screen.findByRole('option', { name: /^example/ })
       await user.click(suggestionButton)
 
       expect(mockUpdatePrompt).toHaveBeenCalledWith({

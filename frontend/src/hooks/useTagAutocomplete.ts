@@ -42,12 +42,17 @@ interface UseTagAutocompleteReturn {
   removeTag: (tag: string) => void
   /** Select the currently highlighted suggestion */
   selectHighlighted: () => boolean
-  /** Move the highlight up or down in the suggestions list */
-  moveHighlight: (direction: 'up' | 'down') => void
-  /** Open the suggestions dropdown. Returns true if opened, false if nothing to show. */
-  openSuggestions: () => boolean
+  /** Move the highlight up or down. When itemCount is provided, it overrides
+   *  the internal filteredSuggestions.length for bounds and skips the
+   *  showSuggestions guard — the component controls visibility. */
+  moveHighlight: (direction: 'up' | 'down', itemCount?: number) => void
+  /** Open the suggestions dropdown. When force is true, opens unconditionally
+   *  (even with no filtered suggestions or input). Returns true if opened. */
+  openSuggestions: (force?: boolean) => boolean
   /** Close the suggestions dropdown and reset highlight */
   closeSuggestions: () => void
+  /** Reset highlighted index to -1 without affecting dropdown visibility */
+  resetHighlight: () => void
   /** Get the current pending (uncommitted) input value */
   getPendingValue: () => string
   /** Clear the pending input */
@@ -153,14 +158,19 @@ export function useTagAutocomplete({
     return false
   }, [highlightedIndex, filteredSuggestions, addTag])
 
-  // Move highlight up or down
+  // Move highlight up or down. When itemCount is provided, the component owns
+  // the total navigable item count (e.g. AI suggestions + existing tags) and
+  // the showSuggestions guard is skipped — the component controls visibility
+  // via the portal open prop.
   const moveHighlight = useCallback(
-    (direction: 'up' | 'down'): void => {
-      if (!showSuggestions || filteredSuggestions.length === 0) return
+    (direction: 'up' | 'down', itemCount?: number): void => {
+      const total = itemCount ?? filteredSuggestions.length
+      if (total === 0) return
+      if (itemCount === undefined && !showSuggestions) return
 
       setHighlightedIndex((prev) => {
         if (direction === 'down') {
-          return prev < filteredSuggestions.length - 1 ? prev + 1 : prev
+          return prev < total - 1 ? prev + 1 : prev
         } else {
           return prev > 0 ? prev - 1 : prev
         }
@@ -169,9 +179,10 @@ export function useTagAutocomplete({
     [showSuggestions, filteredSuggestions.length]
   )
 
-  // Open suggestions dropdown (returns true if opened, false if nothing to show)
-  const openSuggestions = useCallback((): boolean => {
-    if (filteredSuggestions.length > 0 || inputValue.length > 0) {
+  // Open suggestions dropdown. When force is true, opens unconditionally —
+  // used when AI suggestions should be visible even with no existing tag matches.
+  const openSuggestions = useCallback((force?: boolean): boolean => {
+    if (force || filteredSuggestions.length > 0 || inputValue.length > 0) {
       setShowSuggestions(true)
       return true
     }
@@ -181,6 +192,11 @@ export function useTagAutocomplete({
   // Close suggestions dropdown and reset highlight
   const closeSuggestions = useCallback((): void => {
     setShowSuggestions(false)
+    setHighlightedIndex(-1)
+  }, [])
+
+  // Reset highlight without affecting dropdown visibility
+  const resetHighlight = useCallback((): void => {
     setHighlightedIndex(-1)
   }, [])
 
@@ -215,6 +231,7 @@ export function useTagAutocomplete({
     moveHighlight,
     openSuggestions,
     closeSuggestions,
+    resetHighlight,
     getPendingValue,
     clearPending,
     clearError,

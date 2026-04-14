@@ -219,6 +219,26 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
         />
       ))}
 
+      {/* AI loading spinner — shown next to tag pills while suggestions load */}
+      {isAiLoading && visibleAiSuggestions.length === 0 && (
+        <div className="inline-flex items-center px-1" aria-label="Loading tag suggestions">
+          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+        </div>
+      )}
+
+      {/* AI-suggested tags — muted chips next to existing tag pills */}
+      {visibleAiSuggestions.length > 0 && visibleAiSuggestions.map((tag) => (
+        <button
+          key={`ai-${tag}`}
+          type="button"
+          onClick={() => handleAiSuggestionClick(tag)}
+          className="inline-flex items-baseline rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
+          aria-label={`Add suggested tag: ${tag}`}
+        >
+          {tag}
+        </button>
+      ))}
+
       {/* Add input (shown when in add mode, regardless of showAddButton) */}
       {isAddingTag && !disabled && (
         <div className="relative">
@@ -228,7 +248,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            onFocus={openSuggestions}
+            onFocus={() => openSuggestions()}
             placeholder="Add tag..."
             className="min-w-[80px] w-24 text-xs px-1.5 py-px bg-gray-50 text-gray-700 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
           />
@@ -262,30 +282,6 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             </div>
           </DropdownPortal>
         </div>
-      )}
-
-      {/* AI loading spinner — shown while suggestions are being fetched */}
-      {isAiLoading && visibleAiSuggestions.length === 0 && (
-        <div className="inline-flex items-center px-1" aria-label="Loading tag suggestions">
-          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-        </div>
-      )}
-
-      {/* AI-suggested tags — muted chips to the right */}
-      {visibleAiSuggestions.length > 0 && (
-        <>
-          {visibleAiSuggestions.map((tag) => (
-            <button
-              key={`ai-${tag}`}
-              type="button"
-              onClick={() => handleAiSuggestionClick(tag)}
-              className="inline-flex items-baseline rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
-              aria-label={`Add suggested tag: ${tag}`}
-            >
-              {tag}
-            </button>
-          ))}
-        </>
       )}
 
       {/* Inline add button (only when showAddButton is true and not already adding) */}
