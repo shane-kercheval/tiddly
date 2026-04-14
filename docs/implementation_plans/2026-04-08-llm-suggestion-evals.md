@@ -1,8 +1,5 @@
 # LLM Suggestion Evals
 
-**Date:** 2026-04-08
-**Status:** Draft
-
 ## Overview
 
 Add evaluation tests for the four AI suggestion endpoints (`suggest-tags`, `suggest-metadata`, `suggest-relationships`, `suggest-arguments`). These evals verify that the LLM produces useful, well-formatted suggestions given realistic content.
@@ -230,7 +227,7 @@ async def suggest_arguments(
     *,
     prompt_content: str | None,
     arguments: list[ArgumentInput],
-    target: str | None,
+    target_index: int | None,  # Changed from `target: str` to index-based targeting during implementation
     llm_service: LLMService,
     config: ResolvedConfig,
 ) -> tuple[list[ArgumentSuggestion], float | None]:

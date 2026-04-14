@@ -1,8 +1,5 @@
 # LLM Integration
 
-**Date:** 2026-03-18
-**Status:** Draft — iterating on plan before implementation
-
 ## Overview
 
 Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction layer. This plan covers the backend service layer and suggestion features (backend + frontend) — all gated by tier and rate limits.
@@ -972,7 +969,7 @@ The server handles all user context (tag vocabulary, few-shot examples) — see 
 
 **Error handling:** Silent. If the API call fails, no suggestions are shown — the tag input works normally. Log the error to the console. No toast (suggestions are a nice-to-have, not a critical flow).
 
-**Loading state:** Defer until implementation. Test real latency first — with concurrent DB queries and a fast model (Gemini Flash Lite), latency may be low enough that a loading indicator isn't needed. Add one later if the delay is noticeable.
+**Loading state:** Implemented — spinning loader icons added to all suggestion UI components.
 
 #### Testing (3b)
 
@@ -1030,7 +1027,7 @@ The server handles all search and LLM work — see Milestone 2 §4.
 
 **Error handling:** Silent — same as tag suggestions. Log to console.
 
-**Loading state:** Defer until implementation. Relationship suggestions involve two searches + an LLM call, so they may be slower than tag suggestions. Add a loading indicator later if needed.
+**Loading state:** Implemented — spinning loader icons added to all suggestion UI components.
 
 #### Testing (3c)
 
@@ -1093,7 +1090,7 @@ On success, only the requested fields are populated in the response (`title: str
 
 **Error handling:** Same as tag suggestions — silent. If the API fails, nothing happens. Log to console.
 
-**Loading state:** Defer until implementation — test real latency first.
+**Loading state:** Implemented — spinning loader icons added to all suggestion UI components.
 
 #### Testing (3d)
 
@@ -1155,7 +1152,7 @@ Magic icons in the prompt editor's arguments section. Same three icon states as 
 
 **Error handling:** Silent — same pattern as other suggestions. Log to console.
 
-**Loading state:** Defer until implementation.
+**Loading state:** Implemented — spinning loader icons added to all suggestion UI components.
 
 #### Testing (3e)
 

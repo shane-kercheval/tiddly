@@ -1,7 +1,5 @@
 # LLM Auto-Complete PoC
 
-**Date:** 2026-04-05
-**Status:** Draft — iterating on plan before implementation
 **Depends on:** [LLM Integration](2026-03-18-llm-integration.md) (Milestones 1–3 must be complete)
 
 ## Overview
