@@ -276,7 +276,11 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - **Multi-tenant**: All content is isolated by user ID. There is no sharing functionality.
 - **Privacy**: No client-side/end-to-end encryption (would prevent full-text search). The database administrator could technically access user data. Self-hosting is available for complete privacy.
 - **Data export**: The CLI provides `tiddly export` for bulk JSON export of bookmarks, notes, and prompts. Supports filtering by content type (`--types`), writing to file (`--output`), and including archived items (`--include-archived`). The full REST API can also be used with a PAT to export content programmatically.
-- **AI features**: AI-powered suggestions (tags, titles, descriptions, relationships, prompt arguments) are available on Pro. Users can also bring their own API key for higher limits and custom model selection. AI features are opt-in — they only activate when the user clicks suggestion icons.
+- **AI features** (Pro): AI-powered suggestions for organizing content. Users can bring their own API key (BYOK) for higher rate limits and custom model selection.
+  - **Tag suggestions** — Suggested automatically when opening the tag input. Appear as muted chips; click to accept.
+  - **Title & description suggestions** — Click the sparkle icon next to the field to generate.
+  - **Relationship suggestions** — Suggested automatically when opening the linked content input. Click to link.
+  - **Argument suggestions** — Click sparkle icons in the prompt arguments section to generate names, descriptions, or all arguments from template placeholders.
 
 ## Tier Limits
 
