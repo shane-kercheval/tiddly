@@ -52,14 +52,18 @@ export const DropdownPortal = forwardRef(function DropdownPortal(
     const openUpward = spaceBelow < DROPDOWN_HEIGHT_ESTIMATE
 
     // Position horizontally, clamping to viewport edges on both sides.
-    const portalWidth = portalRef.current?.offsetWidth ?? 340
+    // Only clamp when we know the actual portal width (after first paint).
+    // On first render, portalRef.current is null — position without clamping
+    // and let the ResizeObserver trigger a reposition with correct width.
+    const portalWidth = portalRef.current?.offsetWidth
     let horizontal: { left?: number; right?: number }
+    const viewportWidth = window.innerWidth
     if (align === 'right') {
-      const rightOffset = window.innerWidth - rect.right
-      const wouldOverflowLeft = rect.right - portalWidth < 0
+      const rightOffset = viewportWidth - rect.right
+      const wouldOverflowLeft = portalWidth != null && rect.right - portalWidth < 0
       horizontal = wouldOverflowLeft ? { left: 0 } : { right: rightOffset }
     } else {
-      const wouldOverflowRight = rect.left + portalWidth > window.innerWidth
+      const wouldOverflowRight = portalWidth != null && rect.left + portalWidth > viewportWidth
       horizontal = wouldOverflowRight
         ? { right: 0 }
         : { left: rect.left }
@@ -92,6 +96,9 @@ export const DropdownPortal = forwardRef(function DropdownPortal(
     }
 
     updatePosition()
+    // Reposition after first paint so portalRef.current has its actual width
+    // (initial call has null offsetWidth since the portal hasn't rendered yet)
+    const rafId = requestAnimationFrame(updatePosition)
 
     // Capture phase catches scrolls on any ancestor container
     window.addEventListener('scroll', updatePosition, true)
@@ -113,6 +120,7 @@ export const DropdownPortal = forwardRef(function DropdownPortal(
     }
 
     return () => {
+      cancelAnimationFrame(rafId)
       window.removeEventListener('scroll', updatePosition, true)
       window.removeEventListener('resize', updatePosition)
       resizeObserver?.disconnect()
