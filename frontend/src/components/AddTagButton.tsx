@@ -6,7 +6,7 @@
  * Uses useTagAutocomplete hook for all autocomplete logic.
  *
  * When AI is available (Pro tier), the dropdown shows two sections:
- * - "AI Suggestions" at the top (spinner / items / "No suggestions")
+ * - "Suggestions" at the top (spinner / items / "No suggestions")
  * - "Your Tags" below (existing tag autocomplete)
  * Section headers only appear when aiAvailable is true.
  */
@@ -273,89 +273,120 @@ export function AddTagButton({
             anchorRef={inputRef}
             open={isDropdownOpen}
             onMouseLeave={handlePortalMouseLeave}
+            align={aiAvailable ? 'right' : 'left'}
           >
             <div
               id="tag-listbox"
               role="listbox"
-              className="mt-1 max-h-48 w-[170px] overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg"
+              className={`mt-1 overflow-hidden rounded-lg border border-gray-100 bg-white shadow-lg ${
+                aiAvailable ? 'w-[340px]' : 'w-[170px]'
+              }`}
             >
-              {/* AI Suggestions section (Pro only) */}
-              {aiAvailable && (
-                <>
-                  <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
-                    AI Suggestions
+              {aiAvailable ? (
+                <div className="flex">
+                  {/* Left column: AI Suggestions */}
+                  <div className="w-[170px] max-h-48 overflow-auto border-r border-gray-100 py-1">
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
+                      Suggestions
+                    </div>
+
+                    {/* Loading spinner */}
+                    {isAiLoading && filteredAiSuggestions.length === 0 && (
+                      <div className="flex items-center justify-center py-2" aria-label="Loading tag suggestions">
+                        <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                      </div>
+                    )}
+
+                    {/* No suggestions */}
+                    {!isAiLoading && filteredAiSuggestions.length === 0 && (
+                      <p className="text-xs text-gray-400 py-2 text-center">No suggestions</p>
+                    )}
+
+                    {/* AI suggestion items */}
+                    {filteredAiSuggestions.map((tag, index) => (
+                      <button
+                        key={`ai-${tag}`}
+                        id={`tag-option-${index}`}
+                        type="button"
+                        role="option"
+                        tabIndex={-1}
+                        onClick={(e) => handleAiSuggestionClick(e, tag)}
+                        aria-selected={index === highlightedIndex}
+                        aria-label={`Add suggested tag: ${tag}`}
+                        className={`flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors ${
+                          index === highlightedIndex
+                            ? 'bg-gray-100 text-gray-900'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        <span className="truncate">{tag}</span>
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Loading spinner */}
-                  {isAiLoading && filteredAiSuggestions.length === 0 && (
-                    <div className="flex items-center justify-center py-2" aria-label="Loading tag suggestions">
-                      <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                  {/* Right column: Your Tags */}
+                  <div className="w-[170px] max-h-48 overflow-auto py-1">
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
+                      Your Tags
                     </div>
-                  )}
 
-                  {/* No suggestions */}
-                  {!isAiLoading && filteredAiSuggestions.length === 0 && (
-                    <div className="px-3 py-1.5 text-xs text-gray-400">No suggestions</div>
-                  )}
+                    {filteredSuggestions.map((suggestion, index) => {
+                      const combinedIndex = getExistingTagHighlightIndex(index)
+                      return (
+                        <button
+                          key={suggestion.name}
+                          id={`tag-option-${combinedIndex}`}
+                          type="button"
+                          role="option"
+                          tabIndex={-1}
+                          onClick={(e) => handleSuggestionClick(e, suggestion.name)}
+                          aria-selected={combinedIndex === highlightedIndex}
+                          className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                            combinedIndex === highlightedIndex
+                              ? 'bg-gray-100 text-gray-900'
+                              : 'text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          <span className="truncate">{suggestion.name}</span>
+                          <span className="shrink-0 text-gray-400">{suggestion.content_count}</span>
+                        </button>
+                      )
+                    })}
 
-                  {/* AI suggestion items */}
-                  {filteredAiSuggestions.map((tag, index) => (
+                    {filteredSuggestions.length === 0 && (
+                      <div className="px-3 py-1.5 text-xs text-gray-400">
+                        {inputValue ? 'No matching tags' : 'No tags yet'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="max-h-48 overflow-auto py-1">
+                  {filteredSuggestions.map((suggestion, index) => (
                     <button
-                      key={`ai-${tag}`}
+                      key={suggestion.name}
                       id={`tag-option-${index}`}
                       type="button"
                       role="option"
                       tabIndex={-1}
-                      onClick={(e) => handleAiSuggestionClick(e, tag)}
+                      onClick={(e) => handleSuggestionClick(e, suggestion.name)}
                       aria-selected={index === highlightedIndex}
-                      aria-label={`Add suggested tag: ${tag}`}
-                      className={`flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors ${
+                      className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
                         index === highlightedIndex
                           ? 'bg-gray-100 text-gray-900'
                           : 'text-gray-600 hover:bg-gray-100'
                       }`}
                     >
-                      <span className="truncate">{tag}</span>
+                      <span className="truncate">{suggestion.name}</span>
+                      <span className="shrink-0 text-gray-400">{suggestion.content_count}</span>
                     </button>
                   ))}
 
-                  {/* Separator */}
-                  <div className="border-t border-gray-100 my-1" />
-
-                  <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
-                    Your Tags
-                  </div>
-                </>
-              )}
-
-              {/* Existing tag suggestions */}
-              {filteredSuggestions.map((suggestion, index) => {
-                const combinedIndex = getExistingTagHighlightIndex(index)
-                return (
-                  <button
-                    key={suggestion.name}
-                    id={`tag-option-${combinedIndex}`}
-                    type="button"
-                    role="option"
-                    tabIndex={-1}
-                    onClick={(e) => handleSuggestionClick(e, suggestion.name)}
-                    aria-selected={combinedIndex === highlightedIndex}
-                    className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-                      combinedIndex === highlightedIndex
-                        ? 'bg-gray-100 text-gray-900'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <span className="truncate">{suggestion.name}</span>
-                    <span className="shrink-0 text-gray-400">{suggestion.content_count}</span>
-                  </button>
-                )
-              })}
-
-              {/* Empty state for existing tags when none match filter */}
-              {filteredSuggestions.length === 0 && (
-                <div className="px-3 py-1.5 text-xs text-gray-400">
-                  {inputValue ? 'No matching tags' : 'No tags yet'}
+                  {filteredSuggestions.length === 0 && (
+                    <div className="px-3 py-1.5 text-xs text-gray-400">
+                      {inputValue ? 'No matching tags' : 'No tags yet'}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

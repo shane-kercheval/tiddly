@@ -1070,6 +1070,7 @@ export function Bookmark({
                 onQuickCreate={handleQuickCreate}
                 aiSuggestions={aiRelationshipSuggestions}
                 isAiLoading={isAiRelationshipsLoading}
+                aiAvailable={aiAvailable}
                 onOpen={handleLinkedContentOpen}
                 onClose={handleLinkedContentClose}
               />

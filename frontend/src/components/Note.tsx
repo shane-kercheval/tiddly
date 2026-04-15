@@ -923,6 +923,7 @@ export function Note({
                 onQuickCreate={handleQuickCreate}
                 aiSuggestions={aiRelationshipSuggestions}
                 isAiLoading={isAiRelationshipsLoading}
+                aiAvailable={aiAvailable}
                 onOpen={handleLinkedContentOpen}
                 onClose={handleLinkedContentClose}
               />

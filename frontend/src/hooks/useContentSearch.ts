@@ -39,14 +39,17 @@ interface UseContentSearchReturn {
   selectItem: (item: ContentListItem) => ContentListItem
   /** Select the currently highlighted item. Returns the item or null if nothing highlighted. */
   selectHighlighted: () => ContentListItem | null
-  /** Move the highlight up or down */
-  moveHighlight: (direction: 'up' | 'down') => void
+  /** Move the highlight up or down. When itemCount is provided, it overrides
+   *  the internal results.length for bounds and skips the showDropdown guard. */
+  moveHighlight: (direction: 'up' | 'down', itemCount?: number) => void
   /** Reset all state (input, dropdown, highlight) */
   reset: () => void
   /** Open the dropdown */
   openDropdown: () => void
   /** Close the dropdown and reset highlight */
   closeDropdown: () => void
+  /** Reset highlighted index to -1 without affecting dropdown visibility */
+  resetHighlight: () => void
 }
 
 export function useContentSearch({
@@ -98,11 +101,14 @@ export function useContentSearch({
   }, [highlightedIndex, results, selectItem])
 
   const moveHighlight = useCallback(
-    (direction: 'up' | 'down'): void => {
-      if (!showDropdown || results.length === 0) return
+    (direction: 'up' | 'down', itemCount?: number): void => {
+      const total = itemCount ?? results.length
+      if (total === 0) return
+      if (itemCount === undefined && !showDropdown) return
+
       setHighlightedIndex((prev) => {
         if (direction === 'down') {
-          return prev < results.length - 1 ? prev + 1 : prev
+          return prev < total - 1 ? prev + 1 : prev
         } else {
           return prev > 0 ? prev - 1 : prev
         }
@@ -126,6 +132,10 @@ export function useContentSearch({
     setHighlightedIndex(-1)
   }, [])
 
+  const resetHighlight = useCallback((): void => {
+    setHighlightedIndex(-1)
+  }, [])
+
   return {
     inputValue,
     setInputValue,
@@ -139,5 +149,6 @@ export function useContentSearch({
     reset,
     openDropdown,
     closeDropdown,
+    resetHighlight,
   }
 }

@@ -319,7 +319,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
                     )}
 
                     {!isAiLoading && filteredAiSuggestions.length === 0 && (
-                      <div className="px-3 py-1.5 text-xs text-gray-400">No suggestions</div>
+                      <p className="text-xs text-gray-400 py-2 text-center">No suggestions</p>
                     )}
 
                     {filteredAiSuggestions.map((tag, index) => (

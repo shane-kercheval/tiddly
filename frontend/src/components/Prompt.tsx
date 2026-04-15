@@ -1151,6 +1151,7 @@ export function Prompt({
                 onQuickCreate={handleQuickCreate}
                 aiSuggestions={aiRelationshipSuggestions}
                 isAiLoading={isAiRelationshipsLoading}
+                aiAvailable={aiAvailable}
                 onOpen={handleLinkedContentOpen}
                 onClose={handleLinkedContentClose}
               />
