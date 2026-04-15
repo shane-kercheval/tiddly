@@ -1133,6 +1133,7 @@ export function Prompt({
                 showAddButton={false}
                 aiSuggestions={aiTagSuggestions}
                 isAiLoading={isAiTagsLoading}
+                aiAvailable={aiAvailable}
                 onOpen={handleTagInputOpen}
                 onClose={handleTagInputClose}
               />

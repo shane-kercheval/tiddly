@@ -22,6 +22,8 @@ interface DropdownPortalProps {
   open: boolean
   /** Called when the mouse leaves the portal container. */
   onMouseLeave?: (e: React.MouseEvent) => void
+  /** Horizontal alignment relative to the anchor. Default: 'left'. */
+  align?: 'left' | 'right'
 }
 
 /** Handle exposed via ref — lets parents check if a click is inside the portal. */
@@ -33,7 +35,7 @@ export interface DropdownPortalHandle {
 const DROPDOWN_HEIGHT_ESTIMATE = 220
 
 export const DropdownPortal = forwardRef(function DropdownPortal(
-  { anchorRef, children, open, onMouseLeave }: DropdownPortalProps,
+  { anchorRef, children, open, onMouseLeave, align = 'left' }: DropdownPortalProps,
   ref: Ref<DropdownPortalHandle>,
 ): ReactNode {
   const [style, setStyle] = useState<CSSProperties | null>(null)
@@ -49,11 +51,25 @@ export const DropdownPortal = forwardRef(function DropdownPortal(
     const spaceBelow = window.innerHeight - rect.bottom
     const openUpward = spaceBelow < DROPDOWN_HEIGHT_ESTIMATE
 
+    // Position horizontally, clamping to viewport edges on both sides.
+    const portalWidth = portalRef.current?.offsetWidth ?? 340
+    let horizontal: { left?: number; right?: number }
+    if (align === 'right') {
+      const rightOffset = window.innerWidth - rect.right
+      const wouldOverflowLeft = rect.right - portalWidth < 0
+      horizontal = wouldOverflowLeft ? { left: 0 } : { right: rightOffset }
+    } else {
+      const wouldOverflowRight = rect.left + portalWidth > window.innerWidth
+      horizontal = wouldOverflowRight
+        ? { right: 0 }
+        : { left: rect.left }
+    }
+
     if (openUpward) {
       setStyle({
         position: 'fixed',
         bottom: window.innerHeight - rect.top,
-        left: rect.left,
+        ...horizontal,
         minWidth: rect.width,
         zIndex: 50,
       })
@@ -61,12 +77,12 @@ export const DropdownPortal = forwardRef(function DropdownPortal(
       setStyle({
         position: 'fixed',
         top: rect.bottom,
-        left: rect.left,
+        ...horizontal,
         minWidth: rect.width,
         zIndex: 50,
       })
     }
-  }, [anchorRef])
+  }, [anchorRef, align])
 
   useEffect(() => {
     if (!open) {
