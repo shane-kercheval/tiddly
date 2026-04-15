@@ -5,6 +5,10 @@
  * to an anchor element using `position: fixed`. This allows dropdowns to
  * escape overflow:hidden/auto containers (e.g. scrollable content areas).
  *
+ * Horizontal positioning: left-aligns by default. If the dropdown would
+ * overflow the right edge of the viewport, automatically right-aligns.
+ * Requires `dropdownWidth` for deterministic positioning (no DOM measurement).
+ *
  * Repositions on scroll and resize to stay aligned with the anchor.
  * Exposes a ref to its container so parent click-outside handlers can
  * treat portal content as "inside" the component.
@@ -12,6 +16,7 @@
 import { useState, useEffect, useCallback, useRef, useImperativeHandle, forwardRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactNode, Ref, CSSProperties } from 'react'
+import { computeDropdownLeft } from './dropdownPosition'
 
 interface DropdownPortalProps {
   /** Ref to the element the dropdown is anchored to. */
@@ -22,8 +27,9 @@ interface DropdownPortalProps {
   open: boolean
   /** Called when the mouse leaves the portal container. */
   onMouseLeave?: (e: React.MouseEvent) => void
-  /** Horizontal alignment relative to the anchor. Default: 'left'. */
-  align?: 'left' | 'right'
+  /** Known width of the dropdown content (px). Required for deterministic
+   *  horizontal positioning without DOM measurement jitter. */
+  dropdownWidth: number
 }
 
 /** Handle exposed via ref — lets parents check if a click is inside the portal. */
@@ -35,7 +41,7 @@ export interface DropdownPortalHandle {
 const DROPDOWN_HEIGHT_ESTIMATE = 220
 
 export const DropdownPortal = forwardRef(function DropdownPortal(
-  { anchorRef, children, open, onMouseLeave, align = 'left' }: DropdownPortalProps,
+  { anchorRef, children, open, onMouseLeave, dropdownWidth }: DropdownPortalProps,
   ref: Ref<DropdownPortalHandle>,
 ): ReactNode {
   const [style, setStyle] = useState<CSSProperties | null>(null)
@@ -51,54 +57,30 @@ export const DropdownPortal = forwardRef(function DropdownPortal(
     const spaceBelow = window.innerHeight - rect.bottom
     const openUpward = spaceBelow < DROPDOWN_HEIGHT_ESTIMATE
 
-    // Position horizontally, clamping to viewport edges on both sides.
-    // Only clamp when we know the actual portal width (after first paint).
-    // On first render, portalRef.current is null — position without clamping
-    // and let the ResizeObserver trigger a reposition with correct width.
-    const portalWidth = portalRef.current?.offsetWidth
-    let horizontal: { left?: number; right?: number }
-    const viewportWidth = window.innerWidth
-    if (align === 'right') {
-      const rightOffset = viewportWidth - rect.right
-      const wouldOverflowLeft = portalWidth != null && rect.right - portalWidth < 0
-      horizontal = wouldOverflowLeft ? { left: 0 } : { right: rightOffset }
-    } else {
-      const wouldOverflowRight = portalWidth != null && rect.left + portalWidth > viewportWidth
-      horizontal = wouldOverflowRight
-        ? { right: 0 }
-        : { left: rect.left }
-    }
+    const left = computeDropdownLeft(
+      rect.left, rect.right, dropdownWidth, window.innerWidth,
+    )
 
-    if (openUpward) {
-      setStyle({
-        position: 'fixed',
-        bottom: window.innerHeight - rect.top,
-        ...horizontal,
-        minWidth: rect.width,
-        zIndex: 50,
-      })
-    } else {
-      setStyle({
-        position: 'fixed',
-        top: rect.bottom,
-        ...horizontal,
-        minWidth: rect.width,
-        zIndex: 50,
-      })
-    }
-  }, [anchorRef, align])
+    const vertical = openUpward
+      ? { bottom: window.innerHeight - rect.top }
+      : { top: rect.bottom }
+
+    setStyle({
+      position: 'fixed',
+      ...vertical,
+      left,
+      minWidth: rect.width,
+      zIndex: 50,
+    })
+  }, [anchorRef, dropdownWidth])
 
   useEffect(() => {
     if (!open) {
-      // Runs synchronously when open flips to false — single commit, no extra render
       setStyle(null) // eslint-disable-line react-hooks/set-state-in-effect -- intentional: reset position on close
       return
     }
 
     updatePosition()
-    // Reposition after first paint so portalRef.current has its actual width
-    // (initial call has null offsetWidth since the portal hasn't rendered yet)
-    const rafId = requestAnimationFrame(updatePosition)
 
     // Capture phase catches scrolls on any ancestor container
     window.addEventListener('scroll', updatePosition, true)
@@ -120,7 +102,6 @@ export const DropdownPortal = forwardRef(function DropdownPortal(
     }
 
     return () => {
-      cancelAnimationFrame(rafId)
       window.removeEventListener('scroll', updatePosition, true)
       window.removeEventListener('resize', updatePosition)
       resizeObserver?.disconnect()

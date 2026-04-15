@@ -273,7 +273,7 @@ export function AddTagButton({
             anchorRef={inputRef}
             open={isDropdownOpen}
             onMouseLeave={handlePortalMouseLeave}
-            align={aiAvailable ? 'right' : 'left'}
+            dropdownWidth={aiAvailable ? 340 : 170}
           >
             <div
               id="tag-listbox"

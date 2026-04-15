@@ -419,7 +419,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
           )}
 
           {/* Sectioned dropdown via portal */}
-          <DropdownPortal ref={dropdownPortalRef} anchorRef={inputWrapperRef} open={isDropdownOpen}>
+          <DropdownPortal ref={dropdownPortalRef} anchorRef={inputWrapperRef} open={isDropdownOpen} dropdownWidth={256}>
             <div id="linked-content-listbox" role="listbox" className="mt-1 max-h-64 w-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
 
               {/* AI Suggestions section (Pro only) */}

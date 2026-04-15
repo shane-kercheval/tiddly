@@ -295,7 +295,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             ref={dropdownPortalRef}
             anchorRef={inputRef}
             open={isDropdownOpen}
-            align="left"
+            dropdownWidth={aiAvailable ? 340 : 170}
           >
             <div
               id="inline-tag-listbox"
