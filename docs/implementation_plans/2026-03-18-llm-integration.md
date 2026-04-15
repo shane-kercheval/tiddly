@@ -1299,9 +1299,40 @@ If OpenAI or Anthropic are added as platform providers in the future, configure 
 
 #### 5. Create a read-only analytics role
 
-Create a Postgres role that can only read the `ai_usage` table. This lets you connect analytics tools or run local queries without exposing user data (bookmarks, notes, auth tokens, etc.).
+**How it works:**
+- Each AI API call records cost and request count in Redis. An hourly cron job flushes these into the `ai_usage` Postgres table as aggregated hourly rows.
+- A database view, `ai_usage_analytics`, selects only the fields needed for analytics.
+- That view replaces raw `user_id` with a deterministic hash (`user_hash`).
+- A separate Postgres login, `analytics_reader`, gets SELECT on the view only.
+- That role gets no access to users, bookmarks, notes, prompts, tokens, or even the base `ai_usage` table.
 
-**Run these SQL statements against the production database** (via Railway's database shell, `psql`, or a migration):
+**Why that is safer:**
+- **Principle of least privilege:** the analytics credential can only read one curated object.
+- **Future-proofing:** if `ai_usage` later gains a sensitive column, it is not exposed unless the view is explicitly updated.
+- **No content access:** notes/bookmarks/prompts are in different tables with no grants.
+- **No raw user IDs:** the consumer sees a pseudonymous `user_hash`, so it can group "same user over time" without seeing the actual UUID.
+- **Read-only boundary:** this role cannot modify data, only query the approved view.
+
+Create a Postgres role with access to a curated analytics view (not the base table). This lets you connect analytics tools or run local queries without exposing user content or raw user IDs.
+
+The view hashes `user_id` so analytics can aggregate by user (same user always produces the same hash) while reducing direct exposure of real user IDs. Granting on the view instead of the base table also prevents future columns added to `ai_usage` from being auto-exposed.
+
+**Schema objects** (extension + view) can go in an Alembic migration:
+
+```sql
+-- Enable pgcrypto for hashing (may already be available on Railway)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Create the analytics view with pseudonymized user_id
+CREATE VIEW ai_usage_analytics AS
+SELECT
+    id, bucket_start,
+    encode(digest(user_id::text, 'sha256'), 'hex') AS user_hash,
+    use_case, model, key_source, request_count, total_cost
+FROM ai_usage;
+```
+
+**Role and credentials** — run manually via `psql` or Railway's database shell (do NOT put credentials in migrations or source control):
 
 ```sql
 -- Create the role (use a strong generated password)
@@ -1313,29 +1344,31 @@ GRANT CONNECT ON DATABASE railway TO analytics_reader;
 -- Allow access to the public schema (required to see tables)
 GRANT USAGE ON SCHEMA public TO analytics_reader;
 
--- Grant read-only access to the analytics table only
-GRANT SELECT ON ai_usage TO analytics_reader;
+-- Grant read-only access to the analytics view only (NOT the base table)
+GRANT SELECT ON ai_usage_analytics TO analytics_reader;
 ```
 
-**To add future analytics tables**, grant SELECT on each one individually:
+**To add future analytics views**, create a view with only the columns needed and grant SELECT on it:
 ```sql
-GRANT SELECT ON <new_table> TO analytics_reader;
+CREATE VIEW <new_analytics_view> AS SELECT ... FROM <table>;
+GRANT SELECT ON <new_analytics_view> TO analytics_reader;
 ```
 
 **Connecting locally via CLI:**
 ```bash
-psql "postgresql://analytics_reader:<password>@<railway-host>:<port>/railway"
+psql "postgresql://analytics_reader:<password>@<railway-host>:<port>/railway?sslmode=require"
 ```
 
-The role can only SELECT on `ai_usage`. Attempting to read any other table (users, bookmarks, etc.) returns a permission error.
+The role can only SELECT on `ai_usage_analytics`. Attempting to read any other table or view (users, bookmarks, ai_usage, etc.) returns a permission error.
 
 **Connecting analytics tools (Metabase, Grafana, etc.):**
-Use the `analytics_reader` connection string. The tool sees only granted tables. No risk of exposing user content.
+Use the `analytics_reader` connection string. The tool sees only granted views. This prevents access to content tables (bookmarks, notes, users, etc.). The analytics view still exposes anonymized usage patterns (request frequency, model preferences, timing) — acceptable for operational analytics but be aware this is user-linked telemetry.
 
 **Notes:**
 - `ai_usage.user_id` is a plain UUID — no foreign key to the users table, no cascade deletes. User account deletion does not affect cost data.
-- If you want to hide user identity from analytics entirely, create a view that hashes or omits `user_id` and grant on the view instead.
-- Railway's Postgres connection may require SSL (`?sslmode=require` in the connection string).
+- The `user_hash` is pseudonymized (unsalted SHA-256) — not truly anonymous. If a user UUID is known from another source (logs, support tooling, etc.), the hash can be recomputed and matched. This is sufficient for operational analytics but should not be treated as strong anonymization.
+- Railway's Postgres connection requires SSL (`?sslmode=require` in the connection string).
+- Use a separate read-only role per analytics consumer (e.g., one for Metabase, one for CLI access) so credentials can be revoked independently.
 
 #### 6. Update README_DEPLOY.md
 
