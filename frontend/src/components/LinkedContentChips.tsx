@@ -22,6 +22,7 @@ import type { DropdownPortalHandle } from './ui/DropdownPortal'
 import { CONTENT_TYPE_ICONS, CONTENT_TYPE_LABELS, CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import type { ContentListItem, ContentType, RelationshipCandidate } from '../types'
 import { MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS } from '../types'
+import { DROPDOWN_WIDTH } from './ui/dropdownPosition'
 import type { LinkedItem } from '../utils/relationships'
 
 interface LinkedContentChipsProps {
@@ -419,8 +420,8 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
           )}
 
           {/* Sectioned dropdown via portal */}
-          <DropdownPortal ref={dropdownPortalRef} anchorRef={inputWrapperRef} open={isDropdownOpen} dropdownWidth={256}>
-            <div id="linked-content-listbox" role="listbox" className="mt-1 max-h-64 w-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
+          <DropdownPortal ref={dropdownPortalRef} anchorRef={inputWrapperRef} open={isDropdownOpen} dropdownWidth={DROPDOWN_WIDTH.RELATIONSHIP}>
+            <div id="linked-content-listbox" role="listbox" className="mt-1 max-h-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg" style={{ width: DROPDOWN_WIDTH.RELATIONSHIP }}>
 
               {/* AI Suggestions section (Pro only) */}
               {aiAvailable && (

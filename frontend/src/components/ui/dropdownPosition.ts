@@ -5,6 +5,18 @@
  * Unit testable with zero browser environment needed.
  */
 
+/** Shared dropdown width constants (px). Used for both CSS width and positioning math. */
+export const DROPDOWN_WIDTH = {
+  /** Single-column tag dropdown (non-AI) */
+  TAG: 170,
+  /** Single column width within the two-column layout */
+  TAG_COLUMN: 170,
+  /** Two-column tag dropdown (AI enabled): 2 × TAG_COLUMN */
+  TAG_AI: 340,
+  /** Relationship search dropdown */
+  RELATIONSHIP: 256,
+} as const
+
 /**
  * Compute the horizontal `left` position for a fixed-position dropdown.
  *

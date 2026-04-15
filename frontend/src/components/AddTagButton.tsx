@@ -17,6 +17,7 @@ import { MAX_DISPLAYED_AI_TAG_SUGGESTIONS } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
 import { Tooltip, DropdownPortal } from './ui'
 import type { DropdownPortalHandle } from './ui/DropdownPortal'
+import { DROPDOWN_WIDTH } from './ui/dropdownPosition'
 
 interface AddTagButtonProps {
   /** Tags already on this item (excluded from suggestions) */
@@ -273,19 +274,18 @@ export function AddTagButton({
             anchorRef={inputRef}
             open={isDropdownOpen}
             onMouseLeave={handlePortalMouseLeave}
-            dropdownWidth={aiAvailable ? 340 : 170}
+            dropdownWidth={aiAvailable ? DROPDOWN_WIDTH.TAG_AI : DROPDOWN_WIDTH.TAG}
           >
             <div
               id="tag-listbox"
               role="listbox"
-              className={`mt-1 overflow-hidden rounded-lg border border-gray-100 bg-white shadow-lg ${
-                aiAvailable ? 'w-[340px]' : 'w-[170px]'
-              }`}
+              className="mt-1 overflow-hidden rounded-lg border border-gray-100 bg-white shadow-lg"
+              style={{ width: aiAvailable ? DROPDOWN_WIDTH.TAG_AI : DROPDOWN_WIDTH.TAG }}
             >
               {aiAvailable ? (
                 <div className="flex">
                   {/* Left column: AI Suggestions */}
-                  <div className="w-[170px] max-h-48 overflow-auto border-r border-gray-100 py-1">
+                  <div className="max-h-48 overflow-auto border-r border-gray-100 py-1" style={{ width: DROPDOWN_WIDTH.TAG_COLUMN }}>
                     <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
                       Suggestions
                     </div>
@@ -325,7 +325,7 @@ export function AddTagButton({
                   </div>
 
                   {/* Right column: Your Tags */}
-                  <div className="w-[170px] max-h-48 overflow-auto py-1">
+                  <div className="max-h-48 overflow-auto py-1" style={{ width: DROPDOWN_WIDTH.TAG_COLUMN }}>
                     <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
                       Your Tags
                     </div>
