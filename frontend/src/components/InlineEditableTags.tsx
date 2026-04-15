@@ -17,6 +17,7 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import type { TagCount } from '../types'
+import { MAX_DISPLAYED_AI_TAG_SUGGESTIONS } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
 import { Tag } from './Tag'
 import { Tooltip, DropdownPortal } from './ui'
@@ -206,7 +207,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
   }
 
   // Filter AI suggestions to exclude tags already in value
-  const visibleAiSuggestions = aiSuggestions?.filter((s) => !value.includes(s)) ?? []
+  const visibleAiSuggestions = (aiSuggestions?.filter((s) => !value.includes(s)) ?? []).slice(0, MAX_DISPLAYED_AI_TAG_SUGGESTIONS)
 
   return (
     <div ref={containerRef} className="relative inline-flex flex-wrap items-center gap-2">

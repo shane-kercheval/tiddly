@@ -687,6 +687,10 @@ export interface RelationshipListResponse {
 // AI Types
 // =============================================================================
 
+/** Max AI suggestions displayed in the UI (backend may return more) */
+export const MAX_DISPLAYED_AI_TAG_SUGGESTIONS = 4
+export const MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS = 3
+
 /** AI health check response from GET /ai/health */
 export interface AIHealthResponse {
   available: boolean

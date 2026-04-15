@@ -13,6 +13,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent } from 'react'
 import type { TagCount } from '../types'
+import { MAX_DISPLAYED_AI_TAG_SUGGESTIONS } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
 import { Tooltip, DropdownPortal } from './ui'
 import type { DropdownPortalHandle } from './ui/DropdownPortal'
@@ -79,12 +80,13 @@ export function AddTagButton({
     suggestions,
   })
 
-  // Two-stage AI suggestion filtering: exclude existing tags, then filter by input
+  // Two-stage AI suggestion filtering: exclude existing tags, filter by input, cap display count
   const filteredAiSuggestions = useMemo(() => {
     const visible = aiSuggestions?.filter((s) => !existingTags.includes(s)) ?? []
-    if (!inputValue) return visible
-    const lower = inputValue.toLowerCase()
-    return visible.filter((s) => s.toLowerCase().includes(lower))
+    const filtered = inputValue
+      ? visible.filter((s) => s.toLowerCase().includes(inputValue.toLowerCase()))
+      : visible
+    return filtered.slice(0, MAX_DISPLAYED_AI_TAG_SUGGESTIONS)
   }, [aiSuggestions, existingTags, inputValue])
 
   // Combined navigation list length for keyboard navigation

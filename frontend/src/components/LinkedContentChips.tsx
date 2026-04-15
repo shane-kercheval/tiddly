@@ -16,6 +16,7 @@ import { Tooltip, DropdownPortal } from './ui'
 import type { DropdownPortalHandle } from './ui/DropdownPortal'
 import { CONTENT_TYPE_ICONS, CONTENT_TYPE_LABELS, CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
 import type { ContentListItem, ContentType, RelationshipCandidate } from '../types'
+import { MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS } from '../types'
 import type { LinkedItem } from '../utils/relationships'
 
 interface LinkedContentChipsProps {
@@ -234,7 +235,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
 
   // Filter AI suggestions to exclude items already linked
   const existingIds = new Set(items.map((item) => item.id))
-  const visibleAiSuggestions = aiSuggestions?.filter((s) => !existingIds.has(s.entity_id)) ?? []
+  const visibleAiSuggestions = (aiSuggestions?.filter((s) => !existingIds.has(s.entity_id)) ?? []).slice(0, MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS)
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'ArrowDown') {
