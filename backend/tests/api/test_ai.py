@@ -11,14 +11,6 @@ from litellm.exceptions import (
     Timeout,
 )
 
-from api.main import (
-    llm_auth_exception_handler,
-    llm_bad_request_exception_handler,
-    llm_connection_exception_handler,
-    llm_rate_limit_exception_handler,
-    llm_timeout_exception_handler,
-    llm_unavailable_exception_handler,
-)
 from core.tier_limits import Tier, TierLimits, get_tier_limits
 from services.llm_service import AIUseCase, get_llm_service
 
@@ -267,6 +259,7 @@ class TestLLMExceptionHandlers:
     """Test that LiteLLM exceptions are handled by the app-level handlers."""
 
     async def test_auth_error_returns_422(self) -> None:
+        from api.main import llm_auth_exception_handler  # noqa: PLC0415
         exc = AuthenticationError(
             message="bad key", model="test", llm_provider="test",
         )
@@ -275,6 +268,7 @@ class TestLLMExceptionHandlers:
         assert b"llm_auth_failed" in response.body
 
     async def test_bad_request_returns_400(self) -> None:
+        from api.main import llm_bad_request_exception_handler  # noqa: PLC0415
         exc = BadRequestError(
             message="bad request", model="test", llm_provider="test",
         )
@@ -283,6 +277,7 @@ class TestLLMExceptionHandlers:
         assert b"llm_bad_request" in response.body
 
     async def test_rate_limit_returns_429(self) -> None:
+        from api.main import llm_rate_limit_exception_handler  # noqa: PLC0415
         exc = RateLimitError(
             message="rate limited", model="test", llm_provider="test",
         )
@@ -291,6 +286,7 @@ class TestLLMExceptionHandlers:
         assert b"llm_rate_limited" in response.body
 
     async def test_timeout_returns_504(self) -> None:
+        from api.main import llm_timeout_exception_handler  # noqa: PLC0415
         exc = Timeout(
             message="timed out", model="test", llm_provider="test",
         )
@@ -299,6 +295,7 @@ class TestLLMExceptionHandlers:
         assert b"llm_timeout" in response.body
 
     async def test_connection_error_returns_502(self) -> None:
+        from api.main import llm_connection_exception_handler  # noqa: PLC0415
         exc = APIConnectionError(
             message="connection failed", model="test", llm_provider="test",
         )
@@ -307,6 +304,7 @@ class TestLLMExceptionHandlers:
         assert b"llm_connection_error" in response.body
 
     async def test_unknown_error_returns_503(self) -> None:
+        from api.main import llm_unavailable_exception_handler  # noqa: PLC0415
         exc = APIError(
             message="something unknown", model="test", llm_provider="test", status_code=500,
         )
