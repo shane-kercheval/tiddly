@@ -277,7 +277,7 @@ export function AddTagButton({
             <div
               id="tag-listbox"
               role="listbox"
-              className="mt-1 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg"
+              className="mt-1 max-h-48 w-[170px] overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg"
             >
               {/* AI Suggestions section (Pro only) */}
               {aiAvailable && (
@@ -312,10 +312,10 @@ export function AddTagButton({
                       className={`flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors ${
                         index === highlightedIndex
                           ? 'bg-gray-100 text-gray-900'
-                          : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                          : 'text-gray-600 hover:bg-gray-100'
                       }`}
                     >
-                      <span>{tag}</span>
+                      <span className="truncate">{tag}</span>
                     </button>
                   ))}
 
@@ -340,14 +340,14 @@ export function AddTagButton({
                     tabIndex={-1}
                     onClick={(e) => handleSuggestionClick(e, suggestion.name)}
                     aria-selected={combinedIndex === highlightedIndex}
-                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors ${
+                    className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
                       combinedIndex === highlightedIndex
                         ? 'bg-gray-100 text-gray-900'
                         : 'text-gray-600 hover:bg-gray-100'
                     }`}
                   >
-                    <span>{suggestion.name}</span>
-                    <span className="text-gray-400">{suggestion.content_count}</span>
+                    <span className="truncate">{suggestion.name}</span>
+                    <span className="shrink-0 text-gray-400">{suggestion.content_count}</span>
                   </button>
                 )
               })}

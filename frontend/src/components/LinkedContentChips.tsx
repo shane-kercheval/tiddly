@@ -253,6 +253,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         }
       }
     } else if (e.key === 'Escape') {
+      e.stopPropagation()
       reset()
       setIsAdding(false)
     }
@@ -328,31 +329,6 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
               </button>
             )}
           </div>
-        )
-      })}
-
-      {/* AI loading spinner — shown next to existing chips while suggestions load */}
-      {isAiLoading && visibleAiSuggestions.length === 0 && (
-        <div className="inline-flex items-center px-1" aria-label="Loading relationship suggestions">
-          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-        </div>
-      )}
-
-      {/* AI-suggested relationship chips — muted, next to existing linked content chips */}
-      {visibleAiSuggestions.length > 0 && visibleAiSuggestions.map((candidate) => {
-        const Icon = CONTENT_TYPE_ICONS[candidate.entity_type as ContentType]
-        const iconColor = CONTENT_TYPE_ICON_COLORS[candidate.entity_type as ContentType]
-        return (
-          <button
-            key={`ai-${candidate.entity_id}`}
-            type="button"
-            onClick={() => handleAiSuggestionClick(candidate)}
-            className="group/ai-link inline-flex items-center gap-1 rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
-            aria-label={`Add suggested link: ${candidate.title}`}
-          >
-            {Icon && <span className={iconColor}><Icon className="h-3 w-3" /></span>}
-            <span className="max-w-[120px] truncate">{candidate.title}</span>
-          </button>
         )
       })}
 
@@ -452,6 +428,35 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
             <LinkIcon className="h-4 w-4" />
           </button>
         </Tooltip>
+      )}
+
+      {/* AI loading spinner — shown to the right of link controls */}
+      {isAiLoading && visibleAiSuggestions.length === 0 && (
+        <div className="inline-flex items-center px-1" aria-label="Loading relationship suggestions">
+          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+        </div>
+      )}
+
+      {/* AI-suggested relationship chips — muted, to the right of link controls */}
+      {visibleAiSuggestions.length > 0 && (
+        <div className="inline-flex flex-wrap items-center gap-2 mr-2">
+          {visibleAiSuggestions.map((candidate) => {
+            const Icon = CONTENT_TYPE_ICONS[candidate.entity_type as ContentType]
+            const iconColor = CONTENT_TYPE_ICON_COLORS[candidate.entity_type as ContentType]
+            return (
+              <button
+                key={`ai-${candidate.entity_id}`}
+                type="button"
+                onClick={() => handleAiSuggestionClick(candidate)}
+                className="group/ai-link inline-flex items-center gap-1 rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                aria-label={`Add suggested link: ${candidate.title}`}
+              >
+                {Icon && <span className={iconColor}><Icon className="h-3 w-3" /></span>}
+                <span className="max-w-[120px] truncate">{candidate.title}</span>
+              </button>
+            )
+          })}
+        </div>
       )}
 
     </div>

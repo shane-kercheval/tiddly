@@ -185,6 +185,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
         openSuggestions()
       }
     } else if (e.key === 'Escape') {
+      e.stopPropagation()
       closeSuggestions()
       clearPending()
       exitAddMode()
@@ -218,26 +219,6 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
           tag={tag}
           onRemove={disabled ? undefined : () => removeTag(tag)}
         />
-      ))}
-
-      {/* AI loading spinner — shown next to tag pills while suggestions load */}
-      {isAiLoading && visibleAiSuggestions.length === 0 && (
-        <div className="inline-flex items-center px-1" aria-label="Loading tag suggestions">
-          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-        </div>
-      )}
-
-      {/* AI-suggested tags — muted chips next to existing tag pills */}
-      {visibleAiSuggestions.length > 0 && visibleAiSuggestions.map((tag) => (
-        <button
-          key={`ai-${tag}`}
-          type="button"
-          onClick={() => handleAiSuggestionClick(tag)}
-          className="inline-flex items-baseline rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
-          aria-label={`Add suggested tag: ${tag}`}
-        >
-          {tag}
-        </button>
       ))}
 
       {/* Add input (shown when in add mode, regardless of showAddButton) */}
@@ -302,6 +283,30 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             </svg>
           </button>
         </Tooltip>
+      )}
+
+      {/* AI loading spinner — shown to the right of tag controls */}
+      {isAiLoading && visibleAiSuggestions.length === 0 && (
+        <div className="inline-flex items-center px-1" aria-label="Loading tag suggestions">
+          <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+        </div>
+      )}
+
+      {/* AI-suggested tags — muted chips to the right of tag controls */}
+      {visibleAiSuggestions.length > 0 && (
+        <div className="inline-flex flex-wrap items-center gap-2 mr-2">
+          {visibleAiSuggestions.map((tag) => (
+            <button
+              key={`ai-${tag}`}
+              type="button"
+              onClick={() => handleAiSuggestionClick(tag)}
+              className="inline-flex items-baseline rounded-md border border-dashed border-gray-300 bg-transparent px-1.5 py-px text-xs text-gray-400 transition-colors hover:border-gray-400 hover:text-gray-600 hover:bg-gray-50"
+              aria-label={`Add suggested tag: ${tag}`}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   )
