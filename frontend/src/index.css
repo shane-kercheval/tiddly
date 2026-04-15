@@ -143,7 +143,7 @@ body {
   /* Mobile: no negative margins to prevent horizontal overflow */
   /* Desktop: negative margins for edge-to-edge hover effect */
   .card {
-    @apply py-3 px-3 rounded-xl transition-all relative;
+    @apply py-3 px-3 rounded-xl relative;
   }
 
   @media (min-width: 768px) {
@@ -166,15 +166,25 @@ body {
   /* Suppress ghost hover highlights before any mouse movement in navigable lists.
      Prevents the confusing "selected-looking" item when cursor happens to rest over
      a card after page load or navigation. Once the user moves the mouse, the
-     data-mouse-moved attribute is added and normal hover resumes. */
+     data-mouse-moved attribute is added and normal hover resumes.
+     Also hides action buttons to keep them in sync with the background. */
   [role="listbox"]:not([data-mouse-moved]) > [aria-selected="false"] > .card-interactive {
     @apply hover:bg-transparent;
   }
+  [role="listbox"]:not([data-mouse-moved]) > [aria-selected="false"] > .card .card-actions {
+    opacity: 0 !important;
+    visibility: hidden !important;
+  }
 
   /* When keyboard selection is active, suppress hover on non-selected items
-     to avoid two items appearing highlighted simultaneously. */
+     to avoid two items appearing highlighted simultaneously.
+     Also hides action buttons to keep them in sync with the background. */
   [role="listbox"]:has([aria-selected="true"]) > [aria-selected="false"] > .card-interactive {
     @apply hover:bg-transparent;
+  }
+  [role="listbox"]:has([aria-selected="true"]) > [aria-selected="false"] > .card .card-actions {
+    opacity: 0 !important;
+    visibility: hidden !important;
   }
 
   .card::after {
