@@ -1297,7 +1297,47 @@ This is a **separate Railway cron service** from the existing cleanup cron. The 
 
 If OpenAI or Anthropic are added as platform providers in the future, configure equivalent spend controls on those platforms.
 
-#### 5. Update README_DEPLOY.md
+#### 5. Create a read-only analytics role
+
+Create a Postgres role that can only read the `ai_usage` table. This lets you connect analytics tools or run local queries without exposing user data (bookmarks, notes, auth tokens, etc.).
+
+**Run these SQL statements against the production database** (via Railway's database shell, `psql`, or a migration):
+
+```sql
+-- Create the role (use a strong generated password)
+CREATE ROLE analytics_reader LOGIN PASSWORD '<generated-password>';
+
+-- Allow connection to the database
+GRANT CONNECT ON DATABASE railway TO analytics_reader;
+
+-- Allow access to the public schema (required to see tables)
+GRANT USAGE ON SCHEMA public TO analytics_reader;
+
+-- Grant read-only access to the analytics table only
+GRANT SELECT ON ai_usage TO analytics_reader;
+```
+
+**To add future analytics tables**, grant SELECT on each one individually:
+```sql
+GRANT SELECT ON <new_table> TO analytics_reader;
+```
+
+**Connecting locally via CLI:**
+```bash
+psql "postgresql://analytics_reader:<password>@<railway-host>:<port>/railway"
+```
+
+The role can only SELECT on `ai_usage`. Attempting to read any other table (users, bookmarks, etc.) returns a permission error.
+
+**Connecting analytics tools (Metabase, Grafana, etc.):**
+Use the `analytics_reader` connection string. The tool sees only granted tables. No risk of exposing user content.
+
+**Notes:**
+- `ai_usage.user_id` is a plain UUID — no foreign key to the users table, no cascade deletes. User account deletion does not affect cost data.
+- If you want to hide user identity from analytics entirely, create a view that hashes or omits `user_id` and grant on the view instead.
+- Railway's Postgres connection may require SSL (`?sslmode=require` in the connection string).
+
+#### 6. Update README_DEPLOY.md
 
 Add all AI-related deployment steps to `README_DEPLOY.md` — the master reference for what's deployed and how. Include:
 
