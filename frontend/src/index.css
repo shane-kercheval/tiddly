@@ -171,7 +171,7 @@ body {
   [role="listbox"]:not([data-mouse-moved]) > [aria-selected="false"] > .card-interactive {
     @apply hover:bg-transparent;
   }
-  [role="listbox"]:not([data-mouse-moved]) > [aria-selected="false"] > .card .card-actions {
+  [role="listbox"]:not([data-mouse-moved]) > * > .card .card-actions {
     opacity: 0 !important;
     visibility: hidden !important;
   }

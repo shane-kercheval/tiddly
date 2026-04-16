@@ -23,7 +23,7 @@ export function ArchiveAction({ onArchive, entityName }: ArchiveActionProps): Re
   if (view !== 'active') return null
 
   return (
-    <Tooltip content="Archive" compact>
+    <Tooltip content="Archive" compact delay={500}>
       <button
         onClick={(e) => { e.stopPropagation(); onArchive() }}
         className="btn-icon"

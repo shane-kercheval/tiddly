@@ -232,7 +232,7 @@ export function AddTagButton({
   return (
     <div ref={containerRef} className="relative inline-flex items-center" onMouseLeave={handleContainerMouseLeave}>
       {!isOpen ? (
-        <Tooltip content="Add tag" compact>
+        <Tooltip content="Add tag" compact delay={500}>
           <button
             type="button"
             onClick={handleButtonClick}

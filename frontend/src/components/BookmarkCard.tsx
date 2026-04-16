@@ -10,6 +10,7 @@ import type { ReactNode } from 'react'
 import type { BookmarkListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { getDomain, getGoogleFaviconUrl } from '../utils'
+import { useDebouncedTooltip } from '../hooks/useDebouncedTooltip'
 import { Tooltip } from './ui'
 import {
   BookmarkIcon,
@@ -71,30 +72,18 @@ export function BookmarkCard({
   const faviconUrl = getGoogleFaviconUrl(bookmark.url) ?? `https://icons.duckduckgo.com/ip3/${domain}.ico`
 
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const linkTooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [faviconErrorUrl, setFaviconErrorUrl] = useState<string | null>(null)
   const faviconError = faviconErrorUrl === faviconUrl
   const [copySuccess, setCopySuccess] = useState(false)
-  const [linkHovered, setLinkHovered] = useState(false)
+
+  // Shared tooltip for title + URL link area (500ms show delay, 50ms hide debounce)
+  const { visible: linkHovered, show: showLinkTooltip, hide: hideLinkTooltip } = useDebouncedTooltip()
 
   useEffect(() => {
     return () => {
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
-      if (linkTooltipTimeoutRef.current) clearTimeout(linkTooltipTimeoutRef.current)
     }
-  }, [])
-
-  // Show/hide link tooltip with small delay on hide to prevent flicker between elements
-  const showLinkTooltip = useCallback((): void => {
-    if (linkTooltipTimeoutRef.current) {
-      clearTimeout(linkTooltipTimeoutRef.current)
-      linkTooltipTimeoutRef.current = null
-    }
-    setLinkHovered(true)
-  }, [])
-  const hideLinkTooltip = useCallback((): void => {
-    linkTooltipTimeoutRef.current = setTimeout(() => setLinkHovered(false), 50)
   }, [])
 
   // Event delegation for tooltip on desktop: check if mouse is on/moving to a .link-area element.
@@ -191,7 +180,7 @@ export function BookmarkCard({
               {displayTitle}
             </a>
           ) : (
-            <Tooltip content="Open URL in new tab" compact>
+            <Tooltip content="Open URL in new tab" compact delay={500}>
               <a
                 href={bookmark.url}
                 target="_blank"
@@ -206,7 +195,7 @@ export function BookmarkCard({
 
           {/* URL row (if has title) - always show as link on mobile */}
           {hasTitle && (
-            <Tooltip content="Open URL in new tab" compact>
+            <Tooltip content="Open URL in new tab" compact delay={500}>
               <a
                 href={bookmark.url}
                 target="_blank"
@@ -241,7 +230,7 @@ export function BookmarkCard({
               {/* Actions - always visible on mobile, -ml-2 compensates for btn-icon padding */}
               <div className="flex items-center gap-0.5 -ml-2">
                 {/* External link as first action on mobile */}
-                <Tooltip content="Open link" compact>
+                <Tooltip content="Open link" compact delay={500}>
                   <button
                     onClick={(e) => { e.stopPropagation(); onLinkClick?.(bookmark); window.open(bookmark.url, '_blank', 'noopener,noreferrer') }}
                     className="btn-icon"
@@ -264,7 +253,7 @@ export function BookmarkCard({
                     }}
                   />
                 )}
-                <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
+                <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact delay={copySuccess ? 0 : 500}>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
                     className="btn-icon"
@@ -342,7 +331,7 @@ export function BookmarkCard({
                   {displayTitle}
                 </a>
               ) : (
-                <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
+                <Tooltip content="Open URL in new tab" compact delay={500}>
                   <a
                     href={bookmark.url}
                     target="_blank"
@@ -387,7 +376,7 @@ export function BookmarkCard({
           {/* Row 2: URL */}
           {hasTitle && (
             <div className="link-area pt-0.5 overflow-hidden">
-              <Tooltip content="Open URL in new tab" compact show={linkHovered || undefined}>
+              <Tooltip content="Open URL in new tab" compact show={linkHovered}>
                 <a
                   href={bookmark.url}
                   target="_blank"
@@ -434,7 +423,7 @@ export function BookmarkCard({
                   />
                 )}
                 {/* Edit button removed - clicking card row opens edit view */}
-                <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact>
+                <Tooltip content={copySuccess ? 'Copied!' : 'Copy URL'} compact delay={copySuccess ? 0 : 500}>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleCopyUrl() }}
                     className="btn-icon"
