@@ -106,7 +106,7 @@ export const DropdownPortal = forwardRef(function DropdownPortal(
       window.removeEventListener('resize', updatePosition)
       resizeObserver?.disconnect()
     }
-  }, [open, updatePosition])
+  }, [open, updatePosition, anchorRef])
 
   if (!open || !style) return null
 
