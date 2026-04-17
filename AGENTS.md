@@ -2,6 +2,8 @@
 
 Tiddly — a multi-tenant SaaS for managing bookmarks, notes, and prompt templates. Monorepo: FastAPI backend, React frontend, Go CLI, Chrome extension, and two MCP servers for AI agent integration.
 
+**For a system-level overview** (how services, databases, crons, MCP servers, CLI, and external deps fit together), see [`docs/architecture.md`](docs/architecture.md). This file is for conventions and rules; the architecture doc is for shape.
+
 ## Commands
 
 Run `make help` or see the `Makefile` for all targets. Key commands:
@@ -52,12 +54,12 @@ cd frontend && npx vitest run src/path/to/file.test.ts
 ## Key Patterns
 
 - **Multi-tenant**: All queries scoped to authenticated user via `user_id`.
-- **Subscription tiers**: FREE and PRO with different rate limits and quotas — always test tier gating for AI features.
+- **Subscription tiers**: FREE, STANDARD, and PRO with different rate limits and quotas — always test tier gating for AI features. `Tier.DEV` also exists as a runtime-only tier resolved when `VITE_DEV_MODE=true`.
 - **Rate limiting**: In-memory with Redis fallback, per-user and per-operation.
 - **ETag caching**: HTTP 304 responses for unchanged content.
 - **Content versioning**: `ContentHistory` tracks changes with diff-match-patch.
 - **SSRF protection**: URL scraping validates against internal networks.
-- **Background tasks** (`backend/src/tasks/`): Cron jobs for cleanup, orphan detection, etc. Not yet deployed — deployment to Railway is in progress.
+- **Background tasks** (`backend/src/tasks/`): `ai-usage-flush` (hourly) and `cleanup` (daily) are deployed as Railway cron services. `orphan-relationships` is implemented and tested but intentionally deferred at beta scale — see [KAN-67](https://tiddly.atlassian.net/browse/KAN-67). See `docs/architecture.md` §9 for details.
 
 ## Evals (`evals/`)
 
@@ -99,3 +101,7 @@ After any feature, API, pricing, or UI change, review whether these need updatin
 - `README.md` — feature list and setup instructions.
 - `.env.example` — when adding/removing/renaming environment variables.
 - `AGENTS.md` — when build commands, architecture, conventions, or project structure change.
+- `docs/architecture.md` — when services, crons, middleware, auth variants, tier definitions, Redis key schemas, CLI commands, or other architecture changes occur. Of note, see the following sections for commonly missed updates:
+    - "Known drift risks" section for the areas most likely to need updating
+    - "Things that are easy to miss" section for non-obvious invariants to add to when you learn one.
+- `README_DEPLOY.md` — when Railway service topology, env vars, or post-deploy steps change.
