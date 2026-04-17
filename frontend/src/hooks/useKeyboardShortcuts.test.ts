@@ -135,20 +135,20 @@ describe('useKeyboardShortcuts', () => {
       expect(onFocusSearch).toHaveBeenCalled()
     })
 
-    it('should call onFocusPageSearch when f is pressed outside input fields', () => {
+    it('should call onFocusPageSearch when s is pressed outside input fields', () => {
       const onFocusPageSearch = vi.fn()
       renderHook(() => useKeyboardShortcuts({ onFocusPageSearch }))
 
-      const keyEvent = new KeyboardEvent('keydown', { key: 'f' })
+      const keyEvent = new KeyboardEvent('keydown', { key: 's' })
       document.dispatchEvent(keyEvent)
 
       expect(onFocusPageSearch).toHaveBeenCalled()
     })
 
-    it('should NOT preventDefault for f when no onFocusPageSearch handler is provided', () => {
+    it('should NOT preventDefault for s when no onFocusPageSearch handler is provided', () => {
       renderHook(() => useKeyboardShortcuts({}))
 
-      const keyEvent = new KeyboardEvent('keydown', { key: 'f', cancelable: true })
+      const keyEvent = new KeyboardEvent('keydown', { key: 's', cancelable: true })
       document.dispatchEvent(keyEvent)
 
       expect(keyEvent.defaultPrevented).toBe(false)

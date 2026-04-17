@@ -16,6 +16,7 @@ dependencies = [
     "fastmcp>=3.0.0",
     "httpx[http2]>=0.28.1",
     "jinja2>=3.1.6",
+    "litellm>=1.83.0,!=1.82.7,!=1.82.8",
     "lxml>=6.0.2",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.1",
@@ -43,9 +44,12 @@ dev = [
     "testcontainers>=4.14.1",
     "respx>=0.22.0",
     "sik-llms>=0.3.33",
-    "flex-evals>=0.3.27",
+    "flex-evals>=0.4.0",
     "py-spy>=0.4.1",
     "pyinstrument>=5.1.2",
+    "litellm>=1.83.0,!=1.82.7,!=1.82.8",
+    "jupyter>=1.1.1",
+    "ipykernel>=7.2.0",
 ]
 
 [tool.hatch.metadata]
@@ -71,4 +75,7 @@ filterwarnings = [
     # The library needs to migrate to waiting_for(LogMessageWaitStrategy(...)) API.
     # See: https://github.com/testcontainers/testcontainers-python
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
+    # LiteLLM's internal async logging coroutine is not awaited during test teardown.
+    # This is a library issue, not our code. Scoped to litellm package only.
+    "ignore:coroutine 'Logging.async_success_handler' was never awaited:RuntimeWarning:litellm",
 ]

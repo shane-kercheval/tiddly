@@ -7,7 +7,6 @@ from httpx import Response
 from mcp_server.api_client import api_get, api_patch, api_post
 
 
-@pytest.mark.asyncio
 async def test__api_get__success(mock_api) -> None:
     """Test successful GET request."""
     mock_api.get("/bookmarks/1").mock(
@@ -21,7 +20,6 @@ async def test__api_get__success(mock_api) -> None:
     assert result["url"] == "https://example.com"
 
 
-@pytest.mark.asyncio
 async def test__api_get__with_params(mock_api) -> None:
     """Test GET request with query parameters."""
     mock_api.get("/bookmarks/").mock(
@@ -39,7 +37,6 @@ async def test__api_get__with_params(mock_api) -> None:
     assert result["total"] == 0
 
 
-@pytest.mark.asyncio
 async def test__api_post__success(mock_api) -> None:
     """Test successful POST request."""
     mock_api.post("/bookmarks/").mock(
@@ -57,7 +54,6 @@ async def test__api_post__success(mock_api) -> None:
     assert result["id"] == 1
 
 
-@pytest.mark.asyncio
 async def test__api_post__returns_none_for_204(mock_api) -> None:
     """Test that api_post returns None for 204 No Content."""
     mock_api.post("/items/123/track-usage").mock(return_value=Response(204))
@@ -68,7 +64,6 @@ async def test__api_post__returns_none_for_204(mock_api) -> None:
     assert result is None
 
 
-@pytest.mark.asyncio
 async def test__api_get__http_error(mock_api) -> None:
     """Test HTTP error handling."""
     mock_api.get("/bookmarks/999").mock(
@@ -80,7 +75,6 @@ async def test__api_get__http_error(mock_api) -> None:
             await api_get(client, "/bookmarks/999", "bm_test_token")
 
 
-@pytest.mark.asyncio
 async def test__api_get__authorization_header_set(mock_api) -> None:
     """Test that Authorization header is correctly set."""
     mock_api.get("/test").mock(return_value=Response(200, json={}))
@@ -93,7 +87,6 @@ async def test__api_get__authorization_header_set(mock_api) -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test__api_patch__success(mock_api) -> None:
     """Test successful PATCH request."""
     mock_api.patch("/notes/1/str-replace").mock(
@@ -115,7 +108,6 @@ async def test__api_patch__success(mock_api) -> None:
     assert result["line"] == 5
 
 
-@pytest.mark.asyncio
 async def test__api_patch__authorization_header_set(mock_api) -> None:
     """Test that Authorization header is correctly set for PATCH."""
     mock_api.patch("/test").mock(return_value=Response(200, json={}))
@@ -128,7 +120,6 @@ async def test__api_patch__authorization_header_set(mock_api) -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test__api_get__request_source_header_set(mock_api) -> None:
     """Test that X-Request-Source header is set to mcp-content."""
     mock_api.get("/test").mock(return_value=Response(200, json={}))
@@ -139,7 +130,6 @@ async def test__api_get__request_source_header_set(mock_api) -> None:
     assert mock_api.calls[0].request.headers["x-request-source"] == "mcp-content"
 
 
-@pytest.mark.asyncio
 async def test__api_post__request_source_header_set(mock_api) -> None:
     """Test that X-Request-Source header is set to mcp-content for POST."""
     mock_api.post("/test").mock(return_value=Response(201, json={}))
@@ -150,7 +140,6 @@ async def test__api_post__request_source_header_set(mock_api) -> None:
     assert mock_api.calls[0].request.headers["x-request-source"] == "mcp-content"
 
 
-@pytest.mark.asyncio
 async def test__api_patch__request_source_header_set(mock_api) -> None:
     """Test that X-Request-Source header is set to mcp-content for PATCH."""
     mock_api.patch("/test").mock(return_value=Response(200, json={}))

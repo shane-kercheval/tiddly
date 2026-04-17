@@ -21,10 +21,20 @@ vi.mock('react-hot-toast', () => ({
 
 // Mock @tanstack/react-query's useQueryClient
 const mockInvalidateQueries = vi.fn()
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({
-    invalidateQueries: mockInvalidateQueries,
-  }),
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return {
+    ...actual,
+    useQueryClient: () => ({
+      invalidateQueries: mockInvalidateQueries,
+    }),
+  }
+})
+
+// Mock AI availability (avoids QueryClient dependency)
+vi.mock('../hooks/useAIAvailability', () => ({
+  useAIAvailability: () => ({ available: false, remainingDaily: 0, limitDaily: 0, isLoading: false, error: null }),
+  aiHealthKeys: { all: ['ai-health'] as const, user: (id: string) => ['ai-health', id] as const },
 }))
 
 // Mock prompt data
@@ -737,6 +747,34 @@ describe('PromptDetail page', () => {
       await waitFor(() => {
         expect(screen.getByDisplayValue('code-review')).toBeInTheDocument()
       })
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Availability gate: argument suggestion icons
+  // -------------------------------------------------------------------------
+
+  describe('AI argument suggestions availability gate', () => {
+    it('hides argument suggestion icons when AI is not available', async () => {
+      mockFetchPrompt.mockResolvedValue(mockPrompt)
+
+      render(
+        <MemoryRouter initialEntries={['/prompts/1']}>
+          <Routes>
+            <Route path="/prompts/:id" element={<PromptDetail />} />
+          </Routes>
+        </MemoryRouter>
+      )
+
+      // Wait for prompt to load
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('code-review')).toBeInTheDocument()
+      })
+
+      // AI is mocked as unavailable — no argument suggest icons should appear
+      expect(screen.queryByLabelText('Generate arguments from template')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Suggest name for argument 1')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Suggest description for argument 1')).not.toBeInTheDocument()
     })
   })
 })

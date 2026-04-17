@@ -49,7 +49,6 @@ def test__server__has_instructions() -> None:
 # --- list_prompts tests ---
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__returns_prompt_list(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -70,7 +69,6 @@ async def test__list_prompts__returns_prompt_list(
     assert result.nextCursor is None  # No more pages
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__empty_list_when_no_prompts(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -88,7 +86,6 @@ async def test__list_prompts__empty_list_when_no_prompts(
     assert result.nextCursor is None
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__includes_arguments(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -109,7 +106,6 @@ async def test__list_prompts__includes_arguments(
     assert result.prompts[0].arguments[1].name == "code"
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__uses_limit_100_and_offset_0(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -128,7 +124,6 @@ async def test__list_prompts__uses_limit_100_and_offset_0(
     assert "offset=0" in url
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__returns_next_cursor_when_has_more(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -151,7 +146,6 @@ async def test__list_prompts__returns_next_cursor_when_has_more(
     assert result.nextCursor == "100"  # Next page starts at offset 100
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__uses_cursor_as_offset(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -178,7 +172,6 @@ async def test__list_prompts__uses_cursor_as_offset(
     assert result.nextCursor is None
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__invalid_cursor_returns_error(
     mock_api,  # noqa: ARG001 - needed for fixture
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -191,7 +184,6 @@ async def test__list_prompts__invalid_cursor_returns_error(
     assert "Invalid cursor" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -209,7 +201,6 @@ async def test__list_prompts__api_unavailable(
 # --- get_prompt tests ---
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__renders_template_with_arguments(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -236,7 +227,6 @@ async def test__get_prompt__renders_template_with_arguments(
     assert "def hello(): pass" in result.messages[0].content.text
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__renders_template_no_arguments(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -256,7 +246,6 @@ async def test__get_prompt__renders_template_no_arguments(
     assert "Hello! How can I help you today?" in result.messages[0].content.text
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__missing_required_argument_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -274,7 +263,6 @@ async def test__get_prompt__missing_required_argument_error(
     assert "Missing required" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__extra_unknown_argument_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -295,7 +283,6 @@ async def test__get_prompt__extra_unknown_argument_error(
     assert "Unknown argument" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__prompt_not_found_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -312,7 +299,6 @@ async def test__get_prompt__prompt_not_found_error(
     assert "not found" in str(exc_info.value).lower()
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__optional_argument_uses_default(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -334,7 +320,6 @@ async def test__get_prompt__optional_argument_uses_default(
     assert "Hello world" in result.messages[0].content.text
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__tracks_usage(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -357,7 +342,6 @@ async def test__get_prompt__tracks_usage(
     assert track_mock.called
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__returns_user_role_message(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -377,7 +361,6 @@ async def test__get_prompt__returns_user_role_message(
     assert result.messages[0].role == "user"
 
 
-@pytest.mark.asyncio
 async def test__get_prompt__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -397,7 +380,6 @@ async def test__get_prompt__api_unavailable(
 # --- list_tools tests ---
 
 
-@pytest.mark.asyncio
 async def test__list_tools__returns_all_tools(mcp_client: Client) -> None:
     """Test list_tools returns all available tools."""
     tools = await mcp_client.list_tools()
@@ -432,7 +414,6 @@ async def test__list_tools__returns_all_tools(mcp_client: Client) -> None:
     assert "content" in update_prompt.description
 
 
-@pytest.mark.asyncio
 async def test__list_tools__get_prompt_content_has_schema(mcp_client: Client) -> None:
     """Test get_prompt_content tool has proper input schema."""
     tools = await mcp_client.list_tools()
@@ -444,7 +425,6 @@ async def test__list_tools__get_prompt_content_has_schema(mcp_client: Client) ->
     assert schema["required"] == ["name"]
 
 
-@pytest.mark.asyncio
 async def test__list_tools__create_prompt_has_schema(mcp_client: Client) -> None:
     """Test create_prompt tool has proper input schema."""
     tools = await mcp_client.list_tools()
@@ -464,7 +444,6 @@ async def test__list_tools__create_prompt_has_schema(mcp_client: Client) -> None
 # --- call_tool (get_prompt_content) tests ---
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_content_tool__returns_raw_content(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -490,7 +469,6 @@ async def test__get_prompt_content_tool__returns_raw_content(
     assert len(response_data["arguments"]) == 2
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_content_tool__includes_all_metadata(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -510,7 +488,6 @@ async def test__get_prompt_content_tool__includes_all_metadata(
     assert set(response_data.keys()) == expected_fields
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_content_tool__not_found_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -527,7 +504,6 @@ async def test__get_prompt_content_tool__not_found_error(
     assert "not found" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_content_tool__missing_name_error(mcp_client: Client) -> None:
     """Test get_prompt_content returns error when name is missing."""
     result = await mcp_client.call_tool("get_prompt_content", {}, raise_on_error=False)
@@ -536,7 +512,6 @@ async def test__get_prompt_content_tool__missing_name_error(mcp_client: Client) 
     assert "name" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_content_tool__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -556,7 +531,6 @@ async def test__get_prompt_content_tool__api_unavailable(
 # --- call_tool (create_prompt) tests ---
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__creates_prompt(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -589,7 +563,6 @@ async def test__create_prompt_tool__creates_prompt(
     assert response_data["id"] == "550e8400-e29b-41d4-a716-446655440010"
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__creates_with_arguments(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -630,7 +603,6 @@ async def test__create_prompt_tool__creates_with_arguments(
     assert payload["content"] == "Hello {{ name }}"
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__creates_with_tags(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -660,7 +632,6 @@ async def test__create_prompt_tool__creates_with_tags(
     assert payload["tags"] == ["test", "example"]
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__validation_error_invalid_name(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -680,7 +651,6 @@ async def test__create_prompt_tool__validation_error_invalid_name(
     assert "Invalid prompt name" in result.content[0].text
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__validation_error_duplicate_name(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -705,7 +675,6 @@ async def test__create_prompt_tool__validation_error_duplicate_name(
     assert "already exists" in result.content[0].text
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__validation_error_template_syntax(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -730,7 +699,6 @@ async def test__create_prompt_tool__validation_error_template_syntax(
     assert "Jinja2" in error_text or "syntax" in error_text.lower()
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -751,7 +719,6 @@ async def test__create_prompt_tool__api_unavailable(
     assert "unavailable" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__unknown_tool_error(mcp_client: Client) -> None:
     """Test error when calling unknown tool."""
     result = await mcp_client.call_tool("unknown_tool", {}, raise_on_error=False)
@@ -763,7 +730,6 @@ async def test__create_prompt_tool__unknown_tool_error(mcp_client: Client) -> No
 # --- search_prompts tests ---
 
 
-@pytest.mark.asyncio
 async def test__search_prompts__no_params__returns_all(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -789,7 +755,6 @@ async def test__search_prompts__no_params__returns_all(
     assert len(data["items"]) == 1
 
 
-@pytest.mark.asyncio
 async def test__search_prompts__with_query__filters_results(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -814,7 +779,6 @@ async def test__search_prompts__with_query__filters_results(
     assert "q=code" in request_url
 
 
-@pytest.mark.asyncio
 async def test__search_prompts__with_tags__filters_results(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -839,7 +803,6 @@ async def test__search_prompts__with_tags__filters_results(
     assert "tags" in request_url
 
 
-@pytest.mark.asyncio
 async def test__search_prompts__results_include_length_and_preview(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -871,7 +834,6 @@ async def test__search_prompts__results_include_length_and_preview(
 # --- search_prompts with filter_id ---
 
 
-@pytest.mark.asyncio
 async def test__search_prompts__with_filter_id__passes_to_api(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -899,7 +861,6 @@ async def test__search_prompts__with_filter_id__passes_to_api(
     assert "filter_id=a1b2c3d4-e29b-41d4-a716-446655440000" in request_url
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("param_name", "param_value", "expected_in_url"),
     [
@@ -937,7 +898,6 @@ async def test__search_prompts__passes_parameter_to_api(
     assert expected_in_url in request_url
 
 
-@pytest.mark.asyncio
 async def test__search_prompts__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -955,7 +915,6 @@ async def test__search_prompts__api_unavailable(
 # --- list_filters tests ---
 
 
-@pytest.mark.asyncio
 async def test__list_filters__returns_filters(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -984,7 +943,6 @@ async def test__list_filters__returns_filters(
     assert data["filters"][0]["name"] == "Development"
 
 
-@pytest.mark.asyncio
 async def test__list_filters__excludes_non_prompt_filters(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1033,7 +991,6 @@ async def test__list_filters__excludes_non_prompt_filters(
     assert "Bookmark Only" not in names
 
 
-@pytest.mark.asyncio
 async def test__list_filters__empty(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1050,7 +1007,6 @@ async def test__list_filters__empty(
     assert data["filters"] == []
 
 
-@pytest.mark.asyncio
 async def test__list_filters__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1068,7 +1024,6 @@ async def test__list_filters__api_unavailable(
 # --- list_tags tests ---
 
 
-@pytest.mark.asyncio
 async def test__list_tags__returns_all_tags(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1087,7 +1042,6 @@ async def test__list_tags__returns_all_tags(
     assert data["tags"][0]["name"] == "python"
 
 
-@pytest.mark.asyncio
 async def test__list_tags__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1105,7 +1059,6 @@ async def test__list_tags__api_unavailable(
 # --- call_tool (edit_prompt_content) tests ---
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__updates_content(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1156,7 +1109,6 @@ async def test__edit_prompt_content_tool__updates_content(
     assert response_data["id"] == "550e8400-e29b-41d4-a716-446655440010"
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__with_arguments(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1203,7 +1155,6 @@ async def test__edit_prompt_content_tool__with_arguments(
     assert payload["arguments"] == [{"name": "name", "required": True}]
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__whitespace_normalized_match(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1244,7 +1195,6 @@ async def test__edit_prompt_content_tool__whitespace_normalized_match(
     assert "line 5" in result.structured_content["summary"]
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__no_match_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1281,7 +1231,6 @@ async def test__edit_prompt_content_tool__no_match_error(
     assert result.structured_content["suggestion"] == "Verify the text exists and check for whitespace differences"
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__multiple_matches_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1322,7 +1271,6 @@ async def test__edit_prompt_content_tool__multiple_matches_error(
     assert result.structured_content["matches"][1]["line"] == 12
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__template_validation_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1354,7 +1302,6 @@ async def test__edit_prompt_content_tool__template_validation_error(
     assert "undefined variable" in result.structured_content["message"].lower()
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__not_found_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1379,7 +1326,6 @@ async def test__edit_prompt_content_tool__not_found_error(
     assert "not found" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__missing_name_error(mcp_client: Client) -> None:
     """Test edit_prompt_content tool requires name parameter."""
     result = await mcp_client.call_tool(
@@ -1392,7 +1338,6 @@ async def test__edit_prompt_content_tool__missing_name_error(mcp_client: Client)
     assert "name" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__missing_old_str_error(mcp_client: Client) -> None:
     """Test edit_prompt_content tool requires old_str parameter."""
     result = await mcp_client.call_tool(
@@ -1405,7 +1350,6 @@ async def test__edit_prompt_content_tool__missing_old_str_error(mcp_client: Clie
     assert "old_str" in result.content[0].text
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__missing_new_str_error(mcp_client: Client) -> None:
     """Test edit_prompt_content tool requires new_str parameter."""
     result = await mcp_client.call_tool(
@@ -1418,7 +1362,6 @@ async def test__edit_prompt_content_tool__missing_new_str_error(mcp_client: Clie
     assert "new_str" in result.content[0].text
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__empty_new_str_allowed(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1456,7 +1399,6 @@ async def test__edit_prompt_content_tool__empty_new_str_allowed(
     assert result.structured_content["name"] == "deleted-text"
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1477,7 +1419,6 @@ async def test__edit_prompt_content_tool__api_unavailable(
     assert "unavailable" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__list_tools__edit_prompt_content_has_schema(mcp_client: Client) -> None:
     """Test edit_prompt_content tool has proper input schema."""
     tools = await mcp_client.list_tools()
@@ -1496,7 +1437,6 @@ async def test__list_tools__edit_prompt_content_has_schema(mcp_client: Client) -
 # --- call_tool (update_prompt) tests ---
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__updates_title(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1533,7 +1473,6 @@ async def test__update_prompt_tool__updates_title(
     assert response_data["id"] == "550e8400-e29b-41d4-a716-446655440020"
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__updates_tags(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1566,7 +1505,6 @@ async def test__update_prompt_tool__updates_tags(
     assert payload["tags"] == ["new-tag-1", "new-tag-2"]
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__renames_prompt(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1599,7 +1537,6 @@ async def test__update_prompt_tool__renames_prompt(
     assert payload["name"] == "new-name"
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__content_replacement(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1632,7 +1569,6 @@ async def test__update_prompt_tool__content_replacement(
     assert payload["content"] == "Completely new content"
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__content_and_arguments_together(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1671,7 +1607,6 @@ async def test__update_prompt_tool__content_and_arguments_together(
     assert payload["arguments"] == [{"name": "name", "description": "The name", "required": True}]
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__with_expected_updated_at_success(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1711,7 +1646,6 @@ async def test__update_prompt_tool__with_expected_updated_at_success(
     assert payload["expected_updated_at"] == "2024-01-01T00:00:00Z"
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__conflict_returns_server_state(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1759,7 +1693,6 @@ async def test__update_prompt_tool__conflict_returns_server_state(
     assert result.structured_content["server_state"]["updated_at"] == "2024-01-02T00:00:00Z"
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__rename_conflict(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1783,7 +1716,6 @@ async def test__update_prompt_tool__rename_conflict(
     assert "already exists" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__not_found(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1804,7 +1736,6 @@ async def test__update_prompt_tool__not_found(
     assert "not found" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1825,7 +1756,6 @@ async def test__update_prompt_tool__api_unavailable(
     assert "unavailable" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__missing_name_error(mcp_client: Client) -> None:
     """Test update_prompt tool requires name parameter."""
     result = await mcp_client.call_tool(
@@ -1838,7 +1768,6 @@ async def test__update_prompt_tool__missing_name_error(mcp_client: Client) -> No
     assert "name" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__no_data_fields_error(mcp_client: Client) -> None:
     """Test update_prompt requires at least one data field."""
     result = await mcp_client.call_tool(
@@ -1851,7 +1780,6 @@ async def test__update_prompt_tool__no_data_fields_error(mcp_client: Client) -> 
     assert "at least one" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__expected_updated_at_alone_not_sufficient(
     mcp_client: Client,
 ) -> None:
@@ -1866,7 +1794,6 @@ async def test__update_prompt_tool__expected_updated_at_alone_not_sufficient(
     assert "at least one" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__list_tools__update_prompt_has_schema(mcp_client: Client) -> None:
     """Test update_prompt tool has proper input schema with new parameters."""
     tools = await mcp_client.list_tools()
@@ -1893,7 +1820,6 @@ async def test__list_tools__update_prompt_has_schema(mcp_client: Client) -> None
 # stripped from API payloads.
 
 
-@pytest.mark.asyncio
 async def test__update_prompt_tool__null_optional_fields__ignored(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1940,7 +1866,6 @@ async def test__update_prompt_tool__null_optional_fields__ignored(
     assert payload["content"] == "new content"
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__null_optional_fields__ignored(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -1986,7 +1911,6 @@ async def test__create_prompt_tool__null_optional_fields__ignored(
     assert payload["content"] == "test content"
 
 
-@pytest.mark.asyncio
 async def test__edit_prompt_content_tool__null_arguments__ignored(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2031,7 +1955,6 @@ async def test__edit_prompt_content_tool__null_arguments__ignored(
     assert payload["new_str"] == "Hello world!"
 
 
-@pytest.mark.asyncio
 async def test__search_prompts__null_optional_fields__ignored(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2077,7 +2000,6 @@ async def test__search_prompts__null_optional_fields__ignored(
 # --- Authentication error tests ---
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__no_token_error(
     mock_api,  # noqa: ARG001 - needed for HTTP client init
     mcp_client: Client,
@@ -2091,7 +2013,6 @@ async def test__list_prompts__no_token_error(
     assert "token" in str(exc_info.value).lower()
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__invalid_token_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2108,7 +2029,6 @@ async def test__list_prompts__invalid_token_error(
     assert "Invalid" in str(exc_info.value) or "expired" in str(exc_info.value).lower()
 
 
-@pytest.mark.asyncio
 async def test__list_prompts__forbidden_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2125,7 +2045,6 @@ async def test__list_prompts__forbidden_error(
     assert "access denied" in str(exc_info.value).lower()
 
 
-@pytest.mark.asyncio
 async def test__search_prompts__forbidden_error(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2145,7 +2064,6 @@ async def test__search_prompts__forbidden_error(
 # --- 400/422 error handling tests ---
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__422_fastapi_validation_errors(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2173,7 +2091,6 @@ async def test__create_prompt_tool__422_fastapi_validation_errors(
     assert "content: string too long" in result.content[0].text
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__400_dict_detail_format(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2198,7 +2115,6 @@ async def test__create_prompt_tool__400_dict_detail_format(
     assert "Template contains undefined variables" in result.content[0].text
 
 
-@pytest.mark.asyncio
 async def test__create_prompt_tool__400_string_detail_format(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2221,7 +2137,6 @@ async def test__create_prompt_tool__400_string_detail_format(
 # --- call_tool (get_prompt_metadata) tests ---
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_metadata__returns_length_and_preview(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2253,7 +2168,6 @@ async def test__get_prompt_metadata__returns_length_and_preview(
     assert "content" not in data  # Full content should NOT be present
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_metadata__prompt_not_found(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2270,7 +2184,6 @@ async def test__get_prompt_metadata__prompt_not_found(
     assert "not found" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_metadata__api_unavailable(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2294,7 +2207,6 @@ async def test__get_prompt_metadata__api_unavailable(
 # --- call_tool (get_prompt_content with start_line/end_line) tests ---
 
 
-@pytest.mark.asyncio
 async def test__get_prompt_content__with_start_end_line__returns_partial(
     mock_api,
     mock_auth,  # noqa: ARG001 - needed for side effect
@@ -2339,7 +2251,6 @@ async def test__get_prompt_content__with_start_end_line__returns_partial(
 # --- Cleanup tests ---
 
 
-@pytest.mark.asyncio
 async def test__cleanup__closes_http_client() -> None:
     """Test cleanup properly closes HTTP client."""
     # Initialize HTTP client
@@ -2356,7 +2267,6 @@ async def test__cleanup__closes_http_client() -> None:
     assert server_module._http_client is None
 
 
-@pytest.mark.asyncio
 async def test__cleanup__cancels_background_tasks() -> None:
     """Test cleanup cancels pending background tasks."""
     # Create a long-running task
@@ -2378,7 +2288,6 @@ async def test__cleanup__cancels_background_tasks() -> None:
     assert len(server_module._background_tasks) == 0
 
 
-@pytest.mark.asyncio
 async def test__cleanup__handles_no_resources() -> None:
     """Test cleanup handles case when no resources exist."""
     # Ensure no resources
@@ -2465,7 +2374,6 @@ def _sample_prompt_context_response() -> dict[str, Any]:
     }
 
 
-@pytest.mark.asyncio
 async def test__get_context__returns_markdown(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001
@@ -2488,7 +2396,6 @@ async def test__get_context__returns_markdown(
     assert "## Recently Used" in text
 
 
-@pytest.mark.asyncio
 async def test__get_context__passes_parameters(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001
@@ -2513,7 +2420,6 @@ async def test__get_context__passes_parameters(
     assert "filter_item_limit=2" in request_url
 
 
-@pytest.mark.asyncio
 async def test__get_context__auth_error(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001
@@ -2530,7 +2436,6 @@ async def test__get_context__auth_error(
     assert "invalid" in result.content[0].text.lower() or "expired" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__get_context__api_unavailable(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001
@@ -2547,7 +2452,6 @@ async def test__get_context__api_unavailable(
     assert "API unavailable" in result.content[0].text
 
 
-@pytest.mark.asyncio
 async def test__get_context__tool_in_list(mcp_client: Client) -> None:
     """get_context tool appears in the tool list with correct schema."""
     tools = await mcp_client.list_tools()
@@ -2563,7 +2467,6 @@ async def test__get_context__tool_in_list(mcp_client: Client) -> None:
     assert "filter_item_limit" in props
 
 
-@pytest.mark.asyncio
 async def test__get_context__returns_text_content(
     mock_api: Any,
     mock_auth: Any,  # noqa: ARG001

@@ -97,7 +97,6 @@ class TestURLValidation:
 class TestFetchURLSSRFProtection:
     """Test SSRF protection in the fetch_url function."""
 
-    @pytest.mark.asyncio
     async def test__fetch_url__blocks_localhost(self) -> None:
         """fetch_url blocks localhost URLs."""
         result = await fetch_url("http://localhost:8000/")
@@ -106,7 +105,6 @@ class TestFetchURLSSRFProtection:
         assert result.error is not None
         assert "localhost" in result.error.lower()
 
-    @pytest.mark.asyncio
     async def test__fetch_url__blocks_private_ip(self) -> None:
         """fetch_url blocks private IP URLs."""
         result = await fetch_url("http://192.168.1.1/")
@@ -115,7 +113,6 @@ class TestFetchURLSSRFProtection:
         assert result.error is not None
         assert "private" in result.error.lower() or "blocked" in result.error.lower()
 
-    @pytest.mark.asyncio
     async def test__fetch_url__blocks_loopback(self) -> None:
         """fetch_url blocks loopback IP URLs."""
         result = await fetch_url("http://127.0.0.1/")
@@ -123,7 +120,6 @@ class TestFetchURLSSRFProtection:
         assert result.content is None
         assert result.error is not None
 
-    @pytest.mark.asyncio
     async def test__fetch_url__blocks_metadata_endpoint(self) -> None:
         """fetch_url blocks cloud metadata endpoints."""
         # AWS metadata endpoint

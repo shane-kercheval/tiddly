@@ -88,7 +88,6 @@ class TestCleanupSoftDeletedItems:
         await db_session.refresh(user)
         return user
 
-    @pytest.mark.asyncio
     async def test__day_29__soft_deleted_item_kept(
         self,
         db_session: AsyncSession,
@@ -114,7 +113,6 @@ class TestCleanupSoftDeletedItems:
         assert stats.soft_deleted_expired == 0
         assert await count_entities(db_session, Note, user.id) == 1
 
-    @pytest.mark.asyncio
     async def test__day_30_exactly__soft_deleted_item_kept(
         self,
         db_session: AsyncSession,
@@ -137,7 +135,6 @@ class TestCleanupSoftDeletedItems:
         assert stats.soft_deleted_expired == 0
         assert await count_entities(db_session, Note, user.id) == 1
 
-    @pytest.mark.asyncio
     async def test__day_30_plus_1_second__soft_deleted_item_deleted(
         self,
         db_session: AsyncSession,
@@ -171,7 +168,6 @@ class TestCleanupSoftDeletedItems:
         assert await count_entities(db_session, Note, user.id) == 0
         assert await count_history_records(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__day_31__soft_deleted_item_deleted(
         self,
         db_session: AsyncSession,
@@ -194,7 +190,6 @@ class TestCleanupSoftDeletedItems:
         assert stats.soft_deleted_expired == 1
         assert await count_entities(db_session, Note, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__all_entity_types__cleaned_correctly(
         self,
         db_session: AsyncSession,
@@ -232,7 +227,6 @@ class TestCleanupSoftDeletedItems:
         assert stats.soft_deleted_by_type["bookmarks"] == 1
         assert stats.soft_deleted_by_type["prompts"] == 1
 
-    @pytest.mark.asyncio
     async def test__history_cascade_deleted_before_entity(
         self,
         db_session: AsyncSession,
@@ -271,7 +265,6 @@ class TestCleanupSoftDeletedItems:
         assert await count_entities(db_session, Note, user.id) == 0
         assert await count_history_records(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__active_entities_not_affected(
         self,
         db_session: AsyncSession,
@@ -326,7 +319,6 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         await db_session.refresh(user)
         return user
 
-    @pytest.mark.asyncio
     async def test__within_retention__record_is_kept(
         self,
         db_session: AsyncSession,
@@ -352,7 +344,6 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         assert stats.expired_deleted == 0
         assert await count_history_records(db_session, user.id) == 1
 
-    @pytest.mark.asyncio
     async def test__exactly_at_boundary__record_is_kept(
         self,
         db_session: AsyncSession,
@@ -382,7 +373,6 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         assert stats.expired_deleted == 0
         assert await count_history_records(db_session, user.id) == 1
 
-    @pytest.mark.asyncio
     async def test__just_past_boundary__record_is_deleted(
         self,
         db_session: AsyncSession,
@@ -408,7 +398,6 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         assert stats.expired_by_tier[Tier.FREE.value] == 1
         assert await count_history_records(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__well_past_boundary__record_is_deleted(
         self,
         db_session: AsyncSession,
@@ -435,7 +424,6 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         assert stats.expired_deleted == 1
         assert await count_history_records(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__mixed_ages__only_old_deleted(
         self,
         db_session: AsyncSession,
@@ -477,7 +465,6 @@ class TestCleanupExpiredHistoryBoundaryConditions:
 class TestCleanupExpiredHistoryBatchByTier:
     """Test batch-by-tier cleanup behavior."""
 
-    @pytest.mark.asyncio
     async def test__multiple_users_same_tier__single_delete(
         self,
         db_session: AsyncSession,
@@ -518,7 +505,6 @@ class TestCleanupExpiredHistoryBatchByTier:
         for user in users:
             assert await count_history_records(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__unknown_tier__not_cleaned_by_any_tier(
         self,
         db_session: AsyncSession,
@@ -577,7 +563,6 @@ class TestCleanupExpiredHistoryEntityTypes:
         await db_session.refresh(user)
         return user
 
-    @pytest.mark.asyncio
     async def test__all_entity_types__cleaned_correctly(
         self,
         db_session: AsyncSession,
@@ -620,7 +605,6 @@ class TestCleanupOrphanedHistory:
         await db_session.refresh(user)
         return user
 
-    @pytest.mark.asyncio
     async def test__orphaned_bookmark_history__deleted(
         self,
         db_session: AsyncSession,
@@ -644,7 +628,6 @@ class TestCleanupOrphanedHistory:
         assert stats.orphaned_by_entity_type[EntityType.BOOKMARK.value] == 1
         assert await count_history_records(db_session, user.id) == 0
 
-    @pytest.mark.asyncio
     async def test__orphaned_note_history__deleted(
         self,
         db_session: AsyncSession,
@@ -664,7 +647,6 @@ class TestCleanupOrphanedHistory:
         assert stats.orphaned_deleted == 1
         assert stats.orphaned_by_entity_type[EntityType.NOTE.value] == 1
 
-    @pytest.mark.asyncio
     async def test__orphaned_prompt_history__deleted(
         self,
         db_session: AsyncSession,
@@ -684,7 +666,6 @@ class TestCleanupOrphanedHistory:
         assert stats.orphaned_deleted == 1
         assert stats.orphaned_by_entity_type[EntityType.PROMPT.value] == 1
 
-    @pytest.mark.asyncio
     async def test__existing_entity_history__not_deleted(
         self,
         db_session: AsyncSession,
@@ -715,7 +696,6 @@ class TestCleanupOrphanedHistory:
         assert stats.orphaned_deleted == 0
         assert await count_history_records(db_session, user.id) == 1
 
-    @pytest.mark.asyncio
     async def test__soft_deleted_entity_history__not_deleted(
         self,
         db_session: AsyncSession,
@@ -754,7 +734,6 @@ class TestCleanupOrphanedHistory:
         assert stats.orphaned_deleted == 0
         assert await count_history_records(db_session, user.id) == 1
 
-    @pytest.mark.asyncio
     async def test__mixed_orphaned_and_valid__only_orphans_deleted(
         self,
         db_session: AsyncSession,
@@ -800,7 +779,6 @@ class TestCleanupOrphanedHistory:
         assert stats.orphaned_deleted == 2
         assert await count_history_records(db_session, user.id) == 2
 
-    @pytest.mark.asyncio
     async def test__no_orphans__nothing_deleted(
         self,
         db_session: AsyncSession,
@@ -829,7 +807,6 @@ class TestCleanupOrphanedHistory:
 class TestCleanupEmptyScenarios:
     """Test cleanup handles empty scenarios correctly."""
 
-    @pytest.mark.asyncio
     async def test__no_users__completes_without_error(
         self,
         db_session: AsyncSession,
@@ -841,7 +818,6 @@ class TestCleanupEmptyScenarios:
         # Should complete without error
         assert stats.expired_deleted == 0
 
-    @pytest.mark.asyncio
     async def test__no_history_records__completes_without_error(
         self,
         db_session: AsyncSession,
@@ -863,7 +839,6 @@ class TestCleanupEmptyScenarios:
         assert expired_stats.expired_deleted == 0
         assert orphan_stats.orphaned_deleted == 0
 
-    @pytest.mark.asyncio
     async def test__no_soft_deleted_items__completes_without_error(
         self,
         db_session: AsyncSession,
@@ -890,7 +865,6 @@ class TestCleanupEmptyScenarios:
 class TestRunCleanupIntegration:
     """Integration tests for the full cleanup flow."""
 
-    @pytest.mark.asyncio
     async def test__run_cleanup__executes_all_cleanup_types(
         self,
         db_session: AsyncSession,
@@ -963,7 +937,6 @@ class TestRunCleanupIntegration:
         # Only the active note remains
         assert await count_entities(db_session, Note, user.id) == 1
 
-    @pytest.mark.asyncio
     async def test__run_cleanup__order_matters(
         self,
         db_session: AsyncSession,
@@ -1008,7 +981,6 @@ class TestRunCleanupIntegration:
         # Expired cleanup doesn't double-count (history already deleted)
         assert stats.expired_deleted == 0
 
-    @pytest.mark.asyncio
     async def test__run_cleanup__stats_breakdown_is_accurate(
         self,
         db_session: AsyncSession,
@@ -1072,7 +1044,6 @@ class TestRunCleanupIntegration:
         assert stats.orphaned_by_entity_type[EntityType.PROMPT.value] == 2
         assert stats.orphaned_deleted == 2
 
-    @pytest.mark.asyncio
     async def test__run_cleanup_twice__second_run_deletes_nothing(
         self,
         db_session: AsyncSession,

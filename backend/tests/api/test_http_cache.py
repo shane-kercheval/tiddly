@@ -3,7 +3,6 @@ import asyncio
 from datetime import datetime, UTC
 from unittest.mock import MagicMock
 
-import pytest
 from httpx import AsyncClient
 
 from core.http_cache import (
@@ -109,7 +108,6 @@ class TestEtagMatches:
 class TestETagMiddleware:
     """Tests for ETag middleware behavior."""
 
-    @pytest.mark.asyncio
     async def test__etag_middleware__get_request_receives_etag(
         self, client: AsyncClient,
     ) -> None:
@@ -119,7 +117,6 @@ class TestETagMiddleware:
         assert "etag" in response.headers
         assert response.headers["etag"].startswith('W/"')
 
-    @pytest.mark.asyncio
     async def test__etag_middleware__matching_if_none_match_returns_304(
         self, client: AsyncClient,
     ) -> None:
@@ -134,7 +131,6 @@ class TestETagMiddleware:
         assert response2.status_code == 304
         assert response2.content == b""  # No body on 304
 
-    @pytest.mark.asyncio
     async def test__etag_middleware__non_matching_if_none_match_returns_200(
         self, client: AsyncClient,
     ) -> None:
@@ -146,7 +142,6 @@ class TestETagMiddleware:
         assert response.status_code == 200
         assert "etag" in response.headers
 
-    @pytest.mark.asyncio
     async def test__etag_middleware__post_request_no_etag(
         self, client: AsyncClient,
     ) -> None:
@@ -158,7 +153,6 @@ class TestETagMiddleware:
         assert response.status_code == 201
         assert "etag" not in response.headers
 
-    @pytest.mark.asyncio
     async def test__etag_middleware__error_response_no_etag(
         self, client: AsyncClient,
     ) -> None:
@@ -167,7 +161,6 @@ class TestETagMiddleware:
         assert response.status_code == 404
         assert "etag" not in response.headers
 
-    @pytest.mark.asyncio
     async def test__etag_middleware__wildcard_if_none_match_returns_304(
         self, client: AsyncClient,
     ) -> None:
@@ -175,7 +168,6 @@ class TestETagMiddleware:
         response = await client.get("/health", headers={"If-None-Match": "*"})
         assert response.status_code == 304
 
-    @pytest.mark.asyncio
     async def test__etag_middleware__comma_separated_if_none_match_returns_304(
         self, client: AsyncClient,
     ) -> None:
@@ -195,7 +187,6 @@ class TestETagMiddleware:
 class TestCachingHeaders:
     """Tests for Cache-Control and Vary headers."""
 
-    @pytest.mark.asyncio
     async def test__caching_headers__present_on_200_response(
         self, client: AsyncClient,
     ) -> None:
@@ -205,7 +196,6 @@ class TestCachingHeaders:
         assert response.headers.get("cache-control") == "private, must-revalidate"
         assert response.headers.get("vary") == "Authorization"
 
-    @pytest.mark.asyncio
     async def test__caching_headers__present_on_304_response(
         self, client: AsyncClient,
     ) -> None:
@@ -220,7 +210,6 @@ class TestCachingHeaders:
         assert response2.headers.get("cache-control") == "private, must-revalidate"
         assert response2.headers.get("vary") == "Authorization"
 
-    @pytest.mark.asyncio
     async def test__caching_headers__etag_present_on_304(
         self, client: AsyncClient,
     ) -> None:
@@ -236,7 +225,6 @@ class TestCachingHeaders:
 class TestSecurityHeadersOn304:
     """Tests to verify security headers are present on 304 responses."""
 
-    @pytest.mark.asyncio
     async def test__security_headers__present_on_304_response(
         self, client: AsyncClient,
     ) -> None:
@@ -259,7 +247,6 @@ class TestSecurityHeadersOn304:
 class TestETagIntegration:
     """Integration tests for ETag with real endpoints."""
 
-    @pytest.mark.asyncio
     async def test__etag_integration__bookmark_crud_etag_changes(
         self, client: AsyncClient,
     ) -> None:
@@ -307,7 +294,6 @@ class TestETagIntegration:
         )
         assert get_response4.status_code == 304
 
-    @pytest.mark.asyncio
     async def test__etag_integration__list_endpoint(
         self, client: AsyncClient,
     ) -> None:
@@ -326,7 +312,6 @@ class TestETagIntegration:
         response2 = await client.get("/bookmarks/", headers={"If-None-Match": etag})
         assert response2.status_code == 304
 
-    @pytest.mark.asyncio
     async def test__etag_integration__rate_limit_headers_preserved(
         self, rate_limit_client: AsyncClient,
     ) -> None:
@@ -477,7 +462,6 @@ class TestCheckNotModified:
 class TestLastModifiedIntegration:
     """Integration tests for Last-Modified with real endpoints."""
 
-    @pytest.mark.asyncio
     async def test__last_modified__bookmark_returns_header(
         self, client: AsyncClient,
     ) -> None:
@@ -495,7 +479,6 @@ class TestLastModifiedIntegration:
         assert response.status_code == 200
         assert "last-modified" in response.headers
 
-    @pytest.mark.asyncio
     async def test__last_modified__if_modified_since_returns_304(
         self, client: AsyncClient,
     ) -> None:
@@ -518,7 +501,6 @@ class TestLastModifiedIntegration:
         )
         assert response2.status_code == 304
 
-    @pytest.mark.asyncio
     async def test__last_modified__etag_takes_precedence(
         self, client: AsyncClient,
     ) -> None:
@@ -548,7 +530,6 @@ class TestLastModifiedIntegration:
         # Should have ETag in response (from middleware)
         assert "etag" in response2.headers
 
-    @pytest.mark.asyncio
     async def test__last_modified__note_returns_header(
         self, client: AsyncClient,
     ) -> None:
@@ -566,7 +547,6 @@ class TestLastModifiedIntegration:
         assert response.status_code == 200
         assert "last-modified" in response.headers
 
-    @pytest.mark.asyncio
     async def test__last_modified__prompt_by_id_returns_header(
         self, client: AsyncClient,
     ) -> None:
@@ -588,7 +568,6 @@ class TestLastModifiedIntegration:
         assert response.status_code == 200
         assert "last-modified" in response.headers
 
-    @pytest.mark.asyncio
     async def test__last_modified__prompt_by_name_returns_header(
         self, client: AsyncClient,
     ) -> None:
@@ -608,7 +587,6 @@ class TestLastModifiedIntegration:
         assert response.status_code == 200
         assert "last-modified" in response.headers
 
-    @pytest.mark.asyncio
     async def test__last_modified__304_has_security_headers(
         self, client: AsyncClient,
     ) -> None:
@@ -636,7 +614,6 @@ class TestLastModifiedIntegration:
         assert response2.headers.get("x-content-type-options") == "nosniff"
         assert response2.headers.get("x-frame-options") == "DENY"
 
-    @pytest.mark.asyncio
     async def test__last_modified__404_for_nonexistent(
         self, client: AsyncClient,
     ) -> None:
@@ -647,7 +624,6 @@ class TestLastModifiedIntegration:
         )
         assert response.status_code == 404
 
-    @pytest.mark.asyncio
     async def test__last_modified__changes_after_update(
         self, client: AsyncClient,
     ) -> None:
@@ -697,7 +673,6 @@ class TestLastModifiedIntegration:
         )
         assert response4.status_code == 304
 
-    @pytest.mark.asyncio
     async def test__last_modified__soft_deleted_resource_supports_caching(
         self, client: AsyncClient,
     ) -> None:

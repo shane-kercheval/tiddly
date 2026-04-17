@@ -39,6 +39,8 @@ const routeImports: Record<string, () => Promise<unknown>> = {
   // App settings pages
   '/app/settings/general': () => import('./pages/settings/SettingsGeneral'),
   '/app/settings/tokens': () => import('./pages/settings/SettingsTokens'),
+  '/docs/features/ai': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAIFeatures') },
+  '/app/settings/ai': () => import('./pages/settings/SettingsAI'),
   '/app/settings/ai-integration': () => import('./pages/settings/SettingsMCP'),
   '/app/settings/tags': () => import('./pages/settings/SettingsTags'),
   '/app/settings/faq': () => import('./pages/settings/SettingsFAQ'),

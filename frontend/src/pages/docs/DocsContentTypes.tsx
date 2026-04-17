@@ -156,6 +156,12 @@ export function DocsContentTypes(): ReactNode {
             See{' '}
             <Link to="/docs/features/search" className="text-[#d97b3d] hover:underline">Search</Link>.
           </li>
+          <li>
+            <strong>AI suggestions</strong> — Pro accounts get AI-powered suggestions for tags,
+            titles, descriptions, relationships, and prompt arguments.
+            See{' '}
+            <Link to="/docs/features/ai" className="text-[#d97b3d] hover:underline">AI Features</Link>.
+          </li>
         </ul>
 
         <InfoCallout variant="tip">

@@ -107,6 +107,13 @@ const comparisonData = [
     ],
   },
   {
+    category: 'AI Features',
+    rows: [
+      { feature: 'AI suggestions (tags, metadata, relationships)', free: '—', standard: '—', pro: '500 calls/day' },
+      { feature: 'Bring your own API key', free: '—', standard: '—', pro: '2,000 calls/day' },
+    ],
+  },
+  {
     category: 'History & Versioning',
     rows: [
       { feature: 'Version history retention', free: '1 day', standard: '5 days', pro: '15 days' },
@@ -229,6 +236,7 @@ export function Pricing(): ReactNode {
           <ul className="mt-8 space-y-4 text-sm text-gray-600">
             <FeatureItem><strong>Unlimited</strong> bookmarks, notes & prompts</FeatureItem>
             <FeatureItem>100K characters per item</FeatureItem>
+            <FeatureItem>AI-powered suggestions</FeatureItem>
             <FeatureItem>50 API tokens</FeatureItem>
             <FeatureItem>15-day version history</FeatureItem>
             <FeatureItem>Highest rate limits</FeatureItem>
@@ -269,7 +277,7 @@ export function Pricing(): ReactNode {
           <FAQItem question="Can I try Pro before committing?">
             <p>
               During beta, everyone has Pro access at no charge. After beta, the Free tier gives
-              you full access to every feature — upgrade when you need more capacity.
+              you access to all core features (except AI suggestions) — upgrade when you need more capacity.
             </p>
           </FAQItem>
 
@@ -297,9 +305,10 @@ export function Pricing(): ReactNode {
 
           <FAQItem question="What about AI features?">
             <p>
-              AI-powered features (summarization, auto-suggestions, enhanced search) are
-              planned but not yet available. They may be priced separately when launched.
-              MCP integration and prompt templates are included in all tiers today.
+              AI-powered suggestions (tags, titles, descriptions, relationships, and prompt arguments)
+              are available on the Pro plan. You can also bring your own API key for higher limits
+              and custom model selection. See the comparison table above for details.
+              MCP integration and prompt templates are included in all tiers.
             </p>
           </FAQItem>
 

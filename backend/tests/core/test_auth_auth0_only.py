@@ -84,7 +84,6 @@ def mock_settings_dev_mode() -> Settings:
 class TestAuthenticateUserAllowPat:
     """Tests for _authenticate_user with allow_pat parameter."""
 
-    @pytest.mark.asyncio
     async def test__allow_pat_true__accepts_pat_token(
         self,
         db_session: AsyncSession,
@@ -113,7 +112,6 @@ class TestAuthenticateUserAllowPat:
 
         assert result.id == test_user.id
 
-    @pytest.mark.asyncio
     async def test__allow_pat_false__rejects_pat_token_with_403(
         self,
         db_session: AsyncSession,
@@ -138,7 +136,6 @@ class TestAuthenticateUserAllowPat:
         assert "not available for API tokens" in exc_info.value.detail
         assert "web interface" in exc_info.value.detail
 
-    @pytest.mark.asyncio
     async def test__allow_pat_false__accepts_auth0_jwt(
         self,
         db_session: AsyncSession,
@@ -164,7 +161,6 @@ class TestAuthenticateUserAllowPat:
 
         assert result.auth0_id == test_user.auth0_id
 
-    @pytest.mark.asyncio
     async def test__allow_pat_false__dev_mode_bypasses_check(
         self,
         db_session: AsyncSession,
@@ -188,7 +184,6 @@ class TestAuthenticateUserAllowPat:
         # Should return dev user, not raise 403
         assert result.auth0_id == "dev|local-development-user"
 
-    @pytest.mark.asyncio
     async def test__no_credentials__returns_401(
         self,
         db_session: AsyncSession,
@@ -211,7 +206,6 @@ class TestAuthenticateUserAllowPat:
 class TestGetCurrentUserAuth0Only:
     """Tests for get_current_user_auth0_only dependency."""
 
-    @pytest.mark.asyncio
     async def test__with_pat__returns_403(
         self,
         db_session: AsyncSession,
@@ -238,7 +232,6 @@ class TestGetCurrentUserAuth0Only:
 
         assert exc_info.value.status_code == 403
 
-    @pytest.mark.asyncio
     async def test__with_auth0_jwt_and_valid_consent__returns_user(
         self,
         db_session: AsyncSession,
@@ -273,7 +266,6 @@ class TestGetCurrentUserAuth0Only:
         # Should not raise - valid consent
         _check_consent(user_with_consent, mock_settings_no_dev_mode)
 
-    @pytest.mark.asyncio
     async def test__with_auth0_jwt_no_consent__returns_451(
         self,
         db_session: AsyncSession,
@@ -308,7 +300,6 @@ class TestGetCurrentUserAuth0Only:
 class TestGetCurrentUserAuth0OnlyWithoutConsent:
     """Tests for get_current_user_auth0_only_without_consent dependency."""
 
-    @pytest.mark.asyncio
     async def test__with_pat__returns_403(
         self,
         db_session: AsyncSession,
@@ -331,7 +322,6 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
 
         assert exc_info.value.status_code == 403
 
-    @pytest.mark.asyncio
     async def test__with_auth0_jwt_no_consent__returns_user(
         self,
         db_session: AsyncSession,
@@ -363,7 +353,6 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
 class TestErrorMessages:
     """Tests for error message clarity."""
 
-    @pytest.mark.asyncio
     async def test__pat_rejection_message__is_user_friendly(
         self,
         db_session: AsyncSession,

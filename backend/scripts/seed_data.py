@@ -1,4 +1,5 @@
-"""Seed script to populate the local dev database with realistic test data.
+"""
+Seed script to populate the local dev database with realistic test data.
 
 Usage:
     PYTHONPATH=backend/src uv run python backend/scripts/seed_data.py populate
@@ -1340,7 +1341,7 @@ PROMPTS = [
 async def get_or_create_dev_user(session: AsyncSession) -> User:
     """Get or create the dev mode user."""
     result = await session.execute(
-        select(User).where(User.auth0_id == DEV_AUTH0_ID)
+        select(User).where(User.auth0_id == DEV_AUTH0_ID),
     )
     user = result.scalar_one_or_none()
     if user is None:
@@ -1412,7 +1413,7 @@ async def create_bookmarks(
     await session.flush()
     print(
         f'  Created {len(BOOKMARKS)} bookmarks '
-        f'({counts["active"]} active, {counts["archived"]} archived, {counts["deleted"]} deleted)'
+        f'({counts["active"]} active, {counts["archived"]} archived, {counts["deleted"]} deleted)',
     )
 
 
@@ -1443,7 +1444,7 @@ async def create_notes(
     await session.flush()
     print(
         f'  Created {len(NOTES)} notes '
-        f'({counts["active"]} active, {counts["archived"]} archived, {counts["deleted"]} deleted)'
+        f'({counts["active"]} active, {counts["archived"]} archived, {counts["deleted"]} deleted)',
     )
 
 
@@ -1477,14 +1478,14 @@ async def create_prompts(
     await session.flush()
     print(
         f'  Created {len(PROMPTS)} prompts '
-        f'({counts["active"]} active, {counts["archived"]} archived, {counts["deleted"]} deleted)'
+        f'({counts["active"]} active, {counts["archived"]} archived, {counts["deleted"]} deleted)',
     )
 
 
 async def clear_data(session: AsyncSession) -> None:
     """Clear all data for the dev user."""
     result = await session.execute(
-        select(User).where(User.auth0_id == DEV_AUTH0_ID)
+        select(User).where(User.auth0_id == DEV_AUTH0_ID),
     )
     user = result.scalar_one_or_none()
     if user is None:
@@ -1496,16 +1497,16 @@ async def clear_data(session: AsyncSession) -> None:
 
     # Count existing records before deletion
     bm_count = (await session.execute(
-        select(func.count()).select_from(Bookmark).where(Bookmark.user_id == user_id)
+        select(func.count()).select_from(Bookmark).where(Bookmark.user_id == user_id),
     )).scalar()
     note_count = (await session.execute(
-        select(func.count()).select_from(Note).where(Note.user_id == user_id)
+        select(func.count()).select_from(Note).where(Note.user_id == user_id),
     )).scalar()
     prompt_count = (await session.execute(
-        select(func.count()).select_from(Prompt).where(Prompt.user_id == user_id)
+        select(func.count()).select_from(Prompt).where(Prompt.user_id == user_id),
     )).scalar()
     tag_count = (await session.execute(
-        select(func.count()).select_from(Tag).where(Tag.user_id == user_id)
+        select(func.count()).select_from(Tag).where(Tag.user_id == user_id),
     )).scalar()
 
     # Delete content filters first (filter_group_tags has RESTRICT on tag_id).
@@ -1537,7 +1538,7 @@ async def populate(force: bool = False) -> None:
             # Check if seed data already exists (tags are created first, so
             # they detect both complete and partial previous runs).
             tag_count = (await session.execute(
-                select(func.count()).select_from(Tag).where(Tag.user_id == user.id)
+                select(func.count()).select_from(Tag).where(Tag.user_id == user.id),
             )).scalar()
 
             if tag_count and tag_count > 0:
@@ -1548,7 +1549,7 @@ async def populate(force: bool = False) -> None:
                 else:
                     print(
                         f'Data already exists ({tag_count} tags). '
-                        f'Use --force to clear and re-seed.'
+                        f'Use --force to clear and re-seed.',
                     )
                     return
 
@@ -1589,7 +1590,7 @@ def main() -> None:
     if not settings.dev_mode:
         print(
             "ERROR: Seed script requires VITE_DEV_MODE=true.\n"
-            "This script modifies data directly and must only run against a local dev database."
+            "This script modifies data directly and must only run against a local dev database.",
         )
         raise SystemExit(1)
 

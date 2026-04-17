@@ -21777,7 +21777,7 @@
       "test_function": "test_edit_prompt_content",
       "test_module": "evals.prompt_mcp.test_edit_prompt_content",
       "samples": 10,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "num_test_cases": 6
     },
     "_test_results": {
@@ -21785,7 +21785,7 @@
       "failed_samples": 0,
       "total_samples": 10,
       "success_rate": 1.0,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "passed": true
     }
   }

@@ -23,7 +23,6 @@ async def mcp_client(mock_auth):  # noqa: ARG001 - mock_auth needed for side eff
 # --- search_items tests (replaces search_bookmarks, search_notes, search_all_content) ---
 
 
-@pytest.mark.asyncio
 async def test__search_items__bookmarks(
     mock_api,
     mcp_client: Client,
@@ -40,7 +39,6 @@ async def test__search_items__bookmarks(
     assert len(result.data["items"]) == 1
 
 
-@pytest.mark.asyncio
 async def test__search_items__bookmarks_with_query(
     mock_api,
     mcp_client: Client,
@@ -56,7 +54,6 @@ async def test__search_items__bookmarks_with_query(
     assert "q" in str(mock_api.calls[0].request.url)
 
 
-@pytest.mark.asyncio
 async def test__search_items__bookmarks_with_tags(
     mock_api,
     mcp_client: Client,
@@ -77,7 +74,6 @@ async def test__search_items__bookmarks_with_tags(
     assert "tag_match=any" in request_url
 
 
-@pytest.mark.asyncio
 async def test__search_items__notes(
     mock_api,
     mcp_client: Client,
@@ -94,7 +90,6 @@ async def test__search_items__notes(
     assert len(result.data["items"]) == 1
 
 
-@pytest.mark.asyncio
 async def test__search_items__notes_with_query(
     mock_api,
     mcp_client: Client,
@@ -110,7 +105,6 @@ async def test__search_items__notes_with_query(
     assert "q" in str(mock_api.calls[0].request.url)
 
 
-@pytest.mark.asyncio
 async def test__search_items__notes_with_tags(
     mock_api,
     mcp_client: Client,
@@ -131,7 +125,6 @@ async def test__search_items__notes_with_tags(
     assert "tag_match=any" in request_url
 
 
-@pytest.mark.asyncio
 async def test__search_items__all_types(
     mock_api,
     mcp_client: Client,
@@ -151,7 +144,6 @@ async def test__search_items__all_types(
     assert "note" in types
 
 
-@pytest.mark.asyncio
 async def test__search_items__excludes_prompts_when_no_type(
     mock_api,
     mcp_client: Client,
@@ -170,7 +162,6 @@ async def test__search_items__excludes_prompts_when_no_type(
     assert "content_types=note" in request_url
 
 
-@pytest.mark.asyncio
 async def test__search_items__all_types_with_query(
     mock_api,
     mcp_client: Client,
@@ -186,7 +177,6 @@ async def test__search_items__all_types_with_query(
     assert "q" in str(mock_api.calls[0].request.url)
 
 
-@pytest.mark.asyncio
 async def test__search_items__api_unavailable(mock_api, mcp_client: Client) -> None:
     """Test network error handling for search_items."""
     mock_api.get("/content/").mock(side_effect=httpx.ConnectError("Connection refused"))
@@ -197,7 +187,6 @@ async def test__search_items__api_unavailable(mock_api, mcp_client: Client) -> N
     assert "unavailable" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__search_items__invalid_token(mock_api) -> None:
     """Test 401 error handling for invalid token."""
     mock_api.get("/content/").mock(
@@ -214,7 +203,6 @@ async def test__search_items__invalid_token(mock_api) -> None:
     assert "invalid" in error_text or "expired" in error_text
 
 
-@pytest.mark.asyncio
 async def test__search_items__forbidden(mock_api) -> None:
     """Test 403 forbidden error handling."""
     mock_api.get("/content/").mock(
@@ -233,7 +221,6 @@ async def test__search_items__forbidden(mock_api) -> None:
 # --- search_items with filter_id ---
 
 
-@pytest.mark.asyncio
 async def test__search_items__with_filter_id(
     mock_api,
     mcp_client: Client,
@@ -253,7 +240,6 @@ async def test__search_items__with_filter_id(
     assert "filter_id=a1b2c3d4-e29b-41d4-a716-446655440000" in request_url
 
 
-@pytest.mark.asyncio
 async def test__search_items__with_filter_id_and_type(
     mock_api,
     mcp_client: Client,
@@ -276,7 +262,6 @@ async def test__search_items__with_filter_id_and_type(
 # --- list_filters tests ---
 
 
-@pytest.mark.asyncio
 async def test__list_filters__returns_filters(
     mock_api,
     mcp_client: Client,
@@ -303,7 +288,6 @@ async def test__list_filters__returns_filters(
     assert result.data["filters"][0]["name"] == "Work Projects"
 
 
-@pytest.mark.asyncio
 async def test__list_filters__excludes_non_content_filters(
     mock_api,
     mcp_client: Client,
@@ -341,7 +325,6 @@ async def test__list_filters__excludes_non_content_filters(
     assert names == {"Bookmark Filter", "Mixed Filter"}
 
 
-@pytest.mark.asyncio
 async def test__list_filters__empty(
     mock_api,
     mcp_client: Client,
@@ -356,7 +339,6 @@ async def test__list_filters__empty(
     assert result.data["filters"] == []
 
 
-@pytest.mark.asyncio
 async def test__list_filters__api_unavailable(mock_api, mcp_client: Client) -> None:
     """Test network error handling for list_filters."""
     mock_api.get("/filters/").mock(side_effect=httpx.ConnectError("Connection refused"))
@@ -370,7 +352,6 @@ async def test__list_filters__api_unavailable(mock_api, mcp_client: Client) -> N
 # --- get_item tests (replaces get_content) ---
 
 
-@pytest.mark.asyncio
 async def test__get_item__bookmark_success(
     mock_api,
     mcp_client: Client,
@@ -391,7 +372,6 @@ async def test__get_item__bookmark_success(
     assert result.data["content_metadata"]["total_lines"] == 10
 
 
-@pytest.mark.asyncio
 async def test__get_item__bookmark_not_found(mock_api, mcp_client: Client) -> None:
     """Test 404 error handling for bookmark via get_item."""
     missing_id = "00000000-0000-0000-0000-000000000000"
@@ -407,7 +387,6 @@ async def test__get_item__bookmark_not_found(mock_api, mcp_client: Client) -> No
     assert "not found" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__get_item__note_success(
     mock_api,
     mcp_client: Client,
@@ -427,7 +406,6 @@ async def test__get_item__note_success(
     assert result.data["content_metadata"]["total_lines"] == 5
 
 
-@pytest.mark.asyncio
 async def test__get_item__note_not_found(mock_api, mcp_client: Client) -> None:
     """Test 404 error handling for notes via get_item."""
     missing_id = "00000000-0000-0000-0000-000000000000"
@@ -443,7 +421,6 @@ async def test__get_item__note_not_found(mock_api, mcp_client: Client) -> None:
     assert "not found" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__get_item__partial_read(
     mock_api,
     mcp_client: Client,
@@ -479,7 +456,6 @@ async def test__get_item__partial_read(
     assert "end_line=12" in request_url
 
 
-@pytest.mark.asyncio
 async def test__get_item__include_content_false(
     mock_api,
     mcp_client: Client,
@@ -505,7 +481,6 @@ async def test__get_item__include_content_false(
     assert result.data["content_preview"] == "First 500 chars of content..."
 
 
-@pytest.mark.asyncio
 async def test__get_item__invalid_type(
     mock_api,  # noqa: ARG001 - needed to reset HTTP client
     mcp_client: Client,
@@ -524,7 +499,6 @@ async def test__get_item__invalid_type(
 # --- update_item tests ---
 
 
-@pytest.mark.asyncio
 async def test__update_item__note_metadata_success(
     mock_api,
     mcp_client: Client,
@@ -555,7 +529,6 @@ async def test__update_item__note_metadata_success(
     assert "tags updated" in result.data["summary"]
 
 
-@pytest.mark.asyncio
 async def test__update_item__bookmark_with_url(
     mock_api,
     mcp_client: Client,
@@ -584,7 +557,6 @@ async def test__update_item__bookmark_with_url(
     assert "url updated" in result.data["summary"]
 
 
-@pytest.mark.asyncio
 async def test__update_item__updates_description(
     mock_api,
     mcp_client: Client,
@@ -610,7 +582,6 @@ async def test__update_item__updates_description(
     assert "description updated" in result.data["summary"]
 
 
-@pytest.mark.asyncio
 async def test__update_item__content_replacement(
     mock_api,
     mcp_client: Client,
@@ -640,7 +611,6 @@ async def test__update_item__content_replacement(
     assert payload["content"] == "Completely new content"
 
 
-@pytest.mark.asyncio
 async def test__update_item__metadata_and_content_together(
     mock_api,
     mcp_client: Client,
@@ -676,7 +646,6 @@ async def test__update_item__metadata_and_content_together(
     assert "tags updated" in result.data["summary"]
 
 
-@pytest.mark.asyncio
 async def test__update_item__with_expected_updated_at_success(
     mock_api,
     mcp_client: Client,
@@ -713,7 +682,6 @@ async def test__update_item__with_expected_updated_at_success(
     assert payload["expected_updated_at"] == "2024-01-01T00:00:00Z"
 
 
-@pytest.mark.asyncio
 async def test__update_item__conflict_returns_server_state(
     mock_api,
     mcp_client: Client,
@@ -756,7 +724,6 @@ async def test__update_item__conflict_returns_server_state(
     assert result.data["server_state"]["updated_at"] == "2024-01-02T00:00:00Z"
 
 
-@pytest.mark.asyncio
 async def test__update_item__name_conflict_raises_error(
     mock_api,
     mcp_client: Client,
@@ -780,7 +747,6 @@ async def test__update_item__name_conflict_raises_error(
     assert "already exists" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_item__name_conflict_string_detail_preserved(
     mock_api,
     mcp_client: Client,
@@ -804,7 +770,6 @@ async def test__update_item__name_conflict_string_detail_preserved(
     assert "custom conflict message" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_item__note_url_error(
     mock_api,  # noqa: ARG001 - needed to reset HTTP client
     mcp_client: Client,
@@ -821,7 +786,6 @@ async def test__update_item__note_url_error(
     assert "bookmark" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_item__no_fields_error(
     mock_api,  # noqa: ARG001 - needed to reset HTTP client
     mcp_client: Client,
@@ -837,7 +801,6 @@ async def test__update_item__no_fields_error(
     assert "at least one" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_item__expected_updated_at_alone_not_sufficient(
     mock_api,  # noqa: ARG001 - needed to reset HTTP client
     mcp_client: Client,
@@ -857,7 +820,6 @@ async def test__update_item__expected_updated_at_alone_not_sufficient(
     assert "at least one" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__update_item__not_found(mock_api, mcp_client: Client) -> None:
     """Test 404 error handling for update_item."""
     missing_id = "00000000-0000-0000-0000-000000000000"
@@ -878,7 +840,6 @@ async def test__update_item__not_found(mock_api, mcp_client: Client) -> None:
 # --- create_bookmark tests ---
 
 
-@pytest.mark.asyncio
 async def test__create_bookmark__success(
     mock_api,
     mcp_client: Client,
@@ -897,7 +858,6 @@ async def test__create_bookmark__success(
     assert result.data["id"] == "550e8400-e29b-41d4-a716-446655440001"
 
 
-@pytest.mark.asyncio
 async def test__create_bookmark__duplicate_active(mock_api, mcp_client: Client) -> None:
     """Test duplicate URL error (active bookmark exists)."""
     mock_api.post("/bookmarks/").mock(
@@ -920,7 +880,6 @@ async def test__create_bookmark__duplicate_active(mock_api, mcp_client: Client) 
     assert "already exists" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__create_bookmark__archived_exists(mock_api, mcp_client: Client) -> None:
     """Test duplicate URL error (archived bookmark exists)."""
     archived_id = "550e8400-e29b-41d4-a716-446655440042"
@@ -950,7 +909,6 @@ async def test__create_bookmark__archived_exists(mock_api, mcp_client: Client) -
 # --- list_tags tests ---
 
 
-@pytest.mark.asyncio
 async def test__list_tags__success(
     mock_api,
     mcp_client: Client,
@@ -970,7 +928,6 @@ async def test__list_tags__success(
 # --- create_note tests ---
 
 
-@pytest.mark.asyncio
 async def test__create_note__success(
     mock_api,
     mcp_client: Client,
@@ -994,7 +951,6 @@ async def test__create_note__success(
     assert result.data["title"] == "Test Note"
 
 
-@pytest.mark.asyncio
 async def test__create_note__minimal(
     mock_api,
     mcp_client: Client,
@@ -1013,7 +969,6 @@ async def test__create_note__minimal(
     assert result.data["id"] == "550e8400-e29b-41d4-a716-446655440002"
 
 
-@pytest.mark.asyncio
 async def test__create_note__api_error(mock_api, mcp_client: Client) -> None:
     """Test API error handling for note creation."""
     mock_api.post("/notes/").mock(
@@ -1030,7 +985,6 @@ async def test__create_note__api_error(mock_api, mcp_client: Client) -> None:
 # --- edit_content tests ---
 
 
-@pytest.mark.asyncio
 async def test__edit_content__success(
     mock_api,
     mcp_client: Client,
@@ -1057,7 +1011,6 @@ async def test__edit_content__success(
     assert "data" in result.data
 
 
-@pytest.mark.asyncio
 async def test__edit_content__bookmark_success(
     mock_api,
     mcp_client: Client,
@@ -1088,7 +1041,6 @@ async def test__edit_content__bookmark_success(
     assert result.data["line"] == 5
 
 
-@pytest.mark.asyncio
 async def test__edit_content__no_match(
     mock_api,
     mcp_client: Client,
@@ -1116,7 +1068,6 @@ async def test__edit_content__no_match(
     assert "suggestion" in result.data
 
 
-@pytest.mark.asyncio
 async def test__edit_content__multiple_matches(
     mock_api,
     mcp_client: Client,
@@ -1144,7 +1095,6 @@ async def test__edit_content__multiple_matches(
     assert len(result.data["matches"]) == 2
 
 
-@pytest.mark.asyncio
 async def test__edit_content__not_found(mock_api, mcp_client: Client) -> None:
     """Test 404 error handling for edit_content."""
     missing_id = "00000000-0000-0000-0000-000000000000"
@@ -1167,7 +1117,6 @@ async def test__edit_content__not_found(mock_api, mcp_client: Client) -> None:
     assert "not found" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__edit_content__invalid_type(
     mock_api,  # noqa: ARG001 - needed to reset HTTP client
     mcp_client: Client,
@@ -1188,7 +1137,6 @@ async def test__edit_content__invalid_type(
     assert "invalid" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__edit_content__api_unavailable(mock_api, mcp_client: Client) -> None:
     """Test network error handling for edit_content."""
     note_id = "550e8400-e29b-41d4-a716-446655440002"
@@ -1214,7 +1162,6 @@ async def test__edit_content__api_unavailable(mock_api, mcp_client: Client) -> N
 # --- search_in_content tests ---
 
 
-@pytest.mark.asyncio
 async def test__search_in_content__success(
     mock_api,
     mcp_client: Client,
@@ -1236,7 +1183,6 @@ async def test__search_in_content__success(
     assert result.data["matches"][0]["line"] == 3
 
 
-@pytest.mark.asyncio
 async def test__search_in_content__multiple_matches(
     mock_api,
     mcp_client: Client,
@@ -1260,7 +1206,6 @@ async def test__search_in_content__multiple_matches(
     assert title_match["line"] is None
 
 
-@pytest.mark.asyncio
 async def test__search_in_content__no_matches(
     mock_api,
     mcp_client: Client,
@@ -1281,7 +1226,6 @@ async def test__search_in_content__no_matches(
     assert result.data["matches"] == []
 
 
-@pytest.mark.asyncio
 async def test__search_in_content__with_options(
     mock_api,
     mcp_client: Client,
@@ -1311,7 +1255,6 @@ async def test__search_in_content__with_options(
     assert "context_lines=5" in request_url
 
 
-@pytest.mark.asyncio
 async def test__search_in_content__bookmark(
     mock_api,
     mcp_client: Client,
@@ -1331,7 +1274,6 @@ async def test__search_in_content__bookmark(
     assert result.data["total_matches"] == 1
 
 
-@pytest.mark.asyncio
 async def test__search_in_content__not_found(mock_api, mcp_client: Client) -> None:
     """Test 404 error handling for search_in_content."""
     missing_id = "00000000-0000-0000-0000-000000000000"
@@ -1349,7 +1291,6 @@ async def test__search_in_content__not_found(mock_api, mcp_client: Client) -> No
     assert "not found" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__search_in_content__invalid_type(
     mock_api,  # noqa: ARG001 - needed to reset HTTP client
     mcp_client: Client,
@@ -1365,7 +1306,6 @@ async def test__search_in_content__invalid_type(
     assert "invalid" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__search_in_content__api_unavailable(mock_api, mcp_client: Client) -> None:
     """Test network error handling for search_in_content."""
     note_id = "550e8400-e29b-41d4-a716-446655440002"
@@ -1665,7 +1605,6 @@ def test__format_content_context_markdown__modified_at_in_recent() -> None:
 # --- get_context tool integration tests ---
 
 
-@pytest.mark.asyncio
 async def test__get_context__returns_markdown(
     mock_api,
     mcp_client: Client,
@@ -1684,7 +1623,6 @@ async def test__get_context__returns_markdown(
     assert "## Top Tags" in text
 
 
-@pytest.mark.asyncio
 async def test__get_context__passes_parameters(
     mock_api,
     mcp_client: Client,
@@ -1709,7 +1647,6 @@ async def test__get_context__passes_parameters(
     assert "filter_item_limit=2" in request_url
 
 
-@pytest.mark.asyncio
 async def test__get_context__auth_error(
     mock_api,
     mcp_client: Client,
@@ -1723,7 +1660,6 @@ async def test__get_context__auth_error(
     assert result.is_error
 
 
-@pytest.mark.asyncio
 async def test__get_context__api_unavailable(
     mock_api,
     mcp_client: Client,
@@ -1738,7 +1674,6 @@ async def test__get_context__api_unavailable(
     assert "unavailable" in result.content[0].text.lower()
 
 
-@pytest.mark.asyncio
 async def test__get_context__tool_in_list(
     mock_api,  # noqa: ARG001 - needed to reset HTTP client
     mcp_client: Client,
@@ -1752,7 +1687,6 @@ async def test__get_context__tool_in_list(
 # --- create_relationship tests ---
 
 
-@pytest.mark.asyncio
 async def test__create_relationship__success(
     mock_api,
     mcp_client: Client,
@@ -1774,7 +1708,6 @@ async def test__create_relationship__success(
     assert result.data["relationship_type"] == "related"
 
 
-@pytest.mark.asyncio
 async def test__create_relationship__duplicate_returns_existing(
     mock_api,
     mcp_client: Client,
@@ -1801,7 +1734,6 @@ async def test__create_relationship__duplicate_returns_existing(
     assert result.data["id"] == sample_relationship["id"]
 
 
-@pytest.mark.asyncio
 async def test__create_relationship__duplicate_no_match_returns_message(
     mock_api,
     mcp_client: Client,
@@ -1840,7 +1772,6 @@ async def test__create_relationship__duplicate_no_match_returns_message(
     assert "id" not in result.data
 
 
-@pytest.mark.asyncio
 async def test__create_relationship__not_found_raises_error(
     mock_api,
     mcp_client: Client,

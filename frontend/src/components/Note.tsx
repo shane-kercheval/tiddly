@@ -37,6 +37,9 @@ import { useNotes } from '../hooks/useNotes'
 import { LinkedContentChips, type LinkedContentChipsHandle } from './LinkedContentChips'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
+import { useAITagIntegration } from '../hooks/useAITagIntegration'
+import { useAIRelationshipIntegration } from '../hooks/useAIRelationshipIntegration'
+import { useAIMetadataIntegration } from '../hooks/useAIMetadataIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Note as NoteType, NoteCreate, NoteUpdate, RelationshipInputPayload, TagCount } from '../types'
@@ -109,6 +112,8 @@ interface NoteProps {
   showTocToggle?: boolean
   /** Whether this is a create→edit transition (preserves editor state) */
   fromCreate?: boolean
+  /** Whether AI features are available for this user's tier */
+  aiAvailable?: boolean
 }
 
 /**
@@ -134,6 +139,7 @@ export function Note({
   initialLinkedItems,
   showTocToggle = false,
   fromCreate = false,
+  aiAvailable = false,
 }: NoteProps): ReactNode {
   const isCreate = !note
 
@@ -284,6 +290,14 @@ export function Note({
     setContentKey(prev => prev + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.id, initialTags, initialRelationships])
+
+  // AI tag suggestions
+  const { aiTagSuggestions, isAiTagsLoading, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+    useAITagIntegration(current, setCurrent, aiAvailable, 'note')
+  const { aiRelationshipSuggestions, isAiRelationshipsLoading, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
+    useAIRelationshipIntegration({ ...current, contentId: note?.id ?? null }, aiAvailable)
+  const { titleSuggestProps, descriptionSuggestProps } =
+    useAIMetadataIntegration(current, setCurrent, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -583,10 +597,6 @@ export function Note({
     setErrors((prev) => (prev.content ? { ...prev, content: undefined } : prev))
   }, [])
 
-  const handleTagsChange = useCallback((tags: string[]): void => {
-    setCurrent((prev) => ({ ...prev, tags }))
-  }, [])
-
   const handleArchiveScheduleChange = useCallback((archivedAt: string): void => {
     setCurrent((prev) => ({ ...prev, archivedAt }))
   }, [])
@@ -812,6 +822,7 @@ export function Note({
             disabled={isSaving || isReadOnly}
             error={errors.title}
             maxLength={limits.max_title_length}
+            {...titleSuggestProps}
           />
 
           {/* Description */}
@@ -822,6 +833,7 @@ export function Note({
             disabled={isSaving || isReadOnly}
             maxLength={limits.max_description_length}
             error={errors.description}
+            {...descriptionSuggestProps}
           />
 
           {/* Metadata: icons row + chips row */}
@@ -891,6 +903,11 @@ export function Note({
                 suggestions={tagSuggestions}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
+                aiSuggestions={aiTagSuggestions}
+                isAiLoading={isAiTagsLoading}
+                aiAvailable={aiAvailable}
+                onOpen={handleTagInputOpen}
+                onClose={handleTagInputClose}
               />
 
               <LinkedContentChips
@@ -898,12 +915,17 @@ export function Note({
                 contentType="note"
                 contentId={note?.id ?? null}
                 items={linkedItems}
-                onAdd={handleAddRelationship}
+                onAdd={(item) => handleAddRelationshipWithDismiss(item, handleAddRelationship)}
                 onRemove={handleRemoveRelationship}
                 onNavigate={onNavigateToLinked}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
                 onQuickCreate={handleQuickCreate}
+                aiSuggestions={aiRelationshipSuggestions}
+                isAiLoading={isAiRelationshipsLoading}
+                aiAvailable={aiAvailable}
+                onOpen={handleLinkedContentOpen}
+                onClose={handleLinkedContentClose}
               />
             </div>
           </div>

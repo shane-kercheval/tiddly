@@ -10,6 +10,10 @@ import userEvent from '@testing-library/user-event'
 import { NoteCard } from './NoteCard'
 import type { NoteListItem } from '../types'
 
+vi.mock('../hooks/useAIAvailability', () => ({
+  useAIAvailability: () => ({ available: false, remainingDaily: 0, limitDaily: 0, isLoading: false, error: null }),
+}))
+
 const mockNote: NoteListItem = {
   id: '1',
   title: 'Test Note',

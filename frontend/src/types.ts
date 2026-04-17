@@ -554,6 +554,12 @@ export interface UserLimits {
   rate_sensitive_per_minute: number
   rate_sensitive_per_day: number
 
+  // AI rate limits
+  rate_ai_per_minute: number
+  rate_ai_per_day: number
+  rate_ai_byok_per_minute: number
+  rate_ai_byok_per_day: number
+
   // Relationship limits
   max_relationships_per_entity: number
 
@@ -675,4 +681,123 @@ export interface RelationshipListResponse {
   offset: number
   limit: number
   has_more: boolean
+}
+
+// =============================================================================
+// AI Types
+// =============================================================================
+
+/** Max AI suggestions displayed in the UI (backend may return more) */
+export const MAX_DISPLAYED_AI_TAG_SUGGESTIONS = 5
+export const MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS = 3
+
+/** AI health check response from GET /ai/health */
+export interface AIHealthResponse {
+  available: boolean
+  byok: boolean
+  remaining_daily: number
+  limit_daily: number
+}
+
+/** A supported model definition from GET /ai/models */
+export interface AIModelDef {
+  id: string            // e.g. "gemini/gemini-flash-lite-latest"
+  provider: string      // "google" | "openai" | "anthropic"
+  tier: string          // "budget" | "balanced" | "flagship"
+  input_cost_per_million?: number
+  output_cost_per_million?: number
+}
+
+/** Response from GET /ai/models */
+export interface AIModelsResponse {
+  models: AIModelDef[]
+  defaults: Record<string, string>
+}
+
+/** Response from POST /ai/validate-key */
+export interface AIValidateKeyResponse {
+  valid: boolean
+  error?: string
+}
+
+/** Request for POST /ai/suggest-tags */
+export interface SuggestTagsRequest {
+  model?: string | null
+  content_type: 'bookmark' | 'note' | 'prompt'
+  title?: string | null
+  url?: string | null
+  description?: string | null
+  content_snippet?: string | null
+  current_tags?: string[]
+}
+
+/** Response from POST /ai/suggest-tags */
+export interface SuggestTagsResponse {
+  tags: string[]
+}
+
+/** Request for POST /ai/suggest-metadata */
+export interface SuggestMetadataRequest {
+  model?: string | null
+  fields?: ('title' | 'description')[]
+  url?: string | null
+  title?: string | null
+  description?: string | null
+  content_snippet?: string | null
+}
+
+/** Response from POST /ai/suggest-metadata */
+export interface SuggestMetadataResponse {
+  title: string | null
+  description: string | null
+}
+
+/** Request for POST /ai/suggest-relationships */
+export interface SuggestRelationshipsRequest {
+  model?: string | null
+  source_id?: string | null
+  title?: string | null
+  url?: string | null
+  description?: string | null
+  content_snippet?: string | null
+  current_tags?: string[]
+  existing_relationship_ids?: string[]
+}
+
+/** A relationship candidate from the AI */
+export interface RelationshipCandidate {
+  entity_id: string
+  entity_type: string
+  title: string
+}
+
+/** Response from POST /ai/suggest-relationships */
+export interface SuggestRelationshipsResponse {
+  candidates: RelationshipCandidate[]
+}
+
+/** An existing argument provided for context */
+export interface ArgumentInput {
+  name?: string | null
+  description?: string | null
+}
+
+/** Request for POST /ai/suggest-arguments */
+export interface SuggestArgumentsRequest {
+  model?: string | null
+  prompt_content?: string | null
+  arguments?: ArgumentInput[]
+  target_index?: number | null
+}
+
+/** A suggested argument */
+export interface ArgumentSuggestion {
+  name: string
+  description: string
+  required: boolean
+}
+
+/** Response from POST /ai/suggest-arguments */
+export interface SuggestArgumentsResponse {
+  arguments: ArgumentSuggestion[]
 }

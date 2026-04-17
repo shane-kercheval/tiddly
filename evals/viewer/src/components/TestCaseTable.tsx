@@ -4,11 +4,12 @@ import SampleRow, { samplePassed } from './SampleRow'
 
 interface TestCaseTableProps {
   results: SampleResult[]
+  passThreshold?: number
 }
 
 interface GroupedTestCase {
   id: string
-  description: string
+  description?: string
   samples: SampleResult[]
 }
 
@@ -22,7 +23,7 @@ function groupByTestCase(results: SampleResult[]): GroupedTestCase[] {
     } else {
       groups.set(tc.id, {
         id: tc.id,
-        description: tc.metadata.description,
+        description: tc.metadata?.description,
         samples: [result],
       })
     }
@@ -30,7 +31,7 @@ function groupByTestCase(results: SampleResult[]): GroupedTestCase[] {
   return Array.from(groups.values())
 }
 
-export default function TestCaseTable({ results }: TestCaseTableProps) {
+export default function TestCaseTable({ results, passThreshold }: TestCaseTableProps) {
   const groups = groupByTestCase(results)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const allExpanded = expandedGroups.size === groups.length
@@ -59,6 +60,7 @@ export default function TestCaseTable({ results }: TestCaseTableProps) {
         <TestCaseRow
           key={group.id}
           group={group}
+          passThreshold={passThreshold}
           expanded={expandedGroups.has(group.id)}
           onToggle={() => {
             setExpandedGroups((prev) => {
@@ -74,13 +76,18 @@ export default function TestCaseTable({ results }: TestCaseTableProps) {
   )
 }
 
-function TestCaseRow({ group, expanded, onToggle }: { group: GroupedTestCase; expanded: boolean; onToggle: () => void }) {
+function TestCaseRow({ group, passThreshold, expanded, onToggle }: { group: GroupedTestCase; passThreshold?: number; expanded: boolean; onToggle: () => void }) {
   const passedCount = group.samples.filter(samplePassed).length
   const total = group.samples.length
+  const rate = total > 0 ? passedCount / total : 0
   const allPassed = passedCount === total
-  const avgDuration =
-    group.samples.reduce((sum, s) => sum + s.execution_context.output.metadata.duration_seconds, 0) /
-    total
+  const meetsThreshold = passThreshold != null ? rate >= passThreshold : allPassed
+  const durations = group.samples
+    .map((s) => s.execution_context.output.metadata?.duration_seconds)
+    .filter((d): d is number => d != null)
+  const avgDuration = durations.length > 0
+    ? durations.reduce((sum, d) => sum + d, 0) / durations.length
+    : null
   const costs = group.samples
     .map((s) => (s.execution_context.output.value as Record<string, unknown>)?.usage as { total_cost?: number } | undefined)
     .filter((u): u is { total_cost: number } => u?.total_cost != null)
@@ -98,7 +105,7 @@ function TestCaseRow({ group, expanded, onToggle }: { group: GroupedTestCase; ex
         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium tabular-nums ${
           allPassed
             ? 'bg-emerald-50 text-emerald-700'
-            : passedCount / total > 0.5
+            : meetsThreshold
               ? 'bg-amber-50 text-amber-700'
               : 'bg-red-50 text-red-700'
         }`}>
@@ -106,7 +113,7 @@ function TestCaseRow({ group, expanded, onToggle }: { group: GroupedTestCase; ex
         </span>
         <span className="font-medium text-gray-900">{group.id}</span>
         <span className="text-gray-500 truncate flex-1">{group.description}</span>
-        <span className="text-gray-400 text-xs tabular-nums">{avgDuration.toFixed(2)}s avg</span>
+        {avgDuration != null && <span className="text-gray-400 text-xs tabular-nums">{avgDuration.toFixed(2)}s avg</span>}
         {avgCost != null && (
           <span className="text-gray-400 text-xs tabular-nums">${avgCost.toFixed(4)} avg</span>
         )}

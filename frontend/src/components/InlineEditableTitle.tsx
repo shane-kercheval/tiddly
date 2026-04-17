@@ -4,11 +4,15 @@
  * Displays as styled text but is actually an input that can be edited.
  * Used for note titles, prompt names, etc. where the field should look
  * like view-mode text but be directly editable.
+ *
+ * Optionally shows a sparkle icon for AI metadata suggestions.
  */
 import { useId, forwardRef } from 'react'
-import type { ChangeEvent, KeyboardEvent } from 'react'
+import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react'
 import { useCharacterLimit } from '../hooks/useCharacterLimit'
 import { CharacterLimitFeedback } from './CharacterLimitFeedback'
+import { SparklesIcon } from './icons'
+import { Tooltip } from './ui'
 
 interface InlineEditableTitleProps {
   /** Current value */
@@ -31,16 +35,18 @@ interface InlineEditableTitleProps {
   error?: string
   /** Maximum character length */
   maxLength?: number
+  /** Called when the sparkle icon is clicked. Omit to hide the icon. */
+  onSuggest?: () => void
+  /** Whether a suggestion request is in flight. */
+  isSuggesting?: boolean
+  /** Whether the suggest icon should be disabled (insufficient context). */
+  suggestDisabled?: boolean
+  /** Tooltip text for the disabled suggest icon. */
+  suggestTooltip?: string
 }
 
 /**
  * InlineEditableTitle renders as styled text that's directly editable.
- *
- * Uses a native <input> element styled to look like plain text:
- * - No visible border or background until focused
- * - Typography matches the variant (title = h1 style, name = monospace)
- * - Subtle focus ring on focus
- * - Full accessibility with native input behavior
  */
 export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTitleProps>(
   function InlineEditableTitle(
@@ -55,9 +61,13 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
       onEnter,
       error,
       maxLength,
+      onSuggest,
+      isSuggesting = false,
+      suggestDisabled = false,
+      suggestTooltip,
     },
     ref
-  ) {
+  ): ReactNode {
     const errorId = useId()
     const limit = useCharacterLimit(value.length, maxLength)
 
@@ -72,44 +82,66 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
       }
     }
 
-    // Build class string based on variant and state
+    const hasRingOnWrapper = !!onSuggest && !disabled
     const inputClasses = [
-      // Remove default input appearance
       'bg-transparent border-none outline-none w-full',
-      // Subtle hover/focus indicator (overridden by error/exceeded state)
       (error || limit.exceeded)
-        ? 'ring-2 ring-red-200 hover:ring-red-200 focus:ring-red-200 rounded px-1 -mx-1'
-        : 'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
-      // Placeholder styling
+        ? 'rounded px-1 -mx-1' + (hasRingOnWrapper ? '' : ' ring-2 ring-red-200 hover:ring-red-200 focus:ring-red-200')
+        : hasRingOnWrapper
+          ? 'rounded px-1 -mx-1'
+          : 'hover:ring-2 hover:ring-gray-900/5 focus:ring-2 focus:ring-gray-900/5 rounded px-1 -mx-1',
       'placeholder:text-gray-400',
-      // Typography based on variant
       variant === 'name'
         ? 'font-mono text-lg text-gray-900'
         : 'text-2xl font-bold text-gray-900',
-      // Disabled state
       disabled ? 'cursor-not-allowed opacity-60' : '',
-      // Custom classes
       className,
     ]
       .filter(Boolean)
       .join(' ')
 
+    const showSuggestIcon = onSuggest && !disabled
+
     return (
       <div className="w-full">
-        <input
-          ref={ref}
-          type="text"
-          value={value}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          disabled={disabled}
-          required={required}
-          aria-required={required}
-          aria-invalid={!!error}
-          aria-describedby={error ? errorId : undefined}
-          className={inputClasses}
-        />
+        <div className={`group/suggest flex items-center ${hasRingOnWrapper ? (error || limit.exceeded ? 'ring-2 ring-red-200 rounded px-1 -mx-1' : 'hover:ring-2 hover:ring-gray-900/5 focus-within:ring-2 focus-within:ring-gray-900/5 rounded px-1 -mx-1') : ''}`}>
+          <input
+            ref={ref}
+            type="text"
+            value={value}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            disabled={disabled}
+            required={required}
+            aria-required={required}
+            aria-invalid={!!error}
+            aria-describedby={error ? errorId : undefined}
+            className={inputClasses}
+          />
+          {showSuggestIcon && (
+            <Tooltip
+              content={suggestDisabled && suggestTooltip ? suggestTooltip : 'Suggest title'}
+              compact
+              delay={500}
+              position="left"
+            >
+              <button
+                type="button"
+                onClick={onSuggest}
+                disabled={suggestDisabled || isSuggesting}
+                className="shrink-0 p-0.5 rounded text-gray-300 opacity-0 group-hover/suggest:opacity-100 focus-visible:opacity-100 transition-opacity hover:text-gray-500 hover:bg-gray-100 disabled:opacity-0 disabled:group-hover/suggest:opacity-40 disabled:focus-visible:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-300"
+                aria-label="Suggest title"
+              >
+                {isSuggesting ? (
+                  <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                ) : (
+                  <SparklesIcon className="h-4 w-4" />
+                )}
+              </button>
+            </Tooltip>
+          )}
+        </div>
         {error && <p id={errorId} className="mt-1 text-sm text-red-500">{error}</p>}
         {maxLength !== undefined && <CharacterLimitFeedback limit={limit} />}
       </div>

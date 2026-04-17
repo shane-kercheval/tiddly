@@ -15937,7 +15937,7 @@
       "test_function": "test_edit_content_notes",
       "test_module": "evals.content_mcp.test_edit_content",
       "samples": 10,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "num_test_cases": 8
     },
     "_test_results": {
@@ -15945,7 +15945,7 @@
       "failed_samples": 8,
       "total_samples": 10,
       "success_rate": 0.2,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "passed": false
     }
   }

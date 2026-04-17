@@ -24,6 +24,7 @@ const docsNav: DocNavItem[] = [
       { label: 'Search', path: '/docs/features/search' },
       { label: 'Versioning', path: '/docs/features/versioning' },
       { label: 'Keyboard Shortcuts', path: '/docs/features/shortcuts' },
+      { label: 'AI Features', path: '/docs/features/ai' },
     ],
   },
   { label: 'AI Integration', path: '/docs/ai' },

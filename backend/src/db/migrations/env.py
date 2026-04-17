@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 from core.config import get_settings
+from models.ai_usage import AiUsage  # noqa: F401 - imported for Alembic autogenerate
 from models.base import Base
 from models.bookmark import Bookmark  # noqa: F401 - imported for Alembic autogenerate
 from models.content_filter import ContentFilter  # noqa: F401 - imported for Alembic autogenerate

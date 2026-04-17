@@ -4,21 +4,28 @@
  * Displays tags in view-mode style (pills) but allows inline editing.
  * Tags can be removed via X button (visible on hover) and added via tag icon button.
  *
+ * When AI is available (Pro tier), the dropdown shows two columns:
+ * - "Suggestions" on the left (spinner / items / "No suggestions")
+ * - "Your Tags" on the right (existing tag autocomplete)
+ * When AI is not available, shows a single-column dropdown of existing tags.
+ *
  * Features:
  * - View-mode visual styling (badge pills)
  * - X button on hover to remove tags
  * - Tag icon button to show input and add new tags
- * - Autocomplete dropdown for tag suggestions
  * - Keyboard navigation (arrows, Enter, Escape)
  * - Tab moves to next field (standard form behavior)
  * - Exposes getPendingValue() via ref for form submission
  */
-import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
+import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import type { TagCount } from '../types'
+import { MAX_DISPLAYED_AI_TAG_SUGGESTIONS } from '../types'
 import { useTagAutocomplete } from '../hooks/useTagAutocomplete'
 import { Tag } from './Tag'
-import { Tooltip } from './ui'
+import { Tooltip, DropdownPortal } from './ui'
+import type { DropdownPortalHandle } from './ui/DropdownPortal'
+import { DROPDOWN_WIDTH } from './ui/dropdownPosition'
 
 interface InlineEditableTagsProps {
   /** Currently selected tags */
@@ -31,6 +38,16 @@ interface InlineEditableTagsProps {
   disabled?: boolean
   /** Whether to show the inline add button (default: true). Set false when using an external trigger. */
   showAddButton?: boolean
+  /** AI-suggested tags to display in the dropdown. */
+  aiSuggestions?: string[]
+  /** Whether AI tag suggestions are currently loading. */
+  isAiLoading?: boolean
+  /** Whether AI features are available for the current user's tier. */
+  aiAvailable?: boolean
+  /** Called when the tag input opens (isAddingTag becomes true). */
+  onOpen?: () => void
+  /** Called when the tag input closes (isAddingTag becomes false). */
+  onClose?: () => void
 }
 
 /** Exposed methods via ref */
@@ -43,18 +60,25 @@ export interface InlineEditableTagsHandle {
   startAdding: () => void
 }
 
-/**
- * InlineEditableTags displays tags as removable pills with inline add capability.
- *
- * Styling uses badge pills with hover state revealing the remove button.
- */
 export const InlineEditableTags = forwardRef(function InlineEditableTags(
-  { value, onChange, suggestions, disabled = false, showAddButton = true }: InlineEditableTagsProps,
+  {
+    value,
+    onChange,
+    suggestions,
+    disabled = false,
+    showAddButton = true,
+    aiSuggestions,
+    isAiLoading = false,
+    aiAvailable = false,
+    onOpen,
+    onClose,
+  }: InlineEditableTagsProps,
   ref: Ref<InlineEditableTagsHandle>
 ): ReactNode {
   const [isAddingTag, setIsAddingTag] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const dropdownPortalRef = useRef<DropdownPortalHandle>(null)
 
   const {
     inputValue,
@@ -65,19 +89,57 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
     error,
     addTag,
     removeTag,
-    selectHighlighted,
     moveHighlight,
     openSuggestions,
     closeSuggestions,
+    resetHighlight,
     getPendingValue,
     clearPending,
   } = useTagAutocomplete({ value, onChange, suggestions })
+
+  // Two-stage AI suggestion filtering: exclude selected tags, filter by input, cap display count
+  const filteredAiSuggestions = useMemo(() => {
+    const visible = aiSuggestions?.filter((s) => !value.includes(s)) ?? []
+    const filtered = inputValue
+      ? visible.filter((s) => s.toLowerCase().includes(inputValue.toLowerCase()))
+      : visible
+    return filtered.slice(0, MAX_DISPLAYED_AI_TAG_SUGGESTIONS)
+  }, [aiSuggestions, value, inputValue])
+
+  // Combined navigation list length for keyboard navigation
+  const combinedLength = aiAvailable
+    ? filteredAiSuggestions.length + filteredSuggestions.length
+    : filteredSuggestions.length
+
+  // Reset highlight when AI suggestions change (async resolve)
+  const prevAiLengthRef = useRef(filteredAiSuggestions.length)
+  useEffect(() => {
+    if (filteredAiSuggestions.length !== prevAiLengthRef.current) {
+      prevAiLengthRef.current = filteredAiSuggestions.length
+      resetHighlight()
+    }
+  }, [filteredAiSuggestions.length, resetHighlight])
 
   // Ref to track inputValue for click-outside handler (avoids re-registering listener per keystroke)
   const inputValueRef = useRef(inputValue)
   useEffect(() => {
     inputValueRef.current = inputValue
   }, [inputValue])
+
+  // Fire onOpen/onClose callbacks when isAddingTag changes
+  const prevIsAddingRef = useRef(false)
+  useEffect(() => {
+    if (isAddingTag && !prevIsAddingRef.current) {
+      onOpen?.()
+    } else if (!isAddingTag && prevIsAddingRef.current) {
+      onClose?.()
+    }
+    prevIsAddingRef.current = isAddingTag
+  }, [isAddingTag, onOpen, onClose])
+
+  const exitAddMode = useCallback(() => {
+    setIsAddingTag(false)
+  }, [])
 
   // Expose methods via ref for form submission and external triggers
   useImperativeHandle(ref, () => ({
@@ -86,10 +148,10 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
     startAdding: () => {
       if (!disabled) {
         setIsAddingTag(true)
-        openSuggestions()
+        openSuggestions(aiAvailable || undefined)
       }
     },
-  }), [getPendingValue, clearPending, disabled, openSuggestions])
+  }), [getPendingValue, clearPending, disabled, openSuggestions, aiAvailable])
 
   // Focus input when entering add mode
   useEffect(() => {
@@ -101,23 +163,26 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
   // Close suggestions and exit add mode when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        closeSuggestions()
-        // Only exit add mode if input is empty
-        if (!inputValueRef.current.trim()) {
-          setIsAddingTag(false)
-        }
+      const target = event.target as Node
+      // Ignore clicks inside the component or inside the portaled dropdown
+      if (containerRef.current?.contains(target) || dropdownPortalRef.current?.contains(target)) {
+        return
+      }
+      closeSuggestions()
+      // Only exit add mode if input is empty
+      if (!inputValueRef.current.trim()) {
+        exitAddMode()
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [closeSuggestions])
+  }, [closeSuggestions, exitAddMode])
 
   const handleAddClick = (): void => {
     if (!disabled) {
       setIsAddingTag(true)
-      openSuggestions()
+      openSuggestions(aiAvailable || undefined)
     }
   }
 
@@ -128,26 +193,36 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      moveHighlight('down')
+      moveHighlight('down', aiAvailable ? combinedLength : undefined)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      moveHighlight('up')
+      moveHighlight('up', aiAvailable ? combinedLength : undefined)
     } else if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault()
       let success: boolean
-      if (showSuggestions && highlightedIndex >= 0) {
-        success = selectHighlighted()
+      if (highlightedIndex >= 0) {
+        if (aiAvailable && highlightedIndex < filteredAiSuggestions.length) {
+          success = addTag(filteredAiSuggestions[highlightedIndex])
+        } else {
+          const tagIndex = aiAvailable
+            ? highlightedIndex - filteredAiSuggestions.length
+            : highlightedIndex
+          success = tagIndex >= 0 && tagIndex < filteredSuggestions.length
+            ? addTag(filteredSuggestions[tagIndex].name)
+            : false
+        }
       } else {
         success = addTag(inputValue)
       }
       // Keep add mode open after adding a tag
       if (success) {
-        openSuggestions()
+        openSuggestions(aiAvailable || undefined)
       }
     } else if (e.key === 'Escape') {
+      e.stopPropagation()
       closeSuggestions()
       clearPending()
-      setIsAddingTag(false)
+      exitAddMode()
     } else if (e.key === 'Backspace' && !inputValue && value.length > 0) {
       // Remove last tag on backspace when input is empty
       removeTag(value[value.length - 1])
@@ -159,8 +234,26 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
     addTag(suggestionName)
     // Keep input focused for adding more tags
     inputRef.current?.focus()
-    openSuggestions()
+    openSuggestions(aiAvailable || undefined)
   }
+
+  const handleAiSuggestionClick = (tag: string): void => {
+    addTag(tag)
+    inputRef.current?.focus()
+    openSuggestions(aiAvailable || undefined)
+  }
+
+  // Dropdown open condition: open for existing suggestions OR when AI is available in add mode
+  const isDropdownOpen = (showSuggestions && filteredSuggestions.length > 0) || (aiAvailable && isAddingTag)
+
+  // Highlighted index for the existing-tags section (offset by AI count)
+  const getExistingTagHighlightIndex = (index: number): number =>
+    aiAvailable ? index + filteredAiSuggestions.length : index
+
+  // Active descendant for ARIA
+  const activeDescendant = highlightedIndex >= 0
+    ? `inline-tag-option-${highlightedIndex}`
+    : undefined
 
   return (
     <div ref={containerRef} className="relative inline-flex flex-wrap items-center gap-2">
@@ -182,8 +275,12 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            onFocus={openSuggestions}
+            onFocus={() => openSuggestions(aiAvailable || undefined)}
             placeholder="Add tag..."
+            aria-expanded={isDropdownOpen}
+            aria-activedescendant={activeDescendant}
+            aria-autocomplete="list"
+            aria-controls="inline-tag-listbox"
             className="min-w-[80px] w-24 text-xs px-1.5 py-px bg-gray-50 text-gray-700 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
           />
 
@@ -194,27 +291,125 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
             </div>
           )}
 
-          {/* Suggestions dropdown */}
-          {showSuggestions && filteredSuggestions.length > 0 && (
-            <div className="absolute left-0 top-full mt-1 z-10 max-h-48 w-48 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
-              {filteredSuggestions.map((suggestion, index) => (
-                <button
-                  key={suggestion.name}
-                  type="button"
-                  onClick={() => handleSuggestionClick(suggestion.name)}
-                  aria-selected={index === highlightedIndex}
-                  className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors ${
-                    index === highlightedIndex
-                      ? 'bg-gray-100 text-gray-900'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <span>{suggestion.name}</span>
-                  <span className="text-gray-400">{suggestion.content_count}</span>
-                </button>
-              ))}
+          {/* Dropdown via portal */}
+          <DropdownPortal
+            ref={dropdownPortalRef}
+            anchorRef={inputRef}
+            open={isDropdownOpen}
+            dropdownWidth={aiAvailable ? DROPDOWN_WIDTH.TAG_AI : DROPDOWN_WIDTH.TAG}
+          >
+            <div
+              id="inline-tag-listbox"
+              role="listbox"
+              className="mt-1 overflow-hidden rounded-lg border border-gray-100 bg-white shadow-lg"
+              style={{ width: aiAvailable ? DROPDOWN_WIDTH.TAG_AI : DROPDOWN_WIDTH.TAG }}
+            >
+              {aiAvailable ? (
+                <div className="flex">
+                  {/* Left column: Suggestions */}
+                  <div className="max-h-48 overflow-auto border-r border-gray-100 py-1" style={{ width: DROPDOWN_WIDTH.TAG_COLUMN }}>
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
+                      Suggestions
+                    </div>
+
+                    {isAiLoading && filteredAiSuggestions.length === 0 && (
+                      <div className="flex items-center justify-center py-2" aria-label="Loading tag suggestions">
+                        <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                      </div>
+                    )}
+
+                    {!isAiLoading && filteredAiSuggestions.length === 0 && (
+                      <p className="text-xs text-gray-400 py-2 text-center">No suggestions</p>
+                    )}
+
+                    {filteredAiSuggestions.map((tag, index) => (
+                      <button
+                        key={`ai-${tag}`}
+                        id={`inline-tag-option-${index}`}
+                        type="button"
+                        role="option"
+                        tabIndex={-1}
+                        onClick={() => handleAiSuggestionClick(tag)}
+                        aria-selected={index === highlightedIndex}
+                        aria-label={`Add suggested tag: ${tag}`}
+                        className={`flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors ${
+                          index === highlightedIndex
+                            ? 'bg-gray-100 text-gray-900'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        <span className="truncate">{tag}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Right column: Your Tags */}
+                  <div className="max-h-48 overflow-auto py-1" style={{ width: DROPDOWN_WIDTH.TAG_COLUMN }}>
+                    <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
+                      Your Tags
+                    </div>
+
+                    {filteredSuggestions.map((suggestion, index) => {
+                      const combinedIndex = getExistingTagHighlightIndex(index)
+                      return (
+                        <button
+                          key={suggestion.name}
+                          id={`inline-tag-option-${combinedIndex}`}
+                          type="button"
+                          role="option"
+                          tabIndex={-1}
+                          onClick={() => handleSuggestionClick(suggestion.name)}
+                          aria-selected={combinedIndex === highlightedIndex}
+                          className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                            combinedIndex === highlightedIndex
+                              ? 'bg-gray-100 text-gray-900'
+                              : 'text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          <span className="truncate">{suggestion.name}</span>
+                          <span className="shrink-0 text-gray-400">{suggestion.content_count}</span>
+                        </button>
+                      )
+                    })}
+
+                    {filteredSuggestions.length === 0 && (
+                      <div className="px-3 py-1.5 text-xs text-gray-400">
+                        {inputValue ? 'No matching tags' : 'No tags yet'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="max-h-48 overflow-auto py-1">
+                  {filteredSuggestions.map((suggestion, index) => (
+                    <button
+                      key={suggestion.name}
+                      id={`inline-tag-option-${index}`}
+                      type="button"
+                      role="option"
+                      tabIndex={-1}
+                      onClick={() => handleSuggestionClick(suggestion.name)}
+                      aria-selected={index === highlightedIndex}
+                      className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                        index === highlightedIndex
+                          ? 'bg-gray-100 text-gray-900'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <span className="truncate">{suggestion.name}</span>
+                      <span className="shrink-0 text-gray-400">{suggestion.content_count}</span>
+                    </button>
+                  ))}
+
+                  {filteredSuggestions.length === 0 && (
+                    <div className="px-3 py-1.5 text-xs text-gray-400">
+                      {inputValue ? 'No matching tags' : 'No tags yet'}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          )}
+          </DropdownPortal>
         </div>
       )}
 

@@ -41,6 +41,10 @@ import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { usePrompts } from '../hooks/usePrompts'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
+import { useAITagIntegration } from '../hooks/useAITagIntegration'
+import { useAIRelationshipIntegration } from '../hooks/useAIRelationshipIntegration'
+import { useAIMetadataIntegration } from '../hooks/useAIMetadataIntegration'
+import { useAIArgumentIntegration } from '../hooks/useAIArgumentIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import { PROMPT_NAME_PATTERN, ARG_NAME_PATTERN } from '../constants/validation'
 import type { LinkedItem } from '../utils/relationships'
@@ -156,6 +160,8 @@ interface PromptProps {
   showTocToggle?: boolean
   /** Whether this is a create→edit transition (preserves editor state) */
   fromCreate?: boolean
+  /** Whether AI features are available for this user's tier */
+  aiAvailable?: boolean
 }
 
 /**
@@ -181,6 +187,7 @@ export function Prompt({
   initialLinkedItems,
   showTocToggle = false,
   fromCreate = false,
+  aiAvailable = false,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
@@ -334,6 +341,16 @@ export function Prompt({
     setContentKey(prev => prev + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt?.id, initialTags, initialRelationships])
+
+  // AI tag suggestions
+  const { aiTagSuggestions, isAiTagsLoading, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+    useAITagIntegration(current, setCurrent, aiAvailable, 'prompt')
+  const { aiRelationshipSuggestions, isAiRelationshipsLoading, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
+    useAIRelationshipIntegration({ ...current, contentId: prompt?.id ?? null }, aiAvailable)
+  const { titleSuggestProps, descriptionSuggestProps } =
+    useAIMetadataIntegration(current, setCurrent, aiAvailable)
+  const { argumentSuggestProps } =
+    useAIArgumentIntegration(current, setCurrent, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -761,9 +778,6 @@ export function Prompt({
     setErrors((prev) => (prev.content ? { ...prev, content: undefined } : prev))
   }, [])
 
-  const handleTagsChange = useCallback((tags: string[]): void => {
-    setCurrent((prev) => ({ ...prev, tags }))
-  }, [])
 
   const handleArchiveScheduleChange = useCallback((archivedAt: string): void => {
     setCurrent((prev) => ({ ...prev, archivedAt }))
@@ -1036,6 +1050,7 @@ export function Prompt({
             error={errors.title}
             maxLength={limits.max_title_length}
             className="text-lg text-gray-600 placeholder:!text-[#b5bac2]"
+            {...titleSuggestProps}
           />
 
           {/* Description */}
@@ -1046,6 +1061,7 @@ export function Prompt({
             disabled={isSaving || isReadOnly}
             maxLength={limits.max_description_length}
             error={errors.description}
+            {...descriptionSuggestProps}
           />
 
           {/* Metadata: icons row + chips row */}
@@ -1115,6 +1131,11 @@ export function Prompt({
                 suggestions={tagSuggestions}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
+                aiSuggestions={aiTagSuggestions}
+                isAiLoading={isAiTagsLoading}
+                aiAvailable={aiAvailable}
+                onOpen={handleTagInputOpen}
+                onClose={handleTagInputClose}
               />
 
               <LinkedContentChips
@@ -1122,12 +1143,17 @@ export function Prompt({
                 contentType="prompt"
                 contentId={prompt?.id ?? null}
                 items={linkedItems}
-                onAdd={handleAddRelationship}
+                onAdd={(item) => handleAddRelationshipWithDismiss(item, handleAddRelationship)}
                 onRemove={handleRemoveRelationship}
                 onNavigate={onNavigateToLinked}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
                 onQuickCreate={handleQuickCreate}
+                aiSuggestions={aiRelationshipSuggestions}
+                isAiLoading={isAiRelationshipsLoading}
+                aiAvailable={aiAvailable}
+                onOpen={handleLinkedContentOpen}
+                onClose={handleLinkedContentClose}
               />
             </div>
           </div>
@@ -1142,6 +1168,7 @@ export function Prompt({
             error={errors.arguments}
             maxNameLength={limits.max_argument_name_length}
             maxDescriptionLength={limits.max_argument_description_length}
+            {...argumentSuggestProps}
           />
         </div>
 

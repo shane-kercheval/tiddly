@@ -107,7 +107,7 @@ model:
 ```yaml
 eval:
   samples: 5              # Number of times to run each test case
-  success_threshold: 0.8  # Minimum pass rate (80%)
+  pass_threshold: 0.8  # Minimum pass rate (80%)
 ```
 
 ### Test Cases
@@ -158,7 +158,7 @@ The eval framework uses `flex-evals` with pytest:
 3. The `@evaluate` decorator runs each test case `samples` times
 4. Each run creates content, gets an LLM prediction, executes the tool, and cleans up
 5. Checks validate the results using JSONPath expressions
-6. The test passes if `success_threshold` of samples pass all checks
+6. The test passes if `pass_threshold` of samples pass all checks
 
 ## Debugging
 

@@ -207,19 +207,19 @@ describe('AddTagButton', () => {
       // Arrow down to highlight first suggestion
       await user.keyboard('{ArrowDown}')
 
-      const reactButton = screen.getByRole('button', { name: /react/ })
-      expect(reactButton).toHaveAttribute('aria-selected', 'true')
+      const reactOption = screen.getByRole('option', { name: /^react/ })
+      expect(reactOption).toHaveAttribute('aria-selected', 'true')
 
       // Arrow down again to highlight second
       await user.keyboard('{ArrowDown}')
 
-      const typescriptButton = screen.getByRole('button', { name: /typescript/ })
-      expect(typescriptButton).toHaveAttribute('aria-selected', 'true')
-      expect(reactButton).toHaveAttribute('aria-selected', 'false')
+      const typescriptOption = screen.getByRole('option', { name: /typescript/ })
+      expect(typescriptOption).toHaveAttribute('aria-selected', 'true')
+      expect(reactOption).toHaveAttribute('aria-selected', 'false')
 
       // Arrow up to go back
       await user.keyboard('{ArrowUp}')
-      expect(reactButton).toHaveAttribute('aria-selected', 'true')
+      expect(reactOption).toHaveAttribute('aria-selected', 'true')
     })
 
     it('Enter selects highlighted suggestion', async () => {

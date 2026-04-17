@@ -52,7 +52,6 @@ def test__token_context__isolated_per_context() -> None:
         get_bearer_token()
 
 
-@pytest.mark.asyncio
 async def test__token_context__isolated_between_concurrent_tasks() -> None:
     """
     Test that tokens are properly isolated between concurrent async tasks.

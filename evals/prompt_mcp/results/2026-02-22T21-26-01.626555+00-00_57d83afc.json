@@ -33851,7 +33851,7 @@
       "test_function": "test_update_prompt",
       "test_module": "evals.prompt_mcp.test_update_prompt",
       "samples": 10,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "num_test_cases": 8
     },
     "_test_results": {
@@ -33859,7 +33859,7 @@
       "failed_samples": 10,
       "total_samples": 10,
       "success_rate": 0.0,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "passed": false
     }
   }

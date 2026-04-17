@@ -127,17 +127,20 @@ export function useListKeyboardNavigation({
 
       if (e.key === 'ArrowDown') {
         e.preventDefault()
+        // Enter keyboard-nav mode: suppress hover/actions via data-mouse-moved
+        setMouseMoved(false)
         setSelectedIndex((i) => {
           if (i === -1) return 0
           return Math.min(i + 1, itemCount - 1)
         })
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
+        // Enter keyboard-nav mode: suppress hover/actions via data-mouse-moved
+        setMouseMoved(false)
         if (clampedIndex === -1) return
         if (clampedIndex === 0) {
           if (onExitTop) {
             onExitTop()
-            setMouseMoved(false)
             setSelectedIndex(-1)
           }
           return

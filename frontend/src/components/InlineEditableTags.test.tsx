@@ -268,8 +268,8 @@ describe('InlineEditableTags', () => {
       // Arrow down to highlight first suggestion
       await user.keyboard('{ArrowDown}')
 
-      const reactButton = screen.getByRole('button', { name: /react/ })
-      expect(reactButton).toHaveAttribute('aria-selected', 'true')
+      const reactOption = screen.getByRole('option', { name: /^react/ })
+      expect(reactOption).toHaveAttribute('aria-selected', 'true')
     })
 
     it('should select highlighted suggestion on Enter', async () => {

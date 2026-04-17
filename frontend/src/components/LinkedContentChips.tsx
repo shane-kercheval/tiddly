@@ -4,17 +4,25 @@
  * Stateless display + search component. The parent owns the relationship state
  * and provides items + callbacks. No API calls are made by this component.
  *
+ * When AI is available (Pro tier), the dropdown shows two sections:
+ * - "Suggestions" at the top (spinner / items / "No suggestions")
+ * - "Search" below (type to search, results appear)
+ * When AI is not available, shows a single-column search dropdown.
+ *
  * Designed to sit in the metadata row alongside tags, auto-archive, etc.
  * Each chip shows a content type icon + title, colored by type.
  * Exposes startAdding() via ref for external triggers (same pattern as InlineEditableTags).
  */
-import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react'
+import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo, useCallback } from 'react'
 import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
 import { useContentSearch } from '../hooks/useContentSearch'
 import { LinkIcon, PlusIcon } from './icons'
-import { Tooltip } from './ui'
+import { Tooltip, DropdownPortal } from './ui'
+import type { DropdownPortalHandle } from './ui/DropdownPortal'
 import { CONTENT_TYPE_ICONS, CONTENT_TYPE_LABELS, CONTENT_TYPE_ICON_COLORS } from '../constants/contentTypeStyles'
-import type { ContentListItem, ContentType } from '../types'
+import type { ContentListItem, ContentType, RelationshipCandidate } from '../types'
+import { MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS } from '../types'
+import { DROPDOWN_WIDTH } from './ui/dropdownPosition'
 import type { LinkedItem } from '../utils/relationships'
 
 interface LinkedContentChipsProps {
@@ -32,6 +40,16 @@ interface LinkedContentChipsProps {
   showAddButton?: boolean
   /** Called when user clicks a quick-create button (+N/+B/+P). Only shown for saved entities. */
   onQuickCreate?: (targetType: ContentType) => void
+  /** AI-suggested relationship candidates to display in the dropdown. */
+  aiSuggestions?: RelationshipCandidate[]
+  /** Whether AI relationship suggestions are currently loading. */
+  isAiLoading?: boolean
+  /** Whether AI features are available for the current user's tier. */
+  aiAvailable?: boolean
+  /** Called when the linked content input opens (isAdding becomes true). */
+  onOpen?: () => void
+  /** Called when the linked content input closes (isAdding becomes false). */
+  onClose?: () => void
 }
 
 /** Exposed methods via ref */
@@ -91,12 +109,30 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     disabled,
     showAddButton = true,
     onQuickCreate,
+    aiSuggestions,
+    isAiLoading = false,
+    aiAvailable = false,
+    onOpen,
+    onClose,
   }: LinkedContentChipsProps,
   ref: Ref<LinkedContentChipsHandle>,
 ): ReactNode {
   const [isAdding, setIsAdding] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const inputWrapperRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const dropdownPortalRef = useRef<DropdownPortalHandle>(null)
+
+  // Fire onOpen/onClose callbacks when isAdding changes
+  const prevIsAddingRef = useRef(false)
+  useEffect(() => {
+    if (isAdding && !prevIsAddingRef.current) {
+      onOpen?.()
+    } else if (!isAdding && prevIsAddingRef.current) {
+      onClose?.()
+    }
+    prevIsAddingRef.current = isAdding
+  }, [isAdding, onOpen, onClose])
 
   // Build exclude keys from existing items
   const excludeKeys = useMemo(() => {
@@ -117,15 +153,40 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     results,
     isSearching,
     selectItem,
-    selectHighlighted,
     moveHighlight,
     reset,
+    openDropdown,
     closeDropdown,
+    resetHighlight,
   } = useContentSearch({
     sourceKey,
     excludeKeys,
     enabled: isAdding,
   })
+
+  // Filter AI suggestions: exclude already-linked items, filter by input, cap display count
+  const existingIds = useMemo(() => new Set(items.map((item) => item.id)), [items])
+  const filteredAiSuggestions = useMemo(() => {
+    const visible = aiSuggestions?.filter((s) => !existingIds.has(s.entity_id)) ?? []
+    const filtered = inputValue
+      ? visible.filter((s) => s.title.toLowerCase().includes(inputValue.toLowerCase()))
+      : visible
+    return filtered.slice(0, MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS)
+  }, [aiSuggestions, existingIds, inputValue])
+
+  // Combined navigation list length
+  const combinedLength = aiAvailable
+    ? filteredAiSuggestions.length + results.length
+    : results.length
+
+  // Reset highlight when AI suggestions change (async resolve)
+  const prevAiLengthRef = useRef(filteredAiSuggestions.length)
+  useEffect(() => {
+    if (filteredAiSuggestions.length !== prevAiLengthRef.current) {
+      prevAiLengthRef.current = filteredAiSuggestions.length
+      resetHighlight()
+    }
+  }, [filteredAiSuggestions.length, resetHighlight])
 
   // Ref to track inputValue for click-outside handler
   const inputValueRef = useRef(inputValue)
@@ -142,61 +203,93 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     },
   }), [disabled])
 
-  // Focus input when entering add mode
+  // Focus input and open dropdown when entering add mode
   useEffect(() => {
     if (isAdding && inputRef.current) {
       inputRef.current.focus()
+      if (aiAvailable) {
+        openDropdown()
+      }
     }
-  }, [isAdding])
+  }, [isAdding, aiAvailable, openDropdown])
 
   // Close on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        closeDropdown()
-        // Exit add mode if input is empty
-        if (!inputValueRef.current.trim()) {
-          setIsAdding(false)
-        }
+      const target = event.target as Node
+      if (containerRef.current?.contains(target) || dropdownPortalRef.current?.contains(target)) {
+        return
       }
+      closeDropdown()
+      setIsAdding(false)
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [closeDropdown])
 
-  const handleAddClick = (): void => {
+  const handleAddClick = useCallback((): void => {
     if (!disabled) {
       setIsAdding(true)
     }
-  }
+  }, [disabled])
 
-  const handleInputChange = (e: ChangeEvent<HTMLInputElement>): void => {
+  const handleInputChange = useCallback((e: ChangeEvent<HTMLInputElement>): void => {
     setInputValue(e.target.value)
-  }
+  }, [setInputValue])
 
-  const handleSelectItem = (item: ContentListItem): void => {
+  const handleSelectItem = useCallback((item: ContentListItem): void => {
     onAdd(item)
     // Stay in add mode, refocus input
     inputRef.current?.focus()
-  }
+  }, [onAdd])
+
+  const handleAiSuggestionClick = useCallback((candidate: RelationshipCandidate): void => {
+    const item: ContentListItem = {
+      id: candidate.entity_id,
+      type: candidate.entity_type as ContentType,
+      title: candidate.title,
+      url: null,
+      name: null,
+      description: null,
+      tags: [],
+      content_preview: null,
+      created_at: '',
+      updated_at: '',
+      last_used_at: '',
+      deleted_at: null,
+      archived_at: null,
+      version: null,
+      arguments: null,
+    }
+    onAdd(item)
+    inputRef.current?.focus()
+  }, [onAdd])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      moveHighlight('down')
+      moveHighlight('down', aiAvailable ? combinedLength : undefined)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      moveHighlight('up')
+      moveHighlight('up', aiAvailable ? combinedLength : undefined)
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      if (showDropdown && highlightedIndex >= 0) {
-        const selected = selectHighlighted()
-        if (selected) {
-          handleSelectItem(selected)
+      if (highlightedIndex >= 0) {
+        if (aiAvailable && highlightedIndex < filteredAiSuggestions.length) {
+          handleAiSuggestionClick(filteredAiSuggestions[highlightedIndex])
+        } else {
+          const searchIndex = aiAvailable
+            ? highlightedIndex - filteredAiSuggestions.length
+            : highlightedIndex
+          if (searchIndex >= 0 && searchIndex < results.length) {
+            const item = selectItem(results[searchIndex])
+            handleSelectItem(item)
+          }
         }
       }
     } else if (e.key === 'Escape') {
+      e.stopPropagation()
       reset()
       setIsAdding(false)
     }
@@ -206,6 +299,15 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     const item = selectItem(results[index])
     handleSelectItem(item)
   }
+
+  // Dropdown open condition
+  const isDropdownOpen = aiAvailable
+    ? isAdding
+    : (showDropdown && inputValue.length >= 1)
+
+  // Highlighted index offset for search results section
+  const getSearchHighlightIndex = (index: number): number =>
+    aiAvailable ? index + filteredAiSuggestions.length : index
 
   return (
     <div ref={containerRef} className="relative inline-flex flex-wrap items-center gap-2">
@@ -277,7 +379,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
 
       {/* Inline search + quick-create widget (shown when in add mode) */}
       {isAdding && !disabled && (
-        <div className="relative inline-flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-md px-1.5 py-px focus-within:border-gray-400 focus-within:ring-1 focus-within:ring-gray-400/20">
+        <div ref={inputWrapperRef} className="relative inline-flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-md px-1.5 py-px focus-within:border-gray-400 focus-within:ring-1 focus-within:ring-gray-400/20">
           <input
             ref={inputRef}
             type="text"
@@ -286,7 +388,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
             onKeyDown={handleKeyDown}
             placeholder="Search to link..."
             role="combobox"
-            aria-expanded={showDropdown && inputValue.length >= 1}
+            aria-expanded={isDropdownOpen}
             aria-controls="linked-content-listbox"
             aria-autocomplete="list"
             aria-activedescendant={highlightedIndex >= 0 ? `linked-content-option-${highlightedIndex}` : undefined}
@@ -317,32 +419,91 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
             </span>
           )}
 
-          {/* Results dropdown */}
-          {showDropdown && inputValue.length >= 1 && (
-            <div id="linked-content-listbox" role="listbox" className="absolute left-0 top-full mt-1 z-10 max-h-48 w-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
-              {isSearching && results.length === 0 && (
-                <p className="text-xs text-gray-400 py-3 text-center">Searching...</p>
+          {/* Sectioned dropdown via portal */}
+          <DropdownPortal ref={dropdownPortalRef} anchorRef={inputWrapperRef} open={isDropdownOpen} dropdownWidth={DROPDOWN_WIDTH.RELATIONSHIP}>
+            <div id="linked-content-listbox" role="listbox" className="mt-1 max-h-64 overflow-auto rounded-lg border border-gray-100 bg-white py-1 shadow-lg" style={{ width: DROPDOWN_WIDTH.RELATIONSHIP }}>
+
+              {/* AI Suggestions section (Pro only) */}
+              {aiAvailable && (
+                <>
+                  <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
+                    Suggestions
+                  </div>
+
+                  {isAiLoading && filteredAiSuggestions.length === 0 && (
+                    <div className="flex items-center justify-center py-2" aria-label="Loading relationship suggestions">
+                      <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                    </div>
+                  )}
+
+                  {!isAiLoading && filteredAiSuggestions.length === 0 && (
+                    <p className="text-xs text-gray-400 py-2 text-center">No suggestions</p>
+                  )}
+
+                  {filteredAiSuggestions.map((candidate, index) => {
+                    const Icon = CONTENT_TYPE_ICONS[candidate.entity_type as ContentType]
+                    const iconColor = CONTENT_TYPE_ICON_COLORS[candidate.entity_type as ContentType]
+                    return (
+                      <button
+                        key={`ai-${candidate.entity_id}`}
+                        id={`linked-content-option-${index}`}
+                        type="button"
+                        role="option"
+                        tabIndex={-1}
+                        onClick={() => handleAiSuggestionClick(candidate)}
+                        aria-selected={index === highlightedIndex}
+                        aria-label={`Add suggested link: ${candidate.title}`}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                          index === highlightedIndex
+                            ? 'bg-gray-100 text-gray-900'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {Icon && <span className={`shrink-0 ${iconColor}`}><Icon className="h-3.5 w-3.5" /></span>}
+                        <span className="truncate">{candidate.title}</span>
+                      </button>
+                    )
+                  })}
+
+                  {/* Separator */}
+                  <div className="border-t border-gray-100 my-1" />
+
+                  <div className="text-[10px] font-medium uppercase tracking-wider text-gray-400 px-3 py-1">
+                    Search
+                  </div>
+                </>
               )}
 
-              {!isSearching && results.length === 0 && (
-                <p className="text-xs text-gray-400 py-3 text-center">No results found.</p>
+              {/* Search results section */}
+              {inputValue.length < 2 && results.length === 0 && (
+                <p className="text-xs text-gray-400 py-2 text-center">Type to search...</p>
+              )}
+
+              {inputValue.length >= 2 && isSearching && results.length === 0 && (
+                <p className="text-xs text-gray-400 py-2 text-center">Searching...</p>
+              )}
+
+              {inputValue.length >= 2 && !isSearching && results.length === 0 && (
+                <p className="text-xs text-gray-400 py-2 text-center">No results found.</p>
               )}
 
               {results.map((item, index) => {
                 const Icon = CONTENT_TYPE_ICONS[item.type]
                 const iconColor = CONTENT_TYPE_ICON_COLORS[item.type]
                 const displayTitle = getDisplayTitle(item.title, item.type, item.url, item.name)
+                const combinedIndex = getSearchHighlightIndex(index)
 
                 return (
                   <button
                     key={`${item.type}-${item.id}`}
-                    id={`linked-content-option-${index}`}
+                    id={`linked-content-option-${combinedIndex}`}
                     type="button"
                     role="option"
+                    tabIndex={-1}
                     onClick={() => handleResultClick(index)}
-                    aria-selected={index === highlightedIndex}
+                    aria-selected={combinedIndex === highlightedIndex}
                     className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-                      index === highlightedIndex
+                      combinedIndex === highlightedIndex
                         ? 'bg-gray-100 text-gray-900'
                         : 'text-gray-600 hover:bg-gray-100'
                     }`}
@@ -355,7 +516,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
                 )
               })}
             </div>
-          )}
+          </DropdownPortal>
         </div>
       )}
 

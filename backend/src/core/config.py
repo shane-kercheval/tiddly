@@ -58,6 +58,33 @@ class Settings(BaseSettings):
     redis_enabled: bool = Field(default=True, validation_alias="REDIS_ENABLED")
     redis_pool_size: int = Field(default=5, validation_alias="REDIS_POOL_SIZE")
 
+    # LLM models per use case
+    llm_model_suggestions: str = Field(
+        default="openai/gpt-5.4-nano",
+        validation_alias="LLM_MODEL_SUGGESTIONS",
+    )
+    llm_model_transform: str = Field(
+        default="gemini/gemini-flash-lite-latest",
+        validation_alias="LLM_MODEL_TRANSFORM",
+    )
+    llm_model_auto_complete: str = Field(
+        default="gemini/gemini-flash-lite-latest",
+        validation_alias="LLM_MODEL_AUTO_COMPLETE",
+    )
+    llm_model_chat: str = Field(
+        default="openai/gpt-5.4-mini",
+        validation_alias="LLM_MODEL_CHAT",
+    )
+
+    # Provider API keys (only needed for providers referenced by models above)
+    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
+    anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
+
+    # LLM call timeouts (seconds)
+    llm_timeout_default: int = Field(default=30, validation_alias="LLM_TIMEOUT_DEFAULT")
+    llm_timeout_streaming: int = Field(default=60, validation_alias="LLM_TIMEOUT_STREAMING")
+
     # Note: Field length limits moved to core/tier_limits.py (tier-based)
 
     @model_validator(mode="after")

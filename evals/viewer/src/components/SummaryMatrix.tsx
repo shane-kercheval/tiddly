@@ -3,6 +3,7 @@ import { samplePassed } from './SampleRow'
 
 interface SummaryMatrixProps {
   results: SampleResult[]
+  passThreshold?: number
 }
 
 interface CellData {
@@ -10,15 +11,18 @@ interface CellData {
   total: number
 }
 
-function cellBg(cell: CellData): string {
+function cellBg(cell: CellData, threshold?: number): string {
   if (cell.total === 0) return ''
   const rate = cell.passed / cell.total
   if (rate >= 1) return 'bg-emerald-50 text-emerald-700'
+  if (threshold != null) {
+    return rate >= threshold ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
+  }
   if (rate > 0.5) return 'bg-amber-50 text-amber-700'
   return 'bg-red-50 text-red-700'
 }
 
-export default function SummaryMatrix({ results }: SummaryMatrixProps) {
+export default function SummaryMatrix({ results, passThreshold }: SummaryMatrixProps) {
   // Discover unique check names in stable order
   const checkNames: string[] = []
   const checkNameSet = new Set<string>()
@@ -82,14 +86,14 @@ export default function SummaryMatrix({ results }: SummaryMatrixProps) {
             <th className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-3 py-2 sticky left-0 bg-white">
               Test Case
             </th>
+            <th className="text-center text-xs font-medium text-gray-400 uppercase tracking-wider px-3 py-2">
+              Overall
+            </th>
             {checkNames.map((name) => (
               <th key={name} className="text-center text-xs font-medium text-gray-400 uppercase tracking-wider px-3 py-2 whitespace-nowrap">
                 {name}
               </th>
             ))}
-            <th className="text-center text-xs font-medium text-gray-400 uppercase tracking-wider px-3 py-2">
-              Overall
-            </th>
           </tr>
         </thead>
         <tbody>
@@ -101,6 +105,9 @@ export default function SummaryMatrix({ results }: SummaryMatrixProps) {
                 <td className="px-3 py-1.5 font-medium text-gray-900 text-xs sticky left-0 bg-white truncate max-w-[200px]" title={tcId}>
                   {tcId}
                 </td>
+                <td className={`px-3 py-1.5 text-center text-xs font-medium tabular-nums ${cellBg(overall, passThreshold)}`}>
+                  {overall.passed}/{overall.total}
+                </td>
                 {checkNames.map((name) => {
                   const cell = row.get(name)!
                   return (
@@ -109,9 +116,6 @@ export default function SummaryMatrix({ results }: SummaryMatrixProps) {
                     </td>
                   )
                 })}
-                <td className={`px-3 py-1.5 text-center text-xs font-medium tabular-nums ${cellBg(overall)}`}>
-                  {overall.passed}/{overall.total}
-                </td>
               </tr>
             )
           })}

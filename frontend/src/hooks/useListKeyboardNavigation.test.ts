@@ -257,6 +257,35 @@ describe('useListKeyboardNavigation', () => {
     expect(result.current.selectedIndex).toBe(2)
   })
 
+  it('arrow key navigation resets mouseMoved to false (keyboard mode)', () => {
+    const { result } = renderNav()
+
+    // Move mouse to enter mouse mode
+    act(() => {
+      result.current.getListProps().onMouseMove()
+    })
+    expect(result.current.mouseMoved).toBe(true)
+
+    // ArrowDown should reset to keyboard mode
+    act(() => {
+      result.current.getInputProps().onKeyDown(keyEvent('ArrowDown'))
+    })
+    expect(result.current.mouseMoved).toBe(false)
+    expect(result.current.selectedIndex).toBe(0)
+
+    // Move mouse again to re-enter mouse mode
+    act(() => {
+      result.current.getListProps().onMouseMove()
+    })
+    expect(result.current.mouseMoved).toBe(true)
+
+    // ArrowUp should also reset to keyboard mode
+    act(() => {
+      result.current.getInputProps().onKeyDown(keyEvent('ArrowUp'))
+    })
+    expect(result.current.mouseMoved).toBe(false)
+  })
+
   // --- scrollIntoView ---
 
   it('scrollIntoView is called when selectedIndex changes', () => {

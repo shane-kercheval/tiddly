@@ -1,0 +1,232 @@
+name: "suggest_arguments: Argument Suggestion Quality"
+description: |
+  Tests prompt argument suggestion quality by calling suggest_arguments()
+  directly. Covers generate-all mode (extract and describe placeholders)
+  and individual mode (suggest name/description for a specific argument).
+
+models:
+  - name: "gemini/gemini-flash-lite-latest"
+    temperature: 0.7
+  - name: "openai/gpt-5.4-nano"
+    temperature: 0.7
+  - name: "anthropic/claude-haiku-4-5"
+    temperature: 0.7
+
+eval:
+  judge_model: "openai/gpt-5.4-mini"
+  samples: 10
+  pass_threshold: 0.8
+  max_concurrency: 10
+
+test_cases:
+  - id: "generate-all-basic"
+    metadata:
+      description: "Simple template with 2 unconditional placeholders — should generate both with required=true"
+    input:
+      mode: "generate-all"
+      suggest_field: null
+      prompt_content: "Hello {{ name }}, welcome to {{ city }}. We hope you enjoy your stay."
+      arguments: []
+      target_index: null
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.argument_names"
+          required: ["name", "city"]
+          case_sensitive: true
+        metadata:
+          name: "Expected arguments present"
+          description: "Both placeholders should be returned as arguments"
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 2
+          max_value: 2
+        metadata:
+          name: "Argument count"
+          description: "Exactly 2 arguments expected (name and city)"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.argument_names"
+          negate: true
+        metadata:
+          name: "Arguments non-empty"
+          description: "Should return at least one argument"
+
+  - id: "generate-all-conditional"
+    metadata:
+      description: "Template with conditional and unconditional placeholders — tests required field inference"
+    input:
+      mode: "generate-all"
+      suggest_field: null
+      prompt_content: "Write about {{ topic }} for a {{ audience }} audience.{% if context %}\n\nAdditional context: {{ context }}{% endif %}"
+      arguments: []
+      target_index: null
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.argument_names"
+          required: ["topic", "audience", "context"]
+          case_sensitive: true
+        metadata:
+          name: "Expected arguments present"
+          description: "All three placeholders should be returned"
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 3
+          max_value: 3
+        metadata:
+          name: "Argument count"
+          description: "Exactly 3 arguments expected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.argument_names"
+          negate: true
+        metadata:
+          name: "Arguments non-empty"
+          description: "Should return at least one argument"
+
+  - id: "generate-all-complex"
+    metadata:
+      description: "Complex template with 5 variables — mix of conditional and unconditional"
+    input:
+      mode: "generate-all"
+      suggest_field: null
+      prompt_content: |
+        You are a {{ role }} assistant. Help the user with {{ task }}.
+
+        Use {{ language }} for all code examples.
+
+        {% if style_guide %}Follow this style guide: {{ style_guide }}{% endif %}
+
+        {% if additional_instructions %}
+        Additional instructions: {{ additional_instructions }}
+        {% endif %}
+      arguments: []
+      target_index: null
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.argument_names"
+          required: ["role", "task", "language", "style_guide", "additional_instructions"]
+          case_sensitive: true
+        metadata:
+          name: "Expected arguments present"
+          description: "All 5 placeholders should be returned"
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 5
+          max_value: 5
+        metadata:
+          name: "Argument count"
+          description: "Exactly 5 arguments expected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.argument_names"
+          negate: true
+        metadata:
+          name: "Arguments non-empty"
+          description: "Should return at least one argument"
+
+  - id: "suggest-name"
+    metadata:
+      description: "Individual mode — suggest a name for an argument that has only a description"
+    input:
+      mode: "individual"
+      suggest_field: "name"
+      prompt_content: "Write a {{ lang }} function that {{ action }}."
+      arguments:
+        - name: null
+          description: "The programming language to write the function in"
+        - name: "action"
+          description: "What the function should do"
+      target_index: 0
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Individual mode should return exactly one suggestion"
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.argument_names"
+          required: ["lang"]
+          case_sensitive: true
+        metadata:
+          name: "Matches template placeholder"
+          description: "Suggested name should match the existing {{ lang }} placeholder since the description clearly maps to it"
+
+  - id: "suggest-description"
+    metadata:
+      description: "Individual mode — suggest a description for an argument that has only a name"
+    input:
+      mode: "individual"
+      suggest_field: "description"
+      prompt_content: "Convert {{ input_text }} to {{ output_format }}."
+      arguments:
+        - name: "input_text"
+          description: null
+        - name: "output_format"
+          description: null
+      target_index: 1
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Individual mode should return exactly one suggestion"
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.argument_names"
+          required: ["output_format"]
+          case_sensitive: true
+        metadata:
+          name: "Original name preserved"
+          description: "Suggest-description mode should keep the original argument name"
+
+# Global checks — applied to every test case
+checks:
+  # Argument descriptions are clear and helpful (LLM judge)
+  - type: "llm_judge"
+    arguments:
+      prompt: |
+        You are evaluating argument suggestions for a prompt template.
+
+        The template:
+        ```
+        {{$.test_case.input.prompt_content}}
+        ```
+
+        The suggested arguments:
+        {{$.output.value.arguments_detail}}
+
+        Mode: {{$.test_case.input.mode}}
+        {% if $.test_case.input.target_index is not none %}Target argument index: {{$.test_case.input.target_index}}{% endif %}
+        {% if $.test_case.input.suggest_field %}Suggested field: {{$.test_case.input.suggest_field}}{% endif %}
+
+        The recommender operates in three modes:
+        - generate-all: extracts ALL placeholders from the template and generates descriptions for each
+        - individual (suggest_field=name): suggests a name for a single argument that has a description but no name
+        - individual (suggest_field=description): suggests a description for a single argument that has a name but no description
+
+        In individual mode, it is CORRECT to return only one argument. Do not penalize for missing other placeholders.
+
+        Evaluate the suggestions:
+        - Each returned argument should have a clear, helpful description that explains what it represents
+        - Descriptions should not be vague or generic (e.g., "the value" or "input data")
+        - Argument names should be valid (lowercase with underscores)
+        - In suggest-name mode, if the description clearly maps to an existing template placeholder, the suggested name should match that placeholder. If it doesn't map to any placeholder, the name should be descriptive of the argument's purpose.
+
+        Return passed=true if all returned argument descriptions are clear and helpful. Include brief reasoning for any that fail.
+      response_model: "arguments"
+    metadata:
+      name: "Argument descriptions are clear"
+      description: "LLM judge verifies argument descriptions are specific and helpful"

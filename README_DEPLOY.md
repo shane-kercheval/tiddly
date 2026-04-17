@@ -10,6 +10,7 @@ Deploy Tiddly services to Railway using Docker.
 | **content-mcp** | Content MCP server (bookmarks/notes) | Railpack |
 | **prompt-mcp** | Prompt MCP server (prompts capability) | Railpack |
 | **frontend** | React SPA | Railpack |
+| **ai-usage-flush** | Hourly cron that flushes Redis AI cost buckets into `ai_usage` | `Dockerfile.api` |
 | **Postgres** | PostgreSQL database | (managed by Railway) |
 | **Redis** | Rate limiting and auth cache | (managed by Railway) |
 
@@ -64,10 +65,12 @@ Redis is used for:
 
 ### Step 3: Create Services
 
-Create 4 services, each connected to your GitHub repo:
+Create 5 services, each connected to your GitHub repo:
 
 1. Click **+ Create** → **GitHub Repo** → Select `bookmarks`
-2. Repeat 3 more times (you'll have 4 services all pointing to the same repo)
+2. Repeat 4 more times (you'll have 5 services all pointing to the same repo)
+
+The 5th service (`ai-usage-flush`) is a Railway **Cron Job**, not a long-running service — see Step 4 for its configuration.
 
 ### Step 4: Configure Each Service
 
@@ -134,6 +137,27 @@ Click on each service → **Settings** tab → Configure as follows:
 **Settings → Networking:**
 - Click **Generate Domain**
 
+#### AI Usage Flush Service (Cron)
+
+Hourly job that flushes Redis AI-cost buckets into the `ai_usage` Postgres table. Runs independently of the API so its failure mode is isolated.
+
+**Settings → Source:**
+- Rename service to `ai-usage-flush`
+- Enable **Wait for CI**
+
+**Settings → Build:**
+- Builder: **Dockerfile**
+- Dockerfile Path: `/Dockerfile.api`
+- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`
+
+**Settings → Deploy:**
+- Cron Schedule: `30 * * * *` (every hour at :30)
+- Custom Start Command: `uv run python -m tasks.ai_usage_flush` (overrides the API's uvicorn `CMD`; `PYTHONPATH=/app/backend/src` is already set in the Dockerfile)
+- No pre-deploy command (migrations are owned by the API service)
+
+**Settings → Networking:**
+- No public domain — the cron writes to Postgres/Redis over Railway's private network only.
+
 ### Step 5: Configure Environment Variables
 
 Click on each service → **Variables** tab.
@@ -177,6 +201,43 @@ To set DATABASE_URL:
 | `DB_MAX_OVERFLOW` | `10` | Temporary DB connections per worker |
 | `DB_POOL_RECYCLE` | `3600` | Recycle connections older than N seconds |
 | `REDIS_POOL_SIZE` | `5` | Redis connections per worker |
+
+**AI / LLM variables:**
+
+Only `OPENAI_API_KEY` is required for the initial deploy. The only AI use case wired up today (suggestions) defaults to `openai/gpt-5.4-nano`, and platform users are locked to the use-case default in code — no other platform key is reachable on the platform path. BYOK users supply their own keys via the `X-LLM-Api-Key` header and do not depend on these vars.
+
+```
+OPENAI_API_KEY=<your OpenAI key>
+```
+
+Add the following **when additional AI use cases ship** (TRANSFORM / AUTO_COMPLETE default to Gemini; CHAT defaults to OpenAI):
+
+```
+GEMINI_API_KEY=<your Google AI Studio key>
+ANTHROPIC_API_KEY=<your Anthropic key>
+```
+
+Optional per-use-case model overrides (change only if you want to deviate from defaults — and add the matching provider key if the override points to a different provider):
+
+```
+LLM_MODEL_SUGGESTIONS=openai/gpt-5.4-nano
+LLM_MODEL_TRANSFORM=gemini/gemini-flash-lite-latest
+LLM_MODEL_AUTO_COMPLETE=gemini/gemini-flash-lite-latest
+LLM_MODEL_CHAT=openai/gpt-5.4-mini
+```
+
+**Database migrations:** `ai_usage` and `ai_usage_analytics` (Postgres view used by the analytics role, see Step 8) are applied automatically by the pre-deploy `alembic upgrade head` command configured on this service — no manual migration step is needed.
+
+#### AI Usage Flush Service Variables
+
+The cron needs database and Redis access only. Reference the same URLs used by the API service:
+
+```
+DATABASE_URL=postgresql+asyncpg://<same value as api service>
+REDIS_URL=${{Redis.REDIS_URL}}
+```
+
+Follow the same `postgresql+asyncpg://` rule as the API service (manually copy the Postgres URL and replace the `postgresql://` prefix — do NOT use `${{Postgres.DATABASE_URL}}` directly).
 
 #### Content MCP Service Variables
 
@@ -364,6 +425,46 @@ Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 
 **Note:** If you click **Deploy** in the dashboard before pushing, you'll see "Deployment waiting" until CI passes. Push to `main` to trigger the GitHub Actions workflow.
 
+### Step 8: Post-Deploy AI Configuration
+
+One-time setup required the first time you enable AI features. Only the OpenAI cap (8a) is a hard requirement for the initial deploy.
+
+#### 8a. Provider spend caps (required)
+
+Configure a monthly spend cap on every provider whose platform key is set on the API service. Provider-enforced caps suspend service when reached, so this is the primary safeguard against runaway cost — there is no application-level circuit breaker.
+
+- **OpenAI** (required today — platform default for suggestions): [OpenAI billing dashboard → limits](https://platform.openai.com/account/limits). Set a monthly budget before enabling Pro-tier AI access.
+- **Google AI Studio** (add when Gemini-backed use cases ship): set a project-level monthly spend cap (e.g. $50/month) in the Google AI Studio console.
+- **Anthropic** (add when Anthropic-backed use cases ship): set a monthly spend limit in the Anthropic console.
+
+Do not skip this — an unbounded platform key is the single largest cost-exposure risk of the AI feature set.
+
+#### 8b. Analytics reader role (optional, recommended)
+
+Create a separate read-only Postgres login scoped to the `ai_usage_analytics` view. The view replaces `user_id` with a pseudonymized `user_hash` (SHA-256) and exposes only cost/usage fields — no content tables, no auth tables, not even the base `ai_usage` table. Run this **manually** via Railway's database shell. Do NOT put credentials in migrations or source control.
+
+```sql
+-- Create the role with a strong, randomly generated password
+CREATE ROLE analytics_reader LOGIN PASSWORD '<generated-password>';
+
+-- Allow connection to the database and visibility into the public schema
+GRANT CONNECT ON DATABASE railway TO analytics_reader;
+GRANT USAGE ON SCHEMA public TO analytics_reader;
+
+-- Grant SELECT on the analytics view ONLY — never the base `ai_usage` table
+GRANT SELECT ON ai_usage_analytics TO analytics_reader;
+```
+
+Connection string for analytics tools / local CLI (Railway Postgres requires SSL):
+
+```bash
+psql "postgresql://analytics_reader:<password>@<railway-host>:<port>/railway?sslmode=require"
+```
+
+Use a separate role per consumer (one for each analytics tool, one for CLI) so credentials can be revoked independently. To grant access to a future analytics view, create the view with only the columns needed and `GRANT SELECT` on it to this role — do not widen access to base tables.
+
+The `ai_usage_analytics` view and the `pgcrypto` extension it depends on are created by the `38f5a24e651f` migration and ship with the deploy. No schema work is needed before running the role/GRANT SQL above.
+
 ---
 
 ## Verify Deployment
@@ -372,6 +473,20 @@ Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 2. **Frontend:** Visit `https://<frontend-domain>` - should show login page
 3. **Content MCP:** Visit `https://<content-mcp-domain>/mcp` - should respond to MCP requests
 4. **Prompt MCP:** Visit `https://<prompt-mcp-domain>/mcp` - should respond to MCP requests
+5. **AI Usage Flush cron:** Railway dashboard → `ai-usage-flush` service → **Deployments** tab. Verify at least one run has occurred at `:30` past the hour. Logs should show either `ai_usage_flush: no keys found` (on an empty Redis) or `ai_usage_flush: complete` with `keys_processed` and `total_cost_flushed`.
+6. **AI endpoints** (requires an Auth0 token):
+   ```bash
+   curl -H "Authorization: Bearer <token>" https://<api>/ai/health
+   # → {"available": true, "byok": false, "remaining_daily": ..., "limit_daily": ...}
+
+   curl -H "Authorization: Bearer <token>" https://<api>/ai/models
+   # → {"models": [...7 models...], "defaults": {...}}
+   ```
+7. **Database objects** (via Railway Postgres shell):
+   ```sql
+   SELECT COUNT(*) FROM ai_usage;             -- 0 initially
+   SELECT COUNT(*) FROM ai_usage_analytics;   -- 0 initially; view must exist
+   ```
 
 ---
 

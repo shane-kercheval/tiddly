@@ -53,7 +53,7 @@ export function DocsShortcuts(): ReactNode {
       <table className="w-full">
         <tbody>
           <ShortcutRow keys={['/']} description="Focus search bar" />
-          <ShortcutRow keys={['f']} description="Focus page search" />
+          <ShortcutRow keys={['s']} description="Focus page search" />
           <ShortcutRow keys={['\u2318', '\u21E7', 'P']} description="Command palette" />
           <ShortcutRow keys={['\u2318', 'Click']} description="Open card in new tab" />
           <ShortcutRow keys={['Esc']} description="Close modal / unfocus search" />
