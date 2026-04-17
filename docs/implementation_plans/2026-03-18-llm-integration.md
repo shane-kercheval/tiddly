@@ -1291,14 +1291,21 @@ SELECT COUNT(*) FROM ai_usage_analytics;   -- should return 0
 
 #### 3. Create the AI Usage Flush cron service
 
-Deploy the flush task as its own Railway cron service — independent of any other background task so it has one responsibility, one schedule, and one failure mode.
+Deploy the flush task as its own Railway service with a cron schedule — independent of any other background task so it has one responsibility, one schedule, and one failure mode. Railway does NOT have a distinct "Cron Job" service type; a cron is just a regular service with a **Cron Schedule** set in its Deploy settings.
 
-1. In the Railway project dashboard, click "New Service" → "Cron Job"
-2. Point it at the same repo/branch as the API service
-3. Set Dockerfile to `Dockerfile.api`
-4. Set start command: `uv run python -m tasks.ai_usage_flush`
-5. Set schedule: `30 * * * *` (every hour at :30)
-6. Copy the environment variables from the API service (or use Railway's shared variables) — needs `DATABASE_URL` and `REDIS_URL` at minimum
+See `README_DEPLOY.md` → Step 4 → "AI Usage Flush Service (Cron)" for the authoritative click-path. In summary:
+
+1. Create a new service in the project: **+ Create** → **GitHub Repo** → select the repo.
+2. Rename to `ai-usage-flush` and enable **Wait for CI**.
+3. Settings → Build: Dockerfile builder, path `/Dockerfile.api`, watch paths `backend/**`, `pyproject.toml`, `Dockerfile.api`.
+4. Settings → Deploy:
+   - **Cron Schedule:** `30 * * * *` (every hour at :30 UTC)
+   - **Custom Start Command:** `uv run python -m tasks.ai_usage_flush` (no `cd` needed — the Dockerfile sets `PYTHONPATH=/app/backend/src`)
+   - Leave **Pre-Deploy Command** empty (migrations belong to the api service)
+5. Settings → Networking: do NOT generate a public domain.
+6. Variables: `DATABASE_URL=postgresql+asyncpg://<same as api>` and `REDIS_URL=${{Redis.REDIS_URL}}`.
+
+Operational notes: schedules are UTC, Railway's minimum interval is 5 minutes, overlapping runs are skipped (the flush is also idempotent via upsert-SET), and there is no "Run Now" button — to force a test run, temporarily change the schedule to `*/5 * * * *` then revert.
 
 **Note:** the cleanup cron (`backend/src/tasks/cleanup.py`, daily history/soft-delete sweep) is a separate task and is not yet deployed to Railway. It does NOT invoke the AI flush. Standing up the cleanup cron is tracked separately and is not a blocker for this milestone.
 
