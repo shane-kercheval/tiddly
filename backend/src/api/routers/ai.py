@@ -437,18 +437,39 @@ async def suggest_tags_endpoint(
     db: AsyncSession = Depends(get_async_session),
 ) -> SuggestTagsResponse:
     """
-    Suggest tags for an item based on its metadata and the caller's tag
-    vocabulary.
+    Suggest tags for a bookmark, note, or prompt based on metadata context
+    and the caller's existing tag vocabulary.
 
-    The server loads the caller's top 100 most-used tags (with usage counts)
-    and passes them to the LLM as preferred-vocabulary context. The LLM is
-    then prompted with the entity's `title`, `url`, `description`, and
-    `content_snippet` and asked to return a small set of tags — preferring
-    existing vocabulary over novel ones. Tags already in `current_tags` are
-    excluded from the response.
+    ### Request fields
 
-    **Authentication, rate limits, BYOK, and error handling**: see the `ai`
-    tag description at the top of this section.
+    | Field | Required | Default | Purpose |
+    |---|---|---|---|
+    | `content_type` | **yes** | — | `"bookmark"`, `"note"`, or `"prompt"`. |
+    | `title` | no | `null` | LLM context. |
+    | `url` | no | `null` | LLM context (bookmarks). |
+    | `description` | no | `null` | LLM context. |
+    | `content_snippet` | no | `null` | Body text. 10 KB max; first 5000 chars used. |
+    | `current_tags` | no | `[]` | Excluded from results (case-insensitive). |
+    | `model` | no | `null` | BYOK model ID. Platform callers: ignored. |
+
+    Supply at least one of `title` / `url` / `description` / `content_snippet`
+    for useful suggestions — a request with only `content_type` will not be
+    rejected but the LLM has nothing to summarize.
+
+    ### Response
+
+    `{"tags": [...]}` — up to 7 tags, deduped against `current_tags`,
+    ordered by LLM confidence (preferred first).
+
+    ### Server behavior (non-obvious)
+
+    Before calling the LLM, the server loads the caller's top 100 most-used
+    tags with usage counts and includes them in the prompt as
+    preferred-vocabulary context. Suggestions therefore prefer existing tags
+    over novel ones.
+
+    **See the `ai` tag description at the top of this section** for
+    authentication, rate limits, BYOK, and error handling.
     """
     llm_service = get_llm_service()
     config = _resolve_config_or_400(
@@ -503,23 +524,50 @@ async def suggest_metadata_endpoint(
     _rate_limit: None = Depends(apply_ai_rate_limit),
 ) -> SuggestMetadataResponse:
     """
-    Generate a title, description, or both — optionally using existing values
-    as context.
+    Generate a title, description, or both for an item — using the item's
+    existing metadata (when supplied) as grounding context.
 
-    **`fields` semantics** (important).
+    ### Request fields
 
-    - `fields` lists the fields the caller wants the LLM to *generate*.
-    - Any `title` / `description` values present in the request that are *not*
-      in `fields` are used as **LLM context only** — they shape the output but
-      are not returned in the response.
-    - Fields omitted from `fields` are returned as `null`.
+    | Field | Required | Default | Purpose |
+    |---|---|---|---|
+    | `fields` | no | `["title","description"]` | Which field(s) to **generate**. Non-empty. |
+    | `url` | no | `null` | LLM context. |
+    | `title` | no | `null` | Existing title — see "context-vs-generate" below. |
+    | `description` | no | `null` | Existing description — see "context-vs-generate" below. |
+    | `content_snippet` | no | `null` | Body text. 10 KB max; first 5000 chars used. |
+    | `model` | no | `null` | BYOK model ID. Platform callers: ignored. |
 
-    Example: to regenerate only the description while keeping an existing title
-    as grounding context, pass `fields: ["description"]` with the current
-    `title` value. The response's `title` field will be `null`.
+    ### Response
 
-    **Authentication, rate limits, BYOK, and error handling**: see the `ai`
-    tag description at the top of this section.
+    `{"title": string | null, "description": string | null}` — each field is
+    populated if it appeared in the request `fields` array, otherwise
+    `null`. Only the subset you asked to generate comes back.
+
+    ### Behavior: context vs. generate
+
+    The `fields` array tells the server which fields to **generate**. Any
+    `title` / `description` values you pass that are **not** in `fields` are
+    used as **LLM grounding context** instead — they shape the output but are
+    not regenerated and are not returned.
+
+    Common patterns:
+
+    - **Regenerate both from a URL.** Send `fields=["title", "description"]`
+      and `url` (+ optionally `content_snippet`). Response has both fields.
+    - **Regenerate only the description, keeping the title as context.**
+      Send `fields=["description"]` with the existing `title` and
+      `content_snippet`. The LLM uses the title to stay on-topic. The
+      response has `title: null` and the new `description`. The frontend
+      should display the original title unchanged.
+    - **Regenerate only the title, keeping the description as context.**
+      Mirror of the above. Send `fields=["title"]` with the existing
+      `description`.
+
+    An empty `fields` array is rejected with 422.
+
+    **See the `ai` tag description at the top of this section** for
+    authentication, rate limits, BYOK, and error handling.
     """
     llm_service = get_llm_service()
     config = _resolve_config_or_400(
@@ -564,35 +612,64 @@ async def suggest_relationships_endpoint(
     db: AsyncSession = Depends(get_async_session),
 ) -> SuggestRelationshipsResponse:
     """
-    Find candidate items in the caller's library that are conceptually related
-    to the source entity, then have the LLM filter to the most relevant subset.
+    Find items in the caller's library that are conceptually related to the
+    source, using a two-phase server-side search + LLM judgment pipeline.
 
-    **Two-phase design.** First, a full-text / tag search runs server-side
-    across the caller's bookmarks, notes, and prompts to gather candidates
-    (see `_search_relationship_candidates` — FTS over title+description +
-    recency-ranked tag match, deduplicated). Then the candidates + the
-    source entity's metadata are sent to the LLM, which judges which
-    candidates are actually relevant.
+    ### Request fields
 
-    **LLM-skip cases** (quota is still consumed — the rate limit runs as a
-    FastAPI dependency *before* the handler body):
+    | Field | Required | Default | Purpose |
+    |---|---|---|---|
+    | `title` | at least one | `null` | Candidate search + LLM context. |
+    | `description` | at least one | `null` | Candidate search + LLM context. |
+    | `current_tags` | at least one | `[]` | Candidate search (tag match). |
+    | `url` | no | `null` | LLM context only (not searched). |
+    | `content_snippet` | no | `null` | LLM context. 10 KB max; first 5000 chars used. |
+    | `source_id` | no | `null` | Source item ID; excluded from pool — see below. |
+    | `existing_relationship_ids` | no | `[]` | Already-linked IDs; excluded from pool. |
+    | `model` | no | `null` | BYOK model ID. Platform callers: ignored. |
 
-    - If all of `title`, `description`, and `current_tags` are empty → returns
-      `{"candidates": []}` without calling the LLM.
-    - If the candidate search returns no matches → returns `{"candidates": []}`
-      without calling the LLM.
+    The "at least one" constraint: at least one of `title`, `description`,
+    or `current_tags` must be non-empty. If all three are empty the handler
+    returns `{"candidates": []}` without calling the LLM.
 
-    In both cases, `X-RateLimit-Remaining` will decrement by one even though
-    no provider cost is incurred. Use `GET /ai/health` to check quota before
-    triggering batches.
+    ### Response
 
-    Use `source_id` (when the source already exists in the DB) to exclude the
-    source from its own candidate pool. Use `existing_relationship_ids` to
-    exclude items already linked so the response only surfaces *new* potential
-    relationships.
+    `{"candidates": [{entity_id, entity_type, title}, ...]}` — the LLM's
+    filtered subset of the candidate pool. May be empty.
 
-    **Authentication, rate limits, BYOK, and error handling**: see the `ai`
-    tag description at the top of this section.
+    ### Server behavior
+
+    1. **Candidate search** (no LLM): FTS over the caller's
+       bookmarks/notes/prompts using `title` + `description`, plus a tag
+       match using `current_tags`. Results deduplicated, capped at 10.
+    2. **LLM filtering**: the candidates + source metadata are sent to the
+       LLM, which returns the subset it judges actually relevant.
+
+    ### Why pass `source_id` and `existing_relationship_ids`
+
+    Both are applied during **candidate search**, not as a post-filter on
+    the response. Passing them means the 10-candidate budget is spent on
+    genuinely-new, relevant items instead of being wasted on the source
+    itself or already-linked items.
+
+    - Omit `source_id` and the source may match its own tags or title and
+      consume one of the 10 slots.
+    - Omit `existing_relationship_ids` and a highly-relevant already-linked
+      item may consume a slot (and then you'd just re-filter it client-side).
+
+    Filtering client-side after the response doesn't recover wasted slots.
+
+    ### Empty response cases
+
+    Response is `{"candidates": []}` without an LLM call in these cases
+    (rate-limit quota is still consumed — the dependency runs before the
+    handler body):
+
+    - All of `title`, `description`, `current_tags` are empty.
+    - Candidate search found no matches.
+
+    **See the `ai` tag description at the top of this section** for
+    authentication, rate limits, BYOK, and error handling.
     """
     if not data.title and not data.description and not data.current_tags:
         return SuggestRelationshipsResponse(candidates=[])
@@ -644,28 +721,58 @@ async def suggest_arguments_endpoint(
     _rate_limit: None = Depends(apply_ai_rate_limit),
 ) -> SuggestArgumentsResponse:
     """
-    Suggest argument definitions for a prompt template.
+    Suggest `{name, description, required}` argument definitions for a
+    Jinja2 prompt template.
 
-    **Generate-all mode** (`target_index: null`) — the server parses
-    `prompt_content` for Jinja2 placeholders, skips any already declared in
-    `arguments`, and returns a list of new `{name, description, required}`
-    entries for the remaining placeholders. If `prompt_content` is empty or
-    all placeholders are already declared, returns `[]` **without calling
-    the LLM** (quota is still consumed — rate-limit runs before the handler).
+    ### Request fields
 
-    **Individual mode** (`target_index: N`) — refines the entry at
-    `arguments[N]` based on which field is missing:
+    | Field | Required | Default | Purpose |
+    |---|---|---|---|
+    | `prompt_content` | generate-all | `null` | Jinja2 template, 50 KB max. Individual: opt. |
+    | `arguments` | no | `[]` | Existing `{name, description}` entries — see modes below. |
+    | `target_index` | no | `null` | Mode selector — see modes below. |
+    | `model` | no | `null` | BYOK model ID. Platform callers: ignored. |
 
-    - `name` empty, `description` present → LLM generates a name.
-    - `description` empty, `name` present → LLM generates a description.
-    - Both empty → returns `[]` **without calling the LLM** (quota still
-      consumed). The LLM needs at least one field as grounding context.
+    ### Response
 
-    Service-layer `ValueError`s (e.g. `target_index` out of range) map to a
-    400 response with the validation message in `detail`.
+    `{"arguments": [{name, description, required}, ...]}` — the list is the
+    newly-proposed or newly-refined entries. See the mode sections below for
+    what each mode returns.
 
-    **Authentication, rate limits, BYOK, and error handling**: see the `ai`
-    tag description at the top of this section.
+    ### Modes (selected by `target_index`)
+
+    #### Generate-all mode — `target_index: null`
+
+    Extract every `{{ placeholder }}` from `prompt_content` not already
+    present in `arguments` (by name, case-insensitive), and return a full
+    proposed entry for each new one.
+
+    - **Requires** `prompt_content`. `arguments` is optional.
+    - Empty response `{"arguments": []}` (no LLM call, quota still consumed)
+      when `prompt_content` is empty, or when every placeholder in it is
+      already declared in `arguments`.
+
+    #### Individual mode — `target_index: N`
+
+    Refine the existing `arguments[N]` entry by filling in whichever of its
+    fields is currently missing:
+
+    - `arguments[N].name` is empty, `description` present → LLM generates
+      `name` from the description.
+    - `arguments[N].description` is empty, `name` present → LLM generates
+      `description` from the name.
+
+    Returns a single-element list containing the refined entry.
+
+    - **Requires** a valid `target_index` (must be within `arguments`'s
+      bounds; out-of-range → 400) and at least one populated field on
+      `arguments[target_index]`.
+    - Empty response `{"arguments": []}` (no LLM call, quota still consumed)
+      when both `name` and `description` on the targeted entry are empty —
+      the LLM needs at least one as grounding.
+
+    **See the `ai` tag description at the top of this section** for
+    authentication, rate limits, BYOK, and error handling.
     """
     llm_service = get_llm_service()
     config = _resolve_config_or_400(

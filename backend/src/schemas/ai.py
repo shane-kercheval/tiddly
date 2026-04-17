@@ -356,20 +356,16 @@ ContentTypeLiteral = Literal["bookmark", "note", "prompt"]
 
 
 class SuggestTagsRequest(BaseModel):
-    """
-    Request for tag suggestions.
+    """Request body for `POST /ai/suggest-tags`."""
 
-    The caller provides whatever metadata it has about the entity (title, url,
-    description, content_snippet) — at least one should be present for useful
-    results. The server additionally loads the top 100 most-used tags from the
-    caller's tag vocabulary and includes them in the LLM prompt so that
-    suggestions prefer existing tags over novel ones.
-    """
-
+    # Primary example: every request field populated with a realistic value,
+    # so a reader looking at Swagger's "Example Value" immediately sees the
+    # full shape. `model` is included so BYOK users see that field exists.
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
+                    "model": "openai/gpt-5.4-mini",
                     "content_type": "bookmark",
                     "title": "How async/await works under the hood",
                     "url": "https://example.com/posts/async-internals",
@@ -409,9 +405,11 @@ class SuggestTagsRequest(BaseModel):
     content_snippet: str | None = Field(
         None, max_length=10_000,
         description=(
-            "Up to 10 KB of body content. Callers are responsible for "
-            "truncation — the server rejects oversized payloads with a 422 "
-            "(standard FastAPI validation error), not a typed `error_code`."
+            "Body text passed as LLM context. Accepts up to 10 KB, but the "
+            "server uses only the **first 5000 characters** — sending more "
+            "is wasted bandwidth. Send the opening / most representative "
+            "portion (callers are responsible for truncation). Oversized "
+            "payloads (>10 KB) are rejected with a 422 validation error."
         ),
     )
     current_tags: list[str] = Field(
@@ -445,30 +443,21 @@ class SuggestTagsResponse(BaseModel):
 
 
 class SuggestMetadataRequest(BaseModel):
-    """
-    Request for title and/or description suggestions.
+    """Request body for `POST /ai/suggest-metadata`."""
 
-    The `fields` array controls which fields are **generated** by the LLM.
-    Any existing `title` / `description` values supplied in the request that
-    are *not* in `fields` are used as **LLM context only** — they shape the
-    output but are not returned in the response.
-
-    Example: to regenerate only the description while keeping the existing
-    title as grounding context, pass `fields: ["description"]` with the
-    current `title` value. The response's `title` field will be `null`.
-    """
-
+    # Primary example: every request field populated with a realistic value.
+    # This is the "full shape" reference — the fact that `title` and
+    # `description` appear here makes the endpoint's context-vs-generate
+    # pattern visible (see endpoint docstring).
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
+                    "model": "openai/gpt-5.4-mini",
                     "fields": ["title", "description"],
                     "url": "https://example.com/posts/async-internals",
-                    "content_snippet": "The event loop sits at the heart of asyncio...",
-                },
-                {
-                    "fields": ["description"],
-                    "title": "Async/await internals",
+                    "title": "Async internals",
+                    "description": "Deep dive into Python's event loop.",
                     "content_snippet": "The event loop sits at the heart of asyncio...",
                 },
             ],
@@ -521,8 +510,10 @@ class SuggestMetadataRequest(BaseModel):
     content_snippet: str | None = Field(
         None, max_length=10_000,
         description=(
-            "Up to 10 KB of body content. Oversized payloads yield 422 "
-            "(standard FastAPI validation error), not a typed `error_code`."
+            "Body text passed as LLM context. Accepts up to 10 KB but the "
+            "server uses only the **first 5000 characters** — sending more "
+            "is wasted bandwidth. Oversized payloads (>10 KB) are rejected "
+            "with a 422 validation error."
         ),
     )
 
@@ -530,15 +521,16 @@ class SuggestMetadataRequest(BaseModel):
 class SuggestMetadataResponse(BaseModel):
     """Response with suggested title and/or description."""
 
+    # Kept a single non-null example; the `title: null` case is documented
+    # in the `title` field description instead. FastAPI's OpenAPI
+    # post-processor strips `None` values from schema examples, so a
+    # dual-example array with `"title": null` would render identically to a
+    # single-example array anyway.
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
                     "title": "Async/await internals in Python",
-                    "description": "A walkthrough of how the event loop schedules coroutines.",
-                },
-                {
-                    "title": None,
                     "description": "A walkthrough of how the event loop schedules coroutines.",
                 },
             ],
@@ -564,33 +556,24 @@ class SuggestMetadataResponse(BaseModel):
 
 
 class SuggestRelationshipsRequest(BaseModel):
-    """
-    Request for relationship suggestions.
+    """Request body for `POST /ai/suggest-relationships`."""
 
-    The server first performs an internal FTS search across the caller's
-    bookmarks, notes, and prompts to find candidate items matching the
-    supplied title/description and tags. The LLM is then asked to pick the
-    most relevant subset from those candidates.
-
-    **Quota note.** Rate-limit quota is consumed for *every* request (the
-    dependency runs before the handler). The handler skips the LLM call — not
-    the quota charge — in these cases:
-
-    - All of `title`, `description`, and `current_tags` are empty.
-    - The candidate search returns no matches.
-
-    In both cases the response is `{"candidates": []}` without an LLM round trip.
-    """
-
+    # Primary example: every request field populated. `existing_relationship_ids`
+    # uses a sample UUID so readers see the list isn't just empty-by-convention.
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
+                    "model": "openai/gpt-5.4-mini",
+                    "source_id": "01920000-0000-7000-8000-000000000001",
                     "title": "How async/await works under the hood",
+                    "url": "https://example.com/posts/async-internals",
                     "description": "A deep dive into Python's event loop.",
+                    "content_snippet": "The event loop sits at the heart of asyncio...",
                     "current_tags": ["python", "async"],
-                    "source_id": "01234567-89ab-7def-0123-456789abcdef",
-                    "existing_relationship_ids": [],
+                    "existing_relationship_ids": [
+                        "01920000-0000-7000-8000-0000000000aa",
+                    ],
                 },
             ],
         },
@@ -631,7 +614,11 @@ class SuggestRelationshipsRequest(BaseModel):
     )
     content_snippet: str | None = Field(
         None, max_length=10_000,
-        description="Up to 10 KB of body content used as LLM context.",
+        description=(
+            "Body text passed as LLM context (not used in candidate search). "
+            "Accepts up to 10 KB but the server uses only the **first 5000 "
+            "characters**."
+        ),
     )
     current_tags: list[str] = Field(
         default_factory=list,
@@ -709,41 +696,32 @@ class ArgumentInput(BaseModel):
 
 
 class SuggestArgumentsRequest(BaseModel):
-    """
-    Request for prompt argument suggestions.
+    """Request body for `POST /ai/suggest-arguments`."""
 
-    Two modes:
-
-    - **Generate-all** (`target_index: null`): extract every placeholder in
-      `prompt_content` that isn't already covered by `arguments`, and propose
-      name + description + required flag for each new one. If `prompt_content`
-      is empty or all placeholders are already declared, the response is an
-      empty list and no LLM call is made (rate-limit quota is still consumed).
-    - **Individual** (`target_index: N`): refine `arguments[N]`. The server
-      inspects that entry and picks which field to generate based on what's
-      missing:
-        - `name` empty, `description` present → LLM generates a name.
-        - `description` empty, `name` present → LLM generates a description.
-        - Both empty → returns `[]` without calling the LLM (quota still
-          consumed).
-
-    Quota is consumed for every request regardless of which branch runs —
-    only the LLM call is skipped in the no-op cases above.
-    """
-
+    # Primary example: individual-mode request with every field populated.
+    # This shows the full shape including `target_index` (set to 0) and
+    # existing argument entries with both `name` and `description`. Readers
+    # see all of it rendered at once. Generate-all mode (`target_index: null`)
+    # is described in prose because FastAPI's OpenAPI post-processor strips
+    # `null` values from schema examples — a dual-example array would lose
+    # the `null` anyway.
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
-                    "prompt_content": "Summarize {{ document }} in {{ num_sentences }} sentences.",
-                    "arguments": [],
-                    "target_index": None,
-                },
-                {
-                    "prompt_content": "Summarize {{ document }} in {{ num_sentences }} sentences.",
+                    "model": "openai/gpt-5.4-mini",
+                    "prompt_content": (
+                        "Summarize {{ document }} in {{ num_sentences }} sentences."
+                    ),
                     "arguments": [
-                        {"name": "document", "description": None},
-                        {"name": "num_sentences", "description": None},
+                        {
+                            "name": "document",
+                            "description": "The source text to summarize.",
+                        },
+                        {
+                            "name": "num_sentences",
+                            "description": "How many sentences the summary should be.",
+                        },
                     ],
                     "target_index": 0,
                 },
@@ -776,9 +754,11 @@ class SuggestArgumentsRequest(BaseModel):
     target_index: int | None = Field(
         None, ge=0,
         description=(
-            "Zero-based index into `arguments` identifying which entry to "
-            "refine. `null` selects generate-all mode. Must be a valid index "
-            "when set (out-of-range → 400)."
+            "Mode selector. `null` (the default) → generate-all mode: "
+            "propose entries for every placeholder in `prompt_content` not "
+            "already in `arguments`. An integer N → individual mode: refine "
+            "`arguments[N]`. Must be a valid index when set; out-of-range "
+            "values return 400."
         ),
     )
 
