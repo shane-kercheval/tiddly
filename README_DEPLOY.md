@@ -287,14 +287,15 @@ LLM_MODEL_CHAT=openai/gpt-5.4-mini
 
 #### AI Usage Flush Service Variables
 
-The cron needs database and Redis access only. Reference the same URLs used by the API service:
-
 ```
 DATABASE_URL=postgresql+asyncpg://<same value as api service>
 REDIS_URL=${{Redis.REDIS_URL}}
+AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service, e.g. https://tiddly.me>
 ```
 
 Follow the same `postgresql+asyncpg://` rule as the API service (manually copy the Postgres URL and replace the `postgresql://` prefix — do NOT use `${{Postgres.DATABASE_URL}}` directly).
+
+**Why `AUTH0_CUSTOM_CLAIM_NAMESPACE` is required even for a cron:** the cron imports `db.session`, which instantiates `Settings()` at module load. The Settings validator (`core/config.py`) hard-requires this variable in non-dev mode as a safety check against silent Auth0 misconfiguration on the API. Cron tasks don't touch auth, but they share the same Settings class. Without this var, the container crashes at import.
 
 #### Cleanup Service Variables
 
@@ -302,9 +303,10 @@ DB-only; no Redis needed.
 
 ```
 DATABASE_URL=postgresql+asyncpg://<same value as api service>
+AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service>
 ```
 
-Same `postgresql+asyncpg://` rule as above.
+Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE` is required for the same reason as above — Settings validation.
 
 #### Orphan Relationships Service Variables
 
@@ -312,9 +314,10 @@ DB-only; no Redis needed.
 
 ```
 DATABASE_URL=postgresql+asyncpg://<same value as api service>
+AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service>
 ```
 
-Same `postgresql+asyncpg://` rule as above.
+Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE` is required for the same reason as above — Settings validation.
 
 #### Content MCP Service Variables
 
