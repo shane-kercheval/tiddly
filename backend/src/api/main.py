@@ -121,11 +121,46 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
 
 app_settings = get_settings()
 
+
+# Tag metadata surfaces as per-section introductions in the Swagger UI.
+# Keep descriptions concise; point at docs/ for deeper coverage.
+_OPENAPI_TAGS = [
+    {
+        "name": "ai",
+        "description": (
+            "AI-powered endpoints: tag / metadata / relationship / prompt-argument "
+            "suggestions, plus supporting config endpoints (health, models, "
+            "validate-key).\n\n"
+            "**Authentication.** All endpoints require either an Auth0 JWT or a "
+            "Tiddly Personal Access Token (PAT, `bm_` prefix).\n\n"
+            "**Bring-Your-Own-Key (BYOK).** Optionally send `X-LLM-Api-Key: <provider "
+            "key>` to use your own provider credentials instead of the platform's. "
+            "BYOK calls consume the separate `AI_BYOK` rate-limit bucket and can "
+            "select any supported `model`; platform calls are locked to use-case "
+            "defaults. The header is held in request memory only — never logged or "
+            "stored.\n\n"
+            "**Rate limits.** AI endpoints use dedicated buckets (`AI_PLATFORM`, "
+            "`AI_BYOK`) separate from normal read/write quotas. Only PRO tier has "
+            "non-zero AI limits today (FREE and STANDARD are `0/0` for both buckets "
+            "and will always 429). Successful responses include `X-RateLimit-Limit` / "
+            "`X-RateLimit-Remaining` / `X-RateLimit-Reset`; 429 responses include "
+            "`Retry-After`.\n\n"
+            "**Discovering models.** Call `GET /ai/models` to list supported "
+            "model IDs and see the server's per-use-case defaults.\n\n"
+            "**Error handling.** Typed `error_code` values distinguish LLM provider "
+            "failures (`llm_*` prefix) from Tiddly platform errors — see the "
+            "per-endpoint Responses table for the full catalog."
+        ),
+    },
+]
+
+
 app = FastAPI(
     title="Tiddly API",
     description="A content management system with tagging and search capabilities.",
     version="0.1.0",
     lifespan=lifespan,
+    openapi_tags=_OPENAPI_TAGS,
 )
 
 
