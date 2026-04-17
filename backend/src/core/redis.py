@@ -214,6 +214,42 @@ class RedisClient:
             logger.warning("Redis ZCOUNT failed: %s", e)
             return None
 
+    async def ttl(self, key: str) -> int | None:
+        """
+        Seconds until `key` expires. Thin wrapper over redis-py's TTL.
+
+        Normalizes Redis's three-way return value into `int | None`:
+
+        - Positive integer → seconds remaining until the key expires.
+        - Redis returns `-2` (key does not exist) → returns `None`.
+        - Redis returns `-1` (key exists, no expiry set) → returns `None`
+          *and* logs a warning. Under normal operation every counter key
+          should have an expiry; a key without one is an invariant violation
+          (manual Redis intervention, a new non-expiring writer, etc.) and
+          worth surfacing to logs even though callers don't need to care.
+        - Redis unavailable or errors → returns `None`.
+
+        Callers should treat `None` as "no reset timestamp available" rather
+        than trying to distinguish missing-vs-no-expiry-vs-error. Does not
+        mutate the key — safe for read-only status checks.
+        """
+        if not self._client:
+            return None
+        try:
+            raw = await self._client.ttl(key)
+        except RedisError as e:
+            logger.warning("Redis TTL failed: %s", e)
+            return None
+        if raw == -1:
+            logger.warning(
+                "Redis key exists without expiry — expected all counter keys to have TTL",
+                extra={"key": key},
+            )
+            return None
+        if raw == -2 or not isinstance(raw, int) or raw <= 0:
+            return None
+        return raw
+
     async def pipeline(self) -> Pipeline | None:
         """Get pipeline for batched operations, returns None if unavailable."""
         if not self._client:

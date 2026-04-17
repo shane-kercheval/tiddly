@@ -8,6 +8,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from core.rate_limit_config import (
     OperationType,
@@ -30,6 +31,11 @@ class AIRateLimitStatus:
     remaining_per_minute: int
     limit_per_day: int
     remaining_per_day: int
+    # UTC timestamp when the daily counter expires (fixed per-user window,
+    # not shared UTC midnight). None when no counter key exists yet — i.e.,
+    # the caller hasn't made any requests in the current window — or when
+    # Redis is unavailable.
+    resets_at: datetime | None
 
     @property
     def allowed(self) -> bool:
@@ -182,13 +188,26 @@ async def get_ai_rate_limit_status(
             remaining_per_minute=minute_limit,
             limit_per_day=daily_limit,
             remaining_per_day=daily_limit,
+            resets_at=None,
         )
 
-    # Daily — fixed-window counter; read without incrementing
+    # Daily — fixed-window counter. Two sequential wrapped calls:
+    #   - GET for the current count
+    #   - TTL for the key's remaining seconds (used to compute resets_at)
+    # Sequential (not pipelined) so each call's error path goes through
+    # `RedisClient`'s normalization to `None` instead of raising out of
+    # this function — preserves the documented fail-open invariant.
     day_key = f"rate:{user_id}:daily:{_DAILY_POOL_MAP[operation_type]}"
     count_str = await redis_client.get(day_key)
     daily_used = int(count_str) if count_str else 0
     remaining_day = max(0, daily_limit - daily_used)
+
+    ttl_seconds = await redis_client.ttl(day_key)
+    resets_at = (
+        datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+        if isinstance(ttl_seconds, int) and ttl_seconds > 0
+        else None
+    )
 
     # Per-minute — sliding window (sorted set of timestamps). ZCOUNT entries
     # whose score is within the last 60 seconds gives the used count without
@@ -208,6 +227,7 @@ async def get_ai_rate_limit_status(
         remaining_per_minute=remaining_minute,
         limit_per_day=daily_limit,
         remaining_per_day=remaining_day,
+        resets_at=resets_at,
     )
 
 

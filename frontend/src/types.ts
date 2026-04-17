@@ -695,8 +695,17 @@ export const MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS = 3
 export interface AIHealthResponse {
   available: boolean
   byok: boolean
+  remaining_per_minute: number
+  limit_per_minute: number
   remaining_per_day: number
   limit_per_day: number
+  /**
+   * ISO 8601 UTC timestamp when the caller's 24-hour counter for the
+   * selected bucket (platform vs BYOK) expires. `null` when the caller
+   * hasn't made any AI calls in the current window yet — no counter key
+   * exists.
+   */
+  resets_at: string | null
 }
 
 /** A supported model definition from GET /ai/models */

@@ -277,7 +277,7 @@ export function SettingsAI(): ReactNode {
   usePageTitle('Settings - AI Configuration')
   const { isAuthenticated, userId } = useAuthStatus()
 
-  const { available, remainingPerDay, limitPerDay, isLoading: healthLoading } = useAIAvailability()
+  const { available, remainingPerDay, limitPerDay, resetsAt, isLoading: healthLoading } = useAIAvailability()
 
   // Find any configured BYOK key for the BYOK quota check
   const useCaseConfigs = useAIStore((s) => s.useCaseConfigs)
@@ -330,7 +330,10 @@ export function SettingsAI(): ReactNode {
         <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
             <span>
-              AI calls remaining (24-hour window): <span className="font-medium text-gray-900">{remainingPerDay.toLocaleString()}</span> / {limitPerDay.toLocaleString()}
+              AI calls remaining: <span className="font-medium text-gray-900">{remainingPerDay.toLocaleString()}</span> / {limitPerDay.toLocaleString()} {resetsAt
+                ? <>(resets at <span className="font-medium text-gray-900" title={resetsAt.toISOString()}>{resetsAt.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>)</>
+                : '(24-hour window)'
+              }
             </span>
             {anyByokKey && byokHealth && (
               <span>

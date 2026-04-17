@@ -532,6 +532,7 @@ async def ai_health(
         limit_per_minute=quota.limit_per_minute,
         remaining_per_day=quota.remaining_per_day,
         limit_per_day=quota.limit_per_day,
+        resets_at=quota.resets_at,
     )
 
 

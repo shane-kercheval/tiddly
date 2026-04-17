@@ -1,4 +1,5 @@
 """Request/response schemas for AI endpoints."""
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -175,6 +176,7 @@ class AIHealthResponse(BaseModel):
                     "limit_per_minute": 30,
                     "remaining_per_day": 497,
                     "limit_per_day": 500,
+                    "resets_at": "2026-04-18T10:23:45Z",
                 },
                 {
                     "available": True,
@@ -183,6 +185,7 @@ class AIHealthResponse(BaseModel):
                     "limit_per_minute": 120,
                     "remaining_per_day": 1998,
                     "limit_per_day": 2000,
+                    "resets_at": "2026-04-18T10:23:45Z",
                 },
             ],
         },
@@ -228,14 +231,24 @@ class AIHealthResponse(BaseModel):
             "Remaining calls in the current 24-hour window for this bucket. "
             "The window is per-user, not a shared UTC-midnight reset: Redis "
             "fixed-window counter with an 86400-second TTL set on the first "
-            "request in a window. Once the key expires, the next request "
-            "starts a fresh window. (A future schema addition will surface "
-            "the exact reset timestamp per-user.)"
+            "request in a window. See `resets_at` for the exact expiry "
+            "timestamp."
         ),
     )
     limit_per_day: int = Field(
         ...,
         description="Per-user 24-hour limit for this bucket and tier.",
+    )
+    resets_at: datetime | None = Field(
+        None,
+        description=(
+            "ISO 8601 UTC timestamp (e.g. `2026-04-18T10:23:45Z`) when this "
+            "bucket's 24-hour counter expires. After that moment, the next "
+            "request starts a fresh window. `null` when the counter key "
+            "doesn't exist — the caller hasn't made any requests yet in the "
+            "current window — or when Redis is unavailable. Clients are free "
+            "to format this timestamp in the user's locale for display."
+        ),
     )
 
 

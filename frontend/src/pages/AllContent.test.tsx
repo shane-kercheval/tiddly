@@ -101,7 +101,7 @@ function createMockResponse(items: ContentListItem[]): ContentListResponse {
 const mockNavigate = vi.fn()
 
 vi.mock('../hooks/useAIAvailability', () => ({
-  useAIAvailability: () => ({ available: false, remainingPerDay: 0, limitPerDay: 0, isLoading: false, error: null }),
+  useAIAvailability: () => ({ available: false, remainingPerDay: 0, limitPerDay: 0, resetsAt: null, isLoading: false, error: null }),
 }))
 
 // Mock hooks and stores

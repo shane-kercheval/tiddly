@@ -9,6 +9,7 @@ import time
 import uuid
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from redis.exceptions import NoScriptError, RedisError
 
 from core.redis import RedisClient
@@ -447,3 +448,58 @@ class TestEvalScriptMethods:
         )
         assert result is not None
         assert result[0] == 0  # denied
+
+
+class TestRedisTTL:
+    """Tests for the ttl() wrapper — normalizes Redis's -2/-1/positive sentinel values."""
+
+    async def test__ttl__returns_positive_int_when_key_has_expiry(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Standard happy path: key exists with expiry → positive int seconds."""
+        await redis_client.setex("test:ttl:happy", 3600, "value")
+        result = await redis_client.ttl("test:ttl:happy")
+        assert result is not None
+        # TTL should be roughly 3600 (allow a few seconds for test latency)
+        assert 3595 <= result <= 3600
+
+    async def test__ttl__returns_none_when_key_missing(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Missing key (Redis returns -2) → None."""
+        result = await redis_client.ttl("test:ttl:missing:" + str(uuid.uuid4()))
+        assert result is None
+
+    async def test__ttl__returns_none_and_warns_when_key_has_no_expiry(
+        self, redis_client: RedisClient, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Key exists without expiry (Redis returns -1) → None + warning log."""
+        # Create a key directly via the underlying client, bypassing our wrappers
+        # that always set expiry.
+        key = "test:ttl:no-expiry:" + str(uuid.uuid4())
+        await redis_client._client.set(key, "value")  # no EX argument
+        try:
+            with caplog.at_level("WARNING"):
+                result = await redis_client.ttl(key)
+            assert result is None
+            assert any(
+                "without expiry" in record.message for record in caplog.records
+            ), f"Expected warning about missing expiry, got: {[r.message for r in caplog.records]}"
+        finally:
+            await redis_client._client.delete(key)
+
+    async def test__ttl__returns_none_on_redis_error(
+        self, redis_client: RedisClient,
+    ) -> None:
+        """Redis errors → None (graceful degradation)."""
+        with patch.object(
+            redis_client._client, "ttl", side_effect=RedisError("boom"),
+        ):
+            result = await redis_client.ttl("any-key")
+        assert result is None
+
+    async def test__ttl__returns_none_when_client_disabled(self) -> None:
+        """Disabled client (Redis unavailable) → None."""
+        disabled = RedisClient(url="redis://localhost:6379", enabled=False)
+        result = await disabled.ttl("any-key")
+        assert result is None

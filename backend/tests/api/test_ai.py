@@ -1,5 +1,6 @@
 """Integration tests for AI router endpoints."""
 import typing
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from httpx import AsyncClient
@@ -63,6 +64,91 @@ class TestAIHealth:
         assert "limit_per_minute" in data
         assert data["limit_per_minute"] > 0  # DEV tier has non-zero limits
         assert data["remaining_per_minute"] <= data["limit_per_minute"]
+
+    async def test_resets_at_null_before_first_ai_call(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        `resets_at` is null when no daily counter key exists yet.
+
+        Counter keys are created only on actual rate-limited operations, not
+        by reading /ai/health. Until the user makes an AI call, there's no
+        TTL to surface.
+        """
+        response = await client.get("/ai/health")
+        data = response.json()
+        assert "resets_at" in data
+        # Dev test env: each test starts with a clean Redis. No prior call
+        # means no key → null reset.
+        assert data["resets_at"] is None
+
+    async def test_resets_at_populated_after_ai_call(
+        self, client: AsyncClient,
+    ) -> None:
+        """After an AI call creates the daily counter, resets_at is a future UTC timestamp."""
+        # Mock the LLM response
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"tags": ["test"]}'
+        with (
+            patch(
+                "services.llm_service.acompletion",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            call_resp = await client.post(
+                "/ai/suggest-tags",
+                json={"title": "Test", "content_type": "bookmark"},
+            )
+        assert call_resp.status_code == 200
+
+        health = (await client.get("/ai/health")).json()
+        assert health["resets_at"] is not None
+        resets = datetime.fromisoformat(health["resets_at"].replace("Z", "+00:00"))
+        now = datetime.now(UTC)
+        # Reset is in the future and within ~24 hours
+        assert now < resets <= now + timedelta(seconds=86400 + 5)  # 5s tolerance
+
+    async def test_resets_at_tracks_selected_bucket(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        `resets_at` reflects the bucket chosen by the `X-LLM-Api-Key` header —
+        platform bucket without the header, BYOK bucket with it. The two
+        buckets have independent Redis keys, so their reset timestamps are
+        independent.
+        """
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"tags": ["test"]}'
+        with (
+            patch(
+                "services.llm_service.acompletion",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            # Trigger only the PLATFORM bucket — no BYOK header
+            await client.post(
+                "/ai/suggest-tags",
+                json={"title": "Test", "content_type": "bookmark"},
+            )
+
+        platform_health = (await client.get("/ai/health")).json()
+        byok_health = (
+            await client.get("/ai/health", headers={"X-LLM-Api-Key": "user-key"})
+        ).json()
+
+        # Platform bucket was touched → has a reset time
+        assert platform_health["resets_at"] is not None
+        assert platform_health["byok"] is False
+
+        # BYOK bucket was not touched → no reset time
+        assert byok_health["resets_at"] is None
+        assert byok_health["byok"] is True
 
     async def test_does_not_consume_ai_quota(self, client: AsyncClient) -> None:
         """Health endpoint should not consume AI rate limit quota."""
