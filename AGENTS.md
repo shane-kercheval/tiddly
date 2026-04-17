@@ -79,6 +79,7 @@ Includes SSRF tests (run locally) and live penetration tests (`deployed/test_liv
 - **Don't mutate `deleted_at`/`archived_at` directly** — use the service layer methods.
 - **Don't use synchronous DB calls** — all database access is async.
 - **Don't bypass auth outside dev mode** — `VITE_DEV_MODE=true` is for local development only.
+- **Don't commit/push without approval**
 
 ## Files to Keep in Sync
 

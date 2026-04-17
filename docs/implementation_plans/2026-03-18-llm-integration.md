@@ -1248,15 +1248,22 @@ After this milestone:
 
 #### 1. API service — add LLM environment variables
 
-Add the following environment variables to the existing API service in Railway:
+**Required for initial deploy** — only the OpenAI key is needed today:
+
+```
+OPENAI_API_KEY=<your OpenAI key>
+```
+
+Only the suggestion use case is wired up, and its default model is `openai/gpt-5.4-nano`. Platform users are locked to the use-case default in `LLMService.resolve_config`, so no other platform key is reachable via platform-tier traffic right now.
+
+**Add later when additional use cases ship** (TRANSFORM / AUTO_COMPLETE default to Gemini, CHAT defaults to OpenAI):
 
 ```
 GEMINI_API_KEY=<your Google AI Studio key>
-OPENAI_API_KEY=<your OpenAI key>
 ANTHROPIC_API_KEY=<your Anthropic key>
 ```
 
-These are the platform API keys used for Pro-tier AI features. BYOK users provide their own keys via the `X-LLM-Api-Key` header.
+BYOK users supply their own keys via the `X-LLM-Api-Key` header for any supported provider regardless of which platform keys are set — BYOK does not depend on these env vars.
 
 Optional model overrides (defaults are fine for initial deployment):
 ```
@@ -1266,19 +1273,25 @@ LLM_MODEL_AUTO_COMPLETE=gemini/gemini-flash-lite-latest
 LLM_MODEL_CHAT=openai/gpt-5.4-mini
 ```
 
-#### 2. Run the database migration
+If you override `LLM_MODEL_SUGGESTIONS` to a non-OpenAI model, add the corresponding provider key before redeploying.
 
-After deploying the new code, run the Alembic migration to create the `ai_usage` table:
+#### 2. Database migrations
 
+Two migrations ship with this PR and run automatically via the API service's pre-deploy command `uv run alembic upgrade head` (see `README_DEPLOY.md` → Step 4 → API Service → Deploy):
+
+- `0f315127925c_add_ai_usage_table.py` — creates the `ai_usage` table
+- `38f5a24e651f_add_ai_usage_analytics_view_and_pgcrypto_extension.py` — enables `pgcrypto` and creates the `ai_usage_analytics` view used by the analytics role (step 5)
+
+No manual action required. After deploy, verify both objects exist:
+
+```sql
+SELECT COUNT(*) FROM ai_usage;             -- should return 0
+SELECT COUNT(*) FROM ai_usage_analytics;   -- should return 0
 ```
-alembic upgrade head
-```
-
-This should happen automatically if Railway is configured to run migrations on deploy. Verify the table exists.
 
 #### 3. Create the AI Usage Flush cron service
 
-This is a **separate Railway cron service** from the existing cleanup cron. The AI flush runs hourly; the existing cleanup runs daily. Each has one responsibility, one schedule, one failure mode.
+Deploy the flush task as its own Railway cron service — independent of any other background task so it has one responsibility, one schedule, and one failure mode.
 
 1. In the Railway project dashboard, click "New Service" → "Cron Job"
 2. Point it at the same repo/branch as the API service
@@ -1287,15 +1300,17 @@ This is a **separate Railway cron service** from the existing cleanup cron. The 
 5. Set schedule: `30 * * * *` (every hour at :30)
 6. Copy the environment variables from the API service (or use Railway's shared variables) — needs `DATABASE_URL` and `REDIS_URL` at minimum
 
-**Existing cleanup cron service** — unchanged:
-- Schedule remains: `30 0 * * *` (daily at 00:30 UTC)
-- No modifications needed
+**Note:** the cleanup cron (`backend/src/tasks/cleanup.py`, daily history/soft-delete sweep) is a separate task and is not yet deployed to Railway. It does NOT invoke the AI flush. Standing up the cleanup cron is tracked separately and is not a blocker for this milestone.
 
 #### 4. Configure provider spend protection
 
-**CRITICAL:** Set a project-level monthly spend cap in Google AI Studio (e.g. $50/month). Google enforces this at the provider level — service is suspended when the cap is reached. This eliminates the need for a custom circuit breaker.
+**CRITICAL:** Set a monthly spend cap on every provider whose platform API key is configured on the API service. Provider-side caps suspend service at the provider level when reached, eliminating the need for a custom circuit breaker.
 
-If OpenAI or Anthropic are added as platform providers in the future, configure equivalent spend controls on those platforms.
+- **OpenAI** (required today — platform default for suggestions): set a monthly budget in the [OpenAI billing dashboard](https://platform.openai.com/account/limits) before enabling Pro-tier AI access. This is the one cap you MUST set for the initial deploy.
+- **Google AI Studio** (add when Gemini-backed use cases ship): set a project-level monthly spend cap (e.g. $50/month).
+- **Anthropic** (add when Anthropic-backed use cases ship): set a monthly spend limit in the Anthropic console.
+
+Only configure caps for providers whose platform keys are actually set on the API service. Providers used solely via BYOK are bounded by the user's own account, not yours.
 
 #### 5. Create a read-only analytics role
 
@@ -1317,7 +1332,7 @@ Create a Postgres role with access to a curated analytics view (not the base tab
 
 The view hashes `user_id` so analytics can aggregate by user (same user always produces the same hash) while reducing direct exposure of real user IDs. Granting on the view instead of the base table also prevents future columns added to `ai_usage` from being auto-exposed.
 
-**Schema objects** (extension + view) can go in an Alembic migration:
+**Schema objects** (extension + view) ship as an Alembic migration: `38f5a24e651f_add_ai_usage_analytics_view_and_pgcrypto_extension.py`. It runs automatically via Railway's pre-deploy command. The migration body is equivalent to:
 
 ```sql
 -- Enable pgcrypto for hashing (may already be available on Railway)
@@ -1374,10 +1389,11 @@ Use the `analytics_reader` connection string. The tool sees only granted views. 
 
 Add all AI-related deployment steps to `README_DEPLOY.md` — the master reference for what's deployed and how. Include:
 
-- LLM environment variables (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, optional model overrides)
-- AI usage flush cron service setup (separate Railway cron, `30 * * * *`, `uv run python -m tasks.ai_usage_flush`)
-- `ai_usage` database migration
-- Google AI Studio spend cap configuration
+- LLM environment variables — `OPENAI_API_KEY` required today; `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` added when their use cases ship; optional `LLM_MODEL_*` overrides
+- AI usage flush cron service setup (separate Railway cron, `30 * * * *`, `uv run python -m tasks.ai_usage_flush`, Dockerfile `Dockerfile.api`, needs `DATABASE_URL` + `REDIS_URL`)
+- Automatic migrations: `ai_usage` table + `ai_usage_analytics` view run via pre-deploy
+- Provider spend caps: required for every provider whose platform key is set (OpenAI required today)
+- Analytics reader role: one-time manual `psql` setup for role + GRANTs (credentials never in source control)
 - Verification steps (health check, rate limits, flush logs)
 
 ### Verification Checklist
@@ -1393,7 +1409,9 @@ curl -H "Authorization: Bearer <token>" https://<api>/ai/health
 
 # Models endpoint
 curl -H "Authorization: Bearer <token>" https://<api>/ai/models
-# Expected: {"models": [...], "defaults": {...}} with 9 models
+# Expected: {"models": [...], "defaults": {...}} with 7 models
+# (3 OpenAI + 3 Anthropic + 1 Gemini; the Gemini flash-latest and pro-latest entries
+# are intentionally disabled in _SUPPORTED_MODEL_DEFS due to chronic 503s from Google.)
 ```
 
 #### Validate-key works with a real key
@@ -1477,5 +1495,5 @@ When AI rate limits are added, update:
 - **Historical data:** Separate hourly Railway cron service flushes Redis to `ai_usage` DB table (see Milestone 1c for code, Milestone 4 for deployment)
 - **Cost calculation:** Both streaming and non-streaming use `completion_cost(completion_response=response)` — the public LiteLLM API. Do not use `_hidden_params` (private, unstable across versions).
 - **Audit trail:** Every LLM call emits a structured info log with metadata (user_id, use_case, model, key_source, cost, latency). Never log prompts, completions, or API keys.
-- **CRITICAL — Platform spend protection:** See Milestone 4 §4. Set a project-level monthly spend cap in Google AI Studio. Google enforces this at the provider level — service is suspended when the cap is reached.
+- **CRITICAL — Platform spend protection:** See Milestone 4 §4. Set a monthly spend cap on every provider whose platform key is configured (OpenAI required today; Gemini and Anthropic added when their use cases ship). Providers enforce the cap at their level — service is suspended when the cap is reached, so this replaces a custom circuit breaker.
 - Content snippet truncation: enforced via `max_length` on Pydantic request schemas (see Milestone 2, section 1)
