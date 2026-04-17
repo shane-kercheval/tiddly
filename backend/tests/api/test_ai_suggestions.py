@@ -745,7 +745,7 @@ class TestSuggestionRateLimiting:
     async def test_platform_quota_consumed(self, client: AsyncClient) -> None:
         """Suggestion endpoints consume AI_PLATFORM quota."""
         resp1 = await client.get("/ai/health")
-        initial = resp1.json()["remaining_daily"]
+        initial = resp1.json()["remaining_per_day"]
 
         p1, p2 = _patch_llm('{"tags": ["test"]}')
         with p1, p2:
@@ -755,7 +755,7 @@ class TestSuggestionRateLimiting:
             )
 
         resp2 = await client.get("/ai/health")
-        assert resp2.json()["remaining_daily"] == initial - 1
+        assert resp2.json()["remaining_per_day"] == initial - 1
 
     async def test_zero_limit_tier_returns_429(self, client: AsyncClient) -> None:
         """Tiers with zero AI limits get 429 on suggestion endpoints."""

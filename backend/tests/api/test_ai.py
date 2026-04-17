@@ -31,8 +31,8 @@ class TestAIHealth:
         data = response.json()
         assert data["available"] is True
         assert data["byok"] is False
-        assert "remaining_daily" in data
-        assert "limit_daily" in data
+        assert "remaining_per_day" in data
+        assert "limit_per_day" in data
 
     async def test_byok_detected(self, client: AsyncClient) -> None:
         response = await client.get(
@@ -51,9 +51,9 @@ class TestAIHealth:
     async def test_quota_fields_present(self, client: AsyncClient) -> None:
         response = await client.get("/ai/health")
         data = response.json()
-        assert "remaining_daily" in data
-        assert "limit_daily" in data
-        assert data["limit_daily"] > 0  # DEV tier has non-zero limits
+        assert "remaining_per_day" in data
+        assert "limit_per_day" in data
+        assert data["limit_per_day"] > 0  # DEV tier has non-zero limits
 
     async def test_per_minute_fields_present(self, client: AsyncClient) -> None:
         """Per-minute quota exposed alongside daily for client-side pacing."""
@@ -69,7 +69,7 @@ class TestAIHealth:
         # Call health twice, remaining should not decrease
         resp1 = await client.get("/ai/health")
         resp2 = await client.get("/ai/health")
-        assert resp1.json()["remaining_daily"] == resp2.json()["remaining_daily"]
+        assert resp1.json()["remaining_per_day"] == resp2.json()["remaining_per_day"]
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +257,7 @@ class TestAIModels:
         resp1 = await client.get("/ai/health")
         await client.get("/ai/models")
         resp2 = await client.get("/ai/health")
-        assert resp1.json()["remaining_daily"] == resp2.json()["remaining_daily"]
+        assert resp1.json()["remaining_per_day"] == resp2.json()["remaining_per_day"]
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +387,7 @@ class TestAIRateLimiting:
             "/ai/health",
             headers={"X-LLM-Api-Key": "some-key"},
         )
-        initial = resp1.json()["remaining_daily"]
+        initial = resp1.json()["remaining_per_day"]
 
         mock_response = MagicMock()
         with (
@@ -403,18 +403,18 @@ class TestAIRateLimiting:
             "/ai/health",
             headers={"X-LLM-Api-Key": "some-key"},
         )
-        assert resp2.json()["remaining_daily"] == initial - 1
+        assert resp2.json()["remaining_per_day"] == initial - 1
 
     async def test_validate_key_without_key_does_not_consume_quota(self, client: AsyncClient) -> None:
         """POST /ai/validate-key without BYOK key should return 400 without consuming quota."""
         resp1 = await client.get("/ai/health")
-        initial_platform = resp1.json()["remaining_daily"]
+        initial_platform = resp1.json()["remaining_per_day"]
 
         response = await client.post("/ai/validate-key")
         assert response.status_code == 400
 
         resp2 = await client.get("/ai/health")
-        assert resp2.json()["remaining_daily"] == initial_platform
+        assert resp2.json()["remaining_per_day"] == initial_platform
 
     async def test_validate_key_includes_rate_limit_headers(self, client: AsyncClient) -> None:
         """Successful AI-limited responses should include X-RateLimit-* headers."""

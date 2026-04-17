@@ -47,8 +47,8 @@ const MOCK_MODELS_RESPONSE: AIModelsResponse = {
 const MOCK_HEALTH_RESPONSE: AIHealthResponse = {
   available: true,
   byok: false,
-  remaining_daily: 25,
-  limit_daily: 30,
+  remaining_per_day: 25,
+  limit_per_day: 30,
 }
 
 function renderPage(): ReturnType<typeof userEvent.setup> {
@@ -411,20 +411,20 @@ describe('SettingsAI', () => {
     it('shows quota when AI is available', async () => {
       renderPage()
       await waitFor(() => {
-        expect(screen.getByText(/AI calls remaining today:/)).toBeInTheDocument()
+        expect(screen.getByText(/AI calls remaining \(24-hour window\):/)).toBeInTheDocument()
         expect(screen.getByText('25')).toBeInTheDocument()
       })
     })
 
     it('shows both included and BYOK quota when a key is configured', async () => {
-      const byokHealth = { available: true, byok: true, remaining_daily: 1900, limit_daily: 2000 }
+      const byokHealth = { available: true, byok: true, remaining_per_day: 1900, limit_per_day: 2000 }
       mockFetchAIHealth
         .mockResolvedValueOnce(MOCK_HEALTH_RESPONSE) // useAIAvailability
         .mockResolvedValueOnce(byokHealth) // byok query
       useAIStore.getState().setApiKey('suggestions', 'sk-test')
       renderPage()
       await waitFor(() => {
-        expect(screen.getByText(/AI calls remaining today:/)).toBeInTheDocument()
+        expect(screen.getByText(/AI calls remaining \(24-hour window\):/)).toBeInTheDocument()
         expect(screen.getByText(/Your key:/)).toBeInTheDocument()
       })
     })

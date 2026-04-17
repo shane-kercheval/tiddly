@@ -62,10 +62,17 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 # ---------------------------------------------------------------------------
 
 # Errors that every AI endpoint (config or suggestion) may return.
-_BASE_AI_ERROR_RESPONSES: dict[int | str, dict] = {
+_BASE_AI_ERROR_RESPONSES: dict[int, dict] = {
     401: {
         "model": AIErrorResponse,
         "description": "Missing or invalid Auth0 JWT (no `Authorization` header or bad token).",
+        "content": {
+            "application/json": {
+                "example": {
+                    "detail": "Invalid token",
+                },
+            },
+        },
     },
     403: {
         "model": AIErrorResponse,
@@ -75,14 +82,28 @@ _BASE_AI_ERROR_RESPONSES: dict[int | str, dict] = {
             "are rejected as a defense-in-depth signal that these endpoints are "
             "not intended for automated / programmatic use."
         ),
+        "content": {
+            "application/json": {
+                "example": {
+                    "detail": (
+                        "This endpoint is not available for API tokens. "
+                        "Please use the web interface."
+                    ),
+                },
+            },
+        },
     },
     422: {
         "description": (
             "FastAPI / Pydantic request validation failed (missing required "
-            "field, oversized `content_snippet`, invalid `target_index`, etc.). "
-            "Response follows FastAPI's standard validation-error shape: "
-            "`{\"detail\": [{\"loc\": [...], \"msg\": \"...\", \"type\": \"...\"}]}`, "
-            "**not** the `AIErrorResponse` envelope used for other 4xx/5xx errors."
+            "field, oversized `content_snippet`, negative or non-integer "
+            "`target_index`, etc.). Response follows FastAPI's standard "
+            "validation-error shape: `{\"detail\": [{\"loc\": [...], "
+            "\"msg\": \"...\", \"type\": \"...\"}]}`, **not** the "
+            "`AIErrorResponse` envelope used for other 4xx/5xx errors. "
+            "Note: out-of-range `target_index` (index exists and is a valid "
+            "non-negative integer but exceeds `arguments` length) is a 400, "
+            "not a 422 — see the 400 entry."
         ),
     },
     451: {
@@ -94,12 +115,30 @@ _BASE_AI_ERROR_RESPONSES: dict[int | str, dict] = {
             "the consent flow before retrying."
         ),
     },
+    503: {
+        "model": AIErrorResponse,
+        "description": (
+            "Auth infrastructure unavailable (JWKS fetch from Auth0 failed). "
+            "`detail` is `\"Could not validate credentials\"`; no "
+            "`error_code` is set for this path. Retry with backoff. "
+            "Suggestion endpoints can also return 503 for LLM-provider "
+            "failures (`error_code: llm_unavailable`) — that variant is "
+            "documented separately in those endpoints' Responses panels."
+        ),
+        "content": {
+            "application/json": {
+                "example": {
+                    "detail": "Could not validate credentials",
+                },
+            },
+        },
+    },
 }
 
 # Additional errors that only occur on endpoints that actually invoke an LLM
 # (suggestion endpoints + validate-key). Config-only endpoints like /health and
 # /models do not return these.
-_LLM_CALL_ERROR_RESPONSES: dict[int | str, dict] = {
+_LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
     400: {
         "model": AIErrorResponse,
         "description": (
@@ -110,6 +149,31 @@ _LLM_CALL_ERROR_RESPONSES: dict[int | str, dict] = {
             "validation failures (e.g. `target_index` out of range — no "
             "`error_code`, message in `detail`)."
         ),
+        "content": {
+            "application/json": {
+                "examples": {
+                    "unsupported_model": {
+                        "summary": "BYOK caller passed an unsupported `model`",
+                        "value": {
+                            "detail": "Unsupported model: evil/attacker-model",
+                        },
+                    },
+                    "llm_bad_request": {
+                        "summary": "Provider rejected the request shape",
+                        "value": {
+                            "detail": "Invalid request to LLM provider.",
+                            "error_code": "llm_bad_request",
+                        },
+                    },
+                    "target_index_out_of_range": {
+                        "summary": "suggest-arguments service validation",
+                        "value": {
+                            "detail": "target_index 5 is out of range (arguments has 2 items)",
+                        },
+                    },
+                },
+            },
+        },
     },
     429: {
         "model": AIErrorResponse,
@@ -151,14 +215,70 @@ _LLM_CALL_ERROR_RESPONSES: dict[int | str, dict] = {
             "(could not reach the provider). Both are safe to retry — a "
             "different `model` often helps for parse failures."
         ),
+        "content": {
+            "application/json": {
+                "examples": {
+                    "llm_parse_failed": {
+                        "summary": "Provider returned unparseable structured output",
+                        "value": {
+                            "detail": (
+                                "LLM returned an invalid response. Try again "
+                                "or use a different model."
+                            ),
+                            "error_code": "llm_parse_failed",
+                        },
+                    },
+                    "llm_connection_error": {
+                        "summary": "Could not reach the LLM provider",
+                        "value": {
+                            "detail": "Could not connect to LLM provider.",
+                            "error_code": "llm_connection_error",
+                        },
+                    },
+                },
+            },
+        },
     },
     503: {
         "model": AIErrorResponse,
-        "description": "Unclassified LLM provider failure (`llm_unavailable`). Safe to retry.",
+        "description": (
+            "Two sources. (1) **Auth infrastructure unavailable** — JWKS "
+            "fetch from Auth0 failed. `detail` is `\"Could not validate "
+            "credentials\"`; no `error_code`. (2) **Unclassified LLM "
+            "provider failure** — `error_code: llm_unavailable`. Both are "
+            "safe to retry with backoff."
+        ),
+        "content": {
+            "application/json": {
+                "examples": {
+                    "jwks_unavailable": {
+                        "summary": "Auth0 JWKS fetch failed during token validation",
+                        "value": {
+                            "detail": "Could not validate credentials",
+                        },
+                    },
+                    "llm_unavailable": {
+                        "summary": "Unclassified LLM provider failure",
+                        "value": {
+                            "detail": "AI service temporarily unavailable.",
+                            "error_code": "llm_unavailable",
+                        },
+                    },
+                },
+            },
+        },
     },
     504: {
         "model": AIErrorResponse,
         "description": "LLM request timed out (`llm_timeout`). Safe to retry.",
+        "content": {
+            "application/json": {
+                "example": {
+                    "detail": "LLM request timed out. Try again.",
+                    "error_code": "llm_timeout",
+                },
+            },
+        },
     },
 }
 
@@ -167,8 +287,16 @@ _LLM_CALL_ERROR_RESPONSES: dict[int | str, dict] = {
 # validation, so the response carries two possible body shapes — distinguish
 # on whether `detail` is an array (validation) or string with `error_code`
 # (BYOK auth failure).
-_BYOK_AUTH_422: dict[int | str, dict] = {
+_BYOK_AUTH_422: dict[int, dict] = {
     422: {
+        # Deliberately no `model:` entry. The BYOK-auth variant matches
+        # `AIErrorResponse` but the Pydantic validation variant doesn't
+        # (its `detail` is a list). Declaring one model would mislead
+        # typed codegen tools (openapi-generator, Zod from OpenAPI, etc.)
+        # into emitting a type that only handles the BYOK-auth shape.
+        # The two named examples below cover both shapes for humans;
+        # codegen tools correctly produce an un-schema'd 422 response.
+        # Matches the base `_BASE_AI_ERROR_RESPONSES[422]` pattern.
         "description": (
             "Two possible shapes share this status: (1) FastAPI request "
             "validation errors (standard `{\"detail\": [...]}` array shape), "
@@ -208,7 +336,13 @@ _BYOK_AUTH_422: dict[int | str, dict] = {
 
 # Suggestion endpoints surface all error classes (auth, consent, validation,
 # LLM-call failures, BYOK auth failure).
-AI_SUGGESTION_RESPONSES: dict[int | str, dict] = {
+#
+# Merge precedence (right wins on key collision, per Python dict-spread):
+#   _BASE_AI_ERROR_RESPONSES < _LLM_CALL_ERROR_RESPONSES < _BYOK_AUTH_422
+# Concretely: 422 is defined in _BASE (Pydantic-only description) and
+# overridden by _BYOK_AUTH_422 (dual-shape description). 503 is in _BASE
+# (JWKS-only) and overridden by _LLM_CALL_ERROR_RESPONSES (dual-source).
+AI_SUGGESTION_RESPONSES: dict[int, dict] = {
     **_BASE_AI_ERROR_RESPONSES,
     **_LLM_CALL_ERROR_RESPONSES,
     **_BYOK_AUTH_422,
@@ -216,7 +350,7 @@ AI_SUGGESTION_RESPONSES: dict[int | str, dict] = {
 
 # Config endpoints (/health, /models) surface only the shared base set plus
 # the standard Pydantic validation error for 422. They never invoke an LLM.
-AI_CONFIG_RESPONSES: dict[int | str, dict] = _BASE_AI_ERROR_RESPONSES
+AI_CONFIG_RESPONSES: dict[int, dict] = _BASE_AI_ERROR_RESPONSES
 
 # /validate-key is a special case: it DOES call the LLM, but only to probe
 # auth. Provider auth failures are returned as 200 {"valid": false} rather
@@ -225,7 +359,7 @@ AI_CONFIG_RESPONSES: dict[int | str, dict] = _BASE_AI_ERROR_RESPONSES
 #   - 400 includes the "missing X-LLM-Api-Key header" path.
 #   - 502 cannot emit `llm_parse_failed` (no `response_format` passed to
 #     LLMService.complete), so only `llm_connection_error` is documented.
-AI_VALIDATE_KEY_RESPONSES: dict[int | str, dict] = {
+AI_VALIDATE_KEY_RESPONSES: dict[int, dict] = {
     **_BASE_AI_ERROR_RESPONSES,
     400: {
         "model": AIErrorResponse,
@@ -262,10 +396,12 @@ def get_llm_api_key(
         None,
         alias="X-LLM-Api-Key",
         description=(
-            "Optional Bring-Your-Own-Key (BYOK) header. Supplying this "
-            "routes the call to the `AI_BYOK` rate-limit bucket and unlocks "
-            "`model` selection. See the `ai` tag description for full BYOK "
-            "semantics (platform vs. BYOK, model resolution, secret hygiene)."
+            "Optional Bring-Your-Own-Key (BYOK) header. On suggestion "
+            "endpoints it routes the call to the `AI_BYOK` rate-limit "
+            "bucket and unlocks the `model` request field. On `/ai/health` "
+            "and `/ai/models` it only affects which bucket's quota is "
+            "reported — the field is not used for a provider call. See the "
+            "`ai` tag description for full BYOK semantics."
         ),
     ),
 ) -> str | None:
@@ -394,8 +530,8 @@ async def ai_health(
         byok=has_byok,
         remaining_per_minute=quota.remaining_per_minute,
         limit_per_minute=quota.limit_per_minute,
-        remaining_daily=quota.remaining_per_day,
-        limit_daily=quota.limit_per_day,
+        remaining_per_day=quota.remaining_per_day,
+        limit_per_day=quota.limit_per_day,
     )
 
 
@@ -518,7 +654,7 @@ async def suggest_tags_endpoint(
     | `title` | no | `null` | LLM context. |
     | `url` | no | `null` | LLM context (bookmarks). |
     | `description` | no | `null` | LLM context. |
-    | `content_snippet` | no | `null` | Body text. 10 KB max; first 5000 chars used. |
+    | `content_snippet` | no | `null` | Body text. 10,000 char max; 5,000 sent to LLM. |
     | `current_tags` | no | `[]` | Excluded from results (case-insensitive). |
     | `model` | no | `null` | BYOK model ID. Platform callers: ignored. |
 
@@ -605,7 +741,7 @@ async def suggest_metadata_endpoint(
     | `url` | no | `null` | LLM context. |
     | `title` | no | `null` | Existing title — see "context-vs-generate" below. |
     | `description` | no | `null` | Existing description — see "context-vs-generate" below. |
-    | `content_snippet` | no | `null` | Body text. 10 KB max; first 5000 chars used. |
+    | `content_snippet` | no | `null` | Body text. 10,000 char max; 5,000 sent to LLM. |
     | `model` | no | `null` | BYOK model ID. Platform callers: ignored. |
 
     ### Response
@@ -693,7 +829,7 @@ async def suggest_relationships_endpoint(
     | `description` | at least one | `null` | Candidate search + LLM context. |
     | `current_tags` | at least one | `[]` | Candidate search (tag match). |
     | `url` | no | `null` | LLM context only (not searched). |
-    | `content_snippet` | no | `null` | LLM context. 10 KB max; first 5000 chars used. |
+    | `content_snippet` | no | `null` | LLM context. 10,000 char max; 5,000 sent to LLM. |
     | `source_id` | no | `null` | Source item ID; excluded from pool — see below. |
     | `existing_relationship_ids` | no | `[]` | Already-linked IDs; excluded from pool. |
     | `model` | no | `null` | BYOK model ID. Platform callers: ignored. |
@@ -731,12 +867,19 @@ async def suggest_relationships_endpoint(
 
     ### Empty response cases
 
-    Response is `{"candidates": []}` without an LLM call in these cases
-    (rate-limit quota is still consumed — the dependency runs before the
-    handler body):
+    Rate-limit quota is always consumed regardless (the dependency runs
+    before the handler body). Three different conditions produce
+    `{"candidates": []}`:
 
-    - All of `title`, `description`, `current_tags` are empty.
-    - Candidate search found no matches.
+    - **All of `title`, `description`, `current_tags` are empty** — no LLM
+      call, no provider cost. Handler short-circuits before candidate
+      search.
+    - **Candidate search found no matches** — no LLM call, no provider cost.
+    - **LLM ran but judged all candidates irrelevant** — LLM call was made,
+      provider cost WAS charged, latency WAS paid. Indistinguishable from
+      the other two cases in the response body; distinguishable only by
+      server-side `ai_usage` records. Treat empty responses as normal;
+      don't retry them expecting a non-empty answer.
 
     **See the `ai` tag description at the top of this section** for
     authentication, rate limits, BYOK, and error handling.

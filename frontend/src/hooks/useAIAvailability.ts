@@ -25,14 +25,14 @@ export const aiHealthKeys = {
  *
  * @example
  * ```tsx
- * const { available, remainingDaily, isLoading } = useAIAvailability()
+ * const { available, remainingPerDay, isLoading } = useAIAvailability()
  * if (!available) return null // hide AI features
  * ```
  */
 export function useAIAvailability(): {
   available: boolean
-  remainingDaily: number
-  limitDaily: number
+  remainingPerDay: number
+  limitPerDay: number
   isLoading: boolean
   error: Error | null
 } {
@@ -48,8 +48,8 @@ export function useAIAvailability(): {
 
   return {
     available: data?.available ?? false,
-    remainingDaily: data?.remaining_daily ?? 0,
-    limitDaily: data?.limit_daily ?? 0,
+    remainingPerDay: data?.remaining_per_day ?? 0,
+    limitPerDay: data?.limit_per_day ?? 0,
     isLoading,
     error: error as Error | null,
   }

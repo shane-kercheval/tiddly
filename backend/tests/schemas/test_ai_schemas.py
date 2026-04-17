@@ -1,7 +1,15 @@
 """Unit tests for AI schema types."""
 import typing
 
-from schemas.ai import AIModelEntry, AIUseCaseKey
+from schemas.ai import (
+    CONTENT_SNIPPET_LLM_WINDOW_CHARS,
+    CONTENT_SNIPPET_MAX_CHARS,
+    AIModelEntry,
+    AIUseCaseKey,
+    SuggestMetadataRequest,
+    SuggestRelationshipsRequest,
+    SuggestTagsRequest,
+)
 from services.llm_service import _SUPPORTED_MODEL_DEFS, AIUseCase
 
 
@@ -59,3 +67,48 @@ class TestAIModelEntryDriftGuard:
             f"_SUPPORTED_MODEL_DEFS: {missing}. Add them to the Literal in "
             f"schemas/ai.py."
         )
+
+
+class TestContentSnippetDriftGuard:
+    """
+    Guards against drift between the content_snippet constants and their
+    usage sites — the API-boundary `max_length` Pydantic validator, the
+    LLM-prompt truncation in `services/llm_prompts.py`, and the numbers
+    quoted in field / endpoint documentation.
+
+    Keeping the two constants in `schemas/ai.py` (source) means
+    `llm_prompts.py` references them directly. The two tests below enforce
+    the remaining invariants the type system can't.
+    """
+
+    def test__window_is_strictly_less_than_max(self) -> None:
+        """
+        LLM window must be strictly less than max accepted.
+
+        If the window were equal to the max, the truncation slice in
+        `llm_prompts.py` would be a no-op and the prose docs describing
+        "sending more is wasted bandwidth" would be misleading — there'd
+        be no wasted bandwidth because the full payload would reach the
+        LLM. The gap between the two values is load-bearing.
+        """
+        assert CONTENT_SNIPPET_LLM_WINDOW_CHARS < CONTENT_SNIPPET_MAX_CHARS
+
+    def test__schema_max_length_uses_the_constant(self) -> None:
+        """
+        Every request schema with `content_snippet` must set `max_length` from
+        `CONTENT_SNIPPET_MAX_CHARS`, not a hardcoded literal.
+        """
+        for model in (
+            SuggestTagsRequest,
+            SuggestMetadataRequest,
+            SuggestRelationshipsRequest,
+        ):
+            field = model.model_fields["content_snippet"]
+            max_lengths = [
+                m.max_length for m in field.metadata if hasattr(m, "max_length")
+            ]
+            assert CONTENT_SNIPPET_MAX_CHARS in max_lengths, (
+                f"{model.__name__}.content_snippet doesn't use "
+                f"CONTENT_SNIPPET_MAX_CHARS; found max_length constraints: "
+                f"{max_lengths}. Use the constant from schemas/ai.py."
+            )

@@ -4,6 +4,22 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+# Maximum length (in characters) accepted from clients for `content_snippet`.
+# Enforced at the API boundary via the Pydantic `max_length` validator
+# applied to the field below. Oversized payloads get 422.
+#
+# `CONTENT_SNIPPET_LLM_WINDOW_CHARS` is the window of characters actually
+# used by the LLM prompt builders (see `services/llm_prompts.py`). Keeping
+# the window smaller than the max ceiling bounds provider cost without
+# rejecting larger client payloads outright. The gap between the two is
+# load-bearing — callers can send up to the max, but must understand only
+# the first `CONTENT_SNIPPET_LLM_WINDOW_CHARS` are seen by the LLM.
+#
+# Both values are referenced from `services/llm_prompts.py` to prevent drift.
+CONTENT_SNIPPET_MAX_CHARS = 10_000
+CONTENT_SNIPPET_LLM_WINDOW_CHARS = 5000
+
+
 # ---------------------------------------------------------------------------
 # Shared error response models
 # ---------------------------------------------------------------------------
@@ -157,16 +173,16 @@ class AIHealthResponse(BaseModel):
                     "byok": False,
                     "remaining_per_minute": 29,
                     "limit_per_minute": 30,
-                    "remaining_daily": 497,
-                    "limit_daily": 500,
+                    "remaining_per_day": 497,
+                    "limit_per_day": 500,
                 },
                 {
                     "available": True,
                     "byok": True,
                     "remaining_per_minute": 118,
                     "limit_per_minute": 120,
-                    "remaining_daily": 1998,
-                    "limit_daily": 2000,
+                    "remaining_per_day": 1998,
+                    "limit_per_day": 2000,
                 },
             ],
         },
@@ -206,13 +222,20 @@ class AIHealthResponse(BaseModel):
         ...,
         description="Per-minute limit for this bucket and tier.",
     )
-    remaining_daily: int = Field(
+    remaining_per_day: int = Field(
         ...,
-        description="Remaining calls in the current UTC day for this bucket.",
+        description=(
+            "Remaining calls in the current 24-hour window for this bucket. "
+            "The window is per-user, not a shared UTC-midnight reset: Redis "
+            "fixed-window counter with an 86400-second TTL set on the first "
+            "request in a window. Once the key expires, the next request "
+            "starts a fresh window. (A future schema addition will surface "
+            "the exact reset timestamp per-user.)"
+        ),
     )
-    limit_daily: int = Field(
+    limit_per_day: int = Field(
         ...,
-        description="Total daily limit for this bucket and tier.",
+        description="Per-user 24-hour limit for this bucket and tier.",
     )
 
 
@@ -325,9 +348,13 @@ class ValidateKeyResponse(BaseModel):
     )
 
     valid: bool = Field(..., description="Whether the provider accepted the key.")
-    error: str | None = Field(
+    error: Literal["API key rejected by provider"] | None = Field(
         None,
-        description="Short reason string when `valid` is false. Never echoes the key itself.",
+        description=(
+            "Reason string when `valid` is false. Currently only one value "
+            "ever appears; additional values in the future would be a "
+            "documented schema addition. Never echoes the key itself."
+        ),
     )
 
 
@@ -410,13 +437,15 @@ class SuggestTagsRequest(BaseModel):
         description="Entity description used as LLM context.",
     )
     content_snippet: str | None = Field(
-        None, max_length=10_000,
+        None, max_length=CONTENT_SNIPPET_MAX_CHARS,
         description=(
-            "Body text passed as LLM context. Accepts up to 10 KB, but the "
-            "server uses only the **first 5000 characters** — sending more "
-            "is wasted bandwidth. Send the opening / most representative "
-            "portion (callers are responsible for truncation). Oversized "
-            "payloads (>10 KB) are rejected with a 422 validation error."
+            "Body text passed as LLM context. Accepts up to 10,000 "
+            "characters, but only the first 5,000 are sent to the LLM — "
+            "sending more is wasted bandwidth. Send the opening / most "
+            "representative portion (callers are responsible for "
+            "truncation). Oversized payloads are rejected with 422. "
+            "See `CONTENT_SNIPPET_MAX_CHARS` and "
+            "`CONTENT_SNIPPET_LLM_WINDOW_CHARS` in `schemas/ai.py`."
         ),
     )
     current_tags: list[str] = Field(
@@ -516,12 +545,11 @@ class SuggestMetadataRequest(BaseModel):
         ),
     )
     content_snippet: str | None = Field(
-        None, max_length=10_000,
+        None, max_length=CONTENT_SNIPPET_MAX_CHARS,
         description=(
-            "Body text passed as LLM context. Accepts up to 10 KB but the "
-            "server uses only the **first 5000 characters** — sending more "
-            "is wasted bandwidth. Oversized payloads (>10 KB) are rejected "
-            "with a 422 validation error."
+            "Body text passed as LLM context. Accepts up to 10,000 "
+            "characters, but only the first 5,000 are sent to the LLM. "
+            "Oversized payloads are rejected with 422."
         ),
     )
 
@@ -621,11 +649,11 @@ class SuggestRelationshipsRequest(BaseModel):
         ),
     )
     content_snippet: str | None = Field(
-        None, max_length=10_000,
+        None, max_length=CONTENT_SNIPPET_MAX_CHARS,
         description=(
             "Body text passed as LLM context (not used in candidate search). "
-            "Accepts up to 10 KB but the server uses only the **first 5000 "
-            "characters**."
+            "Accepts up to 10,000 characters, but only the first 5,000 are "
+            "sent to the LLM."
         ),
     )
     current_tags: list[str] = Field(

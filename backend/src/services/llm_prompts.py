@@ -7,6 +7,7 @@ The system prompt provides instructions; the user message provides context.
 import re
 
 from schemas.ai import (
+    CONTENT_SNIPPET_LLM_WINDOW_CHARS,
     ArgumentInput,
     RelationshipCandidateContext,
     TagVocabularyEntry,
@@ -69,7 +70,7 @@ def build_tag_suggestion_messages(
     if description:
         user_parts.append(f"Description: {description}")
     if content_snippet:
-        user_parts.append(f"Content snippet: {content_snippet[:5000]}")
+        user_parts.append(f"Content snippet: {content_snippet[:CONTENT_SNIPPET_LLM_WINDOW_CHARS]}")
 
     user_msg = "\n".join(user_parts) if user_parts else "No context provided."
 
@@ -118,7 +119,7 @@ def build_metadata_suggestion_messages(
     if url:
         user_parts.append(f"URL: {url}")
     if content_snippet:
-        user_parts.append(f"Content snippet: {content_snippet[:5000]}")
+        user_parts.append(f"Content snippet: {content_snippet[:CONTENT_SNIPPET_LLM_WINDOW_CHARS]}")
 
     user_msg = "\n".join(user_parts) if user_parts else "No context provided."
 
@@ -172,7 +173,8 @@ def build_relationship_suggestion_messages(
     if source_description:
         source_parts.append(f"Description: {source_description}")
     if source_content_snippet:
-        source_parts.append(f"Content snippet: {source_content_snippet[:5000]}")
+        snippet = source_content_snippet[:CONTENT_SNIPPET_LLM_WINDOW_CHARS]
+        source_parts.append(f"Content snippet: {snippet}")
 
     source_str = "\n".join(source_parts) if source_parts else "No context provided."
 

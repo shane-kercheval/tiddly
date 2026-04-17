@@ -12,7 +12,7 @@ import { BookmarkCard } from './BookmarkCard'
 import type { BookmarkListItem } from '../types'
 
 vi.mock('../hooks/useAIAvailability', () => ({
-  useAIAvailability: () => ({ available: false, remainingDaily: 0, limitDaily: 0, isLoading: false, error: null }),
+  useAIAvailability: () => ({ available: false, remainingPerDay: 0, limitPerDay: 0, isLoading: false, error: null }),
 }))
 
 const mockBookmark: BookmarkListItem = {

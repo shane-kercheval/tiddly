@@ -695,8 +695,8 @@ export const MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS = 3
 export interface AIHealthResponse {
   available: boolean
   byok: boolean
-  remaining_daily: number
-  limit_daily: number
+  remaining_per_day: number
+  limit_per_day: number
 }
 
 /** A supported model definition from GET /ai/models */

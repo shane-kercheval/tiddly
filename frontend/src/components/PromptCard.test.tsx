@@ -11,7 +11,7 @@ import { PromptCard } from './PromptCard'
 import type { PromptListItem } from '../types'
 
 vi.mock('../hooks/useAIAvailability', () => ({
-  useAIAvailability: () => ({ available: false, remainingDaily: 0, limitDaily: 0, isLoading: false, error: null }),
+  useAIAvailability: () => ({ available: false, remainingPerDay: 0, limitPerDay: 0, isLoading: false, error: null }),
 }))
 
 const mockPrompt: PromptListItem = {
