@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Maximum length (in characters) accepted from clients for `content_snippet`.
@@ -523,6 +523,7 @@ class SuggestMetadataRequest(BaseModel):
     )
     fields: list[Literal["title", "description"]] = Field(
         default_factory=lambda: ["title", "description"],
+        min_length=1,
         description=(
             "Non-empty list of field names to generate; each element must be "
             "`\"title\"` or `\"description\"`. Fields not listed here are "
@@ -534,15 +535,6 @@ class SuggestMetadataRequest(BaseModel):
         None, max_length=2048,
         description="Bookmark URL used as LLM context.",
     )
-
-    @field_validator("fields")
-    @classmethod
-    def fields_not_empty(cls, v: list) -> list:
-        """At least one field must be requested."""
-        if not v:
-            raise ValueError("fields must contain at least one of 'title' or 'description'")
-        return v
-
     title: str | None = Field(
         None, max_length=500,
         description=(

@@ -6,11 +6,17 @@ from schemas.ai import (
     CONTENT_SNIPPET_MAX_CHARS,
     AIModelEntry,
     AIUseCaseKey,
+    SuggestArgumentsRequest,
     SuggestMetadataRequest,
     SuggestRelationshipsRequest,
     SuggestTagsRequest,
+    ValidateKeyRequest,
 )
-from services.llm_service import _SUPPORTED_MODEL_DEFS, AIUseCase
+from services.llm_service import (
+    _SUPPORTED_MODEL_DEFS,
+    _SUPPORTED_MODEL_IDS,
+    AIUseCase,
+)
 
 
 class TestAIUseCaseKeyDriftGuard:
@@ -66,6 +72,46 @@ class TestAIModelEntryDriftGuard:
             f"AIModelEntry.tier Literal is missing tiers present in "
             f"_SUPPORTED_MODEL_DEFS: {missing}. Add them to the Literal in "
             f"schemas/ai.py."
+        )
+
+
+class TestSchemaExampleModelIdsDriftGuard:
+    """
+    Guards against stale model IDs in OpenAPI examples.
+
+    Several request schemas hardcode model IDs in `json_schema_extra.examples`
+    (e.g. `"openai/gpt-5.4-nano"`). These are not checked against the runtime
+    model catalog (`_SUPPORTED_MODEL_IDS`), so deprecating or renaming a
+    model would leave stale examples in Swagger. This test catches that at
+    CI time instead of at the next time someone notices the docs are wrong.
+    """
+
+    def test__every_example_model_id__is_in_supported_catalog(self) -> None:
+        # Models whose request schemas contain a `model` key in their examples.
+        # Response schemas and internal-only models excluded.
+        schemas_with_examples = [
+            SuggestTagsRequest,
+            SuggestMetadataRequest,
+            SuggestRelationshipsRequest,
+            SuggestArgumentsRequest,
+            ValidateKeyRequest,
+        ]
+        offenders: list[tuple[str, str]] = []
+        for schema in schemas_with_examples:
+            extra = schema.model_config.get("json_schema_extra")
+            if not isinstance(extra, dict):
+                continue
+            for example in extra.get("examples", []):
+                model_id = example.get("model")
+                if model_id is None:
+                    continue
+                if model_id not in _SUPPORTED_MODEL_IDS:
+                    offenders.append((schema.__name__, model_id))
+
+        assert not offenders, (
+            f"OpenAPI examples reference model IDs not in _SUPPORTED_MODEL_IDS: "
+            f"{offenders}. Update the schema examples to use a currently-supported "
+            f"model ID (see services/llm_service.py::_SUPPORTED_MODEL_DEFS)."
         )
 
 

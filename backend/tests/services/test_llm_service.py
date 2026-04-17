@@ -109,28 +109,28 @@ class TestBuildSupportedModels:
     def test_all_models_have_required_fields(self) -> None:
         models = build_supported_models()
         for model in models:
-            assert "id" in model
-            assert "provider" in model
-            assert "tier" in model
+            assert model.id
+            assert model.provider
+            assert model.tier
 
     def test_all_models_have_pricing(self) -> None:
         """All curated models should have pricing in LiteLLM's cost map."""
         models = build_supported_models()
         for model in models:
-            assert "input_cost_per_million" in model, f"Missing pricing for {model['id']}"
-            assert "output_cost_per_million" in model, f"Missing pricing for {model['id']}"
-            assert model["input_cost_per_million"] > 0
-            assert model["output_cost_per_million"] > 0
+            assert model.input_cost_per_million is not None, f"Missing pricing for {model.id}"
+            assert model.output_cost_per_million is not None, f"Missing pricing for {model.id}"
+            assert model.input_cost_per_million > 0
+            assert model.output_cost_per_million > 0
 
     def test_tiers_per_provider(self) -> None:
         """OpenAI and Anthropic have all three tiers. Google has budget only (flash/pro disabled)."""
         models = build_supported_models()
         for provider in ["openai", "anthropic"]:
-            provider_models = [m for m in models if m["provider"] == provider]
-            tiers = {m["tier"] for m in provider_models}
+            provider_models = [m for m in models if m.provider == provider]
+            tiers = {m.tier for m in provider_models}
             assert tiers == {"budget", "balanced", "flagship"}, f"Missing tiers for {provider}"
-        google_models = [m for m in models if m["provider"] == "google"]
-        assert {m["tier"] for m in google_models} == {"budget"}
+        google_models = [m for m in models if m.provider == "google"]
+        assert {m.tier for m in google_models} == {"budget"}
 
     def test_service_stores_supported_models(self) -> None:
         """LLMService instance should have supported_models populated."""

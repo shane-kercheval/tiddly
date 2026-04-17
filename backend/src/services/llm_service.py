@@ -10,6 +10,7 @@ from litellm import ModelResponse, acompletion, completion_cost
 from pydantic import BaseModel
 
 from core.config import Settings
+from schemas.ai import AIModelEntry
 
 # Suppress LiteLLM's "Provider List: ..." stderr output on unrecognized model prefixes
 litellm.suppress_debug_info = True
@@ -96,23 +97,34 @@ def _get_model_cost(model_id: str) -> dict | None:
     return None
 
 
-def build_supported_models() -> list[dict]:
+def build_supported_models() -> list[AIModelEntry]:
     """
     Build the supported models list with pricing from LiteLLM's SDK.
 
     Called at startup. Pricing auto-updates with LiteLLM version bumps.
+    Returns typed `AIModelEntry` instances rather than raw dicts — so a typo
+    or drift in `_SUPPORTED_MODEL_DEFS` (e.g., an unsupported `provider`
+    value) surfaces as a `ValidationError` at import/startup, not at
+    `/ai/models` response time in production.
     """
-    models: list[dict] = []
+    models: list[AIModelEntry] = []
     for defn in _SUPPORTED_MODEL_DEFS:
         model_id = defn["id"]
-        entry = {**defn}
         cost_info = _get_model_cost(model_id)
         if cost_info:
-            entry["input_cost_per_million"] = cost_info["input_cost_per_token"] * 1_000_000
-            entry["output_cost_per_million"] = cost_info["output_cost_per_token"] * 1_000_000
+            input_cost = cost_info["input_cost_per_token"] * 1_000_000
+            output_cost = cost_info["output_cost_per_token"] * 1_000_000
         else:
             logger.warning("model_cost_not_found", extra={"model_id": model_id})
-        models.append(entry)
+            input_cost = None
+            output_cost = None
+        models.append(AIModelEntry(
+            id=model_id,
+            provider=defn["provider"],
+            tier=defn["tier"],
+            input_cost_per_million=input_cost,
+            output_cost_per_million=output_cost,
+        ))
     return models
 
 
@@ -215,7 +227,7 @@ class LLMService:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self.supported_models: list[dict] = build_supported_models()
+        self.supported_models: list[AIModelEntry] = build_supported_models()
         self._platform_configs: dict[AIUseCase, LLMConfig] = {
             AIUseCase.SUGGESTIONS: LLMConfig(
                 model=settings.llm_model_suggestions,

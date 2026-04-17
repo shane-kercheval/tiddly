@@ -506,10 +506,7 @@ async def ai_health(
     read/write rate limiter AND does not charge the AI buckets. Safe to poll
     before each call to refresh quota-remaining UI.
 
-    Tier note: AI quota today is `0/0` for FREE and STANDARD tiers. Only PRO
-    tier has non-zero `AI_PLATFORM` (30/min, 500/day) and `AI_BYOK` (120/min,
-    2000/day) limits. Non-PRO callers will see `available: false` unless they
-    supply a BYOK key *and* their tier has non-zero BYOK quota (none today).
+    See the `ai` tag description for tier-specific AI quota details.
     """
     has_byok = llm_api_key is not None
     ai_bucket = OperationType.AI_BYOK if has_byok else OperationType.AI_PLATFORM
@@ -885,6 +882,16 @@ async def suggest_relationships_endpoint(
     **See the `ai` tag description at the top of this section** for
     authentication, rate limits, BYOK, and error handling.
     """
+    # Validate the BYOK model up front — before any early-return paths — so
+    # the `400 unsupported model` contract is consistent regardless of
+    # whether the search finds candidates. Previously the check only ran
+    # when the LLM was actually called, letting an invalid `model` silently
+    # succeed with `{"candidates": []}` if search came up empty.
+    llm_service = get_llm_service()
+    config = _resolve_config_or_400(
+        llm_service, AIUseCase.SUGGESTIONS, llm_api_key, data.model,
+    )
+
     if not data.title and not data.description and not data.current_tags:
         return SuggestRelationshipsResponse(candidates=[])
 
@@ -892,11 +899,6 @@ async def suggest_relationships_endpoint(
 
     if not candidates:
         return SuggestRelationshipsResponse(candidates=[])
-
-    llm_service = get_llm_service()
-    config = _resolve_config_or_400(
-        llm_service, AIUseCase.SUGGESTIONS, llm_api_key, data.model,
-    )
 
     start = time.monotonic()
     try:
@@ -1038,7 +1040,7 @@ async def _handle_parse_error(
             cost=exc.cost, latency_ms=latency_ms,
         )
     except Exception:
-        logger.warning("track_cost_failed_on_parse_error")
+        logger.warning("track_cost_failed_on_parse_error", exc_info=True)
     raise LLMParseFailedError(
         "LLM returned an invalid response. Try again or use a different model.",
     ) from exc

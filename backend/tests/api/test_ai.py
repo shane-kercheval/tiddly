@@ -13,8 +13,10 @@ from litellm.exceptions import (
     Timeout,
 )
 
+from api.main import llm_parse_failed_exception_handler
 from core.tier_limits import Tier, TierLimits, get_tier_limits
 from services.llm_service import AIUseCase, get_llm_service
+from services.suggestion_service import LLMParseFailedError
 
 
 # ---------------------------------------------------------------------------
@@ -410,8 +412,6 @@ class TestLLMExceptionHandlers:
 
     async def test_parse_failed_returns_502(self) -> None:
         """LLM structured-output parse failure returns 502 with llm_parse_failed code."""
-        from api.main import llm_parse_failed_exception_handler  # noqa: PLC0415
-        from services.suggestion_service import LLMParseFailedError  # noqa: PLC0415
         exc = LLMParseFailedError("could not parse LLM response as expected schema")
         response = await llm_parse_failed_exception_handler(MagicMock(), exc)
         assert response.status_code == 502
@@ -618,19 +618,30 @@ class TestSuggestEndpointsUnsupportedModel:
         assert "Unsupported model" in response.json()["detail"]
 
     async def test_suggest_relationships_unsupported_model(self, client: AsyncClient) -> None:
-        # Need title/description/current_tags non-empty so handler actually
-        # reaches resolve_config (early-return would 200 otherwise).
+        """
+        Unsupported-model validation must happen before any early-return
+        path, so the 400 contract is consistent regardless of whether the
+        caller's search inputs are empty or whether candidate search finds
+        matches. Previously the check ran after early returns and would
+        silently let an invalid `model` slip through as 200 `{"candidates": []}`.
+        """
+        # Empty inputs path — previously produced 200; must now produce 400.
+        response = await client.post(
+            "/ai/suggest-relationships",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={**self._UNSUPPORTED_PAYLOAD},
+        )
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]
+
+        # With inputs but no matching candidates — same outcome.
         response = await client.post(
             "/ai/suggest-relationships",
             headers={"X-LLM-Api-Key": "user-key"},
             json={"title": "something to relate", **self._UNSUPPORTED_PAYLOAD},
         )
-        # Two valid outcomes: 400 if resolve_config is reached, 200 with
-        # empty candidates if the internal FTS search returned nothing.
-        # Only reject a 500.
-        assert response.status_code in (200, 400), response.json()
-        if response.status_code == 400:
-            assert "Unsupported model" in response.json()["detail"]
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]
 
     async def test_suggest_arguments_unsupported_model(self, client: AsyncClient) -> None:
         response = await client.post(
