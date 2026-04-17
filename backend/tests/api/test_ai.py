@@ -1,4 +1,5 @@
 """Integration tests for AI router endpoints."""
+import typing
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from httpx import AsyncClient
@@ -53,6 +54,15 @@ class TestAIHealth:
         assert "remaining_daily" in data
         assert "limit_daily" in data
         assert data["limit_daily"] > 0  # DEV tier has non-zero limits
+
+    async def test_per_minute_fields_present(self, client: AsyncClient) -> None:
+        """Per-minute quota exposed alongside daily for client-side pacing."""
+        response = await client.get("/ai/health")
+        data = response.json()
+        assert "remaining_per_minute" in data
+        assert "limit_per_minute" in data
+        assert data["limit_per_minute"] > 0  # DEV tier has non-zero limits
+        assert data["remaining_per_minute"] <= data["limit_per_minute"]
 
     async def test_does_not_consume_ai_quota(self, client: AsyncClient) -> None:
         """Health endpoint should not consume AI rate limit quota."""
@@ -312,6 +322,16 @@ class TestLLMExceptionHandlers:
         assert response.status_code == 503
         assert b"llm_unavailable" in response.body
 
+    async def test_parse_failed_returns_502(self) -> None:
+        """LLM structured-output parse failure returns 502 with llm_parse_failed code."""
+        from api.main import llm_parse_failed_exception_handler  # noqa: PLC0415
+        from api.routers.ai import LLMParseFailedError  # noqa: PLC0415
+        exc = LLMParseFailedError("could not parse LLM response as expected schema")
+        response = await llm_parse_failed_exception_handler(MagicMock(), exc)
+        assert response.status_code == 502
+        assert b"llm_parse_failed" in response.body
+        assert b"could not parse" in response.body
+
 
 # ---------------------------------------------------------------------------
 # Tier limits for AI (Milestone 1b)
@@ -476,3 +496,66 @@ class TestAIRateLimiting:
                 headers={"X-LLM-Api-Key": "user-key"},
             )
             assert resp_byok.json()["available"] is True
+
+
+# ---------------------------------------------------------------------------
+# Unsupported-model handling across all suggestion endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestSuggestEndpointsUnsupportedModel:
+    """
+    Regression tests: a BYOK caller passing a `model` not in the supported
+    allowlist must get a 400, not a 500. Previously `resolve_config` raised
+    `ValueError` outside any handler on the four suggestion endpoints,
+    surfacing as 500 Internal Server Error.
+    """
+
+    _UNSUPPORTED_PAYLOAD: typing.ClassVar[dict[str, object]] = {"model": "evil/attacker-model"}
+
+    async def test_suggest_tags_unsupported_model(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/ai/suggest-tags",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={"content_type": "bookmark", **self._UNSUPPORTED_PAYLOAD},
+        )
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]
+
+    async def test_suggest_metadata_unsupported_model(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/ai/suggest-metadata",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={**self._UNSUPPORTED_PAYLOAD, "fields": ["title"]},
+        )
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]
+
+    async def test_suggest_relationships_unsupported_model(self, client: AsyncClient) -> None:
+        # Need title/description/current_tags non-empty so handler actually
+        # reaches resolve_config (early-return would 200 otherwise).
+        response = await client.post(
+            "/ai/suggest-relationships",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={"title": "something to relate", **self._UNSUPPORTED_PAYLOAD},
+        )
+        # Two valid outcomes: 400 if resolve_config is reached, 200 with
+        # empty candidates if the internal FTS search returned nothing.
+        # Only reject a 500.
+        assert response.status_code in (200, 400), response.json()
+        if response.status_code == 400:
+            assert "Unsupported model" in response.json()["detail"]
+
+    async def test_suggest_arguments_unsupported_model(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/ai/suggest-arguments",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={
+                "prompt_content": "hello {{ name }}",
+                "arguments": [],
+                "target_index": None,
+                **self._UNSUPPORTED_PAYLOAD,
+            },
+        )
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]

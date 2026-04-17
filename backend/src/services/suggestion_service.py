@@ -22,13 +22,15 @@ from schemas.ai import (
     SuggestRelationshipsResponse,
     SuggestTagsResponse,
     TagVocabularyEntry,
-    _ArgumentDescriptionSuggestion,
-    _ArgumentNameSuggestion,
-    _DescriptionOnly,
-    _TitleAndDescription,
-    _TitleOnly,
 )
 from schemas.validators import validate_argument_name
+from services._suggestion_llm_schemas import (
+    ArgumentDescriptionSuggestion,
+    ArgumentNameSuggestion,
+    DescriptionOnly,
+    TitleAndDescription,
+    TitleOnly,
+)
 from services.llm_prompts import (
     build_argument_suggestion_messages,
     build_metadata_suggestion_messages,
@@ -182,7 +184,7 @@ async def suggest_metadata(
     Args:
         fields: Which fields to generate. Must contain at least one of
             "title", "description". Controls which structured output schema
-            is used (_TitleOnly, _DescriptionOnly, _TitleAndDescription).
+            is used (TitleOnly, DescriptionOnly, TitleAndDescription).
         url: Item URL.
         title: Existing title (context, not regenerated unless requested).
         description: Existing description (context).
@@ -204,11 +206,11 @@ async def suggest_metadata(
     generate_desc = "description" in fields
 
     if generate_title and generate_desc:
-        response_format = _TitleAndDescription
+        response_format = TitleAndDescription
     elif generate_title:
-        response_format = _TitleOnly
+        response_format = TitleOnly
     else:
-        response_format = _DescriptionOnly
+        response_format = DescriptionOnly
 
     messages = build_metadata_suggestion_messages(
         fields=fields,
@@ -374,9 +376,9 @@ async def suggest_arguments(
     if suggest_field == "name":
         response, cost = await llm_service.complete(
             messages=messages, config=config,
-            response_format=_ArgumentNameSuggestion,
+            response_format=ArgumentNameSuggestion,
         )
-        parsed = _parse_response(response, _ArgumentNameSuggestion, cost)
+        parsed = _parse_response(response, ArgumentNameSuggestion, cost)
         try:
             validated_name = validate_argument_name(parsed.name)
         except ValueError:
@@ -390,9 +392,9 @@ async def suggest_arguments(
     # suggest_field == "description"
     response, cost = await llm_service.complete(
         messages=messages, config=config,
-        response_format=_ArgumentDescriptionSuggestion,
+        response_format=ArgumentDescriptionSuggestion,
     )
-    parsed = _parse_response(response, _ArgumentDescriptionSuggestion, cost)
+    parsed = _parse_response(response, ArgumentDescriptionSuggestion, cost)
     return [ArgumentSuggestion(
         name=target_arg.name or "",
         description=parsed.description,

@@ -194,6 +194,22 @@ class RedisClient:
             logger.warning("Redis HGETALL failed: %s", e)
             return None
 
+    async def zcount(self, key: str, min_score: float, max_score: float) -> int | None:
+        """
+        Count entries in a sorted set with scores between `min_score` and
+        `max_score` (both inclusive; use `-inf` / `+inf` for open bounds).
+
+        Returns the count, or None if Redis is unavailable. Does not mutate
+        the set — safe for read-only status checks.
+        """
+        if not self._client:
+            return None
+        try:
+            return await self._client.zcount(key, min_score, max_score)
+        except RedisError as e:
+            logger.warning("Redis ZCOUNT failed: %s", e)
+            return None
+
     async def pipeline(self) -> Pipeline | None:
         """Get pipeline for batched operations, returns None if unavailable."""
         if not self._client:

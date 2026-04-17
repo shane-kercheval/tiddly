@@ -1,7 +1,7 @@
 """AI feature endpoints."""
 import logging
 import time
-from typing import NoReturn
+from typing import Any, NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -18,6 +18,7 @@ from schemas.ai import (
     AIErrorResponse,
     AIHealthResponse,
     AIModelsResponse,
+    ConsentRequiredResponse,
     RelationshipCandidateContext,
     SuggestArgumentsRequest,
     SuggestArgumentsResponse,
@@ -61,13 +62,33 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 _BASE_AI_ERROR_RESPONSES: dict[int | str, dict] = {
     401: {
         "model": AIErrorResponse,
-        "description": "Missing or invalid Auth0 JWT / Personal Access Token.",
+        "description": "Missing or invalid Auth0 JWT (no `Authorization` header or bad token).",
     },
-    451: {
+    403: {
         "model": AIErrorResponse,
         "description": (
-            "User has not accepted current privacy policy / terms of service. "
-            "Direct the user to accept via the web UI before retrying."
+            "Authenticated but not allowed. Most commonly: the caller supplied a "
+            "Personal Access Token (`bm_*`). AI endpoints are Auth0-only — PATs "
+            "are rejected as a defense-in-depth signal that these endpoints are "
+            "not intended for automated / programmatic use."
+        ),
+    },
+    422: {
+        "description": (
+            "FastAPI / Pydantic request validation failed (missing required "
+            "field, oversized `content_snippet`, invalid `target_index`, etc.). "
+            "Response follows FastAPI's standard validation-error shape: "
+            "`{\"detail\": [{\"loc\": [...], \"msg\": \"...\", \"type\": \"...\"}]}`, "
+            "**not** the `AIErrorResponse` envelope used for other 4xx/5xx errors."
+        ),
+    },
+    451: {
+        "model": ConsentRequiredResponse,
+        "description": (
+            "User has not accepted the current privacy policy / terms of "
+            "service. `detail` is a structured object with `error`, `message`, "
+            "`consent_url`, and `instructions` keys — direct the user through "
+            "the consent flow before retrying."
         ),
     },
 }
@@ -79,34 +100,33 @@ _LLM_CALL_ERROR_RESPONSES: dict[int | str, dict] = {
     400: {
         "model": AIErrorResponse,
         "description": (
-            "Invalid request. Common causes: payload field exceeds max length "
-            "(`FIELD_LIMIT_EXCEEDED`), LLM provider rejected the request shape "
-            "(`llm_bad_request`), or the supplied `model` is not in the supported list."
-        ),
-    },
-    422: {
-        "model": AIErrorResponse,
-        "description": (
-            "Request validation failed (Pydantic / FastAPI), *or* the BYOK key in "
-            "`X-LLM-Api-Key` was rejected by the provider (`llm_auth_failed`). "
-            "For BYOK auth failures the response includes `error_code: llm_auth_failed`."
+            "Invalid request. Typed variants: `llm_bad_request` (LLM provider "
+            "rejected the request shape). Also: the supplied `model` is not in "
+            "the supported list (no `error_code`; message starts with "
+            "\"Unsupported model\"), and `suggest-arguments` service "
+            "validation failures (e.g. `target_index` out of range — no "
+            "`error_code`, message in `detail`)."
         ),
     },
     429: {
         "model": AIErrorResponse,
         "description": (
-            "Tiddly per-tier AI rate limit exceeded *or* the upstream LLM provider "
-            "returned a rate-limit error (`llm_rate_limited`). Respect the "
-            "`Retry-After` response header. Only PRO tier has non-zero AI quota today — "
-            "FREE and STANDARD callers always hit this."
+            "Tiddly per-tier AI rate limit exceeded (no `error_code`; the "
+            "bare rate-limiter message is returned), *or* the upstream LLM "
+            "provider returned a rate-limit error (`error_code: llm_rate_limited`). "
+            "Respect the `Retry-After` response header. Only PRO tier has "
+            "non-zero AI quota today — FREE and STANDARD callers will always "
+            "hit the Tiddly variant."
         ),
     },
     502: {
         "model": AIErrorResponse,
         "description": (
-            "LLM returned an unparseable response (prompt structured-output check "
-            "failed) or the provider connection failed (`llm_connection_error`). "
-            "Safe to retry, ideally with a different model."
+            "LLM-side failure with two typed variants: `llm_parse_failed` "
+            "(the provider returned a response that didn't match the "
+            "expected structured-output schema) and `llm_connection_error` "
+            "(could not reach the provider). Both are safe to retry — a "
+            "different `model` often helps for parse failures."
         ),
     },
     503: {
@@ -119,14 +139,45 @@ _LLM_CALL_ERROR_RESPONSES: dict[int | str, dict] = {
     },
 }
 
-# Suggestion + validate-key endpoints surface all error classes.
+# BYOK authentication failure shows up on endpoints that actually use the
+# BYOK key (validate-key + all suggestion endpoints). 422 is also the shape
+# for Pydantic request validation, so the description covers both.
+_BYOK_AUTH_422: dict[int | str, dict] = {
+    422: {
+        "description": (
+            "Two possible shapes share this status: (1) FastAPI request "
+            "validation errors (standard `{\"detail\": [...]}` array shape), "
+            "or (2) BYOK authentication failure with the upstream LLM "
+            "provider — shape `{\"detail\": \"...\", \"error_code\": "
+            "\"llm_auth_failed\"}`. Clients can distinguish by the type of "
+            "`detail` (list vs. string) or by the presence of `error_code`."
+        ),
+    },
+}
+
+# Suggestion endpoints surface all error classes (auth, consent, validation,
+# LLM-call failures, BYOK auth failure).
 AI_SUGGESTION_RESPONSES: dict[int | str, dict] = {
     **_BASE_AI_ERROR_RESPONSES,
     **_LLM_CALL_ERROR_RESPONSES,
+    **_BYOK_AUTH_422,
 }
 
-# Config endpoints only surface auth + consent errors.
+# Config endpoints (/health, /models) surface only the shared base set plus
+# the standard Pydantic validation error for 422. They never invoke an LLM.
 AI_CONFIG_RESPONSES: dict[int | str, dict] = _BASE_AI_ERROR_RESPONSES
+
+# /validate-key is a special case: it DOES call the LLM, but only to probe
+# auth. Provider auth failures are returned as 200 {"valid": false} rather
+# than 422, so the 422 variant is pure Pydantic validation here.
+AI_VALIDATE_KEY_RESPONSES: dict[int | str, dict] = {
+    **_BASE_AI_ERROR_RESPONSES,
+    400: _LLM_CALL_ERROR_RESPONSES[400],
+    429: _LLM_CALL_ERROR_RESPONSES[429],
+    502: _LLM_CALL_ERROR_RESPONSES[502],
+    503: _LLM_CALL_ERROR_RESPONSES[503],
+    504: _LLM_CALL_ERROR_RESPONSES[504],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -139,18 +190,40 @@ def get_llm_api_key(
         None,
         alias="X-LLM-Api-Key",
         description=(
-            "Optional Bring-Your-Own-Key (BYOK) header. When supplied, the AI endpoint "
-            "uses this key against the matching provider instead of the platform key. "
-            "BYOK calls consume the `AI_BYOK` rate-limit bucket (separate from "
-            "`AI_PLATFORM`) and allow selection of any supported `model` from "
-            "`GET /ai/models`. Platform calls (header omitted) are locked to the "
-            "use-case default model. The key is held in request memory only — never "
-            "logged, stored, or returned in error responses."
+            "Optional Bring-Your-Own-Key (BYOK) header. When supplied, the AI "
+            "endpoint uses this key against the matching provider instead of "
+            "the platform key. BYOK calls consume the `AI_BYOK` rate-limit "
+            "bucket (separate from `AI_PLATFORM`) and allow selection of any "
+            "supported `model` from `GET /ai/models`. Platform calls (header "
+            "omitted) are locked to the use-case default model. The key is "
+            "held in request memory only — never logged, stored, or returned "
+            "in error responses."
         ),
     ),
 ) -> str | None:
     """Extract optional BYOK API key from request header."""
     return x_llm_api_key
+
+
+def _resolve_config_or_400(
+    llm_service: Any,
+    use_case: AIUseCase,
+    user_api_key: str | None,
+    user_model: str | None,
+) -> LLMConfig:
+    """
+    Wrapper around `LLMService.resolve_config` that converts the service's
+    `ValueError` (unsupported model) into a 400 `HTTPException`. Keeps the
+    ValueError-→-400 contract consistent across every AI endpoint.
+    """
+    try:
+        return llm_service.resolve_config(
+            use_case,
+            user_api_key=user_api_key,
+            user_model=user_model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 async def apply_ai_rate_limit_byok(
@@ -216,12 +289,13 @@ async def ai_health(
     llm_api_key: str | None = Depends(get_llm_api_key),
 ) -> AIHealthResponse:
     """
-    Return whether AI features are available for the caller, plus remaining daily
-    quota in the bucket that the supplied `X-LLM-Api-Key` header selects (present
-    → `AI_BYOK`, absent → `AI_PLATFORM`).
+    Return whether AI features are available for the caller, plus remaining
+    per-minute and daily quota in the bucket that the supplied `X-LLM-Api-Key`
+    header selects (present → `AI_BYOK`, absent → `AI_PLATFORM`).
 
-    Does **not** consume AI rate-limit quota — safe to poll before each call to
-    update quota-remaining UI. Subject to the normal per-user read rate limit.
+    Does **not** consume quota of any kind — this endpoint skips the global
+    read/write rate limiter AND does not charge the AI buckets. Safe to poll
+    before each call to refresh quota-remaining UI.
 
     Tier note: AI quota today is `0/0` for FREE and STANDARD tiers. Only PRO
     tier has non-zero `AI_PLATFORM` (30/min, 500/day) and `AI_BYOK` (120/min,
@@ -236,15 +310,17 @@ async def ai_health(
     return AIHealthResponse(
         available=limits.rate_ai_per_day > 0 or (has_byok and limits.rate_ai_byok_per_day > 0),
         byok=has_byok,
-        remaining_daily=quota.remaining,
-        limit_daily=quota.limit,
+        remaining_per_minute=quota.remaining_per_minute,
+        limit_per_minute=quota.limit_per_minute,
+        remaining_daily=quota.remaining_per_day,
+        limit_daily=quota.limit_per_day,
     )
 
 
 @router.post(
     "/validate-key",
     response_model=ValidateKeyResponse,
-    responses=AI_SUGGESTION_RESPONSES,
+    responses=AI_VALIDATE_KEY_RESPONSES,
     summary="Probe a BYOK key against the selected provider",
 )
 async def validate_key(
@@ -259,8 +335,8 @@ async def validate_key(
     is specified). Performs a minimal 5-token completion call against the
     provider.
 
-    **Authentication:** requires a Tiddly token *and* an `X-LLM-Api-Key` header.
-    Returns 400 if the BYOK header is missing.
+    **Authentication:** Auth0 JWT required (PATs are rejected with 403).
+    Additionally requires `X-LLM-Api-Key`. Returns 400 if the BYOK header is missing.
 
     **Rate limit:** consumes the `AI_BYOK` bucket. Platform callers cannot use
     this endpoint — there's nothing to validate without a user-supplied key.
@@ -268,9 +344,12 @@ async def validate_key(
     **Response semantics:**
 
     - `200 {"valid": true}` — provider accepted the key.
-    - `200 {"valid": false, "error": "API key rejected by provider"}` — provider
-      returned an authentication error. The 200 status reflects that the
-      validation *request* succeeded; the key itself is simply invalid.
+    - `200 {"valid": false, "error": "API key rejected by provider"}` —
+      provider returned an authentication error. The 200 status reflects
+      that the validation *request* succeeded; the key itself is simply
+      invalid. Note this is **not** surfaced as 422 `llm_auth_failed` —
+      that's the semantics on other endpoints where the caller expects the
+      key to work; here it's the endpoint's explicit purpose.
     - Non-200 responses (see **Responses**) indicate a failure of the
       validation process itself, not of the key.
     """
@@ -317,8 +396,9 @@ async def ai_models(
     Gemini Flash / Pro entries are deliberately omitted due to chronic 503s
     from Google's API).
 
-    Does **not** consume AI rate-limit quota. Subject to the normal per-user
-    read rate limit.
+    Does **not** consume quota of any kind — this endpoint skips the global
+    read/write rate limiter AND does not charge the AI buckets. Authentication
+    and consent checks still apply.
     """
     llm_service = get_llm_service()
     return AIModelsResponse(
@@ -352,34 +432,19 @@ async def suggest_tags_endpoint(
     Suggest tags for an item based on its metadata and the caller's tag
     vocabulary.
 
-    **How it works.** The server loads the caller's top ~100 most-used tags
-    (with their usage counts) and passes them to the LLM as preferred-vocabulary
-    context. The LLM is then prompted with the entity's `title`, `url`,
-    `description`, and `content_snippet` and asked to return a small set of tags
-    — preferring existing vocabulary over novel ones. Tags already in
-    `current_tags` are excluded from the response.
+    The server loads the caller's top 100 most-used tags (with usage counts)
+    and passes them to the LLM as preferred-vocabulary context. The LLM is
+    then prompted with the entity's `title`, `url`, `description`, and
+    `content_snippet` and asked to return a small set of tags — preferring
+    existing vocabulary over novel ones. Tags already in `current_tags` are
+    excluded from the response.
 
-    **Authentication.** Auth0 JWT or Personal Access Token. Optionally supply
-    `X-LLM-Api-Key` to use your own provider key (BYOK).
-
-    **Rate limit.** Consumes the `AI_PLATFORM` bucket if no BYOK key is
-    supplied, otherwise `AI_BYOK`. Both buckets are zero on FREE and STANDARD
-    tiers; only PRO has non-zero AI quota. Check `GET /ai/health` for remaining
-    quota; respect the `X-RateLimit-*` response headers on successful calls
-    and the `Retry-After` header on 429 responses.
-
-    **Model selection.** BYOK callers may pass `model` (any ID from
-    `GET /ai/models`). Platform callers have `model` silently ignored and are
-    locked to the `suggestions` default model.
-
-    **Errors.** See the Responses section for the full list — typed error
-    codes include `llm_auth_failed` (invalid BYOK key), `llm_rate_limited`
-    (provider throttle), `llm_timeout`, `llm_connection_error`, `llm_bad_request`,
-    `llm_unavailable`, `FIELD_LIMIT_EXCEEDED`.
+    **Authentication, rate limits, BYOK, and error handling**: see the `ai`
+    tag description at the top of this section.
     """
     llm_service = get_llm_service()
-    config = llm_service.resolve_config(
-        AIUseCase.SUGGESTIONS, user_api_key=llm_api_key, user_model=data.model,
+    config = _resolve_config_or_400(
+        llm_service, AIUseCase.SUGGESTIONS, llm_api_key, data.model,
     )
 
     # Load user's tag vocabulary sorted by frequency (up to 100 with counts)
@@ -445,16 +510,12 @@ async def suggest_metadata_endpoint(
     as grounding context, pass `fields: ["description"]` with the current
     `title` value. The response's `title` field will be `null`.
 
-    **Authentication.** Auth0 JWT or PAT, with optional `X-LLM-Api-Key` for BYOK.
-
-    **Rate limit.** Consumes `AI_PLATFORM` or `AI_BYOK` (PRO-tier only today).
-
-    **Model selection.** BYOK callers may pass `model`; platform callers are
-    locked to the `suggestions` use-case default (silently ignored if supplied).
+    **Authentication, rate limits, BYOK, and error handling**: see the `ai`
+    tag description at the top of this section.
     """
     llm_service = get_llm_service()
-    config = llm_service.resolve_config(
-        AIUseCase.SUGGESTIONS, user_api_key=llm_api_key, user_model=data.model,
+    config = _resolve_config_or_400(
+        llm_service, AIUseCase.SUGGESTIONS, llm_api_key, data.model,
     )
 
     start = time.monotonic()
@@ -503,25 +564,25 @@ async def suggest_relationships_endpoint(
     Then the candidates + the source entity's metadata are sent to the LLM,
     which judges which candidates are actually relevant.
 
-    **Early returns (no quota consumed):**
+    **LLM-skip cases** (quota is still consumed — the rate limit runs as a
+    FastAPI dependency *before* the handler body):
 
     - If all of `title`, `description`, and `current_tags` are empty → returns
       `{"candidates": []}` without calling the LLM.
     - If the candidate search returns no matches → returns `{"candidates": []}`
       without calling the LLM.
 
+    In both cases, `X-RateLimit-Remaining` will decrement by one even though
+    no provider cost is incurred. Use `GET /ai/health` to check quota before
+    triggering batches.
+
     Use `source_id` (when the source already exists in the DB) to exclude the
     source from its own candidate pool. Use `existing_relationship_ids` to
     exclude items already linked so the response only surfaces *new* potential
     relationships.
 
-    **Authentication.** Auth0 JWT or PAT, with optional `X-LLM-Api-Key` for BYOK.
-
-    **Rate limit.** Consumes `AI_PLATFORM` or `AI_BYOK` *only* when the LLM is
-    actually called (not in the early-return cases above).
-
-    **Model selection.** BYOK callers may pass `model`; platform callers are
-    locked to the `suggestions` default.
+    **Authentication, rate limits, BYOK, and error handling**: see the `ai`
+    tag description at the top of this section.
     """
     if not data.title and not data.description and not data.current_tags:
         return SuggestRelationshipsResponse(candidates=[])
@@ -532,8 +593,8 @@ async def suggest_relationships_endpoint(
         return SuggestRelationshipsResponse(candidates=[])
 
     llm_service = get_llm_service()
-    config = llm_service.resolve_config(
-        AIUseCase.SUGGESTIONS, user_api_key=llm_api_key, user_model=data.model,
+    config = _resolve_config_or_400(
+        llm_service, AIUseCase.SUGGESTIONS, llm_api_key, data.model,
     )
 
     start = time.monotonic()
@@ -575,34 +636,30 @@ async def suggest_arguments_endpoint(
     """
     Suggest argument definitions for a prompt template.
 
-    Two modes:
-
     **Generate-all mode** (`target_index: null`) — the server parses
     `prompt_content` for Jinja2 placeholders, skips any already declared in
     `arguments`, and returns a list of new `{name, description, required}`
-    entries for the remaining placeholders.
+    entries for the remaining placeholders. If `prompt_content` is empty or
+    all placeholders are already declared, returns `[]` **without calling
+    the LLM** (quota is still consumed — rate-limit runs before the handler).
 
     **Individual mode** (`target_index: N`) — refines the entry at
-    `arguments[N]`. The server inspects that entry and picks which field to
-    suggest based on which is missing: if `name` is empty, a name is generated
-    from the description; if `description` is empty (or both are empty), a
-    description is generated from the name (or placeholder). Returns a
-    single-element list.
+    `arguments[N]` based on which field is missing:
 
-    A `ValueError` from the service (e.g. `target_index` out of range,
-    `prompt_content` missing when required, malformed template) maps to a
+    - `name` empty, `description` present → LLM generates a name.
+    - `description` empty, `name` present → LLM generates a description.
+    - Both empty → returns `[]` **without calling the LLM** (quota still
+      consumed). The LLM needs at least one field as grounding context.
+
+    Service-layer `ValueError`s (e.g. `target_index` out of range) map to a
     400 response with the validation message in `detail`.
 
-    **Authentication.** Auth0 JWT or PAT, with optional `X-LLM-Api-Key` for BYOK.
-
-    **Rate limit.** Consumes `AI_PLATFORM` or `AI_BYOK` (PRO-tier only today).
-
-    **Model selection.** BYOK callers may pass `model`; platform callers are
-    locked to the `suggestions` default.
+    **Authentication, rate limits, BYOK, and error handling**: see the `ai`
+    tag description at the top of this section.
     """
     llm_service = get_llm_service()
-    config = llm_service.resolve_config(
-        AIUseCase.SUGGESTIONS, user_api_key=llm_api_key, user_model=data.model,
+    config = _resolve_config_or_400(
+        llm_service, AIUseCase.SUGGESTIONS, llm_api_key, data.model,
     )
 
     start = time.monotonic()
@@ -634,6 +691,19 @@ async def suggest_arguments_endpoint(
 # ---------------------------------------------------------------------------
 
 
+class LLMParseFailedError(Exception):
+    """
+    Raised when the LLM returns a response that fails structured-output parsing.
+
+    Mapped to HTTP 502 with `error_code: llm_parse_failed` by the handler in
+    `api/main.py`, mirroring the shape of the LiteLLM exception handlers.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 async def _handle_parse_error(
     exc: LLMResponseParseError,
     *,
@@ -641,7 +711,7 @@ async def _handle_parse_error(
     user_id: UUID,
     config: LLMConfig,
 ) -> NoReturn:
-    """Track cost from failed LLM parse and raise HTTP 502."""
+    """Track cost from failed LLM parse and raise `LLMParseFailedError` → 502."""
     latency_ms = int((time.monotonic() - start) * 1000)
     try:
         await track_cost(
@@ -651,9 +721,8 @@ async def _handle_parse_error(
         )
     except Exception:
         logger.warning("track_cost_failed_on_parse_error")
-    raise HTTPException(
-        status_code=502,
-        detail="LLM returned an invalid response. Try again or use a different model.",
+    raise LLMParseFailedError(
+        "LLM returned an invalid response. Try again or use a different model.",
     ) from exc
 
 
