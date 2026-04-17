@@ -65,7 +65,7 @@ Generate one or both fields of one specific argument row.
 |---|---|---|---|
 | `target_index` | **yes** | — | Index into `arguments`. `ge=0`; must be within bounds. |
 | `target_fields` | **yes** | — | `list[Literal["name", "description"]]`. Non-empty, ≤ 2 unique elements. |
-| `arguments` | **yes** | — | Existing `{name, description}` entries; non-empty. |
+| `arguments` | **yes** | — | Existing `{name, description}` entries. The **list** must be non-empty (caller must provide the entry being refined at `target_index`). Individual entries may have `null` / empty `name` and/or `description` — the grounding-signal rule governs which combinations are accepted, not a per-field non-null requirement. |
 | `prompt_content` | no | `null` | Optional Jinja2 template used as grounding context (`min_length=1` when present). |
 | `model` | no | `null` | BYOK model ID; platform callers: ignored. |
 
@@ -244,7 +244,7 @@ Pure Python layers: no router wiring, no HTTP tests. After this milestone:
              return v.strip() if isinstance(v, str) else v
      ```
 
-   - Add `SuggestPromptArgumentFieldsRequest` (singular). `target_fields` is a required non-empty list of ≤ 2 unique elements; `arguments` is required and non-empty; `prompt_content` is optional (`min_length=1` when present); a `model_validator(mode="after")` enforces grounding-signal rules using the already-normalized field values.
+   - Add `SuggestPromptArgumentFieldsRequest` (singular). `target_fields` is a required non-empty list of ≤ 2 unique elements; `arguments` is required as a non-empty list (individual entries MAY have null/empty `name` and/or `description` — per-field population is governed by the grounding-signal rule below, not a blanket non-null constraint); `prompt_content` is optional (`min_length=1` when present); a `model_validator(mode="after")` enforces grounding-signal rules using the already-normalized field values.
 
      ```python
      class SuggestPromptArgumentFieldsRequest(BaseModel):
@@ -655,18 +655,32 @@ Replace `TestSuggestArguments` with two classes.
    - **Remove** the old `onSuggestName`, `onSuggestDescription`, `isSuggestingName`, `isSuggestingDescription`, `suggestingIndex`, `suggestingField` props. If removal surfaces an unexpected caller need, stop and ask — do not repurpose silently.
    - Per-row sparkle disable condition: `rowSuggestDisabled(index) || isSuggestingRow(index) || suggestingAnyRow || isSuggestingAll || disabled`. The `suggestingAnyRow` term is the serialization gate (one per-row call at a time); `isSuggestingAll` prevents per-row fires during generate-all (existing behavior).
    - **Generate-all button disable condition also updates:** add `suggestingAnyRow` to the existing `suggestAllDisabled || isSuggestingAll || disabled`. This closes the cross-mode race where firing generate-all while a per-row is in flight can shift indices and leave the per-row's `target_index` pointing at a different row at resolution time. Symmetric with how per-row already gates on `isSuggestingAll` today.
-   - **Tooltip copy and priority** (options listed below; **stop and ask the project owner to pick the enabled/disabled wording before implementing** — per the "don't decide UX on user's behalf" rule). Pair the enabled option with the three disabled variants so messaging is consistent:
-     - Enabled: `"Suggest empty fields"` or `"Generate suggestions for empty fields"`.
-     - Disabled because row is fully populated: `"Row is complete. Clear a field to request a suggestion."`
-     - Disabled because no grounding: `"Add a name, description, or prompt template to enable suggestions."`
-     - Disabled because another row's suggestion is in flight: match whatever pattern the existing `isSuggestingAll` disabled state uses today (typically no custom tooltip — the user sees the button greyed and the spinner on the active row).
-   - **Priority ordering** when multiple disable reasons apply — check in this order, first match wins. Principle: show the most actionable reason (user can do something about it), suppress transient reasons (will resolve on their own):
+   - **Tooltip copy — state-aware.** Compute the tooltip from the row's current state rather than using one generic string. Reuses the familiar `"Suggest name"` / `"Suggest description"` language from the old per-field sparkles so existing users don't have to relearn anything.
+
+     **Enabled tooltips** (depends on which field(s) are blank on this row):
+
+     | Row state | Tooltip |
+     |---|---|
+     | Only `name` blank | `"Suggest name"` |
+     | Only `description` blank | `"Suggest description"` |
+     | Both blank (template provides grounding) | `"Suggest name and description"` |
+
+     **Disabled tooltips:**
+
+     | Why disabled | Tooltip |
+     |---|---|
+     | Both fields filled | `"Clear name or description to get a suggestion"` |
+     | Both blank, no `prompt_content` | `"Add a name, description, or prompt content to get a suggestion"` |
+     | Another suggestion in flight (`isSuggestingRow(index)` or `suggestingAnyRow` or `isSuggestingAll`) | no custom tooltip — matches existing `isSuggestingAll` pattern (spinner communicates state) |
+     | Globally disabled (`disabled` prop from parent) | no custom tooltip — inherited parent state |
+
+     The enabled tooltip and the `target_fields` the hook computes are derived from the same row-state check — keep them consistent. If `name` is blank and `description` is filled, tooltip says `"Suggest name"` and the call sends `target_fields=["name"]`. No drift between message and action.
+
+   - **Priority ordering** when multiple disable reasons apply — check in this order, first match wins. Principle: most-external reason first, then transient, then actionable.
      1. **Globally disabled** (`disabled` prop from parent) — no custom tooltip; inherited parent state.
      2. **In flight** (`isSuggestingRow(index) || suggestingAnyRow || isSuggestingAll`) — no custom tooltip; the spinner on the active operation communicates state.
-     3. **Row is complete** (both name and description populated) — use the row-complete tooltip.
-     4. **No grounding** (no field populated AND no `prompt_content`) — use the no-grounding tooltip.
-
-     **Stop and confirm this priority ordering with the project owner along with the tooltip wording** — the ordering is a UX decision in the same category as the copy.
+     3. **Row is complete** (both name and description populated) — `"Clear name or description to get a suggestion"`.
+     4. **No grounding** (no field populated AND no `prompt_content`) — `"Add a name, description, or prompt content to get a suggestion"`.
 
 6. **`frontend/src/hooks/useArgumentSuggestions.test.ts`**:
    - Update mock imports to `suggestPromptArguments` + `suggestPromptArgumentFields`.
@@ -680,7 +694,12 @@ Replace `TestSuggestArguments` with two classes.
 
 7. **`frontend/src/hooks/useAIArgumentIntegration.test.ts`**:
    - Replace name/description handler tests with `handleSuggestRow` tests.
-   - Test `rowSuggestDisabled` / `rowSuggestTooltip` across all combinations (both-populated, both-blank-no-template, both-blank-with-template, name-populated-only, description-populated-only).
+   - Test `rowSuggestDisabled` / `rowSuggestTooltip` across all combinations. Because the tooltip is state-aware, assert the specific string for each:
+     - Only name blank, description filled → enabled, `"Suggest name"`.
+     - Only description blank, name filled → enabled, `"Suggest description"`.
+     - Both blank + template populated → enabled, `"Suggest name and description"`.
+     - Both blank + no template → disabled, `"Add a name, description, or prompt content to get a suggestion"`.
+     - Both populated → disabled, `"Clear name or description to get a suggestion"`.
    - Test `handleSuggestRow` preserves a mid-flight edit: fire row sparkle (description blank), edit description while in flight, resolve → description edit preserved (the `setCurrent(prev => ...)` merge sees the edit and skips patching).
    - Test `handleSuggestRow` discards silently when the targeted row is removed mid-flight.
    - Test `handleSuggestRow` applies `required` only for the two-field case; single-field does not touch the row's `required` flag.
