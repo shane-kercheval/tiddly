@@ -244,6 +244,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - **AI endpoints** (`/ai/*` — tag/metadata/relationship/argument suggestions, health, models, validate-key): Auth0 JWT only. This is deliberate — AI features are not intended for programmatic automation due to cost implications.
 - **Token management** (`/tokens/*`): Auth0 only, to prevent a compromised PAT from minting more PATs.
 - **User settings** (`/settings/*`): Auth0 only, for account-level changes.
+- **URL metadata scraping** (`GET /bookmarks/fetch-metadata`): Auth0 only (outbound URL fetching is rate-limited and cost-sensitive).
 
 If you need scripted access to these, authenticate with an Auth0 session.
 

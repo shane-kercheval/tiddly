@@ -13,12 +13,15 @@ class AIErrorResponse(BaseModel):
     """
     Generic error envelope used by most AI endpoint failure paths.
 
-    Applies to 400, 401, 403, 429 (when the Tiddly rate limiter triggers),
-    502, 503, and 504 responses. Does NOT apply to:
+    **Applies to**: 400, 401, 403, 422 (only when `error_code=llm_auth_failed`
+    — BYOK provider-auth failure), 429, 502, 503, 504.
 
-    - `422 Unprocessable Entity` from Pydantic/FastAPI request validation —
-      those use the standard FastAPI validation error shape:
-      `{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}`.
+    **Does NOT apply to**:
+
+    - `422 Unprocessable Entity` from Pydantic/FastAPI **request validation**
+      — those use the standard FastAPI validation error shape:
+      `{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}`. The 422
+      response panel for each endpoint describes both shapes.
     - `451 Unavailable For Legal Reasons` — uses `ConsentRequiredResponse`
       below (nested object in `detail`).
     """
@@ -62,7 +65,11 @@ class ConsentDetail(BaseModel):
     )
     consent_url: str = Field(
         ...,
-        description="Path to the consent API (relative to the Tiddly API base URL).",
+        description=(
+            "Relative API path the client can GET to discover the user's "
+            "current consent status — not the endpoint for accepting. The "
+            "accept flow is separate; follow `instructions` for the steps."
+        ),
     )
     instructions: str = Field(
         ...,
@@ -475,9 +482,10 @@ class SuggestMetadataRequest(BaseModel):
     fields: list[Literal["title", "description"]] = Field(
         default_factory=lambda: ["title", "description"],
         description=(
-            "Which fields to generate. Must contain at least one of `title` "
-            "or `description`. Fields *not* listed here are used as LLM "
-            "context when supplied but are not returned in the response."
+            "Non-empty list of field names to generate; each element must be "
+            "`\"title\"` or `\"description\"`. Fields not listed here are "
+            "used as LLM context when supplied but are not returned in the "
+            "response."
         ),
     )
     url: str | None = Field(

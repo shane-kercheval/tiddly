@@ -1,7 +1,7 @@
 """AI feature endpoints."""
 import logging
 import time
-from typing import Any, NoReturn
+from typing import NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -38,6 +38,7 @@ from services.content_service import search_all_content
 from services.llm_service import (
     AIUseCase,
     LLMConfig,
+    LLMService,
     UnsupportedModelError,
     get_llm_service,
 )
@@ -113,13 +114,33 @@ _LLM_CALL_ERROR_RESPONSES: dict[int | str, dict] = {
     429: {
         "model": AIErrorResponse,
         "description": (
-            "Tiddly per-tier AI rate limit exceeded (no `error_code`; the "
-            "bare rate-limiter message is returned), *or* the upstream LLM "
-            "provider returned a rate-limit error (`error_code: llm_rate_limited`). "
-            "Respect the `Retry-After` response header. Only PRO tier has "
-            "non-zero AI quota today — FREE and STANDARD callers will always "
-            "hit the Tiddly variant."
+            "Two sources. (1) **Tiddly per-tier AI rate limit** — no "
+            "`error_code`; bare rate-limiter message in `detail`; `Retry-After` "
+            "response header present. Only PRO tier has non-zero AI quota "
+            "today, so FREE and STANDARD callers always hit this variant. "
+            "(2) **Upstream provider rate limit** (`error_code: llm_rate_limited`) "
+            "— no `Retry-After` header is set for provider 429s; use "
+            "exponential backoff."
         ),
+        "content": {
+            "application/json": {
+                "examples": {
+                    "tiddly_quota_exhausted": {
+                        "summary": "Tiddly per-tier quota (includes Retry-After header)",
+                        "value": {
+                            "detail": "Rate limit exceeded. Please try again later.",
+                        },
+                    },
+                    "provider_rate_limited": {
+                        "summary": "Upstream LLM provider rate-limited",
+                        "value": {
+                            "detail": "LLM provider rate limit exceeded. Try again later.",
+                            "error_code": "llm_rate_limited",
+                        },
+                    },
+                },
+            },
+        },
     },
     502: {
         "model": AIErrorResponse,
@@ -142,8 +163,10 @@ _LLM_CALL_ERROR_RESPONSES: dict[int | str, dict] = {
 }
 
 # BYOK authentication failure shows up on endpoints that actually use the
-# BYOK key (validate-key + all suggestion endpoints). 422 is also the shape
-# for Pydantic request validation, so the description covers both.
+# BYOK key (suggestion endpoints). 422 is also the shape for Pydantic request
+# validation, so the response carries two possible body shapes — distinguish
+# on whether `detail` is an array (validation) or string with `error_code`
+# (BYOK auth failure).
 _BYOK_AUTH_422: dict[int | str, dict] = {
     422: {
         "description": (
@@ -154,6 +177,32 @@ _BYOK_AUTH_422: dict[int | str, dict] = {
             "\"llm_auth_failed\"}`. Clients can distinguish by the type of "
             "`detail` (list vs. string) or by the presence of `error_code`."
         ),
+        "content": {
+            "application/json": {
+                "examples": {
+                    "request_validation": {
+                        "summary": "FastAPI validation error (missing / malformed field)",
+                        "value": {
+                            "detail": [
+                                {
+                                    "type": "missing",
+                                    "loc": ["body", "content_type"],
+                                    "msg": "Field required",
+                                    "input": {},
+                                },
+                            ],
+                        },
+                    },
+                    "byok_auth_failed": {
+                        "summary": "Provider rejected the supplied X-LLM-Api-Key",
+                        "value": {
+                            "detail": "LLM authentication failed. Check your API key.",
+                            "error_code": "llm_auth_failed",
+                        },
+                    },
+                },
+            },
+        },
     },
 }
 
@@ -171,12 +220,33 @@ AI_CONFIG_RESPONSES: dict[int | str, dict] = _BASE_AI_ERROR_RESPONSES
 
 # /validate-key is a special case: it DOES call the LLM, but only to probe
 # auth. Provider auth failures are returned as 200 {"valid": false} rather
-# than 422, so the 422 variant is pure Pydantic validation here.
+# than 422, so the 422 variant is pure Pydantic validation here. It also has
+# distinct 400 and 502 semantics vs. suggestion endpoints:
+#   - 400 includes the "missing X-LLM-Api-Key header" path.
+#   - 502 cannot emit `llm_parse_failed` (no `response_format` passed to
+#     LLMService.complete), so only `llm_connection_error` is documented.
 AI_VALIDATE_KEY_RESPONSES: dict[int | str, dict] = {
     **_BASE_AI_ERROR_RESPONSES,
-    400: _LLM_CALL_ERROR_RESPONSES[400],
+    400: {
+        "model": AIErrorResponse,
+        "description": (
+            "Invalid request. Typed variants: missing `X-LLM-Api-Key` header "
+            "(no `error_code`; message `\"No API key provided via "
+            "X-LLM-Api-Key header\"` in `detail`); `llm_bad_request` (LLM "
+            "provider rejected the request shape); unsupported `model` value "
+            "(no `error_code`; message starts with `\"Unsupported model\"`)."
+        ),
+    },
     429: _LLM_CALL_ERROR_RESPONSES[429],
-    502: _LLM_CALL_ERROR_RESPONSES[502],
+    502: {
+        "model": AIErrorResponse,
+        "description": (
+            "Could not reach the LLM provider (`error_code: "
+            "llm_connection_error`). Safe to retry. Note: this endpoint "
+            "never emits `llm_parse_failed` — it doesn't request structured "
+            "output from the provider."
+        ),
+    },
     503: _LLM_CALL_ERROR_RESPONSES[503],
     504: _LLM_CALL_ERROR_RESPONSES[504],
 }
@@ -204,7 +274,7 @@ def get_llm_api_key(
 
 
 def _resolve_config_or_400(
-    llm_service: Any,
+    llm_service: LLMService,
     use_case: AIUseCase,
     user_api_key: str | None,
     user_model: str | None,
