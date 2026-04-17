@@ -265,6 +265,8 @@ Implemented in `core/rate_limiter.py` + `core/rate_limit_config.py`.
 
 Each bucket has both a **per-minute** sliding window (Redis sorted set of timestamps) and a **per-day** fixed window (incremented via Lua script). Limits are tier-scoped. Tiers with `0/0` limits for a bucket (FREE and STANDARD both have `0/0` for `AI_PLATFORM` and `AI_BYOK`, today) short-circuit without even hitting Redis — only PRO has non-zero AI limits.
 
+`GET /ai/health` exposes remaining quota in **both** windows — `remaining_per_minute` / `limit_per_minute` alongside `remaining_daily` / `limit_daily` — so mobile / batch clients can rate-shape. A dedicated `AIRateLimitStatus` dataclass in `core/rate_limiter.py` wraps both windows; the minute window is peeked non-destructively via `ZCOUNT` (exclusive lower bound to mirror the writer's `ZREMRANGEBYSCORE` semantics). The entire peek is fail-open: any Redis failure resolves to "full quota remaining" to avoid false 429s on the status endpoint.
+
 Results are stored in `request.state.rate_limit_info` and serialized to `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and (when exceeded) `Retry-After` response headers.
 
 **Fail-open semantics**: if Redis is unreachable, the limiter logs a warning and allows the request rather than hard-failing. This is intentional — Redis downtime should degrade, not break, the API. It also means rate limits are effectively **per-instance** when Redis is absent; multi-instance deployments without Redis would allow per-instance quota. Currently the deployed topology is a single API instance, so this is a non-issue, but worth knowing before horizontally scaling.
@@ -309,7 +311,7 @@ There is no application-level circuit breaker. Cost containment relies on **prov
 
 ### Errors
 
-LiteLLM exceptions propagate; a shared exception handler registered on the AI router maps them to typed HTTP responses (`llm_auth_failed` → 422, `llm_rate_limited` → 429, `llm_timeout` → 504, `llm_bad_request` → 400, `llm_connection_error` → 502, other → 503). All use the `llm_*` prefix so the frontend can distinguish provider failures from platform auth failures.
+LiteLLM exceptions propagate; a shared exception handler registered on the AI router maps them to typed HTTP responses (`llm_auth_failed` → 422, `llm_rate_limited` → 429, `llm_timeout` → 504, `llm_bad_request` → 400, `llm_connection_error` → 502, `llm_parse_failed` → 502, other → 503). All use the `llm_*` prefix so the frontend can distinguish provider failures from platform auth failures. `llm_parse_failed` is raised by `services/suggestion_service.py::LLMParseFailedError` when the provider returns a response that doesn't match the expected structured-output schema — clients should retry, ideally with a different model.
 
 Deeper treatment: [`docs/ai-integration.md`](ai-integration.md).
 
@@ -486,6 +488,10 @@ A grab-bag of non-obvious invariants and constraints — if you're about to chan
 - MCP servers intentionally **do not** expose delete. If you're tempted to add it for symmetry, don't.
 - Rate limiting is single-instance. If the API ever scales horizontally, the Redis-backed path must be the only path — the in-memory fallback permits per-instance quota.
 - Middleware order matters (§10). `RateLimitHeadersMiddleware` depends on state populated by the auth/rate-limit dependency and must remain innermost. Reordering the middleware stack will silently break rate-limit headers in any short-circuit path.
+- AI endpoints are **Auth0-only** (PATs → 403). This is deliberate defense-in-depth against accidental automation of cost-incurring calls; don't "helpfully" flip `allow_pat=True` on `get_current_user_ai` without considering the abuse/cost model.
+- `/ai/validate-key`'s missing-BYOK 400 path does **not** consume rate-limit quota. The `apply_ai_rate_limit_byok` dependency short-circuits when no header is present, so the handler's "missing key" 400 fires without charging the bucket. All other AI endpoints charge the bucket in a pre-handler `Depends`, even on short-circuit paths that skip the LLM call.
+- `/ai/validate-key` returns `200 {"valid": false}` for a provider-rejected key — not a 422. That's the endpoint's explicit purpose; suggestion endpoints surface the same condition as 422 with `error_code: llm_auth_failed`.
+- 429 responses carry a `Retry-After` header only when the Tiddly rate limiter produces them. Provider-side 429s (`error_code: llm_rate_limited`) do not — use exponential backoff.
 
 ---
 
@@ -500,3 +506,5 @@ Areas of this doc most likely to go stale between edits. If you notice one of th
 - **Redis key schemas.** `ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}` is the contract between `LLMService` (writer) and `tasks/ai_usage_flush.py` (reader/parser). If one side changes the key format without the other, cost data will be silently dropped. Similar risk exists for rate-limiter key layouts and the auth cache.
 - **Auth variant count (§5).** A new `get_current_user_*` dependency added to `core/auth.py` for a niche use case is easy to miss here.
 - **AI use-case wiring status.** The §7 table flags which use cases are wired to endpoints. Adding an endpoint for TRANSFORM / AUTO_COMPLETE / CHAT without updating that table or this doc is a likely drift.
+- **`AIUseCaseKey` Literal in `schemas/ai.py`.** Hand-written to mirror `services.llm_service.AIUseCase`. Guarded by `backend/tests/schemas/test_ai_schemas.py::test__ai_use_case_key__matches_ai_use_case_enum_values` — if the test fails, update both sides.
+- **Hardcoded model IDs in `schemas/ai.py` examples.** OpenAPI `json_schema_extra` examples reference specific model IDs (e.g. `openai/gpt-5.4-nano`). These don't auto-update with the `_SUPPORTED_MODEL_DEFS` catalog; when a model is deprecated or renamed, update the schema examples too. Low-risk today (catalog is stable) but worth checking on any catalog change.

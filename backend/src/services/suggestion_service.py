@@ -55,6 +55,23 @@ class LLMResponseParseError(Exception):
         self.cost = cost
 
 
+class LLMParseFailedError(Exception):
+    """
+    Raised by AI endpoint handlers when `LLMResponseParseError` is caught and
+    converted into an HTTP response. Mapped to HTTP 502 with
+    `error_code: llm_parse_failed` by the handler in `api/main.py`, mirroring
+    the shape of the LiteLLM exception handlers.
+
+    Lives alongside `LLMResponseParseError` (its parent-cause) rather than in
+    the router layer so that `api/main.py` can import it without inverting
+    the app-layer → router-layer dependency direction.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 def _parse_response(
     response: object,
     response_model: type,

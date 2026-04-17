@@ -17,6 +17,19 @@ litellm.suppress_debug_info = True
 logger = logging.getLogger(__name__)
 
 
+class UnsupportedModelError(ValueError):
+    """
+    Raised when a BYOK caller passes a `model` ID not in the supported allowlist.
+
+    Subclasses `ValueError` for backward compatibility with any code that
+    catches `ValueError` around `LLMService.resolve_config`. Routers should
+    catch this specifically (and map to HTTP 400) rather than catching bare
+    `ValueError`, so that unrelated `ValueError`s from `resolve_config`
+    surface as 500 with a generic message rather than leaking internal
+    details to clients.
+    """
+
+
 class KeySource(StrEnum):
     """Source of the API key used for an LLM call."""
 
@@ -242,11 +255,12 @@ class LLMService:
         - If user provides a key: use their key + their model (or use-case default model)
         - Otherwise: use platform key + use-case model (ignore user model choice)
 
-        Raises ValueError if user_model is not in the supported models allowlist.
+        Raises UnsupportedModelError (subclass of ValueError) if user_model is
+        not in the supported models allowlist.
         """
         if user_api_key:
             if user_model and user_model not in _SUPPORTED_MODEL_IDS:
-                raise ValueError(f"Unsupported model: {user_model}")
+                raise UnsupportedModelError(f"Unsupported model: {user_model}")
             return LLMConfig(
                 model=user_model or self._platform_configs[use_case].model,
                 api_key=user_api_key,

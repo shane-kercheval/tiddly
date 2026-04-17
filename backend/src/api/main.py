@@ -34,7 +34,6 @@ from litellm.exceptions import (
     Timeout as LiteLLMTimeout,
 )
 
-from api.routers.ai import LLMParseFailedError
 from core.auth_cache import AuthCache, set_auth_cache
 from core.config import get_settings
 from core.http_cache import ETagMiddleware
@@ -43,6 +42,7 @@ from core.redis import RedisClient, set_redis_client
 from db.session import engine
 from services.exceptions import FieldLimitExceededError, QuotaExceededError
 from services.llm_service import LLMService, set_llm_service
+from services.suggestion_service import LLMParseFailedError
 
 logger = logging.getLogger(__name__)
 
@@ -134,10 +134,12 @@ _OPENAPI_TAGS = [
             "`/ai/models`, `/ai/validate-key`).\n\n"
             "### Authentication\n\n"
             "**Auth0 JWT only.** AI endpoints reject Personal Access Tokens "
-            "(`bm_*`) with `403 Forbidden` — PATs work on every other API surface "
-            "but not here. This is a deliberate defense-in-depth signal that AI "
-            "features are not intended for automated or programmatic use. There "
-            "is no way to opt into PAT access for AI endpoints today.\n\n"
+            "(`bm_*`) with `403 Forbidden`. This is a deliberate "
+            "defense-in-depth signal that AI features are not intended for "
+            "automated or programmatic use. PATs are also rejected on a few "
+            "other security-sensitive surfaces (token management, user "
+            "settings) — they are the default auth method for CRUD on content "
+            "but not universal.\n\n"
             "### Bring-Your-Own-Key (BYOK)\n\n"
             "Optionally send `X-LLM-Api-Key: <provider key>` to use your own "
             "provider credentials instead of the platform's. BYOK calls consume "
@@ -151,8 +153,10 @@ _OPENAPI_TAGS = [
             "separate from the normal read/write quotas. Today only PRO tier "
             "has non-zero AI limits (FREE and STANDARD are `0/0` for both "
             "buckets and will always 429). Successful responses include "
-            "`X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`; "
-            "429 responses include `Retry-After`.\n\n"
+            "`X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`. "
+            "Tiddly-level 429s (tier quota exhausted) include `Retry-After`; "
+            "provider-level 429s (`error_code: llm_rate_limited`) do not — "
+            "use exponential backoff for those.\n\n"
             "`/ai/health` and `/ai/models` are the two exceptions — they skip "
             "the AI buckets AND the global read/write limiter entirely. Poll "
             "`/ai/health` freely to refresh quota-remaining UI; it returns "
@@ -173,9 +177,12 @@ _OPENAPI_TAGS = [
             "string}` — see the per-endpoint **Responses** panels for the full "
             "catalog. Two shapes are different:\n\n"
             "- **422** uses FastAPI's standard validation-error array: "
-            "`{detail: [{loc, msg, type}, ...]}`. BYOK provider-auth failures "
-            "also surface as 422 but with the common envelope and "
-            "`error_code: llm_auth_failed`.\n"
+            "`{detail: [{loc, msg, type}, ...]}`. On suggestion endpoints, "
+            "BYOK provider-auth failures also surface as 422 but with the "
+            "common envelope and `error_code: llm_auth_failed`. "
+            "`/ai/validate-key` is the exception — it normalizes provider "
+            "auth failures to `200 {\"valid\": false}` because testing the "
+            "key is the endpoint's explicit purpose.\n"
             "- **451** uses a structured consent-required payload where "
             "`detail` is itself an object — direct the user to the consent "
             "flow.\n\n"

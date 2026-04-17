@@ -38,9 +38,11 @@ from services.content_service import search_all_content
 from services.llm_service import (
     AIUseCase,
     LLMConfig,
+    UnsupportedModelError,
     get_llm_service,
 )
 from services.suggestion_service import (
+    LLMParseFailedError,
     LLMResponseParseError,
     suggest_arguments,
     suggest_metadata,
@@ -190,14 +192,10 @@ def get_llm_api_key(
         None,
         alias="X-LLM-Api-Key",
         description=(
-            "Optional Bring-Your-Own-Key (BYOK) header. When supplied, the AI "
-            "endpoint uses this key against the matching provider instead of "
-            "the platform key. BYOK calls consume the `AI_BYOK` rate-limit "
-            "bucket (separate from `AI_PLATFORM`) and allow selection of any "
-            "supported `model` from `GET /ai/models`. Platform calls (header "
-            "omitted) are locked to the use-case default model. The key is "
-            "held in request memory only — never logged, stored, or returned "
-            "in error responses."
+            "Optional Bring-Your-Own-Key (BYOK) header. Supplying this "
+            "routes the call to the `AI_BYOK` rate-limit bucket and unlocks "
+            "`model` selection. See the `ai` tag description for full BYOK "
+            "semantics (platform vs. BYOK, model resolution, secret hygiene)."
         ),
     ),
 ) -> str | None:
@@ -213,8 +211,13 @@ def _resolve_config_or_400(
 ) -> LLMConfig:
     """
     Wrapper around `LLMService.resolve_config` that converts the service's
-    `ValueError` (unsupported model) into a 400 `HTTPException`. Keeps the
-    ValueError-→-400 contract consistent across every AI endpoint.
+    typed `UnsupportedModelError` into a 400 `HTTPException` with the
+    unsupported-model message surfaced in `detail`.
+
+    Intentionally does NOT catch bare `ValueError`: any other `ValueError`
+    leaking from `resolve_config` (or code beneath it) represents a bug
+    rather than bad client input, and should surface as a generic 500 with
+    no internal message leaked to the caller.
     """
     try:
         return llm_service.resolve_config(
@@ -222,7 +225,7 @@ def _resolve_config_or_400(
             user_api_key=user_api_key,
             user_model=user_model,
         )
-    except ValueError as exc:
+    except UnsupportedModelError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -307,8 +310,17 @@ async def ai_health(
     quota = await get_ai_rate_limit_status(
         current_user.id, ai_bucket, get_tier_safely(current_user.tier),
     )
+    # `available` requires BOTH windows non-zero for whichever bucket applies.
+    # A tier with daily>0 but per-minute=0 would otherwise report available=True
+    # yet always 429 on the first call — a real trap.
+    platform_ok = limits.rate_ai_per_minute > 0 and limits.rate_ai_per_day > 0
+    byok_ok = (
+        has_byok
+        and limits.rate_ai_byok_per_minute > 0
+        and limits.rate_ai_byok_per_day > 0
+    )
     return AIHealthResponse(
-        available=limits.rate_ai_per_day > 0 or (has_byok and limits.rate_ai_byok_per_day > 0),
+        available=platform_ok or byok_ok,
         byok=has_byok,
         remaining_per_minute=quota.remaining_per_minute,
         limit_per_minute=quota.limit_per_minute,
@@ -335,11 +347,9 @@ async def validate_key(
     is specified). Performs a minimal 5-token completion call against the
     provider.
 
-    **Authentication:** Auth0 JWT required (PATs are rejected with 403).
-    Additionally requires `X-LLM-Api-Key`. Returns 400 if the BYOK header is missing.
-
-    **Rate limit:** consumes the `AI_BYOK` bucket. Platform callers cannot use
-    this endpoint — there's nothing to validate without a user-supplied key.
+    Requires `X-LLM-Api-Key`; returns 400 if the header is missing **without
+    consuming quota** (the rate-limit dependency short-circuits when no BYOK
+    key is present).
 
     **Response semantics:**
 
@@ -348,23 +358,21 @@ async def validate_key(
       provider returned an authentication error. The 200 status reflects
       that the validation *request* succeeded; the key itself is simply
       invalid. Note this is **not** surfaced as 422 `llm_auth_failed` —
-      that's the semantics on other endpoints where the caller expects the
-      key to work; here it's the endpoint's explicit purpose.
+      that's the semantics on suggestion endpoints where the caller
+      expects the key to work; here it's the endpoint's explicit purpose.
     - Non-200 responses (see **Responses**) indicate a failure of the
       validation process itself, not of the key.
+
+    **Authentication, rate limits, BYOK, and error handling**: see the `ai`
+    tag description at the top of this section.
     """
     if not llm_api_key:
         raise HTTPException(status_code=400, detail="No API key provided via X-LLM-Api-Key header")
 
     llm_service = get_llm_service()
-    try:
-        config = llm_service.resolve_config(
-            AIUseCase.SUGGESTIONS,
-            user_api_key=llm_api_key,
-            user_model=body.model,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    config = _resolve_config_or_400(
+        llm_service, AIUseCase.SUGGESTIONS, llm_api_key, body.model,
+    )
     try:
         await llm_service.complete(
             messages=[{"role": "user", "content": "This is a test. Respond with 'ok'."}],
@@ -560,9 +568,11 @@ async def suggest_relationships_endpoint(
     to the source entity, then have the LLM filter to the most relevant subset.
 
     **Two-phase design.** First, a full-text / tag search runs server-side
-    across the caller's bookmarks, notes, and prompts to gather candidates.
-    Then the candidates + the source entity's metadata are sent to the LLM,
-    which judges which candidates are actually relevant.
+    across the caller's bookmarks, notes, and prompts to gather candidates
+    (see `_search_relationship_candidates` — FTS over title+description +
+    recency-ranked tag match, deduplicated). Then the candidates + the
+    source entity's metadata are sent to the LLM, which judges which
+    candidates are actually relevant.
 
     **LLM-skip cases** (quota is still consumed — the rate limit runs as a
     FastAPI dependency *before* the handler body):
@@ -689,19 +699,6 @@ async def suggest_arguments_endpoint(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-class LLMParseFailedError(Exception):
-    """
-    Raised when the LLM returns a response that fails structured-output parsing.
-
-    Mapped to HTTP 502 with `error_code: llm_parse_failed` by the handler in
-    `api/main.py`, mirroring the shape of the LiteLLM exception handlers.
-    """
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
 
 
 async def _handle_parse_error(

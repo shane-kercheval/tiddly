@@ -116,6 +116,20 @@ export function DocsAPI(): ReactNode {
         </svg>
       </a>
 
+      {/* AI Endpoint Caveat */}
+      <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <p className="font-semibold mb-1">AI endpoints require Auth0 login</p>
+        <p>
+          The <code className="rounded bg-amber-100 px-1 py-0.5 text-xs">/ai/*</code> endpoints
+          (tag / metadata / relationship / argument suggestions, plus <code className="rounded bg-amber-100 px-1 py-0.5 text-xs">/ai/health</code>,
+          {' '}<code className="rounded bg-amber-100 px-1 py-0.5 text-xs">/ai/models</code>, and
+          {' '}<code className="rounded bg-amber-100 px-1 py-0.5 text-xs">/ai/validate-key</code>) are
+          Auth0-JWT-only — Personal Access Tokens receive a 403 response. This is intentional:
+          AI features are not designed for programmatic automation. PATs still work on every
+          other content endpoint (bookmarks, notes, prompts, tags, filters, history).
+        </p>
+      </div>
+
       {/* Rate Limits */}
       <h2 className="text-lg font-bold text-gray-900 mt-10 mb-3">Rate Limits</h2>
       <p className="text-sm text-gray-600 mb-4">

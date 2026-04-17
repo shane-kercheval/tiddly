@@ -325,7 +325,7 @@ class TestLLMExceptionHandlers:
     async def test_parse_failed_returns_502(self) -> None:
         """LLM structured-output parse failure returns 502 with llm_parse_failed code."""
         from api.main import llm_parse_failed_exception_handler  # noqa: PLC0415
-        from api.routers.ai import LLMParseFailedError  # noqa: PLC0415
+        from services.suggestion_service import LLMParseFailedError  # noqa: PLC0415
         exc = LLMParseFailedError("could not parse LLM response as expected schema")
         response = await llm_parse_failed_exception_handler(MagicMock(), exc)
         assert response.status_code == 502

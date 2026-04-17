@@ -43,13 +43,43 @@ class AIErrorResponse(BaseModel):
     )
 
 
+class ConsentDetail(BaseModel):
+    """Structured body of a 451 `ConsentRequiredResponse`."""
+
+    error: Literal["consent_required", "consent_outdated"] = Field(
+        ...,
+        description=(
+            "`consent_required`: the user has never accepted policy. "
+            "`consent_outdated`: policy versions changed since last acceptance."
+        ),
+    )
+    message: str = Field(
+        ...,
+        description=(
+            "Human-readable summary. Clients should guide the user to the "
+            "consent flow rather than surface this verbatim."
+        ),
+    )
+    consent_url: str = Field(
+        ...,
+        description="Path to the consent API (relative to the Tiddly API base URL).",
+    )
+    instructions: str = Field(
+        ...,
+        description=(
+            "Concrete steps the user can take to accept (typically a link to "
+            "the web UI consent page)."
+        ),
+    )
+
+
 class ConsentRequiredResponse(BaseModel):
     """
     451 response shape when the caller has not accepted the current privacy
     policy or terms of service.
 
-    Unlike `AIErrorResponse`, `detail` is a structured object with action
-    hints the client can use to guide the user to the consent flow.
+    Unlike `AIErrorResponse`, `detail` is a structured object (`ConsentDetail`)
+    with action hints the client can use to guide the user to the consent flow.
     """
 
     model_config = ConfigDict(
@@ -67,14 +97,12 @@ class ConsentRequiredResponse(BaseModel):
         },
     )
 
-    detail: dict = Field(
+    detail: ConsentDetail = Field(
         ...,
         description=(
-            "Structured error payload with keys `error` (one of "
-            "`consent_required` / `consent_outdated`), `message` "
-            "(human-readable), `consent_url` (path to the consent endpoint), "
-            "and `instructions` (steps for the user). Clients should direct "
-            "the user to the consent flow rather than surface the message verbatim."
+            "Structured error payload. Clients should read the `error` "
+            "discriminator and direct the user to `consent_url` / "
+            "`instructions` rather than surface `message` verbatim."
         ),
     )
 
@@ -141,11 +169,13 @@ class AIHealthResponse(BaseModel):
         ...,
         description=(
             "Whether AI features are available **for this specific request**. "
-            "True when the caller's tier has a non-zero platform daily limit, "
-            "OR the caller sent `X-LLM-Api-Key` AND their tier has a non-zero "
-            "BYOK daily limit. A BYOK-only tier (platform=0, BYOK>0) will "
-            "therefore return `false` when called *without* the BYOK header, "
-            "even though BYOK access exists."
+            "True when BOTH the per-minute AND daily platform limits are "
+            "non-zero for the caller's tier, OR the caller sent "
+            "`X-LLM-Api-Key` AND both BYOK windows are non-zero. A "
+            "BYOK-only tier (platform=0, BYOK>0) therefore returns `false` "
+            "when called *without* the BYOK header. Both windows must be "
+            "non-zero — a tier with daily>0 but per-minute=0 (or vice versa) "
+            "would always 429, so we surface that as `available=false`."
         ),
     )
     byok: bool = Field(
@@ -222,8 +252,9 @@ class AIModelEntry(BaseModel):
 
 
 # Keys of `AIModelsResponse.defaults`. Mirrors `services.llm_service.AIUseCase`
-# — if the enum grows, add the new key here too (caught by mypy + drift-risk
-# section in `docs/architecture.md`).
+# — if the enum grows, add the new key here too. Drift is guarded by
+# `tests/schemas/test_ai_schemas.py` (test__ai_use_case_key__matches_ai_use_case_enum_values)
+# which fails if the two sets don't match.
 AIUseCaseKey = Literal["suggestions", "transform", "auto_complete", "chat"]
 
 

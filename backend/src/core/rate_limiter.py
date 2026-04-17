@@ -152,6 +152,14 @@ async def get_ai_rate_limit_status(
     client can surface both short-term and daily headroom. Does not mutate the
     underlying Redis structures — the minute window is peeked via ZCOUNT and
     the daily counter via GET.
+
+    **Fail-open invariant.** Every Redis failure mode resolves to "full quota
+    remaining" — this is a health-check endpoint, so we prefer false-optimism
+    over false-pessimism. If Redis is fully unavailable, both windows report
+    full. If a single call within the function fails (daily GET or minute
+    ZCOUNT), just that window falls open — the other is trusted. Because
+    Redis's `GET` returns `None` both for missing keys AND for transient
+    errors, the daily path is implicitly fail-open either way.
     """
     limits = get_tier_limits(tier)
 
@@ -184,10 +192,12 @@ async def get_ai_rate_limit_status(
 
     # Per-minute — sliding window (sorted set of timestamps). ZCOUNT entries
     # whose score is within the last 60 seconds gives the used count without
-    # mutating the set.
+    # mutating the set. Use exclusive lower bound to mirror the writer's
+    # ZREMRANGEBYSCORE(0, now-window) semantics, which removes entries at
+    # score == now - window.
     now = int(time.time())
     minute_key = f"rate:{user_id}:{operation_type.value}:min"
-    used_minute = await redis_client.zcount(minute_key, now - 60, float("inf"))
+    used_minute = await redis_client.zcount(minute_key, f"({now - 60}", "+inf")
     if used_minute is None:
         # Redis hiccup — fail open for this window only
         used_minute = 0

@@ -194,13 +194,17 @@ class RedisClient:
             logger.warning("Redis HGETALL failed: %s", e)
             return None
 
-    async def zcount(self, key: str, min_score: float, max_score: float) -> int | None:
+    async def zcount(
+        self, key: str, min_score: float | str, max_score: float | str,
+    ) -> int | None:
         """
-        Count entries in a sorted set with scores between `min_score` and
-        `max_score` (both inclusive; use `-inf` / `+inf` for open bounds).
+        Count entries in a sorted set with scores in the given range.
 
-        Returns the count, or None if Redis is unavailable. Does not mutate
-        the set — safe for read-only status checks.
+        Bounds follow Redis ZCOUNT semantics: numeric values are inclusive,
+        `-inf` / `+inf` are open, and string values prefixed with `(` are
+        exclusive (e.g. `"(123"` means "greater than 123"). Returns the count,
+        or `None` if Redis is unavailable. Does not mutate the set — safe for
+        read-only status checks.
         """
         if not self._client:
             return None
