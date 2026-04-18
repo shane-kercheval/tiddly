@@ -643,14 +643,13 @@ class TestSuggestEndpointsUnsupportedModel:
         assert response.status_code == 400
         assert "Unsupported model" in response.json()["detail"]
 
-    async def test_suggest_arguments_unsupported_model(self, client: AsyncClient) -> None:
+    async def test_suggest_prompt_arguments_unsupported_model(self, client: AsyncClient) -> None:
         response = await client.post(
-            "/ai/suggest-arguments",
+            "/ai/suggest-prompt-arguments",
             headers={"X-LLM-Api-Key": "user-key"},
             json={
                 "prompt_content": "hello {{ name }}",
                 "arguments": [],
-                "target_index": None,
                 **self._UNSUPPORTED_PAYLOAD,
             },
         )

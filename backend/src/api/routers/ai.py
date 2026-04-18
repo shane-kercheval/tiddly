@@ -20,10 +20,11 @@ from schemas.ai import (
     AIModelsResponse,
     ConsentRequiredResponse,
     RelationshipCandidateContext,
-    SuggestArgumentsRequest,
-    SuggestArgumentsResponse,
     SuggestMetadataRequest,
     SuggestMetadataResponse,
+    SuggestPromptArgumentFieldsRequest,
+    SuggestPromptArgumentsRequest,
+    SuggestPromptArgumentsResponse,
     SuggestRelationshipsRequest,
     SuggestRelationshipsResponse,
     SuggestTagsRequest,
@@ -45,8 +46,9 @@ from services.llm_service import (
 from services.suggestion_service import (
     LLMParseFailedError,
     LLMResponseParseError,
-    suggest_arguments,
     suggest_metadata,
+    suggest_prompt_argument_fields,
+    suggest_prompt_arguments,
     suggest_relationships,
     suggest_tags,
 )
@@ -96,14 +98,11 @@ _BASE_AI_ERROR_RESPONSES: dict[int, dict] = {
     422: {
         "description": (
             "FastAPI / Pydantic request validation failed (missing required "
-            "field, oversized `content_snippet`, negative or non-integer "
-            "`target_index`, etc.). Response follows FastAPI's standard "
-            "validation-error shape: `{\"detail\": [{\"loc\": [...], "
-            "\"msg\": \"...\", \"type\": \"...\"}]}`, **not** the "
-            "`AIErrorResponse` envelope used for other 4xx/5xx errors. "
-            "Note: out-of-range `target_index` (index exists and is a valid "
-            "non-negative integer but exceeds `arguments` length) is a 400, "
-            "not a 422 — see the 400 entry."
+            "field, oversized payload, values outside permitted literals, "
+            "etc.). Response follows FastAPI's standard validation-error "
+            "shape: `{\"detail\": [{\"loc\": [...], \"msg\": \"...\", "
+            "\"type\": \"...\"}]}`, **not** the `AIErrorResponse` envelope "
+            "used for other 4xx/5xx errors."
         ),
     },
     451: {
@@ -145,9 +144,7 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
             "Invalid request. Typed variants: `llm_bad_request` (LLM provider "
             "rejected the request shape). Also: the supplied `model` is not in "
             "the supported list (no `error_code`; message starts with "
-            "\"Unsupported model\"), and `suggest-arguments` service "
-            "validation failures (e.g. `target_index` out of range — no "
-            "`error_code`, message in `detail`)."
+            "\"Unsupported model\")."
         ),
         "content": {
             "application/json": {
@@ -163,12 +160,6 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
                         "value": {
                             "detail": "Invalid request to LLM provider.",
                             "error_code": "llm_bad_request",
-                        },
-                    },
-                    "target_index_out_of_range": {
-                        "summary": "suggest-arguments service validation",
-                        "value": {
-                            "detail": "target_index 5 is out of range (arguments has 2 items)",
                         },
                     },
                 },
@@ -346,6 +337,46 @@ AI_SUGGESTION_RESPONSES: dict[int, dict] = {
     **_BASE_AI_ERROR_RESPONSES,
     **_LLM_CALL_ERROR_RESPONSES,
     **_BYOK_AUTH_422,
+}
+
+# Endpoint-specific 400 override for /ai/suggest-prompt-argument-fields: adds
+# the `target_index_out_of_range` example so the only endpoint that can
+# return it documents it. Other suggestion endpoints keep the cleaner
+# `AI_SUGGESTION_RESPONSES` variant — their Swagger no longer leaks an
+# example that couldn't occur there.
+#
+# Composed (not copied) from the shared 400 dict — any future edit to the
+# shared prose or examples flows through here automatically; only the
+# target_index delta is local to this override.
+_SHARED_400 = _LLM_CALL_ERROR_RESPONSES[400]
+_SUGGEST_PROMPT_ARGUMENT_FIELDS_400: dict[int, dict] = {
+    400: {
+        **_SHARED_400,
+        "description": (
+            _SHARED_400["description"]
+            + " Also: service-level semantic validation failures on "
+              "`target_index` (the index is a valid non-negative integer "
+              "but exceeds `arguments` length — no `error_code`, message "
+              "in `detail`)."
+        ),
+        "content": {
+            "application/json": {
+                "examples": {
+                    **_SHARED_400["content"]["application/json"]["examples"],
+                    "target_index_out_of_range": {
+                        "summary": "suggest-prompt-argument-fields service validation",
+                        "value": {
+                            "detail": "target_index 5 is out of range (arguments has 2 items)",
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
+SUGGEST_PROMPT_ARGUMENT_FIELDS_RESPONSES: dict[int, dict] = {
+    **AI_SUGGESTION_RESPONSES,
+    **_SUGGEST_PROMPT_ARGUMENT_FIELDS_400,
 }
 
 # Config endpoints (/health, /models) surface only the shared base set plus
@@ -925,67 +956,60 @@ async def suggest_relationships_endpoint(
 
 
 @router.post(
-    "/suggest-arguments",
-    response_model=SuggestArgumentsResponse,
+    "/suggest-prompt-arguments",
+    response_model=SuggestPromptArgumentsResponse,
     responses=AI_SUGGESTION_RESPONSES,
-    summary="Suggest prompt template arguments (name/description)",
+    summary="Suggest all new prompt-template arguments from placeholders",
 )
-async def suggest_arguments_endpoint(
-    data: SuggestArgumentsRequest,
+async def suggest_prompt_arguments_endpoint(
+    data: SuggestPromptArgumentsRequest,
     current_user: User | CachedUser = Depends(get_current_user_ai),
     llm_api_key: str | None = Depends(get_llm_api_key),
     _rate_limit: None = Depends(apply_ai_rate_limit),
-) -> SuggestArgumentsResponse:
+) -> SuggestPromptArgumentsResponse:
     """
-    Suggest `{name, description, required}` argument definitions for a
-    Jinja2 prompt template.
+    Generate `{name, description, required}` entries for every
+    `{{ placeholder }}` in a Jinja2 prompt template that is not already
+    declared in `arguments`.
 
     ### Request fields
 
     | Field | Required | Default | Purpose |
     |---|---|---|---|
-    | `prompt_content` | generate-all | `null` | Jinja2 template, 50 KB max. Individual: opt. |
-    | `arguments` | no | `[]` | Existing `{name, description}` entries — see modes below. |
-    | `target_index` | no | `null` | Mode selector — see modes below. |
+    | `prompt_content` | **yes** | — | Jinja2 template, 50 KB max. Whitespace-stripped. |
+    | `arguments` | no | `[]` | Existing `{name, description}` — names skip extraction. |
     | `model` | no | `null` | BYOK model ID. Platform callers: ignored. |
 
     ### Response
 
-    `{"arguments": [{name, description, required}, ...]}` — the list is the
-    newly-proposed or newly-refined entries. See the mode sections below for
-    what each mode returns.
+    `{"arguments": [{name, description, required}, ...]}` — one entry per
+    new placeholder detected in `prompt_content`. Returned in the order
+    the placeholders first appear in the template.
 
-    ### Modes (selected by `target_index`)
+    ### Empty-response cases
 
-    #### Generate-all mode — `target_index: null`
+    Rate-limit quota is always consumed (the dependency runs before the
+    handler), so `{"arguments": []}` is not a free response. There are
+    two distinct ways to get it:
 
-    Extract every `{{ placeholder }}` from `prompt_content` not already
-    present in `arguments` (by name, case-insensitive), and return a full
-    proposed entry for each new one.
+    **No LLM call, no provider cost.** The server short-circuits before
+    talking to the LLM:
 
-    - **Requires** `prompt_content`. `arguments` is optional.
-    - Empty response `{"arguments": []}` (no LLM call, quota still consumed)
-      when `prompt_content` is empty, or when every placeholder in it is
-      already declared in `arguments`.
+    - `prompt_content` contains no `{{ }}` placeholders at all.
+    - Every extracted placeholder is already declared in `arguments` by
+      name (case-insensitive).
 
-    #### Individual mode — `target_index: N`
+    **LLM call made, provider cost charged.** The LLM ran but produced
+    no usable output:
 
-    Refine the existing `arguments[N]` entry by filling in whichever of its
-    fields is currently missing:
+    - Every generated argument name failed identifier validation
+      (`lowercase_with_underscores`, must start with a letter). Rare —
+      usually indicates a very weak model or a pathological template.
 
-    - `arguments[N].name` is empty, `description` present → LLM generates
-      `name` from the description.
-    - `arguments[N].description` is empty, `name` present → LLM generates
-      `description` from the name.
+    ### Related
 
-    Returns a single-element list containing the refined entry.
-
-    - **Requires** a valid `target_index` (must be within `arguments`'s
-      bounds; out-of-range → 400) and at least one populated field on
-      `arguments[target_index]`.
-    - Empty response `{"arguments": []}` (no LLM call, quota still consumed)
-      when both `name` and `description` on the targeted entry are empty —
-      the LLM needs at least one as grounding.
+    Use `POST /ai/suggest-prompt-argument-fields` to refine the `name` or
+    `description` (or both) of a single specific argument row.
 
     **See the `ai` tag description at the top of this section** for
     authentication, rate limits, BYOK, and error handling.
@@ -997,10 +1021,126 @@ async def suggest_arguments_endpoint(
 
     start = time.monotonic()
     try:
-        valid_args, cost = await suggest_arguments(
+        valid_args, cost = await suggest_prompt_arguments(
+            prompt_content=data.prompt_content,
+            arguments=data.arguments,
+            llm_service=llm_service,
+            config=config,
+        )
+    except LLMResponseParseError as exc:
+        await _handle_parse_error(exc, start=start, user_id=current_user.id, config=config)
+    latency_ms = int((time.monotonic() - start) * 1000)
+
+    # `suggest_prompt_arguments` returns `cost=None` on its no-LLM-call
+    # short-circuit paths (no placeholders in the template; every
+    # placeholder already declared). Skip cost tracking in that case —
+    # otherwise `track_cost` would emit an `llm_call` log and increment
+    # the Redis call counter for a call that never happened. If a provider
+    # ever returns `cost=None` after a real LLM call (rare for current
+    # providers), that observability log is missed; revisit by returning
+    # an explicit `llm_called` flag from the service if this becomes a gap.
+    if cost is not None:
+        await track_cost(
+            user_id=current_user.id, use_case=AIUseCase.SUGGESTIONS,
+            model=config.model, key_source=config.key_source,
+            cost=cost, latency_ms=latency_ms,
+        )
+
+    return SuggestPromptArgumentsResponse(arguments=valid_args)
+
+
+@router.post(
+    "/suggest-prompt-argument-fields",
+    response_model=SuggestPromptArgumentsResponse,
+    responses=SUGGEST_PROMPT_ARGUMENT_FIELDS_RESPONSES,
+    summary="Refine the name and/or description of one prompt-template argument",
+)
+async def suggest_prompt_argument_fields_endpoint(
+    data: SuggestPromptArgumentFieldsRequest,
+    current_user: User | CachedUser = Depends(get_current_user_ai),
+    llm_api_key: str | None = Depends(get_llm_api_key),
+    _rate_limit: None = Depends(apply_ai_rate_limit),
+) -> SuggestPromptArgumentsResponse:
+    """
+    Refine one specific argument row by generating one or both of its
+    fields. `target_fields` makes caller intent explicit — the server
+    does not infer which field to regenerate from which fields are blank.
+
+    ### Request fields
+
+    | Field | Required | Default | Purpose |
+    |---|---|---|---|
+    | `arguments` | **yes** | — | Non-empty list. Entries may have `null` fields. |
+    | `target_index` | **yes** | — | Row index to refine. Must be within bounds. |
+    | `target_fields` | **yes** | — | 1-2 unique from `{"name","description"}`. Canonicalized. |
+    | `prompt_content` | conditional | `null` | Grounding. Required for two-field; `""` → `null`. |
+    | `model` | no | `null` | BYOK model ID. Platform callers: ignored. |
+
+    ### Response
+
+    `{"arguments": [{name, description, required}, ...]}` — a
+    single-element list containing the refined entry.
+
+    Rate-limit quota is always consumed (the dependency runs before the
+    handler), so `{"arguments": []}` is not a free response. There are
+    two distinct ways to get it:
+
+    **No LLM call, no provider cost.** Only the two-field path can
+    short-circuit here:
+
+    - `target_fields=["name", "description"]` but every placeholder in
+      the template is already claimed by another row — the LLM has no
+      unclaimed name to assign. Single-field paths always call the LLM.
+
+    **LLM call made, provider cost charged.** The LLM ran but its
+    response was rejected:
+
+    - Generated name failed identifier validation
+      (`lowercase_with_underscores`, must start with a letter).
+    - Two-field path: the LLM returned a name that collides with
+      another row's existing name despite the pre-filter (defensive
+      backstop against LLMs ignoring the unclaimed-only prompt).
+
+    ### Grounding rules
+
+    At least one of the following must hold for each requested field
+    (enforced at schema boundary; 422 on failure):
+
+    - `target_fields: ["name"]` — the target row's `description` is
+      non-empty, OR `prompt_content` is non-empty.
+    - `target_fields: ["description"]` — the target row's `name` is
+      non-empty, OR `prompt_content` is non-empty.
+    - `target_fields: ["name", "description"]` — `prompt_content` is
+      non-empty. (The two-field path regenerates the whole row from
+      template context.)
+
+    ### Overwrite semantics (explicit opt-in)
+
+    Requesting a field that is already populated on the target row does
+    **not** short-circuit. The LLM is called and the response overwrites
+    the existing value(s). There is no silent inference — callers decide
+    which fields to regenerate.
+
+    ### Related
+
+    Use `POST /ai/suggest-prompt-arguments` to propose entries for every
+    new placeholder in a template.
+
+    **See the `ai` tag description at the top of this section** for
+    authentication, rate limits, BYOK, and error handling.
+    """
+    llm_service = get_llm_service()
+    config = _resolve_config_or_400(
+        llm_service, AIUseCase.SUGGESTIONS, llm_api_key, data.model,
+    )
+
+    start = time.monotonic()
+    try:
+        valid_args, cost = await suggest_prompt_argument_fields(
             prompt_content=data.prompt_content,
             arguments=data.arguments,
             target_index=data.target_index,
+            target_fields=data.target_fields,
             llm_service=llm_service,
             config=config,
         )
@@ -1010,13 +1150,19 @@ async def suggest_arguments_endpoint(
         await _handle_parse_error(exc, start=start, user_id=current_user.id, config=config)
     latency_ms = int((time.monotonic() - start) * 1000)
 
-    await track_cost(
-        user_id=current_user.id, use_case=AIUseCase.SUGGESTIONS,
-        model=config.model, key_source=config.key_source,
-        cost=cost, latency_ms=latency_ms,
-    )
+    # `suggest_prompt_argument_fields` returns `cost=None` on the two-field
+    # all-claimed short-circuit (every template placeholder already owned
+    # by another row → no LLM call). Same contract as the plural handler
+    # above: skip cost tracking when cost is None to avoid phantom
+    # `llm_call` logs. See the plural handler for the edge-case caveat.
+    if cost is not None:
+        await track_cost(
+            user_id=current_user.id, use_case=AIUseCase.SUGGESTIONS,
+            model=config.model, key_source=config.key_source,
+            cost=cost, latency_ms=latency_ms,
+        )
 
-    return SuggestArgumentsResponse(arguments=valid_args)
+    return SuggestPromptArgumentsResponse(arguments=valid_args)
 
 
 # ---------------------------------------------------------------------------

@@ -834,6 +834,10 @@ This milestone is cross-cutting by design — the user flagged that the issue ap
 - **Prompt-builder refactoring beyond what's described.** System/user prompt *text* follows the existing style. Only the dispatch structure changes.
 - **Other UX changes to `ArgumentsBuilder`** beyond the per-row sparkle redesign and the icon color fix (e.g. row reordering, inline validation rework). Keep scope tight.
 
+### Known follow-ups
+
+- **Disambiguate `cost=None` in service return values.** Both new service functions (`suggest_prompt_arguments`, `suggest_prompt_argument_fields`) overload `cost=None` to signal "no LLM call happened" on short-circuit paths. That's the same sentinel LLM providers could (rarely) use to mean "LLM called, cost unknown." The M2 handlers skip `track_cost` when `cost is None`, which is correct for the common short-circuit case but would miss the rare "LLM ran, cost unknown" observability log. If this becomes a gap, refactor the service returns to `tuple[list[ArgumentSuggestion], LLMCallOutcome]` where `LLMCallOutcome` carries explicit `called: bool` + `cost: float | None` fields. Not urgent — current providers reliably return cost for supported models.
+
 ---
 
 ## Decisions locked in

@@ -502,12 +502,12 @@ class TestSuggestRelationships:
 
 
 # ---------------------------------------------------------------------------
-# POST /ai/suggest-arguments
+# POST /ai/suggest-prompt-arguments (plural — generate-all)
 # ---------------------------------------------------------------------------
 
 
-class TestSuggestArguments:
-    """Tests for POST /ai/suggest-arguments."""
+class TestSuggestPromptArguments:
+    """Tests for POST /ai/suggest-prompt-arguments."""
 
     async def test_generate_all_from_template(self, client: AsyncClient) -> None:
         content = json.dumps({"arguments": [
@@ -517,14 +517,11 @@ class TestSuggestArguments:
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
-                "/ai/suggest-arguments",
-                json={
-                    "prompt_content": "Explain {{ topic }} in {{ language }}.",
-                },
+                "/ai/suggest-prompt-arguments",
+                json={"prompt_content": "Explain {{ topic }} in {{ language }}."},
             )
         assert response.status_code == 200
-        data = response.json()
-        assert len(data["arguments"]) == 2
+        assert len(response.json()["arguments"]) == 2
 
     async def test_generate_all_excludes_existing(self, client: AsyncClient) -> None:
         """Existing arguments are excluded from placeholder extraction — LLM only sees new ones."""
@@ -534,60 +531,15 @@ class TestSuggestArguments:
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
-                "/ai/suggest-arguments",
+                "/ai/suggest-prompt-arguments",
                 json={
                     "prompt_content": "Explain {{ topic }} in {{ language }}.",
                     "arguments": [{"name": "language", "description": "Already exists"}],
                 },
             )
-        data = response.json()
-        names = [a["name"] for a in data["arguments"]]
+        names = [a["name"] for a in response.json()["arguments"]]
         assert "language" not in names
         assert "topic" in names
-
-    async def test_suggest_name_for_argument(self, client: AsyncClient) -> None:
-        """Individual mode: description populated, name empty → suggest name."""
-        content = json.dumps({"name": "programming_language"})
-        p1, p2 = _patch_llm(content)
-        with p1, p2:
-            response = await client.post(
-                "/ai/suggest-arguments",
-                json={
-                    "target_index": 0,
-                    "arguments": [{"name": None, "description": "The language to use"}],
-                },
-            )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["arguments"][0]["name"] == "programming_language"
-
-    async def test_suggest_description_for_argument(self, client: AsyncClient) -> None:
-        """Individual mode: name populated, description empty → suggest description."""
-        content = json.dumps({"description": "The programming language (e.g. Python, Go)"})
-        p1, p2 = _patch_llm(content)
-        with p1, p2:
-            response = await client.post(
-                "/ai/suggest-arguments",
-                json={
-                    "target_index": 0,
-                    "arguments": [{"name": "language"}],
-                },
-            )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["arguments"][0]["description"] == "The programming language (e.g. Python, Go)"
-        assert data["arguments"][0]["name"] == "language"
-
-    async def test_works_with_no_template(self, client: AsyncClient) -> None:
-        """Individual mode works without prompt_content — less context but still functional."""
-        content = json.dumps({"description": "The input text"})
-        p1, p2 = _patch_llm(content)
-        with p1, p2:
-            response = await client.post(
-                "/ai/suggest-arguments",
-                json={"target_index": 0, "arguments": [{"name": "input"}]},
-            )
-        assert response.status_code == 200
 
     async def test_tracks_cost(self, client: AsyncClient) -> None:
         content = json.dumps({"arguments": [
@@ -596,13 +548,12 @@ class TestSuggestArguments:
         p1, p2 = _patch_llm(content)
         with p1, p2, patch("api.routers.ai.track_cost", new_callable=AsyncMock) as mock_track:
             await client.post(
-                "/ai/suggest-arguments",
+                "/ai/suggest-prompt-arguments",
                 json={"prompt_content": "Hello {{ name }}"},
             )
         mock_track.assert_called_once()
 
     async def test_filters_invalid_argument_names(self, client: AsyncClient) -> None:
-        """LLM returns names that don't match argument naming rules — filtered out (generate-all mode)."""
         content = json.dumps({"arguments": [
             {"name": "valid_name", "description": "Good"},
             {"name": "Invalid Name", "description": "Has spaces"},
@@ -611,17 +562,13 @@ class TestSuggestArguments:
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
-                "/ai/suggest-arguments",
-                json={
-                    "prompt_content": "{{ valid_name }} {{ also_valid }}",
-                },
+                "/ai/suggest-prompt-arguments",
+                json={"prompt_content": "{{ valid_name }} {{ also_valid }}"},
             )
-        data = response.json()
-        names = [a["name"] for a in data["arguments"]]
+        names = [a["name"] for a in response.json()["arguments"]]
         assert "Invalid Name" not in names
 
     async def test_required_field_included_in_response(self, client: AsyncClient) -> None:
-        """The required field from the LLM response is preserved in the API response."""
         content = json.dumps({"arguments": [
             {"name": "topic", "description": "The topic", "required": True},
             {"name": "context", "description": "Optional context", "required": False},
@@ -629,20 +576,22 @@ class TestSuggestArguments:
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
-                "/ai/suggest-arguments",
-                json={"prompt_content": "Explain {{ topic }}. {% if context %}Context: {{ context }}{% endif %}"},
+                "/ai/suggest-prompt-arguments",
+                json={
+                    "prompt_content":
+                        "Explain {{ topic }}. {% if context %}Context: {{ context }}{% endif %}",
+                },
             )
-        data = response.json()
-        args_by_name = {a["name"]: a for a in data["arguments"]}
-        assert args_by_name["topic"]["required"] is True
-        assert args_by_name["context"]["required"] is False
+        by_name = {a["name"]: a for a in response.json()["arguments"]}
+        assert by_name["topic"]["required"] is True
+        assert by_name["context"]["required"] is False
 
-    async def test_generate_all_returns_empty_when_all_placeholders_exist(
+    async def test_returns_empty_when_all_placeholders_exist(
         self, client: AsyncClient,
     ) -> None:
-        """All template placeholders already have arguments — no LLM call needed."""
+        """All template placeholders already declared — no LLM call needed."""
         response = await client.post(
-            "/ai/suggest-arguments",
+            "/ai/suggest-prompt-arguments",
             json={
                 "prompt_content": "Hello {{ name }}",
                 "arguments": [{"name": "name", "description": "The name"}],
@@ -651,46 +600,412 @@ class TestSuggestArguments:
         assert response.status_code == 200
         assert response.json()["arguments"] == []
 
+    async def test_no_placeholders_short_circuit_does_not_track_cost(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        Template with no `{{ }}` → service short-circuits before the LLM.
+        Router must skip track_cost so we don't log a phantom `llm_call`
+        event or increment the Redis call counter.
+        """
+        with patch("api.routers.ai.track_cost", new_callable=AsyncMock) as mock_track:
+            response = await client.post(
+                "/ai/suggest-prompt-arguments",
+                json={"prompt_content": "Write a poem about nature."},
+            )
+        assert response.status_code == 200
+        assert response.json()["arguments"] == []
+        mock_track.assert_not_called()
+
+    async def test_all_placeholders_declared_short_circuit_does_not_track_cost(
+        self, client: AsyncClient,
+    ) -> None:
+        """Every placeholder already declared → no LLM call, no cost tracking."""
+        with patch("api.routers.ai.track_cost", new_callable=AsyncMock) as mock_track:
+            response = await client.post(
+                "/ai/suggest-prompt-arguments",
+                json={
+                    "prompt_content": "Hello {{ name }}",
+                    "arguments": [{"name": "name", "description": "The name"}],
+                },
+            )
+        assert response.status_code == 200
+        assert response.json()["arguments"] == []
+        mock_track.assert_not_called()
+
+    async def test_missing_prompt_content_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post("/ai/suggest-prompt-arguments", json={})
+        assert response.status_code == 422
+
+    async def test_empty_prompt_content_returns_422(self, client: AsyncClient) -> None:
+        """Plural strips '' and fails min_length=1 — empty is rejected outright."""
+        response = await client.post(
+            "/ai/suggest-prompt-arguments",
+            json={"prompt_content": ""},
+        )
+        assert response.status_code == 422
+
+    async def test_whitespace_only_prompt_content_returns_422(
+        self, client: AsyncClient,
+    ) -> None:
+        """Whitespace-only strips to empty and fails min_length=1 on the plural endpoint."""
+        response = await client.post(
+            "/ai/suggest-prompt-arguments",
+            json={"prompt_content": "   "},
+        )
+        assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# POST /ai/suggest-prompt-argument-fields (singular — refine fields)
+# ---------------------------------------------------------------------------
+
+
+class TestSuggestPromptArgumentFields:
+    """Tests for POST /ai/suggest-prompt-argument-fields."""
+
+    async def test_suggest_name_only(self, client: AsyncClient) -> None:
+        """target_fields=['name'], description populated → 200 with generated name."""
+        content = json.dumps({"name": "programming_language"})
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-prompt-argument-fields",
+                json={
+                    "target_index": 0,
+                    "target_fields": ["name"],
+                    "arguments": [{"name": None, "description": "The language to use"}],
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["arguments"][0]["name"] == "programming_language"
+        assert data["arguments"][0]["description"] == "The language to use"
+
+    async def test_suggest_description_only(self, client: AsyncClient) -> None:
+        """target_fields=['description'], name populated → 200 with generated description."""
+        content = json.dumps({"description": "The programming language (e.g. Python, Go)"})
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-prompt-argument-fields",
+                json={
+                    "target_index": 0,
+                    "target_fields": ["description"],
+                    "arguments": [{"name": "language"}],
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["arguments"][0]["name"] == "language"
+        assert data["arguments"][0]["description"].startswith("The programming language")
+
+    async def test_suggest_both_fields_empty_row_with_template(
+        self, client: AsyncClient,
+    ) -> None:
+        """target_fields=['name','description'], blank row, template → 200 with both fields."""
+        content = json.dumps({
+            "name": "topic", "description": "The topic to write about", "required": True,
+        })
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-prompt-argument-fields",
+                json={
+                    "target_index": 0,
+                    "target_fields": ["name", "description"],
+                    "arguments": [{"name": None, "description": None}],
+                    "prompt_content": "Write about {{ topic }} for {{ audience }}.",
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["arguments"][0]["name"] == "topic"
+        assert data["arguments"][0]["description"] == "The topic to write about"
+        assert data["arguments"][0]["required"] is True
+
+    async def test_refine_description_overwrites_populated_field(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        Behavior-change regression test: both fields populated +
+        target_fields=['description'] → LLM called, description replaced.
+
+        Before the split, individual-mode with both populated silently
+        regenerated description. Now it's still regenerated, but only
+        because the caller explicitly asked for it via target_fields.
+        """
+        content = json.dumps({"description": "new description"})
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-prompt-argument-fields",
+                json={
+                    "target_index": 0,
+                    "target_fields": ["description"],
+                    "arguments": [{"name": "language", "description": "old description"}],
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["arguments"][0]["description"] == "new description"
+
+    async def test_refine_both_overwrites_populated_row(self, client: AsyncClient) -> None:
+        """
+        Documented-contract regression test: both fields populated +
+        target_fields=['name','description'] + template → LLM called, both
+        fields replaced. Programmatic callers may invoke this even though
+        UX won't.
+        """
+        content = json.dumps({
+            "name": "topic", "description": "new description", "required": False,
+        })
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-prompt-argument-fields",
+                json={
+                    "target_index": 0,
+                    "target_fields": ["name", "description"],
+                    "arguments": [{"name": "old_name", "description": "old description"}],
+                    "prompt_content": "Write about {{ topic }}.",
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["arguments"][0]["name"] == "topic"
+        assert data["arguments"][0]["description"] == "new description"
+
+    async def test_works_with_no_template_when_target_has_context(
+        self, client: AsyncClient,
+    ) -> None:
+        """prompt_content omitted but grounding satisfied by opposite field → LLM called."""
+        content = json.dumps({"description": "The input text"})
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-prompt-argument-fields",
+                json={
+                    "target_index": 0,
+                    "target_fields": ["description"],
+                    "arguments": [{"name": "input"}],
+                },
+            )
+        assert response.status_code == 200
+
+    async def test_tracks_cost(self, client: AsyncClient) -> None:
+        content = json.dumps({"name": "programming_language"})
+        p1, p2 = _patch_llm(content)
+        with p1, p2, patch("api.routers.ai.track_cost", new_callable=AsyncMock) as mock_track:
+            await client.post(
+                "/ai/suggest-prompt-argument-fields",
+                json={
+                    "target_index": 0,
+                    "target_fields": ["name"],
+                    "arguments": [{"name": None, "description": "The language to use"}],
+                },
+            )
+        mock_track.assert_called_once()
+
     async def test_target_index_out_of_range_returns_400(
         self, client: AsyncClient,
     ) -> None:
-        """target_index beyond arguments length returns 400, not 500."""
+        """In-bounds-but-exceeds-length target_index is a service-level 400, not 500."""
         response = await client.post(
-            "/ai/suggest-arguments",
+            "/ai/suggest-prompt-argument-fields",
             json={
                 "target_index": 99,
+                "target_fields": ["description"],
                 "arguments": [{"name": "arg1", "description": "desc"}],
             },
         )
         assert response.status_code == 400
         assert "out of range" in response.json()["detail"]
 
-    async def test_negative_target_index_returns_422(
-        self, client: AsyncClient,
-    ) -> None:
-        """Negative target_index rejected by Pydantic schema validation."""
+    async def test_negative_target_index_returns_422(self, client: AsyncClient) -> None:
         response = await client.post(
-            "/ai/suggest-arguments",
+            "/ai/suggest-prompt-argument-fields",
             json={
                 "target_index": -1,
+                "target_fields": ["description"],
                 "arguments": [{"name": "arg1"}],
             },
         )
         assert response.status_code == 422
 
-    async def test_both_fields_empty_returns_empty(
-        self, client: AsyncClient,
-    ) -> None:
-        """Individual mode with both name and description empty returns empty list."""
+    async def test_missing_target_fields_returns_422(self, client: AsyncClient) -> None:
         response = await client.post(
-            "/ai/suggest-arguments",
+            "/ai/suggest-prompt-argument-fields",
             json={
                 "target_index": 0,
+                "arguments": [{"name": "arg1", "description": "desc"}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_empty_target_fields_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/ai/suggest-prompt-argument-fields",
+            json={
+                "target_index": 0,
+                "target_fields": [],
+                "arguments": [{"name": "arg1", "description": "desc"}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_invalid_target_fields_element_returns_422(
+        self, client: AsyncClient,
+    ) -> None:
+        response = await client.post(
+            "/ai/suggest-prompt-argument-fields",
+            json={
+                "target_index": 0,
+                "target_fields": ["foo"],
+                "arguments": [{"name": "arg1", "description": "desc"}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_duplicate_target_fields_returns_422(
+        self, client: AsyncClient,
+    ) -> None:
+        response = await client.post(
+            "/ai/suggest-prompt-argument-fields",
+            json={
+                "target_index": 0,
+                "target_fields": ["name", "name"],
+                "arguments": [{"name": "arg1", "description": "desc"}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_three_element_target_fields_rejected(
+        self, client: AsyncClient,
+    ) -> None:
+        """Length-3 list (which must contain a duplicate given 2 valid literals) → 422."""
+        response = await client.post(
+            "/ai/suggest-prompt-argument-fields",
+            json={
+                "target_index": 0,
+                "target_fields": ["name", "description", "name"],
+                "arguments": [{"name": "arg1", "description": "desc"}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_empty_arguments_returns_422(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/ai/suggest-prompt-argument-fields",
+            json={
+                "target_index": 0,
+                "target_fields": ["name"],
+                "arguments": [],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_empty_prompt_content_plus_blank_row_returns_422(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        Singular normalizes "" → None. With a blank row and no grounding
+        signal elsewhere, the request still 422s — but via the
+        grounding-signal rule, not min_length.
+        """
+        response = await client.post(
+            "/ai/suggest-prompt-argument-fields",
+            json={
+                "target_index": 0,
+                "target_fields": ["name", "description"],
+                "arguments": [{"name": None, "description": None}],
+                "prompt_content": "",
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_both_fields_empty_target_no_template_returns_422(
+        self, client: AsyncClient,
+    ) -> None:
+        """Grounding 422 for target_fields=['name','description'] without a template."""
+        response = await client.post(
+            "/ai/suggest-prompt-argument-fields",
+            json={
+                "target_index": 0,
+                "target_fields": ["name", "description"],
                 "arguments": [{"name": None, "description": None}],
             },
         )
+        assert response.status_code == 422
+
+    async def test_suggest_name_with_empty_target_no_template_returns_422(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        Grounding 422: target_fields=['name'] with the opposite field
+        (description) blank and no template means the LLM has no signal.
+        """
+        response = await client.post(
+            "/ai/suggest-prompt-argument-fields",
+            json={
+                "target_index": 0,
+                "target_fields": ["name"],
+                "arguments": [{"name": "already_here", "description": None}],
+            },
+        )
+        assert response.status_code == 422
+
+    async def test_suggest_name_with_empty_row_but_template_calls_llm(
+        self, client: AsyncClient,
+    ) -> None:
+        """Blank row + populated template + target_fields=['name'] → LLM called."""
+        content = json.dumps({"name": "audience"})
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-prompt-argument-fields",
+                json={
+                    "target_index": 0,
+                    "target_fields": ["name"],
+                    "arguments": [{"name": None, "description": None}],
+                    "prompt_content": "Write for {{ audience }}.",
+                },
+            )
+        assert response.status_code == 200
+        assert response.json()["arguments"][0]["name"] == "audience"
+
+    async def test_two_field_all_claimed_short_circuit_does_not_track_cost(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        Two-field refine where every template placeholder is already
+        claimed by another row → service short-circuits before the LLM.
+        Router must skip track_cost to avoid a phantom `llm_call` log.
+        """
+        with patch("api.routers.ai.track_cost", new_callable=AsyncMock) as mock_track:
+            response = await client.post(
+                "/ai/suggest-prompt-argument-fields",
+                json={
+                    "target_index": 1,
+                    "target_fields": ["name", "description"],
+                    "arguments": [
+                        {"name": "topic", "description": "The topic"},
+                        {"name": None, "description": None},
+                    ],
+                    "prompt_content": "Write about {{ topic }}.",
+                },
+            )
         assert response.status_code == 200
         assert response.json()["arguments"] == []
+        mock_track.assert_not_called()
+
+    async def test_removed_old_endpoint_returns_404(self, client: AsyncClient) -> None:
+        """The old /ai/suggest-arguments URL is gone."""
+        response = await client.post(
+            "/ai/suggest-arguments",
+            json={"prompt_content": "{{ x }}"},
+        )
+        assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------
