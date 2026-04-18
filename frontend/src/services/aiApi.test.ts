@@ -35,7 +35,8 @@ import {
   suggestTags,
   suggestMetadata,
   suggestRelationships,
-  suggestArguments,
+  suggestPromptArguments,
+  suggestPromptArgumentFields,
   fetchAIHealth,
   fetchAIModels,
 } from './aiApi'
@@ -183,9 +184,34 @@ describe('aiApi', () => {
       expect(mockInvalidateQueries).toHaveBeenCalled()
     })
 
-    it('suggestArguments invalidates health cache', async () => {
+    it('suggestPromptArguments posts to /ai/suggest-prompt-arguments and invalidates health', async () => {
       mockPost.mockResolvedValue({ data: { arguments: [] } })
-      await suggestArguments({ prompt_content: 'Hello {{ name }}' })
+      await suggestPromptArguments({ prompt_content: 'Hello {{ name }}' })
+      expect(mockPost).toHaveBeenCalledWith(
+        '/ai/suggest-prompt-arguments',
+        { prompt_content: 'Hello {{ name }}', model: null },
+        { headers: {} },
+      )
+      expect(mockInvalidateQueries).toHaveBeenCalled()
+    })
+
+    it('suggestPromptArgumentFields posts to /ai/suggest-prompt-argument-fields', async () => {
+      mockPost.mockResolvedValue({ data: { arguments: [] } })
+      await suggestPromptArgumentFields({
+        arguments: [{ name: null, description: 'desc' }],
+        target_index: 0,
+        target_fields: ['name'],
+      })
+      expect(mockPost).toHaveBeenCalledWith(
+        '/ai/suggest-prompt-argument-fields',
+        {
+          arguments: [{ name: null, description: 'desc' }],
+          target_index: 0,
+          target_fields: ['name'],
+          model: null,
+        },
+        { headers: {} },
+      )
       expect(mockInvalidateQueries).toHaveBeenCalled()
     })
   })

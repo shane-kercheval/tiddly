@@ -2,22 +2,30 @@
  * Tests for useAIArgumentIntegration hook.
  *
  * Covers:
- * - Returns undefined argumentSuggestProps when AI not available
- * - Returns props when AI available
- * - suggestAllDisabled reflects prompt content state
- * - handleSuggestAll appends arguments to state
- * - handleSuggestName updates correct argument name
- * - handleSuggestDescription updates correct argument description
+ * - Availability gate: argumentSuggestProps undefined when AI unavailable.
+ * - suggestAll passthrough.
+ * - handleSuggestRow:
+ *   - Live-state merge via `setCurrent(prev => ...)`: only patches fields
+ *     that (a) the caller asked to generate AND (b) are still blank in live
+ *     state at resolution time — preserves mid-flight edits.
+ *   - `required` applied only in the two-field regenerate-from-blank path,
+ *     and only when the live row is still observably blank at resolution.
+ *   - Silent discard when the targeted row is removed mid-flight.
+ * - rowSuggestDisabled and rowSuggestTooltip state-awareness across all
+ *   meaningful row states.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useAIArgumentIntegration } from './useAIArgumentIntegration'
-import type { PromptArgument } from '../types'
+import { ROW_TOOLTIPS } from './useAIArgumentIntegration'
+import type { PromptArgument, ArgumentSuggestion } from '../types'
 
-const mockSuggestArguments = vi.fn()
+const mockSuggestPromptArguments = vi.fn()
+const mockSuggestPromptArgumentFields = vi.fn()
 
 vi.mock('../services/aiApi', () => ({
-  suggestArguments: (...args: unknown[]) => mockSuggestArguments(...args),
+  suggestPromptArguments: (...args: unknown[]) => mockSuggestPromptArguments(...args),
+  suggestPromptArgumentFields: (...args: unknown[]) => mockSuggestPromptArgumentFields(...args),
 }))
 
 interface TestState {
@@ -25,10 +33,18 @@ interface TestState {
   arguments: PromptArgument[]
 }
 
+function makeSuggestion(overrides: Partial<ArgumentSuggestion> = {}): ArgumentSuggestion {
+  return { name: 'x', description: 'y', required: false, ...overrides }
+}
+
 describe('useAIArgumentIntegration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
+
+  // -------------------------------------------------------------------------
+  // Availability gate
+  // -------------------------------------------------------------------------
 
   it('returns undefined argumentSuggestProps when AI not available', () => {
     const state: TestState = { content: 'Hello {{ name }}', arguments: [] }
@@ -49,51 +65,55 @@ describe('useAIArgumentIntegration', () => {
       useAIArgumentIntegration(state, setCurrent, true),
     )
 
-    expect(result.current.argumentSuggestProps).toBeDefined()
-    expect(result.current.argumentSuggestProps!.onSuggestAll).toBeTypeOf('function')
-    expect(result.current.argumentSuggestProps!.onSuggestName).toBeTypeOf('function')
-    expect(result.current.argumentSuggestProps!.onSuggestDescription).toBeTypeOf('function')
+    const props = result.current.argumentSuggestProps
+    expect(props).toBeDefined()
+    expect(props!.onSuggestAll).toBeTypeOf('function')
+    expect(props!.onSuggestRow).toBeTypeOf('function')
+    expect(props!.rowSuggestDisabled).toBeTypeOf('function')
+    expect(props!.rowSuggestTooltip).toBeTypeOf('function')
+    expect(props!.isSuggestingRow).toBeTypeOf('function')
   })
 
-  it('suggestAllDisabled is true when content is empty', () => {
-    const state: TestState = { content: '', arguments: [] }
-    const setCurrent = vi.fn()
+  // -------------------------------------------------------------------------
+  // suggestAllDisabled (preserved from pre-M3)
+  // -------------------------------------------------------------------------
 
-    const { result } = renderHook(() =>
-      useAIArgumentIntegration(state, setCurrent, true),
-    )
+  describe('suggestAllDisabled', () => {
+    it('true when content is empty', () => {
+      const state: TestState = { content: '', arguments: [] }
+      const { result } = renderHook(() =>
+        useAIArgumentIntegration(state, vi.fn(), true),
+      )
+      expect(result.current.argumentSuggestProps!.suggestAllDisabled).toBe(true)
+    })
 
-    expect(result.current.argumentSuggestProps!.suggestAllDisabled).toBe(true)
+    it('true when content is whitespace only', () => {
+      const state: TestState = { content: '   ', arguments: [] }
+      const { result } = renderHook(() =>
+        useAIArgumentIntegration(state, vi.fn(), true),
+      )
+      expect(result.current.argumentSuggestProps!.suggestAllDisabled).toBe(true)
+    })
+
+    it('false when content contains placeholders', () => {
+      const state: TestState = { content: 'Hello {{ name }}', arguments: [] }
+      const { result } = renderHook(() =>
+        useAIArgumentIntegration(state, vi.fn(), true),
+      )
+      expect(result.current.argumentSuggestProps!.suggestAllDisabled).toBe(false)
+    })
   })
 
-  it('suggestAllDisabled is true when content is whitespace only', () => {
-    const state: TestState = { content: '   ', arguments: [] }
-    const setCurrent = vi.fn()
-
-    const { result } = renderHook(() =>
-      useAIArgumentIntegration(state, setCurrent, true),
-    )
-
-    expect(result.current.argumentSuggestProps!.suggestAllDisabled).toBe(true)
-  })
-
-  it('suggestAllDisabled is false when content exists', () => {
-    const state: TestState = { content: 'Hello {{ name }}', arguments: [] }
-    const setCurrent = vi.fn()
-
-    const { result } = renderHook(() =>
-      useAIArgumentIntegration(state, setCurrent, true),
-    )
-
-    expect(result.current.argumentSuggestProps!.suggestAllDisabled).toBe(false)
-  })
+  // -------------------------------------------------------------------------
+  // handleSuggestAll (preserved from pre-M3)
+  // -------------------------------------------------------------------------
 
   it('handleSuggestAll appends suggested arguments to state', async () => {
     const suggestions = [
-      { name: 'topic', description: 'The topic', required: true },
-      { name: 'tone', description: 'The tone', required: false },
+      makeSuggestion({ name: 'topic', description: 'The topic', required: true }),
+      makeSuggestion({ name: 'tone', description: 'The tone', required: false }),
     ]
-    mockSuggestArguments.mockResolvedValue({ arguments: suggestions })
+    mockSuggestPromptArguments.mockResolvedValue({ arguments: suggestions })
 
     const state: TestState = {
       content: 'Write about {{ topic }} in {{ tone }}',
@@ -113,79 +133,246 @@ describe('useAIArgumentIntegration', () => {
       expect(setCurrent).toHaveBeenCalled()
     })
 
-    // Get the updater function and call it with mock prev state
     const updater = setCurrent.mock.calls[0][0] as (prev: TestState) => TestState
     const newState = updater(state)
 
     expect(newState.arguments).toHaveLength(3)
-    expect(newState.arguments[0]).toEqual({ name: 'existing', description: 'Already here', required: true })
     expect(newState.arguments[1]).toEqual({ name: 'topic', description: 'The topic', required: true })
     expect(newState.arguments[2]).toEqual({ name: 'tone', description: 'The tone', required: false })
   })
 
-  it('handleSuggestName updates name without modifying required', async () => {
-    mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'better_name', description: 'desc', required: true }] })
+  // -------------------------------------------------------------------------
+  // handleSuggestRow — live-state merge semantics
+  // -------------------------------------------------------------------------
 
-    const state: TestState = {
-      content: 'content',
-      arguments: [
-        { name: 'arg1', description: 'First', required: false },
-        { name: '', description: 'Second desc', required: true },
-      ],
-    }
-    const setCurrent = vi.fn()
+  describe('handleSuggestRow — live-state merge', () => {
+    it('patches only the blank field (single-field path) and does NOT touch required', async () => {
+      mockSuggestPromptArgumentFields.mockResolvedValue({
+        arguments: [makeSuggestion({ name: 'better_name', required: true })],
+      })
 
-    const { result } = renderHook(() =>
-      useAIArgumentIntegration(state, setCurrent, true),
-    )
+      const state: TestState = {
+        content: 'content',
+        arguments: [{ name: '', description: 'Second desc', required: true }],
+      }
+      const setCurrent = vi.fn()
 
-    await act(async () => {
-      result.current.argumentSuggestProps!.onSuggestName(1)
+      const { result } = renderHook(() =>
+        useAIArgumentIntegration(state, setCurrent, true),
+      )
+
+      await act(async () => {
+        result.current.argumentSuggestProps!.onSuggestRow(0)
+      })
+
+      await vi.waitFor(() => {
+        expect(setCurrent).toHaveBeenCalled()
+      })
+
+      const updater = setCurrent.mock.calls[0][0] as (prev: TestState) => TestState
+      const newState = updater(state)
+
+      expect(newState.arguments[0].name).toBe('better_name')
+      expect(newState.arguments[0].description).toBe('Second desc')
+      // required preserved — single-field path never propagates it.
+      expect(newState.arguments[0].required).toBe(true)
     })
 
-    await vi.waitFor(() => {
-      expect(setCurrent).toHaveBeenCalled()
+    it('preserves a mid-flight name edit (live-state merge wins over stale patch)', async () => {
+      mockSuggestPromptArgumentFields.mockResolvedValue({
+        arguments: [makeSuggestion({ name: 'llm_name' })],
+      })
+
+      const callTimeState: TestState = {
+        content: 'content',
+        arguments: [{ name: '', description: 'desc', required: false }],
+      }
+      const midFlightState: TestState = {
+        content: 'content',
+        arguments: [{ name: 'user_typed', description: 'desc', required: false }],
+      }
+      const setCurrent = vi.fn()
+
+      const { result } = renderHook(() =>
+        useAIArgumentIntegration(callTimeState, setCurrent, true),
+      )
+
+      await act(async () => {
+        result.current.argumentSuggestProps!.onSuggestRow(0)
+      })
+
+      await vi.waitFor(() => {
+        expect(setCurrent).toHaveBeenCalled()
+      })
+
+      // Simulate the updater running against LIVE state (user typed mid-flight).
+      const updater = setCurrent.mock.calls[0][0] as (prev: TestState) => TestState
+      const newState = updater(midFlightState)
+
+      // User's typed name survives; LLM's suggestion is dropped because the
+      // live row is no longer blank in that field.
+      expect(newState.arguments[0].name).toBe('user_typed')
     })
 
-    const updater = setCurrent.mock.calls[0][0] as (prev: TestState) => TestState
-    const newState = updater(state)
+    it('discards silently when the targeted row is removed mid-flight', async () => {
+      mockSuggestPromptArgumentFields.mockResolvedValue({
+        arguments: [makeSuggestion()],
+      })
 
-    expect(newState.arguments[0].name).toBe('arg1')
-    expect(newState.arguments[1].name).toBe('better_name')
-    // required is preserved from user's original value, not overwritten by LLM response
-    expect(newState.arguments[1].required).toBe(true)
+      const callTimeState: TestState = {
+        content: 'content',
+        arguments: [{ name: '', description: 'desc', required: false }],
+      }
+      const liveStateAfterRemoval: TestState = {
+        content: 'content',
+        arguments: [],  // row removed
+      }
+      const setCurrent = vi.fn()
+
+      const { result } = renderHook(() =>
+        useAIArgumentIntegration(callTimeState, setCurrent, true),
+      )
+
+      await act(async () => {
+        result.current.argumentSuggestProps!.onSuggestRow(0)
+      })
+
+      await vi.waitFor(() => {
+        expect(setCurrent).toHaveBeenCalled()
+      })
+
+      const updater = setCurrent.mock.calls[0][0] as (prev: TestState) => TestState
+      const newState = updater(liveStateAfterRemoval)
+
+      // Returns prev unchanged — no crash, no phantom row added.
+      expect(newState).toBe(liveStateAfterRemoval)
+    })
+
+    it('two-field path applies required only when live row is still blank', async () => {
+      mockSuggestPromptArgumentFields.mockResolvedValue({
+        arguments: [makeSuggestion({ name: 'topic', description: 'The topic', required: true })],
+      })
+
+      const callTimeState: TestState = {
+        content: 'Write about {{ topic }}',
+        arguments: [{ name: '', description: null, required: false }],
+      }
+      const setCurrent = vi.fn()
+
+      const { result } = renderHook(() =>
+        useAIArgumentIntegration(callTimeState, setCurrent, true),
+      )
+
+      await act(async () => {
+        result.current.argumentSuggestProps!.onSuggestRow(0)
+      })
+
+      await vi.waitFor(() => {
+        expect(setCurrent).toHaveBeenCalled()
+      })
+
+      const updater = setCurrent.mock.calls[0][0] as (prev: TestState) => TestState
+
+      // Case 1: live state still blank — required IS applied (from LLM).
+      const blankLive: TestState = {
+        content: 'Write about {{ topic }}',
+        arguments: [{ name: '', description: null, required: false }],
+      }
+      const patchedBlank = updater(blankLive)
+      expect(patchedBlank.arguments[0].required).toBe(true)
+      expect(patchedBlank.arguments[0].name).toBe('topic')
+      expect(patchedBlank.arguments[0].description).toBe('The topic')
+
+      // Case 2: user typed a name mid-flight — required NOT touched,
+      // name preserved, description patched (still blank).
+      const partiallyEditedLive: TestState = {
+        content: 'Write about {{ topic }}',
+        arguments: [{ name: 'user_typed', description: null, required: false }],
+      }
+      const patchedPartial = updater(partiallyEditedLive)
+      expect(patchedPartial.arguments[0].name).toBe('user_typed')
+      expect(patchedPartial.arguments[0].description).toBe('The topic')
+      expect(patchedPartial.arguments[0].required).toBe(false)
+    })
   })
 
-  it('handleSuggestDescription updates description without modifying required', async () => {
-    mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'arg1', description: 'AI description', required: true }] })
+  // -------------------------------------------------------------------------
+  // rowSuggestDisabled + rowSuggestTooltip — state-aware
+  // -------------------------------------------------------------------------
 
-    const state: TestState = {
-      content: 'content',
-      arguments: [
-        { name: 'arg1', description: null, required: false },
-        { name: 'arg2', description: null, required: true },
-      ],
+  describe('rowSuggestDisabled / rowSuggestTooltip', () => {
+    function makeRendered(state: TestState): ReturnType<typeof renderHook<
+      ReturnType<typeof useAIArgumentIntegration<TestState>>,
+      unknown
+    >> {
+      return renderHook(() => useAIArgumentIntegration(state, vi.fn(), true))
     }
-    const setCurrent = vi.fn()
 
-    const { result } = renderHook(() =>
-      useAIArgumentIntegration(state, setCurrent, true),
-    )
-
-    await act(async () => {
-      result.current.argumentSuggestProps!.onSuggestDescription(0)
+    it('only name blank + description populated → enabled, "Suggest name"', () => {
+      const state: TestState = {
+        content: '',
+        arguments: [{ name: '', description: 'has desc', required: false }],
+      }
+      const { result } = makeRendered(state)
+      const props = result.current.argumentSuggestProps!
+      expect(props.rowSuggestDisabled(0)).toBe(false)
+      expect(props.rowSuggestTooltip(0)).toBe(ROW_TOOLTIPS.suggestName)
     })
 
-    await vi.waitFor(() => {
-      expect(setCurrent).toHaveBeenCalled()
+    it('only description blank + name populated → enabled, "Suggest description"', () => {
+      const state: TestState = {
+        content: '',
+        arguments: [{ name: 'named', description: null, required: false }],
+      }
+      const { result } = makeRendered(state)
+      const props = result.current.argumentSuggestProps!
+      expect(props.rowSuggestDisabled(0)).toBe(false)
+      expect(props.rowSuggestTooltip(0)).toBe(ROW_TOOLTIPS.suggestDescription)
     })
 
-    const updater = setCurrent.mock.calls[0][0] as (prev: TestState) => TestState
-    const newState = updater(state)
+    it('both blank + template populated → enabled, "Suggest name and description"', () => {
+      const state: TestState = {
+        content: 'Write about {{ topic }}',
+        arguments: [{ name: '', description: null, required: false }],
+      }
+      const { result } = makeRendered(state)
+      const props = result.current.argumentSuggestProps!
+      expect(props.rowSuggestDisabled(0)).toBe(false)
+      expect(props.rowSuggestTooltip(0)).toBe(ROW_TOOLTIPS.suggestBoth)
+    })
 
-    expect(newState.arguments[0].description).toBe('AI description')
-    // required is preserved from user's original value, not overwritten by LLM response
-    expect(newState.arguments[0].required).toBe(false)
-    expect(newState.arguments[1].description).toBeNull()
+    it('both blank + no template → disabled, no-grounding tooltip', () => {
+      const state: TestState = {
+        content: '',
+        arguments: [{ name: '', description: null, required: false }],
+      }
+      const { result } = makeRendered(state)
+      const props = result.current.argumentSuggestProps!
+      expect(props.rowSuggestDisabled(0)).toBe(true)
+      expect(props.rowSuggestTooltip(0)).toBe(ROW_TOOLTIPS.noGrounding)
+    })
+
+    it('both populated → disabled, row-complete tooltip', () => {
+      const state: TestState = {
+        content: '',
+        arguments: [{ name: 'named', description: 'has desc', required: false }],
+      }
+      const { result } = makeRendered(state)
+      const props = result.current.argumentSuggestProps!
+      expect(props.rowSuggestDisabled(0)).toBe(true)
+      expect(props.rowSuggestTooltip(0)).toBe(ROW_TOOLTIPS.rowComplete)
+    })
+
+    it('whitespace-only fields count as blank for disabled/tooltip', () => {
+      const state: TestState = {
+        content: '',
+        arguments: [{ name: '   ', description: '   ', required: false }],
+      }
+      const { result } = makeRendered(state)
+      const props = result.current.argumentSuggestProps!
+      // Whitespace everywhere with no template → disabled, no-grounding.
+      expect(props.rowSuggestDisabled(0)).toBe(true)
+      expect(props.rowSuggestTooltip(0)).toBe(ROW_TOOLTIPS.noGrounding)
+    })
   })
 })

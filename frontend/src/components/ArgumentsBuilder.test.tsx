@@ -213,7 +213,7 @@ describe('ArgumentsBuilder', () => {
   })
 
   // -------------------------------------------------------------------------
-  // AI suggestion icons
+  // AI suggestion icons (per-row sparkle UX)
   // -------------------------------------------------------------------------
 
   describe('AI suggestion icons', () => {
@@ -222,10 +222,11 @@ describe('ArgumentsBuilder', () => {
       isSuggestingAll: false,
       suggestAllDisabled: false,
       suggestAllTooltip: 'Add prompt content to enable AI argument generation',
-      onSuggestName: vi.fn(),
-      onSuggestDescription: vi.fn(),
-      suggestingIndex: null as number | null,
-      suggestingField: null as 'name' | 'description' | null,
+      onSuggestRow: vi.fn(),
+      suggestingAnyRow: false,
+      isSuggestingRow: (): boolean => false,
+      rowSuggestDisabled: (): boolean => false,
+      rowSuggestTooltip: (): string => 'Suggest name',
     }
 
     it('shows generate-all icon when onSuggestAll provided', () => {
@@ -233,9 +234,8 @@ describe('ArgumentsBuilder', () => {
         <ArgumentsBuilder
           {...defaultProps}
           {...aiProps}
-        />
+        />,
       )
-
       expect(screen.getByLabelText('Generate arguments from template')).toBeInTheDocument()
     })
 
@@ -244,39 +244,53 @@ describe('ArgumentsBuilder', () => {
         <ArgumentsBuilder
           {...defaultProps}
           arguments={[{ name: 'arg1', description: 'desc', required: false }]}
-        />
+        />,
       )
-
       expect(screen.queryByLabelText('Generate arguments from template')).not.toBeInTheDocument()
-      expect(screen.queryByLabelText('Suggest name for argument 1')).not.toBeInTheDocument()
-      expect(screen.queryByLabelText('Suggest description for argument 1')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Suggest fields for argument 1')).not.toBeInTheDocument()
     })
 
-    it('shows per-argument suggest icons when AI available and arguments exist', () => {
+    it('shows one per-row sparkle when AI available and arguments exist', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          arguments={[
+            { name: 'arg1', description: 'desc', required: false },
+            { name: 'arg2', description: null, required: false },
+          ]}
+        />,
+      )
+      // Exactly one sparkle per row, placed next to the remove button.
+      expect(screen.getByLabelText('Suggest fields for argument 1')).toBeInTheDocument()
+      expect(screen.getByLabelText('Suggest fields for argument 2')).toBeInTheDocument()
+    })
+
+    it('inputs no longer contain sparkle children (per-field sparkles removed)', () => {
       render(
         <ArgumentsBuilder
           {...defaultProps}
           {...aiProps}
           arguments={[{ name: 'arg1', description: 'desc', required: false }]}
-        />
+        />,
       )
-
-      expect(screen.getByLabelText('Suggest name for argument 1')).toBeInTheDocument()
-      expect(screen.getByLabelText('Suggest description for argument 1')).toBeInTheDocument()
+      // The old per-field sparkles used aria-labels like "Suggest name for
+      // argument 1" / "Suggest description for argument 1". They must be
+      // gone under the per-row UX.
+      expect(screen.queryByLabelText('Suggest name for argument 1')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Suggest description for argument 1')).not.toBeInTheDocument()
     })
 
     it('calls onSuggestAll when generate-all icon clicked', async () => {
       const user = userEvent.setup()
       const onSuggestAll = vi.fn()
-
       render(
         <ArgumentsBuilder
           {...defaultProps}
           {...aiProps}
           onSuggestAll={onSuggestAll}
-        />
+        />,
       )
-
       await user.click(screen.getByLabelText('Generate arguments from template'))
       expect(onSuggestAll).toHaveBeenCalled()
     })
@@ -287,117 +301,205 @@ describe('ArgumentsBuilder', () => {
           {...defaultProps}
           {...aiProps}
           suggestAllDisabled={true}
-        />
+        />,
       )
-
       expect(screen.getByLabelText('Generate arguments from template')).toBeDisabled()
     })
 
-    it('calls onSuggestName with index when name suggest icon clicked', async () => {
-      const user = userEvent.setup()
-      const onSuggestName = vi.fn()
-
+    it('disables generate-all while any per-row suggestion is in flight', () => {
       render(
         <ArgumentsBuilder
           {...defaultProps}
           {...aiProps}
-          onSuggestName={onSuggestName}
+          suggestingAnyRow={true}
+          arguments={[{ name: '', description: 'desc', required: false }]}
+        />,
+      )
+      expect(screen.getByLabelText('Generate arguments from template')).toBeDisabled()
+    })
+
+    it('calls onSuggestRow with index when row sparkle clicked', async () => {
+      const user = userEvent.setup()
+      const onSuggestRow = vi.fn()
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          onSuggestRow={onSuggestRow}
           arguments={[
             { name: '', description: 'has desc', required: false },
+            { name: 'arg2', description: null, required: false },
           ]}
-        />
+        />,
       )
-
-      await user.click(screen.getByLabelText('Suggest name for argument 1'))
-      expect(onSuggestName).toHaveBeenCalledWith(0)
+      await user.click(screen.getByLabelText('Suggest fields for argument 2'))
+      expect(onSuggestRow).toHaveBeenCalledWith(1)
     })
 
-    it('disables name suggest icon when argument has no description', () => {
+    it('disables row sparkle when rowSuggestDisabled returns true', () => {
       render(
         <ArgumentsBuilder
           {...defaultProps}
           {...aiProps}
-          arguments={[{ name: 'arg1', description: null, required: false }]}
-        />
+          rowSuggestDisabled={(): boolean => true}
+          arguments={[{ name: 'arg1', description: 'desc', required: false }]}
+        />,
       )
-
-      expect(screen.getByLabelText('Suggest name for argument 1')).toBeDisabled()
+      expect(screen.getByLabelText('Suggest fields for argument 1')).toBeDisabled()
     })
 
-    it('calls onSuggestDescription with index when description suggest icon clicked', async () => {
-      const user = userEvent.setup()
-      const onSuggestDescription = vi.fn()
-
+    it('shows spinner on row sparkle when isSuggestingRow returns true for that index', () => {
       render(
         <ArgumentsBuilder
           {...defaultProps}
           {...aiProps}
-          onSuggestDescription={onSuggestDescription}
+          isSuggestingRow={(i: number) => i === 0}
+          arguments={[{ name: '', description: 'desc', required: false }]}
+        />,
+      )
+      const button = screen.getByLabelText('Suggest fields for argument 1')
+      expect(button.querySelector('.animate-spin')).toBeInTheDocument()
+    })
+
+    it('disables all other per-row sparkles when suggestingAnyRow is true (serialization)', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          suggestingAnyRow={true}
+          isSuggestingRow={(i: number) => i === 0}
           arguments={[
-            { name: 'arg1', description: null, required: false },
+            { name: '', description: 'desc1', required: false },
+            { name: '', description: 'desc2', required: false },
           ]}
-        />
+        />,
       )
-
-      await user.click(screen.getByLabelText('Suggest description for argument 1'))
-      expect(onSuggestDescription).toHaveBeenCalledWith(0)
+      // Row 0 is the active request (disabled via in-flight), row 1 is
+      // disabled via the serialization gate.
+      expect(screen.getByLabelText('Suggest fields for argument 1')).toBeDisabled()
+      expect(screen.getByLabelText('Suggest fields for argument 2')).toBeDisabled()
     })
 
-    it('disables description suggest icon when argument has no name', () => {
-      render(
-        <ArgumentsBuilder
-          {...defaultProps}
-          {...aiProps}
-          arguments={[{ name: '', description: 'desc', required: false }]}
-        />
-      )
-
-      expect(screen.getByLabelText('Suggest description for argument 1')).toBeDisabled()
-    })
-
-    it('shows spinner on name suggest icon when isSuggestingName', () => {
-      render(
-        <ArgumentsBuilder
-          {...defaultProps}
-          {...aiProps}
-          suggestingIndex={0}
-          suggestingField="name"
-          arguments={[{ name: '', description: 'desc', required: false }]}
-        />
-      )
-
-      // The spinner replaces the sparkle icon — check for animate-spin class
-      const button = screen.getByLabelText('Suggest name for argument 1')
-      expect(button.querySelector('.animate-spin')).toBeInTheDocument()
-    })
-
-    it('shows spinner on description suggest icon when isSuggestingDescription', () => {
-      render(
-        <ArgumentsBuilder
-          {...defaultProps}
-          {...aiProps}
-          suggestingIndex={0}
-          suggestingField="description"
-          arguments={[{ name: 'arg1', description: null, required: false }]}
-        />
-      )
-
-      const button = screen.getByLabelText('Suggest description for argument 1')
-      expect(button.querySelector('.animate-spin')).toBeInTheDocument()
-    })
-
-    it('disables per-argument suggest icons during generate-all', () => {
+    it('disables per-row sparkles during generate-all (existing behavior preserved)', () => {
       render(
         <ArgumentsBuilder
           {...defaultProps}
           {...aiProps}
           isSuggestingAll={true}
-          arguments={[{ name: 'arg1', description: 'desc', required: false }]}
-        />
+          arguments={[{ name: '', description: 'desc', required: false }]}
+        />,
       )
+      expect(screen.getByLabelText('Suggest fields for argument 1')).toBeDisabled()
+    })
 
-      expect(screen.getByLabelText('Suggest name for argument 1')).toBeDisabled()
-      expect(screen.getByLabelText('Suggest description for argument 1')).toBeDisabled()
+    // -----------------------------------------------------------------------
+    // Priority: suppress tooltip on in-flight / globally-disabled states
+    // -----------------------------------------------------------------------
+    // Presence of the Tooltip wrapper is observable via the button's parent
+    // className: Tooltip's trigger wrapper uses `inline-flex`. When
+    // MaybeTooltip skips rendering (empty content), the button is a direct
+    // child of the row's flex container with a different class.
+
+    it('no custom tooltip on per-row sparkle during cross-row serialization', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          suggestingAnyRow={true}
+          isSuggestingRow={(i: number) => i === 0}
+          rowSuggestTooltip={(): string => 'Suggest name'}
+          arguments={[
+            { name: '', description: 'desc1', required: false },
+            { name: '', description: 'desc2', required: false },
+          ]}
+        />,
+      )
+      // Row 2's sparkle is disabled purely via serialization — no custom
+      // tooltip should wrap it.
+      const sparkle = screen.getByLabelText('Suggest fields for argument 2')
+      expect(sparkle.parentElement?.className ?? '').not.toContain('inline-flex')
+    })
+
+    it('no custom tooltip on per-row sparkle when globally disabled', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          disabled={true}
+          rowSuggestTooltip={(): string => 'Suggest name'}
+          arguments={[{ name: '', description: 'desc', required: false }]}
+        />,
+      )
+      const sparkle = screen.getByLabelText('Suggest fields for argument 1')
+      expect(sparkle.parentElement?.className ?? '').not.toContain('inline-flex')
+    })
+
+    it('no custom tooltip on per-row sparkle when its own request is in flight', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          isSuggestingRow={(): boolean => true}
+          rowSuggestTooltip={(): string => 'Suggest name'}
+          arguments={[{ name: '', description: 'desc', required: false }]}
+        />,
+      )
+      const sparkle = screen.getByLabelText('Suggest fields for argument 1')
+      expect(sparkle.parentElement?.className ?? '').not.toContain('inline-flex')
+    })
+
+    it('wraps per-row sparkle in Tooltip when enabled with a state-aware string', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          rowSuggestTooltip={(): string => 'Suggest name'}
+          arguments={[{ name: '', description: 'desc', required: false }]}
+        />,
+      )
+      const sparkle = screen.getByLabelText('Suggest fields for argument 1')
+      // Enabled → MaybeTooltip wraps in Tooltip trigger (inline-flex).
+      expect(sparkle.parentElement?.className ?? '').toContain('inline-flex')
+    })
+
+    it('no custom tooltip on generate-all when disabled via suggestingAnyRow', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          suggestingAnyRow={true}
+          arguments={[{ name: '', description: 'desc', required: false }]}
+        />,
+      )
+      const generateAll = screen.getByLabelText('Generate arguments from template')
+      expect(generateAll.parentElement?.className ?? '').not.toContain('inline-flex')
+    })
+
+    it('no custom tooltip on generate-all when disabled via in-flight generate-all', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          isSuggestingAll={true}
+        />,
+      )
+      const generateAll = screen.getByLabelText('Generate arguments from template')
+      expect(generateAll.parentElement?.className ?? '').not.toContain('inline-flex')
+    })
+
+    it('shows custom tooltip on generate-all when disabled via suggestAllDisabled', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          suggestAllDisabled={true}
+          suggestAllTooltip="No {{ placeholders }} found in template"
+        />,
+      )
+      const generateAll = screen.getByLabelText('Generate arguments from template')
+      // suggestAllDisabled is the caller-provided actionable reason — keep
+      // the tooltip so the user knows what to fix.
+      expect(generateAll.parentElement?.className ?? '').toContain('inline-flex')
     })
   })
 })
