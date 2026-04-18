@@ -59,6 +59,21 @@ body {
     @apply rounded-lg p-2 text-gray-400 transition-all hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
+  /* Color treatment for AI-suggest sparkle buttons. Pair with `btn-icon`
+     (always-visible sites) or layout utilities (fade-on-parent-hover sites). */
+  .btn-ai-icon {
+    @apply text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700 disabled:hover:bg-transparent disabled:hover:text-purple-500;
+  }
+
+  /* Spinner shown while an AI suggestion is in flight. Size + layout classes
+     (e.g., h-4 w-4) go on the call site.
+     Note: `border-purple-X border-t-purple-Y` with @apply doesn't reliably
+     override the top border in Tailwind v4 — the shorthand wins depending on
+     compilation order. Specify each side explicitly to avoid that fight. */
+  .spinner-ai {
+    @apply border-2 border-t-purple-700 border-r-purple-200 border-b-purple-200 border-l-purple-200 rounded-full animate-spin;
+  }
+
   /* Smaller icon buttons on desktop where precision pointing is easier */
   @media (min-width: 768px) {
     .btn-icon {

@@ -358,7 +358,7 @@ describe('ArgumentsBuilder', () => {
         />,
       )
       const button = screen.getByLabelText('Suggest fields for argument 1')
-      expect(button.querySelector('.animate-spin')).toBeInTheDocument()
+      expect(button.querySelector('.spinner-ai')).toBeInTheDocument()
     })
 
     it('disables all other per-row sparkles when suggestingAnyRow is true (serialization)', () => {

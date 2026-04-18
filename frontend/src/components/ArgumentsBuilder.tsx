@@ -172,11 +172,11 @@ function ArgumentRow({
               type="button"
               onClick={() => onSuggestRow(index)}
               disabled={sparkleDisabled}
-              className="btn-icon text-gray-300 hover:text-gray-500 mt-1.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-300"
+              className={`btn-icon btn-ai-icon mt-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${isSuggestingThisRow ? '!opacity-100' : ''}`}
               aria-label={`Suggest fields for argument ${index + 1}`}
             >
               {isSuggestingThisRow ? (
-                <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                <div className="spinner-ai h-4 w-4" />
               ) : (
                 <SparklesIcon className="h-4 w-4" />
               )}
@@ -311,11 +311,11 @@ export function ArgumentsBuilder({
                 type="button"
                 onClick={onSuggestAll}
                 disabled={suggestAllDisabled || isSuggestingAll || suggestingAnyRow || disabled}
-                className="btn-icon text-gray-300 hover:text-gray-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-300"
+                className={`btn-icon btn-ai-icon disabled:opacity-40 disabled:cursor-not-allowed ${isSuggestingAll ? '!opacity-100' : ''}`}
                 aria-label="Generate arguments from template"
               >
                 {isSuggestingAll ? (
-                  <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                  <div className="spinner-ai h-4 w-4" />
                 ) : (
                   <SparklesIcon className="h-4 w-4" />
                 )}

@@ -432,7 +432,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
 
                   {isAiLoading && filteredAiSuggestions.length === 0 && (
                     <div className="flex items-center justify-center py-2" aria-label="Loading relationship suggestions">
-                      <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                      <div className="spinner-ai h-4 w-4" />
                     </div>
                   )}
 

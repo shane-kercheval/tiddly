@@ -152,8 +152,8 @@ export const ROW_TOOLTIPS = {
   suggestName: 'Suggest name',
   suggestDescription: 'Suggest description',
   suggestBoth: 'Suggest name and description',
-  rowComplete: 'Clear name or description to get a suggestion',
-  noGrounding: 'Add a name, description, or prompt content to get a suggestion',
+  rowComplete: 'Clear name or description to generate a suggestion',
+  noGrounding: 'Add a name, description, or prompt content to generate a suggestion',
 } as const
 
 function computeRowDisabled(
