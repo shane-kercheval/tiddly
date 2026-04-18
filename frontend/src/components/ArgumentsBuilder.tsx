@@ -172,7 +172,8 @@ function ArgumentRow({
               type="button"
               onClick={() => onSuggestRow(index)}
               disabled={sparkleDisabled}
-              className={`btn-icon btn-ai-icon mt-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${isSuggestingThisRow ? '!opacity-100' : ''}`}
+              aria-busy={isSuggestingThisRow}
+              className="btn-icon btn-ai-icon mt-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label={`Suggest fields for argument ${index + 1}`}
             >
               {isSuggestingThisRow ? (
@@ -311,7 +312,8 @@ export function ArgumentsBuilder({
                 type="button"
                 onClick={onSuggestAll}
                 disabled={suggestAllDisabled || isSuggestingAll || suggestingAnyRow || disabled}
-                className={`btn-icon btn-ai-icon disabled:opacity-40 disabled:cursor-not-allowed ${isSuggestingAll ? '!opacity-100' : ''}`}
+                aria-busy={isSuggestingAll}
+                className="btn-icon btn-ai-icon disabled:opacity-40 disabled:cursor-not-allowed"
                 aria-label="Generate arguments from template"
               >
                 {isSuggestingAll ? (

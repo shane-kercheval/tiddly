@@ -39,7 +39,7 @@ export function useAIMetadataIntegration<T extends MetadataState>(
   setCurrent: React.Dispatch<React.SetStateAction<T>>,
   available: boolean = false,
 ): UseAIMetadataIntegrationReturn {
-  const { isLoading, suggestTitle, suggestDescription } = useMetadataSuggestions({ available })
+  const { isSuggestingTitle, isSuggestingDescription, suggestTitle, suggestDescription } = useMetadataSuggestions({ available })
 
   const handleUpdate = useCallback((title: string | null, description: string | null) => {
     setCurrent((prev) => ({
@@ -72,13 +72,13 @@ export function useAIMetadataIntegration<T extends MetadataState>(
   return {
     titleSuggestProps: {
       onSuggest: handleSuggestTitle,
-      isSuggesting: isLoading,
+      isSuggesting: isSuggestingTitle,
       suggestDisabled: !titleEnabled,
       suggestTooltip: 'Add a description or content to enable AI title suggestion',
     },
     descriptionSuggestProps: {
       onSuggest: handleSuggestDescription,
-      isSuggesting: isLoading,
+      isSuggesting: isSuggestingDescription,
       suggestDisabled: !descriptionEnabled,
       suggestTooltip: 'Add content to enable AI description suggestion',
     },

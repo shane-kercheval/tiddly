@@ -359,6 +359,7 @@ describe('ArgumentsBuilder', () => {
       )
       const button = screen.getByLabelText('Suggest fields for argument 1')
       expect(button.querySelector('.spinner-ai')).toBeInTheDocument()
+      expect(button).toHaveAttribute('aria-busy', 'true')
     })
 
     it('disables all other per-row sparkles when suggestingAnyRow is true (serialization)', () => {
@@ -390,6 +391,17 @@ describe('ArgumentsBuilder', () => {
         />,
       )
       expect(screen.getByLabelText('Suggest fields for argument 1')).toBeDisabled()
+    })
+
+    it('marks generate-all sparkle as aria-busy while suggesting all', () => {
+      render(
+        <ArgumentsBuilder
+          {...defaultProps}
+          {...aiProps}
+          isSuggestingAll={true}
+        />,
+      )
+      expect(screen.getByLabelText('Generate arguments from template')).toHaveAttribute('aria-busy', 'true')
     })
 
     // -----------------------------------------------------------------------

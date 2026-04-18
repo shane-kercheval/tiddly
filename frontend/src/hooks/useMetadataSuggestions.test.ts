@@ -239,7 +239,7 @@ describe('useMetadataSuggestions', () => {
   // -------------------------------------------------------------------------
 
   describe('loading state', () => {
-    it('sets isLoading during request', async () => {
+    it('sets both in-flight flags when generating both fields, clears on resolve', async () => {
       let resolvePromise: (value: { title: string | null; description: string | null }) => void
       mockSuggestMetadata.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve }))
 
@@ -249,14 +249,60 @@ describe('useMetadataSuggestions', () => {
         result.current.suggestTitle({ title: '', description: '', content: 'Content' }, vi.fn())
       })
 
-      expect(result.current.isLoading).toBe(true)
+      expect(result.current.isSuggestingTitle).toBe(true)
+      expect(result.current.isSuggestingDescription).toBe(true)
+
+      await act(async () => {
+        resolvePromise!({ title: 'T', description: 'D' })
+      })
+
+      await vi.waitFor(() => {
+        expect(result.current.isSuggestingTitle).toBe(false)
+        expect(result.current.isSuggestingDescription).toBe(false)
+      })
+    })
+
+    it('suggestTitle with existing description only flags title as in flight', async () => {
+      let resolvePromise: (value: { title: string | null; description: string | null }) => void
+      mockSuggestMetadata.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve }))
+
+      const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
+
+      act(() => {
+        result.current.suggestTitle({ title: '', description: 'D', content: 'Content' }, vi.fn())
+      })
+
+      expect(result.current.isSuggestingTitle).toBe(true)
+      expect(result.current.isSuggestingDescription).toBe(false)
 
       await act(async () => {
         resolvePromise!({ title: 'T', description: null })
       })
 
       await vi.waitFor(() => {
-        expect(result.current.isLoading).toBe(false)
+        expect(result.current.isSuggestingTitle).toBe(false)
+      })
+    })
+
+    it('suggestDescription with existing title only flags description as in flight', async () => {
+      let resolvePromise: (value: { title: string | null; description: string | null }) => void
+      mockSuggestMetadata.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve }))
+
+      const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
+
+      act(() => {
+        result.current.suggestDescription({ title: 'T', description: '', content: 'Content' }, vi.fn())
+      })
+
+      expect(result.current.isSuggestingTitle).toBe(false)
+      expect(result.current.isSuggestingDescription).toBe(true)
+
+      await act(async () => {
+        resolvePromise!({ title: null, description: 'D' })
+      })
+
+      await vi.waitFor(() => {
+        expect(result.current.isSuggestingDescription).toBe(false)
       })
     })
   })
@@ -278,7 +324,8 @@ describe('useMetadataSuggestions', () => {
       })
 
       await vi.waitFor(() => {
-        expect(result.current.isLoading).toBe(false)
+        expect(result.current.isSuggestingTitle).toBe(false)
+        expect(result.current.isSuggestingDescription).toBe(false)
       })
 
       expect(consoleSpy).toHaveBeenCalledWith('Failed to fetch metadata suggestion:', expect.any(Error))

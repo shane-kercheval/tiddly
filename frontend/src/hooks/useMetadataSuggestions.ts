@@ -26,8 +26,10 @@ interface UseMetadataSuggestionsOptions {
 }
 
 interface UseMetadataSuggestionsReturn {
-  /** Whether a suggestion request is in flight. */
-  isLoading: boolean
+  /** Whether a title suggestion is currently in flight (including the "generate both" case). */
+  isSuggestingTitle: boolean
+  /** Whether a description suggestion is currently in flight (including the "generate both" case). */
+  isSuggestingDescription: boolean
   /** Request a title suggestion. Updates title (and description if empty) via onUpdate. */
   suggestTitle: (context: MetadataContext, onUpdate: (title: string | null, description: string | null) => void) => void
   /** Request a description suggestion. Updates description (and title if empty) via onUpdate. */
@@ -37,7 +39,10 @@ interface UseMetadataSuggestionsReturn {
 export function useMetadataSuggestions(
   { available = true }: UseMetadataSuggestionsOptions = {},
 ): UseMetadataSuggestionsReturn {
-  const [isLoading, setIsLoading] = useState(false)
+  // Tracks which fields are being generated so each sparkle button can bind
+  // to the right spinner. A single `isLoading` boolean would cause both
+  // spinners to show on any click (both buttons share the hook instance).
+  const [inFlightFields, setInFlightFields] = useState<readonly ('title' | 'description')[] | null>(null)
   const requestIdRef = useRef(0)
 
   const suggest = useCallback((
@@ -50,7 +55,7 @@ export function useMetadataSuggestions(
     requestIdRef.current += 1
     const thisRequestId = requestIdRef.current
 
-    setIsLoading(true)
+    setInFlightFields(fields)
 
     suggestMetadata({
       fields,
@@ -71,7 +76,7 @@ export function useMetadataSuggestions(
       })
       .finally(() => {
         if (requestIdRef.current === thisRequestId) {
-          setIsLoading(false)
+          setInFlightFields(null)
         }
       })
   }, [available])
@@ -97,7 +102,8 @@ export function useMetadataSuggestions(
   }, [suggest])
 
   return {
-    isLoading,
+    isSuggestingTitle: inFlightFields?.includes('title') ?? false,
+    isSuggestingDescription: inFlightFields?.includes('description') ?? false,
     suggestTitle,
     suggestDescription,
   }

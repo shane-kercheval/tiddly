@@ -60,9 +60,14 @@ body {
   }
 
   /* Color treatment for AI-suggest sparkle buttons. Pair with `btn-icon`
-     (always-visible sites) or layout utilities (fade-on-parent-hover sites). */
+     (always-visible sites) or layout utilities (fade-on-parent-hover sites).
+     `aria-busy:!opacity-100` keeps the in-flight spinner fully visible even
+     when the button is also `disabled` — without the `!` it loses the
+     source-order cascade against `disabled:opacity-40` / `disabled:opacity-0`
+     applied at call sites. The `!` is encapsulated in this utility rather
+     than scattered across each sparkle-button className. */
   .btn-ai-icon {
-    @apply text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700 disabled:hover:bg-transparent disabled:hover:text-purple-500;
+    @apply text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700 disabled:hover:bg-transparent disabled:hover:text-purple-500 aria-busy:!opacity-100;
   }
 
   /* Spinner shown while an AI suggestion is in flight. Size + layout classes
