@@ -281,7 +281,7 @@ Implemented in `services/llm_service.py` using LiteLLM.
 
 | `AIUseCase` | Default model | Status |
 |---|---|---|
-| `SUGGESTIONS` | `openai/gpt-5.4-nano` | **Wired up**: suggest-tags, suggest-metadata, suggest-relationships, suggest-arguments |
+| `SUGGESTIONS` | `openai/gpt-5.4-nano` | **Wired up**: suggest-tags, suggest-metadata, suggest-relationships, suggest-prompt-arguments, suggest-prompt-argument-fields |
 | `TRANSFORM` | `gemini/gemini-flash-lite-latest` | Defined, not yet wired to an endpoint |
 | `AUTO_COMPLETE` | `gemini/gemini-flash-lite-latest` | Defined, not yet wired |
 | `CHAT` | `openai/gpt-5.4-mini` | Defined, not yet wired |

@@ -177,11 +177,8 @@ test_cases:
 # Global checks — applied to every test case
 checks:
   # Argument descriptions are clear and helpful (LLM judge).
-  # NOTE: Keep this prompt minimally different from the pre-split version.
-  # The old `config_suggest_arguments.yaml` baseline (used by the
-  # 2026-04-13 result files) passed at 100% on the same response data;
-  # any added criteria here risk tightening the judge's evaluation and
-  # flagging legitimate suggestions as failures (judge-prompt drift).
+  # Tightening the criteria here can flag legitimate suggestions as failures
+  # (judge-prompt drift) — change with care and re-baseline if you do.
   - type: "llm_judge"
     arguments:
       prompt: |

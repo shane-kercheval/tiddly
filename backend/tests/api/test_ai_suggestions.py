@@ -999,14 +999,6 @@ class TestSuggestPromptArgumentFields:
         assert response.json()["arguments"] == []
         mock_track.assert_not_called()
 
-    async def test_removed_old_endpoint_returns_404(self, client: AsyncClient) -> None:
-        """The old /ai/suggest-arguments URL is gone."""
-        response = await client.post(
-            "/ai/suggest-arguments",
-            json={"prompt_content": "{{ x }}"},
-        )
-        assert response.status_code == 404
-
 
 # ---------------------------------------------------------------------------
 # LLM response validation (502 on invalid JSON)

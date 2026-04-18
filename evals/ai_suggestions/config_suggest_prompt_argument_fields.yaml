@@ -169,15 +169,10 @@ test_cases:
           description: "The original 'old_name' must NOT appear — this is the explicit-opt-in regeneration path"
 
 # Global checks — applied to every test case.
-# NOTE: Keep this prompt minimally different from the pre-split version.
-# The old `config_suggest_arguments.yaml` baseline (used by the 2026-04-13
-# result files) passed at 100% on the suggest-name/suggest-description
-# cases. Expanding the judge's criteria risks drift. The only adaptation
-# here is that "mode/suggest_field" is replaced with `target_fields`
-# because the new contract uses that; the evaluation criteria themselves
-# are preserved verbatim.
 checks:
-  # Argument descriptions are clear and helpful (LLM judge)
+  # Argument descriptions are clear and helpful (LLM judge).
+  # Tightening the criteria here can flag legitimate suggestions as failures
+  # (judge-prompt drift) — change with care and re-baseline if you do.
   - type: "llm_judge"
     arguments:
       prompt: |
