@@ -127,9 +127,43 @@ migration:  ## Create new migration: make migration message="description"
 ####
 # Evaluations (LLM-based MCP tool testing)
 ####
+# Each sub-target runs in its own `make` recursion (→ its own shell → its own
+# pytest → its own Python process). Running all evals in ONE pytest process
+# exhausts file descriptors on macOS — litellm/httpx leaks sockets across
+# ~1500 cumulative LLM calls in a single process, and the error surfaces as
+# `OSError [Errno 24] Too many open files: '/dev/null'` partway through the
+# run. Splitting into subprocesses gives each suite a fresh FD pool.
+#
+# A failing suite does NOT abort the remaining suites — the shell loop tracks
+# failures and the final `exit $$FAIL` propagates a non-zero status so CI can
+# still see that something broke.
+_EVAL_SUBTARGETS := \
+	evals-ai-suggestions-tags \
+	evals-ai-suggestions-metadata \
+	evals-ai-suggestions-relationships \
+	evals-ai-suggestions-prompt-arguments \
+	evals-ai-suggestions-prompt-argument-fields \
+	evals-content-mcp \
+	evals-prompt-mcp
+
 evals:  ## Run all LLM evaluations (requires API + MCP servers running)
 	uv run ruff check evals --fix --unsafe-fixes
-	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/ -vs --timeout=300
+	@FAIL=0; FAILED_TARGETS=""; \
+	for t in $(_EVAL_SUBTARGETS); do \
+		echo ""; echo "════════════════════════════════════════════════════════"; \
+		echo "  $$t"; \
+		echo "════════════════════════════════════════════════════════"; \
+		$(MAKE) $$t || { FAIL=1; FAILED_TARGETS="$$FAILED_TARGETS $$t"; }; \
+	done; \
+	echo ""; echo "════════════════════════════════════════════════════════"; \
+	if [ $$FAIL -eq 0 ]; then \
+		echo "  All eval suites passed"; \
+	else \
+		echo "  Failed suites:$$FAILED_TARGETS"; \
+		echo "  (scroll up to see per-suite output)"; \
+	fi; \
+	echo "════════════════════════════════════════════════════════"; \
+	exit $$FAIL
 
 evals-content-mcp:  ## Run Content MCP evaluations only
 	PYTHONPATH=$(PYTHONPATH) uv run pytest evals/content_mcp/ -vs --timeout=300
