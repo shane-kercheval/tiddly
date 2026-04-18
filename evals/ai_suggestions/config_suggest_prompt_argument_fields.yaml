@@ -1,0 +1,219 @@
+name: "suggest_prompt_argument_fields: Refine Quality"
+description: |
+  Tests prompt argument refine quality by calling
+  suggest_prompt_argument_fields() directly. `target_fields` makes caller
+  intent explicit — single-field refines regenerate either the name or
+  the description; the two-field case regenerates the whole row from
+  template context.
+
+models:
+  - name: "gemini/gemini-flash-lite-latest"
+    temperature: 0.7
+  - name: "openai/gpt-5.4-nano"
+    temperature: 0.7
+  - name: "anthropic/claude-haiku-4-5"
+    temperature: 0.7
+
+eval:
+  judge_model: "openai/gpt-5.4-mini"
+  samples: 10
+  pass_threshold: 0.8
+  max_concurrency: 10
+
+test_cases:
+  - id: "suggest-name"
+    metadata:
+      description: "target_fields=['name'] — suggest a name for an argument that has only a description"
+    input:
+      prompt_content: "Write a {{ lang }} function that {{ action }}."
+      arguments:
+        - name: null
+          description: "The programming language to write the function in"
+        - name: "action"
+          description: "What the function should do"
+      target_index: 0
+      target_fields: ["name"]
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Refine endpoint should return exactly one suggestion"
+      - type: "subset"
+        arguments:
+          collection: ["lang"]
+          required: "$.output.value.argument_names"
+          case_sensitive: true
+        metadata:
+          name: "Returned name matches expected placeholder"
+          description: "Suggested name should match the existing {{ lang }} placeholder since the description clearly maps to it"
+
+  - id: "suggest-name-no-template"
+    metadata:
+      description: "target_fields=['name'] with no template — LLM generates a name from the description alone"
+    input:
+      prompt_content: null
+      arguments:
+        - name: null
+          description: "The maximum number of items to return in a paginated API response, as an integer between 1 and 100"
+      target_index: 0
+      target_fields: ["name"]
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Refine endpoint should return exactly one suggestion"
+      # No deterministic name-match check — with no template to match against,
+      # the LLM could reasonably pick several names (limit, max_items, page_size,
+      # count, etc.). Name quality is evaluated by the global LLM judge instead.
+
+  - id: "suggest-description"
+    metadata:
+      description: "target_fields=['description'] — suggest a description for an argument that has only a name"
+    input:
+      prompt_content: "Convert {{ input_text }} to {{ output_format }}."
+      arguments:
+        - name: "input_text"
+          description: null
+        - name: "output_format"
+          description: null
+      target_index: 1
+      target_fields: ["description"]
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Refine endpoint should return exactly one suggestion"
+      - type: "subset"
+        arguments:
+          collection: ["output_format"]
+          required: "$.output.value.argument_names"
+          case_sensitive: true
+        metadata:
+          name: "Returned name matches expected placeholder"
+          description: "Description-only refine should preserve the original name (output_format)"
+
+  - id: "refine-both-from-template"
+    metadata:
+      description: "target_fields=['name','description'] — blank row, template with multiple unclaimed placeholders"
+    input:
+      prompt_content: "Summarize {{ source_text }} in {{ target_language }} for a {{ audience_level }} audience."
+      arguments:
+        - name: null
+          description: null
+      target_index: 0
+      target_fields: ["name", "description"]
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Refine endpoint should return exactly one suggestion"
+      - type: "subset"
+        arguments:
+          collection: ["source_text", "target_language", "audience_level"]
+          required: "$.output.value.argument_names"
+          case_sensitive: true
+        metadata:
+          name: "Returned name matches expected placeholder"
+          description: "Two-field refine must pick a name from the template's unclaimed placeholders"
+
+  - id: "refine-both-overwrites-populated"
+    metadata:
+      description: "target_fields=['name','description'] on already-populated row + template — explicit-opt-in overwrite regression test"
+    input:
+      prompt_content: "Generate a summary of {{ article_text }} in {{ summary_length }} sentences."
+      arguments:
+        - name: "old_name"
+          description: "Some outdated description the user wants to regenerate"
+      target_index: 0
+      target_fields: ["name", "description"]
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Refine endpoint should return exactly one suggestion"
+      - type: "subset"
+        arguments:
+          collection: ["article_text", "summary_length"]
+          required: "$.output.value.argument_names"
+          case_sensitive: true
+        metadata:
+          name: "Returned name matches expected placeholder"
+          description: "Regeneration must pick from the template, ignoring the old name"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.argument_names"
+          forbidden: ["old_name"]
+          case_sensitive: true
+        metadata:
+          name: "Old name overwritten"
+          description: "The original 'old_name' must NOT appear — this is the explicit-opt-in regeneration path"
+
+# Global checks — applied to every test case.
+# NOTE: Keep this prompt minimally different from the pre-split version.
+# The old `config_suggest_arguments.yaml` baseline (used by the 2026-04-13
+# result files) passed at 100% on the suggest-name/suggest-description
+# cases. Expanding the judge's criteria risks drift. The only adaptation
+# here is that "mode/suggest_field" is replaced with `target_fields`
+# because the new contract uses that; the evaluation criteria themselves
+# are preserved verbatim.
+checks:
+  # Argument descriptions are clear and helpful (LLM judge)
+  - type: "llm_judge"
+    arguments:
+      prompt: |
+        You are evaluating argument suggestions for a prompt template.
+
+        The template:
+        ```
+        {{$.test_case.input.prompt_content}}
+        ```
+
+        The suggested arguments:
+        {{$.output.value.arguments_detail}}
+
+        target_fields: {{$.test_case.input.target_fields}}
+        Target argument index: {{$.test_case.input.target_index}}
+
+        This endpoint refines one specific argument row. `target_fields`
+        tells you which fields on that row were generated:
+        - ["name"] — suggests a name for a row that has a description but no name.
+        - ["description"] — suggests a description for a row that has a name but no description.
+        - ["name", "description"] — regenerates both fields from the template context.
+
+        It is CORRECT to return only one argument. Do not penalize for missing other placeholders.
+
+        Evaluate the suggestions:
+        - Each returned argument should have a clear, helpful description that explains what it represents
+        - Descriptions should not be vague or generic (e.g., "the value" or "input data")
+        - Argument names should be valid (lowercase with underscores)
+        - In target_fields=["name"] mode:
+            - If the template is NULL or empty, the name should be descriptive of the argument's purpose — any reasonable descriptive name passes. Do NOT require the name to match a template placeholder (there is no template).
+            - If the template contains placeholders and the description clearly maps to one of them, the suggested name should match that placeholder.
+            - If the template contains placeholders but the description does not map to any of them, the name should be descriptive of the argument's purpose.
+        - In target_fields=["name", "description"] mode, the returned name should match one of the template's unclaimed placeholder names.
+
+        Return passed=true if all returned argument descriptions are clear and helpful. Include brief reasoning for any that fail.
+      response_model: "arguments"
+    metadata:
+      name: "Argument descriptions are clear"
+      description: "LLM judge verifies argument descriptions are specific and helpful"

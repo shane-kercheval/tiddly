@@ -321,6 +321,15 @@ test_cases:
       content_type: "bookmark"
       url: null
       current_tags: []
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.tag_count"
+          min_value: 3
+          max_value: 7
+        metadata:
+          name: "Tag count within 3–7"
+          description: "Prompt asks for 3–7 tags; broad content shouldn't exceed 7 or return fewer than 3"
 
 # Global checks — applied to every test case
 checks:
@@ -348,44 +357,57 @@ checks:
       prompt: |
         You are evaluating tag suggestions for a content item.
 
-        The item has:
+        ## Item
         - Title: "{{$.test_case.input.title}}"
         - Description: "{{$.test_case.input.description}}"
         - Content snippet: "{{$.test_case.input.content_snippet}}"
         - URL: "{{$.test_case.input.url}}"
         - Content type: {{$.test_case.input.content_type}}
 
-        The user's tag vocabulary is: {{$.output.value.vocabulary_names}}
+        ## User's tag vocabulary (for context only)
+        {{$.output.value.vocabulary_names}}
 
-        The suggested tags are: {{$.output.value.tags}}
+        ## Tags to evaluate
+        {{$.output.value.tags}}
 
-        The tag recommender was given these instructions:
+        ## Your job
 
-        ```
-        - Reuse tags from the user's existing vocabulary when relevant. If the vocabulary contains the user's preferred form of a common term (e.g., 'ml' instead of 'machine-learning'), use their form rather than substituting the canonical name.
-        - A tag is relevant if it directly describes a topic in the item's title, description, or content, OR is a closely related concept that is present in the vocabulary.
-        - A tag from the vocabulary with no topical connection to the item is not relevant, even if it is frequently used.
-        - Avoid broad category tags unless the item actually discusses that category.
-        - The recommender MAY suggest new tags not in the vocabulary if they directly describe a discussed topic.
-        ```
+        Score each suggested tag as relevant (1) or irrelevant (0).
 
-        Score each tag as relevant (1) or irrelevant (0) based on whether the tag is a useful categorization for this item. Use common sense and domain knowledge. Important:
-        - Tags NOT in the vocabulary are perfectly valid if they describe a topic discussed in the item. Do not penalize tags for being absent from the vocabulary.
-        - Include universally understood associations (e.g., "java" is relevant for a Spring Boot tutorial, "sql" is relevant for a MySQL guide, "python" is relevant for a scikit-learn guide).
-        - A tag is irrelevant only if it has no real topical connection (e.g., "python" for a Docker Compose note that doesn't discuss Python) or is only commonly associated but not discussed (e.g., "web-dev" for a Docker Compose note).
+        **A tag is relevant (1)** if the item discusses the topic the tag
+        names. "Discusses" includes:
+          - The topic is named explicitly in title/description/content, OR
+          - The topic is clearly implied by the content (e.g. a snippet about
+            "Transformer attention-based architecture for machine translation"
+            implies `nlp`, `deep-learning`, `neural-networks`, `attention` —
+            all are directly relevant even without literal keyword match).
 
-        Examples of CORRECT scoring:
-        - Item about PostgreSQL indexes → "postgresql"=1, "sql"=1, "database"=1, "query-optimization"=1 (all directly on-topic)
-        - Item about Transformer architecture → "neural-networks"=1, "attention-mechanism"=1, "nlp"=1 (all directly discussed)
-        - Item about GitHub Actions CI/CD → "github-actions"=1, "automation"=1 (both on-topic, vocabulary membership irrelevant)
+        **A tag is irrelevant (0)** ONLY when the item does not discuss the
+        tag's topic at all. Examples of true irrelevance:
+          - `python` on a Docker Compose guide that doesn't mention Python.
+          - `web-dev` on a PostgreSQL index guide.
 
-        Examples of INCORRECT scoring (do not make these mistakes):
-        - Scoring "postgresql"=0 because it's not in the vocabulary. WRONG — vocabulary membership does not determine relevance. "postgresql" is the topic of the item.
-        - Scoring "neural-networks"=0 for a paper about neural network architectures. WRONG — the paper directly discusses neural networks.
-        - Scoring "github-actions"=0 because it's not in the vocabulary. WRONG — the item is specifically about GitHub Actions.
-        - Scoring "optimization"=0 for an item titled "PostgreSQL Index Optimization". WRONG — the word is literally in the title.
+        **Do NOT score 0 for the following reasons** — these are out of
+        scope for relevance judging:
+          - "Too generic" (broad categories are relevant if the topic is
+            discussed — e.g. `machine-learning` on an ML paper is correct,
+            not too-general).
+          - "Not explicitly framed as X" (implied topics count as discussed).
+          - "Too specific" or "redundant with another tag" (having both
+            `neural-networks` and `attention-mechanism` on a Transformer
+            paper is fine, not redundant-score-one).
+          - "Not in the user's vocabulary" (vocabulary membership is
+            irrelevant to relevance; new tags are allowed).
 
-        Return relevant_count, total_count, and passed=true if no more than 1 tag scores 0. Include brief reasoning for any tag that scored 0.
+        ## Output
+
+        Return one `scores` entry for each tag being evaluated:
+          - `tag`: the tag string
+          - `relevant`: true if the item discusses the tag's topic, false otherwise
+          - `reason`: a brief explanation
+
+        Include EVERY tag from the "Tags to evaluate" list exactly once —
+        don't skip any, and don't add new ones.
       response_model: "tags"
     metadata:
       name: "All tags are relevant to content"

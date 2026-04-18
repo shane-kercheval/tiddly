@@ -1,14 +1,14 @@
 """
-Evaluation tests for prompt argument suggestion quality.
+Evaluation tests for the refine-fields prompt-argument endpoint.
 
-Calls suggest_arguments() directly — no HTTP server or database needed.
-Covers generate-all mode (extract and describe placeholders from a template)
-and individual mode (suggest name/description for a specific argument).
+Calls suggest_prompt_argument_fields() directly — no HTTP server or
+database needed. `target_fields` makes caller intent explicit: one or
+both of `name` / `description` on a specific argument row is regenerated.
 
 Checks:
-- Per-test-case: subset (expected arguments present), threshold (argument count),
-  is_empty — defined in YAML
-- Global: llm_judge (description quality)
+- Per-test-case: threshold (exactly one argument returned), subset
+  (preserved opposite field / template-match) — defined in YAML.
+- Global: llm_judge (description quality, target_fields-aware).
 """
 from pathlib import Path
 from typing import Any
@@ -30,13 +30,13 @@ from evals.utils import (
     load_yaml_config,
 )
 from schemas.ai import ArgumentInput
-from services.suggestion_service import suggest_arguments
+from services.suggestion_service import suggest_prompt_argument_fields
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-CONFIG_PATH = Path(__file__).parent / "config_suggest_arguments.yaml"
+CONFIG_PATH = Path(__file__).parent / "config_suggest_prompt_argument_fields.yaml"
 CONFIG = load_yaml_config(CONFIG_PATH)
 
 MODELS = CONFIG["models"]
@@ -52,7 +52,7 @@ TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 
 
 class ArgumentJudgeResult(BaseModel):
-    """Structured response from the LLM judge for argument description quality."""
+    """Structured response from the LLM judge for argument refine quality."""
 
     passed: bool
     reasoning: str
@@ -101,16 +101,16 @@ _llm_service = create_llm_service()
 )
 @pytest.mark.timeout(300)
 @pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
-async def test_suggest_arguments(
+async def test_suggest_prompt_argument_fields(
     test_case: TestCase,
     model_config: dict[str, Any],
 ) -> dict[str, Any]:
     """
-    Test that suggest_arguments produces useful argument suggestions.
+    Test that suggest_prompt_argument_fields produces a single refined
+    argument whose populated fields match the `target_fields` contract.
 
-    Each test case provides a prompt template and mode (generate-all or individual).
-    Per-test-case checks verify argument names and counts.
-    Global judge verifies description quality.
+    Per-test-case checks verify argument count and name alignment.
+    Global judge verifies description quality with target_fields awareness.
     """
     config = create_eval_config(_llm_service, model_config["name"])
     # Temperature is informational — records the LLMService default (0.7) for the viewer.
@@ -118,22 +118,24 @@ async def test_suggest_arguments(
     temperature = model_config.get("temperature", 0.7)
     input_data = test_case.input
 
-    # Build existing arguments from YAML
-    existing_args = [
-        ArgumentInput(**a) for a in input_data.get("arguments", [])
-    ]
+    existing_args = [ArgumentInput(**a) for a in input_data.get("arguments", [])]
 
-    result, cost = await suggest_arguments(
+    result, cost = await suggest_prompt_argument_fields(
         prompt_content=input_data.get("prompt_content"),
         arguments=existing_args,
-        target_index=input_data.get("target_index"),
+        target_index=input_data["target_index"],
+        target_fields=input_data["target_fields"],
         llm_service=_llm_service,
         config=config,
     )
 
     argument_names = [a.name for a in result]
+    # Render without outer quotes around the description — descriptions can
+    # legitimately contain quoted examples (e.g. Example: "Spanish"), and
+    # wrapping them in outer quotes produces ambiguous nested-quote text that
+    # the judge reads as malformed.
     arguments_detail = "\n".join(
-        f"- {a.name}: \"{a.description}\" (required: {a.required})"
+        f"- name: {a.name} | description: {a.description} | required: {a.required}"
         for a in result
     ) if result else "No arguments returned."
 
