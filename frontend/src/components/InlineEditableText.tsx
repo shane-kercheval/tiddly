@@ -132,7 +132,7 @@ export function InlineEditableText({
               onClick={onSuggest}
               disabled={suggestDisabled || isSuggesting}
               aria-busy={isSuggesting}
-              className="btn-ai-icon shrink-0 mt-px p-0.5 rounded opacity-0 group-hover/suggest:opacity-100 focus-visible:opacity-100 disabled:opacity-0 disabled:group-hover/suggest:opacity-40 disabled:focus-visible:opacity-40 disabled:cursor-not-allowed"
+              className="btn-ai-icon shrink-0 mt-px p-0.5 rounded opacity-0 group-hover/suggest:opacity-100 group-focus-within/suggest:opacity-100 focus-visible:opacity-100 disabled:opacity-0 disabled:group-hover/suggest:opacity-40 disabled:group-focus-within/suggest:opacity-40 disabled:focus-visible:opacity-40 disabled:cursor-not-allowed"
               aria-label="Suggest description"
             >
               {isSuggesting ? (

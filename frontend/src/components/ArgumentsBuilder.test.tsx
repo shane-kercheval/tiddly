@@ -122,7 +122,7 @@ describe('ArgumentsBuilder', () => {
       expect(screen.getByText('Character limit reached')).toBeInTheDocument()
     })
 
-    it('should not show limit feedback when under limits', () => {
+    it('should not render limit feedback when under limits', () => {
       render(
         <ArgumentsBuilder
           {...defaultProps}
@@ -132,11 +132,10 @@ describe('ArgumentsBuilder', () => {
         />
       )
 
-      // All feedback elements should be hidden (below 70%)
-      const feedbacks = screen.getAllByTestId('character-limit-feedback')
-      feedbacks.forEach(feedback => {
-        expect(feedback.style.visibility).toBe('hidden')
-      })
+      // Feedback is conditionally rendered — when under the 70% counter
+      // threshold it's omitted entirely so the 16px placeholder doesn't
+      // reserve dead space between the inputs and the wrapped icons row.
+      expect(screen.queryAllByTestId('character-limit-feedback')).toHaveLength(0)
     })
 
     it('should show counter at 70%+ for arg name', () => {

@@ -139,7 +139,12 @@ function ArgumentRow({
             aria-label={`Argument ${index + 1} name`}
           />
           {namePatternError && <p className="mt-0.5 text-xs text-red-500">{namePatternError}</p>}
-          <CharacterLimitFeedback limit={nameLimit} />
+          {/* Conditionally rendered so the 16px reservation disappears when
+              the counter isn't shown. The default reserved-space behavior
+              would otherwise add dead space between the input and the
+              wrapped `[Required AI X]` row on narrow viewports, and
+              unnecessary padding below the row at wider widths. */}
+          {nameLimit.showCounter && <CharacterLimitFeedback limit={nameLimit} />}
         </div>
         <div className="flex-[4] min-w-[220px]">
           <input
@@ -154,45 +159,47 @@ function ArgumentRow({
             className={`input py-1.5 text-sm w-full ${descLimit.exceeded ? 'ring-2 ring-red-200' : ''}`}
             aria-label={`Argument ${index + 1} description`}
           />
-          <CharacterLimitFeedback limit={descLimit} />
+          {descLimit.showCounter && <CharacterLimitFeedback limit={descLimit} />}
         </div>
-        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer mt-1.5">
-          <input
-            type="checkbox"
-            checked={arg.required ?? false}
-            onChange={(e) => onUpdate(index, 'required', e.target.checked)}
+        <div className="flex items-center gap-2 self-center">
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={arg.required ?? false}
+              onChange={(e) => onUpdate(index, 'required', e.target.checked)}
+              disabled={disabled}
+              className="rounded border-gray-300"
+            />
+            Required
+          </label>
+          {onSuggestRow && (
+            <MaybeTooltip content={effectiveTooltip} compact delay={500} position="left">
+              <button
+                type="button"
+                onClick={() => onSuggestRow(index)}
+                disabled={sparkleDisabled}
+                aria-busy={isSuggestingThisRow}
+                className="btn-icon btn-ai-icon disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label={`Suggest fields for argument ${index + 1}`}
+              >
+                {isSuggestingThisRow ? (
+                  <div className="spinner-ai h-4 w-4" />
+                ) : (
+                  <SparklesIcon className="h-4 w-4" />
+                )}
+              </button>
+            </MaybeTooltip>
+          )}
+          <button
+            type="button"
+            onClick={() => onRemove(index)}
             disabled={disabled}
-            className="rounded border-gray-300"
-          />
-          Required
-        </label>
-        {onSuggestRow && (
-          <MaybeTooltip content={effectiveTooltip} compact delay={500} position="left">
-            <button
-              type="button"
-              onClick={() => onSuggestRow(index)}
-              disabled={sparkleDisabled}
-              aria-busy={isSuggestingThisRow}
-              className="btn-icon btn-ai-icon mt-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-              aria-label={`Suggest fields for argument ${index + 1}`}
-            >
-              {isSuggestingThisRow ? (
-                <div className="spinner-ai h-4 w-4" />
-              ) : (
-                <SparklesIcon className="h-4 w-4" />
-              )}
-            </button>
-          </MaybeTooltip>
-        )}
-        <button
-          type="button"
-          onClick={() => onRemove(index)}
-          disabled={disabled}
-          className="btn-icon-danger mt-1.5"
-          aria-label={`Remove argument ${index + 1}`}
-        >
-          <CloseIcon className="h-4 w-4" />
-        </button>
+            className="btn-icon-danger"
+            aria-label={`Remove argument ${index + 1}`}
+          >
+            <CloseIcon className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -343,7 +350,7 @@ export function ArgumentsBuilder({
           No arguments defined. Arguments are passed by either the human or AI when using the prompt and can be referenced in the template using jinja syntax.
         </p>
       ) : (
-        <div className="space-y-0">
+        <div className="space-y-4">
           {args.map((arg, index) => (
             <div key={index}>
               <div className="flex items-start gap-3">
