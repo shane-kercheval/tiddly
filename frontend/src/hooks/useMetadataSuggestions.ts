@@ -12,6 +12,7 @@
  */
 import { useState, useCallback, useRef } from 'react'
 import { suggestMetadata } from '../services/aiApi'
+import { toastAiSuggestionError } from './aiErrorToast'
 
 interface MetadataContext {
   title: string
@@ -72,6 +73,7 @@ export function useMetadataSuggestions(
       .catch((error) => {
         if (requestIdRef.current === thisRequestId) {
           console.error('Failed to fetch metadata suggestion:', error)
+          toastAiSuggestionError(error, "Couldn't generate suggestion. Please try again.")
         }
       })
       .finally(() => {

@@ -25,6 +25,7 @@ interface TaggableState {
 interface UseAITagIntegrationReturn {
   aiTagSuggestions: string[]
   isAiTagsLoading: boolean
+  aiTagsHasError: boolean
   handleTagInputOpen: () => void
   handleTagInputClose: () => void
   handleTagsChange: (tags: string[]) => void
@@ -36,7 +37,7 @@ export function useAITagIntegration<T extends TaggableState>(
   available: boolean = false,
   contentType: 'bookmark' | 'note' | 'prompt' = 'bookmark',
 ): UseAITagIntegrationReturn {
-  const { suggestions: aiTagSuggestions, isLoading: isAiTagsLoading, fetchSuggestions, clearSuggestions, dismissSuggestion } =
+  const { suggestions: aiTagSuggestions, isLoading: isAiTagsLoading, hasError: aiTagsHasError, fetchSuggestions, clearSuggestions, dismissSuggestion } =
     useTagSuggestions({ available })
 
   const handleTagInputOpen = useCallback(() => {
@@ -63,6 +64,7 @@ export function useAITagIntegration<T extends TaggableState>(
   return {
     aiTagSuggestions,
     isAiTagsLoading,
+    aiTagsHasError,
     handleTagInputOpen,
     handleTagInputClose,
     handleTagsChange,

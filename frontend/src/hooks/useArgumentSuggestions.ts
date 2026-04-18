@@ -24,6 +24,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { suggestPromptArguments, suggestPromptArgumentFields } from '../services/aiApi'
 import { getRowBlanks } from './argumentBlanks'
+import { toastAiSuggestionError } from './aiErrorToast'
 import type { PromptArgument, ArgumentSuggestion } from '../types'
 
 interface UseArgumentSuggestionsOptions {
@@ -110,6 +111,7 @@ export function useArgumentSuggestions(
       .catch((error) => {
         if (requestIdRef.current === thisRequestId) {
           console.error('Failed to fetch argument suggestions:', error)
+          toastAiSuggestionError(error, "Couldn't generate argument suggestions. Please try again.")
         }
       })
       .finally(() => {
@@ -175,6 +177,7 @@ export function useArgumentSuggestions(
       .catch((error) => {
         if (requestIdRef.current === thisRequestId) {
           console.error('Failed to fetch argument row suggestion:', error)
+          toastAiSuggestionError(error, "Couldn't generate argument suggestion. Please try again.")
         }
       })
       .finally(() => {

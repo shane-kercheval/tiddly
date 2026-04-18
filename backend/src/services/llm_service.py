@@ -287,9 +287,19 @@ class LLMService:
         response_format: type[BaseModel] | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        timeout: int | None = None,
+        num_retries: int | None = None,
     ) -> tuple[ModelResponse, float | None]:
         """
         Non-streaming completion. Returns (response, cost).
+
+        `timeout` and `num_retries` override the service-wide defaults for this
+        call. Callers use this to tune latency vs resilience: UI paths default
+        to a short timeout with no retries (fail fast so the user isn't waiting
+        on a flaky provider), eval paths use longer timeouts and more retries
+        (tolerant of transient upstream slowness). Defaults preserve the
+        prior behavior (timeout=LLM_TIMEOUT_DEFAULT, num_retries=1) when
+        neither is supplied.
 
         Cost is None if cost calculation fails (e.g. model not in LiteLLM's
         pricing database). A successful LLM call never fails due to cost tracking.
@@ -299,8 +309,8 @@ class LLMService:
             "messages": messages,
             "api_key": config.api_key,
             "temperature": _normalize_temperature(config.model, temperature),
-            "timeout": self._settings.llm_timeout_default,
-            "num_retries": 1,
+            "timeout": timeout if timeout is not None else self._settings.llm_timeout_default,
+            "num_retries": num_retries if num_retries is not None else 1,
         }
         if response_format is not None:
             kwargs["response_format"] = response_format

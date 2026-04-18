@@ -9,6 +9,13 @@ from pydantic import BaseModel
 from core.config import Settings
 from services.llm_service import KeySource, LLMConfig, LLMService, _resolve_platform_key
 
+# Eval-tuned overrides for the suggestion LLM calls. The service defaults are
+# tight (15s / 0 retries) because the UI wants fail-fast latency. Evals run
+# hundreds of calls in a batch and benefit from tolerating transient provider
+# slowdowns — a 30s burp from OpenAI shouldn't fail an eval run.
+EVAL_LLM_TIMEOUT = 60
+EVAL_LLM_NUM_RETRIES = 3
+
 
 def create_llm_service() -> LLMService:
     """

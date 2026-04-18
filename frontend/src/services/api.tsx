@@ -14,6 +14,14 @@ export const api = axios.create({
   },
 })
 
+/**
+ * HTTP statuses that the response interceptor below already toasts on.
+ * Callers (notably AI-suggestion hooks surfacing errors via toast) should
+ * short-circuit for these to avoid double-toasting. Keep in sync with the
+ * interceptor branches below.
+ */
+export const GLOBALLY_TOASTED_STATUSES = [402, 429] as const
+
 let isLoggingOut = false
 let refreshPromise: Promise<string> | null = null
 
@@ -161,18 +169,31 @@ export function setupAuthInterceptor(
         }
       }
       if (error.response?.status === 429) {
-        // Rate limit exceeded - show user-friendly message with pricing link
-        const retryAfter = error.response.headers['retry-after']
-        const waitText = retryAfter
-          ? `Please wait ${retryAfter} seconds.`
-          : 'Please try again later.'
-        toast.error(
-          <span>
-            Too many requests. {waitText}{' '}
-            <a href="/pricing" className="underline font-medium">Higher limits available</a>
-          </span>,
-          { id: 'rate-limit' }
-        )
+        // Two distinct 429 flavors:
+        //   (1) Tiddly rate limiter — tier-bucket exhausted, pricing upsell is relevant.
+        //       Sets `Retry-After`; no `error_code`.
+        //   (2) Upstream LLM provider rate limit — `error_code: llm_rate_limited`,
+        //       no `Retry-After`. Pricing link would mislead (user's plan is fine;
+        //       it's the provider that's busy), so show provider-busy copy instead.
+        const data = error.response.data as { error_code?: string }
+        if (data?.error_code === 'llm_rate_limited') {
+          toast.error(
+            'The AI provider is busy right now. Please try again in a moment.',
+            { id: 'rate-limit' }
+          )
+        } else {
+          const retryAfter = error.response.headers['retry-after']
+          const waitText = retryAfter
+            ? `Please wait ${retryAfter} seconds.`
+            : 'Please try again later.'
+          toast.error(
+            <span>
+              Too many requests. {waitText}{' '}
+              <a href="/pricing" className="underline font-medium">Higher limits available</a>
+            </span>,
+            { id: 'rate-limit' }
+          )
+        }
       }
       if (error.response?.status === 451) {
         // Consent required - show dialog immediately and fetch new versions

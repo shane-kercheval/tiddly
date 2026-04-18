@@ -243,6 +243,44 @@ class TestSuggestTags:
         system_msg = call_kwargs["messages"][0]["content"]
         assert "python (47)" in system_msg
 
+    async def test_passes_ui_tuned_timeout_and_retry_defaults_to_llm_service(self) -> None:
+        """Suggestion callers inherit fail-fast defaults (15s, 0 retries) for UI latency."""
+        service = _mock_llm_service('{"tags": []}')
+        await suggest_tags(
+            title="t",
+            url=None,
+            description=None,
+            content_snippet=None,
+            content_type="bookmark",
+            current_tags=[],
+            tag_vocabulary=[],
+            llm_service=service,
+            config=_mock_config(),
+        )
+        call_kwargs = service.complete.call_args.kwargs
+        assert call_kwargs["timeout"] == 15
+        assert call_kwargs["num_retries"] == 0
+
+    async def test_passes_caller_overrides_through_to_llm_service(self) -> None:
+        """Eval paths override with higher timeout and retry budget for batch resilience."""
+        service = _mock_llm_service('{"tags": []}')
+        await suggest_tags(
+            title="t",
+            url=None,
+            description=None,
+            content_snippet=None,
+            content_type="bookmark",
+            current_tags=[],
+            tag_vocabulary=[],
+            llm_service=service,
+            config=_mock_config(),
+            timeout=60,
+            num_retries=3,
+        )
+        call_kwargs = service.complete.call_args.kwargs
+        assert call_kwargs["timeout"] == 60
+        assert call_kwargs["num_retries"] == 3
+
 
 # ---------------------------------------------------------------------------
 # suggest_metadata
@@ -538,6 +576,42 @@ class TestSuggestPromptArguments:
 
 class TestSuggestPromptArgumentFields:
     """Tests for the refine-fields service function."""
+
+    async def test_overrides_thread_through_single_field_helper(self) -> None:
+        """Caller overrides reach `LLMService.complete` via `_refine_single_field`."""
+        service = _mock_llm_service(json.dumps({"name": "x"}))
+        await suggest_prompt_argument_fields(
+            prompt_content=None,
+            arguments=[ArgumentInput(name=None, description="desc")],
+            target_index=0,
+            target_fields=["name"],
+            llm_service=service,
+            config=_mock_config(),
+            timeout=60,
+            num_retries=3,
+        )
+        call_kwargs = service.complete.call_args.kwargs
+        assert call_kwargs["timeout"] == 60
+        assert call_kwargs["num_retries"] == 3
+
+    async def test_overrides_thread_through_both_fields_helper(self) -> None:
+        """Caller overrides reach `LLMService.complete` via `_refine_both_fields`."""
+        service = _mock_llm_service(
+            json.dumps({"name": "foo", "description": "d", "required": False}),
+        )
+        await suggest_prompt_argument_fields(
+            prompt_content="Template with {{ foo }} placeholder",
+            arguments=[ArgumentInput(name=None, description=None)],
+            target_index=0,
+            target_fields=["name", "description"],
+            llm_service=service,
+            config=_mock_config(),
+            timeout=60,
+            num_retries=3,
+        )
+        call_kwargs = service.complete.call_args.kwargs
+        assert call_kwargs["timeout"] == 60
+        assert call_kwargs["num_retries"] == 3
 
     # ----------------- single-field: name ---------------------------------
 

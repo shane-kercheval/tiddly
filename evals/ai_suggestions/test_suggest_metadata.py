@@ -19,6 +19,8 @@ from flex_evals.pytest_decorator import evaluate
 from pydantic import BaseModel
 
 from evals.ai_suggestions.helpers import (
+    EVAL_LLM_NUM_RETRIES,
+    EVAL_LLM_TIMEOUT,
     create_eval_config,
     create_judge_llm_function,
     create_llm_service,
@@ -125,6 +127,8 @@ async def test_suggest_metadata(
         content_snippet=input_data.get("content_snippet"),
         llm_service=_llm_service,
         config=config,
+        timeout=EVAL_LLM_TIMEOUT,
+        num_retries=EVAL_LLM_NUM_RETRIES,
     )
 
     return {

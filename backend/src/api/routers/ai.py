@@ -261,7 +261,14 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
     },
     504: {
         "model": AIErrorResponse,
-        "description": "LLM request timed out (`llm_timeout`). Safe to retry.",
+        "description": (
+            "LLM request timed out (`llm_timeout`). Safe to retry.\n\n"
+            "The server enforces a ~15s ceiling on the upstream LLM call with "
+            "no server-side retry — the endpoint is tuned for interactive "
+            "latency rather than batch resilience. Clients should set their "
+            "own request timeout to at least 20s to avoid cancelling requests "
+            "the server was about to answer."
+        ),
         "content": {
             "application/json": {
                 "example": {

@@ -50,6 +50,14 @@ logger = logging.getLogger(__name__)
 _MAX_TAGS = 7
 _MAX_RELATIONSHIPS = 5
 
+# Default timeout (seconds) and retry count for suggestion LLM calls.
+# Tuned for interactive UI latency — fail fast rather than keep the user
+# waiting on a flaky upstream provider. The router endpoints rely on these
+# defaults; evals override per-call to `timeout=60, num_retries=3` for
+# resilience across batched runs where transient slowdowns are normal.
+_SUGGESTION_TIMEOUT_DEFAULT = 15
+_SUGGESTION_NUM_RETRIES_DEFAULT = 0
+
 
 class LLMResponseParseError(Exception):
     """Raised when the LLM returns a response that cannot be parsed into the expected schema."""
@@ -123,6 +131,8 @@ async def suggest_tags(
     tag_vocabulary: list[TagVocabularyEntry],
     llm_service: LLMService,
     config: LLMConfig,
+    timeout: int = _SUGGESTION_TIMEOUT_DEFAULT,
+    num_retries: int = _SUGGESTION_NUM_RETRIES_DEFAULT,
 ) -> tuple[list[str], float | None]:
     """
     Suggest tags for a content item based on its metadata and the user's tag vocabulary.
@@ -144,6 +154,10 @@ async def suggest_tags(
             "python (47), flask (12), api (8)" format.
         llm_service: LLM service instance for making completion calls.
         config: Resolved LLM config (model, key, key source).
+        timeout: Seconds to wait for the LLM response before raising. Defaults to
+            the UI-tuned value; evals pass a longer value for resilience.
+        num_retries: Retry count on transient LLM failures. Defaults to the
+            UI-tuned value; evals pass a higher value for resilience.
 
     Returns:
         Tuple of (tags, cost). Tags are deduplicated against current_tags
@@ -167,6 +181,8 @@ async def suggest_tags(
         messages=messages,
         config=config,
         response_format=SuggestTagsResponse,
+        timeout=timeout,
+        num_retries=num_retries,
     )
 
     parsed = _parse_response(response, SuggestTagsResponse, cost)
@@ -195,6 +211,8 @@ async def suggest_metadata(
     content_snippet: str | None,
     llm_service: LLMService,
     config: LLMConfig,
+    timeout: int = _SUGGESTION_TIMEOUT_DEFAULT,
+    num_retries: int = _SUGGESTION_NUM_RETRIES_DEFAULT,
 ) -> tuple[MetadataSuggestion, float | None]:
     """
     Suggest title and/or description for a content item.
@@ -212,6 +230,10 @@ async def suggest_metadata(
         content_snippet: Item content.
         llm_service: LLM service instance for making completion calls.
         config: Resolved LLM config (model, key, key source).
+        timeout: Seconds to wait for the LLM response before raising. Defaults to
+            the UI-tuned value; evals pass a longer value for resilience.
+        num_retries: Retry count on transient LLM failures. Defaults to the
+            UI-tuned value; evals pass a higher value for resilience.
 
     Returns:
         Tuple of (MetadataSuggestion, cost). Only requested fields are non-None
@@ -245,6 +267,8 @@ async def suggest_metadata(
         messages=messages,
         config=config,
         response_format=response_format,
+        timeout=timeout,
+        num_retries=num_retries,
     )
 
     parsed = _parse_response(response, response_format, cost)
@@ -264,6 +288,8 @@ async def suggest_relationships(
     candidates: list[RelationshipCandidateContext],
     llm_service: LLMService,
     config: LLMConfig,
+    timeout: int = _SUGGESTION_TIMEOUT_DEFAULT,
+    num_retries: int = _SUGGESTION_NUM_RETRIES_DEFAULT,
 ) -> tuple[list[RelationshipCandidate], float | None]:
     """
     Suggest related items from a pre-built candidate list.
@@ -284,6 +310,10 @@ async def suggest_relationships(
             truncated to 1000 chars in the prompt.
         llm_service: LLM service instance for making completion calls.
         config: Resolved LLM config (model, key, key source).
+        timeout: Seconds to wait for the LLM response before raising. Defaults to
+            the UI-tuned value; evals pass a longer value for resilience.
+        num_retries: Retry count on transient LLM failures. Defaults to the
+            UI-tuned value; evals pass a higher value for resilience.
 
     Returns:
         Tuple of (candidates, cost). Returned candidates are validated as a
@@ -310,6 +340,8 @@ async def suggest_relationships(
         messages=messages,
         config=config,
         response_format=SuggestRelationshipsResponse,
+        timeout=timeout,
+        num_retries=num_retries,
     )
 
     parsed = _parse_response(response, SuggestRelationshipsResponse, cost)
@@ -327,6 +359,8 @@ async def suggest_prompt_arguments(
     arguments: list[ArgumentInput],
     llm_service: LLMService,
     config: LLMConfig,
+    timeout: int = _SUGGESTION_TIMEOUT_DEFAULT,
+    num_retries: int = _SUGGESTION_NUM_RETRIES_DEFAULT,
 ) -> tuple[list[ArgumentSuggestion], float | None]:
     """
     Generate `{name, description, required}` entries for every placeholder
@@ -363,6 +397,8 @@ async def suggest_prompt_arguments(
     response, cost = await llm_service.complete(
         messages=messages, config=config,
         response_format=_GenerateAllArgumentsResult,
+        timeout=timeout,
+        num_retries=num_retries,
     )
 
     parsed = _parse_response(response, _GenerateAllArgumentsResult, cost)
@@ -392,6 +428,8 @@ async def suggest_prompt_argument_fields(
     target_fields: list[Literal["name", "description"]],
     llm_service: LLMService,
     config: LLMConfig,
+    timeout: int = _SUGGESTION_TIMEOUT_DEFAULT,
+    num_retries: int = _SUGGESTION_NUM_RETRIES_DEFAULT,
 ) -> tuple[list[ArgumentSuggestion], float | None]:
     """
     Refine one argument row by regenerating one or both of its fields.
@@ -435,6 +473,8 @@ async def suggest_prompt_argument_fields(
             prompt_content=prompt_content,
             llm_service=llm_service,
             config=config,
+            timeout=timeout,
+            num_retries=num_retries,
         )
     if len(target_fields) == 2:
         # Two-field path requires template grounding. Schema-validated
@@ -453,6 +493,8 @@ async def suggest_prompt_argument_fields(
             prompt_content=prompt_content,
             llm_service=llm_service,
             config=config,
+            timeout=timeout,
+            num_retries=num_retries,
         )
     raise ValueError(
         f"target_fields must have 1 or 2 elements, got {len(target_fields)}",
@@ -467,6 +509,8 @@ async def _refine_single_field(
     prompt_content: str | None,
     llm_service: LLMService,
     config: LLMConfig,
+    timeout: int,
+    num_retries: int,
 ) -> tuple[list[ArgumentSuggestion], float | None]:
     """Suggest just `name` or just `description` for one row."""
     messages = build_refine_single_field_messages(
@@ -480,6 +524,8 @@ async def _refine_single_field(
         response, cost = await llm_service.complete(
             messages=messages, config=config,
             response_format=ArgumentNameSuggestion,
+            timeout=timeout,
+            num_retries=num_retries,
         )
         parsed = _parse_response(response, ArgumentNameSuggestion, cost)
         try:
@@ -495,6 +541,8 @@ async def _refine_single_field(
     response, cost = await llm_service.complete(
         messages=messages, config=config,
         response_format=ArgumentDescriptionSuggestion,
+        timeout=timeout,
+        num_retries=num_retries,
     )
     parsed = _parse_response(response, ArgumentDescriptionSuggestion, cost)
     return [ArgumentSuggestion(
@@ -511,6 +559,8 @@ async def _refine_both_fields(
     prompt_content: str,
     llm_service: LLMService,
     config: LLMConfig,
+    timeout: int,
+    num_retries: int,
 ) -> tuple[list[ArgumentSuggestion], float | None]:
     """Regenerate both `name` and `description` for one row, template-grounded."""
     all_placeholders = extract_template_placeholders(prompt_content)
@@ -536,6 +586,8 @@ async def _refine_both_fields(
     response, cost = await llm_service.complete(
         messages=messages, config=config,
         response_format=_BothArgumentFieldsSuggestion,
+        timeout=timeout,
+        num_retries=num_retries,
     )
     parsed = _parse_response(response, _BothArgumentFieldsSuggestion, cost)
 

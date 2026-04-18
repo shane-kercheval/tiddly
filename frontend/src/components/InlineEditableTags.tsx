@@ -42,6 +42,8 @@ interface InlineEditableTagsProps {
   aiSuggestions?: string[]
   /** Whether AI tag suggestions are currently loading. */
   isAiLoading?: boolean
+  /** Whether the last AI suggestion fetch failed. Surfaced inline in the dropdown. */
+  aiHasError?: boolean
   /** Whether AI features are available for the current user's tier. */
   aiAvailable?: boolean
   /** Called when the tag input opens (isAddingTag becomes true). */
@@ -69,6 +71,7 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
     showAddButton = true,
     aiSuggestions,
     isAiLoading = false,
+    aiHasError = false,
     aiAvailable = false,
     onOpen,
     onClose,
@@ -318,7 +321,13 @@ export const InlineEditableTags = forwardRef(function InlineEditableTags(
                       </div>
                     )}
 
-                    {!isAiLoading && filteredAiSuggestions.length === 0 && (
+                    {!isAiLoading && aiHasError && filteredAiSuggestions.length === 0 && (
+                      <p className="text-xs text-red-500 py-2 px-3 text-center">
+                        Couldn&apos;t load suggestions. Close and reopen to try again.
+                      </p>
+                    )}
+
+                    {!isAiLoading && !aiHasError && filteredAiSuggestions.length === 0 && (
                       <p className="text-xs text-gray-400 py-2 text-center">No suggestions</p>
                     )}
 
