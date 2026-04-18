@@ -77,10 +77,10 @@ Generate one or both fields of one specific argument row.
 
 - `target_index` out of range (index ≥ `len(arguments)`) → `400` (service-level `ValueError` → `HTTPException`).
 - `target_index < 0` → `422` (Pydantic `ge=0`).
-- `target_fields` missing / empty list / values outside `{"name", "description"}` / duplicates / > 2 elements → `422`.
+- `target_fields` missing / empty list / values outside `{"name", "description"}` / duplicates → `422`. (Length > 2 can't occur with only 2 valid literal values except via duplicates, so the duplicate guard is the effective ceiling.)
 - Missing any required field → `422` (Pydantic).
 - `arguments` empty list → `422` (Pydantic `field_validator`).
-- `prompt_content` is the empty string → `422` (Pydantic `min_length=1`; `None` is fine).
+- `prompt_content` empty or whitespace-only → normalized to `None` by the `mode="before"` validator; grounding rule below decides whether the request succeeds overall. (Asymmetric with the plural endpoint, which 422s `""` — plural requires a template, so `""` is strictly invalid there.)
 - **Grounding signal missing** → `422` (Pydantic `model_validator`). See rules below.
 
 ### Grounding-signal rules (model_validator)
@@ -438,9 +438,9 @@ Schema-level tests in `backend/tests/schemas/test_ai_schemas.py`:
 - Rejects missing `target_fields` / `target_index` / `arguments`.
 - Rejects `target_fields=[]` (empty list).
 - Rejects `target_fields=["name","name"]` (duplicates).
-- Rejects `target_fields=["name","description","foo"]` (invalid element) and any list with >2 elements.
+- Rejects `target_fields=["name","description","foo"]` (invalid element). Length > 2 without duplicates is impossible given only 2 valid literal values — the duplicate guard is the effective ceiling; a length-3 list with a duplicate is rejected by that guard.
 - Rejects `target_index < 0`.
-- Rejects `prompt_content=""` (via `min_length=1`).
+- `SuggestPromptArgumentFieldsRequest(prompt_content="")` normalizes to `None` (not rejected). Whether the request succeeds overall depends on the grounding rule — when the target row has a populated opposite field, the request is accepted; otherwise 422 grounding error fires. Test asserts the normalization directly (`req.prompt_content is None`).
 - Rejects `target_fields=["name"]` + target.description empty + `prompt_content=None` (no grounding).
 - Rejects `target_fields=["description"]` + target.name empty + `prompt_content=None` (no grounding).
 - Rejects `target_fields=["name","description"]` + `prompt_content=None` (no grounding for both-field path).
@@ -841,7 +841,7 @@ This milestone is cross-cutting by design — the user flagged that the issue ap
 1. **Single shared response model.** `SuggestPromptArgumentsResponse` is used by both endpoints. N-vs-1 semantic lives in router docstrings.
 2. **Empty `arguments` on singular endpoint → 422** via `field_validator`, matching `SuggestMetadataRequest.fields`. Service-level 400 remains only for in-bounds-index-exceeds-length.
 3. **`prompt_content` required and non-empty on plural endpoint** (`min_length=1, max_length=50_000`).
-4. **`prompt_content` on singular: `Field(None, min_length=1, ...)`.** `None` valid; `""` rejected.
+4. **`prompt_content` on singular: `Field(None, min_length=1, ...)` with `mode="before"` normalization.** `None` valid. Empty string and whitespace-only both normalize to `None` via the `mode="before"` validator (consistent with decision #17 "single canonicalization point"); the grounding rule then decides whether the request succeeds overall. The `min_length=1` constraint still guards any non-stripped, non-whitespace-only string. Asymmetric with the plural endpoint, which rejects `""` outright — plural requires a template, so `""` is strictly invalid there. The asymmetry is intentional: singular treats the template as optional grounding and prefers friendly normalization; plural treats it as a hard requirement.
 5. **Grounding-signal rules enforced at schema** via `model_validator`, `target_fields`-aware (opposite-field OR template for each requested field; both-fields case requires template).
 6. **Naming: `/ai/suggest-prompt-argument-fields`** (plural `-fields` at the end). Body's `target_fields` list matches the URL; disambiguates from `/ai/suggest-prompt-arguments` by the final word, not a trailing `s`.
 7. **Rename + semantic split + UX redesign land together** in one deploy. Pre-GA, no external callers; bundled per project owner direction.

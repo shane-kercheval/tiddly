@@ -5,6 +5,7 @@ Each function builds a message list (system + user) for a specific use case.
 The system prompt provides instructions; the user message provides context.
 """
 import re
+from typing import Literal
 
 from schemas.ai import (
     CONTENT_SNIPPET_LLM_WINDOW_CHARS,
@@ -211,44 +212,69 @@ def extract_template_placeholders(prompt_content: str) -> list[str]:
     return list(dict.fromkeys(_JINJA2_PLACEHOLDER_RE.findall(prompt_content)))
 
 
-def build_argument_suggestion_messages(
-    prompt_content: str | None,
-    existing_arguments: list[ArgumentInput],
-    target_arg: ArgumentInput | None,
-    suggest_field: str | None = None,
-    placeholder_names: list[str] | None = None,
-) -> list[dict]:
-    """
-    Build messages for prompt argument suggestions.
+_REQUIRED_GUIDELINE = (
+    "- Mark an argument as required if it appears unconditionally in the template "
+    "(e.g. {{ variable }}). Mark it as not required if it is inside a Jinja2 "
+    "conditional block (e.g. {% if variable %} ... {% endif %})\n"
+)
 
-    Args:
-        prompt_content: The Jinja2 prompt template text.
-        existing_arguments: Current arguments.
-        target_arg: The specific argument to suggest for in individual mode,
-            or None for "generate all" mode.
-        suggest_field: Which field to suggest in individual mode:
-            "name" (suggest a name given a description),
-            "description" (suggest a description given a name),
-            or None for generate-all mode.
-        placeholder_names: Deterministically extracted placeholder names
-            (for "generate all" mode). The LLM describes these, not invents them.
-    """
-    required_guideline = (
-        "- Mark an argument as required if it appears unconditionally in the template "
-        "(e.g. {{ variable }}). Mark it as not required if it is inside a Jinja2 "
-        "conditional block (e.g. {% if variable %} ... {% endif %})\n"
+
+def _format_existing_arguments(existing_arguments: list[ArgumentInput]) -> str | None:
+    """Render existing arguments as a bullet list for the user message, or None if empty."""
+    if not existing_arguments:
+        return None
+    return "\n".join(
+        f"- {a.name or '?'}: {a.description or '(no description)'}"
+        for a in existing_arguments
     )
 
-    if target_arg is None:
-        system = (
-            "You are a prompt template assistant. "
-            "Generate a description for each of the listed prompt arguments.\n\n"
-            "Guidelines:\n"
-            "- Keep the argument names exactly as provided — do not rename them\n"
-            "- Descriptions should explain what the argument represents and give an example\n"
-            + required_guideline
-        )
-    elif suggest_field == "name":
+
+def build_generate_all_arguments_messages(
+    prompt_content: str,
+    existing_arguments: list[ArgumentInput],
+    placeholder_names: list[str],
+) -> list[dict]:
+    """
+    Build messages for the generate-all endpoint — describe every new
+    placeholder in the template.
+    """
+    system = (
+        "You are a prompt template assistant. "
+        "Generate a description for each of the listed prompt arguments.\n\n"
+        "Guidelines:\n"
+        "- Return one entry per name listed in 'Arguments to describe', "
+        "using that exact name for the `name` field. Do not rename, "
+        "abbreviate, split, or combine them — the template already uses "
+        "these names as {{ placeholder }} tokens, so renaming breaks the "
+        "template\n"
+        "- Descriptions should explain what the argument represents and give an example\n"
+        + _REQUIRED_GUIDELINE
+    )
+
+    user_parts = [f"Template:\n{prompt_content}"]
+    user_parts.append(f"Arguments to describe: {', '.join(placeholder_names)}")
+    existing_str = _format_existing_arguments(existing_arguments)
+    if existing_str is not None:
+        user_parts.append(f"Existing arguments:\n{existing_str}")
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": "\n\n".join(user_parts)},
+    ]
+
+
+def build_refine_single_field_messages(
+    target_field: Literal["name", "description"],
+    target_arg: ArgumentInput,
+    existing_arguments: list[ArgumentInput],
+    prompt_content: str | None,
+) -> list[dict]:
+    """
+    Build messages for the single-field refine case — suggest either the
+    `name` (given a description) or the `description` (given a name) of
+    a specific argument row.
+    """
+    if target_field == "name":
         system = (
             "You are a prompt template assistant. "
             "Suggest a name for the specified prompt argument based on its description.\n\n"
@@ -266,36 +292,83 @@ def build_argument_suggestion_messages(
             "- The description should explain what the argument represents and give an example\n"
         )
 
-    user_parts = []
+    user_parts: list[str] = []
     if prompt_content:
         user_parts.append(f"Template:\n{prompt_content}")
+    existing_str = _format_existing_arguments(existing_arguments)
+    if existing_str is not None:
+        user_parts.append(f"Existing arguments:\n{existing_str}")
 
-    if placeholder_names and target_arg is None:
-        names_str = ", ".join(placeholder_names)
-        user_parts.append(f"Arguments to describe: {names_str}")
-
-    if existing_arguments:
-        args_str = "\n".join(
-            f"- {a.name or '?'}: {a.description or '(no description)'}"
-            for a in existing_arguments
+    # Only reference the opposite field when it's actually populated.
+    # Schema grounding allows single-field refine with only template
+    # context — in that case, the Template/Existing blocks above are the
+    # grounding signal and we must not emit literal "None" into the prompt.
+    if target_field == "name" and target_arg.description:
+        user_parts.append(
+            f"Suggest a name for the argument with description: "
+            f"\"{target_arg.description}\"",
         )
-        user_parts.append(f"Existing arguments:\n{args_str}")
-
-    if target_arg is not None:
-        if suggest_field == "name":
-            user_parts.append(
-                f"Suggest a name for the argument with description: "
-                f"\"{target_arg.description}\"",
-            )
-        else:
-            user_parts.append(
-                f"Suggest a description for the argument named: "
-                f"{target_arg.name}",
-            )
+    elif target_field == "description" and target_arg.name:
+        user_parts.append(
+            f"Suggest a description for the argument named: "
+            f"{target_arg.name}",
+        )
 
     user_msg = "\n\n".join(user_parts) if user_parts else "No context provided."
 
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user_msg},
+    ]
+
+
+def build_refine_both_fields_messages(
+    target_index: int,
+    existing_arguments: list[ArgumentInput],
+    prompt_content: str,
+    unclaimed_placeholder_names: list[str],
+) -> list[dict]:
+    """
+    Build messages for the two-field refine case — regenerate both `name`
+    and `description` for the row at `target_index` from the template.
+
+    Args:
+        target_index: Index of the row being refined. Surfaced to the LLM
+            so it knows which row it is regenerating relative to the
+            existing-arguments listing.
+        existing_arguments: The full arguments list (used for context).
+        prompt_content: The Jinja2 template (guaranteed non-empty by the
+            schema `model_validator`).
+        unclaimed_placeholder_names: Placeholder names from the template
+            that are not yet claimed by any other row. The service
+            pre-filters so the LLM never sees claimed names; this list is
+            guaranteed non-empty when this builder is called.
+    """
+    system = (
+        "You are a prompt template assistant. "
+        "Regenerate the name, description, and required flag for one "
+        "specific prompt argument row.\n\n"
+        "Guidelines:\n"
+        "- Pick exactly one of the listed unclaimed placeholder names for the `name` field\n"
+        "- Use lowercase_with_underscores for the name (the placeholder already follows this)\n"
+        "- Descriptions should explain what the argument represents and give an example\n"
+        + _REQUIRED_GUIDELINE
+    )
+
+    user_parts = [f"Template:\n{prompt_content}"]
+    user_parts.append(
+        f"Unclaimed placeholder names (pick one for `name`): "
+        f"{', '.join(unclaimed_placeholder_names)}",
+    )
+    existing_str = _format_existing_arguments(existing_arguments)
+    if existing_str is not None:
+        user_parts.append(f"Existing arguments:\n{existing_str}")
+    user_parts.append(
+        f"Regenerate the argument at index {target_index} "
+        f"(row number {target_index + 1} in the existing arguments list above).",
+    )
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": "\n\n".join(user_parts)},
     ]

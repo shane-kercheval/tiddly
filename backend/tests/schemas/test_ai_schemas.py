@@ -1,13 +1,18 @@
 """Unit tests for AI schema types."""
 import typing
 
+import pytest
+from pydantic import ValidationError
+
 from schemas.ai import (
     CONTENT_SNIPPET_LLM_WINDOW_CHARS,
     CONTENT_SNIPPET_MAX_CHARS,
     AIModelEntry,
     AIUseCaseKey,
-    SuggestArgumentsRequest,
+    ArgumentInput,
     SuggestMetadataRequest,
+    SuggestPromptArgumentFieldsRequest,
+    SuggestPromptArgumentsRequest,
     SuggestRelationshipsRequest,
     SuggestTagsRequest,
     ValidateKeyRequest,
@@ -93,7 +98,8 @@ class TestSchemaExampleModelIdsDriftGuard:
             SuggestTagsRequest,
             SuggestMetadataRequest,
             SuggestRelationshipsRequest,
-            SuggestArgumentsRequest,
+            SuggestPromptArgumentsRequest,
+            SuggestPromptArgumentFieldsRequest,
             ValidateKeyRequest,
         ]
         offenders: list[tuple[str, str]] = []
@@ -158,3 +164,311 @@ class TestContentSnippetDriftGuard:
                 f"CONTENT_SNIPPET_MAX_CHARS; found max_length constraints: "
                 f"{max_lengths}. Use the constant from schemas/ai.py."
             )
+
+
+# ---------------------------------------------------------------------------
+# SuggestPromptArgumentsRequest (plural — generate-all)
+# ---------------------------------------------------------------------------
+
+
+class TestSuggestPromptArgumentsRequest:
+    """Schema-boundary behavior for the plural endpoint's request model."""
+
+    def test__missing_prompt_content__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentsRequest()  # type: ignore[call-arg]
+
+    def test__empty_prompt_content__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentsRequest(prompt_content="")
+
+    def test__whitespace_only_prompt_content__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentsRequest(prompt_content="   ")
+
+    def test__accepts_valid_prompt_content(self) -> None:
+        req = SuggestPromptArgumentsRequest(prompt_content="Hello {{ name }}")
+        assert req.prompt_content == "Hello {{ name }}"
+        assert req.arguments == []
+
+    def test__strips_leading_trailing_whitespace_on_prompt_content(self) -> None:
+        req = SuggestPromptArgumentsRequest(prompt_content="  template  ")
+        assert req.prompt_content == "template"
+
+    def test__oversize_prompt_content__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentsRequest(prompt_content="x" * 50_001)
+
+
+# ---------------------------------------------------------------------------
+# SuggestPromptArgumentFieldsRequest (singular — refine fields)
+# ---------------------------------------------------------------------------
+
+
+def _base_args() -> list[dict]:
+    """A non-empty arguments list with a populated row at index 0."""
+    return [{"name": "language", "description": "The language to use"}]
+
+
+class TestSuggestPromptArgumentFieldsRequest:
+    """Schema-boundary behavior for the singular endpoint's request model."""
+
+    # ------------------------------ required fields ------------------------
+
+    def test__missing_all_required_fields__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentFieldsRequest()  # type: ignore[call-arg]
+
+    def test__missing_target_fields__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentFieldsRequest(  # type: ignore[call-arg]
+                arguments=_base_args(),
+                target_index=0,
+            )
+
+    def test__missing_target_index__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentFieldsRequest(  # type: ignore[call-arg]
+                arguments=_base_args(),
+                target_fields=["description"],
+            )
+
+    def test__missing_arguments__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentFieldsRequest(  # type: ignore[call-arg]
+                target_index=0,
+                target_fields=["name"],
+                prompt_content="hi {{ x }}",
+            )
+
+    # ------------------------------ arguments -------------------------------
+
+    def test__empty_arguments_list__rejected(self) -> None:
+        with pytest.raises(ValidationError, match="at least one entry"):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=[],
+                target_index=0,
+                target_fields=["description"],
+                prompt_content="hi {{ x }}",
+            )
+
+    # ------------------------------ target_fields ---------------------------
+
+    def test__empty_target_fields__rejected(self) -> None:
+        with pytest.raises(ValidationError, match="at least one"):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=_base_args(),
+                target_index=0,
+                target_fields=[],
+            )
+
+    def test__unknown_target_fields_element__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=_base_args(),
+                target_index=0,
+                target_fields=["foo"],  # type: ignore[list-item]
+            )
+
+    def test__duplicate_target_fields__rejected(self) -> None:
+        with pytest.raises(ValidationError, match="duplicates"):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=_base_args(),
+                target_index=0,
+                target_fields=["name", "name"],
+            )
+
+    def test__target_fields_three_elements_with_duplicate_rejected(self) -> None:
+        """Length-3 input with a duplicate hits the duplicate guard."""
+        with pytest.raises(ValidationError, match="duplicates"):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=_base_args(),
+                target_index=0,
+                target_fields=["name", "description", "name"],
+            )
+
+    def test__target_fields_canonicalized_to_name_first(self) -> None:
+        req = SuggestPromptArgumentFieldsRequest(
+            arguments=_base_args(),
+            target_index=0,
+            target_fields=["description", "name"],
+            prompt_content="hi {{ x }}",
+        )
+        assert req.target_fields == ["name", "description"]
+
+    # ------------------------------ target_index ----------------------------
+
+    def test__negative_target_index__rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=_base_args(),
+                target_index=-1,
+                target_fields=["description"],
+            )
+
+    def test__target_index_out_of_range__accepted_at_schema_layer(self) -> None:
+        """
+        Schema-layer model_validator short-circuits when index is out of range;
+        service-layer handles it as a 400. Schema must not reject here.
+        """
+        req = SuggestPromptArgumentFieldsRequest(
+            arguments=_base_args(),
+            target_index=99,
+            target_fields=["description"],
+        )
+        assert req.target_index == 99
+
+    # ------------------------------ prompt_content --------------------------
+
+    def test__empty_prompt_content__normalized_to_none(self) -> None:
+        """
+        Empty string is normalized to None by the `mode="before"` validator
+        (same treatment as whitespace-only). Downstream sees canonical None
+        rather than an empty string. Whether the request overall succeeds
+        depends on the grounding rule — the base-args row has a name, so
+        grounding is satisfied here.
+        """
+        req = SuggestPromptArgumentFieldsRequest(
+            arguments=_base_args(),
+            target_index=0,
+            target_fields=["description"],
+            prompt_content="",
+        )
+        assert req.prompt_content is None
+
+    def test__whitespace_only_prompt_content__normalized_to_none(self) -> None:
+        # With the target row's name populated, the grounding signal is
+        # satisfied even without a template — so we can observe that
+        # whitespace-only input normalized to None rather than being rejected
+        # outright by min_length=1. (That rejection path is covered in
+        # test__empty_prompt_content__rejected.)
+        req = SuggestPromptArgumentFieldsRequest(
+            arguments=_base_args(),
+            target_index=0,
+            target_fields=["description"],
+            prompt_content="   ",
+        )
+        assert req.prompt_content is None
+
+    # ------------------------------ grounding signal ------------------------
+
+    def test__name_only__no_description_no_template__rejected(self) -> None:
+        with pytest.raises(ValidationError, match="no grounding signal"):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=[{"name": None, "description": None}],
+                target_index=0,
+                target_fields=["name"],
+                prompt_content=None,
+            )
+
+    def test__description_only__no_name_no_template__rejected(self) -> None:
+        with pytest.raises(ValidationError, match="no grounding signal"):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=[{"name": None, "description": None}],
+                target_index=0,
+                target_fields=["description"],
+                prompt_content=None,
+            )
+
+    def test__both_fields__no_template__rejected(self) -> None:
+        with pytest.raises(
+            ValidationError, match="both name and description without prompt_content",
+        ):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=[{"name": None, "description": None}],
+                target_index=0,
+                target_fields=["name", "description"],
+                prompt_content=None,
+            )
+
+    def test__name_only__opposite_field_empty_rules(self) -> None:
+        """
+        For `target_fields=["name"]`, the row's own `name` doesn't count as
+        grounding — the `description` (opposite field) must be present, or
+        `prompt_content` must be provided.
+        """
+        with pytest.raises(ValidationError, match="no grounding signal"):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=[{"name": "already_here", "description": None}],
+                target_index=0,
+                target_fields=["name"],
+                prompt_content=None,
+            )
+
+    def test__description_only__opposite_field_empty_rules(self) -> None:
+        with pytest.raises(ValidationError, match="no grounding signal"):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=[{"name": None, "description": "An existing description."}],
+                target_index=0,
+                target_fields=["description"],
+                prompt_content=None,
+            )
+
+    def test__both_fields_with_template__accepted(self) -> None:
+        req = SuggestPromptArgumentFieldsRequest(
+            arguments=[{"name": None, "description": None}],
+            target_index=0,
+            target_fields=["name", "description"],
+            prompt_content="Hello {{ x }}",
+        )
+        assert req.target_fields == ["name", "description"]
+
+    def test__name_only_with_empty_row_but_template__accepted(self) -> None:
+        req = SuggestPromptArgumentFieldsRequest(
+            arguments=[{"name": None, "description": None}],
+            target_index=0,
+            target_fields=["name"],
+            prompt_content="Hello {{ x }}",
+        )
+        assert req.target_fields == ["name"]
+
+    def test__whitespace_only_target_fields_normalize_to_none_trigger_grounding(
+        self,
+    ) -> None:
+        """
+        If the target row's fields are whitespace-only, the ArgumentInput
+        normalizer converts them to None, so the grounding check fires
+        with a helpful message rather than silently passing.
+        """
+        with pytest.raises(ValidationError, match="no grounding signal"):
+            SuggestPromptArgumentFieldsRequest(
+                arguments=[{"name": "   ", "description": "   "}],
+                target_index=0,
+                target_fields=["name"],
+                prompt_content=None,
+            )
+
+
+# ---------------------------------------------------------------------------
+# ArgumentInput whitespace normalization
+# ---------------------------------------------------------------------------
+
+
+class TestArgumentInputWhitespaceNormalization:
+    """
+    Whitespace in name/description is stripped; whitespace-only becomes None.
+
+    This is the single canonicalization point for whitespace — the prompt
+    builder, LLM call, logs, tests, and evals never see leading/trailing
+    whitespace or whitespace-only strings.
+    """
+
+    def test__trims_leading_trailing_whitespace(self) -> None:
+        arg = ArgumentInput(name="  foo  ", description="  bar  ")
+        assert arg.name == "foo"
+        assert arg.description == "bar"
+
+    def test__whitespace_only_name_becomes_none(self) -> None:
+        arg = ArgumentInput(name="   ", description="bar")
+        assert arg.name is None
+        assert arg.description == "bar"
+
+    def test__empty_strings_become_none(self) -> None:
+        arg = ArgumentInput(name="", description="")
+        assert arg.name is None
+        assert arg.description is None
+
+    def test__trim_brings_value_within_max_length(self) -> None:
+        # 200 non-space chars + trailing whitespace — trim → passes max_length=200.
+        arg = ArgumentInput(name="a" * 200 + "   ", description=None)
+        assert arg.name == "a" * 200

@@ -33,12 +33,46 @@ class TitleAndDescription(BaseModel):
 
 
 class ArgumentNameSuggestion(BaseModel):
-    """LLM response format for individual-mode name suggestion in suggest-arguments."""
+    """LLM response format for single-field name refine in suggest-prompt-argument-fields."""
 
     name: str
 
 
 class ArgumentDescriptionSuggestion(BaseModel):
-    """LLM response format for individual-mode description suggestion in suggest-arguments."""
+    """LLM response format for single-field description refine on the fields endpoint."""
 
     description: str
+
+
+class _BothArgumentFieldsSuggestion(BaseModel):
+    """
+    LLM response format for the two-field refine case.
+
+    Includes `required` so the two-field path matches generate-all's
+    template-aware inference. Single-field refine does not include
+    `required` (pre-existing behavior preserved — single-field patches
+    one field and doesn't touch the row's required flag).
+    """
+
+    name: str
+    description: str
+    required: bool = False
+
+
+class _LLMGeneratedArgument(BaseModel):
+    """One entry in the generate-all LLM response."""
+
+    name: str
+    description: str
+    required: bool = False
+
+
+class _GenerateAllArgumentsResult(BaseModel):
+    """
+    LLM response format for the plural generate-all endpoint.
+
+    Decouples the LLM structured-output schema from the public HTTP
+    response model so the two contracts can evolve independently.
+    """
+
+    arguments: list[_LLMGeneratedArgument]

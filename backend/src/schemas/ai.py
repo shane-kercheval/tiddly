@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # Maximum length (in characters) accepted from clients for `content_snippet`.
@@ -719,12 +719,20 @@ class SuggestRelationshipsResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Suggest Arguments
+# Suggest Prompt Arguments / Suggest Prompt Argument Fields
 # ---------------------------------------------------------------------------
 
 
 class ArgumentInput(BaseModel):
-    """An existing argument provided for context."""
+    """
+    An existing argument provided for context.
+
+    Whitespace handling: `name` and `description` are normalized at the
+    schema boundary via a `mode="before"` validator — leading/trailing
+    whitespace is stripped, and whitespace-only strings become `None`.
+    Downstream consumers (prompt builder, LLM call, logs, tests, evals)
+    never see leading/trailing whitespace or whitespace-only strings.
+    """
 
     name: str | None = Field(
         None, max_length=200,
@@ -735,17 +743,79 @@ class ArgumentInput(BaseModel):
         description="Human-readable description of what the argument represents.",
     )
 
+    @field_validator("name", "description", mode="before")
+    @classmethod
+    def _normalize_whitespace(cls, v: object) -> object:
+        if not isinstance(v, str):
+            return v
+        stripped = v.strip()
+        return stripped or None
 
-class SuggestArgumentsRequest(BaseModel):
-    """Request body for `POST /ai/suggest-arguments`."""
 
-    # Primary example: individual-mode request with every field populated.
-    # This shows the full shape including `target_index` (set to 0) and
-    # existing argument entries with both `name` and `description`. Readers
-    # see all of it rendered at once. Generate-all mode (`target_index: null`)
-    # is described in prose because FastAPI's OpenAPI post-processor strips
-    # `null` values from schema examples — a dual-example array would lose
-    # the `null` anyway.
+class SuggestPromptArgumentsRequest(BaseModel):
+    """Request body for `POST /ai/suggest-prompt-arguments` (generate-all)."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "model": "openai/gpt-5.4-mini",
+                    "prompt_content": (
+                        "Summarize {{ document }} in {{ num_sentences }} sentences."
+                    ),
+                    "arguments": [
+                        {
+                            "name": "document",
+                            "description": "The source text to summarize.",
+                        },
+                    ],
+                },
+            ],
+        },
+    )
+
+    model: str | None = Field(
+        None,
+        description=(
+            "Optional supported model ID. Only honored with BYOK. Call "
+            "`GET /ai/models` for the supported list."
+        ),
+    )
+    prompt_content: str = Field(
+        ..., min_length=1, max_length=50_000,
+        description=(
+            "The prompt template text (Jinja2). Required; up to 50 KB. "
+            "Leading/trailing whitespace is stripped before length validation."
+        ),
+    )
+    arguments: list[ArgumentInput] = Field(
+        default_factory=list,
+        description=(
+            "Existing `{name, description}` entries. Names are excluded from "
+            "placeholder extraction (case-insensitive) so only new "
+            "placeholders are proposed."
+        ),
+    )
+
+    @field_validator("prompt_content", mode="before")
+    @classmethod
+    def _strip_prompt_content(cls, v: object) -> object:
+        return v.strip() if isinstance(v, str) else v
+
+
+class SuggestPromptArgumentFieldsRequest(BaseModel):
+    """
+    Request body for `POST /ai/suggest-prompt-argument-fields` (refine one row).
+
+    `target_fields` is a 1- or 2-element list drawn from `{"name", "description"}`.
+    The grounding-signal rules (enforced by a `model_validator`) require the LLM
+    has at least one signal for each requested field:
+
+    - `["name"]`: `arguments[target_index].description` or `prompt_content` non-empty.
+    - `["description"]`: `arguments[target_index].name` or `prompt_content` non-empty.
+    - `["name", "description"]`: `prompt_content` non-empty.
+    """
+
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
@@ -760,11 +830,12 @@ class SuggestArgumentsRequest(BaseModel):
                             "description": "The source text to summarize.",
                         },
                         {
-                            "name": "num_sentences",
+                            "name": None,
                             "description": "How many sentences the summary should be.",
                         },
                     ],
-                    "target_index": 0,
+                    "target_index": 1,
+                    "target_fields": ["name"],
                 },
             ],
         },
@@ -778,30 +849,102 @@ class SuggestArgumentsRequest(BaseModel):
         ),
     )
     prompt_content: str | None = Field(
-        None, max_length=50_000,
+        None, min_length=1, max_length=50_000,
         description=(
-            "The prompt template text (Jinja2). Up to 50 KB. Required for "
-            "generate-all mode; optional context for individual mode."
+            "Optional Jinja2 template used as grounding context. `null` is "
+            "allowed, but the empty string (or whitespace-only after "
+            "stripping) is rejected as 422."
         ),
     )
     arguments: list[ArgumentInput] = Field(
-        default_factory=list,
+        ...,
         description=(
-            "Existing arguments. In generate-all mode, used to skip "
-            "already-defined placeholders. In individual mode, the entry at "
-            "`target_index` is the one being filled in."
+            "Existing `{name, description}` entries. The list must be "
+            "non-empty (caller must provide the entry being refined at "
+            "`target_index`). Individual entries may have `null` / empty "
+            "`name` and/or `description` — the grounding-signal rule "
+            "governs which combinations are accepted, not a per-field "
+            "non-null requirement."
         ),
     )
-    target_index: int | None = Field(
-        None, ge=0,
+    target_index: int = Field(
+        ..., ge=0,
         description=(
-            "Mode selector. `null` (the default) → generate-all mode: "
-            "propose entries for every placeholder in `prompt_content` not "
-            "already in `arguments`. An integer N → individual mode: refine "
-            "`arguments[N]`. Must be a valid index when set; out-of-range "
-            "values return 400."
+            "Index into `arguments` identifying the row to refine. "
+            "Must be within bounds (out-of-range returns 400)."
         ),
     )
+    target_fields: list[Literal["name", "description"]] = Field(
+        ...,
+        description=(
+            "Which fields on the target row to generate. Non-empty, 1 or 2 "
+            "unique elements from `{\"name\", \"description\"}`. Server "
+            "canonicalizes to the fixed order `[\"name\", \"description\"]`."
+        ),
+    )
+
+    @field_validator("prompt_content", mode="before")
+    @classmethod
+    def _normalize_prompt_content(cls, v: object) -> object:
+        if not isinstance(v, str):
+            return v
+        stripped = v.strip()
+        return stripped or None
+
+    @field_validator("arguments")
+    @classmethod
+    def _arguments_not_empty(cls, v: list[ArgumentInput]) -> list[ArgumentInput]:
+        if not v:
+            raise ValueError("arguments must contain at least one entry")
+        return v
+
+    @field_validator("target_fields")
+    @classmethod
+    def _target_fields_valid(
+        cls, v: list[Literal["name", "description"]],
+    ) -> list[Literal["name", "description"]]:
+        if not v:
+            raise ValueError("target_fields must contain at least one of 'name' or 'description'")
+        if len(set(v)) != len(v):
+            raise ValueError("target_fields must not contain duplicates")
+        order = {"name": 0, "description": 1}
+        return sorted(v, key=order.__getitem__)
+
+    @model_validator(mode="after")
+    def _has_grounding_signal(self) -> "SuggestPromptArgumentFieldsRequest":
+        # Safe from IndexError here: `_arguments_not_empty` and
+        # `target_index: Field(..., ge=0)` both run as field-level validation
+        # before this runs. The early-return below guards the upper bound. If
+        # a future edit relaxes either of those invariants, this validator
+        # needs a defensive check added — do not rely on ordering quietly.
+        if self.target_index >= len(self.arguments):
+            return self  # service-layer 400 handles out-of-range
+        target = self.arguments[self.target_index]
+        wants_name = "name" in self.target_fields
+        wants_description = "description" in self.target_fields
+        # `has_template` is trivially `bool(self.prompt_content)` because the
+        # `mode="before"` validator converted whitespace-only strings to None.
+        # Same for `target.name` / `target.description` via ArgumentInput's
+        # normalizer. Single canonicalization point.
+        has_template = bool(self.prompt_content)
+        if wants_name and wants_description:
+            if not has_template:
+                raise ValueError(
+                    "Cannot generate both name and description without prompt_content "
+                    "as grounding.",
+                )
+        elif wants_name:
+            if not target.description and not has_template:
+                raise ValueError(
+                    "Cannot suggest 'name': arguments[target_index].description is empty "
+                    "and prompt_content is empty. LLM has no grounding signal.",
+                )
+        elif not target.name and not has_template:
+            raise ValueError(
+                "Cannot suggest 'description': arguments[target_index].name is empty "
+                "and prompt_content is empty. LLM has no grounding signal.",
+            )
+        return self
 
 
 class ArgumentSuggestion(BaseModel):
@@ -821,8 +964,12 @@ class ArgumentSuggestion(BaseModel):
     )
 
 
-class SuggestArgumentsResponse(BaseModel):
-    """Response with suggested arguments."""
+class SuggestPromptArgumentsResponse(BaseModel):
+    """
+    Response for both `/ai/suggest-prompt-arguments` (generate-all, N
+    entries) and `/ai/suggest-prompt-argument-fields` (refine, 1 entry).
+    The N-vs-1 semantic lives in the router docstrings.
+    """
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -848,9 +995,10 @@ class SuggestArgumentsResponse(BaseModel):
     arguments: list[ArgumentSuggestion] = Field(
         ...,
         description=(
-            "In generate-all mode: all new placeholders detected in "
-            "`prompt_content`. In individual mode: a single-element list "
-            "containing the refined entry. Empty when the no-LLM-call "
-            "branches described on the request model apply."
+            "On `/ai/suggest-prompt-arguments`: one entry per new "
+            "placeholder detected in `prompt_content`. On "
+            "`/ai/suggest-prompt-argument-fields`: a single-element list "
+            "containing the refined entry (or empty if the generated name "
+            "failed validation)."
         ),
     )

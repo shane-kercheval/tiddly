@@ -10,6 +10,7 @@ if you change the parameter contract.
 """
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -18,7 +19,6 @@ from schemas.ai import (
     ArgumentSuggestion,
     RelationshipCandidate,
     RelationshipCandidateContext,
-    SuggestArgumentsResponse,
     SuggestRelationshipsResponse,
     SuggestTagsResponse,
     TagVocabularyEntry,
@@ -30,10 +30,14 @@ from services._suggestion_llm_schemas import (
     DescriptionOnly,
     TitleAndDescription,
     TitleOnly,
+    _BothArgumentFieldsSuggestion,
+    _GenerateAllArgumentsResult,
 )
 from services.llm_prompts import (
-    build_argument_suggestion_messages,
+    build_generate_all_arguments_messages,
     build_metadata_suggestion_messages,
+    build_refine_both_fields_messages,
+    build_refine_single_field_messages,
     build_relationship_suggestion_messages,
     build_tag_suggestion_messages,
     extract_template_placeholders,
@@ -317,145 +321,52 @@ async def suggest_relationships(
     return filtered[:_MAX_RELATIONSHIPS], cost
 
 
-async def suggest_arguments(
+async def suggest_prompt_arguments(
     *,
-    prompt_content: str | None,
+    prompt_content: str,
     arguments: list[ArgumentInput],
-    target_index: int | None,
     llm_service: LLMService,
     config: LLMConfig,
 ) -> tuple[list[ArgumentSuggestion], float | None]:
     """
-    Suggest prompt template arguments.
+    Generate `{name, description, required}` entries for every placeholder
+    in `prompt_content` that is not already declared in `arguments` (by
+    name, case-insensitive).
 
-    Three use cases based on target_index:
-    - target_index=None (generate-all): Extracts {{ placeholder }} names from
-      prompt_content, excludes names already in arguments, and asks the LLM
-      to generate descriptions for new placeholders.
-    - target_index=N, name missing (suggest-name): arguments[N] has a
-      description but no name. LLM suggests a name.
-    - target_index=N, description missing (suggest-description): arguments[N]
-      has a name but no description. LLM suggests a description.
-
-    Args:
-        prompt_content: The Jinja2 template text. Used for placeholder
-            extraction in generate-all mode and as context in all modes.
-        arguments: Existing arguments. In generate-all mode, names are
-            excluded from placeholder extraction.
-        target_index: Index into arguments list for individual mode, or
-            None for generate-all.
-        llm_service: LLM service instance for making completion calls.
-        config: Resolved LLM config (model, key, key source).
+    Uses `_GenerateAllArgumentsResult` as the LLM response_format and maps
+    the internal shape onto the public `ArgumentSuggestion` list.
 
     Returns:
-        Tuple of (suggestions, cost). Argument names are validated against
-        ARGUMENT_NAME_PATTERN (lowercase_with_underscores, starts with letter);
-        invalid names are filtered out.
-        Returns ([], None) in generate-all mode if prompt_content is
-        None or all placeholders already have arguments (no LLM call).
+        Tuple of (suggestions, cost). `([], None)` (no LLM call) when
+        either (a) the template has no `{{ }}` placeholders, or (b) every
+        placeholder is already declared. Invalid argument names from the
+        LLM response are filtered out.
 
     Raises:
-        LLMResponseParseError: If the LLM returns invalid/unparseable output
-            (including empty response.choices). Carries cost so the caller can
-            still track spend.
-        ValueError: If target_index is out of range.
+        LLMResponseParseError: If the LLM returns invalid/unparseable
+            output. Carries cost so the caller can still track spend.
     """
-    if target_index is None:
-        return await _suggest_arguments_generate_all(
-            prompt_content=prompt_content,
-            arguments=arguments,
-            llm_service=llm_service,
-            config=config,
-        )
-
-    if target_index < 0 or target_index >= len(arguments):
-        raise ValueError(
-            f"target_index {target_index} is out of range "
-            f"(arguments has {len(arguments)} items)",
-        )
-
-    target_arg = arguments[target_index]
-
-    # Nothing to suggest if both fields are empty — no context for the LLM
-    if not target_arg.name and not target_arg.description:
-        return [], None
-
-    # Determine which field to suggest based on what's missing
-    suggest_field = "name" if target_arg.description and not target_arg.name else "description"
-
-    messages = build_argument_suggestion_messages(
-        prompt_content=prompt_content,
-        existing_arguments=arguments,
-        target_arg=target_arg,
-        suggest_field=suggest_field,
-    )
-
-    if suggest_field == "name":
-        response, cost = await llm_service.complete(
-            messages=messages, config=config,
-            response_format=ArgumentNameSuggestion,
-        )
-        parsed = _parse_response(response, ArgumentNameSuggestion, cost)
-        try:
-            validated_name = validate_argument_name(parsed.name)
-        except ValueError:
-            return [], cost
-        return [ArgumentSuggestion(
-            name=validated_name,
-            description=target_arg.description or "",
-            required=False,
-        )], cost
-
-    # suggest_field == "description"
-    response, cost = await llm_service.complete(
-        messages=messages, config=config,
-        response_format=ArgumentDescriptionSuggestion,
-    )
-    parsed = _parse_response(response, ArgumentDescriptionSuggestion, cost)
-    return [ArgumentSuggestion(
-        name=target_arg.name or "",
-        description=parsed.description,
-        required=False,
-    )], cost
-
-
-async def _suggest_arguments_generate_all(
-    *,
-    prompt_content: str | None,
-    arguments: list[ArgumentInput],
-    llm_service: LLMService,
-    config: LLMConfig,
-) -> tuple[list[ArgumentSuggestion], float | None]:
-    """Generate descriptions for all new placeholders in the template."""
-    if not prompt_content:
-        return [], None
     all_placeholders = extract_template_placeholders(prompt_content)
-    existing_names = {
-        (a.name or "").lower()
-        for a in arguments
-        if a.name
-    }
+    existing_names = {(a.name or "").lower() for a in arguments if a.name}
     placeholder_names = [
         p for p in all_placeholders if p.lower() not in existing_names
     ]
     if not placeholder_names:
         return [], None
 
-    messages = build_argument_suggestion_messages(
+    messages = build_generate_all_arguments_messages(
         prompt_content=prompt_content,
         existing_arguments=arguments,
-        target_arg=None,
         placeholder_names=placeholder_names,
     )
 
     response, cost = await llm_service.complete(
         messages=messages, config=config,
-        response_format=SuggestArgumentsResponse,
+        response_format=_GenerateAllArgumentsResult,
     )
 
-    parsed = _parse_response(response, SuggestArgumentsResponse, cost)
+    parsed = _parse_response(response, _GenerateAllArgumentsResult, cost)
 
-    # Filter out arguments with invalid names
     valid_args: list[ArgumentSuggestion] = []
     for arg in parsed.arguments:
         try:
@@ -471,3 +382,179 @@ async def _suggest_arguments_generate_all(
             logger.debug("filtered_invalid_argument_name", extra={"name": arg.name})
 
     return valid_args, cost
+
+
+async def suggest_prompt_argument_fields(
+    *,
+    prompt_content: str | None,
+    arguments: list[ArgumentInput],
+    target_index: int,
+    target_fields: list[Literal["name", "description"]],
+    llm_service: LLMService,
+    config: LLMConfig,
+) -> tuple[list[ArgumentSuggestion], float | None]:
+    """
+    Refine one argument row by regenerating one or both of its fields.
+
+    Dispatches on `len(target_fields)`:
+    - 1 → single-field LLM call (`ArgumentNameSuggestion` or
+      `ArgumentDescriptionSuggestion`). Preserves the opposite field and
+      the row's existing `required` flag context (returned `required=False`
+      since single-field refine has no template-wide visibility).
+    - 2 → two-field LLM call (`_BothArgumentFieldsSuggestion`). The
+      service pre-filters unclaimed placeholder names from the template
+      so the LLM never proposes a colliding name; a defensive post-check
+      rejects the response if the LLM ignores the pre-filter.
+
+    Returns:
+        Tuple of (suggestions, cost). Empty list when:
+        - The generated name fails `validate_argument_name` (quota charged).
+        - Two-field path: every template placeholder is already claimed
+          (no LLM call; `([], None)`).
+        - Two-field path: the LLM returned a name colliding with an
+          existing row despite the pre-filter (quota charged).
+
+    Raises:
+        ValueError: If `target_index >= len(arguments)`.
+        LLMResponseParseError: If the LLM returns invalid/unparseable
+            output. Carries cost so the caller can still track spend.
+    """
+    if target_index >= len(arguments):
+        raise ValueError(
+            f"target_index {target_index} is out of range "
+            f"(arguments has {len(arguments)} items)",
+        )
+
+    target_arg = arguments[target_index]
+
+    if len(target_fields) == 1:
+        return await _refine_single_field(
+            target_field=target_fields[0],
+            target_arg=target_arg,
+            arguments=arguments,
+            prompt_content=prompt_content,
+            llm_service=llm_service,
+            config=config,
+        )
+    if len(target_fields) == 2:
+        # Two-field path requires template grounding. Schema-validated
+        # callers cannot reach this branch with prompt_content=None
+        # (model_validator rejects it 422), but direct service callers
+        # (evals, unit tests) can — fail loudly with a helpful message
+        # rather than silently generating a broken prompt.
+        if prompt_content is None:
+            raise ValueError(
+                "prompt_content is required when target_fields has both "
+                "'name' and 'description'",
+            )
+        return await _refine_both_fields(
+            target_index=target_index,
+            arguments=arguments,
+            prompt_content=prompt_content,
+            llm_service=llm_service,
+            config=config,
+        )
+    raise ValueError(
+        f"target_fields must have 1 or 2 elements, got {len(target_fields)}",
+    )
+
+
+async def _refine_single_field(
+    *,
+    target_field: Literal["name", "description"],
+    target_arg: ArgumentInput,
+    arguments: list[ArgumentInput],
+    prompt_content: str | None,
+    llm_service: LLMService,
+    config: LLMConfig,
+) -> tuple[list[ArgumentSuggestion], float | None]:
+    """Suggest just `name` or just `description` for one row."""
+    messages = build_refine_single_field_messages(
+        target_field=target_field,
+        target_arg=target_arg,
+        existing_arguments=arguments,
+        prompt_content=prompt_content,
+    )
+
+    if target_field == "name":
+        response, cost = await llm_service.complete(
+            messages=messages, config=config,
+            response_format=ArgumentNameSuggestion,
+        )
+        parsed = _parse_response(response, ArgumentNameSuggestion, cost)
+        try:
+            validated_name = validate_argument_name(parsed.name)
+        except ValueError:
+            return [], cost
+        return [ArgumentSuggestion(
+            name=validated_name,
+            description=target_arg.description or "",
+            required=False,
+        )], cost
+
+    response, cost = await llm_service.complete(
+        messages=messages, config=config,
+        response_format=ArgumentDescriptionSuggestion,
+    )
+    parsed = _parse_response(response, ArgumentDescriptionSuggestion, cost)
+    return [ArgumentSuggestion(
+        name=target_arg.name or "",
+        description=parsed.description,
+        required=False,
+    )], cost
+
+
+async def _refine_both_fields(
+    *,
+    target_index: int,
+    arguments: list[ArgumentInput],
+    prompt_content: str,
+    llm_service: LLMService,
+    config: LLMConfig,
+) -> tuple[list[ArgumentSuggestion], float | None]:
+    """Regenerate both `name` and `description` for one row, template-grounded."""
+    all_placeholders = extract_template_placeholders(prompt_content)
+    # Exclude names claimed by any OTHER row — the target row's current
+    # name (if any) is being overwritten, so it should not be excluded.
+    claimed_names = {
+        (a.name or "").lower()
+        for i, a in enumerate(arguments)
+        if i != target_index and a.name
+    }
+    unclaimed_placeholder_names = [
+        p for p in all_placeholders if p.lower() not in claimed_names
+    ]
+    if not unclaimed_placeholder_names:
+        return [], None
+
+    messages = build_refine_both_fields_messages(
+        target_index=target_index,
+        existing_arguments=arguments,
+        prompt_content=prompt_content,
+        unclaimed_placeholder_names=unclaimed_placeholder_names,
+    )
+    response, cost = await llm_service.complete(
+        messages=messages, config=config,
+        response_format=_BothArgumentFieldsSuggestion,
+    )
+    parsed = _parse_response(response, _BothArgumentFieldsSuggestion, cost)
+
+    try:
+        validated_name = validate_argument_name(parsed.name)
+    except ValueError:
+        return [], cost
+
+    # Defensive backstop: if the LLM ignored the unclaimed-only prompt and
+    # picked a name that collides with another row, reject it.
+    if validated_name.lower() in claimed_names:
+        logger.debug(
+            "refine_both_fields_rejected_claimed_name",
+            extra={"name": validated_name},
+        )
+        return [], cost
+
+    return [ArgumentSuggestion(
+        name=validated_name,
+        description=parsed.description,
+        required=parsed.required,
+    )], cost
