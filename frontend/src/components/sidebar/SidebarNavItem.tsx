@@ -14,6 +14,10 @@ interface SidebarNavItemProps {
   isCollapsed: boolean
   onClick?: () => void
   icon?: ReactNode
+  /** Rendered inline after the label when expanded; hidden when collapsed. */
+  trailingIcon?: ReactNode
+  /** When true, renders as a plain <a target="_blank"> instead of an in-app NavLink. */
+  external?: boolean
   onEdit?: () => void
   onDelete?: () => void
 }
@@ -24,6 +28,8 @@ export function SidebarNavItem({
   isCollapsed,
   onClick,
   icon,
+  trailingIcon,
+  external = false,
   onEdit,
   onDelete,
 }: SidebarNavItemProps): ReactNode {
@@ -37,21 +43,39 @@ export function SidebarNavItem({
     onConfirm: () => onDelete?.(),
   })
 
-  const navLinkElement = (
+  const linkClassName = (isActive: boolean): string =>
+    `flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm transition-colors ${
+      isActive
+        ? 'bg-gray-200 font-medium text-gray-900'
+        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+    } ${isCollapsed ? 'justify-center' : ''}`
+
+  const linkContent = (
+    <>
+      {icon && <span className="flex-shrink-0">{icon}</span>}
+      <span className={`${isCollapsed ? 'sr-only' : 'flex-1 truncate min-w-0'}`}>{label}</span>
+      {!isCollapsed && trailingIcon && <span className="flex-shrink-0">{trailingIcon}</span>}
+    </>
+  )
+
+  const navLinkElement = external ? (
+    <a
+      href={to}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={onClick}
+      className={linkClassName(false)}
+    >
+      {linkContent}
+    </a>
+  ) : (
     <PrefetchNavLink
       to={to}
       end
       onClick={onClick}
-      className={({ isActive }) =>
-        `flex w-full items-center gap-2 rounded-lg px-3 h-[32px] text-sm transition-colors ${
-          isActive
-            ? 'bg-gray-200 font-medium text-gray-900'
-            : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-        } ${isCollapsed ? 'justify-center' : ''}`
-      }
+      className={({ isActive }) => linkClassName(isActive)}
     >
-      {icon && <span className="flex-shrink-0">{icon}</span>}
-      <span className={`${isCollapsed ? 'sr-only' : 'flex-1 truncate min-w-0'}`}>{label}</span>
+      {linkContent}
     </PrefetchNavLink>
   )
 
