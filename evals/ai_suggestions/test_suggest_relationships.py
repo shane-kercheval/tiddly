@@ -74,16 +74,19 @@ class RelationshipJudgeResult(BaseModel):
     @computed_field
     @property
     def total_selected(self) -> int:
+        """Total number of selected candidates evaluated."""
         return len(self.scores)
 
     @computed_field
     @property
     def relevant_count(self) -> int:
+        """Number of selected candidates scored as genuinely related."""
         return sum(1 for s in self.scores if s.relevant)
 
     @computed_field
     @property
     def reasoning(self) -> str:
+        """Rendered per-candidate verdicts, one line each, for the eval viewer."""
         return "\n".join(
             f"- {s.candidate_id}: {'1' if s.relevant else '0'} ({s.reason})"
             for s in self.scores

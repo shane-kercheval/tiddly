@@ -77,16 +77,19 @@ class TagJudgeResult(BaseModel):
     @computed_field
     @property
     def total_count(self) -> int:
+        """Total number of tags evaluated."""
         return len(self.scores)
 
     @computed_field
     @property
     def relevant_count(self) -> int:
+        """Number of tags scored as relevant."""
         return sum(1 for s in self.scores if s.relevant)
 
     @computed_field
     @property
     def reasoning(self) -> str:
+        """Rendered per-tag verdicts, one line each, for the eval viewer."""
         return "\n".join(
             f"- {s.tag}: {'1' if s.relevant else '0'} ({s.reason})"
             for s in self.scores
