@@ -3,7 +3,9 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,10 +17,13 @@ func TestBackupConfigFile__existing_file_creates_backup(t *testing.T) {
 	content := `{"key": "value"}`
 	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
-	err := backupConfigFile(path)
+	backupPath, err := backupConfigFile(path)
 	require.NoError(t, err)
+	require.NotEmpty(t, backupPath, "backup path should be returned")
+	assert.True(t, strings.HasPrefix(backupPath, path+".bak."),
+		"backup filename should be <path>.bak.<timestamp>; got %q", backupPath)
 
-	backupData, err := os.ReadFile(path + ".bak")
+	backupData, err := os.ReadFile(backupPath)
 	require.NoError(t, err)
 	assert.Equal(t, content, string(backupData))
 }
@@ -27,11 +32,12 @@ func TestBackupConfigFile__nonexistent_file_noop(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nonexistent.json")
 
-	err := backupConfigFile(path)
+	backupPath, err := backupConfigFile(path)
 	require.NoError(t, err)
+	assert.Empty(t, backupPath, "no backup path should be returned for missing source")
 
-	_, statErr := os.Stat(path + ".bak")
-	assert.True(t, os.IsNotExist(statErr), "no backup should be created for nonexistent file")
+	matches, _ := filepath.Glob(path + ".bak.*")
+	assert.Empty(t, matches, "no backup should be created for nonexistent file")
 }
 
 func TestBackupConfigFile__preserves_permissions(t *testing.T) {
@@ -39,10 +45,27 @@ func TestBackupConfigFile__preserves_permissions(t *testing.T) {
 	path := filepath.Join(dir, "config.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{}`), 0640))
 
-	err := backupConfigFile(path)
+	backupPath, err := backupConfigFile(path)
 	require.NoError(t, err)
 
-	info, err := os.Stat(path + ".bak")
+	info, err := os.Stat(backupPath)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0640), info.Mode().Perm())
+}
+
+func TestBackupConfigFile__uses_timestamp_in_filename(t *testing.T) {
+	// Use an injected clock so we can assert the exact filename.
+	fixed := time.Date(2026, 4, 19, 10, 30, 45, 0, time.UTC)
+	prev := backupClock
+	backupClock = func() time.Time { return fixed }
+	t.Cleanup(func() { backupClock = prev })
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{}`), 0600))
+
+	backupPath, err := backupConfigFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, path+".bak.20260419T103045Z", backupPath,
+		"backup filename should use UTC ISO 8601 basic format")
 }

@@ -77,33 +77,36 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 }
 
 // configureClaudeDesktop writes MCP server entries into the Claude Desktop config.
-// Preserves all existing config and servers.
-func configureClaudeDesktop(configPath, contentPAT, promptPAT string) error {
+// Preserves all existing config and servers. Returns the timestamped backup
+// path (empty if no prior config existed).
+func configureClaudeDesktop(configPath, contentPAT, promptPAT string) (backupPath string, err error) {
 	config, err := buildClaudeDesktopConfig(configPath, contentPAT, promptPAT)
 	if err != nil {
-		return err
+		return "", err
 	}
 	return writeJSONConfig(configPath, config)
 }
 
 // removeClaudeDesktop removes tiddly MCP server entries from the config.
-// Identifies servers by URL in args, not by name, so custom-named entries are also removed.
-func removeClaudeDesktop(configPath string, serverFilter []string) error {
+// Identifies servers by URL in args, not by name, so custom-named entries are
+// also removed. Returns the timestamped backup path (empty if nothing changed
+// or no prior config existed).
+func removeClaudeDesktop(configPath string, serverFilter []string) (backupPath string, err error) {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return "", nil
 		}
-		return err
+		return "", err
 	}
 
 	servers, ok := config["mcpServers"].(map[string]any)
 	if !ok {
-		return nil
+		return "", nil
 	}
 
 	if !removeJSONServersByTiddlyURL(servers, serverURLMatcher(serverFilter)) {
-		return nil
+		return "", nil
 	}
 
 	config["mcpServers"] = servers
@@ -129,48 +132,16 @@ func statusClaudeDesktop(configPath string) (StatusResult, error) {
 		return result, nil
 	}
 
-	foundContent := false
-	foundPrompts := false
-
-	names := make([]string, 0, len(servers))
-	for name := range servers {
-		names = append(names, name)
-	}
-	canonicalNamesFirst(names)
-
-	for _, name := range names {
-		serverMap, _ := servers[name].(map[string]any)
+	for name, entry := range servers {
+		serverMap, _ := entry.(map[string]any)
 		if serverMap == nil {
 			continue
 		}
-
-		method := MatchByURL
-		if name == serverNameContent || name == serverNamePrompts {
-			method = MatchByName
-		}
-
 		urlStr := extractServerURL(serverMap)
-
-		matched := false
-		if !foundContent && isTiddlyContentURL(urlStr) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerContent, Name: name, MatchMethod: method, URL: urlStr,
-			})
-			foundContent = true
-			matched = true
-		}
-		if !foundPrompts && isTiddlyPromptURL(urlStr) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr,
-			})
-			foundPrompts = true
-			matched = true
-		}
-		if !matched && !isTiddlyURL(urlStr) {
-			result.OtherServers = append(result.OtherServers, OtherServer{
-				Name:      name,
-				Transport: detectTransport(serverMap),
-			})
+		if match, other := classifyServer(name, urlStr, detectTransport(serverMap)); match != nil {
+			result.Servers = append(result.Servers, *match)
+		} else {
+			result.OtherServers = append(result.OtherServers, *other)
 		}
 	}
 
@@ -221,6 +192,12 @@ func extractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) 
 	for name := range servers {
 		names = append(names, name)
 	}
+	// Prefer canonical-named entries so ExtractPATs returns a deterministic
+	// "primary" PAT per server type when the config has multiple tiddly
+	// entries (e.g. work_prompts + personal_prompts). Status removed this
+	// ordering because it renders every entry; ExtractPATs still needs to
+	// pick one survivor and canonical-first matches the consolidation
+	// warning's disclosed survivor.
 	canonicalNamesFirst(names)
 
 	for _, name := range names {
@@ -298,21 +275,28 @@ func readJSONConfig(path string) (map[string]any, error) {
 	return config, nil
 }
 
-func writeJSONConfig(path string, config map[string]any) error {
+// writeJSONConfig writes config to path atomically, creating a timestamped
+// backup of any existing file at path first. Returns the backup path (empty
+// if no prior file existed) so callers can surface it to the user.
+func writeJSONConfig(path string, config map[string]any) (backupPath string, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
+		return "", fmt.Errorf("creating config directory: %w", err)
 	}
 
-	if err := backupConfigFile(path); err != nil {
-		return err
+	backupPath, err = backupConfigFile(path)
+	if err != nil {
+		return "", err
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encoding config: %w", err)
+		return "", fmt.Errorf("encoding config: %w", err)
 	}
 	data = append(data, '\n')
 
-	return atomicWriteFile(path, data, 0600)
+	if err := atomicWriteFile(path, data, 0600); err != nil {
+		return "", err
+	}
+	return backupPath, nil
 }
 

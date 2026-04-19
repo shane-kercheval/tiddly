@@ -16,7 +16,7 @@ func TestExtractClaudeCodePATs__user_scope(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := configureClaudeCode(rc, "bm_content123", "bm_prompt456")
+	_, err := configureClaudeCode(rc, "bm_content123", "bm_prompt456")
 	require.NoError(t, err)
 
 	contentPAT, promptPAT := extractClaudeCodePATs(rc)
@@ -65,7 +65,7 @@ func TestConfigureClaudeCode__user_scope_creates_config(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -96,7 +96,7 @@ func TestConfigureClaudeCode__preserves_existing_config(t *testing.T) {
 	writeTestJSON(t, configPath, existing)
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -114,7 +114,7 @@ func TestConfigureClaudeCode__local_scope(t *testing.T) {
 	fakeCwd := "/fake/project/dir"
 
 	rc := ResolvedConfig{Path: configPath, Scope: "local", Cwd: fakeCwd}
-	err := configureClaudeCode(rc, "bm_content", "")
+	_, err := configureClaudeCode(rc, "bm_content", "")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -139,11 +139,11 @@ func TestRemoveClaudeCode__removes_servers(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 
 	// Configure first
-	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Remove
-	err = removeClaudeCode(rc, nil)
+	_, err = removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -157,7 +157,7 @@ func TestRemoveClaudeCode__no_file_is_noop(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeClaudeCode(rc, nil)
+	_, err := removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 }
 
@@ -176,12 +176,12 @@ func TestRemoveClaudeCode__no_tiddly_servers_skips_write(t *testing.T) {
 	writeTestJSON(t, configPath, existing)
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeClaudeCode(rc, nil)
+	_, err := removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
-	_, statErr := os.Stat(configPath + ".bak")
-	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op remove")
+	backupMatches, _ := filepath.Glob(configPath + ".bak.*")
+	assert.Empty(t, backupMatches, "no backup should be created on no-op remove")
 }
 
 func TestStatusClaudeCode__finds_servers(t *testing.T) {
@@ -189,7 +189,7 @@ func TestStatusClaudeCode__finds_servers(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	sr, err := statusClaudeCode(rc)
@@ -295,11 +295,13 @@ func TestStatusClaudeCode__same_host_different_path_rejected(t *testing.T) {
 	assert.Empty(t, sr.Servers, "should not match URL with same host but different path")
 }
 
-func TestStatusClaudeCode__canonical_preferred_over_custom(t *testing.T) {
+func TestStatusClaudeCode__multiple_entries_same_url_all_shown(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	// Both a canonical and custom entry point to the same tiddly URL
+	// Both a canonical and custom entry point to the same tiddly URL.
+	// Both should surface so users can see all entries that route to tiddly
+	// (e.g. work/personal accounts against the same MCP URL with distinct PATs).
 	writeTestJSON(t, configPath, map[string]any{
 		"mcpServers": map[string]any{
 			"my_custom_content": map[string]any{
@@ -316,9 +318,51 @@ func TestStatusClaudeCode__canonical_preferred_over_custom(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	sr, err := statusClaudeCode(rc)
 	require.NoError(t, err)
-	assert.Len(t, sr.Servers, 1, "should deduplicate to one match")
-	assert.Equal(t, serverNameContent, sr.Servers[0].Name, "should prefer canonical name")
-	assert.Equal(t, MatchByName, sr.Servers[0].MatchMethod)
+	assert.Len(t, sr.Servers, 2, "both entries should surface")
+	// Sorted by (ServerType, Name): both content; names sort alphabetically.
+	assert.Equal(t, "my_custom_content", sr.Servers[0].Name)
+	assert.Equal(t, MatchByURL, sr.Servers[0].MatchMethod)
+	assert.Equal(t, serverNameContent, sr.Servers[1].Name)
+	assert.Equal(t, MatchByName, sr.Servers[1].MatchMethod)
+}
+
+func TestStatusClaudeCode__work_and_personal_prompts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	// A user running two tiddly accounts (work + personal) configures two
+	// prompt MCP entries under distinct names pointing at the same URL.
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"work_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				"headers": map[string]any{
+					"Authorization": "Bearer bm_work_token",
+				},
+			},
+			"personal_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				"headers": map[string]any{
+					"Authorization": "Bearer bm_personal_token",
+				},
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	sr, err := statusClaudeCode(rc)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 2, "both work and personal prompt servers should surface")
+	// Both are ServerPrompts; alphabetical: personal_prompts before work_prompts.
+	assert.Equal(t, "personal_prompts", sr.Servers[0].Name)
+	assert.Equal(t, ServerPrompts, sr.Servers[0].ServerType)
+	assert.Equal(t, MatchByURL, sr.Servers[0].MatchMethod)
+	assert.Equal(t, "work_prompts", sr.Servers[1].Name)
+	assert.Equal(t, ServerPrompts, sr.Servers[1].ServerType)
+	assert.Equal(t, MatchByURL, sr.Servers[1].MatchMethod)
+	assert.Empty(t, sr.OtherServers)
 }
 
 func TestStatusClaudeCode__detects_stdio_npx_format(t *testing.T) {
@@ -360,7 +404,8 @@ func TestStatusClaudeCode__includes_url_on_tiddly_servers(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	require.NoError(t, configureClaudeCode(rc, "bm_content", "bm_prompts"))
+	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
 
 	sr, err := statusClaudeCode(rc)
 	require.NoError(t, err)
@@ -425,7 +470,7 @@ func TestStatusClaudeCode__only_other_servers(t *testing.T) {
 	assert.Equal(t, "stdio", sr.OtherServers[0].Transport)
 }
 
-func TestStatusClaudeCode__duplicate_tiddly_not_in_other(t *testing.T) {
+func TestStatusClaudeCode__duplicate_tiddly_both_shown_never_in_other(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
@@ -445,8 +490,8 @@ func TestStatusClaudeCode__duplicate_tiddly_not_in_other(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	sr, err := statusClaudeCode(rc)
 	require.NoError(t, err)
-	assert.Len(t, sr.Servers, 1, "should deduplicate tiddly entries")
-	assert.Empty(t, sr.OtherServers, "duplicate tiddly entry should not appear in OtherServers")
+	assert.Len(t, sr.Servers, 2, "both tiddly entries should surface")
+	assert.Empty(t, sr.OtherServers, "tiddly-URL entries must never appear in OtherServers")
 }
 
 func TestStatusClaudeCode__env_override_classified_as_tiddly(t *testing.T) {
@@ -519,7 +564,7 @@ func TestRemoveClaudeCode__removes_stdio_npx_servers(t *testing.T) {
 	})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeClaudeCode(rc, nil)
+	_, err := removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -549,7 +594,7 @@ func TestRemoveClaudeCode__removes_custom_named_servers(t *testing.T) {
 	})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := removeClaudeCode(rc, nil)
+	_, err := removeClaudeCode(rc, nil)
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -564,10 +609,10 @@ func TestRemoveClaudeCode__content_only_preserves_prompts(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	err = removeClaudeCode(rc, []string{"content"})
+	_, err = removeClaudeCode(rc, []string{"content"})
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -581,10 +626,10 @@ func TestRemoveClaudeCode__prompts_only_preserves_content(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
-	err = removeClaudeCode(rc, []string{"prompts"})
+	_, err = removeClaudeCode(rc, []string{"prompts"})
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -610,7 +655,7 @@ func TestConfigureClaudeCode__replaces_custom_named_servers(t *testing.T) {
 	})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := configureClaudeCode(rc, "bm_new_content", "bm_new_prompts")
+	_, err := configureClaudeCode(rc, "bm_new_content", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -654,11 +699,11 @@ func TestConfigureClaudeCode__content_only_preserves_existing_prompts(t *testing
 
 	// Configure both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Re-configure with only content PAT (simulates --servers content)
-	err = configureClaudeCode(rc, "bm_new_content", "")
+	_, err = configureClaudeCode(rc, "bm_new_content", "")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -682,11 +727,11 @@ func TestConfigureClaudeCode__prompts_only_preserves_existing_content(t *testing
 
 	// Configure both servers first
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	err := configureClaudeCode(rc, "bm_content", "bm_prompts")
+	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Re-configure with only prompts PAT (simulates --servers prompts)
-	err = configureClaudeCode(rc, "", "bm_new_prompts")
+	_, err = configureClaudeCode(rc, "", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)

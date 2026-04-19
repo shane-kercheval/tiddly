@@ -37,7 +37,7 @@ Sections displayed:
   MCP Servers    — detected tools with configuration status across user and directory scopes
   Skills         — configured skills across all tools and scopes
 
-MCP servers are identified by URL, not by config key name. Content counts are only shown when the API is reachable and authenticated.
+MCP servers are identified by URL; the config key name is shown alongside the URL so you can correlate each row to its entry in the underlying config file. Content counts are only shown when the API is reachable and authenticated.
 
 Use --path to specify which directory to inspect for directory-scoped configurations.
 Defaults to the current working directory.
@@ -217,7 +217,7 @@ func printToolTree(w io.Writer, tool mcp.DetectedTool, projectPath string) {
 			fmt.Fprintf(w, "  %s           Tiddly servers:\n", prefix)
 			for _, s := range ss.Result.Servers {
 				label := serverDisplayLabel(s)
-				fmt.Fprintf(w, "  %s             - %-18s %s\n", prefix, label, s.URL)
+				fmt.Fprintf(w, "  %s             - %-18s %s  (%s)\n", prefix, label, s.URL, s.Name)
 			}
 			if tool.Name == "claude-desktop" && !tool.HasNpx {
 				fmt.Fprintln(w, "  Warning: npx not found in PATH")

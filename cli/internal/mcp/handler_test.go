@@ -120,7 +120,7 @@ func TestClaudeDesktopHandler__configure_and_status(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	tool := DetectedTool{Name: "claude-desktop", HasNpx: true}
 
-	warnings, err := h.Configure(rc, "content-token", "prompt-token", tool)
+	warnings, _, err := h.Configure(rc, "content-token", "prompt-token", tool)
 	require.NoError(t, err)
 
 	// Should not have npx warning since HasNpx is true
@@ -145,7 +145,7 @@ func TestClaudeDesktopHandler__configure_without_npx(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	tool := DetectedTool{Name: "claude-desktop", HasNpx: false}
 
-	warnings, err := h.Configure(rc, "content-token", "prompt-token", tool)
+	warnings, _, err := h.Configure(rc, "content-token", "prompt-token", tool)
 	require.NoError(t, err)
 	assert.Contains(t, warnings[0], "Node.js")
 }
@@ -158,7 +158,7 @@ func TestClaudeCodeHandler__configure_and_remove(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	tool := DetectedTool{Name: "claude-code"}
 
-	warnings, err := h.Configure(rc, "ct", "pt", tool)
+	warnings, _, err := h.Configure(rc, "ct", "pt", tool)
 	require.NoError(t, err)
 	assert.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "plaintext")
@@ -173,7 +173,8 @@ func TestClaudeCodeHandler__configure_and_remove(t *testing.T) {
 	assert.Contains(t, servers, serverNamePrompts)
 
 	// Remove
-	require.NoError(t, h.Remove(rc, []string{"content", "prompts"}))
+	_, err = h.Remove(rc, []string{"content", "prompts"})
+	require.NoError(t, err)
 
 	data, err = os.ReadFile(configPath)
 	require.NoError(t, err)

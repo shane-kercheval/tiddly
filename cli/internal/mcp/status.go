@@ -44,10 +44,14 @@ type StatusResult struct {
 }
 
 // SortServers sorts the Servers slice so "content" comes before "prompts",
-// ensuring deterministic output regardless of map iteration order.
+// with secondary sort by config key name so multiple entries of the same
+// type (e.g. work_prompts and personal_prompts) render in stable order.
 func (sr *StatusResult) SortServers() {
 	sort.Slice(sr.Servers, func(i, j int) bool {
-		return sr.Servers[i].ServerType < sr.Servers[j].ServerType
+		if sr.Servers[i].ServerType != sr.Servers[j].ServerType {
+			return sr.Servers[i].ServerType < sr.Servers[j].ServerType
+		}
+		return sr.Servers[i].Name < sr.Servers[j].Name
 	})
 }
 
@@ -56,6 +60,28 @@ func sortOtherServers(servers []OtherServer) {
 	sort.Slice(servers, func(i, j int) bool {
 		return servers[i].Name < servers[j].Name
 	})
+}
+
+// classifyServer routes a single config entry to the Tiddly servers list or
+// the "other" list based on its URL. Used by all three tool detectors to keep
+// classification logic in one place and prevent parallel bugs across handlers.
+//
+// Returns exactly one non-nil pointer: either a *ServerMatch (tiddly content or
+// prompts URL) or an *OtherServer (any other URL). transport is used only when
+// building the OtherServer; ignored for tiddly matches.
+func classifyServer(name, urlStr, transport string) (*ServerMatch, *OtherServer) {
+	method := MatchByURL
+	if name == serverNameContent || name == serverNamePrompts {
+		method = MatchByName
+	}
+	switch {
+	case isTiddlyContentURL(urlStr):
+		return &ServerMatch{ServerType: ServerContent, Name: name, MatchMethod: method, URL: urlStr}, nil
+	case isTiddlyPromptURL(urlStr):
+		return &ServerMatch{ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr}, nil
+	default:
+		return nil, &OtherServer{Name: name, Transport: transport}
+	}
 }
 
 // urlPrefix returns scheme + host + path (without query/fragment) for a URL.

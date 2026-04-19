@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -51,6 +52,7 @@ func newMCPConfigureCmd() *cobra.Command {
 		scope     string
 		expiresIn int
 		servers   string
+		assumeYes bool
 	)
 
 	cmd := &cobra.Command{
@@ -58,7 +60,11 @@ func newMCPConfigureCmd() *cobra.Command {
 		Short: "Configure MCP servers for AI tools",
 		Long: `Configure Tiddly MCP servers for AI tools.
 
-Servers are identified by URL, not by name. If an existing entry points to a Tiddly MCP URL (regardless of its key name), it is replaced with the canonical entry. This means re-configuring and migrations from manual setups are safe.
+Servers are identified by URL, not by name. Any existing entry pointing to a Tiddly MCP URL is removed and replaced with a single canonical entry (tiddly_notes_bookmarks, tiddly_prompts).
+
+If you have multiple entries for the same Tiddly URL under different key names (e.g. work_prompts + personal_prompts for two accounts), configure will consolidate them into one canonical entry — only one PAT survives. Use --dry-run first to preview; run with --yes to confirm the consolidation non-interactively.
+
+Before destructive writes, the existing config file is copied to <path>.bak.<timestamp> alongside the original.
 
 Scope:
   The --scope flag controls where the MCP server config is written. The default is "user",
@@ -171,11 +177,12 @@ Examples:
 				ExpiresIn: expires,
 				Output:    cmd.OutOrStdout(),
 				ErrOutput: cmd.ErrOrStderr(),
+				AssumeYes: assumeYes,
 			}
 
 			configureResult, err := mcp.RunConfigure(opts, targetTools)
 			if err != nil {
-				return err
+				return translateConfigureError(err)
 			}
 
 			if !dryRun {
@@ -187,6 +194,9 @@ Examples:
 					fmt.Fprintf(cmd.OutOrStdout(), "Reused tokens: %s\n", strings.Join(configureResult.TokensReused, ", "))
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Configured: %s\n", strings.Join(configureResult.ToolsConfigured, ", "))
+				for _, b := range configureResult.Backups {
+					fmt.Fprintf(cmd.OutOrStdout(), "Backed up %s config to %s\n", b.Tool, b.Path)
+				}
 			}
 
 			for _, warning := range configureResult.Warnings {
@@ -201,6 +211,7 @@ Examples:
 	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (all projects) or directory (current directory only)")
 	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (1-365, or 0 for no expiration)")
 	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which MCP servers to configure: content, prompts, or both")
+	cmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Bypass interactive prompt when consolidating multiple existing Tiddly entries")
 
 	return cmd
 }
@@ -373,11 +384,15 @@ Examples:
 			}
 
 			// Remove config entries
-			if err := handler.Remove(rc, serverList); err != nil {
+			backupPath, err := handler.Remove(rc, serverList)
+			if err != nil {
 				return err
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Removed Tiddly MCP servers from %s.\n", toolName)
+			if backupPath != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Backed up previous config to %s\n", backupPath)
+			}
 
 			// Token cleanup
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, true)
@@ -437,4 +452,18 @@ func isValidTool(name string, toolNames []string) bool {
 		}
 	}
 	return false
+}
+
+// translateConfigureError wraps terse sentinel errors from the mcp package
+// with user-facing advisory text that references actual CLI flag names.
+// The mcp package intentionally keeps its sentinels flag-agnostic; this is
+// where flag knowledge lives.
+func translateConfigureError(err error) error {
+	switch {
+	case errors.Is(err, mcp.ErrConsolidationNeedsConfirmation):
+		return fmt.Errorf("%w: re-run with --yes to proceed, or --dry-run to preview", err)
+	case errors.Is(err, mcp.ErrConsolidationDeclined):
+		return fmt.Errorf("%w: no changes were made", err)
+	}
+	return err
 }

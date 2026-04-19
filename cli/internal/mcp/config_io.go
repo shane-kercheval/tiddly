@@ -5,35 +5,49 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
 
-// backupConfigFile copies the file at path to path.bak before a write.
-// If the file does not exist, it's a no-op. Returns error only on I/O failure.
-func backupConfigFile(path string) error {
+// backupTimestampFormat is the suffix format for backup files: UTC, sortable,
+// no characters that need escaping on any common filesystem.
+const backupTimestampFormat = "20060102T150405Z"
+
+// backupClock is overridable in tests. Real code uses time.Now; tests inject
+// deterministic timestamps to assert exact backup filenames.
+var backupClock = func() time.Time { return time.Now().UTC() }
+
+// backupConfigFile copies the file at path to path.bak.<timestamp> before a
+// destructive write, preserving the source file's permission bits (critical
+// because these files hold PATs and are typically 0600).
+//
+// Returns an empty backupPath if the source file does not exist (no-op) or the
+// new backup's absolute path on success. Callers surface backupPath to the user
+// so they know where their recovery copy landed.
+func backupConfigFile(path string) (backupPath string, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return "", nil
 		}
-		return fmt.Errorf("reading config for backup: %w", err)
+		return "", fmt.Errorf("reading config for backup: %w", err)
 	}
 	defer f.Close() //nolint:errcheck
 
 	info, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("stat config for backup: %w", err)
+		return "", fmt.Errorf("stat config for backup: %w", err)
 	}
 
 	data, err := io.ReadAll(f)
 	if err != nil {
-		return fmt.Errorf("reading config for backup: %w", err)
+		return "", fmt.Errorf("reading config for backup: %w", err)
 	}
 
-	backupPath := path + ".bak"
+	backupPath = path + ".bak." + backupClock().Format(backupTimestampFormat)
 	if err := os.WriteFile(backupPath, data, info.Mode().Perm()); err != nil {
-		return fmt.Errorf("writing backup to %s: %w", backupPath, err)
+		return "", fmt.Errorf("writing backup to %s: %w", backupPath, err)
 	}
-	return nil
+	return backupPath, nil
 }
 
 // atomicWriteFile writes data to a temp file in the same directory and renames it to path.

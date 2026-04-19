@@ -24,6 +24,13 @@ func extractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 	for name := range servers {
 		names = append(names, name)
 	}
+	// Prefer canonical-named entries so ExtractPATs returns a deterministic
+	// "primary" PAT per server type. This matters in multi-entry configs
+	// (e.g. work_prompts + personal_prompts) where the first match wins:
+	// canonical-first ensures we reuse the canonical entry's PAT if one
+	// exists. Deliberately kept here even though the status renderer no
+	// longer uses this ordering — status shows all entries; ExtractPATs
+	// must pick one.
 	canonicalNamesFirst(names)
 
 	for _, name := range names {
@@ -185,32 +192,35 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 }
 
 // configureClaudeCode writes MCP server entries into the Claude Code config.
-func configureClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
+// Returns the timestamped backup path (empty if no prior config existed).
+func configureClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) (backupPath string, err error) {
 	config, err := buildClaudeCodeConfig(rc, contentPAT, promptPAT)
 	if err != nil {
-		return err
+		return "", err
 	}
 	return writeJSONConfig(rc.Path, config)
 }
 
 // removeClaudeCode removes tiddly MCP server entries from the Claude Code config.
-// Identifies servers by URL, not by name, so custom-named entries are also removed.
-func removeClaudeCode(rc ResolvedConfig, serverFilter []string) error {
+// Identifies servers by URL, not by name, so custom-named entries are also
+// removed. Returns the timestamped backup path (empty if nothing changed or
+// no prior config existed).
+func removeClaudeCode(rc ResolvedConfig, serverFilter []string) (backupPath string, err error) {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return "", nil
 		}
-		return err
+		return "", err
 	}
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 	if servers == nil {
-		return nil
+		return "", nil
 	}
 
 	if !removeJSONServersByTiddlyURL(servers, serverURLMatcher(serverFilter)) {
-		return nil
+		return "", nil
 	}
 
 	setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
@@ -234,47 +244,16 @@ func statusClaudeCode(rc ResolvedConfig) (StatusResult, error) {
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 
-	foundContent := false
-	foundPrompts := false
-
-	names := make([]string, 0, len(servers))
-	for name := range servers {
-		names = append(names, name)
-	}
-	canonicalNamesFirst(names)
-
-	for _, name := range names {
-		serverMap, _ := servers[name].(map[string]any)
+	for name, entry := range servers {
+		serverMap, _ := entry.(map[string]any)
 		if serverMap == nil {
 			continue
 		}
 		urlStr := extractServerURL(serverMap)
-
-		method := MatchByURL
-		if name == serverNameContent || name == serverNamePrompts {
-			method = MatchByName
-		}
-
-		matched := false
-		if !foundContent && isTiddlyContentURL(urlStr) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerContent, Name: name, MatchMethod: method, URL: urlStr,
-			})
-			foundContent = true
-			matched = true
-		}
-		if !foundPrompts && isTiddlyPromptURL(urlStr) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr,
-			})
-			foundPrompts = true
-			matched = true
-		}
-		if !matched && !isTiddlyURL(urlStr) {
-			result.OtherServers = append(result.OtherServers, OtherServer{
-				Name:      name,
-				Transport: detectTransport(serverMap),
-			})
+		if match, other := classifyServer(name, urlStr, detectTransport(serverMap)); match != nil {
+			result.Servers = append(result.Servers, *match)
+		} else {
+			result.OtherServers = append(result.OtherServers, *other)
 		}
 	}
 

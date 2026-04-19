@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +17,45 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTranslateConfigureError__needs_confirmation_wraps_with_flag_advice(t *testing.T) {
+	err := translateConfigureError(mcp.ErrConsolidationNeedsConfirmation)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, mcp.ErrConsolidationNeedsConfirmation,
+		"wrapped error must still unwrap to the sentinel")
+	assert.Contains(t, err.Error(), "--yes",
+		"advisory must reference the --yes flag so users know how to proceed")
+	assert.Contains(t, err.Error(), "--dry-run",
+		"advisory must reference --dry-run as the preview path")
+}
+
+func TestTranslateConfigureError__declined_wraps_with_no_changes_note(t *testing.T) {
+	err := translateConfigureError(mcp.ErrConsolidationDeclined)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, mcp.ErrConsolidationDeclined)
+	assert.Contains(t, err.Error(), "no changes were made",
+		"decline advisory should reassure the user that nothing was written")
+}
+
+func TestTranslateConfigureError__passes_through_unrelated_errors(t *testing.T) {
+	// An error that isn't one of the known sentinels must pass through
+	// verbatim so cobra surfaces the real failure rather than a misleading
+	// consolidation-flavored message.
+	orig := errors.New("something unrelated broke")
+	got := translateConfigureError(orig)
+	assert.Equal(t, orig, got, "unrelated errors should pass through unchanged")
+}
+
+func TestTranslateConfigureError__wrapped_sentinels_still_translate(t *testing.T) {
+	// RunConfigure may wrap the sentinel via fmt.Errorf; translation must
+	// still find it via errors.Is traversal.
+	wrapped := fmt.Errorf("configuring claude-code: %w", mcp.ErrConsolidationDeclined)
+	got := translateConfigureError(wrapped)
+	assert.ErrorIs(t, got, mcp.ErrConsolidationDeclined)
+	assert.Contains(t, got.Error(), "no changes were made")
+}
 
 func TestMCPConfigure__not_logged_in(t *testing.T) {
 	store := testutil.NewMockCredStore()

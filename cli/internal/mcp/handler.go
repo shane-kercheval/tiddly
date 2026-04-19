@@ -14,8 +14,8 @@ type ToolHandler interface {
 	SupportedScopes() []string
 	Detect(looker ExecLooker) DetectedTool
 	ResolvePath(configPath, scope, cwd string) (string, error)
-	Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) (warnings []string, err error)
-	Remove(rc ResolvedConfig, servers []string) error
+	Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) (warnings []string, backupPath string, err error)
+	Remove(rc ResolvedConfig, servers []string) (backupPath string, err error)
 	Status(rc ResolvedConfig) (StatusResult, error)
 	DryRun(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error)
 	ExtractPATs(rc ResolvedConfig) (contentPAT, promptPAT string)

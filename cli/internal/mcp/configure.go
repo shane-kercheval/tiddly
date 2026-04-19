@@ -51,6 +51,95 @@ type ConfigureOpts struct {
 	ExpiresIn *int     // PAT expiration in days (nil = no expiration)
 	Output    io.Writer
 	ErrOutput io.Writer
+
+	// AssumeYes bypasses the interactive consolidation prompt (set via --yes).
+	AssumeYes bool
+	// Stdin is the source for the interactive confirmation prompt.
+	// Tests inject a *bytes.Buffer; production uses os.Stdin.
+	Stdin io.Reader
+	// IsInteractive reports whether stdin is connected to a terminal. When
+	// nil, falls back to detecting stdin itself. Tests override to simulate
+	// interactive vs non-interactive runs without a real TTY.
+	IsInteractive func() bool
+}
+
+// ErrConsolidationDeclined is returned when the user says "no" at the
+// interactive consolidation prompt. The cmd layer surfaces this with an
+// actionable user message.
+var ErrConsolidationDeclined = errors.New("consolidation declined by user")
+
+// ErrConsolidationNeedsConfirmation is returned when the CLI detects that
+// a configure would consolidate multiple tiddly entries but cannot prompt
+// (non-interactive stdin) and --yes was not passed. The cmd layer wraps
+// this with flag-name guidance; the sentinel itself is deliberately terse
+// so the mcp package doesn't bake in knowledge of CLI flag names.
+var ErrConsolidationNeedsConfirmation = errors.New("consolidation needs confirmation")
+
+// preflightedTool holds per-tool state computed during Phase 1 (pre-flight)
+// of RunConfigure. Everything here is gathered without mutating the user's
+// filesystem or any server-side state — so a subsequent "no" at the
+// confirmation gate leaves nothing to clean up.
+type preflightedTool struct {
+	tool           DetectedTool
+	handler        ToolHandler
+	rc             ResolvedConfig
+	consolidations []ConsolidationGroup // nil when no consolidation would occur
+}
+
+// confirmConsolidations is the single cross-tool confirmation gate. Emits a
+// combined warning covering every tool whose configure would collapse
+// multiple existing Tiddly entries, then:
+//   - opts.AssumeYes          → proceed, print "--yes" acknowledgment
+//   - interactive stdin       → prompt y/N once (default No)
+//   - non-interactive stdin   → return ErrConsolidationNeedsConfirmation
+//
+// Returning nil means either no consolidation is required or the user
+// confirmed. Returning an error means the caller must abort before any
+// writes or API mutations — no partial state.
+func confirmConsolidations(opts ConfigureOpts, plan []preflightedTool, isPATAuth bool) error {
+	anyConsolidation := false
+	for _, pf := range plan {
+		if len(pf.consolidations) > 0 {
+			anyConsolidation = true
+			break
+		}
+	}
+	if !anyConsolidation {
+		return nil
+	}
+
+	fmt.Fprintln(opts.Output, "Consolidation required:")
+	for _, pf := range plan {
+		if len(pf.consolidations) > 0 {
+			writeConsolidationWarning(opts.Output, pf.tool.Name, pf.consolidations, isPATAuth)
+		}
+	}
+
+	if opts.AssumeYes {
+		fmt.Fprintln(opts.Output, "Proceeding (--yes).")
+		return nil
+	}
+
+	interactive := opts.IsInteractive
+	if interactive == nil {
+		interactive = isStdinTerminal
+	}
+	if !interactive() {
+		return ErrConsolidationNeedsConfirmation
+	}
+
+	stdin := opts.Stdin
+	if stdin == nil {
+		stdin = os.Stdin
+	}
+	ok, err := promptYesNo(opts.Output, stdin, "Continue? [y/N]: ")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrConsolidationDeclined
+	}
+	return nil
 }
 
 // wantServer returns true if the given server name is in the requested servers list.
@@ -66,15 +155,32 @@ func (o ConfigureOpts) wantServer(name string) bool {
 	return false
 }
 
+// BackupRecord points at a single timestamped backup file created before
+// a destructive write. Captured as a typed struct rather than a display
+// string so future consumers (e.g. a `tiddly mcp restore` subcommand) can
+// work with the data directly instead of parsing formatted output.
+type BackupRecord struct {
+	Tool string // tool name (e.g. "claude-desktop")
+	Path string // absolute path to the <original>.bak.<timestamp> file
+}
+
 // ConfigureResult captures what was done during configure.
 type ConfigureResult struct {
 	ToolsConfigured []string
 	TokensCreated   []string
 	TokensReused    []string
 	Warnings        []string
+	// Backups holds one record per tool whose config file existed before
+	// configure and was copied to a timestamped backup. Surfaces to the
+	// user so they know where their recovery copy landed.
+	Backups []BackupRecord
 }
 
-// RunConfigure orchestrates MCP server configuration for the given tools.
+// RunConfigure orchestrates MCP server configuration for the given tools in
+// three phases: pre-flight (read-only discovery), confirmation gate (single
+// y/N across all tools), and commit (PAT resolution + Configure). The split
+// ensures no server-side token creation or filesystem writes happen before
+// the user confirms — a "no" at the gate leaves the system untouched.
 func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, error) {
 	if opts.Output == nil {
 		opts.Output = os.Stdout
@@ -94,6 +200,14 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 			"Using your current token for MCP servers. Login via 'tiddly login' to auto-create dedicated tokens per server.")
 	}
 
+	// Phase 1: Pre-flight. Resolve paths, read current state, detect
+	// consolidations. No filesystem writes, no server-side mutations.
+	//
+	// Status errors are tolerated in dry-run (the diff is still useful as
+	// a preview), but fail-closed in a real configure: if we can't read
+	// the existing config, we can't detect consolidation, and silently
+	// proceeding would bypass the safety gate the user is relying on.
+	plan := make([]preflightedTool, 0, len(tools))
 	for _, tool := range tools {
 		if !tool.Detected {
 			continue
@@ -110,29 +224,61 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 			return nil, fmt.Errorf("%s: %w", tool.Name, err)
 		}
 
-		// Resolve PATs per-tool
-		contentPAT, promptPAT, err := resolveToolPATs(opts, handler, tool, rc, isPATAuth, result)
+		var groups []ConsolidationGroup
+		sr, statusErr := handler.Status(rc)
+		switch {
+		case statusErr != nil && opts.DryRun:
+			// Supplementary warning only; diff is still informative.
+		case statusErr != nil:
+			return nil, fmt.Errorf("reading %s config for safety check: %w", tool.Name, statusErr)
+		default:
+			groups = detectConsolidations(sr, opts.Servers)
+		}
+
+		plan = append(plan, preflightedTool{tool: tool, handler: handler, rc: rc, consolidations: groups})
+	}
+
+	// Phase 2: Single confirmation gate. Skipped in dry-run — dry-run
+	// emits per-tool warnings alongside each diff instead of gating.
+	// Crucially this runs BEFORE resolveToolPATs so declining does not
+	// leak server-side OAuth tokens.
+	if !opts.DryRun {
+		if err := confirmConsolidations(opts, plan, isPATAuth); err != nil {
+			return nil, err
+		}
+	}
+
+	// Phase 3: Commit. PAT resolution (which may create tokens server-side)
+	// and the filesystem write happen here, after the user has confirmed.
+	for _, pf := range plan {
+		contentPAT, promptPAT, err := resolveToolPATs(opts, pf.handler, pf.tool, pf.rc, isPATAuth, result)
 		if err != nil {
-			return nil, fmt.Errorf("resolving tokens for %s: %w", tool.Name, err)
+			return nil, fmt.Errorf("resolving tokens for %s: %w", pf.tool.Name, err)
 		}
 
 		if opts.DryRun {
-			fmt.Fprintf(opts.Output, "\n--- %s ---\n", tool.Name)
-			before, after, err := handler.DryRun(rc, contentPAT, promptPAT)
+			fmt.Fprintf(opts.Output, "\n--- %s ---\n", pf.tool.Name)
+			if len(pf.consolidations) > 0 {
+				writeConsolidationWarning(opts.Output, pf.tool.Name, pf.consolidations, isPATAuth)
+			}
+			before, after, err := pf.handler.DryRun(pf.rc, contentPAT, promptPAT)
 			if err != nil {
 				return nil, err
 			}
-			printDiff(opts.Output, rc.Path, before, after)
-			result.ToolsConfigured = append(result.ToolsConfigured, tool.Name)
+			printDiff(opts.Output, pf.rc.Path, before, after)
+			result.ToolsConfigured = append(result.ToolsConfigured, pf.tool.Name)
 			continue
 		}
 
-		warnings, err := handler.Configure(rc, contentPAT, promptPAT, tool)
+		warnings, backupPath, err := pf.handler.Configure(pf.rc, contentPAT, promptPAT, pf.tool)
 		if err != nil {
-			return nil, fmt.Errorf("configuring %s: %w", tool.Name, err)
+			return nil, fmt.Errorf("configuring %s: %w", pf.tool.Name, err)
 		}
 		result.Warnings = append(result.Warnings, warnings...)
-		result.ToolsConfigured = append(result.ToolsConfigured, tool.Name)
+		if backupPath != "" {
+			result.Backups = append(result.Backups, BackupRecord{Tool: pf.tool.Name, Path: backupPath})
+		}
+		result.ToolsConfigured = append(result.ToolsConfigured, pf.tool.Name)
 	}
 
 	return result, nil

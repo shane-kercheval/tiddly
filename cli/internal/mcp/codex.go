@@ -46,6 +46,11 @@ func extractCodexPATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 	for name := range config.MCPServers {
 		names = append(names, name)
 	}
+	// Prefer canonical-named entries so ExtractPATs returns a deterministic
+	// "primary" PAT per server type when multiple tiddly entries exist.
+	// Status no longer uses this ordering (it renders every entry), but
+	// ExtractPATs still needs a single winner per type, and canonical-first
+	// matches the survivor the consolidation warning discloses.
 	canonicalNamesFirst(names)
 
 	for _, name := range names {
@@ -106,31 +111,34 @@ func removeCodexServersByTiddlyURL(servers map[string]codexMCPServer, match func
 }
 
 // configureCodex writes MCP server entries into the Codex config.
-func configureCodex(rc ResolvedConfig, contentPAT, promptPAT string) error {
+// Returns the timestamped backup path (empty if no prior config existed).
+func configureCodex(rc ResolvedConfig, contentPAT, promptPAT string) (backupPath string, err error) {
 	config, err := buildCodexConfig(rc.Path, contentPAT, promptPAT)
 	if err != nil {
-		return err
+		return "", err
 	}
 	return writeCodexConfig(rc.Path, config)
 }
 
 // removeCodex removes tiddly MCP server entries from the config.
-// Identifies servers by URL, not by name, so custom-named entries are also removed.
-func removeCodex(rc ResolvedConfig, serverFilter []string) error {
+// Identifies servers by URL, not by name, so custom-named entries are also
+// removed. Returns the timestamped backup path (empty if nothing changed or
+// no prior config existed).
+func removeCodex(rc ResolvedConfig, serverFilter []string) (backupPath string, err error) {
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return "", nil
 		}
-		return err
+		return "", err
 	}
 
 	if config.MCPServers == nil {
-		return nil
+		return "", nil
 	}
 
 	if !removeCodexServersByTiddlyURL(config.MCPServers, serverURLMatcher(serverFilter)) {
-		return nil
+		return "", nil
 	}
 
 	return writeCodexConfig(rc.Path, config)
@@ -150,43 +158,12 @@ func statusCodex(rc ResolvedConfig) (StatusResult, error) {
 		return result, err
 	}
 
-	foundContent := false
-	foundPrompts := false
-
-	names := make([]string, 0, len(config.MCPServers))
-	for name := range config.MCPServers {
-		names = append(names, name)
-	}
-	canonicalNamesFirst(names)
-
-	for _, name := range names {
-		server := config.MCPServers[name]
-
-		method := MatchByURL
-		if name == serverNameContent || name == serverNamePrompts {
-			method = MatchByName
-		}
-
-		matched := false
-		if !foundContent && isTiddlyContentURL(server.URL) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerContent, Name: name, MatchMethod: method, URL: server.URL,
-			})
-			foundContent = true
-			matched = true
-		}
-		if !foundPrompts && isTiddlyPromptURL(server.URL) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: server.URL,
-			})
-			foundPrompts = true
-			matched = true
-		}
-		if !matched && !isTiddlyURL(server.URL) {
-			result.OtherServers = append(result.OtherServers, OtherServer{
-				Name:      name,
-				Transport: "http", // Codex only supports HTTP MCP servers
-			})
+	for name, server := range config.MCPServers {
+		// Codex only supports HTTP MCP servers, so transport is always "http".
+		if match, other := classifyServer(name, server.URL, "http"); match != nil {
+			result.Servers = append(result.Servers, *match)
+		} else {
+			result.OtherServers = append(result.OtherServers, *other)
 		}
 	}
 
@@ -268,13 +245,17 @@ func readCodexConfig(path string) (*codexConfig, error) {
 	return config, nil
 }
 
-func writeCodexConfig(path string, config *codexConfig) error {
+// writeCodexConfig writes config to path atomically, creating a timestamped
+// backup of any existing file at path first. Returns the backup path (empty
+// if no prior file existed) so callers can surface it to the user.
+func writeCodexConfig(path string, config *codexConfig) (backupPath string, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
+		return "", fmt.Errorf("creating config directory: %w", err)
 	}
 
-	if err := backupConfigFile(path); err != nil {
-		return err
+	backupPath, err = backupConfigFile(path)
+	if err != nil {
+		return "", err
 	}
 
 	// Merge mcp_servers back into the raw map
@@ -291,8 +272,11 @@ func writeCodexConfig(path string, config *codexConfig) error {
 
 	data, err := toml.Marshal(output)
 	if err != nil {
-		return fmt.Errorf("encoding config: %w", err)
+		return "", fmt.Errorf("encoding config: %w", err)
 	}
 
-	return atomicWriteFile(path, data, 0600)
+	if err := atomicWriteFile(path, data, 0600); err != nil {
+		return "", err
+	}
+	return backupPath, nil
 }
