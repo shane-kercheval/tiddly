@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -590,16 +591,31 @@ func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string
 }
 
 
+// bearerRE matches "Bearer bm_<token>" sequences in either JSON-escaped or
+// raw form. Matches the Authorization header value in claude-code/codex
+// JSON+TOML configs and the inline --header string in claude-desktop stdio
+// args. Captures the "Bearer " prefix (and the space) so the replacement
+// can keep it and substitute only the PAT.
+var bearerRE = regexp.MustCompile(`Bearer[ \t]+bm_[A-Za-z0-9_-]+`)
+
+// redactBearers replaces every "Bearer bm_<token>" with "Bearer bm_REDACTED"
+// so dry-run output never lands tokens in the user's terminal history.
+// tokens create still prints plaintext by design; mcp configure --dry-run
+// is not an explicit token-display command, so it shouldn't leak.
+func redactBearers(s string) string {
+	return bearerRE.ReplaceAllString(s, "Bearer bm_REDACTED")
+}
+
 func printDiff(w io.Writer, path, before, after string) {
 	fmt.Fprintf(w, "File: %s\n", path)
 	if before == "" || before == "{}" || before == "{}\n" {
 		fmt.Fprintln(w, "(new file)")
 	} else {
 		fmt.Fprintln(w, "Before:")
-		fmt.Fprintln(w, before)
+		fmt.Fprintln(w, redactBearers(before))
 	}
 	fmt.Fprintln(w, "After:")
-	fmt.Fprintln(w, after)
+	fmt.Fprintln(w, redactBearers(after))
 }
 
 // CheckOrphanedTokens checks for cli-mcp-{toolName}-* tokens that may be orphaned after removal.

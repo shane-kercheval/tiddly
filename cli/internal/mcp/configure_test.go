@@ -332,7 +332,12 @@ func TestRunConfigure__dry_run_pat_auth_shows_diff(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, stdout.String(), "tiddly_notes_bookmarks")
-	assert.Contains(t, stdout.String(), "bm_test")
+	// Dry-run output MUST redact Bearer values so tokens don't land in
+	// terminal history. The raw PAT was "bm_test"; it must not appear.
+	assert.NotContains(t, stdout.String(), "bm_test",
+		"dry-run must not echo raw PAT values (security: tokens in terminal history)")
+	assert.Contains(t, stdout.String(), "Bearer bm_REDACTED",
+		"dry-run must replace Bearer values with Bearer bm_REDACTED")
 
 	// File should NOT exist (dry run)
 	_, statErr := os.Stat(configPath)
@@ -962,6 +967,47 @@ func TestRunConfigure__valid_config_creates_backup_before_writing(t *testing.T) 
 	newData, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(newData), "tiddly_notes_bookmarks")
+}
+
+func TestPrintDiff__redacts_bearer_across_all_three_formats(t *testing.T) {
+	// Regression guard: mcp configure --dry-run must never echo plaintext
+	// Bearer values. Covers all three config formats (claude-code JSON
+	// with headers object, claude-desktop stdio args string, codex TOML
+	// with quoted value). tokens create still shows plaintext by design
+	// — that's an explicit token-display command; --dry-run is not.
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{
+			name: "claude-code headers object",
+			in:   `"headers": { "Authorization": "Bearer bm_live_token_aaa111" }`,
+		},
+		{
+			name: "claude-desktop stdio args",
+			in:   `"args": ["mcp-remote", "https://x/mcp", "--header", "Authorization: Bearer bm_live_token_bbb222"]`,
+		},
+		{
+			name: "codex TOML http_headers",
+			in:   `Authorization = "Bearer bm_live_token_ccc333"`,
+		},
+		{
+			name: "multiple bearers in one blob",
+			in:   "Bearer bm_first_token Bearer bm_second_token",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			printDiff(&buf, "/tmp/x", "", tc.in)
+			out := buf.String()
+			assert.NotRegexp(t, `Bearer bm_[a-z0-9_]+(?:$|")`, out,
+				"raw Bearer value must not appear in dry-run output")
+			assert.Contains(t, out, "Bearer bm_REDACTED",
+				"every Bearer must be replaced with Bearer bm_REDACTED")
+		})
+	}
 }
 
 func TestRunConfigure__dry_run_warns_about_multi_entry_consolidation(t *testing.T) {
