@@ -30,7 +30,7 @@ const SYNTAX_FONT_SIZE = '0.9em'
  * Parse a line and return decoration info if it matches a markdown pattern.
  */
 interface LineInfo {
-  type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'bullet' | 'numbered' | 'task' | 'blockquote' | 'code-start' | 'code-end' | 'code-content' | 'hr'
+  type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'bullet' | 'numbered' | 'checklist' | 'blockquote' | 'code-start' | 'code-end' | 'code-content' | 'hr'
   checked?: boolean
   bracketPos?: number   // Position of [ character for editing
 }
@@ -54,14 +54,14 @@ function parseLine(text: string, inCodeBlock: boolean): LineInfo | null {
   if (text.startsWith('##### ')) return { type: 'h5' }
   if (text.startsWith('###### ')) return { type: 'h6' }
 
-  // Task lists - check for [ ] or [x]
-  const taskMatch = text.match(/^(\s*)([-*+])\s+\[([ xX])\]\s/)
-  if (taskMatch) {
-    const checked = taskMatch[3].toLowerCase() === 'x'
-    const indent = taskMatch[1].length
+  // Checklist - check for [ ] or [x]
+  const checklistMatch = text.match(/^(\s*)([-*+])\s+\[([ xX])\]\s/)
+  if (checklistMatch) {
+    const checked = checklistMatch[3].toLowerCase() === 'x'
+    const indent = checklistMatch[1].length
     // bracketPos: position of [ character - for editing when clicked
-    const bracketPos = indent + taskMatch[2].length + 1 // indent + "-" + " "
-    return { type: 'task', checked, bracketPos }
+    const bracketPos = indent + checklistMatch[2].length + 1 // indent + "-" + " "
+    return { type: 'checklist', checked, bracketPos }
   }
 
   // Bullet lists
@@ -398,15 +398,15 @@ const boldContentMark = Decoration.mark({ class: 'cm-md-bold-content' })
 // Decorations for italic
 const italicContentMark = Decoration.mark({ class: 'cm-md-italic-content' })
 
-// Decoration for task syntax
-const taskSyntaxMark = Decoration.mark({ class: 'cm-md-task-syntax' })
+// Decoration for checklist syntax
+const checklistSyntaxMark = Decoration.mark({ class: 'cm-md-checklist-syntax' })
 
 // Decorations for clickable checkbox text ([ ] or [x])
-const taskCheckboxUncheckedMark = Decoration.mark({ class: 'cm-md-task-checkbox cm-md-task-checkbox-unchecked' })
-const taskCheckboxCheckedMark = Decoration.mark({ class: 'cm-md-task-checkbox cm-md-task-checkbox-checked' })
+const checklistCheckboxUncheckedMark = Decoration.mark({ class: 'cm-md-checklist-checkbox cm-md-checklist-checkbox-unchecked' })
+const checklistCheckboxCheckedMark = Decoration.mark({ class: 'cm-md-checklist-checkbox cm-md-checklist-checkbox-checked' })
 
-// Decoration for checked task content (strikethrough)
-const taskCheckedContentMark = Decoration.mark({ class: 'cm-md-task-checked-content' })
+// Decoration for checked checklist content (strikethrough)
+const checklistCheckedContentMark = Decoration.mark({ class: 'cm-md-checklist-checked-content' })
 
 // Decoration for header syntax
 const headerSyntaxMark = Decoration.mark({ class: 'cm-md-header-syntax' })
@@ -415,10 +415,10 @@ const headerSyntaxMark = Decoration.mark({ class: 'cm-md-header-syntax' })
 const blockquoteSyntaxMark = Decoration.mark({ class: 'cm-md-blockquote-syntax' })
 
 /**
- * Find task list syntax in a line (e.g., "- [ ] " or "- [x] ").
- * Returns the range to gray out, or null if not a task line.
+ * Find checklist syntax in a line (e.g., "- [ ] " or "- [x] ").
+ * Returns the range to gray out, or null if not a checklist line.
  */
-function findTaskSyntax(text: string): { from: number; to: number } | null {
+function findChecklistSyntax(text: string): { from: number; to: number } | null {
   const match = text.match(/^(\s*)[-*+]\s+\[([ xX])\]\s/)
   if (match) {
     return { from: match[1].length, to: match[0].length }
@@ -554,9 +554,9 @@ function buildDecorations(view: EditorView): DecorationSet {
     // Add line decoration if we have line-level styling
     if (info) {
       let lineClass = `cm-md-${info.type}`
-      // Add checked class for completed tasks
-      if (info.type === 'task' && info.checked) {
-        lineClass += ' cm-md-task-checked'
+      // Add checked class for completed checklist items
+      if (info.type === 'checklist' && info.checked) {
+        lineClass += ' cm-md-checklist-checked'
       }
       builder.add(line.from, line.from, Decoration.line({ class: lineClass }))
     }
@@ -566,17 +566,17 @@ function buildDecorations(view: EditorView): DecorationSet {
       // Collect all inline decorations with their positions
       const inlineDecorations: Array<{ from: number; to: number; decoration: Decoration }> = []
 
-      // Task syntax and clickable checkbox for task items
-      const taskSyntax = findTaskSyntax(line.text)
-      if (taskSyntax && info?.type === 'task' && info.bracketPos !== undefined) {
+      // Checklist syntax and clickable checkbox
+      const checklistSyntax = findChecklistSyntax(line.text)
+      if (checklistSyntax && info?.type === 'checklist' && info.bracketPos !== undefined) {
         const bracketPos = line.from + info.bracketPos   // Where [ is in the document
 
         // Style "- " before the checkbox as dimmed syntax
-        if (info.bracketPos > taskSyntax.from) {
+        if (info.bracketPos > checklistSyntax.from) {
           inlineDecorations.push({
-            from: line.from + taskSyntax.from,
+            from: line.from + checklistSyntax.from,
             to: bracketPos,
-            decoration: taskSyntaxMark,
+            decoration: checklistSyntaxMark,
           })
         }
 
@@ -584,14 +584,14 @@ function buildDecorations(view: EditorView): DecorationSet {
         inlineDecorations.push({
           from: bracketPos,
           to: bracketPos + 3,
-          decoration: info.checked ? taskCheckboxCheckedMark : taskCheckboxUncheckedMark,
+          decoration: info.checked ? checklistCheckboxCheckedMark : checklistCheckboxUncheckedMark,
         })
         // Apply strikethrough to content after checkbox when checked
-        if (info?.type === 'task' && info.checked && taskSyntax.to < line.text.length) {
+        if (info?.type === 'checklist' && info.checked && checklistSyntax.to < line.text.length) {
           inlineDecorations.push({
-            from: line.from + taskSyntax.to,
+            from: line.from + checklistSyntax.to,
             to: line.to,
-            decoration: taskCheckedContentMark,
+            decoration: checklistCheckedContentMark,
           })
         }
       }
@@ -893,22 +893,22 @@ const markdownBaseTheme = EditorView.theme({
   },
 
   // Lists
-  '.cm-md-bullet, .cm-md-numbered, .cm-md-task': {
+  '.cm-md-bullet, .cm-md-numbered, .cm-md-checklist': {
     paddingLeft: '0.5em',
   },
 
-  // Task items
-  '.cm-md-task': {
+  // Checklist items
+  '.cm-md-checklist': {
     position: 'relative',
   },
 
-  // Completed tasks - dimmed color (strikethrough applied to content only)
-  '.cm-md-task-checked': {
+  // Completed checklist items - dimmed color (strikethrough applied to content only)
+  '.cm-md-checklist-checked': {
     color: '#6b7280',
   },
 
-  // Completed task content - strikethrough only on text, not full line
-  '.cm-md-task-checked-content': {
+  // Completed checklist content - strikethrough only on text, not full line
+  '.cm-md-checklist-checked-content': {
     textDecoration: 'line-through',
     textDecorationColor: '#6b7280',
   },
@@ -993,36 +993,36 @@ const markdownBaseTheme = EditorView.theme({
   },
 
   // Clickable checkbox text ([ ] or [x]) - click to toggle
-  '.cm-md-task-checkbox': {
+  '.cm-md-checklist-checkbox': {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     cursor: 'pointer',
     borderRadius: '3px',
     padding: '1px 2px',
     transition: 'background-color 0.15s',
   },
-  '.cm-md-task-checkbox:hover': {
+  '.cm-md-checklist-checkbox:hover': {
     backgroundColor: 'rgba(0, 0, 0, 0.08)',
   },
-  '.cm-md-task-checkbox-unchecked': {
+  '.cm-md-checklist-checkbox-unchecked': {
     color: '#374151',
     fontWeight: 'bold',
   },
-  '.cm-md-task-checkbox-checked': {
+  '.cm-md-checklist-checkbox-checked': {
     color: '#6b7280',
     fontWeight: 'bold',
     textDecoration: 'none !important',
   },
-  '.cm-md-task-checkbox-checked *': {
+  '.cm-md-checklist-checkbox-checked *': {
     textDecoration: 'none !important',
   },
 
-  // Task syntax (- [ ] or - [x]) - dimmed gray like other markdown syntax
-  '.cm-md-task-syntax': {
+  // Checklist syntax (- [ ] or - [x]) - dimmed gray like other markdown syntax
+  '.cm-md-checklist-syntax': {
     color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
     fontSize: SYNTAX_FONT_SIZE,
   },
-  '.cm-md-task-syntax *': {
+  '.cm-md-checklist-syntax *': {
     color: `${SYNTAX_COLOR} !important`,
     textDecoration: 'none !important',
   },
@@ -1333,7 +1333,7 @@ function findLinkAtPosition(view: EditorView, pos: number): string | null {
 }
 
 /**
- * Event handler for clicking checkbox text ([ ] or [x]) to toggle task state,
+ * Event handler for clicking checkbox text ([ ] or [x]) to toggle checklist state,
  * and Cmd+click (or Ctrl+click) to open links.
  */
 const clickHandler = EditorView.domEventHandlers({
@@ -1342,8 +1342,8 @@ const clickHandler = EditorView.domEventHandlers({
     if (event.button !== 0) return false
 
     const target = event.target as HTMLElement
-    if (!target.classList.contains('cm-md-task-checkbox') &&
-        !target.closest('.cm-md-task-checkbox')) {
+    if (!target.classList.contains('cm-md-checklist-checkbox') &&
+        !target.closest('.cm-md-checklist-checkbox')) {
       return false
     }
 
@@ -1352,7 +1352,7 @@ const clickHandler = EditorView.domEventHandlers({
 
     const line = view.state.doc.lineAt(pos)
     const info = parseLine(line.text, false)
-    if (info?.type !== 'task' || info.bracketPos === undefined) return false
+    if (info?.type !== 'checklist' || info.bracketPos === undefined) return false
 
     const bracketPos = line.from + info.bracketPos
     const newText = info.checked ? '[ ]' : '[x]'

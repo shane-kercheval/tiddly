@@ -75,10 +75,10 @@ const rightColumnGroups: ShortcutGroup[] = [
       // Code
       { keys: ['\u2318', 'E'], description: 'Inline code' },
       { keys: ['\u2318', '\u21E7', 'E'], description: 'Code block' },
-      // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
-      { keys: ['\u2318', '\u21E7', '8'], description: 'Bullet list' },
-      { keys: ['\u2318', '\u21E7', '7'], description: 'Numbered list' },
-      { keys: ['\u2318', '\u21E7', '9'], description: 'Task list' },
+      // Lists (matches toolbar/menu order: 7=bullet, 8=numbered, 9=checklist)
+      { keys: ['\u2318', '\u21E7', '7'], description: 'Bullet list' },
+      { keys: ['\u2318', '\u21E7', '8'], description: 'Numbered list' },
+      { keys: ['\u2318', '\u21E7', '9'], description: 'Checklist' },
       // Links and other
       { keys: ['\u2318', 'K'], description: 'Insert link' },
       { keys: ['\u2318', '\u21E7', '-'], description: 'Horizontal rule' },

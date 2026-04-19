@@ -415,33 +415,33 @@ describe('parseLine', () => {
     })
   })
 
-  describe('tasks', () => {
-    it('should detect unchecked task', () => {
-      const result = parseLine('- [ ] Task', false)
-      expect(result?.type).toBe('task')
+  describe('checklist', () => {
+    it('should detect unchecked checklist item', () => {
+      const result = parseLine('- [ ] Item', false)
+      expect(result?.type).toBe('checklist')
       expect(result?.checked).toBe(false)
     })
 
-    it('should detect checked task', () => {
-      const result = parseLine('- [x] Task', false)
-      expect(result?.type).toBe('task')
+    it('should detect checked checklist item', () => {
+      const result = parseLine('- [x] Item', false)
+      expect(result?.type).toBe('checklist')
       expect(result?.checked).toBe(true)
     })
 
-    it('should detect checked task with uppercase X', () => {
-      const result = parseLine('- [X] Task', false)
-      expect(result?.type).toBe('task')
+    it('should detect checked checklist item with uppercase X', () => {
+      const result = parseLine('- [X] Item', false)
+      expect(result?.type).toBe('checklist')
       expect(result?.checked).toBe(true)
     })
 
     it('should provide bracket position', () => {
-      const result = parseLine('- [ ] Task', false)
+      const result = parseLine('- [ ] Item', false)
       expect(result?.bracketPos).toBe(2)  // Position of [ for editing
     })
 
-    it('should handle indented tasks', () => {
-      const result = parseLine('  - [ ] Nested task', false)
-      expect(result?.type).toBe('task')
+    it('should handle indented checklist items', () => {
+      const result = parseLine('  - [ ] Nested item', false)
+      expect(result?.type).toBe('checklist')
       expect(result?.bracketPos).toBe(4)  // Position of [ for editing
     })
   })
