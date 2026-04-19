@@ -829,6 +829,12 @@ const markdownBaseTheme = EditorView.theme({
     lineHeight: '1.5 !important',
   },
 
+  // Pointer cursor shown when Cmd/Ctrl is held over a link. The class is
+  // toggled on view.dom by handleEditorMousemove / handleEditorMouseleave.
+  '&.cm-md-link-hover .cm-content': {
+    cursor: 'pointer',
+  },
+
   // Remove underlines from default markdown heading syntax highlighting
   // Try multiple selectors to catch whatever CodeMirror is using
   '.cmt-heading, .cmt-heading1, .cmt-heading2, .cmt-heading3, .cmt-heading4, .cmt-heading5, .cmt-heading6': {
@@ -1332,65 +1338,120 @@ function findLinkAtPosition(view: EditorView, pos: number): string | null {
   return null
 }
 
+const LINK_HOVER_CLASS = 'cm-md-link-hover'
+
 /**
- * Event handler for clicking checkbox text ([ ] or [x]) to toggle checklist state,
- * and Cmd+click (or Ctrl+click) to open links.
+ * Handle mousedown on the editor. Toggles checklist checkboxes, and intercepts
+ * Cmd/Ctrl+mousedown over a link so CodeMirror doesn't add a secondary cursor.
+ *
+ * Browsers still fire the subsequent `click` event even when `mousedown` is
+ * defaultPrevented (as long as mouseup lands on the same element), so the
+ * click handler below runs and opens the link. That's how we suppress the
+ * multi-cursor side effect without breaking cmd+click-to-open.
  */
-const clickHandler = EditorView.domEventHandlers({
-  // Use mousedown for checkbox toggle to prevent cursor from moving
-  mousedown(event: MouseEvent, view: EditorView) {
-    if (event.button !== 0) return false
+function handleEditorMousedown(event: MouseEvent, view: EditorView): boolean {
+  if (event.button !== 0) return false
 
-    const target = event.target as HTMLElement
-    if (!target.classList.contains('cm-md-checklist-checkbox') &&
-        !target.closest('.cm-md-checklist-checkbox')) {
-      return false
-    }
-
+  if (event.metaKey || event.ctrlKey) {
     const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
-    if (pos === null) return false
-
-    const line = view.state.doc.lineAt(pos)
-    const info = parseLine(line.text, false)
-    if (info?.type !== 'checklist' || info.bracketPos === undefined) return false
-
-    const bracketPos = line.from + info.bracketPos
-    const newText = info.checked ? '[ ]' : '[x]'
-
-    // Save current selection and restore it after the toggle
-    const selection = view.state.selection
-    view.dispatch({
-      changes: { from: bracketPos, to: bracketPos + 3, insert: newText },
-      selection,
-    })
-    event.preventDefault()
-    return true
-  },
-
-  // Cmd+click (Mac) or Ctrl+click (Windows/Linux) to open links
-  click(event: MouseEvent, view: EditorView) {
-    if (!event.metaKey && !event.ctrlKey) {
-      return false
-    }
-
-    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
-    if (pos === null) {
-      return false
-    }
-
-    const url = findLinkAtPosition(view, pos)
-    if (url) {
-      let finalUrl = url
-      if (!url.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:/)) {
-        finalUrl = 'https://' + url
-      }
-      window.open(finalUrl, '_blank', 'noopener,noreferrer')
+    if (pos !== null && findLinkAtPosition(view, pos)) {
       event.preventDefault()
       return true
     }
+  }
 
+  const target = event.target as HTMLElement
+  if (!target.classList.contains('cm-md-checklist-checkbox') &&
+      !target.closest('.cm-md-checklist-checkbox')) {
     return false
-  },
+  }
+
+  const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+  if (pos === null) return false
+
+  const line = view.state.doc.lineAt(pos)
+  const info = parseLine(line.text, false)
+  if (info?.type !== 'checklist' || info.bracketPos === undefined) return false
+
+  const bracketPos = line.from + info.bracketPos
+  const newText = info.checked ? '[ ]' : '[x]'
+
+  // Save current selection and restore it after the toggle
+  const selection = view.state.selection
+  view.dispatch({
+    changes: { from: bracketPos, to: bracketPos + 3, insert: newText },
+    selection,
+  })
+  event.preventDefault()
+  return true
+}
+
+/** Cmd+click (Mac) or Ctrl+click (Windows/Linux) to open links. */
+function handleEditorClick(event: MouseEvent, view: EditorView): boolean {
+  if (event.button !== 0) return false
+  if (!event.metaKey && !event.ctrlKey) {
+    return false
+  }
+
+  const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+  if (pos === null) {
+    return false
+  }
+
+  const url = findLinkAtPosition(view, pos)
+  if (url) {
+    let finalUrl = url
+    if (!url.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:/)) {
+      finalUrl = 'https://' + url
+    }
+    window.open(finalUrl, '_blank', 'noopener,noreferrer')
+    event.preventDefault()
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Show a pointer cursor when Cmd/Ctrl is held over a link by toggling
+ * LINK_HOVER_CLASS on view.dom (the theme supplies the actual cursor style).
+ *
+ * Known limitation: the affordance only updates on mousemove and keyup — if
+ * the user rests the mouse on a link and then presses Cmd/Ctrl without moving,
+ * the cursor won't change until they move again. Fixing it would require
+ * tracking the last mouse coords and reacting to keydown; we've decided the
+ * extra state isn't worth it for the uncommon "hover, then press modifier"
+ * ordering. Revisit if users report it.
+ */
+function handleEditorMousemove(event: MouseEvent, view: EditorView): boolean {
+  let wantHover = false
+  if (event.metaKey || event.ctrlKey) {
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+    wantHover = pos !== null && findLinkAtPosition(view, pos) !== null
+  }
+  view.dom.classList.toggle(LINK_HOVER_CLASS, wantHover)
+  return false
+}
+
+function handleEditorMouseleave(_event: MouseEvent, view: EditorView): boolean {
+  view.dom.classList.remove(LINK_HOVER_CLASS)
+  return false
+}
+
+/** Clear the pointer cursor when the modifier is released without moving the mouse. */
+function handleEditorKeyup(event: KeyboardEvent, view: EditorView): boolean {
+  if (!event.metaKey && !event.ctrlKey) {
+    view.dom.classList.remove(LINK_HOVER_CLASS)
+  }
+  return false
+}
+
+const clickHandler = EditorView.domEventHandlers({
+  mousedown: handleEditorMousedown,
+  click: handleEditorClick,
+  mousemove: handleEditorMousemove,
+  mouseleave: handleEditorMouseleave,
+  keyup: handleEditorKeyup,
 })
 
 /**
@@ -1435,4 +1496,10 @@ export const _testExports = {
   findBlockquoteSyntax,
   findJinjaExpressions,
   parseLine,
+  findLinkAtPosition,
+  handleEditorMousedown,
+  handleEditorClick,
+  handleEditorMousemove,
+  handleEditorMouseleave,
+  handleEditorKeyup,
 }

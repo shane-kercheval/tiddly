@@ -1,10 +1,51 @@
 /**
  * Tests for markdown style extension helper functions.
  */
-import { describe, it, expect } from 'vitest'
-import { _testExports } from './markdownStyleExtension'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { EditorState } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
+import { _testExports, markdownStyleExtension } from './markdownStyleExtension'
 
-const { findImages, findLinks, findInlineCode, findStrikethrough, findHighlight, findBold, findItalic, findBlockquoteSyntax, findJinjaExpressions, parseLine } = _testExports
+const {
+  findImages,
+  findLinks,
+  findInlineCode,
+  findStrikethrough,
+  findHighlight,
+  findBold,
+  findItalic,
+  findBlockquoteSyntax,
+  findJinjaExpressions,
+  parseLine,
+  handleEditorMousedown,
+  handleEditorClick,
+  handleEditorMousemove,
+  handleEditorMouseleave,
+  handleEditorKeyup,
+} = _testExports
+
+/**
+ * Build a minimal EditorView for handler tests. jsdom doesn't compute layout,
+ * so we stub `posAtCoords` to return a fixed document position — handlers call
+ * it with client coords and only care about the returned doc position.
+ */
+function buildView(doc: string, posAtCoordsReturn: number | null): EditorView {
+  const parent = document.createElement('div')
+  const view = new EditorView({
+    state: EditorState.create({ doc, extensions: [markdownStyleExtension] }),
+    parent,
+  })
+  vi.spyOn(view, 'posAtCoords').mockReturnValue(posAtCoordsReturn)
+  return view
+}
+
+function makeMouseEvent(init: Partial<MouseEventInit> = {}, target?: HTMLElement): MouseEvent {
+  const event = new MouseEvent('mousedown', { button: 0, ...init })
+  // Give the event a non-null target so handler code that reads target.classList works.
+  Object.defineProperty(event, 'target', { value: target ?? document.createElement('div') })
+  vi.spyOn(event, 'preventDefault')
+  return event
+}
 
 describe('findImages', () => {
   it('should find a simple image', () => {
@@ -698,6 +739,245 @@ describe('findJinjaExpressions', () => {
       const result = findJinjaExpressions('{{}}')
       expect(result).toHaveLength(1)
       expect(result[0].type).toBe('variable')
+    })
+  })
+})
+
+describe('link dom event handlers', () => {
+  let views: EditorView[] = []
+
+  beforeEach(() => {
+    views = []
+  })
+
+  afterEach(() => {
+    views.forEach((v) => v.destroy())
+    vi.restoreAllMocks()
+  })
+
+  function track(view: EditorView): EditorView {
+    views.push(view)
+    return view
+  }
+
+  describe('handleEditorMousedown — cmd/ctrl intercept', () => {
+    it('returns true and prevents default when cmd+mousedown over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      // position 6 is inside "[example]"
+      const view = track(buildView(doc, 6))
+      const event = makeMouseEvent({ metaKey: true })
+
+      const handled = handleEditorMousedown(event, view)
+
+      expect(handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+    })
+
+    it('does not intercept cmd+mousedown outside a link', () => {
+      const doc = 'plain text without any link'
+      const view = track(buildView(doc, 3))
+      const event = makeMouseEvent({ metaKey: true })
+
+      const handled = handleEditorMousedown(event, view)
+
+      expect(handled).toBe(false)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+    })
+
+    it('does not intercept plain mousedown over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const event = makeMouseEvent({})
+
+      const handled = handleEditorMousedown(event, view)
+
+      expect(handled).toBe(false)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+    })
+
+    it('also intercepts ctrl+mousedown over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const event = makeMouseEvent({ ctrlKey: true })
+
+      expect(handleEditorMousedown(event, view)).toBe(true)
+    })
+
+    it('treats url portion of [title](url) as part of the link', () => {
+      const doc = 'see [example](https://example.com) here'
+      // position 20 is inside the URL
+      const view = track(buildView(doc, 20))
+      const event = makeMouseEvent({ metaKey: true })
+
+      expect(handleEditorMousedown(event, view)).toBe(true)
+    })
+  })
+
+  describe('handleEditorClick — open link', () => {
+    it('opens link via window.open when cmd+click over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      const event = makeMouseEvent({ metaKey: true })
+
+      const handled = handleEditorClick(event, view)
+
+      expect(handled).toBe(true)
+      expect(openSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer')
+      expect(event.preventDefault).toHaveBeenCalled()
+    })
+
+    it('prepends https:// when URL lacks a scheme', () => {
+      const doc = '[bare](example.com)'
+      const view = track(buildView(doc, 3))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      const event = makeMouseEvent({ metaKey: true })
+
+      handleEditorClick(event, view)
+
+      expect(openSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer')
+    })
+
+    it('does nothing on plain click', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      const event = makeMouseEvent({})
+
+      const handled = handleEditorClick(event, view)
+
+      expect(handled).toBe(false)
+      expect(openSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not open when cmd+click outside a link', () => {
+      const doc = 'plain text without any link'
+      const view = track(buildView(doc, 3))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      const event = makeMouseEvent({ metaKey: true })
+
+      expect(handleEditorClick(event, view)).toBe(false)
+      expect(openSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('handleEditorMousemove — pointer cursor', () => {
+    it('adds link-hover class when cmd held over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const event = makeMouseEvent({ metaKey: true })
+
+      handleEditorMousemove(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(true)
+    })
+
+    it('removes link-hover class when cmd no longer held', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.dom.classList.add('cm-md-link-hover')
+      const event = makeMouseEvent({})
+
+      handleEditorMousemove(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(false)
+    })
+
+    it('does not add link-hover class when cmd held but not over a link', () => {
+      const doc = 'plain text with no links here'
+      const view = track(buildView(doc, 5))
+      const event = makeMouseEvent({ metaKey: true })
+
+      handleEditorMousemove(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(false)
+    })
+
+    it('does not touch inline cursor style on contentDOM', () => {
+      // Guards the ownership invariant: this handler should not mutate
+      // inline cursor styles it doesn't own.
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.contentDOM.style.cursor = 'text'
+      const event = makeMouseEvent({})
+
+      handleEditorMousemove(event, view)
+
+      expect(view.contentDOM.style.cursor).toBe('text')
+    })
+  })
+
+  describe('handleEditorMouseleave', () => {
+    it('removes link-hover class on mouseleave', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.dom.classList.add('cm-md-link-hover')
+
+      handleEditorMouseleave(new MouseEvent('mouseleave'), view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(false)
+    })
+
+    it('does not touch inline cursor style on contentDOM', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.contentDOM.style.cursor = 'text'
+
+      handleEditorMouseleave(new MouseEvent('mouseleave'), view)
+
+      expect(view.contentDOM.style.cursor).toBe('text')
+    })
+  })
+
+  describe('handleEditorKeyup', () => {
+    it('removes link-hover class when cmd is released', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.dom.classList.add('cm-md-link-hover')
+      const event = new KeyboardEvent('keyup', { key: 'Meta' })
+
+      handleEditorKeyup(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(false)
+    })
+
+    it('does not remove link-hover class while cmd still held', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.dom.classList.add('cm-md-link-hover')
+      const event = new KeyboardEvent('keyup', { key: 'a', metaKey: true })
+
+      handleEditorKeyup(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(true)
+    })
+  })
+
+  describe('cmd+click end-to-end sequence', () => {
+    // Core contract of the fix: mousedown intercepts to prevent multi-cursor,
+    // and the subsequent click still opens the link with a single selection.
+    it('opens link and preserves single selection across mousedown+click', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+
+      const initialRangeCount = view.state.selection.ranges.length
+
+      const mousedown = makeMouseEvent({ metaKey: true })
+      const mousedownHandled = handleEditorMousedown(mousedown, view)
+
+      const click = makeMouseEvent({ metaKey: true })
+      const clickHandled = handleEditorClick(click, view)
+
+      expect(mousedownHandled).toBe(true)
+      expect(clickHandled).toBe(true)
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://example.com',
+        '_blank',
+        'noopener,noreferrer',
+      )
+      // Selection untouched — no secondary cursor added.
+      expect(view.state.selection.ranges.length).toBe(initialRangeCount)
     })
   })
 })
