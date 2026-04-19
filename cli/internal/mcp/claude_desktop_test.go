@@ -478,9 +478,9 @@ func TestExtractClaudeDesktopPATs__custom_named_servers(t *testing.T) {
 		},
 	})
 
-	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
-	assert.Equal(t, "bm_custom_content", contentPAT)
-	assert.Equal(t, "bm_custom_prompts", promptPAT)
+	ext := extractClaudeDesktopPATs(configPath)
+	assert.Equal(t, "bm_custom_content", ext.ContentPAT)
+	assert.Equal(t, "bm_custom_prompts", ext.PromptPAT)
 }
 
 func TestConfigureClaudeDesktop__malformed_json_returns_error(t *testing.T) {
@@ -513,9 +513,9 @@ func TestExtractClaudeDesktopPATs__valid_config(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, config)
 
-	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
-	assert.Equal(t, "bm_content123", contentPAT)
-	assert.Equal(t, "bm_prompt456", promptPAT)
+	ext := extractClaudeDesktopPATs(configPath)
+	assert.Equal(t, "bm_content123", ext.ContentPAT)
+	assert.Equal(t, "bm_prompt456", ext.PromptPAT)
 }
 
 func TestExtractClaudeDesktopPATs__no_tiddly_servers(t *testing.T) {
@@ -529,15 +529,15 @@ func TestExtractClaudeDesktopPATs__no_tiddly_servers(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, config)
 
-	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractClaudeDesktopPATs(configPath)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractClaudeDesktopPATs__missing_file(t *testing.T) {
-	contentPAT, promptPAT := extractClaudeDesktopPATs("/nonexistent/path.json")
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractClaudeDesktopPATs("/nonexistent/path.json")
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractClaudeDesktopPATs__malformed_file(t *testing.T) {
@@ -545,9 +545,9 @@ func TestExtractClaudeDesktopPATs__malformed_file(t *testing.T) {
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
 
-	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractClaudeDesktopPATs(configPath)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractBearerToken(t *testing.T) {

@@ -54,7 +54,7 @@ func (h *ClaudeCodeHandler) DryRun(rc ResolvedConfig, contentPAT, promptPAT stri
 	return dryRunClaudeCode(rc, contentPAT, promptPAT)
 }
 
-func (h *ClaudeCodeHandler) ExtractPATs(rc ResolvedConfig) (string, string) {
+func (h *ClaudeCodeHandler) ExtractPATs(rc ResolvedConfig) PATExtraction {
 	return extractClaudeCodePATs(rc)
 }
 

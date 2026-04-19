@@ -33,36 +33,41 @@ func resolveCodexPath(configPath, scope, cwd string) (string, error) {
 	return CodexConfigPath()
 }
 
-// extractCodexPATs reads the Codex config and extracts the Bearer tokens
-// for the tiddly MCP servers. Identifies servers by URL, not by name.
-// Returns empty strings on any parse error (best-effort).
-func extractCodexPATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
+// extractCodexPATs reads the Codex config and extracts reusable tiddly
+// Bearer tokens along with the config key each PAT came from. Returns a
+// zero PATExtraction on any parse error (best-effort).
+//
+// An entry only "wins" if its http_headers Authorization yields a non-empty
+// PAT, so a canonical entry with a malformed/missing header falls through
+// to the next candidate — matching the survivor disclosed in the
+// consolidation warning (see canonicalNamesFirst doc).
+func extractCodexPATs(rc ResolvedConfig) PATExtraction {
+	var ext PATExtraction
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
-		return "", ""
+		return ext
 	}
 
 	names := make([]string, 0, len(config.MCPServers))
 	for name := range config.MCPServers {
 		names = append(names, name)
 	}
-	// Prefer canonical-named entries so ExtractPATs returns a deterministic
-	// "primary" PAT per server type when multiple tiddly entries exist.
-	// Status no longer uses this ordering (it renders every entry), but
-	// ExtractPATs still needs a single winner per type, and canonical-first
-	// matches the survivor the consolidation warning discloses.
 	canonicalNamesFirst(names)
 
 	for _, name := range names {
 		server := config.MCPServers[name]
-		if contentPAT == "" && isTiddlyContentURL(server.URL) {
-			contentPAT = extractBearerToken(server.HTTPHeaders["Authorization"])
+		pat := extractBearerToken(server.HTTPHeaders["Authorization"])
+		if pat == "" {
+			continue
 		}
-		if promptPAT == "" && isTiddlyPromptURL(server.URL) {
-			promptPAT = extractBearerToken(server.HTTPHeaders["Authorization"])
+		if ext.ContentPAT == "" && isTiddlyContentURL(server.URL) {
+			ext.ContentPAT, ext.ContentName = pat, name
+		}
+		if ext.PromptPAT == "" && isTiddlyPromptURL(server.URL) {
+			ext.PromptPAT, ext.PromptName = pat, name
 		}
 	}
-	return contentPAT, promptPAT
+	return ext
 }
 
 // buildCodexConfig reads the existing config (or creates empty) and adds tiddly MCP servers.

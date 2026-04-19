@@ -197,8 +197,17 @@ func removeJSONServersByTiddlyURL(servers map[string]any, match func(string) boo
 }
 
 // canonicalNamesFirst returns keys sorted so that canonical server names
-// (serverNameContent, serverNamePrompts) come before other keys, ensuring
-// deterministic match selection when both canonical and custom entries exist.
+// (serverNameContent, serverNamePrompts) come before other keys, then
+// alphabetically within each group. Used by ExtractPATs so a canonical
+// entry's PAT wins over custom entries when multiple tiddly-URL entries
+// exist — and the alphabetical tiebreaker makes the selection deterministic
+// when no canonical entry is present.
+//
+// Status no longer uses this ordering (it surfaces every entry), but
+// ExtractPATs must pick exactly one PAT per server type, and the
+// consolidation warning's "PAT from X will be reused" disclosure has to
+// match whatever ExtractPATs will actually do. Deleting this function would
+// silently diverge those two — don't.
 func canonicalNamesFirst(keys []string) []string {
 	sort.SliceStable(keys, func(i, j int) bool {
 		iCanonical := keys[i] == serverNameContent || keys[i] == serverNamePrompts

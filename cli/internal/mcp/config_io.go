@@ -16,6 +16,11 @@ const backupTimestampFormat = "20060102T150405Z"
 // deterministic timestamps to assert exact backup filenames.
 var backupClock = func() time.Time { return time.Now().UTC() }
 
+// backupCollisionLimit caps the retry loop so a pathological filesystem
+// (e.g. permissions preventing stat) can't spin forever. A user who triggers
+// 1000 backups in the same UTC second has bigger problems.
+const backupCollisionLimit = 1000
+
 // backupConfigFile copies the file at path to path.bak.<timestamp> before a
 // destructive write, preserving the source file's permission bits (critical
 // because these files hold PATs and are typically 0600).
@@ -23,6 +28,12 @@ var backupClock = func() time.Time { return time.Now().UTC() }
 // Returns an empty backupPath if the source file does not exist (no-op) or the
 // new backup's absolute path on success. Callers surface backupPath to the user
 // so they know where their recovery copy landed.
+//
+// Collision handling: if two destructive writes land in the same UTC second
+// (back-to-back scripted runs, tests, accidental double-invokes), a naive
+// timestamped filename would overwrite the earlier backup — silently defeating
+// the safety net. On collision we append .1, .2, ... until a free name is
+// found, capped by backupCollisionLimit.
 func backupConfigFile(path string) (backupPath string, err error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -43,7 +54,18 @@ func backupConfigFile(path string) (backupPath string, err error) {
 		return "", fmt.Errorf("reading config for backup: %w", err)
 	}
 
-	backupPath = path + ".bak." + backupClock().Format(backupTimestampFormat)
+	base := path + ".bak." + backupClock().Format(backupTimestampFormat)
+	backupPath = base
+	for suffix := 1; ; suffix++ {
+		if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
+			break
+		}
+		if suffix > backupCollisionLimit {
+			return "", fmt.Errorf("backup collision retry exhausted after %d attempts at %s", backupCollisionLimit, base)
+		}
+		backupPath = fmt.Sprintf("%s.%d", base, suffix)
+	}
+
 	if err := os.WriteFile(backupPath, data, info.Mode().Perm()); err != nil {
 		return "", fmt.Errorf("writing backup to %s: %w", backupPath, err)
 	}

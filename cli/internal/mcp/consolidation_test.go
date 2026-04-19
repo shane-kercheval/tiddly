@@ -31,6 +31,8 @@ func TestDetectConsolidations__multi_prompts_triggers_one_group(t *testing.T) {
 	assert.Equal(t, ServerPrompts, groups[0].ServerType)
 	assert.Equal(t, []string{"personal_prompts", "work_prompts"},
 		[]string{groups[0].Entries[0].Name, groups[0].Entries[1].Name})
+	assert.Empty(t, groups[0].SurvivorName,
+		"detectConsolidations must not populate SurvivorName — callers inject it from ExtractPATs")
 }
 
 func TestDetectConsolidations__multi_both_types_triggers_two_groups(t *testing.T) {
@@ -67,34 +69,15 @@ func TestDetectConsolidations__empty_result(t *testing.T) {
 	assert.Empty(t, groups)
 }
 
-func TestSurvivingEntryName__canonical_wins_over_custom(t *testing.T) {
-	g := ConsolidationGroup{
-		ServerType: ServerPrompts,
-		Entries: []ServerMatch{
-			{Name: "aaa_custom", MatchMethod: MatchByURL},
-			{Name: serverNamePrompts, MatchMethod: MatchByName},
-			{Name: "zzz_custom", MatchMethod: MatchByURL},
-		},
+func TestSurvivorNameFor(t *testing.T) {
+	ext := PATExtraction{
+		ContentName: "tiddly_notes_bookmarks",
+		PromptName:  "work_prompts",
 	}
-	assert.Equal(t, serverNamePrompts, survivingEntryName(g),
-		"canonical-named entry should win regardless of alphabetical position")
-}
-
-func TestSurvivingEntryName__alphabetical_first_when_no_canonical(t *testing.T) {
-	// Entries come in alphabetical order (invariant from detectConsolidations).
-	g := ConsolidationGroup{
-		ServerType: ServerPrompts,
-		Entries: []ServerMatch{
-			{Name: "personal_prompts", MatchMethod: MatchByURL},
-			{Name: "work_prompts", MatchMethod: MatchByURL},
-		},
-	}
-	assert.Equal(t, "personal_prompts", survivingEntryName(g),
-		"with no canonical entry, alphabetical-first wins — mirrors ExtractPATs")
-}
-
-func TestSurvivingEntryName__empty_group(t *testing.T) {
-	assert.Empty(t, survivingEntryName(ConsolidationGroup{}))
+	assert.Equal(t, "tiddly_notes_bookmarks", survivorNameFor(ext, ServerContent))
+	assert.Equal(t, "work_prompts", survivorNameFor(ext, ServerPrompts))
+	assert.Empty(t, survivorNameFor(ext, "unknown-type"),
+		"unknown server type returns empty instead of panicking")
 }
 
 func TestWriteConsolidationWarning__empty_is_noop(t *testing.T) {
@@ -111,6 +94,7 @@ func TestWriteConsolidationWarning__oauth_discloses_surviving_entry(t *testing.T
 				{ServerType: ServerPrompts, Name: "personal_prompts", MatchMethod: MatchByURL},
 				{ServerType: ServerPrompts, Name: "work_prompts", MatchMethod: MatchByURL},
 			},
+			SurvivorName: "personal_prompts",
 		},
 	}
 	var buf bytes.Buffer
@@ -126,30 +110,55 @@ func TestWriteConsolidationWarning__oauth_discloses_surviving_entry(t *testing.T
 		"surviving entry must be disclosed explicitly")
 }
 
-func TestWriteConsolidationWarning__oauth_canonical_survives_when_mixed(t *testing.T) {
-	// Mixed: canonical + custom. Canonical wins.
+func TestWriteConsolidationWarning__oauth_reflects_caller_supplied_survivor(t *testing.T) {
+	// The warning must not compute its own survivor — it shows whatever
+	// SurvivorName the caller (RunConfigure preflight via ExtractPATs) wrote.
+	// This test proves that contract: if the caller says "zzz_custom wins"
+	// despite canonical being present, the warning names zzz_custom.
 	groups := []ConsolidationGroup{
 		{
 			ServerType: ServerPrompts,
 			Entries: []ServerMatch{
-				{ServerType: ServerPrompts, Name: "custom_prompts", MatchMethod: MatchByURL},
+				{ServerType: ServerPrompts, Name: "aaa_custom", MatchMethod: MatchByURL},
 				{ServerType: ServerPrompts, Name: serverNamePrompts, MatchMethod: MatchByName},
+				{ServerType: ServerPrompts, Name: "zzz_custom", MatchMethod: MatchByURL},
 			},
+			SurvivorName: "zzz_custom",
+		},
+	}
+	var buf bytes.Buffer
+	writeConsolidationWarning(&buf, "claude-desktop", groups, false)
+
+	assert.Contains(t, buf.String(),
+		`PAT from "zzz_custom" will be reused for tiddly_prompts`,
+		"warning must use caller-supplied SurvivorName, not reinvent the selection rule")
+}
+
+func TestWriteConsolidationWarning__oauth_without_survivor_notes_mint(t *testing.T) {
+	// No entry yielded an extractable PAT (all empty/malformed). The warning
+	// should note that a fresh token will be minted rather than silently
+	// marking some entry with a misleading (*).
+	groups := []ConsolidationGroup{
+		{
+			ServerType: ServerPrompts,
+			Entries: []ServerMatch{
+				{ServerType: ServerPrompts, Name: "work_prompts", MatchMethod: MatchByURL},
+				{ServerType: ServerPrompts, Name: "personal_prompts", MatchMethod: MatchByURL},
+			},
+			// SurvivorName intentionally empty
 		},
 	}
 	var buf bytes.Buffer
 	writeConsolidationWarning(&buf, "claude-desktop", groups, false)
 
 	out := buf.String()
-	assert.Contains(t, out,
-		`PAT from "tiddly_prompts" will be reused for tiddly_prompts`,
-		"canonical entry must survive even when alphabetically later")
+	assert.Contains(t, out, "new token will be minted for tiddly_prompts",
+		"empty SurvivorName under OAuth must advertise the mint path")
+	assert.NotContains(t, out, "    * ",
+		"no entry should get the '*' survivor marker when there is no survivor")
 }
 
 func TestWriteConsolidationWarning__renders_both_content_and_prompts_groups(t *testing.T) {
-	// When both server types need consolidation, every group must render.
-	// Guards against accidental `break` in the loop or a regression where
-	// writeConsolidationWarning exits after the first group.
 	groups := []ConsolidationGroup{
 		{
 			ServerType: ServerContent,
@@ -157,6 +166,7 @@ func TestWriteConsolidationWarning__renders_both_content_and_prompts_groups(t *t
 				{ServerType: ServerContent, Name: "personal_content", MatchMethod: MatchByURL},
 				{ServerType: ServerContent, Name: "work_content", MatchMethod: MatchByURL},
 			},
+			SurvivorName: "personal_content",
 		},
 		{
 			ServerType: ServerPrompts,
@@ -164,20 +174,17 @@ func TestWriteConsolidationWarning__renders_both_content_and_prompts_groups(t *t
 				{ServerType: ServerPrompts, Name: "personal_prompts", MatchMethod: MatchByURL},
 				{ServerType: ServerPrompts, Name: "work_prompts", MatchMethod: MatchByURL},
 			},
+			SurvivorName: "personal_prompts",
 		},
 	}
 	var buf bytes.Buffer
 	writeConsolidationWarning(&buf, "claude-desktop", groups, false)
 
 	out := buf.String()
-
-	// Both canonical targets appear, with their respective survivor lines.
 	assert.Contains(t, out, "consolidated into tiddly_notes_bookmarks")
 	assert.Contains(t, out, "consolidated into tiddly_prompts")
 	assert.Contains(t, out, `PAT from "personal_content" will be reused for tiddly_notes_bookmarks`)
 	assert.Contains(t, out, `PAT from "personal_prompts" will be reused for tiddly_prompts`)
-
-	// All four entry names must surface (content keys + prompts keys).
 	assert.Contains(t, out, "personal_content")
 	assert.Contains(t, out, "work_content")
 	assert.Contains(t, out, "personal_prompts")
@@ -185,9 +192,6 @@ func TestWriteConsolidationWarning__renders_both_content_and_prompts_groups(t *t
 }
 
 func TestWriteConsolidationWarning__pat_auth_frames_as_account_rebind(t *testing.T) {
-	// Under PAT auth, every entry gets the user's login token — there's no
-	// "surviving PAT," just a rebind. The warning should reflect that so
-	// users understand work/personal distinctions collapse to the login account.
 	groups := []ConsolidationGroup{
 		{
 			ServerType: ServerPrompts,
@@ -195,6 +199,7 @@ func TestWriteConsolidationWarning__pat_auth_frames_as_account_rebind(t *testing
 				{ServerType: ServerPrompts, Name: "personal_prompts", MatchMethod: MatchByURL},
 				{ServerType: ServerPrompts, Name: "work_prompts", MatchMethod: MatchByURL},
 			},
+			// SurvivorName not meaningful under PAT auth; ignored.
 		},
 	}
 	var buf bytes.Buffer

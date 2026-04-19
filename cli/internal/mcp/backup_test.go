@@ -69,3 +69,39 @@ func TestBackupConfigFile__uses_timestamp_in_filename(t *testing.T) {
 	assert.Equal(t, path+".bak.20260419T103045Z", backupPath,
 		"backup filename should use UTC ISO 8601 basic format")
 }
+
+func TestBackupConfigFile__collision_retry_preserves_both(t *testing.T) {
+	// Two backups in the same UTC second must not overwrite each other.
+	// Pin the clock so both calls produce the same base timestamp; the
+	// second call should land on <base>.1 with the second file's contents.
+	fixed := time.Date(2026, 4, 19, 10, 30, 45, 0, time.UTC)
+	prev := backupClock
+	backupClock = func() time.Time { return fixed }
+	t.Cleanup(func() { backupClock = prev })
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	// First backup: source contains "first".
+	require.NoError(t, os.WriteFile(path, []byte("first"), 0600))
+	firstBackup, err := backupConfigFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, path+".bak.20260419T103045Z", firstBackup)
+
+	// Source changes. Second backup (same UTC second) must go to a distinct
+	// file so "first" is preserved.
+	require.NoError(t, os.WriteFile(path, []byte("second"), 0600))
+	secondBackup, err := backupConfigFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, path+".bak.20260419T103045Z.1", secondBackup,
+		"second backup in the same second must land on .1 suffix")
+
+	// Both backups survive with their respective contents.
+	firstData, err := os.ReadFile(firstBackup)
+	require.NoError(t, err)
+	assert.Equal(t, "first", string(firstData), "first backup must not have been overwritten")
+
+	secondData, err := os.ReadFile(secondBackup)
+	require.NoError(t, err)
+	assert.Equal(t, "second", string(secondData))
+}

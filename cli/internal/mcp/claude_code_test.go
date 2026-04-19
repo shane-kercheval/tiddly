@@ -19,9 +19,9 @@ func TestExtractClaudeCodePATs__user_scope(t *testing.T) {
 	_, err := configureClaudeCode(rc, "bm_content123", "bm_prompt456")
 	require.NoError(t, err)
 
-	contentPAT, promptPAT := extractClaudeCodePATs(rc)
-	assert.Equal(t, "bm_content123", contentPAT)
-	assert.Equal(t, "bm_prompt456", promptPAT)
+	ext := extractClaudeCodePATs(rc)
+	assert.Equal(t, "bm_content123", ext.ContentPAT)
+	assert.Equal(t, "bm_prompt456", ext.PromptPAT)
 }
 
 func TestExtractClaudeCodePATs__no_tiddly_servers(t *testing.T) {
@@ -35,16 +35,16 @@ func TestExtractClaudeCodePATs__no_tiddly_servers(t *testing.T) {
 	})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	contentPAT, promptPAT := extractClaudeCodePATs(rc)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractClaudeCodePATs(rc)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractClaudeCodePATs__missing_file(t *testing.T) {
 	rc := ResolvedConfig{Path: "/nonexistent/.claude.json", Scope: "user"}
-	contentPAT, promptPAT := extractClaudeCodePATs(rc)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractClaudeCodePATs(rc)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractClaudeCodePATs__malformed_file(t *testing.T) {
@@ -53,9 +53,97 @@ func TestExtractClaudeCodePATs__malformed_file(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	contentPAT, promptPAT := extractClaudeCodePATs(rc)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractClaudeCodePATs(rc)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
+}
+
+func TestExtractClaudeCodePATs__falls_through_canonical_with_missing_pat(t *testing.T) {
+	// The canonical entry exists but has no Authorization header. ExtractPATs
+	// must fall through to the next candidate (alphabetical-first custom entry)
+	// so the value and the disclosed survivor name agree.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				// headers intentionally omitted — PAT is unextractable
+			},
+			"work_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				"headers": map[string]any{
+					"Authorization": "Bearer bm_work",
+				},
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	ext := extractClaudeCodePATs(rc)
+	assert.Equal(t, "bm_work", ext.PromptPAT,
+		"PAT must come from work_prompts since canonical entry has no header")
+	assert.Equal(t, "work_prompts", ext.PromptName,
+		"survivor name must match the entry whose PAT was actually reused")
+}
+
+func TestExtractClaudeCodePATs__canonical_with_valid_pat_wins(t *testing.T) {
+	// Canonical entry has a valid PAT; the custom entry is alphabetically
+	// first but must NOT win because canonical-first ordering applies.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"aaa_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				"headers": map[string]any{
+					"Authorization": "Bearer bm_aaa",
+				},
+			},
+			serverNamePrompts: map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				"headers": map[string]any{
+					"Authorization": "Bearer bm_canonical",
+				},
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	ext := extractClaudeCodePATs(rc)
+	assert.Equal(t, "bm_canonical", ext.PromptPAT)
+	assert.Equal(t, serverNamePrompts, ext.PromptName)
+}
+
+func TestExtractClaudeCodePATs__all_entries_empty_returns_zero(t *testing.T) {
+	// Every matching entry has a malformed/missing header → PATExtraction
+	// stays zero-valued (both PAT and Name empty), signaling "no survivor."
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"work_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+			},
+			"personal_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				"headers": map[string]any{
+					"Authorization": "not-a-bearer",
+				},
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	ext := extractClaudeCodePATs(rc)
+	assert.Empty(t, ext.PromptPAT)
+	assert.Empty(t, ext.PromptName)
 }
 
 // Configure/Remove/Status/DryRun tests
@@ -688,9 +776,9 @@ func TestExtractClaudeCodePATs__custom_named_servers(t *testing.T) {
 	})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	contentPAT, promptPAT := extractClaudeCodePATs(rc)
-	assert.Equal(t, "bm_custom_content", contentPAT)
-	assert.Equal(t, "bm_custom_prompts", promptPAT)
+	ext := extractClaudeCodePATs(rc)
+	assert.Equal(t, "bm_custom_content", ext.ContentPAT)
+	assert.Equal(t, "bm_custom_prompts", ext.PromptPAT)
 }
 
 func TestConfigureClaudeCode__content_only_preserves_existing_prompts(t *testing.T) {

@@ -20,9 +20,9 @@ func TestExtractCodexPATs__valid_config(t *testing.T) {
 	_, err := configureCodex(rc, "bm_content123", "bm_prompt456")
 	require.NoError(t, err)
 
-	contentPAT, promptPAT := extractCodexPATs(rc)
-	assert.Equal(t, "bm_content123", contentPAT)
-	assert.Equal(t, "bm_prompt456", promptPAT)
+	ext := extractCodexPATs(rc)
+	assert.Equal(t, "bm_content123", ext.ContentPAT)
+	assert.Equal(t, "bm_prompt456", ext.PromptPAT)
 }
 
 func TestExtractCodexPATs__no_tiddly_servers(t *testing.T) {
@@ -31,16 +31,16 @@ func TestExtractCodexPATs__no_tiddly_servers(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte("model = \"o3\"\n"), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	contentPAT, promptPAT := extractCodexPATs(rc)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractCodexPATs(rc)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractCodexPATs__missing_file(t *testing.T) {
 	rc := ResolvedConfig{Path: "/nonexistent/config.toml", Scope: "user"}
-	contentPAT, promptPAT := extractCodexPATs(rc)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractCodexPATs(rc)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractCodexPATs__malformed_file(t *testing.T) {
@@ -49,9 +49,9 @@ func TestExtractCodexPATs__malformed_file(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte("not valid toml [[["), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	contentPAT, promptPAT := extractCodexPATs(rc)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractCodexPATs(rc)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractCodexPATs__project_scope(t *testing.T) {
@@ -67,9 +67,9 @@ func TestExtractCodexPATs__project_scope(t *testing.T) {
 	require.NoError(t, err)
 
 	// Extract from project scope
-	contentPAT, promptPAT := extractCodexPATs(rc)
-	assert.Equal(t, "bm_proj_content", contentPAT)
-	assert.Equal(t, "bm_proj_prompt", promptPAT)
+	ext := extractCodexPATs(rc)
+	assert.Equal(t, "bm_proj_content", ext.ContentPAT)
+	assert.Equal(t, "bm_proj_prompt", ext.PromptPAT)
 }
 
 // Configure/Remove/Status tests
@@ -597,9 +597,9 @@ Authorization = "Bearer bm_custom_prompts"
 	require.NoError(t, os.WriteFile(configPath, []byte(config), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	contentPAT, promptPAT := extractCodexPATs(rc)
-	assert.Equal(t, "bm_custom_content", contentPAT)
-	assert.Equal(t, "bm_custom_prompts", promptPAT)
+	ext := extractCodexPATs(rc)
+	assert.Equal(t, "bm_custom_content", ext.ContentPAT)
+	assert.Equal(t, "bm_custom_prompts", ext.PromptPAT)
 }
 
 func TestConfigureCodex__malformed_toml_returns_error(t *testing.T) {

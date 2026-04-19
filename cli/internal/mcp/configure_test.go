@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -264,7 +265,8 @@ func TestRunConfigure__dry_run_no_token_creation(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, tokenCalls, "dry-run should NOT create tokens")
-	assert.Contains(t, result.ToolsConfigured, "claude-desktop")
+	assert.Empty(t, result.ToolsConfigured,
+		"dry-run writes nothing, so ToolsConfigured must stay empty")
 
 	// Output should contain placeholder (JSON-escaped angle brackets)
 	assert.Contains(t, stdout.String(), "new-token-would-be-created")
@@ -304,7 +306,8 @@ func TestRunConfigure__dry_run_skips_pat_validation(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, apiCalls, "dry-run should not make any API calls")
-	assert.Contains(t, result.ToolsConfigured, "claude-code")
+	assert.Empty(t, result.ToolsConfigured,
+		"dry-run writes nothing, so ToolsConfigured must stay empty")
 	assert.Contains(t, stdout.String(), "new-token-would-be-created")
 }
 
@@ -843,17 +846,17 @@ func TestExtractPATs__claude_desktop_handler(t *testing.T) {
 
 	h := &ClaudeDesktopHandler{}
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	contentPAT, promptPAT := h.ExtractPATs(rc)
-	assert.Equal(t, "bm_content123", contentPAT)
-	assert.Equal(t, "bm_prompt456", promptPAT)
+	ext := h.ExtractPATs(rc)
+	assert.Equal(t, "bm_content123", ext.ContentPAT)
+	assert.Equal(t, "bm_prompt456", ext.PromptPAT)
 }
 
 func TestExtractPATs__missing_config(t *testing.T) {
 	h := &ClaudeDesktopHandler{}
 	rc := ResolvedConfig{Path: "/nonexistent/path.json", Scope: "user"}
-	contentPAT, promptPAT := h.ExtractPATs(rc)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := h.ExtractPATs(rc)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestConfigureTool__claude_code_project_scope_malformed_returns_error(t *testing.T) {
@@ -1006,6 +1009,11 @@ func TestRunConfigure__dry_run_warns_about_multi_entry_consolidation(t *testing.
 	require.NoError(t, err)
 
 	out := stdout.String()
+	// Dry-run opens with the same "Consolidation required:" header that the
+	// real-run gate prints, so users who dry-run → real see consistent
+	// framing for the same underlying event.
+	assert.Contains(t, out, "Consolidation required:",
+		"dry-run must print the same opening header as the real-run gate")
 	assert.Contains(t, out, "claude-code:")
 	assert.Contains(t, out, "prompts entries will be consolidated into tiddly_prompts")
 	assert.Contains(t, out, "work_prompts")
@@ -1043,6 +1051,8 @@ func TestRunConfigure__dry_run_no_warning_when_single_entries(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, stdout.String(), "will be consolidated",
 		"no consolidation warning should appear for canonical single-entry configs")
+	assert.NotContains(t, stdout.String(), "Consolidation required:",
+		"the leading header must only appear when there is a consolidation to confirm")
 }
 
 func TestRunConfigure__dry_run_servers_flag_scopes_warning(t *testing.T) {
@@ -1506,7 +1516,7 @@ func TestRunConfigure__commit_phase_failure_preserves_earlier_writes(t *testing.
 		{Name: "claude-desktop", Detected: true, ConfigPath: configPath2, HasNpx: true},
 	}
 
-	_, err := RunConfigure(ConfigureOpts{
+	result, err := RunConfigure(ConfigureOpts{
 		Handlers: DefaultHandlers(),
 		Client:   client,
 		AuthType: "pat",
@@ -1516,6 +1526,14 @@ func TestRunConfigure__commit_phase_failure_preserves_earlier_writes(t *testing.
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "configuring claude-desktop",
 		"error should identify the failing tool so the user knows where to look")
+
+	// Partial result contract: RunConfigure returns the accumulated result
+	// alongside the commit-phase error so the cmd layer can tell the user
+	// what DID succeed. Declined/NeedsConfirmation errors return nil result
+	// because nothing changed; this is the opposite — things changed.
+	require.NotNil(t, result, "commit-phase failure must surface the partial result, not nil")
+	assert.Equal(t, []string{"claude-code"}, result.ToolsConfigured,
+		"tool-1 succeeded and must be listed; tool-2 must not")
 
 	// Tool-1's write MUST persist — no rollback.
 	config1 := readTestJSON(t, configPath1)
@@ -1528,6 +1546,183 @@ func TestRunConfigure__commit_phase_failure_preserves_earlier_writes(t *testing.
 	_, statErr := os.Stat(configPath2)
 	assert.True(t, os.IsNotExist(statErr),
 		"tool-2's config file should not exist after a failed write")
+}
+
+func TestRunConfigure__oauth_commit_failure_revokes_minted_tokens(t *testing.T) {
+	// Under OAuth, phase 3 may mint new server-side tokens via CreateToken
+	// before handler.Configure writes to disk. If the write fails, those
+	// tokens are orphaned — present on the server, referenced by no config.
+	// revokeMintedTokens cleans them up so the user's token list stays tidy.
+	//
+	// Setup: tool-1 has a writable config dir; tool-2's parent is 0500 so
+	// the atomic write fails. Mock server accepts token creation (logs IDs)
+	// and token deletion (logs IDs). Assert: exactly one DELETE call for
+	// tool-2's token, zero for tool-1's.
+
+	var (
+		createdIDs []string
+		deletedIDs []string
+	)
+	idCounter := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/tokens/":
+			idCounter++
+			id := fmt.Sprintf("tok-%d", idCounter)
+			createdIDs = append(createdIDs, id)
+			var req api.TokenCreateRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{
+				ID: id, Name: req.Name, Token: "bm_" + id,
+			})
+		case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/tokens/"):
+			id := strings.TrimPrefix(r.URL.Path, "/tokens/")
+			deletedIDs = append(deletedIDs, id)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			// Any other call (e.g. /users/me validation) shouldn't happen —
+			// there are no existing PATs in these configs, so both tools
+			// go straight to the mint path.
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	// Tool-1: writable temp dir.
+	dir1 := t.TempDir()
+	configPath1 := filepath.Join(dir1, ".claude.json")
+
+	// Tool-2: read-only parent so Configure fails in phase 3.
+	dir2 := t.TempDir()
+	readonly := filepath.Join(dir2, "readonly")
+	require.NoError(t, os.Mkdir(readonly, 0700))
+	configPath2 := filepath.Join(readonly, "claude_desktop_config.json")
+	require.NoError(t, os.Chmod(readonly, 0500))
+	t.Cleanup(func() { _ = os.Chmod(readonly, 0700) })
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-code", Detected: true, ConfigPath: configPath1},
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath2, HasNpx: true},
+	}
+
+	result, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(),
+		Client:   client,
+		AuthType: "oauth",
+		Output:   stdout,
+	}, tools)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "configuring claude-desktop")
+
+	// Tool-1 minted 2 tokens (content + prompts), tool-2 attempted 2 before
+	// Configure failed — so 4 tokens total were created server-side.
+	assert.Len(t, createdIDs, 4, "expected 2 tokens per tool, 4 total")
+
+	// Tool-2's 2 tokens must have been revoked. Tool-1's must NOT be
+	// touched — they're legitimately in tool-1's written config.
+	assert.Len(t, deletedIDs, 2, "exactly tool-2's minted tokens must be deleted")
+	assert.ElementsMatch(t, []string{"tok-3", "tok-4"}, deletedIDs,
+		"the deleted IDs must be the last two (tool-2's mints), not tool-1's")
+
+	// result.TokensCreated reflects the surviving tokens only — tool-1's.
+	require.NotNil(t, result)
+	assert.Len(t, result.TokensCreated, 2,
+		"only tool-1's tokens belong in TokensCreated; tool-2's were revoked")
+}
+
+func TestRunConfigure__oauth_commit_failure_with_revoke_failure_surfaces_orphans(t *testing.T) {
+	// When both the Configure write AND the cleanup revoke fail, the error
+	// message must name the orphaned tokens so the user can delete them
+	// manually. "Something may be orphaned" isn't enough.
+
+	var createdNames []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/tokens/":
+			var req api.TokenCreateRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			createdNames = append(createdNames, req.Name)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{
+				ID: "tok-" + req.Name, Name: req.Name, Token: "bm_ends_in_abcd",
+			})
+		case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/tokens/"):
+			// Simulate revoke failure so the orphan-naming path fires.
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	readonly := filepath.Join(dir, "readonly")
+	require.NoError(t, os.Mkdir(readonly, 0700))
+	configPath := filepath.Join(readonly, "claude_desktop_config.json")
+	require.NoError(t, os.Chmod(readonly, 0500))
+	t.Cleanup(func() { _ = os.Chmod(readonly, 0700) })
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
+	}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(),
+		Client:   client,
+		AuthType: "oauth",
+		Output:   stdout,
+	}, tools)
+
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "cleanup partially failed")
+	// Each minted token name should appear so the user can find it.
+	require.Len(t, createdNames, 2)
+	for _, name := range createdNames {
+		assert.Contains(t, msg, name,
+			"orphan token name must appear in the error for manual cleanup")
+	}
+	// Last-4 prefix for identification in the UI.
+	assert.Contains(t, msg, "...abcd",
+		"orphan token last-4 prefix must appear in the error")
+}
+
+func TestRunConfigure__preflight_failure_returns_nil_result(t *testing.T) {
+	// The complement of the partial-result contract: preflight errors
+	// (Status read failure on a malformed file, etc.) must return nil
+	// because nothing has been written or minted. A non-nil result here
+	// would trick the cmd layer into printing a bogus "Configured: ..."
+	// summary for tools that never actually got touched.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	require.NoError(t, os.WriteFile(configPath, []byte("not valid json{"), 0600))
+
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-code", Detected: true, ConfigPath: configPath},
+	}
+
+	result, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(),
+		Client:   client,
+		AuthType: "pat",
+		Output:   stdout,
+	}, tools)
+
+	require.Error(t, err)
+	assert.Nil(t, result, "preflight failure must return nil result — nothing happened")
 }
 
 func TestRunConfigure__consolidation_assume_yes_bypasses_prompt(t *testing.T) {

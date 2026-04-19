@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -181,28 +182,22 @@ Examples:
 			}
 
 			configureResult, err := mcp.RunConfigure(opts, targetTools)
+
+			// Print the partial summary BEFORE surfacing any error so a
+			// user whose tool-2 failed can still see what tool-1 did
+			// (backups taken, tokens minted, config written). RunConfigure
+			// returns nil from preflight/gate failures (nothing happened)
+			// and non-nil from commit-phase failures (something happened).
+			if configureResult != nil && !dryRun {
+				printConfigureSummary(cmd.OutOrStdout(), configureResult, err != nil)
+				for _, warning := range configureResult.Warnings {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
+				}
+			}
+
 			if err != nil {
 				return translateConfigureError(err)
 			}
-
-			if !dryRun {
-				// Print summary
-				if len(configureResult.TokensCreated) > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "Created tokens: %s\n", strings.Join(configureResult.TokensCreated, ", "))
-				}
-				if len(configureResult.TokensReused) > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "Reused tokens: %s\n", strings.Join(configureResult.TokensReused, ", "))
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Configured: %s\n", strings.Join(configureResult.ToolsConfigured, ", "))
-				for _, b := range configureResult.Backups {
-					fmt.Fprintf(cmd.OutOrStdout(), "Backed up %s config to %s\n", b.Tool, b.Path)
-				}
-			}
-
-			for _, warning := range configureResult.Warnings {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
-			}
-
 			return nil
 		},
 	}
@@ -362,18 +357,18 @@ Examples:
 			// Extract PATs from config BEFORE removing entries, filtered by serverList
 			var extractedPATs []string
 			if deleteTokens {
-				contentPAT, promptPAT := handler.ExtractPATs(rc)
+				ext := handler.ExtractPATs(rc)
 				wantContent := slices.Contains(serverList, mcp.ServerContent)
 				wantPrompts := slices.Contains(serverList, mcp.ServerPrompts)
-				if wantContent && contentPAT != "" {
-					extractedPATs = append(extractedPATs, contentPAT)
+				if wantContent && ext.ContentPAT != "" {
+					extractedPATs = append(extractedPATs, ext.ContentPAT)
 				}
 				// Dedup: only skip if contentPAT was already added (wantContent && same value)
-				if wantPrompts && promptPAT != "" && (!wantContent || promptPAT != contentPAT) {
-					extractedPATs = append(extractedPATs, promptPAT)
+				if wantPrompts && ext.PromptPAT != "" && (!wantContent || ext.PromptPAT != ext.ContentPAT) {
+					extractedPATs = append(extractedPATs, ext.PromptPAT)
 				}
 				// Warn when a shared PAT is being revoked while the other server is retained
-				if contentPAT != "" && contentPAT == promptPAT && wantContent != wantPrompts {
+				if ext.ContentPAT != "" && ext.ContentPAT == ext.PromptPAT && wantContent != wantPrompts {
 					retained := mcp.ServerPrompts
 					if wantPrompts {
 						retained = mcp.ServerContent
@@ -466,4 +461,26 @@ func translateConfigureError(err error) error {
 		return fmt.Errorf("%w: no changes were made", err)
 	}
 	return err
+}
+
+// printConfigureSummary prints what configure did or partially did. When
+// partial is true, the heading switches to "Partially configured" so a
+// user staring at a follow-up error knows the listed tools still completed.
+func printConfigureSummary(w io.Writer, result *mcp.ConfigureResult, partial bool) {
+	if len(result.TokensCreated) > 0 {
+		fmt.Fprintf(w, "Created tokens: %s\n", strings.Join(result.TokensCreated, ", "))
+	}
+	if len(result.TokensReused) > 0 {
+		fmt.Fprintf(w, "Reused tokens: %s\n", strings.Join(result.TokensReused, ", "))
+	}
+	label := "Configured"
+	if partial {
+		label = "Partially configured (run aborted after these)"
+	}
+	if len(result.ToolsConfigured) > 0 {
+		fmt.Fprintf(w, "%s: %s\n", label, strings.Join(result.ToolsConfigured, ", "))
+	}
+	for _, b := range result.Backups {
+		fmt.Fprintf(w, "Backed up %s config to %s\n", b.Tool, b.Path)
+	}
 }

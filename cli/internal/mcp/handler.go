@@ -7,6 +7,19 @@ var (
 	_ ToolHandler = (*CodexHandler)(nil)
 )
 
+// PATExtraction is the result of walking a tool's config to find reusable
+// tiddly PATs. The *PAT fields hold Bearer token values (empty if none found
+// or unextractable); the *Name fields hold the config key those PATs came
+// from. Callers needing "which entry would survive a consolidation" (e.g.
+// the consolidation warning) MUST use these names — parallel heuristics
+// will drift when the selection rules evolve.
+type PATExtraction struct {
+	ContentPAT  string
+	PromptPAT   string
+	ContentName string
+	PromptName  string
+}
+
 // ToolHandler encapsulates all tool-specific behavior for MCP server management.
 // Each supported AI tool (claude-desktop, claude-code, codex) implements this interface.
 type ToolHandler interface {
@@ -18,7 +31,7 @@ type ToolHandler interface {
 	Remove(rc ResolvedConfig, servers []string) (backupPath string, err error)
 	Status(rc ResolvedConfig) (StatusResult, error)
 	DryRun(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error)
-	ExtractPATs(rc ResolvedConfig) (contentPAT, promptPAT string)
+	ExtractPATs(rc ResolvedConfig) PATExtraction
 }
 
 // DefaultHandlers returns the production handler list.

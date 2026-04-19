@@ -68,6 +68,12 @@ func TestClassifyServer__routes_by_url(t *testing.T) {
 			wantMatch: false,
 		},
 		{
+			// Security-adjacent invariant: a config entry named
+			// "tiddly_notes_bookmarks" pointing at an arbitrary URL must NOT
+			// be classified as a Tiddly server. URL is authoritative; the
+			// name is only a hint for MatchByName tagging. Classifying by
+			// name alone would let a hostile or misconfigured entry
+			// impersonate a Tiddly route.
 			name:       "canonical name with non-tiddly URL — URL wins over name",
 			inputName:  serverNameContent,
 			url:        "https://somewhere-else.example.com/mcp",

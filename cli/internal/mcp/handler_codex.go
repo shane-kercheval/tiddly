@@ -72,7 +72,7 @@ func (h *CodexHandler) DryRun(rc ResolvedConfig, contentPAT, promptPAT string) (
 	return dryRunCodex(rc, contentPAT, promptPAT)
 }
 
-func (h *CodexHandler) ExtractPATs(rc ResolvedConfig) (string, string) {
+func (h *CodexHandler) ExtractPATs(rc ResolvedConfig) PATExtraction {
 	return extractCodexPATs(rc)
 }
 

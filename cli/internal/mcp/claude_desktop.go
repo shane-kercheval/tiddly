@@ -174,30 +174,30 @@ func dryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, afte
 	return before, after, nil
 }
 
-// extractClaudeDesktopPATs reads the Claude Desktop config and extracts the Bearer tokens
-// for the tiddly MCP servers. Identifies servers by URL in args, not by name.
-// Returns empty strings on any parse error (best-effort).
-func extractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) {
+// extractClaudeDesktopPATs reads the Claude Desktop config and extracts
+// reusable tiddly Bearer tokens along with the config key each PAT came
+// from. Returns a zero PATExtraction on any parse error (best-effort).
+//
+// An entry only "wins" if its header yields a non-empty PAT, so a canonical
+// entry with a malformed/missing Authorization header falls through to the
+// next candidate — matching the survivor disclosed in the consolidation
+// warning (see canonicalNamesFirst doc).
+func extractClaudeDesktopPATs(configPath string) PATExtraction {
+	var ext PATExtraction
 	config, err := readJSONConfig(configPath)
 	if err != nil {
-		return "", ""
+		return ext
 	}
 
 	servers, _ := config["mcpServers"].(map[string]any)
 	if servers == nil {
-		return "", ""
+		return ext
 	}
 
 	names := make([]string, 0, len(servers))
 	for name := range servers {
 		names = append(names, name)
 	}
-	// Prefer canonical-named entries so ExtractPATs returns a deterministic
-	// "primary" PAT per server type when the config has multiple tiddly
-	// entries (e.g. work_prompts + personal_prompts). Status removed this
-	// ordering because it renders every entry; ExtractPATs still needs to
-	// pick one survivor and canonical-first matches the consolidation
-	// warning's disclosed survivor.
 	canonicalNamesFirst(names)
 
 	for _, name := range names {
@@ -218,18 +218,22 @@ func extractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) 
 				hasPrompts = true
 			}
 		}
+		if !hasContent && !hasPrompts {
+			continue
+		}
 
-		if (hasContent && contentPAT == "") || (hasPrompts && promptPAT == "") {
-			pat := extractPATFromDesktopArgs(args)
-			if hasContent && contentPAT == "" {
-				contentPAT = pat
-			}
-			if hasPrompts && promptPAT == "" {
-				promptPAT = pat
-			}
+		pat := extractPATFromDesktopArgs(args)
+		if pat == "" {
+			continue
+		}
+		if hasContent && ext.ContentPAT == "" {
+			ext.ContentPAT, ext.ContentName = pat, name
+		}
+		if hasPrompts && ext.PromptPAT == "" {
+			ext.PromptPAT, ext.PromptName = pat, name
 		}
 	}
-	return contentPAT, promptPAT
+	return ext
 }
 
 // extractPATFromDesktopArgs scans args for "--header" and extracts the Bearer token.

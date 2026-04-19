@@ -6,31 +6,30 @@ import (
 	"path/filepath"
 )
 
-// extractClaudeCodePATs reads the Claude Code config and extracts the Bearer tokens
-// for the tiddly MCP servers. Identifies servers by URL, not by name.
-// Returns empty strings on any parse error (best-effort).
-func extractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
+// extractClaudeCodePATs reads the Claude Code config and extracts reusable
+// tiddly Bearer tokens along with the config key each PAT came from.
+// Returns a zero PATExtraction on any parse error (best-effort).
+//
+// An entry only "wins" if its Authorization header yields a non-empty PAT,
+// so a canonical entry with a malformed/missing header falls through to the
+// next candidate — matching the survivor disclosed in the consolidation
+// warning (see canonicalNamesFirst doc).
+func extractClaudeCodePATs(rc ResolvedConfig) PATExtraction {
+	var ext PATExtraction
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
-		return "", ""
+		return ext
 	}
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 	if servers == nil {
-		return "", ""
+		return ext
 	}
 
 	names := make([]string, 0, len(servers))
 	for name := range servers {
 		names = append(names, name)
 	}
-	// Prefer canonical-named entries so ExtractPATs returns a deterministic
-	// "primary" PAT per server type. This matters in multi-entry configs
-	// (e.g. work_prompts + personal_prompts) where the first match wins:
-	// canonical-first ensures we reuse the canonical entry's PAT if one
-	// exists. Deliberately kept here even though the status renderer no
-	// longer uses this ordering — status shows all entries; ExtractPATs
-	// must pick one.
 	canonicalNamesFirst(names)
 
 	for _, name := range names {
@@ -40,14 +39,17 @@ func extractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 		}
 		urlStr := extractServerURL(serverMap)
 		pat := extractClaudeCodePATFromServer(serverMap)
-		if contentPAT == "" && isTiddlyContentURL(urlStr) {
-			contentPAT = pat
+		if pat == "" {
+			continue
 		}
-		if promptPAT == "" && isTiddlyPromptURL(urlStr) {
-			promptPAT = pat
+		if ext.ContentPAT == "" && isTiddlyContentURL(urlStr) {
+			ext.ContentPAT, ext.ContentName = pat, name
+		}
+		if ext.PromptPAT == "" && isTiddlyPromptURL(urlStr) {
+			ext.PromptPAT, ext.PromptName = pat, name
 		}
 	}
-	return contentPAT, promptPAT
+	return ext
 }
 
 // extractClaudeCodePATFromServer extracts the Bearer token from a Claude Code MCP server entry.

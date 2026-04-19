@@ -11,10 +11,11 @@ import (
 	"golang.org/x/term"
 )
 
-// isStdinTerminal reports whether stdin is connected to an interactive
-// terminal. Overridable in tests to simulate interactive vs piped/CI stdin
-// without requiring a real TTY.
-var isStdinTerminal = func() bool {
+// defaultIsInteractive reports whether the real process stdin is connected
+// to a TTY. Exposed as a helper (not a package-level mutable var) so
+// production callers can default to it while tests inject their own via
+// ConfigureOpts.IsInteractive — a single injection point, no hidden globals.
+func defaultIsInteractive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 

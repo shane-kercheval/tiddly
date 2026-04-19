@@ -75,6 +75,6 @@ func (h *ClaudeDesktopHandler) DryRun(rc ResolvedConfig, contentPAT, promptPAT s
 	return dryRunClaudeDesktop(rc.Path, contentPAT, promptPAT)
 }
 
-func (h *ClaudeDesktopHandler) ExtractPATs(rc ResolvedConfig) (string, string) {
+func (h *ClaudeDesktopHandler) ExtractPATs(rc ResolvedConfig) PATExtraction {
 	return extractClaudeDesktopPATs(rc.Path)
 }

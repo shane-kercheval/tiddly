@@ -200,9 +200,11 @@ func TestCodexHandler__dry_run(t *testing.T) {
 func TestCodexHandler__extract_pats_no_config(t *testing.T) {
 	h := &CodexHandler{}
 	rc := ResolvedConfig{Path: "/nonexistent/config.toml", Scope: "user"}
-	content, prompt := h.ExtractPATs(rc)
-	assert.Empty(t, content)
-	assert.Empty(t, prompt)
+	ext := h.ExtractPATs(rc)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
+	assert.Empty(t, ext.ContentName)
+	assert.Empty(t, ext.PromptName)
 }
 
 func TestDetectAll__returns_results_in_handler_order(t *testing.T) {
