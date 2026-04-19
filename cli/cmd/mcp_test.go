@@ -198,6 +198,49 @@ func TestMCPConfigure__dry_run_with_oauth_no_token_creation(t *testing.T) {
 	assert.Contains(t, result.Stdout, "new-token-would-be-created")
 }
 
+func TestMCPConfigure__dry_run_surfaces_pat_auth_warning(t *testing.T) {
+	// Regression guard: dry-run must still print the "Using your current
+	// token…" advisory that RunConfigure populates under PAT auth. Dry-run
+	// is specifically when users are trying to understand what the real run
+	// would do — suppressing the advisory there defeats its purpose. An
+	// earlier refactor accidentally gated the warning print on !dryRun; this
+	// test ensures that regression doesn't come back.
+	tmpDir := t.TempDir()
+	tmpConfig := filepath.Join(tmpDir, ".claude.json")
+
+	store := testutil.CredsWithPAT("bm_test123")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: []mcp.ToolHandler{
+			&mcp.ClaudeCodeHandler{ConfigPathOverride: tmpConfig},
+		},
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "claude-code", "--dry-run")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stderr, "Using your current token",
+		"dry-run must surface the PAT-auth advisory; it's exactly when users are trying to understand the real run")
+	// The summary ('Configured: ...') must NOT appear in dry-run — those
+	// fields describe actual writes, and nothing was written.
+	assert.NotContains(t, result.Stdout, "Configured:",
+		"dry-run writes nothing, so the Configured: summary line must not appear")
+}
+
 func TestMCPConfigure__servers_flag_parsed(t *testing.T) {
 	// Test that the --servers flag is wired up and parsed correctly.
 	// The actual filtering behavior is tested in configure_test.go.

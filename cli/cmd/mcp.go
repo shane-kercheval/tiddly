@@ -188,8 +188,17 @@ Examples:
 			// (backups taken, tokens minted, config written). RunConfigure
 			// returns nil from preflight/gate failures (nothing happened)
 			// and non-nil from commit-phase failures (something happened).
-			if configureResult != nil && !dryRun {
-				printConfigureSummary(cmd.OutOrStdout(), configureResult, err != nil)
+			//
+			// Warnings are intentionally printed regardless of dry-run: the
+			// PAT-auth advisory ("Using your current token for MCP
+			// servers…") is most useful in dry-run, when users are trying
+			// to understand what the real run would do. The summary is
+			// dry-run-gated because its fields (Configured, Backups,
+			// Created/Reused tokens) describe actual writes and mints.
+			if configureResult != nil {
+				if !dryRun {
+					printConfigureSummary(cmd.OutOrStdout(), configureResult, err != nil)
+				}
 				for _, warning := range configureResult.Warnings {
 					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
 				}
@@ -480,6 +489,9 @@ func printConfigureSummary(w io.Writer, result *mcp.ConfigureResult, partial boo
 	if len(result.ToolsConfigured) > 0 {
 		fmt.Fprintf(w, "%s: %s\n", label, strings.Join(result.ToolsConfigured, ", "))
 	}
+	// Backups are recorded per-tool only after a successful handler.Configure,
+	// so on partial-failure runs this list reflects only tools that
+	// completed — never the tool that failed mid-write.
 	for _, b := range result.Backups {
 		fmt.Fprintf(w, "Backed up %s config to %s\n", b.Tool, b.Path)
 	}

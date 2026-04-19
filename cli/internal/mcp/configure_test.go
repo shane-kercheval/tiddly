@@ -1636,6 +1636,61 @@ func TestRunConfigure__oauth_commit_failure_revokes_minted_tokens(t *testing.T) 
 		"only tool-1's tokens belong in TokensCreated; tool-2's were revoked")
 }
 
+func TestRevokeMintedTokens__cancelled_context_fails_every_delete(t *testing.T) {
+	// Documents the primitive's contract: revokeMintedTokens honors
+	// whatever context it's given. If the caller passes a cancelled
+	// context, every DeleteToken call fails and orphans are reported —
+	// which is exactly why RunConfigure passes a FRESH context (with
+	// timeout), not opts.Ctx, at the two cleanup call sites. See
+	// cleanupTimeout / the revokeMintedTokens call sites in configure.go.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A working endpoint — proves the failure is due to the cancelled
+		// client context, not the server refusing.
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	minted := []mintedToken{
+		{ID: "tok-1", Name: "cli-mcp-x-content-abc123", Token: "bm_ends_in_1111"},
+		{ID: "tok-2", Name: "cli-mcp-x-prompts-def456", Token: "bm_ends_in_2222"},
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := revokeMintedTokens(cancelled, client, minted)
+	require.Error(t, err, "all deletes must fail under a cancelled context")
+	assert.Contains(t, err.Error(), "cli-mcp-x-content-abc123")
+	assert.Contains(t, err.Error(), "cli-mcp-x-prompts-def456")
+}
+
+func TestRevokeMintedTokens__fresh_context_revokes_cleanly(t *testing.T) {
+	// Complement: with a live context, revoke succeeds and returns nil.
+	// Proves the primitive does the work it's supposed to, so the only
+	// reason production code would fail cleanup is passing a bad context.
+	var deletedIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/tokens/") {
+			deletedIDs = append(deletedIDs, strings.TrimPrefix(r.URL.Path, "/tokens/"))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	minted := []mintedToken{
+		{ID: "tok-1", Name: "cli-mcp-x-content-abc", Token: "bm_x"},
+		{ID: "tok-2", Name: "cli-mcp-x-prompts-def", Token: "bm_y"},
+	}
+
+	err := revokeMintedTokens(context.Background(), client, minted)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"tok-1", "tok-2"}, deletedIDs)
+}
+
 func TestRunConfigure__oauth_commit_failure_with_revoke_failure_surfaces_orphans(t *testing.T) {
 	// When both the Configure write AND the cleanup revoke fail, the error
 	// message must name the orphaned tokens so the user can delete them

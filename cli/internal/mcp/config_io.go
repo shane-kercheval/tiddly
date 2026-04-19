@@ -57,8 +57,16 @@ func backupConfigFile(path string) (backupPath string, err error) {
 	base := path + ".bak." + backupClock().Format(backupTimestampFormat)
 	backupPath = base
 	for suffix := 1; ; suffix++ {
-		if _, statErr := os.Stat(backupPath); os.IsNotExist(statErr) {
+		_, statErr := os.Stat(backupPath)
+		if os.IsNotExist(statErr) {
 			break
+		}
+		if statErr != nil {
+			// Any non-ENOENT stat error (EACCES, EIO, unreadable parent)
+			// must surface directly — treating it as "the file exists so
+			// try another name" would mask the real cause behind a
+			// misleading collision-exhausted error at the 1000-cap.
+			return "", fmt.Errorf("checking backup candidate %s: %w", backupPath, statErr)
 		}
 		if suffix > backupCollisionLimit {
 			return "", fmt.Errorf("backup collision retry exhausted after %d attempts at %s", backupCollisionLimit, base)

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
 )
@@ -109,14 +110,7 @@ func anyConsolidations(plan []preflightedTool) bool {
 // confirmed. Returning an error means the caller must abort before any
 // writes or API mutations — no partial state.
 func confirmConsolidations(opts ConfigureOpts, plan []preflightedTool, isPATAuth bool) error {
-	anyConsolidation := false
-	for _, pf := range plan {
-		if len(pf.consolidations) > 0 {
-			anyConsolidation = true
-			break
-		}
-	}
-	if !anyConsolidation {
+	if !anyConsolidations(plan) {
 		return nil
 	}
 
@@ -289,8 +283,13 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 		res, err := resolveToolPATs(opts, pf.handler, pf.tool, pf.rc, isPATAuth)
 		if err != nil {
 			// Some mints may have already happened before the failing one
-			// (content minted, prompts failed). Revoke what we have.
-			err = withRevokeError(err, revokeMintedTokens(opts.Ctx, opts.Client, res.Minted))
+			// (content minted, prompts failed). Revoke what we have. Use a
+			// detached context with its own timeout so Ctrl+C or an outer
+			// cancellation doesn't cascade into the cleanup and silently
+			// orphan the tokens we just created.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+			err = withRevokeError(err, revokeMintedTokens(cleanupCtx, opts.Client, res.Minted))
+			cancel()
 			return result, fmt.Errorf("resolving tokens for %s: %w", pf.tool.Name, err)
 		}
 
@@ -301,7 +300,11 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 			}
 			before, after, dErr := pf.handler.DryRun(pf.rc, res.ContentPAT, res.PromptPAT)
 			if dErr != nil {
-				return nil, dErr
+				// Consistent with the commit-phase partial-result contract:
+				// return what we've accumulated (TokensReused from prior
+				// iterations) even though nothing was written. Dry-run has
+				// no mints to revoke.
+				return result, dErr
 			}
 			printDiff(opts.Output, pf.rc.Path, before, after)
 			// Dry-run does not write anything, so ToolsConfigured stays empty.
@@ -316,7 +319,13 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 
 		warnings, backupPath, cErr := pf.handler.Configure(pf.rc, res.ContentPAT, res.PromptPAT, pf.tool)
 		if cErr != nil {
-			cErr = withRevokeError(cErr, revokeMintedTokens(opts.Ctx, opts.Client, res.Minted))
+			// Detached cleanup context: see note at the resolveToolPATs
+			// error path above. We want revoke to run even if the user
+			// Ctrl+C'd or an outer deadline fired — that's when orphan
+			// cleanup matters most.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+			cErr = withRevokeError(cErr, revokeMintedTokens(cleanupCtx, opts.Client, res.Minted))
+			cancel()
 			return result, fmt.Errorf("configuring %s: %w", pf.tool.Name, cErr)
 		}
 
@@ -342,9 +351,13 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 // instead of writing straight into ConfigureResult — means we only promote
 // the records to the user-visible summary after the tool fully succeeds.
 type mintedToken struct {
-	ID    string
-	Name  string
-	Token string // plaintext value, used only to print a last-4 prefix on revoke failure
+	ID   string
+	Name string
+	// Token is the plaintext PAT. Used only to derive a last-4 prefix in
+	// cleanup error messages so users can identify orphans in their
+	// settings UI. Do NOT log the full value, serialize this struct, or
+	// pass it across process/log-sink boundaries.
+	Token string
 }
 
 // toolPATResolution is the per-tool output of resolveToolPATs. It separates
@@ -445,15 +458,24 @@ func resolveServerPAT(opts ConfigureOpts, toolName, serverType, existingPAT stri
 	return resp.Token, &mintedToken{ID: resp.ID, Name: resp.Name, Token: resp.Token}, false, nil
 }
 
-// withRevokeError appends revoke-failure context to a primary error. The
-// primary error always wins (it describes what went wrong); the revoke
-// error, if any, is grafted on so the user sees both the root cause and
-// the specific tokens they now need to clean up manually.
+// cleanupTimeout bounds the best-effort token-revoke window. Uses a
+// detached context so Ctrl+C or an outer deadline doesn't kill the cleanup
+// and silently leave orphaned tokens on the user's account. 10s is enough
+// for a handful of DELETE /tokens/{id} calls at normal network latency.
+const cleanupTimeout = 10 * time.Second
+
+// withRevokeError joins a commit-phase primary error with a revoke-failure
+// error if cleanup also failed. Uses errors.Join so callers can errors.Is
+// against either side of the failure (the primary describes what went
+// wrong; the revoke error names specific tokens that now need manual
+// cleanup). The user-facing string renders as two lines — the root cause
+// above, the cleanup note below — which is easier to read in a terminal
+// than a single flattened message.
 func withRevokeError(primary, revoke error) error {
 	if revoke == nil {
 		return primary
 	}
-	return fmt.Errorf("%w (cleanup partially failed: %v)", primary, revoke)
+	return errors.Join(primary, fmt.Errorf("cleanup partially failed: %w", revoke))
 }
 
 // revokeMintedTokens best-effort deletes the given server-side tokens by ID.
@@ -470,6 +492,10 @@ func revokeMintedTokens(ctx context.Context, client *api.Client, minted []minted
 	var orphans []string
 	for _, m := range minted {
 		if delErr := client.DeleteToken(ctx, m.ID); delErr != nil {
+			// Server-generated PATs are always >> 4 chars; the guard is
+			// defensive against a hypothetical bug that produced a short
+			// token (in which case printing the full thing would be a
+			// minor leak). Not expected to fire in practice.
 			prefix := m.Token
 			if len(prefix) > 4 {
 				prefix = "..." + prefix[len(prefix)-4:]
