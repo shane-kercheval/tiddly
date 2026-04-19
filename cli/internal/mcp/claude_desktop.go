@@ -174,32 +174,28 @@ func dryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, afte
 	return before, after, nil
 }
 
-// extractClaudeDesktopPATs reads the Claude Desktop config and extracts
-// reusable tiddly Bearer tokens along with the config key each PAT came
-// from. Returns a zero PATExtraction on any parse error (best-effort).
-//
-// An entry only "wins" if its header yields a non-empty PAT, so a canonical
-// entry with a malformed/missing Authorization header falls through to the
-// next candidate — matching the survivor disclosed in the consolidation
-// warning (see canonicalNamesFirst doc).
-func extractClaudeDesktopPATs(configPath string) PATExtraction {
-	var ext PATExtraction
+// extractAllClaudeDesktopTiddlyPATs returns every Bearer token from a
+// tiddly-URL entry in the Claude Desktop config, in canonical-first order.
+// Entries without an extractable PAT (missing/malformed --header) are
+// filtered out. Primitive; survivors derived via survivorsOfAllTiddlyPATs.
+func extractAllClaudeDesktopTiddlyPATs(configPath string) []TiddlyPAT {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
-		return ext
+		return nil
 	}
 
 	servers, _ := config["mcpServers"].(map[string]any)
 	if servers == nil {
-		return ext
+		return nil
 	}
 
 	names := make([]string, 0, len(servers))
 	for name := range servers {
 		names = append(names, name)
 	}
-	canonicalNamesFirst(names)
+	sortCanonicalFirst(names)
 
+	var out []TiddlyPAT
 	for _, name := range names {
 		serverMap, _ := servers[name].(map[string]any)
 		if serverMap == nil {
@@ -226,14 +222,22 @@ func extractClaudeDesktopPATs(configPath string) PATExtraction {
 		if pat == "" {
 			continue
 		}
-		if hasContent && ext.ContentPAT == "" {
-			ext.ContentPAT, ext.ContentName = pat, name
+		// A single entry can only name one server-URL, but defensively handle
+		// both in case of a hand-crafted multi-arg entry.
+		if hasContent {
+			out = append(out, TiddlyPAT{ServerType: ServerContent, Name: name, PAT: pat})
 		}
-		if hasPrompts && ext.PromptPAT == "" {
-			ext.PromptPAT, ext.PromptName = pat, name
+		if hasPrompts {
+			out = append(out, TiddlyPAT{ServerType: ServerPrompts, Name: name, PAT: pat})
 		}
 	}
-	return ext
+	return out
+}
+
+// extractClaudeDesktopPATs returns survivor PATs derived from the full
+// canonical-first walk.
+func extractClaudeDesktopPATs(configPath string) PATExtraction {
+	return survivorsOfAllTiddlyPATs(extractAllClaudeDesktopTiddlyPATs(configPath))
 }
 
 // extractPATFromDesktopArgs scans args for "--header" and extracts the Bearer token.
@@ -298,8 +302,11 @@ func writeJSONConfig(path string, config map[string]any) (backupPath string, err
 	}
 	data = append(data, '\n')
 
-	if err := atomicWriteFile(path, data, 0600); err != nil {
-		return "", err
+	if err := atomicWriteFileFunc(path, data, 0600); err != nil {
+		// Return the backup path even on write failure so callers can
+		// surface where the recovery copy is. The backup was taken first
+		// specifically to cover this path.
+		return backupPath, err
 	}
 	return backupPath, nil
 }

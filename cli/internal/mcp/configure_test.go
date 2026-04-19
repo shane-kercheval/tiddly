@@ -1706,7 +1706,7 @@ func TestRunConfigure__oauth_commit_failure_with_revoke_failure_surfaces_orphans
 			createdNames = append(createdNames, req.Name)
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{
-				ID: "tok-" + req.Name, Name: req.Name, Token: "bm_ends_in_abcd",
+				ID: "tok-" + req.Name, Name: req.Name, Token: "bm_prefix1234_rest_of_token",
 			})
 		case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/tokens/"):
 			// Simulate revoke failure so the orphan-naming path fires.
@@ -1747,9 +1747,65 @@ func TestRunConfigure__oauth_commit_failure_with_revoke_failure_surfaces_orphans
 		assert.Contains(t, msg, name,
 			"orphan token name must appear in the error for manual cleanup")
 	}
-	// Last-4 prefix for identification in the UI.
-	assert.Contains(t, msg, "...abcd",
-		"orphan token last-4 prefix must appear in the error")
+	// First-12 TokenPrefix matches what the settings UI shows, so the
+	// user can correlate this error with the row to delete manually.
+	assert.Contains(t, msg, "bm_prefix123",
+		"orphan token first-12 prefix (matching settings UI) must appear in the error")
+	assert.NotContains(t, msg, "...",
+		"old last-4 ellipsis format must not reappear")
+}
+
+func TestRunConfigure__commit_phase_failure_surfaces_backup_path(t *testing.T) {
+	// Regression guard for the backup-path-on-failure drop: when the
+	// write fails, the backup was already taken before the attempt, so
+	// the recovery copy IS on disk — callers must see it in result.Backups
+	// so they can tell the user where to find it. Before this fix,
+	// writeJSONConfig returned ("", err) on write failure, losing the
+	// single most useful piece of information to the user.
+	//
+	// Reliably separating "backup succeeds" from "write fails" via
+	// filesystem permissions isn't feasible because both ops share the
+	// same parent dir. Instead, inject a failing atomic-write so the
+	// timing we need to test — backup-then-write — is deterministic.
+	prev := atomicWriteFileFunc
+	atomicWriteFileFunc = func(path string, data []byte, defaultPerm os.FileMode) error {
+		return fmt.Errorf("simulated write failure")
+	}
+	t.Cleanup(func() { atomicWriteFileFunc = prev })
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"mcpServers":{}}`), 0600))
+
+	client := api.NewClient("http://unused", "bm_test", "pat")
+	stdout := &bytes.Buffer{}
+
+	tools := []DetectedTool{
+		{Name: "claude-desktop", Detected: true, ConfigPath: configPath, HasNpx: true},
+	}
+
+	result, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(),
+		Client:   client,
+		AuthType: "pat",
+		Output:   stdout,
+	}, tools)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "simulated write failure")
+	require.NotNil(t, result)
+	require.Len(t, result.Backups, 1,
+		"backup must be recorded even when the write fails — the recovery artifact is already on disk")
+	assert.Equal(t, "claude-desktop", result.Backups[0].Tool)
+	assert.True(t, strings.HasPrefix(result.Backups[0].Path, configPath+".bak."),
+		"backup path must point at the timestamped copy taken before the failed write; got %q",
+		result.Backups[0].Path)
+
+	// The backup file really exists on disk — this isn't just a stale record.
+	data, statErr := os.ReadFile(result.Backups[0].Path)
+	require.NoError(t, statErr, "recorded backup path must point at a real file")
+	assert.Equal(t, `{"mcpServers":{}}`, string(data),
+		"backup must contain the pre-write original contents")
 }
 
 func TestRunConfigure__preflight_failure_returns_nil_result(t *testing.T) {

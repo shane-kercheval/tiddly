@@ -52,7 +52,8 @@ func (h *CodexHandler) ResolvePath(configPath, scope, cwd string) (string, error
 func (h *CodexHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, string, error) {
 	backupPath, err := configureCodex(rc, contentPAT, promptPAT)
 	if err != nil {
-		return nil, "", err
+		// Forward backup path on error; see ClaudeCodeHandler.Configure.
+		return nil, backupPath, err
 	}
 	warnings := []string{
 		fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path),
@@ -74,5 +75,9 @@ func (h *CodexHandler) DryRun(rc ResolvedConfig, contentPAT, promptPAT string) (
 
 func (h *CodexHandler) ExtractPATs(rc ResolvedConfig) PATExtraction {
 	return extractCodexPATs(rc)
+}
+
+func (h *CodexHandler) AllTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
+	return extractAllCodexTiddlyPATs(rc)
 }
 

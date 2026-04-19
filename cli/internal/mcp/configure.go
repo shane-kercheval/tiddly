@@ -318,6 +318,13 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 		}
 
 		warnings, backupPath, cErr := pf.handler.Configure(pf.rc, res.ContentPAT, res.PromptPAT, pf.tool)
+		// Record the backup unconditionally if one was taken. Configure
+		// creates the backup BEFORE attempting the write, so even a failed
+		// write leaves a valid recovery copy on disk — and that's exactly
+		// the case where the user most needs to know where it is.
+		if backupPath != "" {
+			result.Backups = append(result.Backups, BackupRecord{Tool: pf.tool.Name, Path: backupPath})
+		}
 		if cErr != nil {
 			// Detached cleanup context: see note at the resolveToolPATs
 			// error path above. We want revoke to run even if the user
@@ -331,14 +338,12 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 
 		// Success: only now promote the mints and reuses into the visible
 		// summary. If Configure had failed we'd have revoked them instead.
+		// Backups were already recorded above (they survive write failures).
 		for _, m := range res.Minted {
 			result.TokensCreated = append(result.TokensCreated, m.Name)
 		}
 		result.TokensReused = append(result.TokensReused, res.Reused...)
 		result.Warnings = append(result.Warnings, warnings...)
-		if backupPath != "" {
-			result.Backups = append(result.Backups, BackupRecord{Tool: pf.tool.Name, Path: backupPath})
-		}
 		result.ToolsConfigured = append(result.ToolsConfigured, pf.tool.Name)
 	}
 
@@ -379,6 +384,11 @@ type toolPATResolution struct {
 func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool, rc ResolvedConfig, isPATAuth bool) (toolPATResolution, error) {
 	var out toolPATResolution
 	if isPATAuth {
+		// No validation needed here. `tiddly login` validated this PAT
+		// server-side; the window between login and configure is too small
+		// for server-side revocation to be a realistic failure mode.
+		// OAuth-reused PATs ARE validated below because they come from a
+		// config file of unknown age — a different risk class.
 		pat := opts.Client.Token
 		if opts.wantServer(ServerContent) {
 			out.ContentPAT = pat
@@ -492,15 +502,17 @@ func revokeMintedTokens(ctx context.Context, client *api.Client, minted []minted
 	var orphans []string
 	for _, m := range minted {
 		if delErr := client.DeleteToken(ctx, m.ID); delErr != nil {
-			// Server-generated PATs are always >> 4 chars; the guard is
-			// defensive against a hypothetical bug that produced a short
-			// token (in which case printing the full thing would be a
-			// minor leak). Not expected to fire in practice.
+			// Use the first-12 TokenPrefix — matches what the server stores
+			// in api.TokenInfo.TokenPrefix and what the settings UI shows,
+			// so the user can correlate this error directly with the row
+			// they need to delete manually. The `if` guard is defensive
+			// against a bug that produced a shorter-than-expected token;
+			// not expected to fire for server-generated PATs.
 			prefix := m.Token
-			if len(prefix) > 4 {
-				prefix = "..." + prefix[len(prefix)-4:]
+			if len(prefix) > tokenPrefixLen {
+				prefix = prefix[:tokenPrefixLen]
 			}
-			orphans = append(orphans, fmt.Sprintf("%s (%s)", m.Name, prefix))
+			orphans = append(orphans, fmt.Sprintf("%s (prefix %s)", m.Name, prefix))
 		}
 	}
 	if len(orphans) == 0 {

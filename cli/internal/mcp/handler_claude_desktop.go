@@ -50,7 +50,8 @@ func (h *ClaudeDesktopHandler) ResolvePath(configPath, _, _ string) (string, err
 func (h *ClaudeDesktopHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, string, error) {
 	backupPath, err := configureClaudeDesktop(rc.Path, contentPAT, promptPAT)
 	if err != nil {
-		return nil, "", err
+		// Forward backup path on error; see ClaudeCodeHandler.Configure.
+		return nil, backupPath, err
 	}
 	var warnings []string
 	if !tool.HasNpx {
@@ -77,4 +78,8 @@ func (h *ClaudeDesktopHandler) DryRun(rc ResolvedConfig, contentPAT, promptPAT s
 
 func (h *ClaudeDesktopHandler) ExtractPATs(rc ResolvedConfig) PATExtraction {
 	return extractClaudeDesktopPATs(rc.Path)
+}
+
+func (h *ClaudeDesktopHandler) AllTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
+	return extractAllClaudeDesktopTiddlyPATs(rc.Path)
 }

@@ -363,40 +363,59 @@ Examples:
 				return err
 			}
 
-			// Extract PATs from config BEFORE removing entries, filtered by serverList
+			// Collect EVERY PAT for the targeted server types before removing
+			// entries. Must use AllTiddlyPATs (not ExtractPATs) so multi-entry
+			// configs — e.g. work_prompts + personal_prompts holding distinct
+			// PATs — revoke every token, not just the survivor.
 			var extractedPATs []string
 			if deleteTokens {
-				ext := handler.ExtractPATs(rc)
 				wantContent := slices.Contains(serverList, mcp.ServerContent)
 				wantPrompts := slices.Contains(serverList, mcp.ServerPrompts)
-				if wantContent && ext.ContentPAT != "" {
-					extractedPATs = append(extractedPATs, ext.ContentPAT)
-				}
-				// Dedup: only skip if contentPAT was already added (wantContent && same value)
-				if wantPrompts && ext.PromptPAT != "" && (!wantContent || ext.PromptPAT != ext.ContentPAT) {
-					extractedPATs = append(extractedPATs, ext.PromptPAT)
-				}
-				// Warn when a shared PAT is being revoked while the other server is retained
-				if ext.ContentPAT != "" && ext.ContentPAT == ext.PromptPAT && wantContent != wantPrompts {
-					retained := mcp.ServerPrompts
-					if wantPrompts {
-						retained = mcp.ServerContent
+
+				// Dedup by PAT value. A shared PAT across multiple entries (or
+				// across content + prompts) must only produce one DELETE.
+				seen := make(map[string]bool)
+				var unwantedPATs []string
+				for _, p := range handler.AllTiddlyPATs(rc) {
+					targeted := (p.ServerType == mcp.ServerContent && wantContent) ||
+						(p.ServerType == mcp.ServerPrompts && wantPrompts)
+					if targeted {
+						if !seen[p.PAT] {
+							seen[p.PAT] = true
+							extractedPATs = append(extractedPATs, p.PAT)
+						}
+					} else {
+						unwantedPATs = append(unwantedPATs, p.PAT)
 					}
-					fmt.Fprintf(cmd.ErrOrStderr(),
-						"Warning: token is shared with %s server (still configured); it will also lose access.\n", retained)
+				}
+
+				// Warn when a PAT being revoked is also used by a server type
+				// that's being retained — revoking breaks the retained binding.
+				for _, retainedPAT := range unwantedPATs {
+					if seen[retainedPAT] {
+						retained := mcp.ServerPrompts
+						if wantPrompts {
+							retained = mcp.ServerContent
+						}
+						fmt.Fprintf(cmd.ErrOrStderr(),
+							"Warning: token is shared with %s server (still configured); it will also lose access.\n", retained)
+						break
+					}
 				}
 			}
 
-			// Remove config entries
+			// Remove config entries. The backup is taken before the write
+			// attempt, so surface its location unconditionally — on failure
+			// it's exactly the recovery artifact the user needs.
 			backupPath, err := handler.Remove(rc, serverList)
+			if backupPath != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Backed up previous config to %s\n", backupPath)
+			}
 			if err != nil {
 				return err
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Removed Tiddly MCP servers from %s.\n", toolName)
-			if backupPath != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Backed up previous config to %s\n", backupPath)
-			}
 
 			// Token cleanup
 			result, err := appDeps.TokenManager.ResolveToken(flagToken, true)

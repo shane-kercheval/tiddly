@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -56,29 +57,43 @@ func backupConfigFile(path string) (backupPath string, err error) {
 
 	base := path + ".bak." + backupClock().Format(backupTimestampFormat)
 	backupPath = base
+	// Use O_CREATE|O_EXCL so "does the target exist?" and "claim the
+	// target" are a single atomic operation. Avoids the Stat→WriteFile
+	// TOCTOU race where a concurrent run could silently overwrite a
+	// backup we just saw as vacant. Non-EEXIST errors surface directly
+	// (EACCES on the dir, I/O errors) instead of being masked as
+	// collisions.
 	for suffix := 1; ; suffix++ {
-		_, statErr := os.Stat(backupPath)
-		if os.IsNotExist(statErr) {
-			break
+		f, openErr := os.OpenFile(backupPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+		if openErr == nil {
+			if _, writeErr := f.Write(data); writeErr != nil {
+				_ = f.Close()
+				return "", fmt.Errorf("writing backup to %s: %w", backupPath, writeErr)
+			}
+			if closeErr := f.Close(); closeErr != nil {
+				return "", fmt.Errorf("closing backup %s: %w", backupPath, closeErr)
+			}
+			return backupPath, nil
 		}
-		if statErr != nil {
-			// Any non-ENOENT stat error (EACCES, EIO, unreadable parent)
-			// must surface directly — treating it as "the file exists so
-			// try another name" would mask the real cause behind a
-			// misleading collision-exhausted error at the 1000-cap.
-			return "", fmt.Errorf("checking backup candidate %s: %w", backupPath, statErr)
+		if !errors.Is(openErr, os.ErrExist) {
+			// Non-collision errors (permission, I/O) must surface directly
+			// rather than be treated as "file exists, try another name."
+			return "", fmt.Errorf("creating backup %s: %w", backupPath, openErr)
 		}
 		if suffix > backupCollisionLimit {
 			return "", fmt.Errorf("backup collision retry exhausted after %d attempts at %s", backupCollisionLimit, base)
 		}
 		backupPath = fmt.Sprintf("%s.%d", base, suffix)
 	}
-
-	if err := os.WriteFile(backupPath, data, info.Mode().Perm()); err != nil {
-		return "", fmt.Errorf("writing backup to %s: %w", backupPath, err)
-	}
-	return backupPath, nil
 }
+
+// atomicWriteFileFunc is the write function used by writeJSONConfig /
+// writeCodexConfig. Overridable in tests to simulate write failures
+// that happen AFTER the backup has been taken — the specific ordering
+// we need to verify (backup path returned even when the subsequent
+// write fails) can't be reliably simulated through filesystem state
+// because backup and write share the same parent directory.
+var atomicWriteFileFunc = atomicWriteFile
 
 // atomicWriteFile writes data to a temp file in the same directory and renames it to path.
 // This prevents corruption if the process is killed mid-write.

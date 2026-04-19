@@ -412,6 +412,153 @@ func TestMCPRemove__delete_tokens_flag(t *testing.T) {
 	assert.NotContains(t, string(data), "tiddly_prompts")
 }
 
+func TestMCPRemove__delete_tokens_multi_entry_revokes_all(t *testing.T) {
+	// Regression guard for the multi-entry orphan bug: a user with
+	// work_prompts + personal_prompts holding DISTINCT OAuth tokens must
+	// see BOTH tokens revoked on `remove --delete-tokens`, not just the
+	// survivor ExtractPATs would pick. Before AllTiddlyPATs existed, only
+	// one token was revoked and the other was silently orphaned on the
+	// server — the one failure mode this whole branch exists to prevent.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"work_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_work_token1234"}
+			},
+			"personal_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_personal_tok98"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	var deletedTokenIDs []string
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/tokens/").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-work", Name: "cli-mcp-claude-code-prompts-aaa111", TokenPrefix: "bm_work_toke"},
+				{ID: "tok-personal", Name: "cli-mcp-claude-code-prompts-bbb222", TokenPrefix: "bm_personal_"},
+			})
+		})
+	mock.On("DELETE", "/tokens/tok-work").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-work")
+			w.WriteHeader(http.StatusNoContent)
+		})
+	mock.On("DELETE", "/tokens/tok-personal").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-personal")
+			w.WriteHeader(http.StatusNoContent)
+		})
+
+	store := testutil.NewMockCredStore()
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--delete-tokens", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	assert.Len(t, deletedTokenIDs, 2, "BOTH multi-entry tokens must be revoked, not just the survivor")
+	assert.Contains(t, deletedTokenIDs, "tok-work")
+	assert.Contains(t, deletedTokenIDs, "tok-personal")
+
+	// Config is wiped clean of both custom-named entries.
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "work_prompts")
+	assert.NotContains(t, string(data), "personal_prompts")
+}
+
+func TestMCPRemove__delete_tokens_dedups_shared_pat(t *testing.T) {
+	// Edge case: a single PAT shared across multiple entries must produce
+	// exactly one DELETE, not N. DeleteTokensByPrefix matches by prefix, so
+	// calling it twice with the same PAT wastes a round-trip and could
+	// surface a spurious 404 on the second attempt.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	sharedToken := "bm_shared_token12"
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {
+				"type": "http",
+				"url": "https://content-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer ` + sharedToken + `"}
+			},
+			"tiddly_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer ` + sharedToken + `"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	var deletedTokenIDs []string
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/tokens/").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-shared", Name: "cli-mcp-claude-code-shared-xyz", TokenPrefix: "bm_shared_to"},
+			})
+		})
+	mock.On("DELETE", "/tokens/tok-shared").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-shared")
+			w.WriteHeader(http.StatusNoContent)
+		})
+
+	store := testutil.NewMockCredStore()
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--delete-tokens", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	assert.Len(t, deletedTokenIDs, 1, "shared PAT must produce exactly one DELETE regardless of how many config entries reference it")
+}
+
 func TestParseServersFlag__valid(t *testing.T) {
 	tests := []struct {
 		input    string

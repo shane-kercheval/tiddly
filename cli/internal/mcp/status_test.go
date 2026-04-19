@@ -175,12 +175,13 @@ func TestSortServers__secondary_by_name_within_type(t *testing.T) {
 	assert.Equal(t, "work_prompts", sr.Servers[3].Name)
 }
 
-func TestCanonicalNamesFirst(t *testing.T) {
+func TestSortCanonicalFirst(t *testing.T) {
+	// In-place mutation: no return value, the passed slice is reordered.
 	keys := []string{"zebra", serverNamePrompts, "alpha", serverNameContent}
-	sorted := canonicalNamesFirst(keys)
+	sortCanonicalFirst(keys)
 
-	assert.Equal(t, serverNameContent, sorted[0])
-	assert.Equal(t, serverNamePrompts, sorted[1])
-	assert.Equal(t, "alpha", sorted[2])
-	assert.Equal(t, "zebra", sorted[3])
+	assert.Equal(t, serverNameContent, keys[0])
+	assert.Equal(t, serverNamePrompts, keys[1])
+	assert.Equal(t, "alpha", keys[2])
+	assert.Equal(t, "zebra", keys[3])
 }

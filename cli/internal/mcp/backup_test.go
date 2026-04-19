@@ -70,27 +70,28 @@ func TestBackupConfigFile__uses_timestamp_in_filename(t *testing.T) {
 		"backup filename should use UTC ISO 8601 basic format")
 }
 
-func TestBackupConfigFile__stat_error_surfaces_directly(t *testing.T) {
-	// If os.Stat on the backup candidate returns a non-ENOENT error (e.g.
-	// EACCES from a 0500 parent dir), the loop must surface that error
-	// rather than treat it as "file exists, try another name" and eventually
-	// hit the 1000-cap with a misleading "collision exhausted" message.
+func TestBackupConfigFile__non_collision_openfile_errors_surface_directly(t *testing.T) {
+	// With O_EXCL, the loop distinguishes "candidate name already exists"
+	// (EEXIST → retry with .1, .2, ...) from any other OpenFile failure
+	// (EACCES, EIO, etc.). Non-collision errors must surface directly —
+	// otherwise a permission problem on the backup dir would get masked
+	// behind a misleading "collision retry exhausted" at the 1000-cap.
+	//
+	// Same invariant as the pre-O_EXCL Stat-based loop; this is the port.
 	dir := t.TempDir()
-	// Create a subdirectory we'll make unreadable, forcing Stat on paths
-	// inside it to fail with EACCES rather than ENOENT.
 	sealed := filepath.Join(dir, "sealed")
 	require.NoError(t, os.Mkdir(sealed, 0700))
 	sourcePath := filepath.Join(sealed, "config.json")
 	require.NoError(t, os.WriteFile(sourcePath, []byte("payload"), 0600))
 
-	require.NoError(t, os.Chmod(sealed, 0000))
+	// Make the dir unwritable — backup OpenFile fails with EACCES, not EEXIST.
+	require.NoError(t, os.Chmod(sealed, 0500))
 	t.Cleanup(func() { _ = os.Chmod(sealed, 0700) })
 
 	_, err := backupConfigFile(sourcePath)
 	require.Error(t, err)
-	// The error must describe the stat problem, not a collision ceiling.
 	assert.NotContains(t, err.Error(), "collision retry exhausted",
-		"stat errors must surface directly, not get masked as a collision ceiling")
+		"non-collision OpenFile errors must surface directly")
 }
 
 func TestBackupConfigFile__collision_retry_preserves_both(t *testing.T) {

@@ -119,6 +119,71 @@ func TestExtractClaudeCodePATs__canonical_with_valid_pat_wins(t *testing.T) {
 	assert.Equal(t, serverNamePrompts, ext.PromptName)
 }
 
+func TestExtractAllClaudeCodeTiddlyPATs__multi_entry_returns_every_token(t *testing.T) {
+	// Core regression for `remove --delete-tokens`: a multi-entry config
+	// (work + personal prompts under OAuth with distinct tokens) must
+	// surface EVERY token so the remove flow can revoke all of them, not
+	// just the ExtractPATs survivor. Before this primitive existed, the
+	// cmd/mcp.go remove flow leaked one token per multi-entry server type.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"work_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				"headers": map[string]any{
+					"Authorization": "Bearer bm_work_token",
+				},
+			},
+			"personal_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				"headers": map[string]any{
+					"Authorization": "Bearer bm_personal_token",
+				},
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	all := extractAllClaudeCodeTiddlyPATs(rc)
+	require.Len(t, all, 2)
+	// Canonical-first ordering: neither is canonical, so alphabetical.
+	assert.Equal(t, "personal_prompts", all[0].Name)
+	assert.Equal(t, "bm_personal_token", all[0].PAT)
+	assert.Equal(t, "work_prompts", all[1].Name)
+	assert.Equal(t, "bm_work_token", all[1].PAT)
+}
+
+func TestExtractAllClaudeCodeTiddlyPATs__filters_missing_pats(t *testing.T) {
+	// Entries without an extractable PAT (missing/malformed headers) must
+	// not appear in the slice — remove has nothing to revoke for them.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"tiddly_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				// headers omitted — no extractable PAT
+			},
+			"work_prompts": map[string]any{
+				"type": "http",
+				"url":  PromptMCPURL(),
+				"headers": map[string]any{
+					"Authorization": "Bearer bm_work_token",
+				},
+			},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	all := extractAllClaudeCodeTiddlyPATs(rc)
+	require.Len(t, all, 1, "canonical with missing PAT must be filtered out")
+	assert.Equal(t, "work_prompts", all[0].Name)
+}
+
 func TestExtractClaudeCodePATs__all_entries_empty_returns_zero(t *testing.T) {
 	// Every matching entry has a malformed/missing header → PATExtraction
 	// stays zero-valued (both PAT and Name empty), signaling "no survivor."

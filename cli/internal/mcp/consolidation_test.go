@@ -110,6 +110,32 @@ func TestWriteConsolidationWarning__oauth_discloses_surviving_entry(t *testing.T
 		"surviving entry must be disclosed explicitly")
 }
 
+func TestWriteConsolidationWarning__oauth_notes_validate_then_mint_fallback(t *testing.T) {
+	// The disclosure must say "if still valid" to honestly describe the
+	// commit-phase validate-then-mint fallback. Preflight is deliberately
+	// read-only (no /users/me probes), so the promised reuse can be
+	// overridden by an invalid PAT and a fresh mint at commit time. The
+	// warning must not lie about that possibility.
+	groups := []ConsolidationGroup{
+		{
+			ServerType: ServerPrompts,
+			Entries: []ServerMatch{
+				{ServerType: ServerPrompts, Name: "personal_prompts", MatchMethod: MatchByURL},
+				{ServerType: ServerPrompts, Name: "work_prompts", MatchMethod: MatchByURL},
+			},
+			SurvivorName: "personal_prompts",
+		},
+	}
+	var buf bytes.Buffer
+	writeConsolidationWarning(&buf, "claude-desktop", groups, false)
+
+	out := buf.String()
+	assert.Contains(t, out, "if still valid",
+		"wording must reflect the validate-then-mint fallback, not promise unconditional reuse")
+	assert.Contains(t, out, "fresh token will be minted",
+		"wording must describe what happens when the disclosed survivor is invalid")
+}
+
 func TestWriteConsolidationWarning__oauth_reflects_caller_supplied_survivor(t *testing.T) {
 	// The warning must not compute its own survivor — it shows whatever
 	// SurvivorName the caller (RunConfigure preflight via ExtractPATs) wrote.

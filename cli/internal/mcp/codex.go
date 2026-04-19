@@ -33,41 +33,43 @@ func resolveCodexPath(configPath, scope, cwd string) (string, error) {
 	return CodexConfigPath()
 }
 
-// extractCodexPATs reads the Codex config and extracts reusable tiddly
-// Bearer tokens along with the config key each PAT came from. Returns a
-// zero PATExtraction on any parse error (best-effort).
-//
-// An entry only "wins" if its http_headers Authorization yields a non-empty
-// PAT, so a canonical entry with a malformed/missing header falls through
-// to the next candidate — matching the survivor disclosed in the
-// consolidation warning (see canonicalNamesFirst doc).
-func extractCodexPATs(rc ResolvedConfig) PATExtraction {
-	var ext PATExtraction
+// extractAllCodexTiddlyPATs returns every Bearer token from a tiddly-URL
+// entry in the Codex config, in canonical-first order. Entries without an
+// extractable PAT (missing/malformed http_headers.Authorization) are
+// filtered out. Primitive; survivors derived via survivorsOfAllTiddlyPATs.
+func extractAllCodexTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
-		return ext
+		return nil
 	}
 
 	names := make([]string, 0, len(config.MCPServers))
 	for name := range config.MCPServers {
 		names = append(names, name)
 	}
-	canonicalNamesFirst(names)
+	sortCanonicalFirst(names)
 
+	var out []TiddlyPAT
 	for _, name := range names {
 		server := config.MCPServers[name]
 		pat := extractBearerToken(server.HTTPHeaders["Authorization"])
 		if pat == "" {
 			continue
 		}
-		if ext.ContentPAT == "" && isTiddlyContentURL(server.URL) {
-			ext.ContentPAT, ext.ContentName = pat, name
-		}
-		if ext.PromptPAT == "" && isTiddlyPromptURL(server.URL) {
-			ext.PromptPAT, ext.PromptName = pat, name
+		switch {
+		case isTiddlyContentURL(server.URL):
+			out = append(out, TiddlyPAT{ServerType: ServerContent, Name: name, PAT: pat})
+		case isTiddlyPromptURL(server.URL):
+			out = append(out, TiddlyPAT{ServerType: ServerPrompts, Name: name, PAT: pat})
 		}
 	}
-	return ext
+	return out
+}
+
+// extractCodexPATs returns survivor PATs derived from the full
+// canonical-first walk.
+func extractCodexPATs(rc ResolvedConfig) PATExtraction {
+	return survivorsOfAllTiddlyPATs(extractAllCodexTiddlyPATs(rc))
 }
 
 // buildCodexConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
@@ -280,8 +282,10 @@ func writeCodexConfig(path string, config *codexConfig) (backupPath string, err 
 		return "", fmt.Errorf("encoding config: %w", err)
 	}
 
-	if err := atomicWriteFile(path, data, 0600); err != nil {
-		return "", err
+	if err := atomicWriteFileFunc(path, data, 0600); err != nil {
+		// See writeJSONConfig: return the backup path on write failure
+		// so callers can surface the recovery copy to the user.
+		return backupPath, err
 	}
 	return backupPath, nil
 }

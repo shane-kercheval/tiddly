@@ -6,32 +6,31 @@ import (
 	"path/filepath"
 )
 
-// extractClaudeCodePATs reads the Claude Code config and extracts reusable
-// tiddly Bearer tokens along with the config key each PAT came from.
-// Returns a zero PATExtraction on any parse error (best-effort).
+// extractAllClaudeCodeTiddlyPATs returns every Bearer token from a tiddly-URL
+// entry in the Claude Code config, in canonical-first order. Entries without
+// an extractable PAT (missing/malformed headers) are filtered out.
 //
-// An entry only "wins" if its Authorization header yields a non-empty PAT,
-// so a canonical entry with a malformed/missing header falls through to the
-// next candidate — matching the survivor disclosed in the consolidation
-// warning (see canonicalNamesFirst doc).
-func extractClaudeCodePATs(rc ResolvedConfig) PATExtraction {
-	var ext PATExtraction
+// This is the primitive; extractClaudeCodePATs (survivors) is derived via
+// survivorsOfAllTiddlyPATs so "who survives" has a single definition shared
+// with the consolidation warning.
+func extractAllClaudeCodeTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
-		return ext
+		return nil
 	}
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 	if servers == nil {
-		return ext
+		return nil
 	}
 
 	names := make([]string, 0, len(servers))
 	for name := range servers {
 		names = append(names, name)
 	}
-	canonicalNamesFirst(names)
+	sortCanonicalFirst(names)
 
+	var out []TiddlyPAT
 	for _, name := range names {
 		serverMap, _ := servers[name].(map[string]any)
 		if serverMap == nil {
@@ -42,14 +41,20 @@ func extractClaudeCodePATs(rc ResolvedConfig) PATExtraction {
 		if pat == "" {
 			continue
 		}
-		if ext.ContentPAT == "" && isTiddlyContentURL(urlStr) {
-			ext.ContentPAT, ext.ContentName = pat, name
-		}
-		if ext.PromptPAT == "" && isTiddlyPromptURL(urlStr) {
-			ext.PromptPAT, ext.PromptName = pat, name
+		switch {
+		case isTiddlyContentURL(urlStr):
+			out = append(out, TiddlyPAT{ServerType: ServerContent, Name: name, PAT: pat})
+		case isTiddlyPromptURL(urlStr):
+			out = append(out, TiddlyPAT{ServerType: ServerPrompts, Name: name, PAT: pat})
 		}
 	}
-	return ext
+	return out
+}
+
+// extractClaudeCodePATs returns survivor PATs (one per ServerType) derived
+// from the full canonical-first walk.
+func extractClaudeCodePATs(rc ResolvedConfig) PATExtraction {
+	return survivorsOfAllTiddlyPATs(extractAllClaudeCodeTiddlyPATs(rc))
 }
 
 // extractClaudeCodePATFromServer extracts the Bearer token from a Claude Code MCP server entry.

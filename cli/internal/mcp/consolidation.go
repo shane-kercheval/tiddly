@@ -124,7 +124,12 @@ func writeConsolidationWarning(w io.Writer, toolName string, groups []Consolidat
 			fmt.Fprintln(w, "    All entries will be replaced with a single entry bound to your current logged-in account.")
 			fmt.Fprintln(w, "    Any separate Tiddly accounts these entries pointed to are no longer reachable from this tool.")
 		case g.SurvivorName != "":
-			fmt.Fprintf(w, "    (*) PAT from %q will be reused for %s; other entries are deleted from the config file.\n",
+			// "if still valid" honestly describes the commit-phase
+			// validate-then-mint fallback: if the survivor's PAT fails
+			// validation, configure mints a fresh token instead. Keeps
+			// preflight read-only (no /users/me probes) while making the
+			// disclosure accurate about what the user might actually see.
+			fmt.Fprintf(w, "    (*) PAT from %q will be reused for %s if still valid; otherwise a fresh token will be minted. Other entries are deleted from the config file.\n",
 				g.SurvivorName, canonical)
 		default:
 			fmt.Fprintf(w, "    No reusable PAT found — a new token will be minted for %s; other entries are deleted.\n", canonical)
