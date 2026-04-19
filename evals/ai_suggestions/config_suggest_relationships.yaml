@@ -464,31 +464,45 @@ checks:
       prompt: |
         You are evaluating relationship suggestions for a content item.
 
-        The source item:
+        ## Source item
         - Title: "{{$.test_case.input.title}}"
         - Description: "{{$.test_case.input.description}}"
         - Content snippet: "{{$.test_case.input.content_snippet}}"
 
-        The available candidates were:
+        ## Candidates the recommender chose from
         {{$.output.value.all_candidate_summaries}}
 
-        The selected candidates are: {{$.output.value.candidate_ids}}
+        ## Candidates the recommender selected (to evaluate)
+        {{$.output.value.candidate_ids}}
 
-        The recommender was instructed to:
-        - Only select candidates that have a genuine topical or conceptual relationship to the source item
-        - Return the entity_id, entity_type, and title of each related candidate
-        - Return an empty list if no candidates are meaningfully related
+        ## Your job
 
-        Score the overall selection as passed or failed. A selection passes if:
-        - All selected candidates are genuinely related to the source item (not just superficially similar)
-        - No obviously unrelated candidates were selected
-        - If no candidates are related, returning an empty list is correct
+        Score each SELECTED candidate as `relevant=true` (genuinely related
+        to the source) or `relevant=false` (selected in error).
 
-        A selection fails if:
-        - An unrelated candidate was selected (e.g., a cooking article for a programming source)
-        - A candidate with a misleading title was selected based on keyword overlap rather than actual content relevance
+        A candidate is `relevant=true` when the source and candidate share
+        a genuine topical or conceptual relationship — not just superficial
+        keyword overlap. Closely-related sub-topics count as relevant
+        (e.g. `Pytest` → `unittest.mock`, `Kubernetes` → `Docker Compose`).
 
-        Return relevant_count (number of correctly selected candidates), total_selected (total candidates selected), and passed=true if the selection is correct. Include brief reasoning for any incorrectly selected candidate.
+        A candidate is `relevant=false` when it was picked by mistake, most
+        commonly because of misleading title matches:
+          - Programming source selected a cooking/gardening candidate.
+          - "Python Testing" source selected "Python Testing in the Wild"
+            (which is about testing snakes in Southeast Asia).
+
+        ## Output
+
+        Return one `scores` entry for each SELECTED candidate:
+          - `candidate_id`: the entity_id from the selected list
+          - `relevant`: true if genuinely related, false if selected in error
+          - `reason`: brief explanation
+
+        If the selected list is empty, return an empty `scores` list —
+        that's correct behavior when no candidates are related.
+
+        Include EVERY selected candidate_id exactly once. Don't include
+        unselected candidates.
       response_model: "relationships"
     metadata:
       name: "Selected candidates are genuinely related"

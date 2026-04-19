@@ -47,8 +47,11 @@ const MOCK_MODELS_RESPONSE: AIModelsResponse = {
 const MOCK_HEALTH_RESPONSE: AIHealthResponse = {
   available: true,
   byok: false,
-  remaining_daily: 25,
-  limit_daily: 30,
+  remaining_per_minute: 29,
+  limit_per_minute: 30,
+  remaining_per_day: 25,
+  limit_per_day: 30,
+  resets_at: null,
 }
 
 function renderPage(): ReturnType<typeof userEvent.setup> {
@@ -411,22 +414,54 @@ describe('SettingsAI', () => {
     it('shows quota when AI is available', async () => {
       renderPage()
       await waitFor(() => {
-        expect(screen.getByText(/AI calls remaining today:/)).toBeInTheDocument()
+        expect(screen.getByText(/AI calls remaining:/)).toBeInTheDocument()
+        expect(screen.getByText(/\(24-hour window\)/)).toBeInTheDocument()
         expect(screen.getByText('25')).toBeInTheDocument()
       })
     })
 
     it('shows both included and BYOK quota when a key is configured', async () => {
-      const byokHealth = { available: true, byok: true, remaining_daily: 1900, limit_daily: 2000 }
+      const byokHealth = {
+        available: true,
+        byok: true,
+        remaining_per_minute: 118,
+        limit_per_minute: 120,
+        remaining_per_day: 1900,
+        limit_per_day: 2000,
+        resets_at: null,
+      }
       mockFetchAIHealth
         .mockResolvedValueOnce(MOCK_HEALTH_RESPONSE) // useAIAvailability
         .mockResolvedValueOnce(byokHealth) // byok query
       useAIStore.getState().setApiKey('suggestions', 'sk-test')
       renderPage()
       await waitFor(() => {
-        expect(screen.getByText(/AI calls remaining today:/)).toBeInTheDocument()
+        expect(screen.getByText(/AI calls remaining:/)).toBeInTheDocument()
+        expect(screen.getByText(/\(24-hour window\)/)).toBeInTheDocument()
         expect(screen.getByText(/Your key:/)).toBeInTheDocument()
       })
+    })
+
+    it('shows reset time when resets_at is populated', async () => {
+      // Freeze "now" so the rendered timestamp is deterministic.
+      const resetsAt = '2026-12-25T15:30:00Z'
+      const healthWithReset: AIHealthResponse = {
+        ...MOCK_HEALTH_RESPONSE,
+        resets_at: resetsAt,
+      }
+      mockFetchAIHealth.mockResolvedValue(healthWithReset)
+      renderPage()
+      await waitFor(() => {
+        // Locale-formatted timestamp varies by environment; assert the
+        // "resets at" parenthetical copy fires and (24-hour window) does NOT.
+        expect(screen.getByText(/\(resets at/)).toBeInTheDocument()
+        expect(screen.queryByText(/\(24-hour window\)/)).not.toBeInTheDocument()
+      })
+      // The reset-time span carries a title attribute with the canonical
+      // ISO 8601 UTC timestamp so users who want the unambiguous value can
+      // hover. toISOString() always renders with a Z suffix.
+      const timeSpan = screen.getByTitle(/2026-12-25T15:30:00.*Z/)
+      expect(timeSpan).toBeInTheDocument()
     })
   })
 })

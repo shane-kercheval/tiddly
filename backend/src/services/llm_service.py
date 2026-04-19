@@ -10,11 +10,25 @@ from litellm import ModelResponse, acompletion, completion_cost
 from pydantic import BaseModel
 
 from core.config import Settings
+from schemas.ai import AIModelEntry
 
 # Suppress LiteLLM's "Provider List: ..." stderr output on unrecognized model prefixes
 litellm.suppress_debug_info = True
 
 logger = logging.getLogger(__name__)
+
+
+class UnsupportedModelError(ValueError):
+    """
+    Raised when a BYOK caller passes a `model` ID not in the supported allowlist.
+
+    Subclasses `ValueError` for backward compatibility with any code that
+    catches `ValueError` around `LLMService.resolve_config`. Routers should
+    catch this specifically (and map to HTTP 400) rather than catching bare
+    `ValueError`, so that unrelated `ValueError`s from `resolve_config`
+    surface as 500 with a generic message rather than leaking internal
+    details to clients.
+    """
 
 
 class KeySource(StrEnum):
@@ -83,23 +97,34 @@ def _get_model_cost(model_id: str) -> dict | None:
     return None
 
 
-def build_supported_models() -> list[dict]:
+def build_supported_models() -> list[AIModelEntry]:
     """
     Build the supported models list with pricing from LiteLLM's SDK.
 
     Called at startup. Pricing auto-updates with LiteLLM version bumps.
+    Returns typed `AIModelEntry` instances rather than raw dicts — so a typo
+    or drift in `_SUPPORTED_MODEL_DEFS` (e.g., an unsupported `provider`
+    value) surfaces as a `ValidationError` at import/startup, not at
+    `/ai/models` response time in production.
     """
-    models: list[dict] = []
+    models: list[AIModelEntry] = []
     for defn in _SUPPORTED_MODEL_DEFS:
         model_id = defn["id"]
-        entry = {**defn}
         cost_info = _get_model_cost(model_id)
         if cost_info:
-            entry["input_cost_per_million"] = cost_info["input_cost_per_token"] * 1_000_000
-            entry["output_cost_per_million"] = cost_info["output_cost_per_token"] * 1_000_000
+            input_cost = cost_info["input_cost_per_token"] * 1_000_000
+            output_cost = cost_info["output_cost_per_token"] * 1_000_000
         else:
             logger.warning("model_cost_not_found", extra={"model_id": model_id})
-        models.append(entry)
+            input_cost = None
+            output_cost = None
+        models.append(AIModelEntry(
+            id=model_id,
+            provider=defn["provider"],
+            tier=defn["tier"],
+            input_cost_per_million=input_cost,
+            output_cost_per_million=output_cost,
+        ))
     return models
 
 
@@ -202,7 +227,7 @@ class LLMService:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self.supported_models: list[dict] = build_supported_models()
+        self.supported_models: list[AIModelEntry] = build_supported_models()
         self._platform_configs: dict[AIUseCase, LLMConfig] = {
             AIUseCase.SUGGESTIONS: LLMConfig(
                 model=settings.llm_model_suggestions,
@@ -242,11 +267,12 @@ class LLMService:
         - If user provides a key: use their key + their model (or use-case default model)
         - Otherwise: use platform key + use-case model (ignore user model choice)
 
-        Raises ValueError if user_model is not in the supported models allowlist.
+        Raises UnsupportedModelError (subclass of ValueError) if user_model is
+        not in the supported models allowlist.
         """
         if user_api_key:
             if user_model and user_model not in _SUPPORTED_MODEL_IDS:
-                raise ValueError(f"Unsupported model: {user_model}")
+                raise UnsupportedModelError(f"Unsupported model: {user_model}")
             return LLMConfig(
                 model=user_model or self._platform_configs[use_case].model,
                 api_key=user_api_key,
@@ -261,9 +287,19 @@ class LLMService:
         response_format: type[BaseModel] | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        timeout: int | None = None,
+        num_retries: int | None = None,
     ) -> tuple[ModelResponse, float | None]:
         """
         Non-streaming completion. Returns (response, cost).
+
+        `timeout` and `num_retries` override the service-wide defaults for this
+        call. Callers use this to tune latency vs resilience: UI paths default
+        to a short timeout with no retries (fail fast so the user isn't waiting
+        on a flaky provider), eval paths use longer timeouts and more retries
+        (tolerant of transient upstream slowness). Defaults preserve the
+        prior behavior (timeout=LLM_TIMEOUT_DEFAULT, num_retries=1) when
+        neither is supplied.
 
         Cost is None if cost calculation fails (e.g. model not in LiteLLM's
         pricing database). A successful LLM call never fails due to cost tracking.
@@ -273,8 +309,8 @@ class LLMService:
             "messages": messages,
             "api_key": config.api_key,
             "temperature": _normalize_temperature(config.model, temperature),
-            "timeout": self._settings.llm_timeout_default,
-            "num_retries": 1,
+            "timeout": timeout if timeout is not None else self._settings.llm_timeout_default,
+            "num_retries": num_retries if num_retries is not None else 1,
         }
         if response_format is not None:
             kwargs["response_format"] = response_format

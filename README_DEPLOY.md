@@ -562,7 +562,10 @@ The `ai_usage_analytics` view and the `pgcrypto` extension it depends on are cre
 8. **AI endpoints** (requires an Auth0 token):
    ```bash
    curl -H "Authorization: Bearer <token>" https://<api>/ai/health
-   # → {"available": true, "byok": false, "remaining_daily": ..., "limit_daily": ...}
+   # → {"available": true, "byok": false,
+   #    "remaining_per_minute": ..., "limit_per_minute": ...,
+   #    "remaining_per_day": ..., "limit_per_day": ...,
+   #    "resets_at": null}   // ISO 8601 UTC; null until first AI call in the window
 
    curl -H "Authorization: Bearer <token>" https://<api>/ai/models
    # → {"models": [...7 models...], "defaults": {...}}

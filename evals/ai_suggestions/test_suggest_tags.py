@@ -16,9 +16,11 @@ from typing import Any
 import pytest
 from flex_evals import TestCase
 from flex_evals.pytest_decorator import evaluate
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from evals.ai_suggestions.helpers import (
+    EVAL_LLM_NUM_RETRIES,
+    EVAL_LLM_TIMEOUT,
     create_eval_config,
     create_judge_llm_function,
     create_llm_service,
@@ -51,13 +53,55 @@ TEST_CASES = create_test_cases_from_config(CONFIG["test_cases"])
 # ---------------------------------------------------------------------------
 
 
-class TagJudgeResult(BaseModel):
-    """Structured response from the LLM judge for tag relevance."""
+class TagScore(BaseModel):
+    """One tag's relevance verdict — atomic unit of the judge's output."""
 
-    relevant_count: int
-    total_count: int
-    passed: bool
-    reasoning: str
+    tag: str
+    relevant: bool
+    reason: str
+
+
+class TagJudgeResult(BaseModel):
+    """
+    Structured response from the LLM judge for tag relevance.
+
+    The judge returns ONLY a per-tag `scores` list. Everything else —
+    `relevant_count`, `total_count`, `reasoning`, `passed` — is derived
+    via `@computed_field` from that list. This makes internal consistency
+    structural: the counts can't disagree with the reasoning because they
+    are computed from it. The earlier three-independent-fields design
+    allowed the LLM to write "all 4 tags are relevant" in reasoning and
+    populate `relevant_count=2` anyway.
+    """
+
+    scores: list[TagScore]
+
+    @computed_field
+    @property
+    def total_count(self) -> int:
+        """Total number of tags evaluated."""
+        return len(self.scores)
+
+    @computed_field
+    @property
+    def relevant_count(self) -> int:
+        """Number of tags scored as relevant."""
+        return sum(1 for s in self.scores if s.relevant)
+
+    @computed_field
+    @property
+    def reasoning(self) -> str:
+        """Rendered per-tag verdicts, one line each, for the eval viewer."""
+        return "\n".join(
+            f"- {s.tag}: {'1' if s.relevant else '0'} ({s.reason})"
+            for s in self.scores
+        )
+
+    @computed_field
+    @property
+    def passed(self) -> bool:
+        """Pass if at most 1 tag scored 0."""
+        return (self.total_count - self.relevant_count) <= 1
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +199,8 @@ async def test_suggest_tags(
         tag_vocabulary=vocab,
         llm_service=_llm_service,
         config=config,
+        timeout=EVAL_LLM_TIMEOUT,
+        num_retries=EVAL_LLM_NUM_RETRIES,
     )
 
     return {

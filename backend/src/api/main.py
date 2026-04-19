@@ -42,6 +42,7 @@ from core.redis import RedisClient, set_redis_client
 from db.session import engine
 from services.exceptions import FieldLimitExceededError, QuotaExceededError
 from services.llm_service import LLMService, set_llm_service
+from services.suggestion_service import LLMParseFailedError
 
 logger = logging.getLogger(__name__)
 
@@ -121,11 +122,81 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
 
 app_settings = get_settings()
 
+
+# Tag metadata surfaces as per-section introductions in the Swagger UI.
+# Keep descriptions concise; point at docs/ for deeper coverage.
+_OPENAPI_TAGS = [
+    {
+        "name": "ai",
+        "description": (
+            "AI-powered endpoints: tag / metadata / relationship / prompt-argument "
+            "suggestions, plus supporting config endpoints (`/ai/health`, "
+            "`/ai/models`, `/ai/validate-key`).\n\n"
+            "### Authentication\n\n"
+            "Auth0 JWT required. Personal Access Tokens (`bm_*`) are rejected "
+            "with 403 — AI features are deliberately not available to PATs as "
+            "a cost-safety guard against automated scripts.\n\n"
+            "### Bring-Your-Own-Key (BYOK)\n\n"
+            "Optionally send `X-LLM-Api-Key: <provider key>` to use your own "
+            "provider credentials instead of the platform's. BYOK calls consume "
+            "the separate `AI_BYOK` rate-limit bucket (not `AI_PLATFORM`) and "
+            "can select any supported `model`. Platform calls (header omitted) "
+            "are silently locked to use-case defaults — the `model` request "
+            "field is ignored. The header is held in request memory only — "
+            "never logged, stored, or returned in error responses.\n\n"
+            "### Rate limits\n\n"
+            "AI endpoints use dedicated buckets (`AI_PLATFORM`, `AI_BYOK`) "
+            "separate from the normal read/write quotas. Today only PRO tier "
+            "has non-zero AI limits (FREE and STANDARD are `0/0` for both "
+            "buckets and will always 429). Successful responses include "
+            "`X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`. "
+            "Tiddly-level 429s (tier quota exhausted) include `Retry-After`; "
+            "provider-level 429s (`error_code: llm_rate_limited`) do not — "
+            "use exponential backoff for those.\n\n"
+            "`/ai/health` and `/ai/models` are the two exceptions — they skip "
+            "the AI buckets AND the global read/write limiter entirely. Poll "
+            "`/ai/health` freely to refresh quota-remaining UI; it returns "
+            "both per-minute and daily remaining values.\n\n"
+            "**Quota consumption vs. LLM call.** Rate-limit quota is charged "
+            "*before* the handler runs (it's a FastAPI `Depends`). Even "
+            "endpoints that short-circuit with an empty response (e.g. "
+            "`/ai/suggest-relationships` when all inputs are empty, "
+            "`/ai/suggest-prompt-arguments` when every placeholder in "
+            "the template is already declared) still decrement the "
+            "bucket. Only the LLM call itself is skipped.\n\n"
+            "### Discovering models\n\n"
+            "Call `GET /ai/models` to list supported model IDs and see the "
+            "server's per-use-case defaults. The `model` field on BYOK "
+            "requests must come from this list.\n\n"
+            "### Error handling\n\n"
+            "Most errors use a common envelope `{detail: string, error_code?: "
+            "string}` — see the per-endpoint **Responses** panels for the full "
+            "catalog. Two shapes are different:\n\n"
+            "- **422** uses FastAPI's standard validation-error array: "
+            "`{detail: [{loc, msg, type}, ...]}`. On suggestion endpoints, "
+            "BYOK provider-auth failures also surface as 422 but with the "
+            "common envelope and `error_code: llm_auth_failed`. "
+            "`/ai/validate-key` is the exception — it normalizes provider "
+            "auth failures to `200 {\"valid\": false}` because testing the "
+            "key is the endpoint's explicit purpose.\n"
+            "- **451** uses a structured consent-required payload where "
+            "`detail` is itself an object — direct the user to the consent "
+            "flow.\n\n"
+            "Typed `error_code` values starting with `llm_*` indicate upstream "
+            "LLM provider failures (`llm_auth_failed`, `llm_rate_limited`, "
+            "`llm_timeout`, `llm_bad_request`, `llm_connection_error`, "
+            "`llm_parse_failed`, `llm_unavailable`)."
+        ),
+    },
+]
+
+
 app = FastAPI(
     title="Tiddly API",
     description="A content management system with tagging and search capabilities.",
     version="0.1.0",
     lifespan=lifespan,
+    openapi_tags=_OPENAPI_TAGS,
 )
 
 
@@ -264,6 +335,18 @@ async def llm_unavailable_exception_handler(
     return JSONResponse(
         status_code=503,
         content={"detail": "AI service temporarily unavailable.", "error_code": "llm_unavailable"},
+    )
+
+
+@app.exception_handler(LLMParseFailedError)
+async def llm_parse_failed_exception_handler(
+    _request: Request, exc: LLMParseFailedError,
+) -> JSONResponse:
+    """LLM returned an unparseable structured-output response → 502."""
+    logger.warning("llm_parse_failed", extra={"error": exc.message})
+    return JSONResponse(
+        status_code=502,
+        content={"detail": exc.message, "error_code": "llm_parse_failed"},
     )
 
 

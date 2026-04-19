@@ -1,4 +1,6 @@
 """Integration tests for AI router endpoints."""
+import typing
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from httpx import AsyncClient
@@ -13,6 +15,7 @@ from litellm.exceptions import (
 
 from core.tier_limits import Tier, TierLimits, get_tier_limits
 from services.llm_service import AIUseCase, get_llm_service
+from services.suggestion_service import LLMParseFailedError
 
 
 # ---------------------------------------------------------------------------
@@ -30,8 +33,8 @@ class TestAIHealth:
         data = response.json()
         assert data["available"] is True
         assert data["byok"] is False
-        assert "remaining_daily" in data
-        assert "limit_daily" in data
+        assert "remaining_per_day" in data
+        assert "limit_per_day" in data
 
     async def test_byok_detected(self, client: AsyncClient) -> None:
         response = await client.get(
@@ -50,16 +53,110 @@ class TestAIHealth:
     async def test_quota_fields_present(self, client: AsyncClient) -> None:
         response = await client.get("/ai/health")
         data = response.json()
-        assert "remaining_daily" in data
-        assert "limit_daily" in data
-        assert data["limit_daily"] > 0  # DEV tier has non-zero limits
+        assert "remaining_per_day" in data
+        assert "limit_per_day" in data
+        assert data["limit_per_day"] > 0  # DEV tier has non-zero limits
+
+    async def test_per_minute_fields_present(self, client: AsyncClient) -> None:
+        """Per-minute quota exposed alongside daily for client-side pacing."""
+        response = await client.get("/ai/health")
+        data = response.json()
+        assert "remaining_per_minute" in data
+        assert "limit_per_minute" in data
+        assert data["limit_per_minute"] > 0  # DEV tier has non-zero limits
+        assert data["remaining_per_minute"] <= data["limit_per_minute"]
+
+    async def test_resets_at_null_before_first_ai_call(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        `resets_at` is null when no daily counter key exists yet.
+
+        Counter keys are created only on actual rate-limited operations, not
+        by reading /ai/health. Until the user makes an AI call, there's no
+        TTL to surface.
+        """
+        response = await client.get("/ai/health")
+        data = response.json()
+        assert "resets_at" in data
+        # Dev test env: each test starts with a clean Redis. No prior call
+        # means no key → null reset.
+        assert data["resets_at"] is None
+
+    async def test_resets_at_populated_after_ai_call(
+        self, client: AsyncClient,
+    ) -> None:
+        """After an AI call creates the daily counter, resets_at is a future UTC timestamp."""
+        # Mock the LLM response
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"tags": ["test"]}'
+        with (
+            patch(
+                "services.llm_service.acompletion",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            call_resp = await client.post(
+                "/ai/suggest-tags",
+                json={"title": "Test", "content_type": "bookmark"},
+            )
+        assert call_resp.status_code == 200
+
+        health = (await client.get("/ai/health")).json()
+        assert health["resets_at"] is not None
+        resets = datetime.fromisoformat(health["resets_at"].replace("Z", "+00:00"))
+        now = datetime.now(UTC)
+        # Reset is in the future and within ~24 hours
+        assert now < resets <= now + timedelta(seconds=86400 + 5)  # 5s tolerance
+
+    async def test_resets_at_tracks_selected_bucket(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        `resets_at` reflects the bucket chosen by the `X-LLM-Api-Key` header —
+        platform bucket without the header, BYOK bucket with it. The two
+        buckets have independent Redis keys, so their reset timestamps are
+        independent.
+        """
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"tags": ["test"]}'
+        with (
+            patch(
+                "services.llm_service.acompletion",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            # Trigger only the PLATFORM bucket — no BYOK header
+            await client.post(
+                "/ai/suggest-tags",
+                json={"title": "Test", "content_type": "bookmark"},
+            )
+
+        platform_health = (await client.get("/ai/health")).json()
+        byok_health = (
+            await client.get("/ai/health", headers={"X-LLM-Api-Key": "user-key"})
+        ).json()
+
+        # Platform bucket was touched → has a reset time
+        assert platform_health["resets_at"] is not None
+        assert platform_health["byok"] is False
+
+        # BYOK bucket was not touched → no reset time
+        assert byok_health["resets_at"] is None
+        assert byok_health["byok"] is True
 
     async def test_does_not_consume_ai_quota(self, client: AsyncClient) -> None:
         """Health endpoint should not consume AI rate limit quota."""
         # Call health twice, remaining should not decrease
         resp1 = await client.get("/ai/health")
         resp2 = await client.get("/ai/health")
-        assert resp1.json()["remaining_daily"] == resp2.json()["remaining_daily"]
+        assert resp1.json()["remaining_per_day"] == resp2.json()["remaining_per_day"]
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +344,7 @@ class TestAIModels:
         resp1 = await client.get("/ai/health")
         await client.get("/ai/models")
         resp2 = await client.get("/ai/health")
-        assert resp1.json()["remaining_daily"] == resp2.json()["remaining_daily"]
+        assert resp1.json()["remaining_per_day"] == resp2.json()["remaining_per_day"]
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +409,16 @@ class TestLLMExceptionHandlers:
         assert response.status_code == 503
         assert b"llm_unavailable" in response.body
 
+    async def test_parse_failed_returns_502(self) -> None:
+        """LLM structured-output parse failure returns 502 with llm_parse_failed code."""
+        from api.main import llm_parse_failed_exception_handler  # noqa: PLC0415
+
+        exc = LLMParseFailedError("could not parse LLM response as expected schema")
+        response = await llm_parse_failed_exception_handler(MagicMock(), exc)
+        assert response.status_code == 502
+        assert b"llm_parse_failed" in response.body
+        assert b"could not parse" in response.body
+
 
 # ---------------------------------------------------------------------------
 # Tier limits for AI (Milestone 1b)
@@ -367,7 +474,7 @@ class TestAIRateLimiting:
             "/ai/health",
             headers={"X-LLM-Api-Key": "some-key"},
         )
-        initial = resp1.json()["remaining_daily"]
+        initial = resp1.json()["remaining_per_day"]
 
         mock_response = MagicMock()
         with (
@@ -383,18 +490,18 @@ class TestAIRateLimiting:
             "/ai/health",
             headers={"X-LLM-Api-Key": "some-key"},
         )
-        assert resp2.json()["remaining_daily"] == initial - 1
+        assert resp2.json()["remaining_per_day"] == initial - 1
 
     async def test_validate_key_without_key_does_not_consume_quota(self, client: AsyncClient) -> None:
         """POST /ai/validate-key without BYOK key should return 400 without consuming quota."""
         resp1 = await client.get("/ai/health")
-        initial_platform = resp1.json()["remaining_daily"]
+        initial_platform = resp1.json()["remaining_per_day"]
 
         response = await client.post("/ai/validate-key")
         assert response.status_code == 400
 
         resp2 = await client.get("/ai/health")
-        assert resp2.json()["remaining_daily"] == initial_platform
+        assert resp2.json()["remaining_per_day"] == initial_platform
 
     async def test_validate_key_includes_rate_limit_headers(self, client: AsyncClient) -> None:
         """Successful AI-limited responses should include X-RateLimit-* headers."""
@@ -476,3 +583,76 @@ class TestAIRateLimiting:
                 headers={"X-LLM-Api-Key": "user-key"},
             )
             assert resp_byok.json()["available"] is True
+
+
+# ---------------------------------------------------------------------------
+# Unsupported-model handling across all suggestion endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestSuggestEndpointsUnsupportedModel:
+    """
+    Regression tests: a BYOK caller passing a `model` not in the supported
+    allowlist must get a 400, not a 500. Previously `resolve_config` raised
+    `ValueError` outside any handler on the four suggestion endpoints,
+    surfacing as 500 Internal Server Error.
+    """
+
+    _UNSUPPORTED_PAYLOAD: typing.ClassVar[dict[str, object]] = {"model": "evil/attacker-model"}
+
+    async def test_suggest_tags_unsupported_model(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/ai/suggest-tags",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={"content_type": "bookmark", **self._UNSUPPORTED_PAYLOAD},
+        )
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]
+
+    async def test_suggest_metadata_unsupported_model(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/ai/suggest-metadata",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={**self._UNSUPPORTED_PAYLOAD, "fields": ["title"]},
+        )
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]
+
+    async def test_suggest_relationships_unsupported_model(self, client: AsyncClient) -> None:
+        """
+        Unsupported-model validation must happen before any early-return
+        path, so the 400 contract is consistent regardless of whether the
+        caller's search inputs are empty or whether candidate search finds
+        matches. Previously the check ran after early returns and would
+        silently let an invalid `model` slip through as 200 `{"candidates": []}`.
+        """
+        # Empty inputs path — previously produced 200; must now produce 400.
+        response = await client.post(
+            "/ai/suggest-relationships",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={**self._UNSUPPORTED_PAYLOAD},
+        )
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]
+
+        # With inputs but no matching candidates — same outcome.
+        response = await client.post(
+            "/ai/suggest-relationships",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={"title": "something to relate", **self._UNSUPPORTED_PAYLOAD},
+        )
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]
+
+    async def test_suggest_prompt_arguments_unsupported_model(self, client: AsyncClient) -> None:
+        response = await client.post(
+            "/ai/suggest-prompt-arguments",
+            headers={"X-LLM-Api-Key": "user-key"},
+            json={
+                "prompt_content": "hello {{ name }}",
+                "arguments": [],
+                **self._UNSUPPORTED_PAYLOAD,
+            },
+        )
+        assert response.status_code == 400
+        assert "Unsupported model" in response.json()["detail"]

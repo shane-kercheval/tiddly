@@ -343,9 +343,9 @@ export function Prompt({
   }, [prompt?.id, initialTags, initialRelationships])
 
   // AI tag suggestions
-  const { aiTagSuggestions, isAiTagsLoading, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+  const { aiTagSuggestions, isAiTagsLoading, aiTagsHasError, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
     useAITagIntegration(current, setCurrent, aiAvailable, 'prompt')
-  const { aiRelationshipSuggestions, isAiRelationshipsLoading, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
+  const { aiRelationshipSuggestions, isAiRelationshipsLoading, aiRelationshipsHasError, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: prompt?.id ?? null }, aiAvailable)
   const { titleSuggestProps, descriptionSuggestProps } =
     useAIMetadataIntegration(current, setCurrent, aiAvailable)
@@ -1133,6 +1133,7 @@ export function Prompt({
                 showAddButton={false}
                 aiSuggestions={aiTagSuggestions}
                 isAiLoading={isAiTagsLoading}
+                aiHasError={aiTagsHasError}
                 aiAvailable={aiAvailable}
                 onOpen={handleTagInputOpen}
                 onClose={handleTagInputClose}
@@ -1151,6 +1152,7 @@ export function Prompt({
                 onQuickCreate={handleQuickCreate}
                 aiSuggestions={aiRelationshipSuggestions}
                 isAiLoading={isAiRelationshipsLoading}
+                aiHasError={aiRelationshipsHasError}
                 aiAvailable={aiAvailable}
                 onOpen={handleLinkedContentOpen}
                 onClose={handleLinkedContentClose}

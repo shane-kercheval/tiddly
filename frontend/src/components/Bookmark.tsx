@@ -288,9 +288,9 @@ export function Bookmark({
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // AI tag suggestions
-  const { aiTagSuggestions, isAiTagsLoading, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+  const { aiTagSuggestions, isAiTagsLoading, aiTagsHasError, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
     useAITagIntegration(current, setCurrent, aiAvailable, 'bookmark')
-  const { aiRelationshipSuggestions, isAiRelationshipsLoading, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
+  const { aiRelationshipSuggestions, isAiRelationshipsLoading, aiRelationshipsHasError, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: bookmark?.id ?? null }, aiAvailable)
   const { titleSuggestProps, descriptionSuggestProps } =
     useAIMetadataIntegration(current, setCurrent, aiAvailable)
@@ -1052,6 +1052,7 @@ export function Bookmark({
                 showAddButton={false}
                 aiSuggestions={aiTagSuggestions}
                 isAiLoading={isAiTagsLoading}
+                aiHasError={aiTagsHasError}
                 aiAvailable={aiAvailable}
                 onOpen={handleTagInputOpen}
                 onClose={handleTagInputClose}
@@ -1070,6 +1071,7 @@ export function Bookmark({
                 onQuickCreate={handleQuickCreate}
                 aiSuggestions={aiRelationshipSuggestions}
                 isAiLoading={isAiRelationshipsLoading}
+                aiHasError={aiRelationshipsHasError}
                 aiAvailable={aiAvailable}
                 onOpen={handleLinkedContentOpen}
                 onClose={handleLinkedContentClose}

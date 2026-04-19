@@ -44,6 +44,8 @@ interface LinkedContentChipsProps {
   aiSuggestions?: RelationshipCandidate[]
   /** Whether AI relationship suggestions are currently loading. */
   isAiLoading?: boolean
+  /** Whether the last AI suggestion fetch failed. Surfaced inline in the dropdown. */
+  aiHasError?: boolean
   /** Whether AI features are available for the current user's tier. */
   aiAvailable?: boolean
   /** Called when the linked content input opens (isAdding becomes true). */
@@ -111,6 +113,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
     onQuickCreate,
     aiSuggestions,
     isAiLoading = false,
+    aiHasError = false,
     aiAvailable = false,
     onOpen,
     onClose,
@@ -432,11 +435,17 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
 
                   {isAiLoading && filteredAiSuggestions.length === 0 && (
                     <div className="flex items-center justify-center py-2" aria-label="Loading relationship suggestions">
-                      <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                      <div className="spinner-ai h-4 w-4" />
                     </div>
                   )}
 
-                  {!isAiLoading && filteredAiSuggestions.length === 0 && (
+                  {!isAiLoading && aiHasError && filteredAiSuggestions.length === 0 && (
+                    <p className="text-xs text-red-500 py-2 px-3 text-center">
+                      Couldn&apos;t load suggestions. Close and reopen to try again.
+                    </p>
+                  )}
+
+                  {!isAiLoading && !aiHasError && filteredAiSuggestions.length === 0 && (
                     <p className="text-xs text-gray-400 py-2 text-center">No suggestions</p>
                   )}
 

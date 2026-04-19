@@ -2,27 +2,35 @@
  * Tests for useArgumentSuggestions hook.
  *
  * Covers:
- * - Availability gate: does not call API when available=false
- * - suggestAll: sends correct request, appends results via onUpdate
- * - suggestName: sends target_index, updates name via onUpdate
- * - suggestDescription: sends target_index, updates description via onUpdate
- * - Loading state lifecycle for generate-all and individual suggestions
- * - Error handling: silent console.error
- * - Race condition: stale response discarded
+ * - Availability gate: does not call API when available=false.
+ * - suggestAll: posts to the plural endpoint, appends results via onUpdate,
+ *   manages isGeneratingAll lifecycle, logs errors silently.
+ * - suggestRowFields: computes target_fields from the row snapshot,
+ *   no-ops when all fields are already populated, fires when at least one
+ *   is blank, manages suggestingIndex/suggestingAnyRow lifecycle.
+ * - Hook does NOT merge state — it passes `(index, suggestion, targetFields)`
+ *   to onUpdate and lets the integration layer do the merge.
+ * - Stale-response discard via shared requestIdRef across both modes.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useArgumentSuggestions } from './useArgumentSuggestions'
-import type { PromptArgument } from '../types'
+import type { PromptArgument, ArgumentSuggestion } from '../types'
 
-const mockSuggestArguments = vi.fn()
+const mockSuggestPromptArguments = vi.fn()
+const mockSuggestPromptArgumentFields = vi.fn()
 
 vi.mock('../services/aiApi', () => ({
-  suggestArguments: (...args: unknown[]) => mockSuggestArguments(...args),
+  suggestPromptArguments: (...args: unknown[]) => mockSuggestPromptArguments(...args),
+  suggestPromptArgumentFields: (...args: unknown[]) => mockSuggestPromptArgumentFields(...args),
 }))
 
 const makeArgs = (...names: string[]): PromptArgument[] =>
   names.map((name) => ({ name, description: null, required: false }))
+
+function makeSuggestion(overrides: Partial<ArgumentSuggestion> = {}): ArgumentSuggestion {
+  return { name: 'x', description: 'y', required: false, ...overrides }
+}
 
 describe('useArgumentSuggestions', () => {
   beforeEach(() => {
@@ -34,38 +42,21 @@ describe('useArgumentSuggestions', () => {
   // -------------------------------------------------------------------------
 
   describe('availability gate', () => {
-    it('does not call API when available is false', () => {
+    it('does not call API when available is false (suggestAll)', () => {
       const { result } = renderHook(() => useArgumentSuggestions({ available: false }))
-      const onUpdate = vi.fn()
-
       act(() => {
-        result.current.suggestAll('template content', [], onUpdate)
+        result.current.suggestAll('template content', [], vi.fn())
       })
-
-      expect(mockSuggestArguments).not.toHaveBeenCalled()
-      expect(onUpdate).not.toHaveBeenCalled()
+      expect(mockSuggestPromptArguments).not.toHaveBeenCalled()
     })
 
-    it('does not call suggestName when available is false', () => {
+    it('does not call API when available is false (suggestRowFields)', () => {
       const { result } = renderHook(() => useArgumentSuggestions({ available: false }))
-      const onUpdate = vi.fn()
-
+      const args: PromptArgument[] = [{ name: '', description: 'desc', required: false }]
       act(() => {
-        result.current.suggestName(0, 'content', [{ name: '', description: 'some desc', required: false }], onUpdate)
+        result.current.suggestRowFields(0, 'content', args, vi.fn())
       })
-
-      expect(mockSuggestArguments).not.toHaveBeenCalled()
-    })
-
-    it('does not call suggestDescription when available is false', () => {
-      const { result } = renderHook(() => useArgumentSuggestions({ available: false }))
-      const onUpdate = vi.fn()
-
-      act(() => {
-        result.current.suggestDescription(0, 'content', [{ name: 'arg1', description: null, required: false }], onUpdate)
-      })
-
-      expect(mockSuggestArguments).not.toHaveBeenCalled()
+      expect(mockSuggestPromptArgumentFields).not.toHaveBeenCalled()
     })
   })
 
@@ -74,27 +65,26 @@ describe('useArgumentSuggestions', () => {
   // -------------------------------------------------------------------------
 
   describe('suggestAll', () => {
-    it('sends correct request shape', async () => {
-      mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'arg1', description: 'Desc 1' }] })
+    it('posts the correct request shape', async () => {
+      mockSuggestPromptArguments.mockResolvedValue({ arguments: [makeSuggestion({ name: 'x' })] })
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
 
       await act(async () => {
         result.current.suggestAll('Hello {{ name }}', makeArgs('name'), vi.fn())
       })
 
-      expect(mockSuggestArguments).toHaveBeenCalledWith({
+      expect(mockSuggestPromptArguments).toHaveBeenCalledWith({
         prompt_content: 'Hello {{ name }}',
         arguments: [{ name: 'name', description: null }],
-        target_index: null,
       })
     })
 
     it('calls onUpdate with suggested arguments', async () => {
       const suggestions = [
-        { name: 'topic', description: 'The topic to write about' },
-        { name: 'tone', description: 'Writing tone' },
+        makeSuggestion({ name: 'topic', description: 'The topic to write about' }),
+        makeSuggestion({ name: 'tone', description: 'Writing tone' }),
       ]
-      mockSuggestArguments.mockResolvedValue({ arguments: suggestions })
+      mockSuggestPromptArguments.mockResolvedValue({ arguments: suggestions })
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
       const onUpdate = vi.fn()
 
@@ -108,8 +98,10 @@ describe('useArgumentSuggestions', () => {
     })
 
     it('sets isGeneratingAll during request', async () => {
-      let resolvePromise: (value: { arguments: { name: string; description: string }[] }) => void
-      mockSuggestArguments.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve }))
+      let resolvePromise: (value: { arguments: ArgumentSuggestion[] }) => void
+      mockSuggestPromptArguments.mockReturnValue(
+        new Promise((resolve) => { resolvePromise = resolve }),
+      )
 
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
 
@@ -127,165 +119,10 @@ describe('useArgumentSuggestions', () => {
         expect(result.current.isGeneratingAll).toBe(false)
       })
     })
-  })
 
-  // -------------------------------------------------------------------------
-  // suggestName
-  // -------------------------------------------------------------------------
-
-  describe('suggestName', () => {
-    it('sends target_index for the argument', async () => {
-      mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'suggested_name', description: 'desc' }] })
-      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const args: PromptArgument[] = [{ name: 'old_name', description: 'A description', required: false }]
-
-      await act(async () => {
-        result.current.suggestName(0, 'template', args, vi.fn())
-      })
-
-      expect(mockSuggestArguments).toHaveBeenCalledWith({
-        prompt_content: 'template',
-        arguments: [{ name: 'old_name', description: 'A description' }],
-        target_index: 0,
-      })
-    })
-
-    it('sends target_index when name is empty', async () => {
-      mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'suggested', description: 'desc' }] })
-      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const args: PromptArgument[] = [{ name: '', description: 'A description', required: false }]
-
-      await act(async () => {
-        result.current.suggestName(0, null, args, vi.fn())
-      })
-
-      expect(mockSuggestArguments).toHaveBeenCalledWith({
-        prompt_content: null,
-        arguments: [{ name: null, description: 'A description' }],
-        target_index: 0,
-      })
-    })
-
-    it('calls onUpdate with suggested name', async () => {
-      mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'better_name', description: 'desc' }] })
-      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const onUpdate = vi.fn()
-
-      await act(async () => {
-        result.current.suggestName(0, 'content', [{ name: '', description: 'desc', required: false }], onUpdate)
-      })
-
-      await vi.waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith('better_name')
-      })
-    })
-
-    it('sets suggestingIndex and suggestingField during request', async () => {
-      let resolvePromise: (value: { arguments: { name: string; description: string }[] }) => void
-      mockSuggestArguments.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve }))
-
-      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-
-      act(() => {
-        result.current.suggestName(2, 'content', makeArgs('a', 'b', 'c'), vi.fn())
-      })
-
-      expect(result.current.suggestingIndex).toBe(2)
-      expect(result.current.suggestingField).toBe('name')
-
-      await act(async () => {
-        resolvePromise!({ arguments: [{ name: 'x', description: 'y' }] })
-      })
-
-      await vi.waitFor(() => {
-        expect(result.current.suggestingIndex).toBeNull()
-        expect(result.current.suggestingField).toBeNull()
-      })
-    })
-
-    it('does not call onUpdate when response has no arguments', async () => {
-      mockSuggestArguments.mockResolvedValue({ arguments: [] })
-      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const onUpdate = vi.fn()
-
-      await act(async () => {
-        result.current.suggestName(0, 'content', [{ name: 'arg', description: 'desc', required: false }], onUpdate)
-      })
-
-      await vi.waitFor(() => {
-        expect(result.current.suggestingIndex).toBeNull()
-      })
-
-      expect(onUpdate).not.toHaveBeenCalled()
-    })
-  })
-
-  // -------------------------------------------------------------------------
-  // suggestDescription
-  // -------------------------------------------------------------------------
-
-  describe('suggestDescription', () => {
-    it('sends target_index for the argument', async () => {
-      mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'arg1', description: 'new desc' }] })
-      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const args: PromptArgument[] = [{ name: 'arg1', description: null, required: false }]
-
-      await act(async () => {
-        result.current.suggestDescription(0, 'template', args, vi.fn())
-      })
-
-      expect(mockSuggestArguments).toHaveBeenCalledWith({
-        prompt_content: 'template',
-        arguments: [{ name: 'arg1', description: null }],
-        target_index: 0,
-      })
-    })
-
-    it('calls onUpdate with suggested description', async () => {
-      mockSuggestArguments.mockResolvedValue({ arguments: [{ name: 'arg1', description: 'AI generated desc' }] })
-      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const onUpdate = vi.fn()
-
-      await act(async () => {
-        result.current.suggestDescription(0, 'content', [{ name: 'arg1', description: null, required: false }], onUpdate)
-      })
-
-      await vi.waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith('AI generated desc')
-      })
-    })
-
-    it('sets suggestingField to description during request', async () => {
-      let resolvePromise: (value: { arguments: { name: string; description: string }[] }) => void
-      mockSuggestArguments.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve }))
-
-      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-
-      act(() => {
-        result.current.suggestDescription(1, 'content', makeArgs('a', 'b'), vi.fn())
-      })
-
-      expect(result.current.suggestingIndex).toBe(1)
-      expect(result.current.suggestingField).toBe('description')
-
-      await act(async () => {
-        resolvePromise!({ arguments: [{ name: 'b', description: 'desc' }] })
-      })
-
-      await vi.waitFor(() => {
-        expect(result.current.suggestingField).toBeNull()
-      })
-    })
-  })
-
-  // -------------------------------------------------------------------------
-  // Error handling
-  // -------------------------------------------------------------------------
-
-  describe('error handling', () => {
-    it('logs error silently on suggestAll failure', async () => {
+    it('logs error silently on failure', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      mockSuggestArguments.mockRejectedValue(new Error('API error'))
+      mockSuggestPromptArguments.mockRejectedValue(new Error('API error'))
 
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
       const onUpdate = vi.fn()
@@ -302,188 +139,315 @@ describe('useArgumentSuggestions', () => {
       expect(onUpdate).not.toHaveBeenCalled()
       consoleSpy.mockRestore()
     })
+  })
 
-    it('logs error silently on suggestName failure', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      mockSuggestArguments.mockRejectedValue(new Error('API error'))
+  // -------------------------------------------------------------------------
+  // suggestRowFields — target_fields derivation
+  // -------------------------------------------------------------------------
 
+  describe('suggestRowFields — target_fields derivation', () => {
+    it('sends target_fields=["name"] when only name is blank', async () => {
+      mockSuggestPromptArgumentFields.mockResolvedValue({
+        arguments: [makeSuggestion({ name: 'suggested' })],
+      })
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const onUpdate = vi.fn()
+      const args: PromptArgument[] = [{ name: '', description: 'A description', required: false }]
 
       await act(async () => {
-        result.current.suggestName(0, 'content', [{ name: 'arg', description: 'desc', required: false }], onUpdate)
+        result.current.suggestRowFields(0, 'template', args, vi.fn())
       })
 
-      await vi.waitFor(() => {
-        expect(result.current.suggestingIndex).toBeNull()
+      expect(mockSuggestPromptArgumentFields).toHaveBeenCalledWith({
+        prompt_content: 'template',
+        arguments: [{ name: null, description: 'A description' }],
+        target_index: 0,
+        target_fields: ['name'],
       })
-
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to fetch argument name suggestion:', expect.any(Error))
-      expect(onUpdate).not.toHaveBeenCalled()
-      consoleSpy.mockRestore()
     })
 
-    it('logs error silently on suggestDescription failure', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      mockSuggestArguments.mockRejectedValue(new Error('API error'))
-
+    it('sends target_fields=["description"] when only description is blank', async () => {
+      mockSuggestPromptArgumentFields.mockResolvedValue({
+        arguments: [makeSuggestion({ description: 'new desc' })],
+      })
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const onUpdate = vi.fn()
+      const args: PromptArgument[] = [{ name: 'arg1', description: null, required: false }]
 
       await act(async () => {
-        result.current.suggestDescription(0, 'content', [{ name: 'arg', description: null, required: false }], onUpdate)
+        result.current.suggestRowFields(0, 'template', args, vi.fn())
       })
 
-      await vi.waitFor(() => {
-        expect(result.current.suggestingIndex).toBeNull()
+      const call = mockSuggestPromptArgumentFields.mock.calls[0][0] as {
+        target_fields: Array<'name' | 'description'>
+      }
+      expect(call.target_fields).toEqual(['description'])
+    })
+
+    it('sends target_fields=["name","description"] when both are blank AND template populated', async () => {
+      mockSuggestPromptArgumentFields.mockResolvedValue({
+        arguments: [makeSuggestion({ name: 'topic', description: 'The topic' })],
+      })
+      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
+      const args: PromptArgument[] = [{ name: '', description: null, required: false }]
+
+      await act(async () => {
+        result.current.suggestRowFields(0, 'Write about {{ topic }}', args, vi.fn())
       })
 
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to fetch argument description suggestion:', expect.any(Error))
-      expect(onUpdate).not.toHaveBeenCalled()
-      consoleSpy.mockRestore()
+      const call = mockSuggestPromptArgumentFields.mock.calls[0][0] as {
+        target_fields: Array<'name' | 'description'>
+      }
+      expect(call.target_fields).toEqual(['name', 'description'])
+    })
+
+    it('does not call API when neither field is blank (no-op)', () => {
+      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
+      const args: PromptArgument[] = [{ name: 'arg1', description: 'desc', required: false }]
+
+      act(() => {
+        result.current.suggestRowFields(0, 'template', args, vi.fn())
+      })
+
+      expect(mockSuggestPromptArgumentFields).not.toHaveBeenCalled()
+    })
+
+    it('does not call API when row is empty AND template is empty (no-grounding no-op)', () => {
+      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
+      const args: PromptArgument[] = [{ name: '', description: null, required: false }]
+
+      act(() => {
+        // Would compute target_fields=['name','description'] but there's no
+        // grounding signal — defense-in-depth matches the UI's disable rule
+        // and avoids a guaranteed-422 backend round-trip.
+        result.current.suggestRowFields(0, null, args, vi.fn())
+      })
+
+      expect(mockSuggestPromptArgumentFields).not.toHaveBeenCalled()
+    })
+
+    it('does not call API when row is empty AND template is whitespace-only', () => {
+      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
+      const args: PromptArgument[] = [{ name: '', description: null, required: false }]
+
+      act(() => {
+        result.current.suggestRowFields(0, '   ', args, vi.fn())
+      })
+
+      expect(mockSuggestPromptArgumentFields).not.toHaveBeenCalled()
+    })
+
+    it('whitespace-only fields count as blank (frontend pre-strip UX parity)', async () => {
+      mockSuggestPromptArgumentFields.mockResolvedValue({
+        arguments: [makeSuggestion()],
+      })
+      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
+      // name is whitespace → treat as blank
+      const args: PromptArgument[] = [{ name: '   ', description: 'desc', required: false }]
+
+      await act(async () => {
+        result.current.suggestRowFields(0, 'template', args, vi.fn())
+      })
+
+      const call = mockSuggestPromptArgumentFields.mock.calls[0][0] as {
+        target_fields: Array<'name' | 'description'>
+      }
+      expect(call.target_fields).toEqual(['name'])
     })
   })
 
   // -------------------------------------------------------------------------
-  // Race conditions
+  // suggestRowFields — onUpdate contract
   // -------------------------------------------------------------------------
 
-  describe('race conditions', () => {
-    it('discards stale suggestAll response when a newer request is in flight', async () => {
-      let resolveA: (value: { arguments: { name: string; description: string }[] }) => void
-      let resolveB: (value: { arguments: { name: string; description: string }[] }) => void
-
-      mockSuggestArguments
-        .mockReturnValueOnce(new Promise((resolve) => { resolveA = resolve }))
-        .mockReturnValueOnce(new Promise((resolve) => { resolveB = resolve }))
+  describe('suggestRowFields — onUpdate contract', () => {
+    it('passes full suggestion and targetFields to onUpdate (no state merging)', async () => {
+      const suggestion = makeSuggestion({
+        name: 'better_name', description: 'better desc', required: true,
+      })
+      mockSuggestPromptArgumentFields.mockResolvedValue({ arguments: [suggestion] })
 
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const onUpdateA = vi.fn()
-      const onUpdateB = vi.fn()
+      const onUpdate = vi.fn()
 
-      // Start request A
-      act(() => {
-        result.current.suggestAll('content A', [], onUpdateA)
-      })
-
-      // Start request B (supersedes A)
-      act(() => {
-        result.current.suggestAll('content B', [], onUpdateB)
-      })
-
-      // B resolves first
       await act(async () => {
-        resolveB!({ arguments: [{ name: 'b_arg', description: 'from B' }] })
+        result.current.suggestRowFields(
+          0,
+          null,
+          [{ name: '', description: 'orig desc', required: false }],
+          onUpdate,
+        )
       })
 
       await vi.waitFor(() => {
-        expect(onUpdateB).toHaveBeenCalledWith([{ name: 'b_arg', description: 'from B' }])
+        expect(onUpdate).toHaveBeenCalledWith(0, suggestion, ['name'])
       })
-
-      // A resolves later — should be discarded
-      await act(async () => {
-        resolveA!({ arguments: [{ name: 'a_arg', description: 'from A' }] })
-      })
-
-      expect(onUpdateA).not.toHaveBeenCalled()
     })
 
-    it('discards stale individual suggestion when a newer request starts', async () => {
-      let resolveA: (value: { arguments: { name: string; description: string }[] }) => void
-      let resolveB: (value: { arguments: { name: string; description: string }[] }) => void
-
-      mockSuggestArguments
-        .mockReturnValueOnce(new Promise((resolve) => { resolveA = resolve }))
-        .mockReturnValueOnce(new Promise((resolve) => { resolveB = resolve }))
-
+    it('does not call onUpdate when response has no arguments', async () => {
+      mockSuggestPromptArgumentFields.mockResolvedValue({ arguments: [] })
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
-      const onUpdateA = vi.fn()
-      const onUpdateB = vi.fn()
+      const onUpdate = vi.fn()
 
-      // Start suggestName for arg 0
-      act(() => {
-        result.current.suggestName(0, 'content', makeArgs('a'), onUpdateA)
-      })
-
-      // Start suggestDescription for arg 1 (supersedes)
-      act(() => {
-        result.current.suggestDescription(1, 'content', makeArgs('a', 'b'), onUpdateB)
-      })
-
-      // B resolves
       await act(async () => {
-        resolveB!({ arguments: [{ name: 'b', description: 'new desc' }] })
+        result.current.suggestRowFields(
+          0, 'content', [{ name: '', description: 'desc', required: false }], onUpdate,
+        )
       })
 
       await vi.waitFor(() => {
-        expect(onUpdateB).toHaveBeenCalledWith('new desc')
+        expect(result.current.suggestingIndex).toBeNull()
       })
-
-      // A resolves later — discarded
-      await act(async () => {
-        resolveA!({ arguments: [{ name: 'new_a', description: 'desc' }] })
-      })
-
-      expect(onUpdateA).not.toHaveBeenCalled()
+      expect(onUpdate).not.toHaveBeenCalled()
     })
+  })
 
-    it('clears isGeneratingAll when suggestName starts during generate-all', async () => {
-      let resolveAll: (value: { arguments: { name: string; description: string }[] }) => void
-      mockSuggestArguments
-        .mockReturnValueOnce(new Promise((resolve) => { resolveAll = resolve }))
-        .mockResolvedValueOnce({ arguments: [{ name: 'suggested', description: 'desc' }] })
+  // -------------------------------------------------------------------------
+  // suggestingIndex / suggestingAnyRow lifecycle
+  // -------------------------------------------------------------------------
+
+  describe('suggesting* lifecycle', () => {
+    it('suggestingAnyRow flips true during in-flight, false after resolve', async () => {
+      let resolvePromise: (value: { arguments: ArgumentSuggestion[] }) => void
+      mockSuggestPromptArgumentFields.mockReturnValue(
+        new Promise((resolve) => { resolvePromise = resolve }),
+      )
 
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
 
-      // Start generate-all
+      act(() => {
+        result.current.suggestRowFields(
+          1,
+          'content',
+          makeArgs('a', 'b'),
+          vi.fn(),
+        )
+      })
+
+      // `b` has no description, so target_fields=['description'] — fires.
+      expect(result.current.suggestingAnyRow).toBe(true)
+      expect(result.current.suggestingIndex).toBe(1)
+
+      await act(async () => {
+        resolvePromise!({ arguments: [makeSuggestion({ name: 'b', description: 'desc' })] })
+      })
+
+      await vi.waitFor(() => {
+        expect(result.current.suggestingAnyRow).toBe(false)
+        expect(result.current.suggestingIndex).toBeNull()
+      })
+    })
+
+    it('clears isGeneratingAll when suggestRowFields starts during generate-all', async () => {
+      let resolveAll: (value: { arguments: ArgumentSuggestion[] }) => void
+      mockSuggestPromptArguments.mockReturnValue(
+        new Promise((resolve) => { resolveAll = resolve }),
+      )
+      mockSuggestPromptArgumentFields.mockResolvedValue({
+        arguments: [makeSuggestion()],
+      })
+
+      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
+
       act(() => {
         result.current.suggestAll('content', [], vi.fn())
       })
       expect(result.current.isGeneratingAll).toBe(true)
 
-      // Start suggestName while generate-all is in flight
       await act(async () => {
-        result.current.suggestName(0, 'content', [{ name: '', description: 'desc', required: false }], vi.fn())
+        result.current.suggestRowFields(
+          0,
+          'content',
+          [{ name: '', description: 'desc', required: false }],
+          vi.fn(),
+        )
       })
 
-      // isGeneratingAll should be cleared immediately
+      // isGeneratingAll cleared immediately when a per-row call starts.
       expect(result.current.isGeneratingAll).toBe(false)
 
-      // Resolve the stale generate-all — should not re-set isGeneratingAll
+      // Late-resolve of generate-all does not re-set the flag (stale).
       await act(async () => {
         resolveAll!({ arguments: [] })
       })
       expect(result.current.isGeneratingAll).toBe(false)
     })
+  })
 
-    it('clears suggestingIndex when suggestAll starts during individual suggestion', async () => {
-      let resolveName: (value: { arguments: { name: string; description: string }[] }) => void
-      mockSuggestArguments
-        .mockReturnValueOnce(new Promise((resolve) => { resolveName = resolve }))
-        .mockResolvedValueOnce({ arguments: [{ name: 'arg', description: 'desc' }] })
+  // -------------------------------------------------------------------------
+  // Cross-mode stale-response discard
+  // -------------------------------------------------------------------------
+
+  describe('stale-response discard via shared requestIdRef', () => {
+    it('discards a stale suggestRowFields response after suggestAll supersedes it', async () => {
+      let resolveRow: (value: { arguments: ArgumentSuggestion[] }) => void
+      let resolveAll: (value: { arguments: ArgumentSuggestion[] }) => void
+      mockSuggestPromptArgumentFields.mockReturnValue(
+        new Promise((resolve) => { resolveRow = resolve }),
+      )
+      mockSuggestPromptArguments.mockReturnValue(
+        new Promise((resolve) => { resolveAll = resolve }),
+      )
 
       const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
+      const rowOnUpdate = vi.fn()
+      const allOnUpdate = vi.fn()
 
-      // Start suggestName
+      // Fire row request (A)
       act(() => {
-        result.current.suggestName(0, 'content', [{ name: '', description: 'desc', required: false }], vi.fn())
+        result.current.suggestRowFields(
+          0, 'content', [{ name: '', description: 'desc', required: false }], rowOnUpdate,
+        )
       })
-      expect(result.current.suggestingIndex).toBe(0)
-
-      // Start suggestAll while suggestName is in flight
+      // Fire generate-all (B), superseding A.
+      act(() => {
+        result.current.suggestAll('content', [], allOnUpdate)
+      })
+      // Resolve B first (current request).
       await act(async () => {
-        result.current.suggestAll('content', [], vi.fn())
+        resolveAll!({ arguments: [] })
       })
-
-      // suggestingIndex should be cleared immediately
-      expect(result.current.suggestingIndex).toBeNull()
-      expect(result.current.suggestingField).toBeNull()
-
-      // Resolve the stale suggestName — should not re-set suggestingIndex
+      await vi.waitFor(() => {
+        expect(allOnUpdate).toHaveBeenCalled()
+      })
+      // Now resolve A — should be discarded.
       await act(async () => {
-        resolveName!({ arguments: [{ name: 'x', description: 'y' }] })
+        resolveRow!({ arguments: [makeSuggestion({ name: 'stale' })] })
       })
-      expect(result.current.suggestingIndex).toBeNull()
+      expect(rowOnUpdate).not.toHaveBeenCalled()
+    })
+
+    it('discards a stale suggestAll response after suggestRowFields supersedes it', async () => {
+      let resolveAll: (value: { arguments: ArgumentSuggestion[] }) => void
+      let resolveRow: (value: { arguments: ArgumentSuggestion[] }) => void
+      mockSuggestPromptArguments.mockReturnValue(
+        new Promise((resolve) => { resolveAll = resolve }),
+      )
+      mockSuggestPromptArgumentFields.mockReturnValue(
+        new Promise((resolve) => { resolveRow = resolve }),
+      )
+
+      const { result } = renderHook(() => useArgumentSuggestions({ available: true }))
+      const allOnUpdate = vi.fn()
+      const rowOnUpdate = vi.fn()
+
+      act(() => {
+        result.current.suggestAll('content', [], allOnUpdate)
+      })
+      act(() => {
+        result.current.suggestRowFields(
+          0, 'content', [{ name: '', description: 'desc', required: false }], rowOnUpdate,
+        )
+      })
+
+      await act(async () => {
+        resolveRow!({ arguments: [makeSuggestion({ name: 'row-name' })] })
+      })
+      await vi.waitFor(() => {
+        expect(rowOnUpdate).toHaveBeenCalled()
+      })
+      await act(async () => {
+        resolveAll!({ arguments: [makeSuggestion({ name: 'stale' })] })
+      })
+      expect(allOnUpdate).not.toHaveBeenCalled()
     })
   })
 })

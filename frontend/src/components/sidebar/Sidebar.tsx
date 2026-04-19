@@ -611,7 +611,7 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
 
           {/* Settings Section (collapsible, not draggable) */}
           <div className="mt-4 border-t border-gray-200 pt-3">
-            {!isCollapsed ? (
+            {!isCollapsed && (
               <button
                 type="button"
                 onClick={() => toggleSection('settings')}
@@ -624,8 +624,6 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
                   ? <ChevronDownIcon className="h-3 w-3" />
                   : <ChevronRightIcon className="h-3 w-3" />}
               </button>
-            ) : (
-              <div className="px-3 pt-1 pb-2 text-xs font-medium text-gray-400 uppercase tracking-wider">Settings</div>
             )}
             {(isCollapsed || expandedSections.includes('settings')) && (
               <div className="space-y-0.5">
@@ -678,21 +676,15 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
                   onClick={onNavClick}
                   icon={<HelpIcon className="h-[18px] w-[18px] text-gray-500" />}
                 />
-                <a
-                  href="/docs"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-gray-600 transition-colors hover:bg-gray-100 ${isCollapsed ? 'justify-center' : ''}`}
+                <SidebarNavItem
+                  to="/docs"
+                  label="Docs"
+                  isCollapsed={isCollapsed}
                   onClick={onNavClick}
-                >
-                  <HelpIcon className="h-[18px] w-[18px] text-gray-500" />
-                  {!isCollapsed && (
-                    <>
-                      <span className="flex-1">Docs</span>
-                      <ExternalLinkIcon className="h-3 w-3 text-gray-400" />
-                    </>
-                  )}
-                </a>
+                  icon={<HelpIcon className="h-[18px] w-[18px] text-gray-500" />}
+                  trailingIcon={<ExternalLinkIcon className="h-3 w-3 text-gray-400" />}
+                  external
+                />
               </div>
             )}
           </div>

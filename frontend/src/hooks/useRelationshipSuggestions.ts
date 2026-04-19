@@ -29,6 +29,8 @@ interface UseRelationshipSuggestionsReturn {
   suggestions: RelationshipCandidate[]
   /** Whether a suggestion request is in flight. */
   isLoading: boolean
+  /** True if the last fetch attempt failed. Cleared on the next fetch. */
+  hasError: boolean
   /** Fetch suggestions. Call when linked content input opens. No-op if unavailable or context is blank. */
   fetchSuggestions: (context: RelationshipSuggestionContext) => void
   /** Clear suggestions (but preserve cache). Call when linked content input closes. */
@@ -65,6 +67,7 @@ export function useRelationshipSuggestions(
 ): UseRelationshipSuggestionsReturn {
   const [suggestions, setSuggestions] = useState<RelationshipCandidate[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [hasError, setHasError] = useState(false)
   const requestIdRef = useRef(0)
   const cacheRef = useRef<{ key: string; suggestions: RelationshipCandidate[] } | null>(null)
 
@@ -72,6 +75,7 @@ export function useRelationshipSuggestions(
     requestIdRef.current += 1
     setSuggestions([])
     setIsLoading(false)
+    setHasError(false)
   }, [])
 
   const fetchSuggestions = useCallback((context: RelationshipSuggestionContext) => {
@@ -82,6 +86,7 @@ export function useRelationshipSuggestions(
     const cacheKey = buildCacheKey(context)
     if (cacheRef.current?.key === cacheKey) {
       setSuggestions(cacheRef.current.suggestions)
+      setHasError(false)
       return
     }
 
@@ -89,6 +94,7 @@ export function useRelationshipSuggestions(
     const thisRequestId = requestIdRef.current
 
     setIsLoading(true)
+    setHasError(false)
     setSuggestions([])
 
     suggestRelationships({
@@ -109,6 +115,7 @@ export function useRelationshipSuggestions(
       .catch((error) => {
         if (requestIdRef.current === thisRequestId) {
           console.error('Failed to fetch relationship suggestions:', error)
+          setHasError(true)
         }
       })
       .finally(() => {
@@ -131,6 +138,7 @@ export function useRelationshipSuggestions(
   return {
     suggestions,
     isLoading,
+    hasError,
     fetchSuggestions,
     clearSuggestions,
     dismissSuggestion,

@@ -25,14 +25,22 @@ export const aiHealthKeys = {
  *
  * @example
  * ```tsx
- * const { available, remainingDaily, isLoading } = useAIAvailability()
+ * const { available, remainingPerDay, resetsAt, isLoading } = useAIAvailability()
  * if (!available) return null // hide AI features
  * ```
  */
 export function useAIAvailability(): {
   available: boolean
-  remainingDaily: number
-  limitDaily: number
+  remainingPerDay: number
+  limitPerDay: number
+  /**
+   * Absolute UTC time when the platform daily quota counter resets. `null`
+   * when the user hasn't made any AI calls in the current window yet, or
+   * when Redis is unavailable. Note: this is a snapshot at fetch time — the
+   * hook uses `staleTime: Infinity` with manual invalidation, so long-lived
+   * tabs should display the absolute time rather than a derived countdown.
+   */
+  resetsAt: Date | null
   isLoading: boolean
   error: Error | null
 } {
@@ -48,8 +56,10 @@ export function useAIAvailability(): {
 
   return {
     available: data?.available ?? false,
-    remainingDaily: data?.remaining_daily ?? 0,
-    limitDaily: data?.limit_daily ?? 0,
+    remainingPerDay: data?.remaining_per_day ?? 0,
+    limitPerDay: data?.limit_per_day ?? 0,
+    // Explicit null-guard: `new Date(null)` returns Invalid Date, not null.
+    resetsAt: data?.resets_at ? new Date(data.resets_at) : null,
     isLoading,
     error: error as Error | null,
   }

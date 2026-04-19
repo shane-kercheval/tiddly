@@ -127,7 +127,7 @@ export function Layout(): ReactNode {
   }
 
   return (
-    <div className="flex h-dvh bg-white overflow-hidden">
+    <div data-viewport-locked className="flex h-dvh bg-white overflow-hidden">
       <Sidebar onOpenPalette={() => openPalette('commands')} />
       {/* Note: id="main-content" is used by SaveOverlay.tsx for portal rendering */}
       <main

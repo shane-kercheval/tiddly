@@ -130,11 +130,12 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
                 type="button"
                 onClick={onSuggest}
                 disabled={suggestDisabled || isSuggesting}
-                className="shrink-0 p-0.5 rounded text-gray-300 opacity-0 group-hover/suggest:opacity-100 focus-visible:opacity-100 transition-opacity hover:text-gray-500 hover:bg-gray-100 disabled:opacity-0 disabled:group-hover/suggest:opacity-40 disabled:focus-visible:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-300"
+                aria-busy={isSuggesting}
+                className="btn-ai-icon shrink-0 p-0.5 rounded opacity-0 group-hover/suggest:opacity-100 group-focus-within/suggest:opacity-100 focus-visible:opacity-100 disabled:opacity-0 disabled:group-hover/suggest:opacity-40 disabled:group-focus-within/suggest:opacity-40 disabled:focus-visible:opacity-40 disabled:cursor-not-allowed"
                 aria-label="Suggest title"
               >
                 {isSuggesting ? (
-                  <div className="h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                  <div className="spinner-ai h-4 w-4" />
                 ) : (
                   <SparklesIcon className="h-4 w-4" />
                 )}

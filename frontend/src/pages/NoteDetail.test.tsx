@@ -33,7 +33,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 
 // Mock AI availability (avoids QueryClient dependency)
 vi.mock('../hooks/useAIAvailability', () => ({
-  useAIAvailability: () => ({ available: false, remainingDaily: 0, limitDaily: 0, isLoading: false, error: null }),
+  useAIAvailability: () => ({ available: false, remainingPerDay: 0, limitPerDay: 0, resetsAt: null, isLoading: false, error: null }),
   aiHealthKeys: { all: ['ai-health'] as const, user: (id: string) => ['ai-health', id] as const },
 }))
 

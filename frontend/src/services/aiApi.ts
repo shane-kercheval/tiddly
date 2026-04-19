@@ -21,8 +21,9 @@ import type {
   SuggestMetadataResponse,
   SuggestRelationshipsRequest,
   SuggestRelationshipsResponse,
-  SuggestArgumentsRequest,
-  SuggestArgumentsResponse,
+  SuggestPromptArgumentsRequest,
+  SuggestPromptArgumentFieldsRequest,
+  SuggestPromptArgumentsResponse,
 } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -128,10 +129,25 @@ export async function suggestRelationships(data: SuggestRelationshipsRequest): P
   return response.data
 }
 
-export async function suggestArguments(data: SuggestArgumentsRequest): Promise<SuggestArgumentsResponse> {
+export async function suggestPromptArguments(
+  data: SuggestPromptArgumentsRequest,
+): Promise<SuggestPromptArgumentsResponse> {
   const { model, headers } = aiRequestConfig('suggestions')
-  const response = await api.post<SuggestArgumentsResponse>(
-    '/ai/suggest-arguments',
+  const response = await api.post<SuggestPromptArgumentsResponse>(
+    '/ai/suggest-prompt-arguments',
+    { ...data, model },
+    { headers },
+  )
+  invalidateHealthCache()
+  return response.data
+}
+
+export async function suggestPromptArgumentFields(
+  data: SuggestPromptArgumentFieldsRequest,
+): Promise<SuggestPromptArgumentsResponse> {
+  const { model, headers } = aiRequestConfig('suggestions')
+  const response = await api.post<SuggestPromptArgumentsResponse>(
+    '/ai/suggest-prompt-argument-fields',
     { ...data, model },
     { headers },
   )

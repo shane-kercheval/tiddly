@@ -1,8 +1,9 @@
-name: "suggest_arguments: Argument Suggestion Quality"
+name: "suggest_prompt_arguments: Generate-All Quality"
 description: |
-  Tests prompt argument suggestion quality by calling suggest_arguments()
-  directly. Covers generate-all mode (extract and describe placeholders)
-  and individual mode (suggest name/description for a specific argument).
+  Tests prompt argument generate-all quality by calling
+  suggest_prompt_arguments() directly. Extracts placeholders from a
+  template and verifies the LLM produces one descriptive argument entry
+  per new placeholder.
 
 models:
   - name: "gemini/gemini-flash-lite-latest"
@@ -21,18 +22,20 @@ eval:
 test_cases:
   - id: "generate-all-basic"
     metadata:
-      description: "Simple template with 2 unconditional placeholders — should generate both with required=true"
+      description: "Realistic translation template — 2 unconditional placeholders with unambiguous semantics"
     input:
-      mode: "generate-all"
-      suggest_field: null
-      prompt_content: "Hello {{ name }}, welcome to {{ city }}. We hope you enjoy your stay."
+      prompt_content: |
+        Translate the following text from English to {{ target_language }}.
+        Preserve formatting and tone. Output only the translation, no commentary.
+
+        Text to translate:
+        {{ source_text }}
       arguments: []
-      target_index: null
     checks:
       - type: "subset"
         arguments:
           collection: "$.output.value.argument_names"
-          required: ["name", "city"]
+          required: ["target_language", "source_text"]
           case_sensitive: true
         metadata:
           name: "Expected arguments present"
@@ -44,7 +47,7 @@ test_cases:
           max_value: 2
         metadata:
           name: "Argument count"
-          description: "Exactly 2 arguments expected (name and city)"
+          description: "Exactly 2 arguments expected (target_language and source_text)"
       - type: "is_empty"
         arguments:
           value: "$.output.value.argument_names"
@@ -55,18 +58,24 @@ test_cases:
 
   - id: "generate-all-conditional"
     metadata:
-      description: "Template with conditional and unconditional placeholders — tests required field inference"
+      description: "Realistic code-review template — unconditional placeholders + one inside {% if %}"
     input:
-      mode: "generate-all"
-      suggest_field: null
-      prompt_content: "Write about {{ topic }} for a {{ audience }} audience.{% if context %}\n\nAdditional context: {{ context }}{% endif %}"
+      prompt_content: |
+        Review the following {{ language }} code for bugs, style issues, and
+        potential improvements. Focus on correctness and readability.
+
+        Code:
+        ```
+        {{ code }}
+        ```
+
+        {% if style_guide %}Apply this style guide: {{ style_guide }}{% endif %}
       arguments: []
-      target_index: null
     checks:
       - type: "subset"
         arguments:
           collection: "$.output.value.argument_names"
-          required: ["topic", "audience", "context"]
+          required: ["language", "code", "style_guide"]
           case_sensitive: true
         metadata:
           name: "Expected arguments present"
@@ -91,8 +100,6 @@ test_cases:
     metadata:
       description: "Complex template with 5 variables — mix of conditional and unconditional"
     input:
-      mode: "generate-all"
-      suggest_field: null
       prompt_content: |
         You are a {{ role }} assistant. Help the user with {{ task }}.
 
@@ -104,7 +111,6 @@ test_cases:
         Additional instructions: {{ additional_instructions }}
         {% endif %}
       arguments: []
-      target_index: null
     checks:
       - type: "subset"
         arguments:
@@ -130,71 +136,49 @@ test_cases:
           name: "Arguments non-empty"
           description: "Should return at least one argument"
 
-  - id: "suggest-name"
+  - id: "generate-all-with-existing"
     metadata:
-      description: "Individual mode — suggest a name for an argument that has only a description"
+      description: "Some placeholders already declared — only new ones should be suggested (dedup path)"
     input:
-      mode: "individual"
-      suggest_field: "name"
-      prompt_content: "Write a {{ lang }} function that {{ action }}."
+      prompt_content: |
+        Translate {{ source_text }} from {{ source_language }} to {{ target_language }}.
+        Use a {{ tone }} tone.
       arguments:
-        - name: null
-          description: "The programming language to write the function in"
-        - name: "action"
-          description: "What the function should do"
-      target_index: 0
+        - name: "source_text"
+          description: "The text to translate"
+        - name: "source_language"
+          description: "The language of the source text"
     checks:
-      - type: "threshold"
-        arguments:
-          value: "$.output.value.argument_count"
-          min_value: 1
-          max_value: 1
-        metadata:
-          name: "Exactly one argument returned"
-          description: "Individual mode should return exactly one suggestion"
       - type: "subset"
         arguments:
           collection: "$.output.value.argument_names"
-          required: ["lang"]
+          required: ["target_language", "tone"]
           case_sensitive: true
         metadata:
-          name: "Matches template placeholder"
-          description: "Suggested name should match the existing {{ lang }} placeholder since the description clearly maps to it"
-
-  - id: "suggest-description"
-    metadata:
-      description: "Individual mode — suggest a description for an argument that has only a name"
-    input:
-      mode: "individual"
-      suggest_field: "description"
-      prompt_content: "Convert {{ input_text }} to {{ output_format }}."
-      arguments:
-        - name: "input_text"
-          description: null
-        - name: "output_format"
-          description: null
-      target_index: 1
-    checks:
+          name: "Expected arguments present"
+          description: "Only the two new placeholders should be returned"
       - type: "threshold"
         arguments:
           value: "$.output.value.argument_count"
-          min_value: 1
-          max_value: 1
+          min_value: 2
+          max_value: 2
         metadata:
-          name: "Exactly one argument returned"
-          description: "Individual mode should return exactly one suggestion"
-      - type: "subset"
+          name: "Argument count"
+          description: "Exactly 2 arguments expected (source_text and source_language are excluded)"
+      - type: "disjoint"
         arguments:
           collection: "$.output.value.argument_names"
-          required: ["output_format"]
+          forbidden: ["source_text", "source_language"]
           case_sensitive: true
         metadata:
-          name: "Original name preserved"
-          description: "Suggest-description mode should keep the original argument name"
+          name: "Existing placeholders excluded"
+          description: "Placeholders already declared in arguments must not appear in suggestions"
 
 # Global checks — applied to every test case
 checks:
-  # Argument descriptions are clear and helpful (LLM judge)
+  # Argument descriptions are clear and helpful (LLM judge).
+  # Tightening the criteria here can flag legitimate suggestions as failures
+  # (judge-prompt drift) — change with care and re-baseline if you do.
   - type: "llm_judge"
     arguments:
       prompt: |
@@ -205,25 +189,21 @@ checks:
         {{$.test_case.input.prompt_content}}
         ```
 
-        The suggested arguments:
+        Arguments already declared before this request (these should NOT appear in the suggestions):
+        {{$.output.value.existing_arguments_detail}}
+
+        The suggested arguments (one entry per NEW placeholder only):
         {{$.output.value.arguments_detail}}
-
-        Mode: {{$.test_case.input.mode}}
-        {% if $.test_case.input.target_index is not none %}Target argument index: {{$.test_case.input.target_index}}{% endif %}
-        {% if $.test_case.input.suggest_field %}Suggested field: {{$.test_case.input.suggest_field}}{% endif %}
-
-        The recommender operates in three modes:
-        - generate-all: extracts ALL placeholders from the template and generates descriptions for each
-        - individual (suggest_field=name): suggests a name for a single argument that has a description but no name
-        - individual (suggest_field=description): suggests a description for a single argument that has a name but no description
-
-        In individual mode, it is CORRECT to return only one argument. Do not penalize for missing other placeholders.
 
         Evaluate the suggestions:
         - Each returned argument should have a clear, helpful description that explains what it represents
         - Descriptions should not be vague or generic (e.g., "the value" or "input data")
         - Argument names should be valid (lowercase with underscores)
-        - In suggest-name mode, if the description clearly maps to an existing template placeholder, the suggested name should match that placeholder. If it doesn't map to any placeholder, the name should be descriptive of the argument's purpose.
+
+        Do NOT penalize for placeholders that are absent from the suggestions
+        when they appear in the "already declared" list above — that is the
+        correct dedup behavior. Evaluate only the quality of the descriptions
+        returned; structural completeness is checked separately.
 
         Return passed=true if all returned argument descriptions are clear and helpful. Include brief reasoning for any that fail.
       response_model: "arguments"

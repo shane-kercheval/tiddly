@@ -695,8 +695,17 @@ export const MAX_DISPLAYED_AI_RELATIONSHIP_SUGGESTIONS = 3
 export interface AIHealthResponse {
   available: boolean
   byok: boolean
-  remaining_daily: number
-  limit_daily: number
+  remaining_per_minute: number
+  limit_per_minute: number
+  remaining_per_day: number
+  limit_per_day: number
+  /**
+   * ISO 8601 UTC timestamp when the caller's 24-hour counter for the
+   * selected bucket (platform vs BYOK) expires. `null` when the caller
+   * hasn't made any AI calls in the current window yet — no counter key
+   * exists.
+   */
+  resets_at: string | null
 }
 
 /** A supported model definition from GET /ai/models */
@@ -782,12 +791,21 @@ export interface ArgumentInput {
   description?: string | null
 }
 
-/** Request for POST /ai/suggest-arguments */
-export interface SuggestArgumentsRequest {
+/** Request for POST /ai/suggest-prompt-arguments (generate-all) */
+export interface SuggestPromptArgumentsRequest {
+  model?: string | null
+  prompt_content: string
+  arguments?: ArgumentInput[]
+}
+
+/** Request for POST /ai/suggest-prompt-argument-fields (refine one row) */
+export interface SuggestPromptArgumentFieldsRequest {
   model?: string | null
   prompt_content?: string | null
-  arguments?: ArgumentInput[]
-  target_index?: number | null
+  arguments: ArgumentInput[]
+  target_index: number
+  /** Non-empty list of 1-2 unique elements from {'name', 'description'}. */
+  target_fields: Array<'name' | 'description'>
 }
 
 /** A suggested argument */
@@ -797,7 +815,7 @@ export interface ArgumentSuggestion {
   required: boolean
 }
 
-/** Response from POST /ai/suggest-arguments */
-export interface SuggestArgumentsResponse {
+/** Shared response shape for both prompt-argument suggestion endpoints */
+export interface SuggestPromptArgumentsResponse {
   arguments: ArgumentSuggestion[]
 }

@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import BaseModel
 
+from schemas.ai import AIModelEntry
 from services.llm_service import (
     KeySource,
     LLMConfig,
@@ -59,11 +60,11 @@ def _make_smoke_settings(model_id: str, api_key: str) -> object:
 @pytest.mark.parametrize(
     "model_def",
     _SMOKE_MODELS,
-    ids=[m["id"] for m in _SMOKE_MODELS],
+    ids=[m.id for m in _SMOKE_MODELS],
 )
-async def test_smoke_structured_output(model_def: dict) -> None:
+async def test_smoke_structured_output(model_def: AIModelEntry) -> None:
     """Verify each supported model works with structured output and cost tracking."""
-    model_id = model_def["id"]
+    model_id = model_def.id
     api_key = _get_api_key_for_model(model_id)
 
     if not api_key:

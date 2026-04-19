@@ -231,6 +231,39 @@ describe('setupAuthInterceptor', () => {
       expect(getToastLinkHref()).toBe('/pricing')
     })
 
+    it('shows provider-busy toast without pricing link or retry-after on 429 with llm_rate_limited', async () => {
+      const mockGetToken = vi.fn().mockResolvedValue('test-token')
+      const mockOnAuthError = vi.fn()
+      setupAuthInterceptor(mockGetToken, mockOnAuthError)
+
+      const errorHandler = getErrorHandler()
+      // Upstream LLM provider throttle — backend does not set Retry-After,
+      // so the toast must not render a "wait N seconds" countdown.
+      const mock429Error = {
+        response: {
+          status: 429,
+          headers: {},
+          data: { error_code: 'llm_rate_limited', detail: 'LLM provider rate limit exceeded.' },
+        },
+        isAxiosError: true,
+      }
+
+      if (errorHandler) {
+        await expect(errorHandler(mock429Error)).rejects.toEqual(mock429Error)
+      }
+
+      expect(toast.error).toHaveBeenCalledWith(
+        expect.any(String),
+        { id: 'rate-limit' }
+      )
+      const text = getToastText()
+      expect(text).toContain('provider is busy')
+      expect(text).not.toContain('Higher limits available')
+      expect(text).not.toMatch(/\d+\s*seconds/)
+      expect(text).not.toContain('undefined')
+      expect(getToastLinkHref()).toBeNull()
+    })
+
     it('shows generic toast with pricing link when 429 without retry-after', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
       const mockOnAuthError = vi.fn()

@@ -26,6 +26,7 @@ interface RelationshipContext {
 interface UseAIRelationshipIntegrationReturn {
   aiRelationshipSuggestions: RelationshipCandidate[]
   isAiRelationshipsLoading: boolean
+  aiRelationshipsHasError: boolean
   handleLinkedContentOpen: () => void
   handleLinkedContentClose: () => void
   handleAddRelationshipWithDismiss: (item: ContentListItem, originalHandler: (item: ContentListItem) => void) => void
@@ -38,6 +39,7 @@ export function useAIRelationshipIntegration(
   const {
     suggestions: aiRelationshipSuggestions,
     isLoading: isAiRelationshipsLoading,
+    hasError: aiRelationshipsHasError,
     fetchSuggestions,
     clearSuggestions,
     dismissSuggestion,
@@ -79,6 +81,7 @@ export function useAIRelationshipIntegration(
   return {
     aiRelationshipSuggestions,
     isAiRelationshipsLoading,
+    aiRelationshipsHasError,
     handleLinkedContentOpen,
     handleLinkedContentClose,
     handleAddRelationshipWithDismiss,
