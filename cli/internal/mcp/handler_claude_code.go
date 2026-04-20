@@ -31,17 +31,21 @@ func (h *ClaudeCodeHandler) ResolvePath(configPath, scope, cwd string) (string, 
 	return resolveClaudeCodePath(configPath, scope, cwd)
 }
 
-func (h *ClaudeCodeHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, error) {
-	if err := configureClaudeCode(rc, contentPAT, promptPAT); err != nil {
-		return nil, err
+func (h *ClaudeCodeHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) ([]string, string, error) {
+	backupPath, err := configureClaudeCode(rc, contentPAT, promptPAT)
+	if err != nil {
+		// Forward the backup path even on error — the backup was taken
+		// before the write attempt, so it's valid and the caller needs
+		// it to tell the user where their recovery copy is.
+		return nil, backupPath, err
 	}
 	warnings := []string{
 		fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path),
 	}
-	return warnings, nil
+	return warnings, backupPath, nil
 }
 
-func (h *ClaudeCodeHandler) Remove(rc ResolvedConfig, servers []string) error {
+func (h *ClaudeCodeHandler) Remove(rc ResolvedConfig, servers []string) (string, error) {
 	return removeClaudeCode(rc, servers)
 }
 
@@ -53,7 +57,11 @@ func (h *ClaudeCodeHandler) DryRun(rc ResolvedConfig, contentPAT, promptPAT stri
 	return dryRunClaudeCode(rc, contentPAT, promptPAT)
 }
 
-func (h *ClaudeCodeHandler) ExtractPATs(rc ResolvedConfig) (string, string) {
+func (h *ClaudeCodeHandler) ExtractPATs(rc ResolvedConfig) PATExtraction {
 	return extractClaudeCodePATs(rc)
+}
+
+func (h *ClaudeCodeHandler) AllTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
+	return extractAllClaudeCodeTiddlyPATs(rc)
 }
 
