@@ -175,6 +175,63 @@ echo "Claude Code config:    $CLAUDE_CODE_CONFIG"
 echo "Codex config:          $CODEX_CONFIG"
 echo "Project MCP config:    $PROJECT_MCP_CONFIG (backed up only if present)"
 
+# -- Agent env preflight ----------------------------------------------------
+# MUST run BEFORE the hardcoded exports below — otherwise we mask the exact
+# failure we're trying to detect (engineer forgot to export TIDDLY_* vars in
+# the terminal that launched Claude Code, so the CLI fell back to hardcoded
+# production defaults). We check CLI *behavior*, not env vars, because the
+# CLI's fallback is the actual failure mode and it's observable via `status`.
+#
+# Three fail-closed gates:
+#   1. API URL in `status` output must be localhost (not the prod fallback).
+#   2. `auth status` must not report Session expired / API error / Not logged in.
+#   3. `auth status` must not report `User: unknown` (credentialed but rejected).
+preflight_agent_env() {
+  local status_out api_line auth_out
+  # Bail early if the CLI binary isn't built — otherwise every `bin/tiddly …`
+  # below fails with "command not found", which is noisier than the FATAL.
+  if [ ! -x bin/tiddly ]; then
+    echo "FATAL: bin/tiddly not found or not executable (cwd: $PWD)." >&2
+    echo "       Build it first: make cli-build" >&2
+    exit 1
+  fi
+  status_out=$(bin/tiddly status 2>&1) || true
+  # Match the "URL:" line under the "API:" section (first URL line in status).
+  api_line=$(echo "$status_out" | awk '/^[[:space:]]*URL:/ {print $2; exit}')
+  case "$api_line" in
+    http://localhost:*|http://127.0.0.1:*) ;;
+    *)
+      echo "FATAL: CLI API URL is '${api_line:-<empty>}', not localhost."            >&2
+      echo "       Your launching shell did not export the TIDDLY_* vars, so the"    >&2
+      echo "       CLI fell back to hardcoded production defaults. Running the"      >&2
+      echo "       procedure in this state would operate on your real production"    >&2
+      echo "       configs and tokens."                                               >&2
+      echo                                                                            >&2
+      echo "       Fix: exit Claude Code, open a fresh terminal, and paste the"      >&2
+      echo "       auth block from agent_testing_procedure.md (§ Auth). Re-launch"   >&2
+      echo "       Claude Code from that same terminal so Bash inherits the exports." >&2
+      exit 1
+      ;;
+  esac
+  auth_out=$(bin/tiddly auth status 2>&1)
+  if echo "$auth_out" | grep -qE 'Session expired|API error|Not logged in'; then
+    echo "FATAL: OAuth session is not alive." >&2
+    echo "       Run 'bin/tiddly logout && bin/tiddly login' in the launching"   >&2
+    echo "       shell, then re-launch Claude Code from that same terminal."     >&2
+    exit 1
+  fi
+  if echo "$auth_out" | grep -qE '^User:[[:space:]]+unknown'; then
+    echo "FATAL: 'auth status' reports User: unknown — stored credentials are"  >&2
+    echo "       not accepted by the backend. Likely logged in against the"     >&2
+    echo "       wrong Auth0 tenant (prod instead of dev). Run 'bin/tiddly"      >&2
+    echo "       logout' in the launching shell, verify the TIDDLY_AUTH0_*"     >&2
+    echo "       exports, then 'bin/tiddly login' and re-launch Claude Code."   >&2
+    exit 1
+  fi
+  echo "Agent env preflight: OK (CLI points at $api_line, session alive)."
+}
+preflight_agent_env
+
 # -- Local services (not production) ----------------------------------------
 # This procedure must only run against a local dev environment. If these
 # env vars are missing or point at non-localhost URLs, abort before any
@@ -303,11 +360,49 @@ assert_no_plaintext_bearers() {
 # IMPORTANT: `tiddly auth status` exits 0 whether logged in or not — it's
 # explicitly designed as a "read-only, never errors" helper. We must grep
 # the output instead of trusting the exit code. See cli/cmd/auth.go.
+#
+# `Not logged in` alone is insufficient: it's gated on ErrNotLoggedIn ("no
+# stored creds"), which doesn't fire when creds are stored but rejected by
+# the server (expired session). In that state `auth status` prints:
+#     Auth method: oauth
+#     API URL: ...
+#     User: unknown (API error: Session expired...)
+# A naive `grep -q oauth` passes and diff-based cleanup proceeds without a
+# live session, silently orphaning every cli-mcp-* token minted in the run.
+#
+# Four checks, any failure is FATAL:
+#   1. `Auth method: oauth` present (we authenticated via OAuth for this run)
+#   2. No `Session expired` / `API error` / `Not logged in`
+#   3. `User:` line is not `unknown`
+#   4. API URL is still localhost (catches mid-run env drift)
 assert_auth_still_working() {
   local out
   out=$(bin/tiddly auth status 2>&1)
-  if echo "$out" | grep -q "Not logged in"; then
-    echo "FATAL: auth lost mid-test — cleanup cannot run. Aborting." >&2
+  # NOTE: do NOT echo $out on failure. It contains the authenticated user's
+  # email — not a secret, but if the retained report ever gains stderr
+  # auto-capture the email would leak into post-run markdown. The specific
+  # FATAL message plus the known `auth status` output shape is enough for
+  # the engineer to diagnose manually.
+  if ! echo "$out" | grep -qE '^Auth method:[[:space:]]+oauth'; then
+    echo "FATAL: auth method is no longer 'oauth' — cleanup cannot run. Aborting." >&2
+    echo "       Run 'bin/tiddly auth status' manually to inspect." >&2
+    exit 1
+  fi
+  if echo "$out" | grep -qE 'Session expired|API error|Not logged in'; then
+    echo "FATAL: OAuth session lost mid-test (expired or rejected by server)." >&2
+    echo "       Diff-based cleanup needs a live session; aborting before it"  >&2
+    echo "       can silently orphan cli-mcp-* tokens." >&2
+    echo "       Run 'bin/tiddly auth status' manually to inspect." >&2
+    exit 1
+  fi
+  if echo "$out" | grep -qE '^User:[[:space:]]+unknown'; then
+    echo "FATAL: 'auth status' reports User: unknown — credentials rejected."  >&2
+    echo "       Run 'bin/tiddly auth status' manually to inspect." >&2
+    exit 1
+  fi
+  if ! echo "$out" | grep -qE '^API URL:[[:space:]]+http://(localhost|127\.0\.0\.1):'; then
+    echo "FATAL: API URL drifted off localhost mid-run." >&2
+    echo "       Run 'bin/tiddly auth status' manually to inspect." >&2
     exit 1
   fi
 }
@@ -702,14 +797,13 @@ Auth0 domain, client ID, and audience are **public identifiers**. They ship in f
 
 #### What the agent verifies post-launch
 
-```bash
-bin/tiddly auth status            # Auth method: oauth, User: <your dev email>
-bin/tiddly tokens list            # Exits 0 (may say "No tokens found" — fine)
-```
+**This is enforced, not advisory.** The Phase 0 setup block's `preflight_agent_env` helper runs as its very first step (before any hardcoded `TIDDLY_*` exports) and FATALs with remediation instructions if any of the following fail:
 
-If `auth status` shows "Session expired" or `tokens list` returns 401 here, the exports didn't reach the agent's shell — usually because Claude Code was launched from a different terminal. Re-launch Claude Code from the terminal where you ran the exports.
+- CLI's `status` output must show `API URL: http://localhost:*` or `http://127.0.0.1:*` (catches the prod-default fallback when exports didn't reach the agent's shell).
+- `auth status` output must not contain `Session expired` / `API error` / `Not logged in`.
+- `auth status` must not report `User: unknown` (credentialed but server-rejected — typically wrong Auth0 tenant).
 
-If `auth status` shows the wrong email (e.g. your production account instead of a dev one), the CLI authenticated against production. Run `bin/tiddly logout`, verify the `TIDDLY_AUTH0_*` env vars in the launching shell (`echo $TIDDLY_AUTH0_DOMAIN` — must be the dev domain), and redo `bin/tiddly login`.
+If the preflight FATALs, the message tells the engineer to exit Claude Code, redo the exports in a fresh terminal, and relaunch. No need to run `auth status` manually here — the agent runs it with the exact assertions.
 
 ---
 
