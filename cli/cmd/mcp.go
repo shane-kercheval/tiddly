@@ -67,6 +67,9 @@ If you have multiple entries for the same Tiddly URL under different key names (
 
 Before destructive writes, the existing config file is copied to <path>.bak.<timestamp> alongside the original.
 
+Tools:
+  claude-desktop, claude-code, codex (auto-detect if omitted)
+
 Scope:
   The --scope flag controls where the MCP server config is written. The default is "user",
   which makes Tiddly servers available across all projects.
@@ -304,6 +307,9 @@ With --delete-tokens (requires OAuth login), the CLI reads PATs from the tool's 
 Claude Desktop users: restart Claude Desktop after removing.
 
 Use --servers to selectively remove only the content or prompts server, preserving the other.
+
+Tools:
+  claude-desktop, claude-code, codex
 
 Examples:
   tiddly mcp remove claude-code                          Remove MCP entries
