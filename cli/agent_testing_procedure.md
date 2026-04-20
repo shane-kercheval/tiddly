@@ -669,7 +669,7 @@ if [ $snapshot_rc -ne 0 ]; then
   echo "FATAL: 'tokens list' failed during Phase 0 snapshot (rc=$snapshot_rc)." >&2
   echo "       Auth may not be set up, or the API is unreachable. Aborting." >&2
   echo "       stderr (token values redacted by CLI design, safe to show):"    >&2
-  echo "$snapshot_out" | sed 's/bm_[A-Za-z0-9_]\{4,\}/bm_REDACTED/g'           >&2
+  echo "$snapshot_out" | sed 's/bm_[A-Za-z0-9_-]\{4,\}/bm_REDACTED/g'          >&2
   exit 1
 fi
 echo "$snapshot_out" | awk '/cli-mcp-/ {print $1}' | LC_ALL=C sort \
@@ -1322,7 +1322,7 @@ Under OAuth, mint two real tokens you'll hand to the multi-entry config. First, 
 # specific message rather than silently producing empty PAT variables.
 probe_name="cli-mcp-test-probe-$(openssl rand -hex 3)"
 probe_out=$(bin/tiddly tokens create "$probe_name" 2>&1) || { echo "FATAL: 'tokens create' failed during format probe — aborting (command stderr suppressed to avoid leaking plaintext PATs if the format contract has shifted)"; exit 1; }
-probe_pat=$(echo "$probe_out" | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+probe_pat=$(echo "$probe_out" | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 # Drop the full plaintext container immediately. probe_pat is enough to
 # validate the format contract; keeping probe_out in shell state during the
 # subsequent list/delete commands widens the window where a trap/signal
@@ -1335,8 +1335,8 @@ probe_id=$(bin/tiddly tokens list 2>/dev/null | awk -v n="$probe_name" '$0 ~ n {
 unset probe_pat probe_id
 
 # Now mint the two test tokens we'll use throughout Phase 4.
-PAT_WORK=$(bin/tiddly tokens create "cli-mcp-test-multi-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PAT_PERSONAL=$(bin/tiddly tokens create "cli-mcp-test-multi-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_WORK=$(bin/tiddly tokens create "cli-mcp-test-multi-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL=$(bin/tiddly tokens create "cli-mcp-test-multi-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 [ -n "$PAT_WORK" ] && [ -n "$PAT_PERSONAL" ] || { echo "FATAL: failed to mint test tokens"; exit 1; }
 # NOTE: do NOT run `echo "$PAT_WORK"` or similar at any point. The first-12
 # prefix below matches the settings UI's TokenPrefix and is safe to display.
@@ -1483,8 +1483,8 @@ after_ids=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-/ {print $1}' | L
 Success counterpart to T4.8: multi-entry on both tools + `--yes` → both end up canonical-only. Catches a regression where `--yes` is honored for tool 1 but drops through on tool 2.
 
 ```bash
-PAT_WORK_48b=$(bin/tiddly tokens create "cli-mcp-test-t48b-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PAT_PERSONAL_48b=$(bin/tiddly tokens create "cli-mcp-test-t48b-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_WORK_48b=$(bin/tiddly tokens create "cli-mcp-test-t48b-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_48b=$(bin/tiddly tokens create "cli-mcp-test-t48b-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 [ -n "$PAT_WORK_48b" ] && [ -n "$PAT_PERSONAL_48b" ] || { echo "FATAL: T4.8b token mint failed"; exit 1; }
 
 write_multi_entry_prompts         "$PAT_WORK_48b" "$PAT_PERSONAL_48b"
@@ -1512,8 +1512,8 @@ TOML parity for the JSON consolidation coverage above.
 
 ```bash
 # Mint two fresh test tokens for Codex multi-entry setup.
-PAT_WORK_CODEX=$(bin/tiddly tokens create "cli-mcp-test-codex-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PAT_PERSONAL_CODEX=$(bin/tiddly tokens create "cli-mcp-test-codex-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_WORK_CODEX=$(bin/tiddly tokens create "cli-mcp-test-codex-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_CODEX=$(bin/tiddly tokens create "cli-mcp-test-codex-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 [ -n "$PAT_WORK_CODEX" ] && [ -n "$PAT_PERSONAL_CODEX" ] || { echo "FATAL: failed to mint codex test tokens"; exit 1; }
 
 write_multi_entry_prompts_codex "$PAT_WORK_CODEX" "$PAT_PERSONAL_CODEX"
@@ -1534,8 +1534,8 @@ echo "$out"
 ### [T4.9b] Codex non-interactive without `--yes` — TOML parity for T4.2
 
 ```bash
-PAT_WORK_CX2=$(bin/tiddly tokens create "cli-mcp-test-t49b-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PAT_PERSONAL_CX2=$(bin/tiddly tokens create "cli-mcp-test-t49b-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_WORK_CX2=$(bin/tiddly tokens create "cli-mcp-test-t49b-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_CX2=$(bin/tiddly tokens create "cli-mcp-test-t49b-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 [ -n "$PAT_WORK_CX2" ] && [ -n "$PAT_PERSONAL_CX2" ] || { echo "FATAL: T4.9b token mint failed"; exit 1; }
 
 # T4.9 consolidated to canonical-only; rebuild multi-entry state for this test.
@@ -1568,8 +1568,8 @@ Forces the mint path (T4.4 accepts either) by killing the would-be-survivor serv
 
 ```bash
 # Rebuild multi-entry state (tokens from Phase 4 may have been consolidated).
-PAT_WORK_T410=$(bin/tiddly tokens create "cli-mcp-test-t410-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PAT_PERSONAL_T410=$(bin/tiddly tokens create "cli-mcp-test-t410-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_WORK_T410=$(bin/tiddly tokens create "cli-mcp-test-t410-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_T410=$(bin/tiddly tokens create "cli-mcp-test-t410-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 write_multi_entry_prompts "$PAT_WORK_T410" "$PAT_PERSONAL_T410"
 
 # Kill the would-be-survivor (personal_prompts — alphabetically first).
@@ -1605,10 +1605,10 @@ new_mints=$(comm -13 <(echo "$before_mints") <(echo "$after_mints"))
 
 ```bash
 # Mint four fresh tokens for the mixed-multi-entry setup.
-PC1=$(bin/tiddly tokens create "cli-mcp-test-mixed-c1-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PC2=$(bin/tiddly tokens create "cli-mcp-test-mixed-c2-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PP1=$(bin/tiddly tokens create "cli-mcp-test-mixed-p1-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PP2=$(bin/tiddly tokens create "cli-mcp-test-mixed-p2-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PC1=$(bin/tiddly tokens create "cli-mcp-test-mixed-c1-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PC2=$(bin/tiddly tokens create "cli-mcp-test-mixed-c2-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PP1=$(bin/tiddly tokens create "cli-mcp-test-mixed-p1-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PP2=$(bin/tiddly tokens create "cli-mcp-test-mixed-p2-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 
 # Write four entries via jq merge (preserves non-Tiddly entries).
 tmp=$(mktemp)
@@ -1676,8 +1676,8 @@ bin/tiddly mcp status --path "$TEST_PROJECT"
 ### [T5.4] Multi-entry rendered as multiple rows (regression guard for KAN-112)
 
 ```bash
-PAT_WORK_54=$(bin/tiddly tokens create "cli-mcp-test-t54-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PAT_PERSONAL_54=$(bin/tiddly tokens create "cli-mcp-test-t54-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_WORK_54=$(bin/tiddly tokens create "cli-mcp-test-t54-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_54=$(bin/tiddly tokens create "cli-mcp-test-t54-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 [ -n "$PAT_WORK_54" ] && [ -n "$PAT_PERSONAL_54" ] || { echo "FATAL: T5.4 token mint failed"; exit 1; }
 
 write_multi_entry_prompts "$PAT_WORK_54" "$PAT_PERSONAL_54"
@@ -1787,8 +1787,8 @@ echo "$out_remove"
 
 ```bash
 # Fresh tokens scoped to this test only.
-PAT_WORK_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PAT_PERSONAL_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_WORK_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 [ -n "$PAT_WORK_68" ] && [ -n "$PAT_PERSONAL_68" ] || { echo "FATAL: token mint failed"; exit 1; }
 
 write_multi_entry_prompts "$PAT_WORK_68" "$PAT_PERSONAL_68"
@@ -1821,7 +1821,7 @@ Shared-PAT scenario (common under PAT auth): one token backs both content and pr
 ```bash
 # Fresh shared-PAT install: one token backing both servers.
 bin/tiddly mcp remove claude-code 2>/dev/null || true
-PAT_SHARED=$(bin/tiddly tokens create "cli-mcp-test-shared-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_SHARED=$(bin/tiddly tokens create "cli-mcp-test-shared-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 [ -n "$PAT_SHARED" ] || { echo "FATAL: token mint failed"; exit 1; }
 
 # Configure under PAT auth with the shared token — both server headers carry it.
@@ -1868,8 +1868,8 @@ unset PAT_SHARED
 
 ```bash
 # Fresh tokens for the Codex multi-entry setup.
-PAT_WORK_68C=$(bin/tiddly tokens create "cli-mcp-test-6-8c-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
-PAT_PERSONAL_68C=$(bin/tiddly tokens create "cli-mcp-test-6-8c-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_WORK_68C=$(bin/tiddly tokens create "cli-mcp-test-6-8c-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_68C=$(bin/tiddly tokens create "cli-mcp-test-6-8c-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 [ -n "$PAT_WORK_68C" ] && [ -n "$PAT_PERSONAL_68C" ] || { echo "FATAL: token mint failed"; exit 1; }
 
 write_multi_entry_prompts_codex "$PAT_WORK_68C" "$PAT_PERSONAL_68C"
@@ -1893,7 +1893,7 @@ unset PAT_WORK_68C PAT_PERSONAL_68C
 ```bash
 # Fresh shared-PAT install for Codex. Start from clean slate.
 bin/tiddly mcp remove codex 2>/dev/null || true
-PAT_SHARED_CX=$(bin/tiddly tokens create "cli-mcp-test-shared-codex-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_]+' | head -1)
+PAT_SHARED_CX=$(bin/tiddly tokens create "cli-mcp-test-shared-codex-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 [ -n "$PAT_SHARED_CX" ] || { echo "FATAL: T6.8d token mint failed"; exit 1; }
 
 # Configure Codex under PAT auth with the shared token — both server headers carry it.
