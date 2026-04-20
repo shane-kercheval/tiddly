@@ -735,6 +735,8 @@ trap 'on_exit $?' EXIT
 
 The agent **cannot** complete the OAuth device flow — it requires opening a browser and entering a code. Auth must be set up BEFORE the agent starts.
 
+> **Instruction to the agent reading this plan:** when auth/env-var setup hasn't been done and you need to ask the engineer to do it, you **must** paste the full copy-paste block from "The exact commands — copy, paste, run" below **verbatim** into your message to the engineer. Do not paraphrase it. Do not reference it by line number. Do not summarize it as "run the exports." The engineer should never have to open this file to find the commands — the whole point of baking the values in is that the agent hands them over directly. Include the block inside a fenced code block so it's a single copy-paste for the user.
+
 #### Critical — `.env` is NOT read by the CLI
 
 The Go CLI reads **shell environment variables**, not `backend/.env`. Variables like `VITE_AUTH0_DOMAIN` exist for the backend and frontend; the CLI cannot see them. If you skip the exports below and just run `bin/tiddly login`, the CLI falls back to hardcoded **production** defaults (`tiddly.us.auth0.com` / `Gpv1ZrySgEeoTHlPyq3vSqHdFkS1vPwI` / `tiddly-api`). Your token will then be a production token that your local backend (which validates against the dev Auth0 tenant) will reject with 401 at the first authenticated command.
@@ -745,41 +747,45 @@ If you already ran `bin/tiddly login` bare and ended up logged into production, 
 
 Confirm `VITE_DEV_MODE=false` in the backend's `.env` (or is unset). Dev mode makes the backend accept any Bearer value as the dev user and silently breaks token-validation tests (T4.10, T4.4 mint path). Phase 0 has a probe that FATALs on detection, but checking here first saves a wasted run.
 
-#### Finding the right Auth0 values
+#### Auth0 values — these are not secrets
 
-Auth0 domain, client ID, and audience are **public identifiers**, not secrets. They ship in frontend bundles and OAuth URLs. The CLI's `internal/auth/device_flow.go` hardcodes production values and lets you override them via env vars for dev/staging. To log in against your local dev backend you need the values for your **dev Auth0 tenant**:
+Auth0 domain, client ID, and audience are **public identifiers**. They ship in frontend bundles and OAuth URLs. The values below are for this repo's dev Auth0 tenant and are safe to commit. If you forked this repo and have a different dev tenant, replace them with yours — otherwise the values below are what you want.
 
-- **`TIDDLY_AUTH0_DOMAIN`** — the dev tenant domain. Same as your `backend/.env`'s `VITE_AUTH0_DOMAIN` (e.g. `kercheval-dev.us.auth0.com`).
-- **`TIDDLY_AUTH0_CLIENT_ID`** — the Auth0 application client ID that this CLI device flow uses. Same as your `backend/.env`'s `VITE_AUTH0_CLIENT_ID` as long as that application has the device-code grant type enabled in its Auth0 settings. (If device flow isn't enabled on that client, Auth0 will reject `tiddly login` with "grant type not allowed"; in that case you need a separate Native application in the same tenant and should use its client ID here.)
-- **`TIDDLY_AUTH0_AUDIENCE`** — the API identifier. Same as your `backend/.env`'s `VITE_AUTH0_AUDIENCE` (e.g. `bookmarks-api`).
-
-#### The exact commands
+#### The exact commands — copy, paste, run
 
 1. Exit any running Claude Code session.
-2. Open a fresh terminal. Copy the values **from your own `backend/.env`** into the exports below — do NOT use placeholder values from this document:
+2. Open a fresh terminal and run **exactly this block**:
 
    ```bash
-   # Backend + MCP service URLs (these are standard local-dev ports)
+   # Backend + MCP service URLs (standard local-dev ports)
    export TIDDLY_API_URL=http://localhost:8000
    export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
    export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
 
-   # Auth0 — copy these three from backend/.env's VITE_AUTH0_* values
-   export TIDDLY_AUTH0_DOMAIN=<VITE_AUTH0_DOMAIN from backend/.env>
-   export TIDDLY_AUTH0_CLIENT_ID=<VITE_AUTH0_CLIENT_ID from backend/.env>
-   export TIDDLY_AUTH0_AUDIENCE=<VITE_AUTH0_AUDIENCE from backend/.env>
+   # Auth0 — dev tenant for this repo (public identifiers, not secrets).
+   # IMPORTANT: the CLIENT_ID below is the CLI's dedicated Native Auth0
+   # application (has Device Code grant enabled), NOT the frontend SPA
+   # client ID from backend/.env. The SPA client doesn't have device flow
+   # enabled; using it here fails with `unauthorized_client`. See
+   # docs/implementation_plans/2026-03-02-cli.md:249 for the Native-app
+   # Auth0 setup.
+   export TIDDLY_AUTH0_DOMAIN=kercheval-dev.us.auth0.com
+   export TIDDLY_AUTH0_CLIENT_ID=upLOqYelIdJIv7yZ8AnULA6VGklzak18
+   export TIDDLY_AUTH0_AUDIENCE=bookmarks-api
 
-   # If you may have a stale production session cached, drop it first:
+   # Drop any stale production session that may be cached
    bin/tiddly logout 2>/dev/null || true
 
-   # Now log in against the dev tenant.
+   # Log in against the dev tenant
    bin/tiddly login
 
-   # Sanity check: should print `Auth method: oauth` and your dev-account email.
+   # Sanity check: should print `Auth method: oauth` and your dev-account email
    bin/tiddly auth status
    ```
 
 3. If `auth status` shows your expected dev email, **launch Claude Code from this same terminal**. The agent's Bash tool inherits these env vars from the launching shell.
+
+> If `bin/tiddly login` errors with `grant type "urn:ietf:params:oauth:grant-type:device_code" not allowed for the client` or similar, the `TIDDLY_AUTH0_CLIENT_ID` above points at the SPA Auth0 application which doesn't have device-code flow enabled. Either (a) enable "Device Code" in the Auth0 dashboard for that application's Grant Types, or (b) create a separate Native application in the same tenant and use its client ID here. Other errors usually mean one of the env vars is wrong — `echo $TIDDLY_AUTH0_DOMAIN` to confirm the shell has them.
 
 #### What the agent verifies post-launch
 
