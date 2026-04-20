@@ -1325,8 +1325,8 @@ echo "$out"
 - [ ] Output contains `Proceeding (--yes).`
 - [ ] Output does NOT contain `Continue? [y/N]:` (prompt skipped). The positive "prompt appears under a TTY" direction is covered by the unit test `TestRunConfigure__consolidation_prompt_proceeds_on_yes` — see the Deferred table — so this NOT-contains assertion and the unit test form the pair.
 - [ ] `jq -e '.mcpServers.tiddly_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — canonical written
-- [ ] `jq -e '.mcpServers.work_prompts // empty | length == 0' "$CLAUDE_CODE_CONFIG" >/dev/null` — work key gone
-- [ ] `jq -e '.mcpServers.personal_prompts // empty | length == 0' "$CLAUDE_CODE_CONFIG" >/dev/null` — personal key gone
+- [ ] `jq -e '.mcpServers.work_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null` — work key gone
+- [ ] `jq -e '.mcpServers.personal_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null` — personal key gone
 - [ ] **Survivor value check via hash-compare only (neither value printed):**
   ```bash
   # The alphabetically-first entry (personal_prompts) wins under canonical-first-else-
@@ -1425,7 +1425,7 @@ unset PAT_WORK_48b PAT_PERSONAL_48b
 - [ ] Both `claude-code:` and `claude-desktop:` appear under that header
 - [ ] Output contains `Proceeding (--yes).`
 - [ ] claude-code: `jq -e '.mcpServers.tiddly_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — canonical written
-- [ ] claude-code: customs gone: `jq -e '.mcpServers.work_prompts // empty | length == 0' "$CLAUDE_CODE_CONFIG" >/dev/null` AND `jq -e '.mcpServers.personal_prompts // empty | length == 0' "$CLAUDE_CODE_CONFIG" >/dev/null`
+- [ ] claude-code: customs gone: `jq -e '.mcpServers.work_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null` AND `jq -e '.mcpServers.personal_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
 - [ ] claude-desktop: canonical written: `jq -e '.mcpServers.tiddly_prompts' "$CLAUDE_DESKTOP_CONFIG" >/dev/null`
 - [ ] claude-desktop: customs gone (same jq pattern as claude-code)
 
@@ -1699,8 +1699,8 @@ backup_path=$(echo "$out" | sed -n 's/.*Backed up previous config to \(.*\)$/\1/
 - [ ] Output contains `Removed Tiddly MCP servers from claude-code.`
 - [ ] `[ -n "$backup_path" ]` and `[ -f "$backup_path" ]` — exact backup from this command exists
 - [ ] `[ "$pre_sha" = "$(sha_of "$backup_path")" ]` — backup contains pre-remove state
-- [ ] `jq -e '.mcpServers.tiddly_notes_bookmarks // empty | length == 0' "$CLAUDE_CODE_CONFIG" >/dev/null`
-- [ ] `jq -e '.mcpServers.tiddly_prompts // empty | length == 0' "$CLAUDE_CODE_CONFIG" >/dev/null`
+- [ ] `jq -e '.mcpServers.tiddly_notes_bookmarks == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
+- [ ] `jq -e '.mcpServers.tiddly_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
 - [ ] Non-Tiddly keys preserved (diff `jq -r '.mcpServers | keys[]'` before-remove vs now; pre-remove had tiddly_*; now tiddly_* gone; everything else unchanged)
 - [ ] Stderr may contain an orphan-token warning
 
@@ -1793,8 +1793,8 @@ unset PAT_WORK_68 PAT_PERSONAL_68
 - [ ] Exit 0
 - [ ] `out` contains `Deleted tokens:` listing BOTH `cli-mcp-test-6-8-*` token names (the pre-fix bug revoked only one)
 - [ ] `[ -z "$after" ]` — both tokens actually gone from the server
-- [ ] `jq -e '.mcpServers.work_prompts // empty | length == 0' "$CLAUDE_CODE_CONFIG" >/dev/null`
-- [ ] `jq -e '.mcpServers.personal_prompts // empty | length == 0' "$CLAUDE_CODE_CONFIG" >/dev/null`
+- [ ] `jq -e '.mcpServers.work_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
+- [ ] `jq -e '.mcpServers.personal_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
 
 This is the test that would have failed before commit 4. If it passes, the multi-entry orphan bug is truly fixed end-to-end.
 
@@ -1842,7 +1842,7 @@ unset PAT_SHARED
 - [ ] `rc == 0`
 - [ ] `$stderr` contains `Warning: token is shared with content server (still configured); it will also lose access.` (channel-specific assertion — NOT `$stdout`)
 - [ ] `$stdout` contains `Deleted tokens:` (the shared PAT was revoked as requested)
-- [ ] Prompts gone: `jq -e '.mcpServers.tiddly_prompts // empty | length == 0' "$CLAUDE_CODE_CONFIG" >/dev/null`
+- [ ] Prompts gone: `jq -e '.mcpServers.tiddly_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
 - [ ] Content retained: `jq -e '.mcpServers.tiddly_notes_bookmarks' "$CLAUDE_CODE_CONFIG" >/dev/null`
 - [ ] `[ "$shared_hash" = "$content_hash" ]` — the retained content entry still carries the now-revoked PAT, exactly the breakage the warning predicted
 
