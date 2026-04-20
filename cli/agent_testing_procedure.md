@@ -603,6 +603,14 @@ report_phase() {
 # Single-line test outcome. Status: PASS | FAIL | SKIP | NOTE.
 #   report_test PASS "T1.1 — Root help"
 #   report_test FAIL "T5.1 — Status" "stderr missing expected banner"
+#
+# CONVENTION: when retrying a test after fixing state, pass the SAME test ID
+# (2nd arg) as the failing call. Put retry context in the DETAIL (3rd arg).
+#   report_test FAIL "T4.4" "survivor hash mismatch"
+#   report_test PASS "T4.4" "re-run after newline fix"       ← correct
+#   report_test PASS "T4.4 (re-run after newline fix)" ""    ← WRONG
+# report_summary() counts per-ID final state; renaming the ID on retry
+# means awk sees them as two separate tests and the FAIL isn't superseded.
 report_test() {
   # NOTE: using `test_status` (not `status`) because zsh treats $status as
   # a readonly magic variable holding the last command's exit code.
@@ -653,19 +661,64 @@ report_mismatch() {
 }
 
 # End-of-run summary (call from Phase 10 before final cleanup).
+#
+# Counts unique test IDs by final state — a later PASS for the same ID
+# overrides an earlier FAIL. The raw REPORT_PASS/FAIL/SKIP counters
+# accumulate every call to report_test(); without per-ID deduping, a
+# retry-heavy run reports "Result: FAILED" even when every test ultimately
+# passes. Awk-post-processing the report file is portable across zsh/bash
+# and handles the retry-then-supersede pattern correctly.
+#
+# NOTE lines are counted independently (they annotate a test, not its
+# outcome) — without this, a PASS followed by a NOTE for the same test ID
+# would demote the test to "NOTE" in the final tally.
 report_summary() {
+  local stats unique_pass unique_fail unique_skip unique_note unique_total superseded
+  stats=$(awk '
+    /\*\*(PASS|FAIL|SKIP)\*\*/ {
+      n = split($0, parts, /\*\*/)
+      if (n < 3) next
+      st = parts[2]
+      rest = parts[3]
+      sub(/^ — /, "", rest)
+      if (index(rest, " — ") > 0) {
+        rest = substr(rest, 1, index(rest, " — ") - 1)
+      }
+      sub(/[[:space:]]+$/, "", rest)
+      final[rest] = st
+    }
+    /\*\*NOTE\*\*/ { note_count++ }
+    END {
+      unique_ids = 0
+      for (id in final) {
+        unique_ids++
+        count[final[id]]++
+      }
+      printf "%d %d %d %d %d\n",
+        (count["PASS"]+0), (count["FAIL"]+0), (count["SKIP"]+0), (note_count+0), unique_ids
+    }
+  ' "$REPORT")
+  read -r unique_pass unique_fail unique_skip unique_note unique_total <<EOF
+$stats
+EOF
+  superseded=$((REPORT_FAIL - unique_fail))
+  [ $superseded -lt 0 ] && superseded=0
   {
     echo
     echo "## Run Summary"
     echo
     printf -- '- **End (UTC):** %s\n' "$(date -u +'%Y-%m-%d %H:%M:%SZ')"
-    printf -- '- **Passed:** %d\n' "$REPORT_PASS"
-    printf -- '- **Failed:** %d\n' "$REPORT_FAIL"
-    printf -- '- **Skipped:** %d\n' "$REPORT_SKIP"
-    printf -- '- **Notes:** %d\n' "$REPORT_NOTE"
-    if [ "$REPORT_FAIL" -eq 0 ]; then
+    printf -- '- **Unique tests:** %d\n' "$unique_total"
+    printf -- '- **Passed (final):** %d\n' "$unique_pass"
+    printf -- '- **Failed (final):** %d\n' "$unique_fail"
+    printf -- '- **Skipped:** %d\n' "$unique_skip"
+    printf -- '- **Notes:** %d\n' "$unique_note"
+    if [ "$superseded" -gt 0 ]; then
+      printf -- '- **Historical FAILs superseded by retry PASS:** %d (not counted in Result)\n' "$superseded"
+    fi
+    if [ "$unique_fail" -eq 0 ]; then
       echo
-      echo '**Result:** clean run — no mismatches surfaced.'
+      echo '**Result:** clean run — no unresolved mismatches.'
     else
       echo
       echo '**Result:** **FAILED** — see mismatch blocks above.'
