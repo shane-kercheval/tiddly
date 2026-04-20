@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
 )
@@ -51,6 +53,100 @@ type ConfigureOpts struct {
 	ExpiresIn *int     // PAT expiration in days (nil = no expiration)
 	Output    io.Writer
 	ErrOutput io.Writer
+
+	// AssumeYes bypasses the interactive consolidation prompt (set via --yes).
+	AssumeYes bool
+	// Stdin is the source for the interactive confirmation prompt.
+	// Tests inject a *bytes.Buffer; production uses os.Stdin.
+	Stdin io.Reader
+	// IsInteractive reports whether stdin is connected to a terminal. When
+	// nil, falls back to detecting stdin itself. Tests override to simulate
+	// interactive vs non-interactive runs without a real TTY.
+	IsInteractive func() bool
+}
+
+// ErrConsolidationDeclined is returned when the user says "no" at the
+// interactive consolidation prompt. The cmd layer surfaces this with an
+// actionable user message.
+var ErrConsolidationDeclined = errors.New("consolidation declined by user")
+
+// ErrConsolidationNeedsConfirmation is returned when the CLI detects that
+// a configure would consolidate multiple tiddly entries but cannot prompt
+// (non-interactive stdin) and --yes was not passed. The cmd layer wraps
+// this with flag-name guidance; the sentinel itself is deliberately terse
+// so the mcp package doesn't bake in knowledge of CLI flag names.
+var ErrConsolidationNeedsConfirmation = errors.New("consolidation needs confirmation")
+
+// preflightedTool holds per-tool state computed during Phase 1 (pre-flight)
+// of RunConfigure. Everything here is gathered without mutating the user's
+// filesystem or any server-side state — so a subsequent "no" at the
+// confirmation gate leaves nothing to clean up.
+type preflightedTool struct {
+	tool           DetectedTool
+	handler        ToolHandler
+	rc             ResolvedConfig
+	consolidations []ConsolidationGroup // nil when no consolidation would occur
+}
+
+// anyConsolidations reports whether any preflighted tool has at least one
+// ConsolidationGroup. Used to decide whether to emit the leading header
+// in both dry-run and gate paths.
+func anyConsolidations(plan []preflightedTool) bool {
+	for _, pf := range plan {
+		if len(pf.consolidations) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// confirmConsolidations is the single cross-tool confirmation gate. Emits a
+// combined warning covering every tool whose configure would collapse
+// multiple existing Tiddly entries, then:
+//   - opts.AssumeYes          → proceed, print "--yes" acknowledgment
+//   - interactive stdin       → prompt y/N once (default No)
+//   - non-interactive stdin   → return ErrConsolidationNeedsConfirmation
+//
+// Returning nil means either no consolidation is required or the user
+// confirmed. Returning an error means the caller must abort before any
+// writes or API mutations — no partial state.
+func confirmConsolidations(opts ConfigureOpts, plan []preflightedTool, isPATAuth bool) error {
+	if !anyConsolidations(plan) {
+		return nil
+	}
+
+	fmt.Fprintln(opts.Output, "Consolidation required:")
+	for _, pf := range plan {
+		if len(pf.consolidations) > 0 {
+			writeConsolidationWarning(opts.Output, pf.tool.Name, pf.consolidations, isPATAuth)
+		}
+	}
+
+	if opts.AssumeYes {
+		fmt.Fprintln(opts.Output, "Proceeding (--yes).")
+		return nil
+	}
+
+	interactive := opts.IsInteractive
+	if interactive == nil {
+		interactive = defaultIsInteractive
+	}
+	if !interactive() {
+		return ErrConsolidationNeedsConfirmation
+	}
+
+	stdin := opts.Stdin
+	if stdin == nil {
+		stdin = os.Stdin
+	}
+	ok, err := promptYesNo(opts.Output, stdin, "Continue? [y/N]: ")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrConsolidationDeclined
+	}
+	return nil
 }
 
 // wantServer returns true if the given server name is in the requested servers list.
@@ -66,15 +162,32 @@ func (o ConfigureOpts) wantServer(name string) bool {
 	return false
 }
 
+// BackupRecord points at a single timestamped backup file created before
+// a destructive write. Captured as a typed struct rather than a display
+// string so future consumers (e.g. a `tiddly mcp restore` subcommand) can
+// work with the data directly instead of parsing formatted output.
+type BackupRecord struct {
+	Tool string // tool name (e.g. "claude-desktop")
+	Path string // absolute path to the <original>.bak.<timestamp> file
+}
+
 // ConfigureResult captures what was done during configure.
 type ConfigureResult struct {
 	ToolsConfigured []string
 	TokensCreated   []string
 	TokensReused    []string
 	Warnings        []string
+	// Backups holds one record per tool whose config file existed before
+	// configure and was copied to a timestamped backup. Surfaces to the
+	// user so they know where their recovery copy landed.
+	Backups []BackupRecord
 }
 
-// RunConfigure orchestrates MCP server configuration for the given tools.
+// RunConfigure orchestrates MCP server configuration for the given tools in
+// three phases: pre-flight (read-only discovery), confirmation gate (single
+// y/N across all tools), and commit (PAT resolution + Configure). The split
+// ensures no server-side token creation or filesystem writes happen before
+// the user confirms — a "no" at the gate leaves the system untouched.
 func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, error) {
 	if opts.Output == nil {
 		opts.Output = os.Stdout
@@ -94,6 +207,14 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 			"Using your current token for MCP servers. Login via 'tiddly login' to auto-create dedicated tokens per server.")
 	}
 
+	// Phase 1: Pre-flight. Resolve paths, read current state, detect
+	// consolidations. No filesystem writes, no server-side mutations.
+	//
+	// Status errors are tolerated in dry-run (the diff is still useful as
+	// a preview), but fail-closed in a real configure: if we can't read
+	// the existing config, we can't detect consolidation, and silently
+	// proceeding would bypass the safety gate the user is relying on.
+	plan := make([]preflightedTool, 0, len(tools))
 	for _, tool := range tools {
 		if !tool.Detected {
 			continue
@@ -110,104 +231,296 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 			return nil, fmt.Errorf("%s: %w", tool.Name, err)
 		}
 
-		// Resolve PATs per-tool
-		contentPAT, promptPAT, err := resolveToolPATs(opts, handler, tool, rc, isPATAuth, result)
+		var groups []ConsolidationGroup
+		sr, statusErr := handler.Status(rc)
+		switch {
+		case statusErr != nil && opts.DryRun:
+			// Supplementary warning only; diff is still informative.
+		case statusErr != nil:
+			return nil, fmt.Errorf("reading %s config for safety check: %w", tool.Name, statusErr)
+		default:
+			groups = detectConsolidations(sr, opts.Servers)
+		}
+
+		// Populate SurvivorName per group under OAuth so the warning's
+		// "PAT from X will be reused" matches the entry ExtractPATs
+		// actually picks during commit. Under PAT auth the warning
+		// doesn't use SurvivorName — it frames the consolidation as a
+		// rebind to the login account — so we skip the read.
+		if !isPATAuth && len(groups) > 0 {
+			ext := handler.ExtractPATs(rc)
+			for i := range groups {
+				groups[i].SurvivorName = survivorNameFor(ext, groups[i].ServerType)
+			}
+		}
+
+		plan = append(plan, preflightedTool{tool: tool, handler: handler, rc: rc, consolidations: groups})
+	}
+
+	// Phase 2: Single confirmation gate. Skipped in dry-run — dry-run
+	// emits per-tool warnings alongside each diff instead of gating,
+	// but still prints a leading "Consolidation required:" header so the
+	// dry-run and real-run outputs open the same way. A user who runs
+	// dry-run followed by real shouldn't see formatting churn for what
+	// is the same underlying event.
+	if !opts.DryRun {
+		if err := confirmConsolidations(opts, plan, isPATAuth); err != nil {
+			return nil, err
+		}
+	} else if anyConsolidations(plan) {
+		fmt.Fprintln(opts.Output, "Consolidation required:")
+	}
+
+	// Phase 3: Commit. PAT resolution (which may create tokens server-side)
+	// and the filesystem write happen here, after the user has confirmed.
+	//
+	// Errors below return the partial result so the caller can display what
+	// already succeeded. Crucially, any OAuth tokens minted for the FAILING
+	// tool are revoked server-side — otherwise a Configure failure would
+	// leave orphaned tokens on the user's account that they'd have to chase
+	// down manually. Tokens minted for earlier successful tools stay put:
+	// they're in those tools' written configs and must remain usable.
+	for _, pf := range plan {
+		res, err := resolveToolPATs(opts, pf.handler, pf.tool, pf.rc, isPATAuth)
 		if err != nil {
-			return nil, fmt.Errorf("resolving tokens for %s: %w", tool.Name, err)
+			// Some mints may have already happened before the failing one
+			// (content minted, prompts failed). Revoke what we have. Use a
+			// detached context with its own timeout so Ctrl+C or an outer
+			// cancellation doesn't cascade into the cleanup and silently
+			// orphan the tokens we just created.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+			err = withRevokeError(err, revokeMintedTokens(cleanupCtx, opts.Client, res.Minted))
+			cancel()
+			return result, fmt.Errorf("resolving tokens for %s: %w", pf.tool.Name, err)
 		}
 
 		if opts.DryRun {
-			fmt.Fprintf(opts.Output, "\n--- %s ---\n", tool.Name)
-			before, after, err := handler.DryRun(rc, contentPAT, promptPAT)
-			if err != nil {
-				return nil, err
+			fmt.Fprintf(opts.Output, "\n--- %s ---\n", pf.tool.Name)
+			if len(pf.consolidations) > 0 {
+				writeConsolidationWarning(opts.Output, pf.tool.Name, pf.consolidations, isPATAuth)
 			}
-			printDiff(opts.Output, rc.Path, before, after)
-			result.ToolsConfigured = append(result.ToolsConfigured, tool.Name)
+			before, after, dErr := pf.handler.DryRun(pf.rc, res.ContentPAT, res.PromptPAT)
+			if dErr != nil {
+				// Consistent with the commit-phase partial-result contract:
+				// return what we've accumulated (TokensReused from prior
+				// iterations) even though nothing was written. Dry-run has
+				// no mints to revoke.
+				return result, dErr
+			}
+			printDiff(opts.Output, pf.rc.Path, before, after)
+			// Dry-run does not write anything, so ToolsConfigured stays empty.
+			// The field's contract is "tools whose configs were actually
+			// written to disk"; a future consumer (e.g. `tiddly mcp restore`
+			// consulting result.Backups) must not be fooled by a dry-run
+			// listing a tool as configured. Similarly TokensCreated stays
+			// empty — no server-side mint happened under dry-run.
+			result.TokensReused = append(result.TokensReused, res.Reused...)
 			continue
 		}
 
-		warnings, err := handler.Configure(rc, contentPAT, promptPAT, tool)
-		if err != nil {
-			return nil, fmt.Errorf("configuring %s: %w", tool.Name, err)
+		warnings, backupPath, cErr := pf.handler.Configure(pf.rc, res.ContentPAT, res.PromptPAT, pf.tool)
+		// Record the backup unconditionally if one was taken. Configure
+		// creates the backup BEFORE attempting the write, so even a failed
+		// write leaves a valid recovery copy on disk — and that's exactly
+		// the case where the user most needs to know where it is.
+		if backupPath != "" {
+			result.Backups = append(result.Backups, BackupRecord{Tool: pf.tool.Name, Path: backupPath})
 		}
+		if cErr != nil {
+			// Detached cleanup context: see note at the resolveToolPATs
+			// error path above. We want revoke to run even if the user
+			// Ctrl+C'd or an outer deadline fired — that's when orphan
+			// cleanup matters most.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+			cErr = withRevokeError(cErr, revokeMintedTokens(cleanupCtx, opts.Client, res.Minted))
+			cancel()
+			return result, fmt.Errorf("configuring %s: %w", pf.tool.Name, cErr)
+		}
+
+		// Success: only now promote the mints and reuses into the visible
+		// summary. If Configure had failed we'd have revoked them instead.
+		// Backups were already recorded above (they survive write failures).
+		for _, m := range res.Minted {
+			result.TokensCreated = append(result.TokensCreated, m.Name)
+		}
+		result.TokensReused = append(result.TokensReused, res.Reused...)
 		result.Warnings = append(result.Warnings, warnings...)
-		result.ToolsConfigured = append(result.ToolsConfigured, tool.Name)
+		result.ToolsConfigured = append(result.ToolsConfigured, pf.tool.Name)
 	}
 
 	return result, nil
 }
 
+// mintedToken records a server-side PAT created during a commit-phase run
+// so we can revoke it if a subsequent step (another PAT mint, the config
+// write) fails for the same tool. Keeping this local to the commit loop —
+// instead of writing straight into ConfigureResult — means we only promote
+// the records to the user-visible summary after the tool fully succeeds.
+type mintedToken struct {
+	ID   string
+	Name string
+	// Token is the plaintext PAT. Used only to derive a last-4 prefix in
+	// cleanup error messages so users can identify orphans in their
+	// settings UI. Do NOT log the full value, serialize this struct, or
+	// pass it across process/log-sink boundaries.
+	Token string
+}
+
+// toolPATResolution is the per-tool output of resolveToolPATs. It separates
+// "attempted" (minted) from "settled" (reused) so the commit loop can decide
+// what to promote to ConfigureResult after Configure either succeeds or
+// fails and triggers revoke.
+type toolPATResolution struct {
+	ContentPAT string
+	PromptPAT  string
+	Minted     []mintedToken // server-side tokens created this run; revoke targets on failure
+	Reused     []string      // "tool/serverType" labels for tokens that already existed and passed validation
+}
+
 // resolveToolPATs determines the content and prompt PATs for a specific tool.
-// For PAT auth: reuses the login token. For OAuth: extracts existing PATs from the
-// tool's config, validates them, and creates new ones only if needed.
-func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool, rc ResolvedConfig, isPATAuth bool, result *ConfigureResult) (contentPAT, promptPAT string, err error) {
+// For PAT auth: reuses the login token (no server-side mutation). For OAuth:
+// extracts existing PATs from the tool's config, validates them, and creates
+// new ones only when needed. Newly-minted token metadata is returned in
+// toolPATResolution.Minted so the caller can revoke on failure.
+func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool, rc ResolvedConfig, isPATAuth bool) (toolPATResolution, error) {
+	var out toolPATResolution
 	if isPATAuth {
+		// No validation needed here. `tiddly login` validated this PAT
+		// server-side; the window between login and configure is too small
+		// for server-side revocation to be a realistic failure mode.
+		// OAuth-reused PATs ARE validated below because they come from a
+		// config file of unknown age — a different risk class.
 		pat := opts.Client.Token
 		if opts.wantServer(ServerContent) {
-			contentPAT = pat
+			out.ContentPAT = pat
 		}
 		if opts.wantServer(ServerPrompts) {
-			promptPAT = pat
+			out.PromptPAT = pat
 		}
-		return contentPAT, promptPAT, nil
+		return out, nil
 	}
 
 	// OAuth: try to reuse existing PATs from the tool's config
-	existingContent, existingPrompt := handler.ExtractPATs(rc)
+	ext := handler.ExtractPATs(rc)
 
 	if opts.wantServer(ServerContent) {
-		contentPAT, err = resolveServerPAT(opts, tool.Name, ServerContent, existingContent, result)
+		pat, minted, reused, err := resolveServerPAT(opts, tool.Name, ServerContent, ext.ContentPAT)
 		if err != nil {
-			return "", "", err
+			return out, err
+		}
+		out.ContentPAT = pat
+		if minted != nil {
+			out.Minted = append(out.Minted, *minted)
+		}
+		if reused {
+			out.Reused = append(out.Reused, fmt.Sprintf("%s/%s", tool.Name, ServerContent))
 		}
 	}
 	if opts.wantServer(ServerPrompts) {
-		promptPAT, err = resolveServerPAT(opts, tool.Name, ServerPrompts, existingPrompt, result)
+		pat, minted, reused, err := resolveServerPAT(opts, tool.Name, ServerPrompts, ext.PromptPAT)
 		if err != nil {
-			return "", "", err
+			return out, err
+		}
+		out.PromptPAT = pat
+		if minted != nil {
+			out.Minted = append(out.Minted, *minted)
+		}
+		if reused {
+			out.Reused = append(out.Reused, fmt.Sprintf("%s/%s", tool.Name, ServerPrompts))
 		}
 	}
 
-	return contentPAT, promptPAT, nil
+	return out, nil
 }
 
-// resolveServerPAT resolves a single PAT for a specific server.
-// If an existing PAT is found and valid, it's reused. Otherwise a new one is created.
-func resolveServerPAT(opts ConfigureOpts, toolName, serverType, existingPAT string, result *ConfigureResult) (string, error) {
+// resolveServerPAT resolves a single PAT for a specific server. If an
+// existing PAT is found and valid, it's reused (reused=true, minted=nil).
+// Otherwise a new one is created on the server (minted points to the
+// new token record). No mutation of any shared result — the caller owns
+// promoting records to the user-visible summary.
+func resolveServerPAT(opts ConfigureOpts, toolName, serverType, existingPAT string) (pat string, minted *mintedToken, reused bool, err error) {
 	// Dry-run: skip network calls entirely — show placeholder for new tokens,
 	// optimistically reuse existing ones without validation. This previews
 	// the config as-is; a real configure will validate and replace stale PATs.
 	if opts.DryRun {
 		if existingPAT != "" {
-			result.TokensReused = append(result.TokensReused,
-				fmt.Sprintf("%s/%s", toolName, serverType))
-			return existingPAT, nil
+			return existingPAT, nil, true, nil
 		}
-		return dryRunPlaceholder, nil
+		return dryRunPlaceholder, nil, false, nil
 	}
 
 	// Try to reuse existing PAT
 	if existingPAT != "" {
-		valid, err := validatePAT(opts.Ctx, opts.Client.BaseURL, existingPAT)
-		if err != nil {
-			return "", fmt.Errorf("checking existing %s token for %s: %w", serverType, toolName, err)
+		valid, vErr := validatePAT(opts.Ctx, opts.Client.BaseURL, existingPAT)
+		if vErr != nil {
+			return "", nil, false, fmt.Errorf("checking existing %s token for %s: %w", serverType, toolName, vErr)
 		}
 		if valid {
-			result.TokensReused = append(result.TokensReused,
-				fmt.Sprintf("%s/%s", toolName, serverType))
-			return existingPAT, nil
+			return existingPAT, nil, true, nil
 		}
 	}
 
 	// Create a new PAT
 	name := generateTokenName(toolName, serverType)
-	resp, err := opts.Client.CreateToken(opts.Ctx, name, opts.ExpiresIn)
-	if err != nil {
-		return "", fmt.Errorf("creating %s MCP token for %s: %w", serverType, toolName, err)
+	resp, cErr := opts.Client.CreateToken(opts.Ctx, name, opts.ExpiresIn)
+	if cErr != nil {
+		return "", nil, false, fmt.Errorf("creating %s MCP token for %s: %w", serverType, toolName, cErr)
 	}
-	result.TokensCreated = append(result.TokensCreated, name)
-	return resp.Token, nil
+	return resp.Token, &mintedToken{ID: resp.ID, Name: resp.Name, Token: resp.Token}, false, nil
+}
+
+// cleanupTimeout bounds the best-effort token-revoke window. Uses a
+// detached context so Ctrl+C or an outer deadline doesn't kill the cleanup
+// and silently leave orphaned tokens on the user's account. 10s is enough
+// for a handful of DELETE /tokens/{id} calls at normal network latency.
+const cleanupTimeout = 10 * time.Second
+
+// withRevokeError joins a commit-phase primary error with a revoke-failure
+// error if cleanup also failed. Uses errors.Join so callers can errors.Is
+// against either side of the failure (the primary describes what went
+// wrong; the revoke error names specific tokens that now need manual
+// cleanup). The user-facing string renders as two lines — the root cause
+// above, the cleanup note below — which is easier to read in a terminal
+// than a single flattened message.
+func withRevokeError(primary, revoke error) error {
+	if revoke == nil {
+		return primary
+	}
+	return errors.Join(primary, fmt.Errorf("cleanup partially failed: %w", revoke))
+}
+
+// revokeMintedTokens best-effort deletes the given server-side tokens by ID.
+// Used to clean up after a commit-phase failure so we don't leave orphaned
+// tokens on the account.
+//
+// Returns nil if every token was deleted (or there were none to delete).
+// Returns a summary error naming each token that could NOT be revoked so
+// the user can finish the cleanup manually in their settings.
+func revokeMintedTokens(ctx context.Context, client *api.Client, minted []mintedToken) error {
+	if len(minted) == 0 {
+		return nil
+	}
+	var orphans []string
+	for _, m := range minted {
+		if delErr := client.DeleteToken(ctx, m.ID); delErr != nil {
+			// Use the first-12 TokenPrefix — matches what the server stores
+			// in api.TokenInfo.TokenPrefix and what the settings UI shows,
+			// so the user can correlate this error directly with the row
+			// they need to delete manually. The `if` guard is defensive
+			// against a bug that produced a shorter-than-expected token;
+			// not expected to fire for server-generated PATs.
+			prefix := m.Token
+			if len(prefix) > tokenPrefixLen {
+				prefix = prefix[:tokenPrefixLen]
+			}
+			orphans = append(orphans, fmt.Sprintf("%s (prefix %s)", m.Name, prefix))
+		}
+	}
+	if len(orphans) == 0 {
+		return nil
+	}
+	return fmt.Errorf("failed to revoke %d minted token(s); clean up manually at https://tiddly.me/settings: %s",
+		len(orphans), strings.Join(orphans, ", "))
 }
 
 // tokenNamePrefix is the prefix for all CLI-created MCP tokens.
@@ -278,16 +591,31 @@ func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string
 }
 
 
+// bearerRE matches "Bearer bm_<token>" sequences in either JSON-escaped or
+// raw form. Matches the Authorization header value in claude-code/codex
+// JSON+TOML configs and the inline --header string in claude-desktop stdio
+// args. Captures the "Bearer " prefix (and the space) so the replacement
+// can keep it and substitute only the PAT.
+var bearerRE = regexp.MustCompile(`Bearer[ \t]+bm_[A-Za-z0-9_-]+`)
+
+// redactBearers replaces every "Bearer bm_<token>" with "Bearer bm_REDACTED"
+// so dry-run output never lands tokens in the user's terminal history.
+// tokens create still prints plaintext by design; mcp configure --dry-run
+// is not an explicit token-display command, so it shouldn't leak.
+func redactBearers(s string) string {
+	return bearerRE.ReplaceAllString(s, "Bearer bm_REDACTED")
+}
+
 func printDiff(w io.Writer, path, before, after string) {
 	fmt.Fprintf(w, "File: %s\n", path)
 	if before == "" || before == "{}" || before == "{}\n" {
 		fmt.Fprintln(w, "(new file)")
 	} else {
 		fmt.Fprintln(w, "Before:")
-		fmt.Fprintln(w, before)
+		fmt.Fprintln(w, redactBearers(before))
 	}
 	fmt.Fprintln(w, "After:")
-	fmt.Fprintln(w, after)
+	fmt.Fprintln(w, redactBearers(after))
 }
 
 // CheckOrphanedTokens checks for cli-mcp-{toolName}-* tokens that may be orphaned after removal.

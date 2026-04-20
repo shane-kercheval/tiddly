@@ -213,6 +213,68 @@ func TestStatus__shows_tiddly_server_urls(t *testing.T) {
 	assert.Contains(t, result.Stdout, "https://prompts-mcp.tiddly.me/mcp")
 }
 
+func TestStatus__shows_config_key_name_after_url(t *testing.T) {
+	// KAN-112: each tiddly server row should show the actual config key name
+	// (e.g. "tiddly_prompts", "work_prompts") after the URL so users can
+	// correlate rows to entries in the underlying config file.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {"type": "http", "url": "https://content-mcp.tiddly.me/mcp"},
+			"work_prompts": {"type": "http", "url": "https://prompts-mcp.tiddly.me/mcp"},
+			"personal_prompts": {"type": "http", "url": "https://prompts-mcp.tiddly.me/mcp"}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	store := testutil.NewMockCredStore()
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "status")
+
+	require.NoError(t, result.Err)
+
+	// Canonical key name is shown alongside its URL.
+	assert.Contains(
+		t,
+		result.Stdout,
+		"https://content-mcp.tiddly.me/mcp  (tiddly_notes_bookmarks)",
+		"canonical content entry should show its config key name",
+	)
+	// Both custom-named prompt entries appear (multi-entry fix) and each
+	// surfaces its own config key name, so users can distinguish work vs personal.
+	assert.Contains(
+		t,
+		result.Stdout,
+		"https://prompts-mcp.tiddly.me/mcp  (work_prompts)",
+		"work_prompts entry should show its config key name",
+	)
+	assert.Contains(
+		t,
+		result.Stdout,
+		"https://prompts-mcp.tiddly.me/mcp  (personal_prompts)",
+		"personal_prompts entry should show its config key name",
+	)
+}
+
 func TestStatus__shows_other_servers(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, ".claude.json")

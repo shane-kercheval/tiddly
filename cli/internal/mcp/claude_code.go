@@ -6,26 +6,31 @@ import (
 	"path/filepath"
 )
 
-// extractClaudeCodePATs reads the Claude Code config and extracts the Bearer tokens
-// for the tiddly MCP servers. Identifies servers by URL, not by name.
-// Returns empty strings on any parse error (best-effort).
-func extractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
+// extractAllClaudeCodeTiddlyPATs returns every Bearer token from a tiddly-URL
+// entry in the Claude Code config, in canonical-first order. Entries without
+// an extractable PAT (missing/malformed headers) are filtered out.
+//
+// This is the primitive; extractClaudeCodePATs (survivors) is derived via
+// survivorsOfAllTiddlyPATs so "who survives" has a single definition shared
+// with the consolidation warning.
+func extractAllClaudeCodeTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
-		return "", ""
+		return nil
 	}
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 	if servers == nil {
-		return "", ""
+		return nil
 	}
 
 	names := make([]string, 0, len(servers))
 	for name := range servers {
 		names = append(names, name)
 	}
-	canonicalNamesFirst(names)
+	sortCanonicalFirst(names)
 
+	var out []TiddlyPAT
 	for _, name := range names {
 		serverMap, _ := servers[name].(map[string]any)
 		if serverMap == nil {
@@ -33,14 +38,23 @@ func extractClaudeCodePATs(rc ResolvedConfig) (contentPAT, promptPAT string) {
 		}
 		urlStr := extractServerURL(serverMap)
 		pat := extractClaudeCodePATFromServer(serverMap)
-		if contentPAT == "" && isTiddlyContentURL(urlStr) {
-			contentPAT = pat
+		if pat == "" {
+			continue
 		}
-		if promptPAT == "" && isTiddlyPromptURL(urlStr) {
-			promptPAT = pat
+		switch {
+		case isTiddlyContentURL(urlStr):
+			out = append(out, TiddlyPAT{ServerType: ServerContent, Name: name, PAT: pat})
+		case isTiddlyPromptURL(urlStr):
+			out = append(out, TiddlyPAT{ServerType: ServerPrompts, Name: name, PAT: pat})
 		}
 	}
-	return contentPAT, promptPAT
+	return out
+}
+
+// extractClaudeCodePATs returns survivor PATs (one per ServerType) derived
+// from the full canonical-first walk.
+func extractClaudeCodePATs(rc ResolvedConfig) PATExtraction {
+	return survivorsOfAllTiddlyPATs(extractAllClaudeCodeTiddlyPATs(rc))
 }
 
 // extractClaudeCodePATFromServer extracts the Bearer token from a Claude Code MCP server entry.
@@ -185,32 +199,35 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 }
 
 // configureClaudeCode writes MCP server entries into the Claude Code config.
-func configureClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) error {
+// Returns the timestamped backup path (empty if no prior config existed).
+func configureClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) (backupPath string, err error) {
 	config, err := buildClaudeCodeConfig(rc, contentPAT, promptPAT)
 	if err != nil {
-		return err
+		return "", err
 	}
 	return writeJSONConfig(rc.Path, config)
 }
 
 // removeClaudeCode removes tiddly MCP server entries from the Claude Code config.
-// Identifies servers by URL, not by name, so custom-named entries are also removed.
-func removeClaudeCode(rc ResolvedConfig, serverFilter []string) error {
+// Identifies servers by URL, not by name, so custom-named entries are also
+// removed. Returns the timestamped backup path (empty if nothing changed or
+// no prior config existed).
+func removeClaudeCode(rc ResolvedConfig, serverFilter []string) (backupPath string, err error) {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return "", nil
 		}
-		return err
+		return "", err
 	}
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 	if servers == nil {
-		return nil
+		return "", nil
 	}
 
 	if !removeJSONServersByTiddlyURL(servers, serverURLMatcher(serverFilter)) {
-		return nil
+		return "", nil
 	}
 
 	setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
@@ -234,47 +251,16 @@ func statusClaudeCode(rc ResolvedConfig) (StatusResult, error) {
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 
-	foundContent := false
-	foundPrompts := false
-
-	names := make([]string, 0, len(servers))
-	for name := range servers {
-		names = append(names, name)
-	}
-	canonicalNamesFirst(names)
-
-	for _, name := range names {
-		serverMap, _ := servers[name].(map[string]any)
+	for name, entry := range servers {
+		serverMap, _ := entry.(map[string]any)
 		if serverMap == nil {
 			continue
 		}
 		urlStr := extractServerURL(serverMap)
-
-		method := MatchByURL
-		if name == serverNameContent || name == serverNamePrompts {
-			method = MatchByName
-		}
-
-		matched := false
-		if !foundContent && isTiddlyContentURL(urlStr) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerContent, Name: name, MatchMethod: method, URL: urlStr,
-			})
-			foundContent = true
-			matched = true
-		}
-		if !foundPrompts && isTiddlyPromptURL(urlStr) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr,
-			})
-			foundPrompts = true
-			matched = true
-		}
-		if !matched && !isTiddlyURL(urlStr) {
-			result.OtherServers = append(result.OtherServers, OtherServer{
-				Name:      name,
-				Transport: detectTransport(serverMap),
-			})
+		if match, other := classifyServer(name, urlStr, detectTransport(serverMap)); match != nil {
+			result.Servers = append(result.Servers, *match)
+		} else {
+			result.OtherServers = append(result.OtherServers, *other)
 		}
 	}
 

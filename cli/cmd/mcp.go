@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -51,6 +53,7 @@ func newMCPConfigureCmd() *cobra.Command {
 		scope     string
 		expiresIn int
 		servers   string
+		assumeYes bool
 	)
 
 	cmd := &cobra.Command{
@@ -58,7 +61,14 @@ func newMCPConfigureCmd() *cobra.Command {
 		Short: "Configure MCP servers for AI tools",
 		Long: `Configure Tiddly MCP servers for AI tools.
 
-Servers are identified by URL, not by name. If an existing entry points to a Tiddly MCP URL (regardless of its key name), it is replaced with the canonical entry. This means re-configuring and migrations from manual setups are safe.
+Servers are identified by URL, not by name. Any existing entry pointing to a Tiddly MCP URL is removed and replaced with a single canonical entry (tiddly_notes_bookmarks, tiddly_prompts).
+
+If you have multiple entries for the same Tiddly URL under different key names (e.g. work_prompts + personal_prompts for two accounts), configure will consolidate them into one canonical entry — only one PAT survives. Use --dry-run first to preview; run with --yes to confirm the consolidation non-interactively.
+
+Before destructive writes, the existing config file is copied to <path>.bak.<timestamp> alongside the original.
+
+Tools:
+  claude-desktop, claude-code, codex (auto-detect if omitted)
 
 Scope:
   The --scope flag controls where the MCP server config is written. The default is "user",
@@ -171,28 +181,35 @@ Examples:
 				ExpiresIn: expires,
 				Output:    cmd.OutOrStdout(),
 				ErrOutput: cmd.ErrOrStderr(),
+				AssumeYes: assumeYes,
 			}
 
 			configureResult, err := mcp.RunConfigure(opts, targetTools)
+
+			// Print the partial summary BEFORE surfacing any error so a
+			// user whose tool-2 failed can still see what tool-1 did
+			// (backups taken, tokens minted, config written). RunConfigure
+			// returns nil from preflight/gate failures (nothing happened)
+			// and non-nil from commit-phase failures (something happened).
+			//
+			// Warnings are intentionally printed regardless of dry-run: the
+			// PAT-auth advisory ("Using your current token for MCP
+			// servers…") is most useful in dry-run, when users are trying
+			// to understand what the real run would do. The summary is
+			// dry-run-gated because its fields (Configured, Backups,
+			// Created/Reused tokens) describe actual writes and mints.
+			if configureResult != nil {
+				if !dryRun {
+					printConfigureSummary(cmd.OutOrStdout(), configureResult, err != nil)
+				}
+				for _, warning := range configureResult.Warnings {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
+				}
+			}
+
 			if err != nil {
-				return err
+				return translateConfigureError(err)
 			}
-
-			if !dryRun {
-				// Print summary
-				if len(configureResult.TokensCreated) > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "Created tokens: %s\n", strings.Join(configureResult.TokensCreated, ", "))
-				}
-				if len(configureResult.TokensReused) > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "Reused tokens: %s\n", strings.Join(configureResult.TokensReused, ", "))
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Configured: %s\n", strings.Join(configureResult.ToolsConfigured, ", "))
-			}
-
-			for _, warning := range configureResult.Warnings {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
-			}
-
 			return nil
 		},
 	}
@@ -201,6 +218,7 @@ Examples:
 	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (all projects) or directory (current directory only)")
 	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (1-365, or 0 for no expiration)")
 	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which MCP servers to configure: content, prompts, or both")
+	cmd.Flags().BoolVarP(&assumeYes, "yes", "y", false, "Bypass interactive prompt when consolidating multiple existing Tiddly entries")
 
 	return cmd
 }
@@ -290,6 +308,9 @@ Claude Desktop users: restart Claude Desktop after removing.
 
 Use --servers to selectively remove only the content or prompts server, preserving the other.
 
+Tools:
+  claude-desktop, claude-code, codex
+
 Examples:
   tiddly mcp remove claude-code                          Remove MCP entries
   tiddly mcp remove claude-code --delete-tokens          Remove entries and revoke PATs
@@ -348,32 +369,55 @@ Examples:
 				return err
 			}
 
-			// Extract PATs from config BEFORE removing entries, filtered by serverList
+			// Collect EVERY PAT for the targeted server types before removing
+			// entries. Must use AllTiddlyPATs (not ExtractPATs) so multi-entry
+			// configs — e.g. work_prompts + personal_prompts holding distinct
+			// PATs — revoke every token, not just the survivor.
 			var extractedPATs []string
 			if deleteTokens {
-				contentPAT, promptPAT := handler.ExtractPATs(rc)
 				wantContent := slices.Contains(serverList, mcp.ServerContent)
 				wantPrompts := slices.Contains(serverList, mcp.ServerPrompts)
-				if wantContent && contentPAT != "" {
-					extractedPATs = append(extractedPATs, contentPAT)
-				}
-				// Dedup: only skip if contentPAT was already added (wantContent && same value)
-				if wantPrompts && promptPAT != "" && (!wantContent || promptPAT != contentPAT) {
-					extractedPATs = append(extractedPATs, promptPAT)
-				}
-				// Warn when a shared PAT is being revoked while the other server is retained
-				if contentPAT != "" && contentPAT == promptPAT && wantContent != wantPrompts {
-					retained := mcp.ServerPrompts
-					if wantPrompts {
-						retained = mcp.ServerContent
+
+				// Dedup by PAT value. A shared PAT across multiple entries (or
+				// across content + prompts) must only produce one DELETE.
+				seen := make(map[string]bool)
+				var unwantedPATs []string
+				for _, p := range handler.AllTiddlyPATs(rc) {
+					targeted := (p.ServerType == mcp.ServerContent && wantContent) ||
+						(p.ServerType == mcp.ServerPrompts && wantPrompts)
+					if targeted {
+						if !seen[p.PAT] {
+							seen[p.PAT] = true
+							extractedPATs = append(extractedPATs, p.PAT)
+						}
+					} else {
+						unwantedPATs = append(unwantedPATs, p.PAT)
 					}
-					fmt.Fprintf(cmd.ErrOrStderr(),
-						"Warning: token is shared with %s server (still configured); it will also lose access.\n", retained)
+				}
+
+				// Warn when a PAT being revoked is also used by a server type
+				// that's being retained — revoking breaks the retained binding.
+				for _, retainedPAT := range unwantedPATs {
+					if seen[retainedPAT] {
+						retained := mcp.ServerPrompts
+						if wantPrompts {
+							retained = mcp.ServerContent
+						}
+						fmt.Fprintf(cmd.ErrOrStderr(),
+							"Warning: token is shared with %s server (still configured); it will also lose access.\n", retained)
+						break
+					}
 				}
 			}
 
-			// Remove config entries
-			if err := handler.Remove(rc, serverList); err != nil {
+			// Remove config entries. The backup is taken before the write
+			// attempt, so surface its location unconditionally — on failure
+			// it's exactly the recovery artifact the user needs.
+			backupPath, err := handler.Remove(rc, serverList)
+			if backupPath != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Backed up previous config to %s\n", backupPath)
+			}
+			if err != nil {
 				return err
 			}
 
@@ -437,4 +481,43 @@ func isValidTool(name string, toolNames []string) bool {
 		}
 	}
 	return false
+}
+
+// translateConfigureError wraps terse sentinel errors from the mcp package
+// with user-facing advisory text that references actual CLI flag names.
+// The mcp package intentionally keeps its sentinels flag-agnostic; this is
+// where flag knowledge lives.
+func translateConfigureError(err error) error {
+	switch {
+	case errors.Is(err, mcp.ErrConsolidationNeedsConfirmation):
+		return fmt.Errorf("%w: re-run with --yes to proceed, or --dry-run to preview", err)
+	case errors.Is(err, mcp.ErrConsolidationDeclined):
+		return fmt.Errorf("%w: no changes were made", err)
+	}
+	return err
+}
+
+// printConfigureSummary prints what configure did or partially did. When
+// partial is true, the heading switches to "Partially configured" so a
+// user staring at a follow-up error knows the listed tools still completed.
+func printConfigureSummary(w io.Writer, result *mcp.ConfigureResult, partial bool) {
+	if len(result.TokensCreated) > 0 {
+		fmt.Fprintf(w, "Created tokens: %s\n", strings.Join(result.TokensCreated, ", "))
+	}
+	if len(result.TokensReused) > 0 {
+		fmt.Fprintf(w, "Reused tokens: %s\n", strings.Join(result.TokensReused, ", "))
+	}
+	label := "Configured"
+	if partial {
+		label = "Partially configured (run aborted after these)"
+	}
+	if len(result.ToolsConfigured) > 0 {
+		fmt.Fprintf(w, "%s: %s\n", label, strings.Join(result.ToolsConfigured, ", "))
+	}
+	// Backups are recorded per-tool only after a successful handler.Configure,
+	// so on partial-failure runs this list reflects only tools that
+	// completed — never the tool that failed mid-write.
+	for _, b := range result.Backups {
+		fmt.Fprintf(w, "Backed up %s config to %s\n", b.Tool, b.Path)
+	}
 }

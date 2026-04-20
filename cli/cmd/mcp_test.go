@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +17,45 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTranslateConfigureError__needs_confirmation_wraps_with_flag_advice(t *testing.T) {
+	err := translateConfigureError(mcp.ErrConsolidationNeedsConfirmation)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, mcp.ErrConsolidationNeedsConfirmation,
+		"wrapped error must still unwrap to the sentinel")
+	assert.Contains(t, err.Error(), "--yes",
+		"advisory must reference the --yes flag so users know how to proceed")
+	assert.Contains(t, err.Error(), "--dry-run",
+		"advisory must reference --dry-run as the preview path")
+}
+
+func TestTranslateConfigureError__declined_wraps_with_no_changes_note(t *testing.T) {
+	err := translateConfigureError(mcp.ErrConsolidationDeclined)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, mcp.ErrConsolidationDeclined)
+	assert.Contains(t, err.Error(), "no changes were made",
+		"decline advisory should reassure the user that nothing was written")
+}
+
+func TestTranslateConfigureError__passes_through_unrelated_errors(t *testing.T) {
+	// An error that isn't one of the known sentinels must pass through
+	// verbatim so cobra surfaces the real failure rather than a misleading
+	// consolidation-flavored message.
+	orig := errors.New("something unrelated broke")
+	got := translateConfigureError(orig)
+	assert.Equal(t, orig, got, "unrelated errors should pass through unchanged")
+}
+
+func TestTranslateConfigureError__wrapped_sentinels_still_translate(t *testing.T) {
+	// RunConfigure may wrap the sentinel via fmt.Errorf; translation must
+	// still find it via errors.Is traversal.
+	wrapped := fmt.Errorf("configuring claude-code: %w", mcp.ErrConsolidationDeclined)
+	got := translateConfigureError(wrapped)
+	assert.ErrorIs(t, got, mcp.ErrConsolidationDeclined)
+	assert.Contains(t, got.Error(), "no changes were made")
+}
 
 func TestMCPConfigure__not_logged_in(t *testing.T) {
 	store := testutil.NewMockCredStore()
@@ -155,6 +196,49 @@ func TestMCPConfigure__dry_run_with_oauth_no_token_creation(t *testing.T) {
 	assert.Equal(t, 0, tokenCreated, "dry-run should not create tokens")
 	// Output should contain placeholder
 	assert.Contains(t, result.Stdout, "new-token-would-be-created")
+}
+
+func TestMCPConfigure__dry_run_surfaces_pat_auth_warning(t *testing.T) {
+	// Regression guard: dry-run must still print the "Using your current
+	// token…" advisory that RunConfigure populates under PAT auth. Dry-run
+	// is specifically when users are trying to understand what the real run
+	// would do — suppressing the advisory there defeats its purpose. An
+	// earlier refactor accidentally gated the warning print on !dryRun; this
+	// test ensures that regression doesn't come back.
+	tmpDir := t.TempDir()
+	tmpConfig := filepath.Join(tmpDir, ".claude.json")
+
+	store := testutil.CredsWithPAT("bm_test123")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: []mcp.ToolHandler{
+			&mcp.ClaudeCodeHandler{ConfigPathOverride: tmpConfig},
+		},
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "claude-code", "--dry-run")
+
+	require.NoError(t, result.Err)
+	assert.Contains(t, result.Stderr, "Using your current token",
+		"dry-run must surface the PAT-auth advisory; it's exactly when users are trying to understand the real run")
+	// The summary ('Configured: ...') must NOT appear in dry-run — those
+	// fields describe actual writes, and nothing was written.
+	assert.NotContains(t, result.Stdout, "Configured:",
+		"dry-run writes nothing, so the Configured: summary line must not appear")
 }
 
 func TestMCPConfigure__servers_flag_parsed(t *testing.T) {
@@ -326,6 +410,153 @@ func TestMCPRemove__delete_tokens_flag(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "tiddly_notes_bookmarks")
 	assert.NotContains(t, string(data), "tiddly_prompts")
+}
+
+func TestMCPRemove__delete_tokens_multi_entry_revokes_all(t *testing.T) {
+	// Regression guard for the multi-entry orphan bug: a user with
+	// work_prompts + personal_prompts holding DISTINCT OAuth tokens must
+	// see BOTH tokens revoked on `remove --delete-tokens`, not just the
+	// survivor ExtractPATs would pick. Before AllTiddlyPATs existed, only
+	// one token was revoked and the other was silently orphaned on the
+	// server — the one failure mode this whole branch exists to prevent.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	configData := `{
+		"mcpServers": {
+			"work_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_work_token1234"}
+			},
+			"personal_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer bm_personal_tok98"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	var deletedTokenIDs []string
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/tokens/").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-work", Name: "cli-mcp-claude-code-prompts-aaa111", TokenPrefix: "bm_work_toke"},
+				{ID: "tok-personal", Name: "cli-mcp-claude-code-prompts-bbb222", TokenPrefix: "bm_personal_"},
+			})
+		})
+	mock.On("DELETE", "/tokens/tok-work").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-work")
+			w.WriteHeader(http.StatusNoContent)
+		})
+	mock.On("DELETE", "/tokens/tok-personal").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-personal")
+			w.WriteHeader(http.StatusNoContent)
+		})
+
+	store := testutil.NewMockCredStore()
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--delete-tokens", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	assert.Len(t, deletedTokenIDs, 2, "BOTH multi-entry tokens must be revoked, not just the survivor")
+	assert.Contains(t, deletedTokenIDs, "tok-work")
+	assert.Contains(t, deletedTokenIDs, "tok-personal")
+
+	// Config is wiped clean of both custom-named entries.
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "work_prompts")
+	assert.NotContains(t, string(data), "personal_prompts")
+}
+
+func TestMCPRemove__delete_tokens_dedups_shared_pat(t *testing.T) {
+	// Edge case: a single PAT shared across multiple entries must produce
+	// exactly one DELETE, not N. DeleteTokensByPrefix matches by prefix, so
+	// calling it twice with the same PAT wastes a round-trip and could
+	// surface a spurious 404 on the second attempt.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	sharedToken := "bm_shared_token12"
+	configData := `{
+		"mcpServers": {
+			"tiddly_notes_bookmarks": {
+				"type": "http",
+				"url": "https://content-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer ` + sharedToken + `"}
+			},
+			"tiddly_prompts": {
+				"type": "http",
+				"url": "https://prompts-mcp.tiddly.me/mcp",
+				"headers": {"Authorization": "Bearer ` + sharedToken + `"}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(configPath, []byte(configData), 0600))
+
+	var deletedTokenIDs []string
+	mock := testutil.NewMockAPI(t)
+	mock.On("GET", "/tokens/").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-shared", Name: "cli-mcp-claude-code-shared-xyz", TokenPrefix: "bm_shared_to"},
+			})
+		})
+	mock.On("DELETE", "/tokens/tok-shared").
+		HandleFunc(func(w http.ResponseWriter, r *http.Request) {
+			deletedTokenIDs = append(deletedTokenIDs, "tok-shared")
+			w.WriteHeader(http.StatusNoContent)
+		})
+
+	store := testutil.NewMockCredStore()
+	_ = store.Set(auth.AccountOAuthAccess, "oauth-jwt-token")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ConfigDir:    "",
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "remove", "claude-code", "--delete-tokens", "--api-url", mock.URL())
+
+	require.NoError(t, result.Err)
+	assert.Len(t, deletedTokenIDs, 1, "shared PAT must produce exactly one DELETE regardless of how many config entries reference it")
 }
 
 func TestParseServersFlag__valid(t *testing.T) {
