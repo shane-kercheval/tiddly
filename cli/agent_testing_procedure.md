@@ -529,6 +529,29 @@ cleanup_sibling_backups() {
   echo "Removed $removed CLI-emitted sibling backup(s) (<config>.bak.*)."
 }
 
+# -- Helper: interim token cleanup between phases ---------------------------
+# Phase 2-4 accumulate 25+ cli-mcp-test-* tokens (each Tx.y block mints
+# several). Accounts with the default tier token cap (50) hit the wall in
+# Phase 6 when `mcp configure` tries to mint yet another token. Cleanup
+# deletes only `cli-mcp-test-*` — a naming convention reserved for test-
+# harness-minted PATs (see mint sites: cli-mcp-test-multi-*, -t48b-*,
+# -codex-*, -t49b-*, -t410-*, -mixed-*, -t54-*, -6-8-*, -shared-*, etc.).
+# Does NOT touch `cli-mcp-<tool>-<server>-*` names, which are produced by
+# `mcp configure` itself and may still be referenced by live configs.
+# Call at end of Phase 4 (highest accumulation point) and optionally again
+# later if the account is tight.
+cleanup_test_tokens() {
+  echo "Interim cleanup: deleting cli-mcp-test-* tokens accumulated so far…"
+  local ids count=0
+  ids=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-/ {print $1}')
+  [ -n "$ids" ] || { echo "  (no cli-mcp-test-* tokens to delete)"; return 0; }
+  while read -r id; do
+    [ -n "$id" ] || continue
+    bin/tiddly tokens delete "$id" --force >/dev/null 2>&1 && count=$((count + 1))
+  done <<< "$ids"
+  echo "  Deleted $count cli-mcp-test-* tokens."
+}
+
 # -- Backups ----------------------------------------------------------------
 # BACKUP_DIR holds real token-bearing config copies for this run only.
 # Chmod 0700; deleted on clean success, preserved with warning on failure.
@@ -899,6 +922,10 @@ fi
 
 **IMPORTANT: do NOT use `grep -q` inside a pipeline under `set -o pipefail`.** `grep -q` exits as soon as it finds a match, which closes the pipe and sends `SIGPIPE` (exit 141) to any still-writing upstream. With `pipefail` on, that 141 becomes the pipeline exit, so a real match reports as failure. The race is invisible on small outputs (pipe buffer absorbs everything before grep reads) but fires on dry-run diffs, multi-entry configure output, and `tokens list` with many rows. **Use `grep PATTERN >/dev/null` instead** — it reads all of stdin, so upstream finishes normally. Applies anywhere the assertion is on a pipeline; greps against a file (e.g. `grep PATTERN "$CONFIG"`) are safe.
 
+**IMPORTANT: redirect large CLI output to a file, not a shell variable.** `$(cmd)` captures stdout into a shell var, but `echo "$var" | grep …` on a multi-hundred-KB blob (dry-run dumps of real `~/.claude.json` are commonly 100 KB+) is unreliable across shells and assertion frameworks. **Pattern:** `cmd > /tmp/tXY_stdout 2> /tmp/tXY_stderr` then assert with `grep … /tmp/tXY_stdout`. Small outputs (help text, `tokens list`, `auth status`) are fine to capture in a variable; the threshold is "could this output include a full config dump?" — if yes, use a file.
+
+**IMPORTANT: escape `--` prefix in grep/grep -F patterns.** `grep -F "--scope directory …"` parses the leading `--` as end-of-options for grep itself and then treats `scope directory …` as the pattern. Use `grep -F -- "$pattern"` (the `--` terminates grep's own option parsing) whenever the expected string starts with `--`.
+
 **Mandatory Bearer-leak guard — call before every `echo "$out"` on configure/remove/dry-run output:**
 
 ```bash
@@ -1159,15 +1186,20 @@ assert_auth_still_working
 ### [T3.1] Dry-run — Claude Code user scope + PAT-auth advisory (if PAT auth)
 ```bash
 pre_sha=$(sha_of "$CLAUDE_CODE_CONFIG")
-bin/tiddly mcp configure claude-code --dry-run 2> /tmp/dry_run_stderr
+# IMPORTANT: redirect stdout to a file, not a shell var. The dry-run dumps
+# the entire existing ~/.claude.json into the Before: block, which for a
+# real user's config is easily 100 KB+ / thousands of lines. Capturing via
+# `$(cmd)` then echoing+grepping that var is flaky at this size. Assertions
+# below must grep the file directly.
+bin/tiddly mcp configure claude-code --dry-run > /tmp/t31_stdout 2> /tmp/t31_stderr
 ```
-**Verify:**
+**Verify (assertions must grep /tmp/t31_stdout, not a captured shell var):**
 - [ ] Exit 0
-- [ ] Stdout contains `--- claude-code ---`
-- [ ] Contains `File: ` followed by config path
-- [ ] Contains `Before:` and `After:` sections (or `(new file)`)
-- [ ] `After:` section shows `tiddly_notes_bookmarks` and `tiddly_prompts`
-- [ ] **If current auth is PAT (not OAuth):** `/tmp/dry_run_stderr` contains `Using your current token for MCP servers` — the PAT-auth advisory must fire in dry-run
+- [ ] `grep -q '^--- claude-code ---$' /tmp/t31_stdout`
+- [ ] `grep -q '^File: ' /tmp/t31_stdout`
+- [ ] `grep -q '^\(Before:\|After:\|(new file)\)' /tmp/t31_stdout` (Before/After sections or new-file marker)
+- [ ] `grep -q 'tiddly_notes_bookmarks' /tmp/t31_stdout` and `grep -q 'tiddly_prompts' /tmp/t31_stdout`
+- [ ] **If current auth is PAT (not OAuth):** `grep -q 'Using your current token for MCP servers' /tmp/t31_stderr`
 - [ ] **If current auth is OAuth:** no such advisory expected
 - [ ] `assert_unchanged T3.1 "$CLAUDE_CODE_CONFIG" "$pre_sha"`
 - [ ] No new tokens created: `tokens list` count unchanged before/after
@@ -1647,6 +1679,11 @@ unset PC1 PC2 PP1 PP2
 - [ ] `assert_unchanged T4.11 "$CLAUDE_CODE_CONFIG" "$pre_sha"` — dry-run did nothing
 
 ```bash
+# Interim cleanup — Phase 2-4 accumulated many cli-mcp-test-* tokens; without
+# pruning, Phase 6's `mcp configure` setup can hit the tier token cap (50).
+# Only deletes cli-mcp-test-* (harness-minted); leaves cli-mcp-<tool>-*
+# (produced by actual configure flows) alone so live configs don't break.
+cleanup_test_tokens
 assert_auth_still_working
 ```
 
@@ -1687,11 +1724,11 @@ PAT_PERSONAL_54=$(bin/tiddly tokens create "cli-mcp-test-t54-personal-$(openssl 
 write_multi_entry_prompts "$PAT_WORK_54" "$PAT_PERSONAL_54"
 out=$(bin/tiddly mcp status 2>&1)
 ```
-**Verify:**
-- [ ] Output contains TWO prompt rows under claude-code
-- [ ] One is `- prompts  <url>  (work_prompts)`
-- [ ] Other is `- prompts  <url>  (personal_prompts)`
-- [ ] Neither appears under "Other servers"
+**Verify (anchor on the trailing `(name)` suffix, not leading whitespace — `mcp status` prefixes tree rows with `│` (U+2502 box-drawing) which is not POSIX `[[:space:]]`):**
+- [ ] `grep -F '(work_prompts)' <<<"$out"` finds at least one line
+- [ ] `grep -F '(personal_prompts)' <<<"$out"` finds at least one line
+- [ ] Neither name appears under "Other servers" (confirm by inspecting the section breakdown in `$out`)
+- [ ] Both rows are under the claude-code prompts section (the `(name)` suffix appears after a `prompts` label)
 
 ```bash
 # Restore canonical-only for subsequent phases and drop the plaintext.
@@ -1983,7 +2020,7 @@ bin/tiddly skills configure codex
 ```
 **Verify:**
 - [ ] Exit 0
-- [ ] Output references `~/.agents/skills`
+- [ ] Output contains either `codex: Configured N skill(s) to ~/.agents/skills` OR `codex: No skills to configure.` (mirrors T7.1's branching — the `~/.agents/skills` path is only printed when at least one skill matches)
 
 ### [T7.4] Codex, directory scope
 ```bash
@@ -2161,11 +2198,11 @@ bin/tiddly mcp configure claude-code --servers invalid
 
 ### [T8.7] Empty `--servers`
 ```bash
-bin/tiddly mcp configure claude-code --servers ""
+bin/tiddly mcp configure claude-code --servers "" 2>&1 | tee /tmp/t87_out >/dev/null
 ```
 **Verify:**
 - [ ] Exit non-zero
-- [ ] Error: `--servers flag requires at least one value: content, prompts`
+- [ ] `grep -F -- '--servers flag requires at least one value: content, prompts' /tmp/t87_out` finds the error — **note the `--` option terminator**; without it grep parses `--servers …` as its own flags and fails
 
 ### [T8.8] Tool not installed (skip if all tools detected)
 ```bash
@@ -2177,11 +2214,11 @@ bin/tiddly mcp configure claude-desktop   # only if claude-desktop is NOT detect
 
 ### [T8.9] Claude Desktop + skills `--scope directory`
 ```bash
-bin/tiddly skills configure claude-desktop --scope directory
+bin/tiddly skills configure claude-desktop --scope directory 2>&1 | tee /tmp/t89_out >/dev/null
 ```
 **Verify:**
 - [ ] Exit non-zero
-- [ ] Error contains `--scope directory is not supported by: claude-desktop`
+- [ ] `grep -F -- '--scope directory is not supported by: claude-desktop' /tmp/t89_out` finds the error — **note the `--` option terminator** (same reason as T8.7)
 
 ### [T8.10] Login — invalid PAT format
 ```bash
