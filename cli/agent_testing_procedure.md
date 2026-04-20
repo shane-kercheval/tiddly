@@ -669,10 +669,17 @@ unset snapshot_out snapshot_rc
 export SNAPSHOT_EXPECTED=1
 
 # -- Sanitize: strip the user's Tiddly entries from real configs ------------
-# Wipe Tiddly URL entries from live configs (originals backed up; server-side
-# tokens left alive). Phase 10 restores the originals. Non-Tiddly entries
-# (github, filesystem, etc.) are preserved. Log each result — `|| true` would
-# swallow real failures and leave configs partially sanitized.
+# Two-pass sanitize:
+#   1. CLI-based: `mcp remove <tool>` — URL-classifier driven. Removes entries
+#      whose URL matches the current $TIDDLY_*_URL (typically localhost).
+#   2. Canonical-name hard strip: jq/awk delete of tiddly_notes_bookmarks and
+#      tiddly_prompts keys regardless of URL. Catches the common case where
+#      the engineer has canonical-named entries pointing at production URLs
+#      (which pass 1 skips because their URL doesn't match localhost). Without
+#      pass 2, the plan's "every test operates on test tokens only" claim
+#      would be false for the window between sanitize and the first `mcp
+#      configure` (which overwrites canonical keys).
+# Phase 10 restores the originals from backup.
 sanitize_one() {
   local tool="$1" out rc
   set +e
@@ -685,12 +692,46 @@ sanitize_one() {
 sanitize_one claude-desktop
 sanitize_one claude-code
 sanitize_one codex
+
+# Pass 2: hard-strip canonical Tiddly keys regardless of URL. Safe because
+# `tiddly_notes_bookmarks` / `tiddly_prompts` are reserved canonical names;
+# any entry bearing them is a Tiddly entry by definition.
+sanitize_canonical_json() {
+  local cfg="$1" tmp
+  [ -f "$cfg" ] || return 0
+  tmp=$(mktemp)
+  # Delete both user-scope (.mcpServers.tiddly_*) and directory-scope
+  # (.projects[*].mcpServers.tiddly_*) canonical entries.
+  jq '
+    (.mcpServers //= {}) | del(.mcpServers.tiddly_notes_bookmarks, .mcpServers.tiddly_prompts)
+    | if (.projects|type) == "object"
+        then .projects |= with_entries(.value.mcpServers |= (. // {} | del(.tiddly_notes_bookmarks, .tiddly_prompts)))
+        else .
+      end
+  ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+  chmod 0600 "$cfg"
+}
+sanitize_canonical_toml() {
+  local cfg="$1" tmp
+  [ -f "$cfg" ] || return 0
+  tmp="$cfg.tmp"
+  awk '
+    /^\[mcp_servers\.(tiddly_notes_bookmarks|tiddly_prompts)(\.|\])/ { skip=1; next }
+    /^\[/                                                             { skip=0 }
+    !skip                                                             { print }
+  ' "$cfg" > "$tmp" && mv "$tmp" "$cfg"
+  chmod 0600 "$cfg"
+}
+sanitize_canonical_json "$CLAUDE_DESKTOP_CONFIG"
+sanitize_canonical_json "$CLAUDE_CODE_CONFIG"
+sanitize_canonical_toml "$CODEX_CONFIG"
+
 # Note: $PWD/.mcp.json is NOT sanitized. The CLI has no supported write
 # path to it (valid scopes are `user` and `directory`; `directory` for
 # claude-code writes to ~/.claude.json under .projects[...], not to
 # .mcp.json). The file is backed up / restored defensively above in case
 # the engineer has one, but the tests do not operate on it.
-echo "Sanitized: user Tiddly entries removed from configs; originals preserved in \$BACKUP_DIR."
+echo "Sanitized: Tiddly entries wiped (URL-based + canonical-name strip); originals preserved in \$BACKUP_DIR."
 
 # -- Temp project dir for directory-scope tests -----------------------------
 TEST_PROJECT=$(mktemp -d)
