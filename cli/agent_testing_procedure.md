@@ -735,35 +735,62 @@ trap 'on_exit $?' EXIT
 
 The agent **cannot** complete the OAuth device flow — it requires opening a browser and entering a code. Auth must be set up BEFORE the agent starts.
 
-**IMPORTANT:** The env-var exports and `tiddly login` **must** run in the same terminal session that launches Claude Code. The agent's Bash tool inherits the shell environment from that launcher.
+#### Critical — `.env` is NOT read by the CLI
 
-**Before starting:** confirm `VITE_DEV_MODE=false` in the backend's `.env` (or is unset). Dev mode makes the backend accept any Bearer value as the dev user and silently breaks token-validation tests (T4.10, T4.4 mint path). Phase 0 has a probe that FATALs on detection, but checking here first saves a wasted run.
+The Go CLI reads **shell environment variables**, not `backend/.env`. Variables like `VITE_AUTH0_DOMAIN` exist for the backend and frontend; the CLI cannot see them. If you skip the exports below and just run `bin/tiddly login`, the CLI falls back to hardcoded **production** defaults (`tiddly.us.auth0.com` / `Gpv1ZrySgEeoTHlPyq3vSqHdFkS1vPwI` / `tiddly-api`). Your token will then be a production token that your local backend (which validates against the dev Auth0 tenant) will reject with 401 at the first authenticated command.
 
-Engineer:
+If you already ran `bin/tiddly login` bare and ended up logged into production, run `bin/tiddly logout` first and start over from step 2 below.
 
-1. Exit/stop any running Claude Code session.
-2. In a fresh terminal, run:
+#### Preflight — one check before you start
+
+Confirm `VITE_DEV_MODE=false` in the backend's `.env` (or is unset). Dev mode makes the backend accept any Bearer value as the dev user and silently breaks token-validation tests (T4.10, T4.4 mint path). Phase 0 has a probe that FATALs on detection, but checking here first saves a wasted run.
+
+#### Finding the right Auth0 values
+
+Auth0 domain, client ID, and audience are **public identifiers**, not secrets. They ship in frontend bundles and OAuth URLs. The CLI's `internal/auth/device_flow.go` hardcodes production values and lets you override them via env vars for dev/staging. To log in against your local dev backend you need the values for your **dev Auth0 tenant**:
+
+- **`TIDDLY_AUTH0_DOMAIN`** — the dev tenant domain. Same as your `backend/.env`'s `VITE_AUTH0_DOMAIN` (e.g. `kercheval-dev.us.auth0.com`).
+- **`TIDDLY_AUTH0_CLIENT_ID`** — the Auth0 application client ID that this CLI device flow uses. Same as your `backend/.env`'s `VITE_AUTH0_CLIENT_ID` as long as that application has the device-code grant type enabled in its Auth0 settings. (If device flow isn't enabled on that client, Auth0 will reject `tiddly login` with "grant type not allowed"; in that case you need a separate Native application in the same tenant and should use its client ID here.)
+- **`TIDDLY_AUTH0_AUDIENCE`** — the API identifier. Same as your `backend/.env`'s `VITE_AUTH0_AUDIENCE` (e.g. `bookmarks-api`).
+
+#### The exact commands
+
+1. Exit any running Claude Code session.
+2. Open a fresh terminal. Copy the values **from your own `backend/.env`** into the exports below — do NOT use placeholder values from this document:
+
+   ```bash
+   # Backend + MCP service URLs (these are standard local-dev ports)
+   export TIDDLY_API_URL=http://localhost:8000
+   export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
+   export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
+
+   # Auth0 — copy these three from backend/.env's VITE_AUTH0_* values
+   export TIDDLY_AUTH0_DOMAIN=<VITE_AUTH0_DOMAIN from backend/.env>
+   export TIDDLY_AUTH0_CLIENT_ID=<VITE_AUTH0_CLIENT_ID from backend/.env>
+   export TIDDLY_AUTH0_AUDIENCE=<VITE_AUTH0_AUDIENCE from backend/.env>
+
+   # If you may have a stale production session cached, drop it first:
+   bin/tiddly logout 2>/dev/null || true
+
+   # Now log in against the dev tenant.
+   bin/tiddly login
+
+   # Sanity check: should print `Auth method: oauth` and your dev-account email.
+   bin/tiddly auth status
+   ```
+
+3. If `auth status` shows your expected dev email, **launch Claude Code from this same terminal**. The agent's Bash tool inherits these env vars from the launching shell.
+
+#### What the agent verifies post-launch
 
 ```bash
-export TIDDLY_API_URL=http://localhost:8000
-export TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
-export TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
-export TIDDLY_AUTH0_DOMAIN=kercheval-dev.us.auth0.com
-export TIDDLY_AUTH0_CLIENT_ID=upLOqYelIdJIv7yZ8AnULA6VGklzak18
-export TIDDLY_AUTH0_AUDIENCE=bookmarks-api
-bin/tiddly login
-```
-
-3. Resume Claude Code from the same terminal.
-
-The agent verifies:
-
-```bash
-bin/tiddly auth status            # Auth method: oauth, User: <email>
+bin/tiddly auth status            # Auth method: oauth, User: <your dev email>
 bin/tiddly tokens list            # Exits 0 (may say "No tokens found" — fine)
 ```
 
-If `auth status` shows "Session expired" or `tokens list` errors 401, the Auth0 env vars don't match the local API's `.env`. Ask the engineer to verify `VITE_AUTH0_DOMAIN`, `VITE_AUTH0_CLIENT_ID`, `VITE_AUTH0_AUDIENCE`.
+If `auth status` shows "Session expired" or `tokens list` returns 401 here, the exports didn't reach the agent's shell — usually because Claude Code was launched from a different terminal. Re-launch Claude Code from the terminal where you ran the exports.
+
+If `auth status` shows the wrong email (e.g. your production account instead of a dev one), the CLI authenticated against production. Run `bin/tiddly logout`, verify the `TIDDLY_AUTH0_*` env vars in the launching shell (`echo $TIDDLY_AUTH0_DOMAIN` — must be the dev domain), and redo `bin/tiddly login`.
 
 ---
 
