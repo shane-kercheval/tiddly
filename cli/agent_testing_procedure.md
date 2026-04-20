@@ -169,6 +169,14 @@ CODEX_SKILLS_DIR="$HOME/.agents/skills"
 # user-authored .mcp.json survives the run.
 PROJECT_MCP_CONFIG="$PWD/.mcp.json"
 
+# Absolute path to bin/tiddly, captured BEFORE any `cd`. Several tests
+# (T2.4, T2.6, T3.2, T6.2, T7.2, T7.4) do `cd "$TEST_PROJECT"` and then
+# invoke the CLI; the relative `bin/tiddly` would be unresolvable inside
+# $TEST_PROJECT. Always prefer "$TIDDLY_BIN" over `bin/tiddly` in any
+# test block that runs after a cd.
+TIDDLY_BIN="$PWD/bin/tiddly"
+[ -x "$TIDDLY_BIN" ] || { echo "FATAL: bin/tiddly not found or not executable at $TIDDLY_BIN — run 'make cli-build'" >&2; exit 1; }
+
 echo "Platform: $OSTYPE"
 echo "Claude Desktop config: $CLAUDE_DESKTOP_CONFIG"
 echo "Claude Code config:    $CLAUDE_CODE_CONFIG"
@@ -573,9 +581,11 @@ report_phase() {
 #   report_test PASS "T1.1 — Root help"
 #   report_test FAIL "T5.1 — Status" "stderr missing expected banner"
 report_test() {
-  local status="$1" test="$2" detail="${3:-}"
+  # NOTE: using `test_status` (not `status`) because zsh treats $status as
+  # a readonly magic variable holding the last command's exit code.
+  local test_status="$1" test="$2" detail="${3:-}"
   local icon
-  case "$status" in
+  case "$test_status" in
     PASS) REPORT_PASS=$((REPORT_PASS+1)); icon="✓" ;;
     FAIL) REPORT_FAIL=$((REPORT_FAIL+1)); icon="✗" ;;
     SKIP) REPORT_SKIP=$((REPORT_SKIP+1)); icon="-" ;;
@@ -583,9 +593,9 @@ report_test() {
     *)    icon="?" ;;
   esac
   if [ -n "$detail" ]; then
-    report_append "$icon **$status** — $test — $detail"
+    report_append "$icon **$test_status** — $test — $detail"
   else
-    report_append "$icon **$status** — $test"
+    report_append "$icon **$test_status** — $test"
   fi
 }
 
@@ -712,9 +722,11 @@ sanitize_canonical_json() {
   chmod 0600 "$cfg"
 }
 sanitize_canonical_toml() {
-  local cfg="$1" tmp
+  # NOTE: two `local` statements — `local cfg="$1" tmp="$cfg.tmp"` fails
+  # under zsh (zsh evaluates $cfg before the first assignment binds).
+  local cfg="$1"
+  local tmp="$cfg.tmp"
   [ -f "$cfg" ] || return 0
-  tmp="$cfg.tmp"
   awk '
     /^\[mcp_servers\.(tiddly_notes_bookmarks|tiddly_prompts)(\.|\])/ { skip=1; next }
     /^\[/                                                             { skip=0 }
@@ -1032,7 +1044,7 @@ bin/tiddly mcp configure claude-code --servers prompts
 
 ### [T2.4] Claude Code — directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope directory
+cd "$TEST_PROJECT" && "$TIDDLY_BIN" mcp configure claude-code --scope directory
 ```
 **Verify:**
 - [ ] Exit 0
@@ -1055,7 +1067,7 @@ backup_path=$(echo "$out" | sed -n 's/.*Backed up codex config to \(.*\)$/\1/p' 
 
 ### [T2.6] Codex — directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp configure codex --scope directory
+cd "$TEST_PROJECT" && "$TIDDLY_BIN" mcp configure codex --scope directory
 ```
 **Verify:**
 - [ ] `[ -f "$TEST_PROJECT/.codex/config.toml" ]`
@@ -1084,17 +1096,23 @@ backup_path=$(echo "$out" | sed -n 's/.*Backed up claude-desktop config to \(.*\
 bin/tiddly mcp remove claude-code --delete-tokens 2>/dev/null
 bin/tiddly mcp configure claude-code --expires 30
 
-# Parse the EXPIRES column for any cli-mcp-claude-code-* token and compute
-# days-from-now. The date-math tool differs by platform (GNU `date -d` vs
-# BSD `date -v`), so handle both.
-expires_raw=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-claude-code-/ {for (i=1;i<=NF;i++) if ($i ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}/) {print $i; exit}}')
+# Parse the EXPIRES column for any cli-mcp-claude-code-* token. Row format:
+#   ID  NAME  PREFIX  LAST USED  EXPIRES  CREATED
+# LAST USED is `—` on a fresh token, a date once exercised — either way it's
+# a single whitespace-separated field, so $5 is always EXPIRES. (Header-
+# position parsing is fragile because the em-dash `—` is multi-byte in
+# UTF-8, which shifts byte-based substring math off tabwriter's columns.)
+# Date math differs by platform (GNU `date -d` vs BSD `date -j`).
+expires_raw=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-claude-code-/ {print $5; exit}')
 if [ -n "$expires_raw" ]; then
   # Take just the YYYY-MM-DD portion (strip any T..Z suffix)
   expires_date=${expires_raw%%T*}
-  # Compute day delta — try GNU first, fall back to BSD.
-  if days_until=$(date -d "$expires_date" +%s 2>/dev/null); then
+  # Force a fully-specified time — BSD `date -j -f '%Y-%m-%d'` silently
+  # retains the current local HH:MM:SS for the missing components, which
+  # adds up to a day off depending on when the test runs.
+  if days_until=$(date -d "$expires_date 00:00:00" +%s 2>/dev/null); then
     now_s=$(date -u +%s)
-  elif days_until=$(date -j -f '%Y-%m-%d' "$expires_date" +%s 2>/dev/null); then
+  elif days_until=$(date -j -f '%Y-%m-%d %H:%M:%S' "$expires_date 00:00:00" +%s 2>/dev/null); then
     now_s=$(date -u +%s)
   else
     days_until=""
@@ -1155,7 +1173,7 @@ bin/tiddly mcp configure claude-code --dry-run 2> /tmp/dry_run_stderr
 ### [T3.2] Dry-run — directory scope
 ```bash
 pre_sha=$(sha_of "$CLAUDE_CODE_CONFIG")
-cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope directory --dry-run
+cd "$TEST_PROJECT" && "$TIDDLY_BIN" mcp configure claude-code --scope directory --dry-run
 ```
 **Verify:**
 - [ ] Diff shown under the project-path key
@@ -1701,8 +1719,8 @@ backup_path=$(echo "$out" | sed -n 's/.*Backed up previous config to \(.*\)$/\1/
 
 ### [T6.2] Remove Claude Code directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly mcp configure claude-code --scope directory
-cd "$TEST_PROJECT" && bin/tiddly mcp remove claude-code --scope directory
+cd "$TEST_PROJECT" && "$TIDDLY_BIN" mcp configure claude-code --scope directory
+cd "$TEST_PROJECT" && "$TIDDLY_BIN" mcp remove claude-code --scope directory
 ```
 **Verify:**
 - [ ] `projects["$TEST_PROJECT"].mcpServers` has no Tiddly keys
@@ -1944,7 +1962,7 @@ bin/tiddly skills configure claude-code
 
 ### [T7.2] Claude Code, directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills configure claude-code --scope directory
+cd "$TEST_PROJECT" && "$TIDDLY_BIN" skills configure claude-code --scope directory
 ```
 **Verify:**
 - [ ] Exit 0
@@ -1960,7 +1978,7 @@ bin/tiddly skills configure codex
 
 ### [T7.4] Codex, directory scope
 ```bash
-cd "$TEST_PROJECT" && bin/tiddly skills configure codex --scope directory
+cd "$TEST_PROJECT" && "$TIDDLY_BIN" skills configure codex --scope directory
 ```
 **Verify:**
 - [ ] Skills extracted to `$TEST_PROJECT/.agents/skills/`
