@@ -1409,8 +1409,11 @@ echo "$out"
   # reused it. If validation rejected it and a fresh token was minted, the survivor value
   # differs — both outcomes are acceptable per the disclosure wording. Record which path
   # fired for the agent to include in the run summary.
+  # NOTE: strip trailing newline from jq -r output before hashing. printf
+  # produces no trailing newline; jq -r appends one. Without `tr -d '\n'`
+  # the two hashes never match even when the stored PAT equals the expected.
   expected=$(printf 'Bearer %s' "$PAT_PERSONAL" | SHA256 | awk '{print $1}')
-  actual=$(jq -r '.mcpServers.tiddly_prompts.headers.Authorization' "$CLAUDE_CODE_CONFIG" | SHA256 | awk '{print $1}')
+  actual=$(jq -r '.mcpServers.tiddly_prompts.headers.Authorization' "$CLAUDE_CODE_CONFIG" | tr -d '\n' | SHA256 | awk '{print $1}')
   if [ "$expected" = "$actual" ]; then
     report_test NOTE "T4.4 — outcome path" "reused survivor PAT (personal_prompts)"
   else
@@ -1595,8 +1598,9 @@ new_mints=$(comm -13 <(echo "$before_mints") <(echo "$after_mints"))
 - [ ] `jq -e '.mcpServers.tiddly_prompts.headers.Authorization | startswith("Bearer bm_")' "$CLAUDE_CODE_CONFIG" >/dev/null`
 - [ ] **Negative survivor check (hash-compare only):** the new Authorization value should NOT equal `Bearer $PAT_PERSONAL_T410` (the revoked token):
   ```bash
+  # NOTE: strip trailing newline from jq -r output before hashing (see T4.4).
   rejected=$(printf 'Bearer %s' "$PAT_PERSONAL_T410" | SHA256 | awk '{print $1}')
-  actual=$(jq -r '.mcpServers.tiddly_prompts.headers.Authorization' "$CLAUDE_CODE_CONFIG" | SHA256 | awk '{print $1}')
+  actual=$(jq -r '.mcpServers.tiddly_prompts.headers.Authorization' "$CLAUDE_CODE_CONFIG" | tr -d '\n' | SHA256 | awk '{print $1}')
   [ "$rejected" != "$actual" ] || { echo "FAIL: survivor PAT was reused despite being invalid"; exit 1; }
   ```
 - [ ] Unset plaintext: `unset PAT_WORK_T410 PAT_PERSONAL_T410`
@@ -1849,8 +1853,9 @@ echo "exit: $rc"
 
 # Hash-compare only: we prove the content binding still references $PAT_SHARED
 # without ever echoing it.
+# NOTE: strip trailing newline from jq -r output before hashing (see T4.4).
 shared_hash=$(printf 'Bearer %s' "$PAT_SHARED" | SHA256 | awk '{print $1}')
-content_hash=$(jq -r '.mcpServers.tiddly_notes_bookmarks.headers.Authorization // empty' "$CLAUDE_CODE_CONFIG" | SHA256 | awk '{print $1}')
+content_hash=$(jq -r '.mcpServers.tiddly_notes_bookmarks.headers.Authorization // empty' "$CLAUDE_CODE_CONFIG" | tr -d '\n' | SHA256 | awk '{print $1}')
 
 unset PAT_SHARED
 ```
