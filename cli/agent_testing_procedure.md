@@ -890,12 +890,14 @@ Every phase starts with `report_phase`. Every test ends with `report_test PASS|S
 report_phase "Phase 1: Read-only"
 
 out=$(bin/tiddly --help 2>&1)
-if echo "$out" | grep -q "Usage:"; then
+if echo "$out" | grep "Usage:" >/dev/null; then
   report_test PASS "T1.1 — Root help"
 else
   report_mismatch "T1.1" "output contains 'Usage:'" "output was: $(echo "$out" | head -1)" plan-bug ""
 fi
 ```
+
+**IMPORTANT: do NOT use `grep -q` inside a pipeline under `set -o pipefail`.** `grep -q` exits as soon as it finds a match, which closes the pipe and sends `SIGPIPE` (exit 141) to any still-writing upstream. With `pipefail` on, that 141 becomes the pipeline exit, so a real match reports as failure. The race is invisible on small outputs (pipe buffer absorbs everything before grep reads) but fires on dry-run diffs, multi-entry configure output, and `tokens list` with many rows. **Use `grep PATTERN >/dev/null` instead** — it reads all of stdin, so upstream finishes normally. Applies anywhere the assertion is on a pipeline; greps against a file (e.g. `grep PATTERN "$CONFIG"`) are safe.
 
 **Mandatory Bearer-leak guard — call before every `echo "$out"` on configure/remove/dry-run output:**
 
@@ -1412,8 +1414,10 @@ echo "$out"
   if [ "$expected" = "$actual" ]; then
     report_test NOTE "T4.4 — outcome path" "reused survivor PAT (personal_prompts)"
   else
-    # In the mint case, verify a fresh cli-mcp-* token was created:
-    if bin/tiddly tokens list 2>/dev/null | grep -q 'cli-mcp-claude-code-prompts-'; then
+    # In the mint case, verify a fresh cli-mcp-* token was created.
+    # Use `grep ... >/dev/null` not `grep -q` — see § "How to use the
+    # report helpers" for the pipefail+grep -q anti-pattern.
+    if bin/tiddly tokens list 2>/dev/null | grep 'cli-mcp-claude-code-prompts-' >/dev/null; then
       report_test NOTE "T4.4 — outcome path" "minted fresh token (validate-then-mint fallback)"
     else
       report_mismatch "T4.4" "fresh cli-mcp-claude-code-prompts- token created after mint path" "no cli-mcp-claude-code-prompts- token found in tokens list" product-bug "Survivor hash mismatch implies mint path fired, but no matching token exists server-side"
