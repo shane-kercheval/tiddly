@@ -454,6 +454,38 @@ describe('parseLine', () => {
       const result = parseLine('123. Item', false)
       expect(result?.type).toBe('numbered')
     })
+
+    // prefixLen powers the per-line hanging-indent CSS variable so wrapped
+    // list lines align with the content after the marker (KAN-111).
+    describe('prefixLen (hanging indent width)', () => {
+      it('returns 2 for "- Item"', () => {
+        expect(parseLine('- Item', false)?.prefixLen).toBe(2)
+      })
+
+      it('returns 3 for "1. Item"', () => {
+        expect(parseLine('1. Item', false)?.prefixLen).toBe(3)
+      })
+
+      it('returns 5 for "123. Item"', () => {
+        expect(parseLine('123. Item', false)?.prefixLen).toBe(5)
+      })
+
+      it('includes leading indent for nested bullet', () => {
+        expect(parseLine('  - Nested', false)?.prefixLen).toBe(4)
+      })
+
+      it('includes leading indent for deeply nested bullet', () => {
+        expect(parseLine('      - Deep', false)?.prefixLen).toBe(8)
+      })
+
+      it('returns 6 for "- [ ] Item"', () => {
+        expect(parseLine('- [ ] Item', false)?.prefixLen).toBe(6)
+      })
+
+      it('includes leading indent for nested checklist', () => {
+        expect(parseLine('  - [x] Nested', false)?.prefixLen).toBe(8)
+      })
+    })
   })
 
   describe('checklist', () => {
@@ -484,6 +516,18 @@ describe('parseLine', () => {
       const result = parseLine('  - [ ] Nested item', false)
       expect(result?.type).toBe('checklist')
       expect(result?.bracketPos).toBe(4)  // Position of [ for editing
+    })
+
+    // bracketPos is now computed from the actual match position of "[" so it
+    // stays correct for multi-space variants. The click-to-toggle handler
+    // dispatches a 3-character replacement at bracketPos; if this were off by
+    // one, the toggle would corrupt the line.
+    it('returns correct bracketPos for multi-space between marker and [', () => {
+      expect(parseLine('-  [ ] Item', false)?.bracketPos).toBe(3)
+    })
+
+    it('returns correct bracketPos for indent + multi-space', () => {
+      expect(parseLine('  -  [x] Item', false)?.bracketPos).toBe(5)
     })
   })
 
@@ -978,6 +1022,42 @@ describe('link dom event handlers', () => {
       )
       // Selection untouched — no secondary cursor added.
       expect(view.state.selection.ranges.length).toBe(initialRangeCount)
+    })
+  })
+
+  describe('checklist toggle on multi-space lines', () => {
+    // Locks in the bracketPos fix: parseLine now derives bracketPos from the
+    // actual match position of "[" so the click-to-toggle handler correctly
+    // replaces the 3-char checkbox even when there are multiple spaces
+    // between the marker and "[". Before the fix, bracketPos was hardcoded
+    // off-by-N and the toggle would corrupt the line.
+    it('toggles "[ ]" → "[x]" on a line with multi-space marker spacing', () => {
+      const doc = '-  [ ] Item'
+      // Any pos inside the line works; the handler re-derives bracketPos
+      // from parseLine on the line's text. Position 3 is "[".
+      const view = track(buildView(doc, 3))
+
+      const target = document.createElement('span')
+      target.className = 'cm-md-checklist-checkbox cm-md-checklist-checkbox-unchecked'
+      const event = makeMouseEvent({}, target)
+
+      const handled = handleEditorMousedown(event, view)
+
+      expect(handled).toBe(true)
+      expect(view.state.doc.toString()).toBe('-  [x] Item')
+    })
+
+    it('toggles "[x]" → "[ ]" on an indented multi-space line', () => {
+      const doc = '  -  [x] Item'
+      const view = track(buildView(doc, 5))
+
+      const target = document.createElement('span')
+      target.className = 'cm-md-checklist-checkbox cm-md-checklist-checkbox-checked'
+      const event = makeMouseEvent({}, target)
+
+      handleEditorMousedown(event, view)
+
+      expect(view.state.doc.toString()).toBe('  -  [ ] Item')
     })
   })
 })

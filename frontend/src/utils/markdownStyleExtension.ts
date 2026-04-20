@@ -33,6 +33,10 @@ interface LineInfo {
   type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'bullet' | 'numbered' | 'checklist' | 'blockquote' | 'code-start' | 'code-end' | 'code-content' | 'hr'
   checked?: boolean
   bracketPos?: number   // Position of [ character for editing
+  // For list-type lines (bullet/numbered/checklist): number of characters from
+  // the start of the line through the marker's trailing space. Used for
+  // hanging-indent so wrapped lines align with the content start (KAN-111).
+  prefixLen?: number
 }
 
 function parseLine(text: string, inCodeBlock: boolean): LineInfo | null {
@@ -58,17 +62,20 @@ function parseLine(text: string, inCodeBlock: boolean): LineInfo | null {
   const checklistMatch = text.match(/^(\s*)([-*+])\s+\[([ xX])\]\s/)
   if (checklistMatch) {
     const checked = checklistMatch[3].toLowerCase() === 'x'
-    const indent = checklistMatch[1].length
-    // bracketPos: position of [ character - for editing when clicked
-    const bracketPos = indent + checklistMatch[2].length + 1 // indent + "-" + " "
-    return { type: 'checklist', checked, bracketPos }
+    // bracketPos: position of [ character — computed from the actual match so
+    // it stays correct for multi-space variants like "-  [ ]". Used by the
+    // click-to-toggle handler to dispatch the 3-char checkbox replacement.
+    const bracketPos = checklistMatch[0].indexOf('[')
+    return { type: 'checklist', checked, bracketPos, prefixLen: checklistMatch[0].length }
   }
 
   // Bullet lists
-  if (/^\s*[-*+]\s/.test(text)) return { type: 'bullet' }
+  const bulletMatch = text.match(/^\s*[-*+]\s/)
+  if (bulletMatch) return { type: 'bullet', prefixLen: bulletMatch[0].length }
 
   // Numbered lists
-  if (/^\s*\d+\.\s/.test(text)) return { type: 'numbered' }
+  const numberedMatch = text.match(/^\s*\d+\.\s/)
+  if (numberedMatch) return { type: 'numbered', prefixLen: numberedMatch[0].length }
 
   // Blockquotes
   if (text.startsWith('>')) return { type: 'blockquote' }
@@ -534,9 +541,109 @@ const jinjaTagContentMark = Decoration.mark({ class: 'cm-md-jinja-tag-content' }
 const jinjaCommentMark = Decoration.mark({ class: 'cm-md-jinja-comment' })
 
 /**
+ * Build a cache key capturing the dimensions that actually affect a prefix's
+ * rendered width: type, indent width, and marker shape (marker char for
+ * bullets, digit count for numbered, checked state for checklists).
+ *
+ * Intentional trade-off: two structurally distinct prefixes of equal length
+ * can collide in theory (and their widths may differ sub-pixel in
+ * proportional fonts), but within a single list all items share the same
+ * structure, so this keeps the cache O(distinct list structures) instead of
+ * O(distinct prefix texts) — important for, e.g., a 500-item numbered list
+ * where keying on literal prefix would cause 500 forced layouts on first
+ * render.
+ */
+function prefixCacheKey(info: LineInfo, prefix: string): string {
+  if (info.type === 'checklist' && info.bracketPos !== undefined) {
+    const indent = info.bracketPos - 2 // "- " between indent and "[" is 2 chars
+    return `c|${indent}|${info.checked ? 1 : 0}`
+  }
+  if (info.type === 'numbered') {
+    const m = prefix.match(/^(\s*)(\d+)/)
+    if (m) return `n|${m[1].length}|${m[2].length}`
+  }
+  if (info.type === 'bullet') {
+    const m = prefix.match(/^(\s*)([-*+])/)
+    if (m) return `b|${m[1].length}|${m[2]}`
+  }
+  return `${info.type}|${prefix}` // fallback
+}
+
+/**
+ * Measure the pixel width of a list line's prefix as it renders in the editor.
+ * Uses a hidden probe appended to a measurement host that sits as a child of
+ * view.dom — NOT view.contentDOM — so it doesn't trigger CM6's
+ * MutationObserver on the contenteditable region (which could misinterpret
+ * the mutation as user input).
+ *
+ * For checklists, the probe mirrors the inline decoration structure
+ * (`cm-md-checklist-syntax` on "- ", `cm-md-checklist-checkbox` on
+ * "[ ]"/"[x]"), which differ from plain text in font-family, font-size,
+ * font-weight, and padding — without this, wrapped checklist lines would be
+ * under-indented by several pixels.
+ *
+ * Results are cached per prefixCacheKey; the cache is cleared by the plugin
+ * on geometry changes (e.g., font swaps). Failed measurements (width === 0,
+ * e.g., jsdom or a detached host) are deliberately NOT cached so a later
+ * successful measurement can populate the cache.
+ */
+function measurePrefixWidth(
+  host: HTMLElement,
+  info: LineInfo,
+  prefix: string,
+  cache: Map<string, number>,
+): number {
+  const key = prefixCacheKey(info, prefix)
+  const cached = cache.get(key)
+  if (cached !== undefined) return cached
+
+  const probe = document.createElement('span')
+  probe.style.cssText = 'white-space:pre;'
+
+  if (info.type === 'checklist' && info.bracketPos !== undefined) {
+    // Mirror the inline decorations applied to the real prefix:
+    //   [plain leading indent][syntax span: "- "][checkbox span: "[ ]"][plain trailing space]
+    const syntaxFrom = info.bracketPos - 2 // where "- " starts = indent length
+    const bracketEnd = info.bracketPos + 3 // after "[ ]" or "[x]"
+
+    if (syntaxFrom > 0) {
+      probe.appendChild(document.createTextNode(prefix.slice(0, syntaxFrom)))
+    }
+    const syntax = document.createElement('span')
+    syntax.className = 'cm-md-checklist-syntax'
+    syntax.textContent = prefix.slice(syntaxFrom, info.bracketPos)
+    probe.appendChild(syntax)
+
+    const checkbox = document.createElement('span')
+    checkbox.className = info.checked
+      ? 'cm-md-checklist-checkbox cm-md-checklist-checkbox-checked'
+      : 'cm-md-checklist-checkbox cm-md-checklist-checkbox-unchecked'
+    checkbox.textContent = prefix.slice(info.bracketPos, bracketEnd)
+    probe.appendChild(checkbox)
+
+    if (bracketEnd < prefix.length) {
+      probe.appendChild(document.createTextNode(prefix.slice(bracketEnd)))
+    }
+  } else {
+    probe.textContent = prefix
+  }
+
+  host.appendChild(probe)
+  const width = probe.getBoundingClientRect().width
+  host.removeChild(probe)
+
+  if (width > 0) cache.set(key, width)
+  return width
+}
+
+/**
  * Build decorations for the entire document.
  */
-function buildDecorations(view: EditorView): DecorationSet {
+function buildDecorations(
+  view: EditorView,
+  prefixWidthCache: Map<string, number>,
+  measurementHost: HTMLElement,
+): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>()
   let inCodeBlock = false
 
@@ -558,7 +665,17 @@ function buildDecorations(view: EditorView): DecorationSet {
       if (info.type === 'checklist' && info.checked) {
         lineClass += ' cm-md-checklist-checked'
       }
-      builder.add(line.from, line.from, Decoration.line({ class: lineClass }))
+      const spec: Parameters<typeof Decoration.line>[0] = { class: lineClass }
+      if (info.prefixLen !== undefined) {
+        // Per-line hanging-indent width (KAN-111) so wrapped list lines align
+        // with the content after the marker. See measurePrefixWidth.
+        const prefix = line.text.slice(0, info.prefixLen)
+        const width = measurePrefixWidth(measurementHost, info, prefix, prefixWidthCache)
+        if (width > 0) {
+          spec.attributes = { style: `--md-list-indent: ${width}px` }
+        }
+      }
+      builder.add(line.from, line.from, Decoration.line(spec))
     }
 
     // Add inline decorations (only outside of code blocks)
@@ -803,15 +920,34 @@ const cursorInCodeBlockPlugin = ViewPlugin.fromClass(
 const markdownDecorationPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
+    // Cache of measured prefix widths (see measurePrefixWidth). Cleared when
+    // geometry changes so font swaps (mono ↔ proportional) remeasure.
+    prefixWidthCache = new Map<string, number>()
+    // Off-screen host for prefix measurement probes. Lives under view.dom
+    // (not view.contentDOM) to avoid triggering CM6's MutationObserver on the
+    // contenteditable region.
+    measurementHost: HTMLElement
 
     constructor(view: EditorView) {
-      this.decorations = buildDecorations(view)
+      this.measurementHost = document.createElement('div')
+      this.measurementHost.className = 'cm-md-measure'
+      this.measurementHost.style.cssText =
+        'position:absolute;visibility:hidden;pointer-events:none;top:0;left:-9999px;white-space:pre;'
+      view.dom.appendChild(this.measurementHost)
+      this.decorations = buildDecorations(view, this.prefixWidthCache, this.measurementHost)
     }
 
     update(update: ViewUpdate): void {
-      if (update.docChanged || update.viewportChanged) {
-        this.decorations = buildDecorations(update.view)
+      if (update.geometryChanged) {
+        this.prefixWidthCache.clear()
       }
+      if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+        this.decorations = buildDecorations(update.view, this.prefixWidthCache, this.measurementHost)
+      }
+    }
+
+    destroy(): void {
+      this.measurementHost.remove()
     }
   },
   {
@@ -898,9 +1034,14 @@ const markdownBaseTheme = EditorView.theme({
     textDecoration: 'none',
   },
 
-  // Lists
+  // Lists — hanging indent so wrapped lines align with content after the
+  // marker (KAN-111). The --md-list-indent custom property is set per line in
+  // buildDecorations from a pixel measurement of the actual prefix text.
+  // text-indent pulls the first visual line back to column 0 while
+  // padding-left applies to wrapped lines.
   '.cm-md-bullet, .cm-md-numbered, .cm-md-checklist': {
-    paddingLeft: '0.5em',
+    paddingLeft: 'calc(0.5em + var(--md-list-indent, 0px))',
+    textIndent: 'calc(-1 * var(--md-list-indent, 0px))',
   },
 
   // Checklist items
