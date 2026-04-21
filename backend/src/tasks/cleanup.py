@@ -31,6 +31,14 @@ from services.history_service import history_service
 
 logger = logging.getLogger(__name__)
 
+# Last-updated marker for the cleanup task. Logged on each scheduled run so
+# the deployed code revision is visible in Railway logs without needing to
+# inspect the image SHA. **Update this to the current UTC timestamp whenever
+# cleanup logic changes** (format: YYYY-MM-DDTHH:MMZ). Minute precision
+# distinguishes multiple same-day pushes; a stale deploy is then immediately
+# obvious in the logs.
+CLEANUP_TASK_VERSION = "2026-04-21T17:15Z"
+
 # Default expiry for soft-deleted items (days in trash before permanent deletion)
 SOFT_DELETE_EXPIRY_DAYS = 30
 
@@ -283,7 +291,7 @@ async def run_cleanup(
     Returns:
         Combined CleanupStats from all cleanup operations.
     """
-    logger.info("Starting cleanup task")
+    logger.info("Starting cleanup task (version=%s)", CLEANUP_TASK_VERSION)
 
     async def _run(session: AsyncSession) -> CleanupStats:
         # 1. Permanently delete soft-deleted items older than 30 days

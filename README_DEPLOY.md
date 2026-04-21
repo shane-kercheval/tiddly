@@ -166,7 +166,9 @@ Hourly job that flushes Redis AI-cost buckets into the `ai_usage` Postgres table
 - Execution time can drift by a few minutes — Railway does not guarantee minute precision.
 - If a prior run is still in flight when the next tick fires, Railway **skips** the new execution.
 - The cron process must exit when the task completes. All three scripts (`ai_usage_flush.py`, `cleanup.py`, `orphan_relationships.py`) use `asyncio.run(...)` and exit cleanly.
-- There is no "Run Now" button. Manually redeploying (Deployments tab → three-dots menu → Redeploy) rebuilds the image but does NOT trigger an extra cron execution. To force a run for testing, temporarily change the schedule to a near-future expression (e.g. `*/5 * * * *`), observe a run, then revert.
+- The Cron Runs tab has a **Run now** button to trigger an ad-hoc execution of the current deployment. Useful for verifying the cron works after a config change without waiting for the next scheduled tick. Alternatively, to force the normal scheduled path, temporarily change the schedule to a near-future expression (e.g. `*/5 * * * *`), observe a run, then revert.
+- "Redeploy" on an existing deployment (Deployments tab → three-dots menu → Redeploy) re-runs that specific deployment. Whether it pulls the latest `main` or reuses the original commit SHA depends on Railway's behavior, which isn't fully documented here — **to confirm new code is actually running after a deploy, check the `version=...` marker in the cron's start-up log line** (see next bullet).
+- Each cron logs a version marker on start — e.g., `cleanup.py` logs `Starting cleanup task (version=...)` using `CLEANUP_TASK_VERSION` (UTC timestamp, `YYYY-MM-DDTHH:MMZ`). Update the constant to the current UTC time when shipping changes; the log line then confirms at a glance whether a given run is on the new code.
 - The `ai_usage_flush` upsert uses SET (not INCREMENT), and `cleanup` / `orphan-relationships` are idempotent by construction — so re-runs of any service are safe.
 
 #### Cleanup Service (Cron)
