@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
@@ -101,19 +102,6 @@ func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) 
 	return config, nil
 }
 
-// removeCodexServersByTiddlyURL removes entries whose URL matches the given predicate.
-// Returns true if any were removed.
-func removeCodexServersByTiddlyURL(servers map[string]codexMCPServer, match func(string) bool) bool {
-	removed := false
-	for name, server := range servers {
-		if match(server.URL) {
-			delete(servers, name)
-			removed = true
-		}
-	}
-	return removed
-}
-
 // configureCodex writes MCP server entries into the Codex config.
 // Returns the timestamped backup path (empty if no prior config existed).
 func configureCodex(rc ResolvedConfig, contentPAT, promptPAT string) (backupPath string, err error) {
@@ -124,28 +112,46 @@ func configureCodex(rc ResolvedConfig, contentPAT, promptPAT string) (backupPath
 	return writeCodexConfig(rc.Path, config)
 }
 
-// removeCodex removes tiddly MCP server entries from the config.
-// Identifies servers by URL, not by name, so custom-named entries are also
-// removed. Returns the timestamped backup path (empty if nothing changed or
-// no prior config existed).
-func removeCodex(rc ResolvedConfig, serverFilter []string) (backupPath string, err error) {
+// removeCodex deletes CLI-managed entries (canonical key names only) from
+// the Codex config. Non-canonical entries are preserved. A CLI-managed
+// entry is deleted regardless of what URL it currently points at.
+func removeCodex(rc ResolvedConfig, serverFilter []string) (*RemoveResult, error) {
+	result := &RemoveResult{}
+
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return result, nil
 		}
-		return "", err
+		return result, err
 	}
 
 	if config.MCPServers == nil {
-		return "", nil
+		return result, nil
 	}
 
-	if !removeCodexServersByTiddlyURL(config.MCPServers, serverURLMatcher(serverFilter)) {
-		return "", nil
+	targetNames := canonicalNamesForServers(serverFilter)
+	var removed []string
+	for name := range config.MCPServers {
+		if targetNames[name] {
+			removed = append(removed, name)
+		}
+	}
+	if len(removed) == 0 {
+		return result, nil
+	}
+	sort.Strings(removed)
+	for _, name := range removed {
+		delete(config.MCPServers, name)
 	}
 
-	return writeCodexConfig(rc.Path, config)
+	backupPath, werr := writeCodexConfig(rc.Path, config)
+	result.BackupPath = backupPath
+	if werr != nil {
+		return result, werr
+	}
+	result.RemovedEntries = removed
+	return result, nil
 }
 
 // statusCodex returns MCP servers configured in Codex.

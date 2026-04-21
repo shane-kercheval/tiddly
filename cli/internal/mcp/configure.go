@@ -19,8 +19,24 @@ import (
 // dryRunPlaceholder is the token shown in dry-run output when a new token would be created.
 const dryRunPlaceholder = "<new-token-would-be-created>"
 
-// tokenPrefixLen is the number of leading characters the API stores as token_prefix.
+// tokenPrefixLen is the number of leading characters the API stores as
+// token_prefix. Not exported — callers that need the derived prefix value
+// use PATPrefix() instead of doing the slice themselves.
 const tokenPrefixLen = 12
+
+// PATPrefix returns the leading characters of pat that match the
+// token_prefix the API stores for each token. Returns "" when pat is too
+// short to yield a usable prefix (that case is semantically "no match
+// possible" — callers may treat it as "nothing to subtract" or "nothing
+// to delete" depending on context). Centralizing this avoids the duplicate
+// len-gated slice pattern that previously lived in both DeleteTokensByPrefix
+// and the cmd-layer orphan-token filter.
+func PATPrefix(pat string) string {
+	if len(pat) < tokenPrefixLen {
+		return ""
+	}
+	return pat[:tokenPrefixLen]
+}
 
 // ConfigureOpts configures the MCP configure flow.
 type ConfigureOpts struct {
@@ -71,10 +87,11 @@ type preflightedTool struct {
 	forceOverwrites []canonicalMismatch // populated only when opts.Force && this tool has mismatches
 }
 
-// expectedServerTypeForName maps a CLI-managed key name to its expected
-// server type. Returns (type, true) for known canonical names, ("", false)
-// otherwise.
-func expectedServerTypeForName(name string) (string, bool) {
+// ServerTypeForCanonicalName is the inverse of CanonicalName: given a
+// CLI-managed entry key name, returns its expected server type. ok is
+// false for any non-canonical name. Paired with CanonicalName so callers
+// can translate both directions through a single source of truth.
+func ServerTypeForCanonicalName(name string) (serverType string, ok bool) {
 	switch name {
 	case serverNameContent:
 		return ServerContent, true
@@ -191,7 +208,7 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 		// Tiddly URL entries live in sr.Servers with MatchByName.
 		var mismatches []canonicalMismatch
 		for _, o := range sr.OtherServers {
-			expected, known := expectedServerTypeForName(o.Name)
+			expected, known := ServerTypeForCanonicalName(o.Name)
 			if !known {
 				continue
 			}
@@ -204,7 +221,7 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 			if s.MatchMethod != MatchByName {
 				continue
 			}
-			expected, known := expectedServerTypeForName(s.Name)
+			expected, known := ServerTypeForCanonicalName(s.Name)
 			if !known {
 				continue
 			}
@@ -490,9 +507,14 @@ func revokeMintedTokens(ctx context.Context, client *api.Client, minted []minted
 	var orphans []string
 	for _, m := range minted {
 		if delErr := client.DeleteToken(ctx, m.ID); delErr != nil {
-			prefix := m.Token
-			if len(prefix) > tokenPrefixLen {
-				prefix = prefix[:tokenPrefixLen]
+			prefix := PATPrefix(m.Token)
+			if prefix == "" {
+				// Defensive: tokens minted by the API are always long
+				// enough; this branch only fires if an adversarial/mock
+				// response returned something truncated. Fall back to
+				// the whole token rather than printing "" which would
+				// be confusing.
+				prefix = m.Token
 			}
 			orphans = append(orphans, fmt.Sprintf("%s (prefix %s)", m.Name, prefix))
 		}
@@ -565,7 +587,7 @@ type TokenRevokeResult struct {
 // result. Callers never see duplicate deletions or false "nothing matched"
 // for shared PATs.
 //
-// For PATs shorter than tokenPrefixLen, the corresponding result has an empty
+// For PATs too short to yield a prefix (see PATPrefix), the result has an empty
 // DeletedNames and nil Err — treated as "nothing matched" so the caller can
 // emit a per-entry note consistently. The top-level error is reserved for
 // list-tokens failure.
@@ -595,8 +617,7 @@ func DeleteTokensByPrefix(ctx context.Context, client *api.Client, reqs []TokenR
 			continue
 		}
 		o := &patOutcome{}
-		if len(r.PAT) >= tokenPrefixLen {
-			prefix := r.PAT[:tokenPrefixLen]
+		if prefix := PATPrefix(r.PAT); prefix != "" {
 			var perPATErrors []error
 			for _, t := range tokens {
 				if t.TokenPrefix == prefix && strings.HasPrefix(t.Name, tokenNamePrefix) {
@@ -644,15 +665,17 @@ func printDiff(w io.Writer, path, before, after string) {
 	fmt.Fprintln(w, redactBearers(after))
 }
 
-// CheckOrphanedTokens returns server-side tokens matching the cli-mcp-{toolName}-
-// {serverType}- name pattern. The caller must subtract tokens whose TokenPrefix
-// matches a PAT still referenced by a retained entry on disk before presenting
-// them as "potentially orphaned" — otherwise tokens in active use by
-// non-canonical entries would be misreported.
+// CheckOrphanedTokens returns server-side tokens matching the
+// cli-mcp-{toolName}-{serverType}- name pattern. The caller must subtract
+// tokens whose TokenPrefix matches a PAT still referenced by a retained
+// entry on disk before presenting them as "potentially orphaned" —
+// otherwise tokens in active use by non-canonical entries would be
+// misreported.
 //
-// Known limitation: does not see repurposed canonical slots (canonical names at
-// non-Tiddly URLs). A CLI-minted PAT pasted into such an entry may be reported
-// as "potentially orphaned" even though it's still in use.
+// Known limitation: does not see repurposed canonical slots (canonical
+// names at non-Tiddly URLs). A CLI-minted PAT pasted into such an entry
+// may be reported as "potentially orphaned" even though it's still in use.
+// Accepted pre-GA; see the plan document for context.
 func CheckOrphanedTokens(ctx context.Context, client *api.Client, toolName string, serverTypes []string) ([]api.TokenInfo, error) {
 	tokens, err := client.ListTokens(ctx)
 	if err != nil {

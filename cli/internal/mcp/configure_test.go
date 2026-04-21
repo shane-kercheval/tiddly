@@ -1396,14 +1396,17 @@ func TestRunRemove__valid_config_creates_backup_before_writing(t *testing.T) {
 	writeTestJSON(t, configPath, existingConfig)
 
 	h := &ClaudeDesktopHandler{}
-	backupPath, err := h.Remove(ResolvedConfig{Path: configPath, Scope: "user"}, []string{"content", "prompts"})
+	result, err := h.Remove(ResolvedConfig{Path: configPath, Scope: "user"}, []string{"content", "prompts"})
 	require.NoError(t, err)
-	require.NotEmpty(t, backupPath, "Remove should return backup path when a write occurred")
-	assert.True(t, strings.HasPrefix(backupPath, configPath+".bak."),
-		"backup filename should be <path>.bak.<timestamp>; got %q", backupPath)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"tiddly_notes_bookmarks"}, result.RemovedEntries,
+		"RemovedEntries must list the canonical names actually deleted")
+	require.NotEmpty(t, result.BackupPath, "Remove should return backup path when a write occurred")
+	assert.True(t, strings.HasPrefix(result.BackupPath, configPath+".bak."),
+		"backup filename should be <path>.bak.<timestamp>; got %q", result.BackupPath)
 
 	// Backup file should exist with the original content (including the tiddly server)
-	backupData, backupErr := os.ReadFile(backupPath)
+	backupData, backupErr := os.ReadFile(result.BackupPath)
 	require.NoError(t, backupErr, "backup file should exist")
 	assert.Contains(t, string(backupData), "tiddly_notes_bookmarks")
 }
@@ -2203,7 +2206,7 @@ func TestDeleteTokensByPrefix__preserves_order_and_labels_with_mixed_shared_and_
 }
 
 func TestDeleteTokensByPrefix__short_pat_returns_empty_not_error(t *testing.T) {
-	// A PAT shorter than tokenPrefixLen must yield an empty DeletedNames
+	// A PAT too short for a prefix (see PATPrefix) must yield an empty DeletedNames
 	// with nil Err (treated as "nothing matched" for consistent caller
 	// handling of per-entry notes).
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2219,7 +2222,7 @@ func TestDeleteTokensByPrefix__short_pat_returns_empty_not_error(t *testing.T) {
 	defer server.Close()
 
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
-	reqs := []TokenRevokeRequest{{EntryLabel: "tiddly_prompts", PAT: "bm_short"}} // shorter than tokenPrefixLen
+	reqs := []TokenRevokeRequest{{EntryLabel: "tiddly_prompts", PAT: "bm_short"}} // too short for a prefix (see PATPrefix)
 	results, err := DeleteTokensByPrefix(context.Background(), client, reqs)
 	require.NoError(t, err)
 	require.Len(t, results, 1)

@@ -292,7 +292,7 @@ func TestRemoveClaudeCode__removes_servers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove
-	_, err = removeClaudeCode(rc, nil)
+	_, err = removeClaudeCode(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -306,7 +306,7 @@ func TestRemoveClaudeCode__no_file_is_noop(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeClaudeCode(rc, nil)
+	_, err := removeClaudeCode(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
 }
 
@@ -325,7 +325,7 @@ func TestRemoveClaudeCode__no_tiddly_servers_skips_write(t *testing.T) {
 	writeTestJSON(t, configPath, existing)
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeClaudeCode(rc, nil)
+	_, err := removeClaudeCode(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
@@ -691,43 +691,19 @@ func TestStatusClaudeCode__unknown_transport(t *testing.T) {
 	assert.Equal(t, "", sr.OtherServers[0].Transport)
 }
 
-func TestRemoveClaudeCode__removes_stdio_npx_servers(t *testing.T) {
+func TestRemoveClaudeCode__preserves_non_canonical_entries(t *testing.T) {
+	// Remove is canonical-name-only: custom-named entries — even at Tiddly
+	// URLs — survive because they represent deliberate user setups the CLI
+	// did not create and does not own.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
 	writeTestJSON(t, configPath, map[string]any{
 		"mcpServers": map[string]any{
-			"prompts": map[string]any{
-				"command": "npx",
-				"args": []any{
-					"mcp-remote",
-					PromptMCPURL(),
-					"--header",
-					"Authorization: Bearer bm_test123",
-				},
+			serverNameContent: map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
 			},
-			"other-server": map[string]any{
-				"type": "stdio",
-			},
-		},
-	})
-
-	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeClaudeCode(rc, nil)
-	require.NoError(t, err)
-
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.NotContains(t, servers, "prompts")
-	assert.Contains(t, servers, "other-server")
-}
-
-func TestRemoveClaudeCode__removes_custom_named_servers(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-
-	writeTestJSON(t, configPath, map[string]any{
-		"mcpServers": map[string]any{
 			"my_content": map[string]any{
 				"type": "http",
 				"url":  ContentMCPURL(),
@@ -736,21 +712,45 @@ func TestRemoveClaudeCode__removes_custom_named_servers(t *testing.T) {
 				"type": "http",
 				"url":  PromptMCPURL(),
 			},
-			"other-server": map[string]any{
-				"type": "stdio",
+			"other-server": map[string]any{"type": "stdio"},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	result, err := removeClaudeCode(rc, []string{"content", "prompts"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{serverNameContent}, result.RemovedEntries)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.NotContains(t, servers, serverNameContent, "canonical entry must be removed")
+	assert.Contains(t, servers, "my_content", "non-canonical Tiddly-URL entry must survive")
+	assert.Contains(t, servers, "my_prompts", "non-canonical Tiddly-URL entry must survive")
+	assert.Contains(t, servers, "other-server")
+}
+
+func TestRemoveClaudeCode__deletes_canonical_entry_with_non_tiddly_url(t *testing.T) {
+	// A canonical key the user repurposed (hand-edited to a local dev URL)
+	// is still CLI-managed by name. Remove deletes it regardless of URL;
+	// the backup is the recovery path.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type":    "http",
+				"url":     "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_user_custom"},
 			},
 		},
 	})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeClaudeCode(rc, nil)
+	result, err := removeClaudeCode(rc, []string{"prompts"})
 	require.NoError(t, err)
-
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.NotContains(t, servers, "my_content")
-	assert.NotContains(t, servers, "my_prompts")
-	assert.Contains(t, servers, "other-server")
+	assert.Equal(t, []string{serverNamePrompts}, result.RemovedEntries)
+	assert.NotEmpty(t, result.BackupPath, "user's repurposed entry is preserved in the backup")
 }
 
 func TestRemoveClaudeCode__content_only_preserves_prompts(t *testing.T) {

@@ -111,11 +111,6 @@ func isTiddlyPromptURL(rawURL string) bool {
 	return urlMatchesPrefix(rawURL, urlPrefix(PromptMCPURL()))
 }
 
-// isTiddlyURL returns true if the URL points to either tiddly MCP server.
-func isTiddlyURL(rawURL string) bool {
-	return isTiddlyContentURL(rawURL) || isTiddlyPromptURL(rawURL)
-}
-
 // extractServerURL returns the MCP URL from a server entry, checking both
 // the HTTP format ("url" field) and the stdio/npx mcp-remote format ("args" array).
 // For stdio format, it finds "mcp-remote" anywhere in args and returns the next element.
@@ -152,49 +147,6 @@ func detectTransport(serverMap map[string]any) string {
 		return "stdio"
 	}
 	return ""
-}
-
-// serverURLMatcher returns a predicate that matches tiddly MCP URLs based on
-// the requested server names. Used by Remove to selectively remove content,
-// prompts, or both servers.
-func serverURLMatcher(servers []string) func(string) bool {
-	wantContent, wantPrompts := false, false
-	for _, s := range servers {
-		switch s {
-		case ServerContent:
-			wantContent = true
-		case ServerPrompts:
-			wantPrompts = true
-		}
-	}
-	switch {
-	case wantContent && wantPrompts:
-		return isTiddlyURL
-	case wantContent:
-		return isTiddlyContentURL
-	case wantPrompts:
-		return isTiddlyPromptURL
-	default:
-		return isTiddlyURL // empty/nil = match all (safe zero value)
-	}
-}
-
-// removeJSONServersByTiddlyURL removes entries from a JSON mcpServers map
-// whose URL matches the given predicate (checking both HTTP and stdio/npx formats).
-func removeJSONServersByTiddlyURL(servers map[string]any, match func(string) bool) bool {
-	removed := false
-	for name, entry := range servers {
-		serverMap, _ := entry.(map[string]any)
-		if serverMap == nil {
-			continue
-		}
-		urlStr := extractServerURL(serverMap)
-		if match(urlStr) {
-			delete(servers, name)
-			removed = true
-		}
-	}
-	return removed
 }
 
 // sortCanonicalFirst sorts keys in place so that canonical server names

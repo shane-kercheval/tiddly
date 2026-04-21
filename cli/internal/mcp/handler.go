@@ -16,6 +16,22 @@ type TiddlyPAT struct {
 	PAT        string // Bearer token value (never empty; entries without a PAT are filtered out)
 }
 
+// RemoveResult describes the outcome of a Remove operation.
+// RemovedEntries lists canonical key names actually deleted from the config
+// file. Empty when nothing matched (no file, no canonical entries, or the
+// --servers scope excluded every canonical entry present). BackupPath is
+// the timestamped backup file created before a write; empty when no write
+// was attempted or no prior file existed.
+//
+// Handlers always return a non-nil *RemoveResult, even on error paths.
+// In particular, a write failure AFTER the backup was taken returns
+// (&RemoveResult{BackupPath: path, RemovedEntries: nil}, err) so callers
+// can surface the recovery artifact before propagating the error.
+type RemoveResult struct {
+	RemovedEntries []string
+	BackupPath     string
+}
+
 // PATExtraction is the result of walking a tool's config for PATs attached to
 // CLI-managed entries (the canonical-named ones). Callers needing to reuse an
 // existing CLI-managed PAT during configure read from here.
@@ -32,7 +48,7 @@ type ToolHandler interface {
 	Detect(looker ExecLooker) DetectedTool
 	ResolvePath(configPath, scope, cwd string) (string, error)
 	Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) (warnings []string, backupPath string, err error)
-	Remove(rc ResolvedConfig, servers []string) (backupPath string, err error)
+	Remove(rc ResolvedConfig, servers []string) (*RemoveResult, error)
 	Status(rc ResolvedConfig) (StatusResult, error)
 	DryRun(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error)
 	ExtractPATs(rc ResolvedConfig) PATExtraction
@@ -48,6 +64,37 @@ type ToolHandler interface {
 	// do not participate in shared-PAT warnings or orphan-subtraction.
 	// Accepted pre-GA limitation.
 	AllTiddlyPATs(rc ResolvedConfig) []TiddlyPAT
+}
+
+// CanonicalName returns the canonical config-entry key name for a server
+// type (e.g. ServerContent → "tiddly_notes_bookmarks"). Returns "" for
+// unknown types. Exposed so cmd-layer callers can identify canonical
+// entries without importing the private name constants.
+func CanonicalName(serverType string) string {
+	switch serverType {
+	case ServerContent:
+		return serverNameContent
+	case ServerPrompts:
+		return serverNamePrompts
+	default:
+		return ""
+	}
+}
+
+// canonicalNamesForServers maps a set of requested server types (from
+// --servers) to the canonical config key names Remove should delete. Used
+// by every per-handler Remove to keep the filter in one place.
+func canonicalNamesForServers(servers []string) map[string]bool {
+	out := make(map[string]bool, 2)
+	for _, s := range servers {
+		switch s {
+		case ServerContent:
+			out[serverNameContent] = true
+		case ServerPrompts:
+			out[serverNamePrompts] = true
+		}
+	}
+	return out
 }
 
 // canonicalEntryPATs picks the PAT attached to each canonical-named entry,

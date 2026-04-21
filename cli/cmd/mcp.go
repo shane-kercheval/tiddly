@@ -287,25 +287,23 @@ func newMCPRemoveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:       "remove <tool>",
 		Short:     "Remove MCP server configuration for a tool",
-		Long: `Remove Tiddly MCP server entries from a tool's config file. All other config keys are preserved.
+		Long: `Remove the CLI-managed entries (tiddly_notes_bookmarks, tiddly_prompts) from a tool's config file. Other entries pointing at Tiddly URLs under different names — e.g. work_prompts or personal_prompts — are preserved. A CLI-managed entry is removed regardless of what URL it currently points at. The prior config is saved to <path>.bak.<timestamp> before the write. If no CLI-managed entries exist, remove reports so and exits cleanly.
 
-Servers are identified by URL, not by name. Any entry pointing to a Tiddly MCP URL is removed, even if the key name differs from the default.
-
-With --delete-tokens (requires OAuth login), the CLI reads PATs from the tool's config before removing entries, then revokes those tokens from your account. Without --delete-tokens, warns about potentially orphaned tokens.
+With --delete-tokens, the CLI only targets PATs attached to CLI-managed entries. If one of those PATs is also referenced by a preserved entry, the CLI warns that revoking will break the preserved binding and then proceeds. If a CLI-managed entry's PAT doesn't match any CLI-created server-side token, the CLI prints an informational note referencing that entry.
 
 Claude Desktop users: restart Claude Desktop after removing.
 
-Use --servers to selectively remove only the content or prompts server, preserving the other.
+Use --servers to scope the removal to only content or only prompts, leaving the other canonical entry untouched.
 
 Tools:
   claude-desktop, claude-code, codex
 
 Examples:
-  tiddly mcp remove claude-code                          Remove MCP entries
-  tiddly mcp remove claude-code --delete-tokens          Remove entries and revoke PATs
+  tiddly mcp remove claude-code                          Remove CLI-managed entries
+  tiddly mcp remove claude-code --delete-tokens          Remove entries and revoke their PATs
   tiddly mcp remove codex --scope directory              Remove from directory config
-  tiddly mcp remove claude-code --servers content        Remove only the content server
-  tiddly mcp remove claude-code --servers content --delete-tokens  Remove content server and revoke its PAT`,
+  tiddly mcp remove claude-code --servers content        Remove only the content canonical entry
+  tiddly mcp remove claude-code --servers content --delete-tokens  Remove content entry and revoke its PAT`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -358,61 +356,87 @@ Examples:
 				return err
 			}
 
-			// Collect EVERY PAT for the targeted server types before removing
-			// entries. Must use AllTiddlyPATs (not ExtractPATs) so multi-entry
-			// configs — e.g. work_prompts + personal_prompts holding distinct
-			// PATs — revoke every token, not just the canonical one.
-			var revokeReqs []mcp.TokenRevokeRequest
-			if deleteTokens {
-				wantContent := slices.Contains(serverList, mcp.ServerContent)
-				wantPrompts := slices.Contains(serverList, mcp.ServerPrompts)
-
-				seen := make(map[string]bool)
-				var unwantedPATs []string
+			// Collect revoke targets and retained PATs from pre-remove config
+			// state. Done before handler.Remove so the shared-PAT warning and
+			// orphan-token filter see the world as it was, not after the
+			// canonical entries have already been deleted. Both branches
+			// (--delete-tokens AND the orphan-warning path) need retainedPATs,
+			// so this runs unconditionally; revokeReqs stays empty unless
+			// --delete-tokens was requested.
+			//
+			// NOTE: do NOT dedupe by PAT here. One TokenRevokeRequest per
+			// canonical entry is deliberate — DeleteTokensByPrefix dedupes
+			// server-side deletions internally and mirrors the outcome back
+			// to every request sharing a PAT. Pre-deduping at this layer
+			// would collapse two canonical entries into one request and
+			// silently drop per-entry attribution (the "no CLI-created token
+			// matched" note and any per-request error).
+			var revokeReqs []mcp.TokenRevokeRequest // one per canonical entry to revoke
+			var retainedPATs []mcp.TiddlyPAT        // non-canonical entries keeping their PATs
+			{
+				targetTypes := map[string]bool{}
+				if slices.Contains(serverList, mcp.ServerContent) {
+					targetTypes[mcp.ServerContent] = true
+				}
+				if slices.Contains(serverList, mcp.ServerPrompts) {
+					targetTypes[mcp.ServerPrompts] = true
+				}
 				for _, p := range handler.AllTiddlyPATs(rc) {
-					targeted := (p.ServerType == mcp.ServerContent && wantContent) ||
-						(p.ServerType == mcp.ServerPrompts && wantPrompts)
-					if targeted {
-						if !seen[p.PAT] {
-							seen[p.PAT] = true
-							revokeReqs = append(revokeReqs, mcp.TokenRevokeRequest{EntryLabel: p.Name, PAT: p.PAT})
+					canonicalType, isCanonical := mcp.ServerTypeForCanonicalName(p.Name)
+					if isCanonical && targetTypes[canonicalType] {
+						if deleteTokens {
+							revokeReqs = append(revokeReqs, mcp.TokenRevokeRequest{
+								EntryLabel: p.Name,
+								PAT:        p.PAT,
+							})
 						}
 					} else {
-						unwantedPATs = append(unwantedPATs, p.PAT)
-					}
-				}
-
-				// Warn when a PAT being revoked is also used by a server type
-				// that's being retained — revoking breaks the retained binding.
-				for _, retainedPAT := range unwantedPATs {
-					if seen[retainedPAT] {
-						retained := mcp.ServerPrompts
-						if wantPrompts {
-							retained = mcp.ServerContent
-						}
-						fmt.Fprintf(cmd.ErrOrStderr(),
-							"Warning: token is shared with %s server (still configured); it will also lose access.\n", retained)
-						break
+						retainedPATs = append(retainedPATs, p)
 					}
 				}
 			}
 
-			// Remove config entries. The backup is taken before the write
-			// attempt, so surface its location unconditionally — on failure
-			// it's exactly the recovery artifact the user needs.
-			backupPath, err := handler.Remove(rc, serverList)
-			if backupPath != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Backed up previous config to %s\n", backupPath)
+			result, err := handler.Remove(rc, serverList)
+			// Surface the backup path before anything else so the user
+			// always sees where their recovery copy is — including on
+			// write-failure paths.
+			if result.BackupPath != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Backed up previous config to %s\n", result.BackupPath)
 			}
 			if err != nil {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed Tiddly MCP servers from %s.\n", toolName)
+			if len(result.RemovedEntries) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "No CLI-managed entries found in %s.\n", toolName)
+				return nil
+			}
 
-			// Token cleanup
-			tokResult, err := appDeps.TokenManager.ResolveToken(flagToken, true)
-			if err == nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %s from %s.\n",
+				strings.Join(result.RemovedEntries, ", "), toolName)
+
+			// Shared-PAT warning: for each revoke target, surface which
+			// retained entries share its PAT. One consolidated line per
+			// canonical entry, retained names sorted.
+			for _, req := range revokeReqs {
+				var sharedBy []string
+				for _, r := range retainedPATs {
+					if r.PAT == req.PAT {
+						sharedBy = append(sharedBy, r.Name)
+					}
+				}
+				if len(sharedBy) > 0 {
+					sort.Strings(sharedBy)
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"Warning: token from %s is also used by %s (still configured); revoking will break those bindings.\n",
+						req.EntryLabel, strings.Join(sharedBy, ", "))
+				}
+			}
+
+			// Token cleanup (auth resolution failure silently skips — pre-existing
+			// rough edge, tracked separately).
+			tokResult, tokErr := appDeps.TokenManager.ResolveToken(flagToken, true)
+			if tokErr == nil {
 				client := api.NewClient(apiURL(), tokResult.Token, tokResult.AuthType)
 
 				if deleteTokens && len(revokeReqs) > 0 {
@@ -423,14 +447,22 @@ Examples:
 					var allDeleted []string
 					seenNames := make(map[string]bool)
 					for _, r := range results {
+						if len(r.DeletedNames) == 0 && r.Err == nil {
+							// Unmatched PAT (or short/garbled) — nothing was
+							// revoked. Inform the user, naming the specific entry.
+							fmt.Fprintf(cmd.OutOrStdout(),
+								"Note: no CLI-created token matched the token attached to %s; nothing was revoked. Manage tokens at https://tiddly.me/settings.\n",
+								r.EntryLabel)
+							continue
+						}
+						if r.Err != nil {
+							fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", r.Err)
+						}
 						for _, n := range r.DeletedNames {
 							if !seenNames[n] {
 								seenNames[n] = true
 								allDeleted = append(allDeleted, n)
 							}
-						}
-						if r.Err != nil {
-							fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", r.Err)
 						}
 					}
 					if len(allDeleted) > 0 {
@@ -440,18 +472,33 @@ Examples:
 				} else if !deleteTokens {
 					orphaned, orphanErr := mcp.CheckOrphanedTokens(cmd.Context(), client, toolName, serverList)
 					if orphanErr == nil && len(orphaned) > 0 {
+						// Filter out tokens whose TokenPrefix matches a PAT
+						// still referenced by a retained entry on disk — those
+						// aren't orphans, they're in active use by non-canonical
+						// entries.
+						retainedPrefixes := map[string]bool{}
+						for _, p := range retainedPATs {
+							if prefix := mcp.PATPrefix(p.PAT); prefix != "" {
+								retainedPrefixes[prefix] = true
+							}
+						}
 						var names []string
 						for _, t := range orphaned {
+							if retainedPrefixes[t.TokenPrefix] {
+								continue
+							}
 							names = append(names, t.Name)
 						}
-						fmt.Fprintf(cmd.ErrOrStderr(),
-							"Warning: PATs created for %s may still exist: %s\n", toolName, strings.Join(names, ", "))
-						suggestedCmd := fmt.Sprintf("tiddly mcp remove %s --delete-tokens", toolName)
-						if len(serverList) == 1 {
-							suggestedCmd += fmt.Sprintf(" --servers %s", serverList[0])
+						if len(names) > 0 {
+							fmt.Fprintf(cmd.ErrOrStderr(),
+								"Warning: PATs created for %s may still exist: %s\n", toolName, strings.Join(names, ", "))
+							suggestedCmd := fmt.Sprintf("tiddly mcp remove %s --delete-tokens", toolName)
+							if len(serverList) == 1 {
+								suggestedCmd += fmt.Sprintf(" --servers %s", serverList[0])
+							}
+							fmt.Fprintf(cmd.ErrOrStderr(),
+								"Run '%s' to revoke, or manage tokens at https://tiddly.me/settings.\n", suggestedCmd)
 						}
-						fmt.Fprintf(cmd.ErrOrStderr(),
-							"Run '%s' to revoke, or manage tokens at https://tiddly.me/settings.\n", suggestedCmd)
 					}
 				}
 			}

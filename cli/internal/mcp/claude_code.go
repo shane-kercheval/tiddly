@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // extractAllClaudeCodeTiddlyPATs returns every Bearer token from a tiddly-URL
@@ -202,31 +203,53 @@ func configureClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) (backu
 	return writeJSONConfig(rc.Path, config)
 }
 
-// removeClaudeCode removes tiddly MCP server entries from the Claude Code config.
-// Identifies servers by URL, not by name, so custom-named entries are also
-// removed. Returns the timestamped backup path (empty if nothing changed or
-// no prior config existed).
-func removeClaudeCode(rc ResolvedConfig, serverFilter []string) (backupPath string, err error) {
+// removeClaudeCode deletes CLI-managed entries (canonical key names only)
+// from the Claude Code config. Non-canonical entries — including those
+// pointing at Tiddly URLs under custom names — are preserved.
+// A CLI-managed entry is deleted regardless of what URL it currently points
+// at; a user who repurposed the slot gets the recovery backup instead.
+func removeClaudeCode(rc ResolvedConfig, serverFilter []string) (*RemoveResult, error) {
+	result := &RemoveResult{}
+
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return result, nil
 		}
-		return "", err
+		return result, err
 	}
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 	if servers == nil {
-		return "", nil
+		return result, nil
 	}
 
-	if !removeJSONServersByTiddlyURL(servers, serverURLMatcher(serverFilter)) {
-		return "", nil
+	targetNames := canonicalNamesForServers(serverFilter)
+	var removed []string
+	for name := range servers {
+		if targetNames[name] {
+			removed = append(removed, name)
+		}
+	}
+	if len(removed) == 0 {
+		return result, nil
+	}
+	sort.Strings(removed)
+	for _, name := range removed {
+		delete(servers, name)
 	}
 
 	setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
 
-	return writeJSONConfig(rc.Path, config)
+	backupPath, werr := writeJSONConfig(rc.Path, config)
+	result.BackupPath = backupPath
+	if werr != nil {
+		// Write failed after backup was taken; surface the backup path so
+		// the caller can tell the user where their recovery copy is.
+		return result, werr
+	}
+	result.RemovedEntries = removed
+	return result, nil
 }
 
 // statusClaudeCode returns MCP servers configured in Claude Code.

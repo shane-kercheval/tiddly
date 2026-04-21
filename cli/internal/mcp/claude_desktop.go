@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -85,30 +86,49 @@ func configureClaudeDesktop(configPath, contentPAT, promptPAT string) (backupPat
 	return writeJSONConfig(configPath, config)
 }
 
-// removeClaudeDesktop removes tiddly MCP server entries from the config.
-// Identifies servers by URL in args, not by name, so custom-named entries are
-// also removed. Returns the timestamped backup path (empty if nothing changed
-// or no prior config existed).
-func removeClaudeDesktop(configPath string, serverFilter []string) (backupPath string, err error) {
+// removeClaudeDesktop deletes CLI-managed entries (canonical key names only)
+// from the Claude Desktop config. Non-canonical entries are preserved.
+// A CLI-managed entry is deleted regardless of what URL/args it currently
+// carries; a user who repurposed the slot gets the recovery backup instead.
+func removeClaudeDesktop(configPath string, serverFilter []string) (*RemoveResult, error) {
+	result := &RemoveResult{}
+
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return result, nil
 		}
-		return "", err
+		return result, err
 	}
 
 	servers, ok := config["mcpServers"].(map[string]any)
 	if !ok {
-		return "", nil
+		return result, nil
 	}
 
-	if !removeJSONServersByTiddlyURL(servers, serverURLMatcher(serverFilter)) {
-		return "", nil
+	targetNames := canonicalNamesForServers(serverFilter)
+	var removed []string
+	for name := range servers {
+		if targetNames[name] {
+			removed = append(removed, name)
+		}
+	}
+	if len(removed) == 0 {
+		return result, nil
+	}
+	sort.Strings(removed)
+	for _, name := range removed {
+		delete(servers, name)
 	}
 
 	config["mcpServers"] = servers
-	return writeJSONConfig(configPath, config)
+	backupPath, werr := writeJSONConfig(configPath, config)
+	result.BackupPath = backupPath
+	if werr != nil {
+		return result, werr
+	}
+	result.RemovedEntries = removed
+	return result, nil
 }
 
 // statusClaudeDesktop returns MCP servers configured in Claude Desktop.

@@ -258,7 +258,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeCodex(rc, nil)
+	_, err := removeCodex(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	config := readTestTOML(t, configPath)
@@ -271,7 +271,7 @@ url = "https://other.example.com/mcp"
 
 func TestRemoveCodex__missing_file_is_noop(t *testing.T) {
 	rc := ResolvedConfig{Path: "/nonexistent/config.toml", Scope: "user"}
-	_, err := removeCodex(rc, nil)
+	_, err := removeCodex(rc, []string{"content", "prompts"})
 	assert.NoError(t, err)
 }
 
@@ -286,7 +286,7 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeCodex(rc, nil)
+	_, err := removeCodex(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
@@ -304,7 +304,7 @@ func TestRemoveCodex__project_scope(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove from project scope
-	_, err = removeCodex(rc, nil)
+	_, err = removeCodex(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	config := readTestTOML(t, projectConfig)
@@ -491,11 +491,16 @@ url = "https://my-tool.example.com/mcp"
 	assert.Equal(t, "http", sr.OtherServers[0].Transport)
 }
 
-func TestRemoveCodex__removes_custom_named_servers(t *testing.T) {
+func TestRemoveCodex__preserves_non_canonical_entries(t *testing.T) {
+	// Canonical-name-only: custom-named entries — even at Tiddly URLs —
+	// survive because they're user-managed, not CLI-managed.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
 	config := `
+[mcp_servers.tiddly_notes_bookmarks]
+url = "https://content-mcp.tiddly.me/mcp"
+
 [mcp_servers.my_content]
 url = "https://content-mcp.tiddly.me/mcp"
 
@@ -508,14 +513,36 @@ url = "https://other.example.com/mcp"
 	require.NoError(t, os.WriteFile(configPath, []byte(config), 0644))
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeCodex(rc, nil)
+	res, err := removeCodex(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
+	assert.Equal(t, []string{serverNameContent}, res.RemovedEntries)
 
 	result := readTestTOML(t, configPath)
 	mcpServers := result["mcp_servers"].(map[string]any)
-	assert.NotContains(t, mcpServers, "my_content")
-	assert.NotContains(t, mcpServers, "my_prompts")
+	assert.NotContains(t, mcpServers, serverNameContent, "canonical entry must be removed")
+	assert.Contains(t, mcpServers, "my_content", "non-canonical Tiddly-URL entry must survive")
+	assert.Contains(t, mcpServers, "my_prompts", "non-canonical Tiddly-URL entry must survive")
 	assert.Contains(t, mcpServers, "other")
+}
+
+func TestRemoveCodex__deletes_canonical_entry_with_non_tiddly_url(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	config := `
+[mcp_servers.tiddly_prompts]
+url = "https://example.com/my-prompts"
+
+[mcp_servers.tiddly_prompts.http_headers]
+Authorization = "Bearer bm_user_custom"
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(config), 0644))
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	res, err := removeCodex(rc, []string{"prompts"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{serverNamePrompts}, res.RemovedEntries)
+	assert.NotEmpty(t, res.BackupPath)
 }
 
 func TestRemoveCodex__content_only_preserves_prompts(t *testing.T) {
