@@ -342,6 +342,13 @@ fi
 
 **IMPORTANT: snippets run under the engineer's login shell — likely zsh on macOS.** The `#!/usr/bin/env bash` shebangs on `lib.sh` / `phase0_setup.sh` / `per_call.sh` are inert when those files are sourced, and the Claude Code Bash tool inherits whatever shell invoked it. The harness helpers are written to be zsh-compatible; your test snippets need to be too. The trap: in zsh, `$var[...]` directly adjacent to `[` parses as array-subscript syntax, not string concatenation — so `echo "$out" | grep -E "^${hdr}[[:space:]]"` blows up with `bad output format specification` before the pipeline runs, fires the EXIT trap, and triggers crash-recovery (which wipes the sanitized state, ending the session). **Always wrap the variable in braces when it's immediately followed by `[`: use `${var}[[:space:]]`, not `$var[[:space:]]`.** When in doubt, assert against a file with `grep -F -- "literal" /tmp/tXY_out` instead of building a regex with shell variables inline.
 
+**IMPORTANT: confirm the fail before firing `report_mismatch`.** `report_mismatch` exits non-zero, which fires the EXIT trap and runs full crash-recovery — restoring every config and revoking this-run's tokens. That's the right default for real product bugs, but it means a mis-categorized or mis-ordered assertion has the same blast radius as a genuine product failure (one wrong call wipes every passing test's state). Before you call `report_mismatch`, do two things:
+
+1. **Re-read the exact assertion you're about to fail on.** Ask: does this assertion depend on intermediate state that was since overwritten? Does the Verify bullet actually describe what I'm checking?
+2. **Dump the raw observation.** Print the full captured output / file contents / return code you're asserting against, so you can see what the CLI actually did. Nine times out of ten, a failing assertion is a snippet-authoring bug (mis-ordered assertion, regex typo, shell-variable expansion quirk) — not a product bug.
+
+If the assertion is verifying state that depends on ordering (e.g. "file unchanged between call A and call B"), snapshot the intermediate state inline before the next mutating call runs, and assert against the captured variable — don't trust the live file to still be in its intermediate form. See T2.13 for the canonical example.
+
 **Mandatory Bearer-leak guard — call before every `echo "$out"` on configure/remove/dry-run output:**
 
 ```bash
@@ -674,6 +681,13 @@ set +e
 out_default=$(bin/tiddly mcp configure claude-code 2>&1); rc_default=$?
 set -e
 
+# Capture the on-disk URL BETWEEN the default and --force calls. The default
+# refusal is supposed to leave the bad URL untouched; once --force runs, the
+# file is overwritten and that check becomes unverifiable post-hoc. Snapshot
+# now so the Verify block below can assert against a captured value instead
+# of the live file.
+url_after_default=$(jq -r '.mcpServers.tiddly_prompts.url' "$CLAUDE_CODE_CONFIG")
+
 # --force proceeds. Split stdout/stderr so the routing assertion is meaningful.
 stderr_tmp=$(mktemp)
 set +e
@@ -689,13 +703,13 @@ assert_no_plaintext_bearers "$stderr_force" "T2.13-stderr"
 - [ ] `out_default` contains `1 CLI-managed entry` (singular) and `has an unexpected URL`
 - [ ] `out_default` names the mismatched entry: `tiddly_prompts → https://example.com/my-prompts`
 - [ ] `out_default` contains `re-run with --force`
-- [ ] Config still has the bad URL on disk (no write happened): `jq -e '.mcpServers.tiddly_prompts.url == "https://example.com/my-prompts"' "$CLAUDE_CODE_CONFIG" >/dev/null`
+- [ ] **Disk unchanged during default refusal** (assert on the captured intermediate snapshot, NOT the live file — `--force` has since overwritten): `[ "$url_after_default" = "https://example.com/my-prompts" ]`
 
 **Verify `--force` overwrite:**
 - [ ] `rc_force == 0`
 - [ ] `stderr_force` contains `Forcing overwrite of tiddly_prompts (currently https://example.com/my-prompts)` — channel-specific (stderr, not stdout)
 - [ ] `stdout_force` contains `Configured: claude-code`
-- [ ] Canonical URL restored: `jq -e '.mcpServers.tiddly_prompts.url' "$CLAUDE_CODE_CONFIG" | grep -F -- "$TIDDLY_PROMPT_MCP_URL" >/dev/null`
+- [ ] Canonical URL restored (live file OK here, `--force` is the last write): `jq -e '.mcpServers.tiddly_prompts.url' "$CLAUDE_CODE_CONFIG" | grep -F -- "$TIDDLY_PROMPT_MCP_URL" >/dev/null`
 
 ```bash
 # Restore clean state for subsequent phases.
