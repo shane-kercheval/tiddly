@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Shared helpers for cli/agent_instructions.md.
+# Shared helpers for cli/tests_agentic/agent_instructions.md.
 #
 # This file contains ONLY pure function definitions and platform-detection
 # conditionals. Sourcing it never mutates state (no mktemp, no writes to

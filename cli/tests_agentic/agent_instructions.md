@@ -287,9 +287,39 @@ Run `make cli-verify` before this procedure to confirm those cover their invaria
 
 ## How to use the report helpers
 
-Every phase starts with `report_phase`. Every test ends with `report_test PASS|SKIP|NOTE ...` or `report_mismatch ...` (which exits non-zero and fires the EXIT trap — per the Reporting Protocol, stop and wait for the engineer).
+Every phase starts with `report_phase`. Every test ends with **exactly one** call to `report_test PASS|SKIP|NOTE …` or `report_mismatch …` (which exits non-zero and fires the EXIT trap — per the Reporting Protocol, stop and wait for the engineer).
 
 **Every post-Phase-0 Bash call must start with `source cli/tests_agentic/per_call.sh`** — that's what brings `report_phase`, `report_test`, `assert_no_plaintext_bearers`, `$CLAUDE_CODE_CONFIG`, `$BACKUP_DIR`, and the EXIT trap back into the current shell (see § Execution model). The preamble is omitted from the test snippets below for brevity, but it's not optional.
+
+### Helper signatures (authoritative — match what's in lib.sh)
+
+These are the only shapes the helpers accept. Snippet authors should not invent additional fields; if a mismatch needs more context, put it in `hypothesis`.
+
+```
+report_test <STATUS> <TEST_ID> [DETAIL]
+    STATUS   : PASS | FAIL | SKIP | NOTE
+    TEST_ID  : stable identifier, e.g. "T1.1" or "T1.1 — Root help"
+    DETAIL   : optional free-form string; goes after the em-dash in the report
+
+report_mismatch <TEST_ID> <EXPECTED> <ACTUAL> <CATEGORY> [HYPOTHESIS]
+    EXPECTED   : what the plan said should happen
+    ACTUAL     : what actually happened (Bearer values are auto-redacted)
+    CATEGORY   : plan-bug | product-bug | test-bug | env | other
+    HYPOTHESIS : optional free-form evidence / diagnostic guess
+    (This helper exits non-zero after writing the mismatch block.)
+```
+
+### Translating a Verify checklist into reporter calls
+
+Each test snippet below lists a **Verify:** checklist (`- [ ] <assertion>` lines). The snippet author is responsible for:
+
+1. Running the assertions (in bash / jq / grep — whatever fits).
+2. If every assertion passes → one `report_test PASS "T<id>"` call at the end of the snippet.
+3. If any assertion fails → one `report_mismatch "T<id>" "<expected>" "<actual>" <category>` call (the helper exits, so subsequent assertions stop).
+4. If the test is environmentally inapplicable → one `report_test SKIP "T<id>" "<reason>"`.
+5. If the outcome is narrative (e.g. T2.12 "reused vs re-minted") → one `report_test NOTE "T<id>" "<detail>"`.
+
+There is no generic `verify` wrapper — each snippet encodes its own assertions and reporter call. The canonical template:
 
 ```bash
 source cli/tests_agentic/per_call.sh
@@ -373,11 +403,13 @@ bin/tiddly status --path "$TEST_PROJECT"
 - [ ] Header is `MCP Servers (path: $TEST_PROJECT):`
 
 ```bash
-bin/tiddly status --path /nonexistent/path
+set +e
+out=$(bin/tiddly status --path /nonexistent/path 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error contains `does not exist`
+- [ ] `rc != 0`
+- [ ] `$out` contains `does not exist`
 
 ### [T1.6] Auth status
 ```bash
@@ -853,9 +885,17 @@ out=$(bin/tiddly mcp status 2>&1)
 ```bash
 # Additive-configure: the CLI-managed entry is added alongside the
 # multi-entry setup; the user's work_prompts/personal_prompts are
-# preserved. Clean up the T5.4-specific tokens afterward.
+# preserved.
 bin/tiddly mcp configure claude-code 2>/dev/null
 unset PAT_WORK_54 PAT_PERSONAL_54
+
+# End-of-Phase-5 token sweep. Revokes every cli-mcp-test-* PAT minted
+# across Phases 2–5 so later phases don't hit the tier's token cap when
+# they try to mint more. Does NOT touch cli-mcp-<tool>-<server>-* names
+# (those are produced by `mcp configure` and may still be referenced
+# by live configs). See lib.sh § "Interim token cleanup".
+cleanup_test_tokens
+
 assert_auth_still_working
 ```
 
@@ -1161,6 +1201,11 @@ out=$(bin/tiddly mcp remove claude-code 2>&1)  # already removed in T6.9
 - [ ] No crash
 
 ```bash
+# End-of-Phase-6 token sweep. T6.8/T6.8b/T6.8c/T6.8d mint several more
+# cli-mcp-test-* PATs than Phase 5, so sweep again before Phases 7–9.
+# See lib.sh § "Interim token cleanup" for the naming-convention contract.
+cleanup_test_tokens
+
 assert_auth_still_working
 ```
 
@@ -1288,11 +1333,13 @@ bin/tiddly skills configure
 
 ### [T7.9] Invalid scope
 ```bash
-bin/tiddly skills configure --scope invalid
+set +e
+out=$(bin/tiddly skills configure --scope invalid 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error: `invalid scope "invalid". Valid scopes: user, directory`
+- [ ] `rc != 0`
+- [ ] `$out` contains `invalid scope "invalid". Valid scopes: user, directory`
 
 ### [T7.10] Skills list
 ```bash
@@ -1322,91 +1369,116 @@ assert_auth_still_working
 
 ### [T8.1] Invalid tool — configure
 ```bash
-bin/tiddly mcp configure invalid-tool
+set +e
+out=$(bin/tiddly mcp configure invalid-tool 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error: `unknown tool "invalid-tool". Valid tools: claude-desktop, claude-code, codex`
+- [ ] `rc != 0`
+- [ ] `$out` contains `unknown tool "invalid-tool". Valid tools: claude-desktop, claude-code, codex`
 
 ### [T8.2] Invalid tool — remove
 ```bash
-bin/tiddly mcp remove invalid-tool
+set +e
+out=$(bin/tiddly mcp remove invalid-tool 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error: `unknown tool "invalid-tool". Valid tools: claude-desktop, claude-code, codex`
+- [ ] `rc != 0`
+- [ ] `$out` contains `unknown tool "invalid-tool". Valid tools: claude-desktop, claude-code, codex`
 
 ### [T8.3] Invalid scope
 ```bash
-bin/tiddly mcp configure claude-code --scope bad-scope
+set +e
+out=$(bin/tiddly mcp configure claude-code --scope bad-scope 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error: `invalid scope "bad-scope". Valid scopes: user, directory`
+- [ ] `rc != 0`
+- [ ] `$out` contains `invalid scope "bad-scope". Valid scopes: user, directory`
 
 ### [T8.4] Old scope `local` rejected
 ```bash
-bin/tiddly mcp configure claude-code --scope local
+set +e
+out=$(bin/tiddly mcp configure claude-code --scope local 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error: `invalid scope "local". Valid scopes: user, directory`
+- [ ] `rc != 0`
+- [ ] `$out` contains `invalid scope "local". Valid scopes: user, directory`
 
 ### [T8.5] Old scope `project` rejected
 ```bash
-bin/tiddly mcp configure claude-code --scope project
+set +e
+out=$(bin/tiddly mcp configure claude-code --scope project 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error: `invalid scope "project". Valid scopes: user, directory`
+- [ ] `rc != 0`
+- [ ] `$out` contains `invalid scope "project". Valid scopes: user, directory`
 
 ### [T8.6] Invalid `--servers`
 ```bash
-bin/tiddly mcp configure claude-code --servers invalid
+set +e
+out=$(bin/tiddly mcp configure claude-code --servers invalid 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error: `invalid server "invalid" in --servers flag. Valid values: content, prompts`
+- [ ] `rc != 0`
+- [ ] `$out` contains `invalid server "invalid" in --servers flag. Valid values: content, prompts`
 
 ### [T8.7] Empty `--servers`
 ```bash
-bin/tiddly mcp configure claude-code --servers "" 2>&1 | tee /tmp/t87_out >/dev/null
+# Redirect to a file (not a `| tee` pipeline) so we don't depend on pipefail
+# semantics when the CLI exits non-zero.
+set +e
+bin/tiddly mcp configure claude-code --servers "" > /tmp/t87_out 2>&1; rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
+- [ ] `rc != 0`
 - [ ] `grep -F -- '--servers flag requires at least one value: content, prompts' /tmp/t87_out` finds the error — **note the `--` option terminator**; without it grep parses `--servers …` as its own flags and fails
 
 ### [T8.8] Tool not installed (skip if all tools detected)
 ```bash
-bin/tiddly mcp configure claude-desktop   # only if claude-desktop is NOT detected
+# Only run if claude-desktop is NOT detected. Skip otherwise.
+set +e
+out=$(bin/tiddly mcp configure claude-desktop 2>&1); rc=$?
+set -e
 ```
 **Verify (only applies when tool missing):**
-- [ ] Exit non-zero
-- [ ] Error: `claude-desktop is not installed on this system`
+- [ ] `rc != 0`
+- [ ] `$out` contains `claude-desktop is not installed on this system`
 
 ### [T8.9] Claude Desktop + skills `--scope directory`
 ```bash
-bin/tiddly skills configure claude-desktop --scope directory 2>&1 | tee /tmp/t89_out >/dev/null
+set +e
+bin/tiddly skills configure claude-desktop --scope directory > /tmp/t89_out 2>&1; rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
+- [ ] `rc != 0`
 - [ ] `grep -F -- '--scope directory is not supported by: claude-desktop' /tmp/t89_out` finds the error — **note the `--` option terminator** (same reason as T8.7)
 
 ### [T8.10] Login — invalid PAT format
 ```bash
-bin/tiddly login --token "invalid_no_prefix"
+set +e
+out=$(bin/tiddly login --token "invalid_no_prefix" 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error: `invalid token format: must start with 'bm_'`
+- [ ] `rc != 0`
+- [ ] `$out` contains `invalid token format: must start with 'bm_'`
 
 ### [T8.11] Login — bad token
 ```bash
-bin/tiddly login --token "bm_definitely_not_valid_token"
+set +e
+out=$(bin/tiddly login --token "bm_definitely_not_valid_token" 2>&1); rc=$?
+set -e
 ```
 **Verify:**
-- [ ] Exit non-zero
-- [ ] Error: `token verification failed`
+- [ ] `rc != 0`
+- [ ] `$out` contains `token verification failed`
 
 ```bash
 # Phase 8 ends with two failed-login attempts. If either somehow mutated
@@ -1439,13 +1511,23 @@ bin/tiddly mcp status   # should succeed — status is read-only, doesn't need a
 - [ ] `mcp status`: exit 0, MCP tree still rendered (reads local config files only)
 
 ### [T9.2] Destructive commands fail when logged out
+
+Each command needs its own rc capture — without the `set +e` guards, the first
+failure would abort the snippet and the remaining commands would never run.
+
 ```bash
-bin/tiddly mcp configure claude-code
-bin/tiddly skills list
-bin/tiddly skills configure claude-code
+set +e
+out_cfg=$(bin/tiddly mcp configure claude-code 2>&1);    rc_cfg=$?
+out_sl=$(bin/tiddly skills list 2>&1);                   rc_sl=$?
+out_sc=$(bin/tiddly skills configure claude-code 2>&1);  rc_sc=$?
+set -e
 ```
-**Verify:**
-- [ ] Each exits non-zero with error `not logged in. Run 'tiddly login' to authenticate` (exact phrasing per `internal/auth/keyring.go`'s `ErrNotLoggedIn`)
+**Verify (each of the three, independently):**
+- [ ] `rc_cfg != 0` and `$out_cfg` contains `not logged in. Run 'tiddly login' to authenticate`
+- [ ] `rc_sl  != 0` and `$out_sl`  contains `not logged in. Run 'tiddly login' to authenticate`
+- [ ] `rc_sc  != 0` and `$out_sc`  contains `not logged in. Run 'tiddly login' to authenticate`
+
+Exact phrasing per `internal/auth/keyring.go`'s `ErrNotLoggedIn`.
 
 ### [T9.3] Re-login
 Engineer runs this manually in the same terminal (agent cannot complete device flow):

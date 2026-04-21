@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# One-time Phase 0 setup for cli/agent_instructions.md.
+# One-time Phase 0 setup for cli/tests_agentic/agent_instructions.md.
 #
 # Run exactly once per test session, as the first Bash call of Phase 0.
 # Must be SOURCED, not executed, so env exports / trap registration /
@@ -24,11 +24,15 @@
 #   6. Tool preflight — fail fast if jq / python3 / openssl / etc. missing
 #   7. mktemp BACKUP_DIR, REPORT, TEST_PROJECT
 #   8. Back up every real config + skills dir
-#   9. Snapshot pre-existing cli-mcp-* token IDs for diff-based cleanup
-#   10. Two-pass sanitize: strip user's Tiddly entries from real configs
-#   11. Write runtime state to /tmp/tiddly-test-state.env so subsequent
+#   9. Install the EXIT trap (on_exit handler defined in lib.sh) — done as
+#       soon as the backups are in place so any failure in later Phase-0
+#       steps (snapshot, sanitize) still triggers crash-recovery from the
+#       backup. Installing later would leave a window where sanitize has
+#       wiped live configs but the trap isn't active to restore them.
+#   10. Snapshot pre-existing cli-mcp-* token IDs for diff-based cleanup
+#   11. Two-pass sanitize: strip user's Tiddly entries from real configs
+#   12. Write runtime state to /tmp/tiddly-test-state.env so subsequent
 #       Bash calls can re-source it and see the same paths
-#   12. Install the EXIT trap (on_exit handler defined in lib.sh)
 #
 # Nothing in this file contains PATs or session tokens — Auth0 values are
 # public identifiers per the plan's § "Auth0 values — these are not secrets".
@@ -92,13 +96,32 @@ if [ -f /tmp/tiddly-test-state.env ]; then
         echo "FATAL: /tmp/tiddly-test-state.env references a live BACKUP_DIR:" >&2
         echo "         $existing_backup" >&2
         echo >&2
-        echo "       This typically means another test session is actively running" >&2
-        echo "       against this user's home directory, or a previous run is still" >&2
-        echo "       in flight. Two concurrent sessions will corrupt each other's" >&2
-        echo "       configs — refusing to start a second one." >&2
+        echo "       Two possibilities:" >&2
+        echo "         (a) Another test session is actively running against this" >&2
+        echo "             user's home directory." >&2
+        echo "         (b) A previous run aborted mid-procedure — in which case" >&2
+        echo "             the live configs may still be sanitized, and the ONLY" >&2
+        echo "             copies of your originals are inside that backup dir." >&2
         echo >&2
-        echo "       If you're certain no other session is running, clean up and retry:" >&2
-        echo "           rm -rf '$existing_backup' /tmp/tiddly-test-state.env" >&2
+        echo "       Two concurrent sessions would corrupt each other's configs," >&2
+        echo "       so we refuse to start a second one regardless of which case" >&2
+        echo "       this is." >&2
+        echo >&2
+        echo "       DO NOT blindly 'rm -rf' the backup dir — you may need it to" >&2
+        echo "       recover your real Tiddly entries. Recover in this order:" >&2
+        echo >&2
+        echo "       1. Confirm no other test session is running (ps / pgrep)." >&2
+        echo "       2. Inspect the backup contents:" >&2
+        echo "             ls -la '$existing_backup'" >&2
+        echo "       3. If the backup holds your originals, restore them now:" >&2
+        [ -f "$existing_backup/.claude.json" ] &&                echo "             cp -p '$existing_backup/.claude.json' '$CLAUDE_CODE_CONFIG'" >&2
+        [ -f "$existing_backup/claude_desktop_config.json" ] && echo "             cp -p '$existing_backup/claude_desktop_config.json' '$CLAUDE_DESKTOP_CONFIG'" >&2
+        [ -f "$existing_backup/config.toml" ] &&                echo "             cp -p '$existing_backup/config.toml' '$CODEX_CONFIG'" >&2
+        [ -f "$existing_backup/project.mcp.json" ] &&           echo "             cp -p '$existing_backup/project.mcp.json' '$PROJECT_MCP_CONFIG'" >&2
+        echo "       4. Only once your originals are back in place, delete the" >&2
+        echo "          stale state:" >&2
+        echo "             rm -rf '$existing_backup' /tmp/tiddly-test-state.env" >&2
+        echo "       5. Re-run Phase 0." >&2
         exit 1
     fi
     # Stale — BACKUP_DIR referenced in state.env is gone. Auto-recover.
@@ -264,7 +287,22 @@ backup_dir  "$CLAUDE_SKILLS_DIR"     "$BACKUP_DIR/claude-skills"
 backup_dir  "$CODEX_SKILLS_DIR"      "$BACKUP_DIR/codex-skills"
 
 # ---------------------------------------------------------------------------
-# 9. Snapshot pre-existing cli-mcp-* token IDs for diff-based cleanup
+# 9. Install the EXIT trap
+# ---------------------------------------------------------------------------
+#
+# Installed HERE — after backups are populated, before snapshot/sanitize can
+# fail. If we waited until the end of Phase 0, a sanitize failure would exit
+# with live configs already wiped and no trap to restore them; the engineer
+# would have to inspect stderr to locate $BACKUP_DIR and recover manually.
+#
+# on_exit is defined in lib.sh. Every subsequent Bash call re-installs this
+# trap via per_call.sh (Claude Code's Bash-per-call model doesn't carry
+# traps across shells).
+
+trap 'on_exit $?' EXIT
+
+# ---------------------------------------------------------------------------
+# 10. Snapshot pre-existing cli-mcp-* token IDs for diff-based cleanup
 # ---------------------------------------------------------------------------
 #
 # IDs only, no secrets. `tokens list` MUST succeed — a silent failure would
@@ -287,7 +325,7 @@ unset snapshot_out snapshot_rc
 export SNAPSHOT_EXPECTED=1
 
 # ---------------------------------------------------------------------------
-# 10. Two-pass sanitize: strip user's Tiddly entries from real configs
+# 11. Two-pass sanitize: strip user's Tiddly entries from real configs
 # ---------------------------------------------------------------------------
 
 sanitize_one claude-desktop
@@ -307,14 +345,14 @@ sanitize_canonical_toml "$CODEX_CONFIG"
 echo "Sanitized: Tiddly entries wiped (URL-based + canonical-name strip); originals preserved in \$BACKUP_DIR."
 
 # ---------------------------------------------------------------------------
-# 11. Temp project dir for directory-scope tests
+# 12. Temp project dir for directory-scope tests
 # ---------------------------------------------------------------------------
 
 TEST_PROJECT=$(mktemp -d)
 echo "Test project dir: $TEST_PROJECT"
 
 # ---------------------------------------------------------------------------
-# 12. Write runtime state to /tmp/tiddly-test-state.env
+# 13. Write runtime state to /tmp/tiddly-test-state.env
 # ---------------------------------------------------------------------------
 #
 # Every subsequent Bash call sources per_call.sh, which sources this file.
@@ -356,14 +394,5 @@ TIDDLY_TEST_STATE="/tmp/tiddly-test-state.env"
 } > "$TIDDLY_TEST_STATE"
 chmod 0600 "$TIDDLY_TEST_STATE"
 echo "Runtime state written: $TIDDLY_TEST_STATE"
-
-# ---------------------------------------------------------------------------
-# 13. Install the EXIT trap
-# ---------------------------------------------------------------------------
-#
-# on_exit is defined in lib.sh. Registration has to happen per-Bash-call
-# (the Claude Code Bash tool spawns a new shell per call, so traps from
-# prior calls don't survive). This installs it for the current call; every
-# subsequent call re-installs via per_call.sh.
-
-trap 'on_exit $?' EXIT
+# Trap was installed at step 9 (right after backups). No re-install here:
+# subsequent Bash calls re-install it via per_call.sh.
