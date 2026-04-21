@@ -151,16 +151,10 @@ func detectTransport(serverMap map[string]any) string {
 
 // sortCanonicalFirst sorts keys in place so that canonical server names
 // (serverNameContent, serverNamePrompts) come before other keys, then
-// alphabetically within each group. Used by the extractors so a canonical
-// entry's PAT wins over custom entries when multiple tiddly-URL entries
-// exist — and the alphabetical tiebreaker makes the selection deterministic
-// when no canonical entry is present.
-//
-// Status no longer uses this ordering (it surfaces every entry), but
-// ExtractPATs / AllTiddlyPATs must pick a deterministic order, and the
-// consolidation warning's "PAT from X will be reused" disclosure has to
-// match whatever the extractors actually do. Deleting this function would
-// silently diverge those — don't.
+// alphabetically within each group. AllTiddlyPATs returns its slice in
+// this order, which lets canonicalEntryPATs extract CLI-managed PATs
+// deterministically (canonical-named entry wins when duplicates exist;
+// alphabetical tiebreaker within a type is stable across runs).
 func sortCanonicalFirst(keys []string) {
 	sort.SliceStable(keys, func(i, j int) bool {
 		iCanonical := keys[i] == serverNameContent || keys[i] == serverNamePrompts

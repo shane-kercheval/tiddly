@@ -61,9 +61,9 @@ func newMCPConfigureCmd() *cobra.Command {
 		Short: "Configure MCP servers for AI tools",
 		Long: `Configure Tiddly MCP servers for AI tools.
 
-Configure writes the CLI-managed entries tiddly_notes_bookmarks (content server) and tiddly_prompts (prompt server). Any other entries in the tool's config — including entries pointing at Tiddly URLs under different key names (e.g. work_prompts, personal_prompts for multiple accounts) — are left alone.
+Configure writes two CLI-managed entries: tiddly_notes_bookmarks (content server) and tiddly_prompts (prompt server). These are the only entries the CLI creates or modifies. If you have other entries pointing at Tiddly URLs under different names (for example, work_prompts and personal_prompts for multiple accounts), configure leaves them alone. After a run, configure lists any preserved non-CLI-managed entries so you can see what was left unchanged.
 
-If a CLI-managed entry already exists but points at a URL that's not the expected Tiddly URL for its type, configure refuses by default and names the mismatched entry. Either rename the entry in the config file to preserve it, or re-run with --force to overwrite.
+If a CLI-managed entry already exists but points at a URL that's not the expected Tiddly URL for its type, configure refuses by default and tells you which entry is mismatched. Either rename the entry in the config file to preserve it, or re-run with --force to overwrite. Use --dry-run to preview either path without committing (without --force, dry-run shows the diff plus warnings; with --force, dry-run shows the diff with the overwrite applied).
 
 Before destructive writes, the existing config file is copied to <path>.bak.<timestamp> alongside the original.
 
@@ -291,9 +291,11 @@ func newMCPRemoveCmd() *cobra.Command {
 
 With --delete-tokens, the CLI only targets PATs attached to CLI-managed entries. If one of those PATs is also referenced by a preserved entry, the CLI warns that revoking will break the preserved binding and then proceeds. If a CLI-managed entry's PAT doesn't match any CLI-created server-side token, the CLI prints an informational note referencing that entry.
 
+The shared-PAT warning and orphan-token filter consider only entries whose URL still points at a Tiddly MCP server. A CLI-managed key hand-edited to a non-Tiddly URL is invisible to these safeguards — its PAT will not participate in shared-PAT detection or orphan filtering.
+
 Claude Desktop users: restart Claude Desktop after removing.
 
-Use --servers to scope the removal to only content or only prompts, leaving the other canonical entry untouched.
+Use --servers to scope the removal to only content or only prompts, leaving the other CLI-managed entry untouched.
 
 Tools:
   claude-desktop, claude-code, codex
@@ -302,8 +304,8 @@ Examples:
   tiddly mcp remove claude-code                          Remove CLI-managed entries
   tiddly mcp remove claude-code --delete-tokens          Remove entries and revoke their PATs
   tiddly mcp remove codex --scope directory              Remove from directory config
-  tiddly mcp remove claude-code --servers content        Remove only the content canonical entry
-  tiddly mcp remove claude-code --servers content --delete-tokens  Remove content entry and revoke its PAT`,
+  tiddly mcp remove claude-code --servers content        Remove only tiddly_notes_bookmarks
+  tiddly mcp remove claude-code --servers content --delete-tokens  Remove tiddly_notes_bookmarks and revoke its PAT`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {

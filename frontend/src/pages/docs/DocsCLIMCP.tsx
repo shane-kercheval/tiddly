@@ -79,7 +79,12 @@ tiddly mcp configure claude-code codex              # multiple tools`} />
       {/* tiddly mcp remove */}
       <h2 className="text-lg font-bold text-gray-900 mt-10 mb-4">tiddly mcp remove</h2>
       <p className="text-sm text-gray-600 mb-3">
-        Removes MCP server entries from a tool&apos;s config file. All other config keys are preserved.
+        Removes the CLI-managed entries ({' '}
+        <code className="bg-gray-100 px-1 rounded">tiddly_notes_bookmarks</code>,{' '}
+        <code className="bg-gray-100 px-1 rounded">tiddly_prompts</code>) from a tool&apos;s
+        config file. Other entries pointing at Tiddly URLs under different names (e.g.{' '}
+        <code className="bg-gray-100 px-1 rounded">work_prompts</code>) are preserved.
+        A CLI-managed entry is removed regardless of what URL it currently points at.
       </p>
       <CopyableCodeBlock code="tiddly mcp remove claude-code
 tiddly mcp remove claude-code --delete-tokens" />
@@ -87,17 +92,30 @@ tiddly mcp remove claude-code --delete-tokens" />
       <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">--delete-tokens</h3>
       <p className="text-sm text-gray-600 mb-3">
         With <code className="bg-gray-100 px-1 rounded">--delete-tokens</code> (requires OAuth
-        auth), the CLI:
+        auth), the CLI targets PATs attached to the CLI-managed entries only. PATs attached to
+        other entries are never touched.
       </p>
       <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600 mb-4">
-        <li>Reads PATs from the tool&apos;s config before removing server entries</li>
-        <li>Removes the server entries from the config file</li>
-        <li>Deletes matching tokens from your account (matched by prefix and{' '}
+        <li>Reads PATs from the CLI-managed entries before removing them</li>
+        <li>Removes the CLI-managed entries from the config file</li>
+        <li>Revokes matching tokens from your account (matched by prefix and{' '}
           <code className="bg-gray-100 px-1 rounded">cli-mcp-</code> name pattern)</li>
       </ol>
-      <p className="text-sm text-gray-600 mb-8">
+      <p className="text-sm text-gray-600 mb-3">
+        If a CLI-managed PAT is also referenced by a preserved entry, the CLI warns that
+        revoking will break the preserved binding and then proceeds. If a CLI-managed entry&apos;s
+        PAT doesn&apos;t match any CLI-created server-side token, the CLI prints an informational
+        note referencing that entry.
+      </p>
+      <p className="text-sm text-gray-600 mb-3">
         Without <code className="bg-gray-100 px-1 rounded">--delete-tokens</code>, the CLI warns
-        about potentially orphaned tokens and suggests cleanup options.
+        about potentially orphaned tokens (excluding any that are still in active use by a
+        preserved entry).
+      </p>
+      <p className="text-sm text-gray-500 mb-8">
+        <strong>Note:</strong> the shared-PAT warning and orphan-token filter look only at
+        entries whose URL still points at a Tiddly MCP server. If a CLI-managed key has been
+        hand-edited to a non-Tiddly URL, its PAT is invisible to these safeguards.
       </p>
 
       {/* Reference */}
@@ -120,25 +138,51 @@ tiddly mcp remove claude-code --delete-tokens" />
         create new tokens via the API when authenticated with a PAT. A warning is displayed.
       </p>
 
-      {/* Server Identification */}
-      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">Server Identification</h3>
+      {/* CLI-managed entries */}
+      <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">CLI-managed entries</h3>
       <p className="text-sm text-gray-600 mb-3">
-        The CLI identifies Tiddly MCP servers by <strong>URL</strong>, not by config key name.
-        Any entry whose URL points to a Tiddly MCP host is recognized, regardless of its key name.
-        This applies to all operations: <code className="bg-gray-100 px-1 rounded">configure</code>,{' '}
-        <code className="bg-gray-100 px-1 rounded">remove</code>, and{' '}
-        <code className="bg-gray-100 px-1 rounded">status</code>.
+        The CLI creates and manages exactly two entries per tool:{' '}
+        <code className="bg-gray-100 px-1 rounded">tiddly_notes_bookmarks</code> (content server)
+        and <code className="bg-gray-100 px-1 rounded">tiddly_prompts</code> (prompt server).
+        These are the only entries <code className="bg-gray-100 px-1 rounded">configure</code>{' '}
+        and <code className="bg-gray-100 px-1 rounded">remove</code> will ever touch.
       </p>
       <p className="text-sm text-gray-600 mb-3">
-        On <strong>configure</strong>, existing entries pointing to Tiddly URLs are replaced with
-        the canonical names (<code className="bg-gray-100 px-1 rounded">tiddly_notes_bookmarks</code>{' '}
-        and <code className="bg-gray-100 px-1 rounded">tiddly_prompts</code>). This makes re-installs
-        and migrations from manual setups safe.
+        On <strong>configure</strong>, any other entry pointing at a Tiddly URL under a different
+        key name (e.g. a <code className="bg-gray-100 px-1 rounded">work_prompts</code> entry you
+        set up for a second account) is left alone. The summary at the end of a run lists preserved
+        non-CLI-managed entries so you can see what was left unchanged.
+      </p>
+      <p className="text-sm text-gray-600 mb-3">
+        <strong>Mismatch safety.</strong> If a CLI-managed key already exists but points at a URL
+        that&apos;s not the expected Tiddly URL for its type (e.g. someone hand-edited the entry to
+        a local dev fork), <code className="bg-gray-100 px-1 rounded">configure</code> refuses by
+        default and names the offending entry. Either rename it in the config file to preserve
+        your custom setup, or re-run with{' '}
+        <code className="bg-gray-100 px-1 rounded">--force</code> to overwrite. Dry-run previews
+        either path without committing.
       </p>
       <p className="text-sm text-gray-600 mb-4">
-        On <strong>remove</strong>, any entry pointing to a Tiddly URL is removed, even if it
-        was created manually with a different name.
+        On <strong>remove</strong>, the CLI-managed entries are deleted by key name regardless of
+        the URL they currently point at. Other entries — including custom-named entries at Tiddly
+        URLs — are preserved. The prior config is saved to{' '}
+        <code className="bg-gray-100 px-1 rounded">&lt;path&gt;.bak.&lt;timestamp&gt;</code> before
+        any write.
       </p>
+
+      {/* FAQ: multiple entries */}
+      <InfoCallout variant="info" title="I have multiple Tiddly entries — what happens on configure?">
+        <p>
+          Multi-account setups are supported. If you already have entries like{' '}
+          <code className="bg-blue-100 px-1 rounded">work_prompts</code> and{' '}
+          <code className="bg-blue-100 px-1 rounded">personal_prompts</code> pointing at the Tiddly
+          prompts server with distinct PATs,{' '}
+          <code className="bg-blue-100 px-1 rounded">tiddly mcp configure</code> adds the
+          CLI-managed <code className="bg-blue-100 px-1 rounded">tiddly_prompts</code> entry
+          alongside them. Your custom entries keep their PATs and stay bound to the accounts
+          they&apos;re already using.
+        </p>
+      </InfoCallout>
 
       {/* Tool Detection */}
       <h3 className="text-base font-semibold text-gray-900 mt-6 mb-3">Tool Detection</h3>
@@ -272,6 +316,10 @@ tiddly mcp remove claude-code --delete-tokens" />
             <tr className="border-b border-gray-100">
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--dry-run</code></td>
               <td className="py-2">Preview config changes without writing files or creating tokens</td>
+            </tr>
+            <tr className="border-b border-gray-100">
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--force</code></td>
+              <td className="py-2">Overwrite a CLI-managed entry that currently points at a non-Tiddly URL or the wrong-type Tiddly URL</td>
             </tr>
             <tr>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">--expires</code></td>

@@ -1,8 +1,8 @@
 # CLI Agent Testing Procedure
 
-End-to-end verification of the `tiddly` CLI. Structured for an AI agent to execute, but every step is readable by a human. Covers command surface, scope variants, multi-entry safety, consolidation gate (prompt / `--yes` / decline), timestamped backups, remove flows including `--delete-tokens`, skills, error handling, and auth.
+End-to-end verification of the `tiddly` CLI. Structured for an AI agent to execute, but every step is readable by a human. Covers command surface, scope variants, multi-account safety (additive configure + CLI-managed-only remove), URL-mismatch fail-closed gate with `--force` override, timestamped backups, remove flows including `--delete-tokens` with structured per-entry reporting, skills, error handling, and auth.
 
-**Branch focus:** multi-entry safety work lives in Phase 4 (T4.1–T4.11), T5.4 (multi-row rendering regression), and T6.8 / T6.8b / T6.8c / T6.8d (`--delete-tokens` across JSON+TOML handlers). If time-boxed, prioritize those. Phases 7 and 8 are regression backstops. **Don't skip Phase 1** — T1.5 and T1.7 are contract locks that Phase 0's cleanup depends on (`tokens list` column order, status row format); if they break, the safety machinery breaks.
+**Branch focus:** additive-configure and canonical-name-only remove work lives in the new T2.11–T2.13 (additive preservation, update-in-place, --force), T3.6–T3.8 (mismatch fail-closed across single/multi tools with pluralization, dry-run warnings), T5.4 (multi-row rendering regression — same fixture, different assertions now), and T6.8 / T6.8b / T6.8c / T6.8d (`--delete-tokens` reshaped for canonical-only revocation across JSON+TOML handlers). If time-boxed, prioritize those. Phases 7 and 8 are regression backstops. **Don't skip Phase 1** — T1.5 and T1.7 are contract locks that Phase 0's cleanup depends on (`tokens list` column order, status row format); if they break, the safety machinery breaks.
 
 ## Runs against LOCAL test services ONLY
 
@@ -134,7 +134,7 @@ If you cannot use a test account, the procedure is still safe to run, but review
 
 - [ ] CLI is built: `make cli-build` (verify `bin/tiddly` exists)
 - [ ] Local API and MCP servers are running (tests run against local services, not production)
-- [ ] **Backend `VITE_DEV_MODE` is `false`.** Dev mode short-circuits all Bearer validation (PATs and JWTs alike resolve to a shared dev user), which silently breaks any test that depends on server-side token validation — most visibly T4.10's validate-then-mint fallback and T4.4's mint-path branch. Phase 0 runs a probe that FATALs if dev mode is detected.
+- [ ] **Backend `VITE_DEV_MODE` is `false`.** Dev mode short-circuits all Bearer validation (PATs and JWTs alike resolve to a shared dev user), which silently breaks any test that depends on server-side token validation — most visibly T2.12's canonical-PAT validate-then-reuse path and the CLI-minted/orphan-token assertions in T6.8 / T6.8d. Phase 0 runs a probe that FATALs if dev mode is detected.
 - [ ] Authenticated via OAuth — see [§ Auth](#auth-engineer-must-do-this-manually) (human step, must happen before the agent starts)
 - [ ] API is reachable: `bin/tiddly status` shows API status `ok`
 
@@ -263,7 +263,8 @@ esac
 
 # -- Dev-mode probe ---------------------------------------------------------
 # Bogus bm_ Bearer → 401 in prod mode, 200 in dev mode. Dev mode breaks
-# server-side PAT validation (T4.4 mint path, T4.10 fallback) silently.
+# server-side PAT validation (T2.12 canonical reuse, T6.8 / T6.8d canonical
+# revoke + orphan-filter assertions) silently.
 devmode_rc=$(curl -s -o /dev/null -w '%{http_code}' \
   -H 'Authorization: Bearer bm_devmode_probe_deliberately_invalid' \
   "$TIDDLY_API_URL/users/me" || echo "000")
@@ -273,10 +274,10 @@ case "$devmode_rc" in
     ;;
   200)
     echo "FATAL: backend appears to be in DEV_MODE (accepted a bogus Bearer)." >&2
-    echo "       Dev mode bypasses PAT validation; T4.10's validate-then-mint"  >&2
-    echo "       fallback and T4.4's mint path cannot fire under these"         >&2
-    echo "       conditions. Set VITE_DEV_MODE=false in backend/.env and"       >&2
-    echo "       restart the API, then re-run this procedure."                  >&2
+    echo "       Dev mode bypasses PAT validation; the canonical validate-then" >&2
+    echo "       -reuse path and the CLI-minted/orphan-token assertions cannot" >&2
+    echo "       fire under these conditions. Set VITE_DEV_MODE=false in"      >&2
+    echo "       backend/.env and restart the API, then re-run this procedure." >&2
     exit 1
     ;;
   *)
@@ -290,7 +291,7 @@ unset devmode_rc
 # -- Tool preflight ---------------------------------------------------------
 # The plan shells out to a handful of tools. Fail fast with a clear message
 # rather than crashing partway through a phase. Python's tomllib (used by
-# T4.9 / T6.8c verify steps) lives in the 3.11+ stdlib — older Python3 on
+# T6.8c / T6.8d verify steps) lives in the 3.11+ stdlib — older Python3 on
 # macOS defaults will blow up late.
 for tool in jq python3 openssl awk curl comm sort sed head grep; do
   command -v "$tool" >/dev/null 2>&1 || {
@@ -534,12 +535,12 @@ cleanup_sibling_backups() {
 # several). Accounts with the default tier token cap (50) hit the wall in
 # Phase 6 when `mcp configure` tries to mint yet another token. Cleanup
 # deletes only `cli-mcp-test-*` — a naming convention reserved for test-
-# harness-minted PATs (see mint sites: cli-mcp-test-multi-*, -t48b-*,
-# -codex-*, -t49b-*, -t410-*, -mixed-*, -t54-*, -6-8-*, -shared-*, etc.).
+# harness-minted PATs (see mint sites: cli-mcp-test-2-11-*, -t54-*,
+# -6-8-*, -shared-*, -shared-codex-*, etc.).
 # Does NOT touch `cli-mcp-<tool>-<server>-*` names, which are produced by
 # `mcp configure` itself and may still be referenced by live configs.
-# Call at end of Phase 4 (highest accumulation point) and optionally again
-# later if the account is tight.
+# Call between phases that accumulate test tokens (e.g. after Phase 2 or
+# Phase 6) if the account is tight.
 cleanup_test_tokens() {
   echo "Interim cleanup: deleting cli-mcp-test-* tokens accumulated so far…"
   local ids count=0
@@ -606,9 +607,9 @@ report_phase() {
 #
 # CONVENTION: when retrying a test after fixing state, pass the SAME test ID
 # (2nd arg) as the failing call. Put retry context in the DETAIL (3rd arg).
-#   report_test FAIL "T4.4" "survivor hash mismatch"
-#   report_test PASS "T4.4" "re-run after newline fix"       ← correct
-#   report_test PASS "T4.4 (re-run after newline fix)" ""    ← WRONG
+#   report_test FAIL "T6.8" "revoked token IDs mismatch"
+#   report_test PASS "T6.8" "re-run after work_prompts PAT fix"       ← correct
+#   report_test PASS "T6.8 (re-run after work_prompts PAT fix)" ""    ← WRONG
 # report_summary() counts per-ID final state; renaming the ID on retry
 # means awk sees them as two separate tests and the FAIL isn't superseded.
 report_test() {
@@ -882,7 +883,7 @@ If you already ran `bin/tiddly login` bare and ended up logged into production, 
 
 #### Preflight — one check before you start
 
-Confirm `VITE_DEV_MODE=false` in the backend's `.env` (or is unset). Dev mode makes the backend accept any Bearer value as the dev user and silently breaks token-validation tests (T4.10, T4.4 mint path). Phase 0 has a probe that FATALs on detection, but checking here first saves a wasted run.
+Confirm `VITE_DEV_MODE=false` in the backend's `.env` (or is unset). Dev mode makes the backend accept any Bearer value as the dev user and silently breaks token-validation tests (T2.12 canonical reuse, T6.8 canonical revoke + orphan filter). Phase 0 has a probe that FATALs on detection, but checking here first saves a wasted run.
 
 #### Auth0 values — these are not secrets
 
@@ -950,9 +951,12 @@ The following behaviors are verified by Go unit tests, not this E2E procedure. T
 | Non-EEXIST OpenFile errors surface directly | `TestBackupConfigFile__non_collision_openfile_errors_surface_directly` |
 | Partial-result contract (commit-phase vs. preflight) | `TestRunConfigure__commit_phase_failure_preserves_earlier_writes` + `__preflight_failure_returns_nil_result` |
 | classifyServer security invariant (URL wins over name) | `TestClassifyServer__routes_by_url` |
-| Survivor wording honestly describes validate-then-mint | `TestWriteConsolidationWarning__oauth_notes_validate_then_mint_fallback` |
-| Interactive prompt: decline via `n` → ErrConsolidationDeclined, no writes, no mints | `TestRunConfigure__consolidation_prompt_aborts_on_no` |
-| Interactive prompt: accept via `y` → proceeds with consolidation | `TestRunConfigure__consolidation_prompt_proceeds_on_yes` |
+| OtherServer.URL round-trips for mismatch detection | `TestClassifyServer__canonical_name_at_non_tiddly_url_records_url` |
+| DeleteTokensByPrefix dedupes by PAT and fans out per-entry results | `TestDeleteTokensByPrefix__shared_pat_fans_out_single_deletion` + `__preserves_order_and_labels_with_mixed_shared_and_unique_pats` + `__short_pat_returns_empty_not_error` |
+| Hard-error ordering in preflight (discards accumulated mismatches / short-circuits scan) | `TestRunConfigure__hard_error_on_second_tool_discards_first_tool_mismatch` + `__hard_error_on_first_tool_short_circuits_second_tool_scan` |
+| `canonicalEntryPATs` rejects cross-wired PATs | `TestRunConfigure__does_not_reuse_pat_from_cross_wired_canonical_slot` |
+| `--force` log only fires after PAT resolution succeeds | `TestRunConfigure__force_log_not_emitted_when_pat_resolution_fails` |
+| Mismatch error has no double "Error:" prefix under cobra | `TestMCPConfigure__mismatch_error_has_no_double_error_prefix` |
 
 Run `make cli-verify` before this procedure to confirm those cover their invariants.
 
@@ -987,7 +991,7 @@ assert_no_plaintext_bearers "$out" "T<id>"   # FATAL if Bearer bm_<plaintext> fo
 echo "$out"                                   # safe to show
 ```
 
-Use `report_test SKIP "T<id>" "reason"` for environmentally-skipped tests and `report_test NOTE "T<id>" "detail"` for narrative outcomes (e.g. T4.4's dual-path recording).
+Use `report_test SKIP "T<id>" "reason"` for environmentally-skipped tests and `report_test NOTE "T<id>" "detail"` for narrative outcomes (e.g. T2.12 when the PAT was reused vs. re-minted).
 
 ---
 
@@ -1012,11 +1016,13 @@ bin/tiddly mcp configure --help
 ```
 **Verify:**
 - [ ] Exit 0
-- [ ] Flags listed: `--dry-run`, `--scope`, `--expires`, `--servers`, `--yes` (with `-y` short form)
+- [ ] Flags listed: `--dry-run`, `--scope`, `--expires`, `--servers`, `--force`
+- [ ] `--yes` / `-y` are NOT listed (removed in the additive-configure rework)
 - [ ] Valid args: `claude-desktop`, `claude-code`, `codex`
-- [ ] Help text mentions consolidation / multi-entry (e.g. "work_prompts + personal_prompts" or "consolidate")
+- [ ] Help text mentions the CLI-managed entry names (`tiddly_notes_bookmarks`, `tiddly_prompts`) and the fact that other entries are preserved (e.g. "work_prompts")
+- [ ] Help text mentions `--force` as the override for the URL-mismatch refusal
 - [ ] Help text mentions `.bak.<timestamp>` backups
-- [ ] Help text does **not** contain the old misleading sentence "migrations from manual setups are safe"
+- [ ] Help text does **not** contain "consolidate" / "consolidation" / "migrations from manual setups are safe"
 
 ### [T1.5] Status overview — config-key display invariant
 ```bash
@@ -1069,6 +1075,87 @@ hdr=$(bin/tiddly tokens list 2>/dev/null | head -1)
 
 ```bash
 assert_auth_still_working
+```
+
+---
+
+## Shared fixture helpers (used by Phases 2, 5, 6)
+
+These helpers write multi-entry configs that represent real-world setups — a user with `work_prompts` + `personal_prompts` pointing at the Tiddly prompt server for two accounts. They're used by T2.11 (additive preservation), T5.4 (multi-row status rendering), T6.8, T6.8c (multi-entry `--delete-tokens`). Each writes plaintext PATs to disk — the file is chmod 0600; never `cat` the config after calling.
+
+```bash
+write_multi_entry_prompts() {
+  # Merges two non-CLI-managed prompt rows into $CLAUDE_CODE_CONFIG via jq.
+  # Preserves non-Tiddly entries and other top-level keys; strips any
+  # CLI-managed tiddly_* entries so the caller always starts from the
+  # "user had multi-account setup, no CLI-managed entries yet" scenario.
+  local pat_work="$1" pat_personal="$2"
+  local tmp
+  tmp=$(mktemp)
+  local src="$CLAUDE_CODE_CONFIG"
+  [ -f "$src" ] || echo "{}" > "$src"
+  jq --arg url "$TIDDLY_PROMPT_MCP_URL" \
+     --arg work "$pat_work" --arg personal "$pat_personal" \
+     '.mcpServers = (.mcpServers // {})
+      | .mcpServers.work_prompts     = {type:"http", url:$url, headers:{Authorization:("Bearer "+$work)}}
+      | .mcpServers.personal_prompts = {type:"http", url:$url, headers:{Authorization:("Bearer "+$personal)}}
+      | del(.mcpServers.tiddly_notes_bookmarks, .mcpServers.tiddly_prompts)' \
+     "$src" > "$tmp" && mv "$tmp" "$src"
+  chmod 0600 "$src"
+}
+
+write_multi_entry_prompts_desktop() {
+  # Claude Desktop analogue: stdio+npx+mcp-remote entry shape. Same
+  # preserve-others-and-strip-CLI-managed contract.
+  local pat_work="$1" pat_personal="$2"
+  local tmp
+  tmp=$(mktemp)
+  local src="$CLAUDE_DESKTOP_CONFIG"
+  [ -f "$src" ] || echo "{}" > "$src"
+  jq --arg url "$TIDDLY_PROMPT_MCP_URL" \
+     --arg work "$pat_work" --arg personal "$pat_personal" \
+     '.mcpServers = (.mcpServers // {})
+      | .mcpServers.work_prompts = {
+          command: "npx",
+          args: ["mcp-remote", $url, "--header", ("Authorization: Bearer "+$work)]
+        }
+      | .mcpServers.personal_prompts = {
+          command: "npx",
+          args: ["mcp-remote", $url, "--header", ("Authorization: Bearer "+$personal)]
+        }
+      | del(.mcpServers.tiddly_notes_bookmarks, .mcpServers.tiddly_prompts)' \
+     "$src" > "$tmp" && mv "$tmp" "$src"
+  chmod 0600 "$src"
+}
+
+write_multi_entry_prompts_codex() {
+  # Codex/TOML analogue. Strip any pre-existing work_prompts /
+  # personal_prompts / CLI-managed tiddly_* tables, then append two
+  # fresh tables. Awk-strip-then-append (not parse-and-re-emit)
+  # preserves the original file byte-for-byte outside the replaced tables.
+  local pat_work="$1" pat_personal="$2"
+  [ -f "$CODEX_CONFIG" ] || echo '' > "$CODEX_CONFIG"
+  awk '
+    /^\[mcp_servers\.(work_prompts|personal_prompts|tiddly_notes_bookmarks|tiddly_prompts)(\.|\])/ { skip=1; next }
+    /^\[/                                                                                           { skip=0 }
+    !skip                                                                                           { print }
+  ' "$CODEX_CONFIG" > "$CODEX_CONFIG.tmp" && mv "$CODEX_CONFIG.tmp" "$CODEX_CONFIG"
+  cat >> "$CODEX_CONFIG" <<TOML
+
+[mcp_servers.work_prompts]
+url = "${TIDDLY_PROMPT_MCP_URL}"
+
+[mcp_servers.work_prompts.http_headers]
+Authorization = "Bearer ${pat_work}"
+
+[mcp_servers.personal_prompts]
+url = "${TIDDLY_PROMPT_MCP_URL}"
+
+[mcp_servers.personal_prompts.http_headers]
+Authorization = "Bearer ${pat_personal}"
+TOML
+  chmod 0600 "$CODEX_CONFIG"
+}
 ```
 
 ---
@@ -1226,6 +1313,117 @@ bin/tiddly status
 - [ ] Each Tiddly row shows `(tiddly_notes_bookmarks)` or `(tiddly_prompts)` — the actual config key, matching what's on disk
 - [ ] Multiple scopes render correctly per tool
 
+### [T2.11] Additive configure preserves non-CLI-managed Tiddly-URL entries
+
+Headline behavior of the additive-configure rework: a user who set up `work_prompts` + `personal_prompts` for two Tiddly accounts must have those entries survive configure. The CLI writes the CLI-managed entries alongside them and reports which entries were preserved.
+
+```bash
+# Set up two non-CLI-managed prompts entries pointing at the Tiddly prompt server.
+PAT_WORK_211=$(bin/tiddly tokens create "cli-mcp-test-2-11-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_211=$(bin/tiddly tokens create "cli-mcp-test-2-11-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+[ -n "$PAT_WORK_211" ] && [ -n "$PAT_PERSONAL_211" ] || { echo "FATAL: T2.11 token mint failed"; exit 1; }
+
+# Fresh slate, then install two non-CLI-managed prompts entries.
+bin/tiddly mcp remove claude-code 2>/dev/null || true
+write_multi_entry_prompts "$PAT_WORK_211" "$PAT_PERSONAL_211"
+
+out=$(bin/tiddly mcp configure claude-code 2>&1)
+assert_no_plaintext_bearers "$out" "T2.11"
+echo "$out"
+
+unset PAT_WORK_211 PAT_PERSONAL_211
+```
+**Verify:**
+- [ ] Exit 0
+- [ ] Output contains `Preserved non-CLI-managed entries in claude-code:` followed by both `personal_prompts` and `work_prompts` (order-independent — any order is fine)
+- [ ] `jq -e '.mcpServers.tiddly_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — canonical entry added
+- [ ] `jq -e '.mcpServers.work_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — non-CLI-managed entry survives
+- [ ] `jq -e '.mcpServers.personal_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — non-CLI-managed entry survives
+- [ ] Output does NOT contain `consolidate` / `Consolidation required` (gate is gone)
+
+### [T2.12] Canonical update-in-place — no churn on re-run
+
+Re-running configure against a config that already has correct CLI-managed entries must not churn tokens or rewrite the entry. Under OAuth, existing PATs are validated and reused; under PAT auth, the login PAT is used (same as last run). Either way, the written canonical entries should be identical to what was there before — a regression that unnecessarily re-minted or rewrote tokens would change the bytes.
+
+```bash
+# First run: ensure a known-good configured state.
+bin/tiddly mcp configure claude-code >/dev/null
+pre_content_sha=$(jq -c '.mcpServers.tiddly_notes_bookmarks' "$CLAUDE_CODE_CONFIG" | SHA256 | awk '{print $1}')
+pre_prompts_sha=$(jq -c '.mcpServers.tiddly_prompts'         "$CLAUDE_CODE_CONFIG" | SHA256 | awk '{print $1}')
+
+# Second run: must not churn the canonical entries.
+out=$(bin/tiddly mcp configure claude-code 2>&1)
+assert_no_plaintext_bearers "$out" "T2.12"
+
+post_content_sha=$(jq -c '.mcpServers.tiddly_notes_bookmarks' "$CLAUDE_CODE_CONFIG" | SHA256 | awk '{print $1}')
+post_prompts_sha=$(jq -c '.mcpServers.tiddly_prompts'         "$CLAUDE_CODE_CONFIG" | SHA256 | awk '{print $1}')
+
+# Record the OAuth-vs-PAT path so a reader of the run log can tell which
+# code path actually fired — `Reused tokens:` under OAuth with still-valid
+# PATs; absent under PAT auth (no "reuse" concept there, login PAT is used
+# directly). Either path must be no-churn; this is a narrative note, not
+# an assertion.
+if echo "$out" | grep -F "Reused tokens:" >/dev/null; then
+  report_test NOTE "T2.12 — outcome path" "OAuth reused existing PATs (validate-then-reuse)"
+else
+  report_test NOTE "T2.12 — outcome path" "PAT auth (login PAT rewritten into canonical entries)"
+fi
+```
+**Verify:**
+- [ ] Exit 0
+- [ ] `$out` contains `Configured: claude-code` — no refusal, no mismatch warning
+- [ ] `$out` does NOT contain any `unexpected URL` / `re-run with --force` refusal copy
+- [ ] `[ "$pre_content_sha" = "$post_content_sha" ]` — `tiddly_notes_bookmarks` is byte-for-byte identical after re-run (no token churn, no rewrite)
+- [ ] `[ "$pre_prompts_sha" = "$post_prompts_sha" ]` — same for `tiddly_prompts`
+
+### [T2.13] `--force` overwrites a CLI-managed entry at a non-Tiddly URL
+
+User hand-edited `tiddly_prompts` to point at a local dev URL. Default configure refuses; `--force` overwrites the entry and emits the per-entry "Forcing overwrite of …" stderr line.
+
+```bash
+# Seed a non-Tiddly URL on the canonical tiddly_prompts slot.
+jq '.mcpServers.tiddly_prompts = {
+      type: "http",
+      url: "https://example.com/my-prompts",
+      headers: {Authorization: "Bearer bm_user_pasted_xyz"}
+    }' "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
+chmod 0600 "$CLAUDE_CODE_CONFIG"
+
+# Default refuses.
+set +e
+out_default=$(bin/tiddly mcp configure claude-code 2>&1); rc_default=$?
+set -e
+
+# --force proceeds. Split stdout/stderr so the routing assertion is meaningful.
+stderr_tmp=$(mktemp)
+set +e
+stdout_force=$(bin/tiddly mcp configure claude-code --force 2>"$stderr_tmp"); rc_force=$?
+set -e
+stderr_force=$(cat "$stderr_tmp")
+rm -f "$stderr_tmp"
+assert_no_plaintext_bearers "$stdout_force" "T2.13-stdout"
+assert_no_plaintext_bearers "$stderr_force" "T2.13-stderr"
+```
+**Verify default refusal:**
+- [ ] `rc_default != 0`
+- [ ] `out_default` contains `1 CLI-managed entry` (singular) and `has an unexpected URL`
+- [ ] `out_default` names the mismatched entry: `tiddly_prompts → https://example.com/my-prompts`
+- [ ] `out_default` contains `re-run with --force`
+- [ ] Config still has the bad URL on disk (no write happened): `jq -e '.mcpServers.tiddly_prompts.url == "https://example.com/my-prompts"' "$CLAUDE_CODE_CONFIG" >/dev/null`
+
+**Verify `--force` overwrite:**
+- [ ] `rc_force == 0`
+- [ ] `stderr_force` contains `Forcing overwrite of tiddly_prompts (currently https://example.com/my-prompts)` — channel-specific (stderr, not stdout)
+- [ ] `stdout_force` contains `Configured: claude-code`
+- [ ] Canonical URL restored: `jq -e '.mcpServers.tiddly_prompts.url' "$CLAUDE_CODE_CONFIG" | grep -F -- "$TIDDLY_PROMPT_MCP_URL" >/dev/null`
+
+```bash
+# Restore clean state for subsequent phases.
+bin/tiddly mcp remove claude-code 2>/dev/null || true
+bin/tiddly mcp configure claude-code >/dev/null
+assert_auth_still_working
+```
+
 ```bash
 assert_auth_still_working
 ```
@@ -1303,444 +1501,65 @@ out=$(bin/tiddly mcp configure claude-code --dry-run)
 **Verify:**
 - [ ] Output does NOT contain `Configured: claude-code` — the summary line is gated on non-dry-run. The `--- claude-code ---` banner and diff are the dry-run signal.
 
-```bash
-assert_auth_still_working
-```
+### [T3.7] Dry-run on a URL-mismatch warns but does not abort
 
----
-
-## Phase 4: Multi-entry consolidation gate (NEW — headline scope of this round)
-
-`phase "Phase 4: Multi-entry consolidation gate"`. These tests exercise the preflight → gate → commit flow added in recent commits. They need a hand-crafted multi-entry config.
-
-**Interactive prompt reading is NOT covered E2E** — piping `y`/`n` into a pipe trips the `term.IsTerminal` check and hits the non-interactive error path, never reaching the prompt reader. See `TestRunConfigure__consolidation_prompt_proceeds_on_yes` / `__aborts_on_no` for the interactive paths. The E2E tests below cover non-interactive behavior (error without `--yes`, `--yes` bypass, vacancy), which is what the CLI sees under typical scripted use.
-
-**Also deferred to unit tests (not E2E'd in this phase):** commit-phase write failure / partial-result contract; backup-path surfacing on write failure; orphan-token first-12 prefix formatting; cleanup-context detachment from cancelled caller contexts. See the Deferred table above for the specific tests that own each invariant. Phase 4 does not attempt to induce write failures.
-
-### Setup helper — write a multi-entry Claude Code config
+When a CLI-managed entry points at a non-Tiddly URL, a real run fails closed — but dry-run is tolerant: it emits a per-entry stderr warning alongside the diff, so users can preview both the mismatch and the intended write.
 
 ```bash
-write_multi_entry_prompts() {
-  # Merges two multi-entry prompt rows into $CLAUDE_CODE_CONFIG via jq.
-  # Preserves non-Tiddly entries and other top-level keys; strips any
-  # canonical tiddly_* entries. Writes plaintext PATs to disk (file is
-  # chmod 0600) — do not `cat` the config after calling.
-  local pat_work="$1" pat_personal="$2"
-  local tmp
-  tmp=$(mktemp)
-  # If the file doesn't exist yet, start from an empty object.
-  local src="$CLAUDE_CODE_CONFIG"
-  [ -f "$src" ] || echo "{}" > "$src"
-  jq --arg url "$TIDDLY_PROMPT_MCP_URL" \
-     --arg work "$pat_work" --arg personal "$pat_personal" \
-     '.mcpServers = (.mcpServers // {})
-      | .mcpServers.work_prompts     = {type:"http", url:$url, headers:{Authorization:("Bearer "+$work)}}
-      | .mcpServers.personal_prompts = {type:"http", url:$url, headers:{Authorization:("Bearer "+$personal)}}
-      | del(.mcpServers.tiddly_notes_bookmarks, .mcpServers.tiddly_prompts)' \
-     "$src" > "$tmp" && mv "$tmp" "$src"
-  chmod 0600 "$src"
-}
-
-write_multi_entry_prompts_desktop() {
-  # Claude Desktop analogue: stdio+npx+mcp-remote entry shape. Same
-  # preserve-others-and-strip-canonical contract. Writes plaintext PATs
-  # to disk (file is chmod 0600) — do not `cat` the config after calling.
-  local pat_work="$1" pat_personal="$2"
-  local tmp
-  tmp=$(mktemp)
-  local src="$CLAUDE_DESKTOP_CONFIG"
-  [ -f "$src" ] || echo "{}" > "$src"
-  jq --arg url "$TIDDLY_PROMPT_MCP_URL" \
-     --arg work "$pat_work" --arg personal "$pat_personal" \
-     '.mcpServers = (.mcpServers // {})
-      | .mcpServers.work_prompts = {
-          command: "npx",
-          args: ["mcp-remote", $url, "--header", ("Authorization: Bearer "+$work)]
-        }
-      | .mcpServers.personal_prompts = {
-          command: "npx",
-          args: ["mcp-remote", $url, "--header", ("Authorization: Bearer "+$personal)]
-        }
-      | del(.mcpServers.tiddly_notes_bookmarks, .mcpServers.tiddly_prompts)' \
-     "$src" > "$tmp" && mv "$tmp" "$src"
-  chmod 0600 "$src"
-}
-
-write_multi_entry_prompts_codex() {
-  # Codex/TOML analogue. Strip any pre-existing work_prompts /
-  # personal_prompts / canonical tiddly_* tables, then append two fresh
-  # tables. Awk-strip-then-append (not parse-and-re-emit) preserves the
-  # original file byte-for-byte outside the replaced tables. Writes
-  # plaintext PATs to disk (file is chmod 0600) — do not `cat` the
-  # config after calling.
-  local pat_work="$1" pat_personal="$2"
-  [ -f "$CODEX_CONFIG" ] || echo '' > "$CODEX_CONFIG"
-  awk '
-    /^\[mcp_servers\.(work_prompts|personal_prompts|tiddly_notes_bookmarks|tiddly_prompts)(\.|\])/ { skip=1; next }
-    /^\[/                                                                                           { skip=0 }
-    !skip                                                                                           { print }
-  ' "$CODEX_CONFIG" > "$CODEX_CONFIG.tmp" && mv "$CODEX_CONFIG.tmp" "$CODEX_CONFIG"
-  cat >> "$CODEX_CONFIG" <<TOML
-
-[mcp_servers.work_prompts]
-url = "${TIDDLY_PROMPT_MCP_URL}"
-
-[mcp_servers.work_prompts.http_headers]
-Authorization = "Bearer ${pat_work}"
-
-[mcp_servers.personal_prompts]
-url = "${TIDDLY_PROMPT_MCP_URL}"
-
-[mcp_servers.personal_prompts.http_headers]
-Authorization = "Bearer ${pat_personal}"
-TOML
-  chmod 0600 "$CODEX_CONFIG"
-}
-```
-
-Under OAuth, mint two real tokens you'll hand to the multi-entry config. First, a one-time format probe fails fast with a clear error if `tokens create` output isn't what we expect:
-
-```bash
-# Probe the 'tokens create' output format BEFORE committing to the real mints.
-# Format contract: stdout contains a line starting with 'bm_' (the plaintext PAT).
-# If this assumption ever breaks (e.g. output changes to JSON), fail here with a
-# specific message rather than silently producing empty PAT variables.
-probe_name="cli-mcp-test-probe-$(openssl rand -hex 3)"
-probe_out=$(bin/tiddly tokens create "$probe_name" 2>&1) || { echo "FATAL: 'tokens create' failed during format probe — aborting (command stderr suppressed to avoid leaking plaintext PATs if the format contract has shifted)"; exit 1; }
-probe_pat=$(echo "$probe_out" | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-# Drop the full plaintext container immediately. probe_pat is enough to
-# validate the format contract; keeping probe_out in shell state during the
-# subsequent list/delete commands widens the window where a trap/signal
-# could leave the plaintext exposed to a child process.
-unset probe_out
-[ -n "$probe_pat" ] || { echo "FATAL: 'tokens create' output format unexpected (no 'bm_' token found in stdout). Plan must be updated to match actual format. Raw output NOT printed to avoid leaking plaintext PATs."; exit 1; }
-# Immediately revoke the probe so it doesn't linger as a test artifact.
-probe_id=$(bin/tiddly tokens list 2>/dev/null | awk -v n="$probe_name" '$0 ~ n {print $1; exit}')
-[ -n "$probe_id" ] && bin/tiddly tokens delete "$probe_id" --force 2>/dev/null
-unset probe_pat probe_id
-
-# Now mint the two test tokens we'll use throughout Phase 4.
-PAT_WORK=$(bin/tiddly tokens create "cli-mcp-test-multi-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_PERSONAL=$(bin/tiddly tokens create "cli-mcp-test-multi-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_WORK" ] && [ -n "$PAT_PERSONAL" ] || { echo "FATAL: failed to mint test tokens"; exit 1; }
-# NOTE: do NOT run `echo "$PAT_WORK"` or similar at any point. The first-12
-# prefix below matches the settings UI's TokenPrefix and is safe to display.
-echo "Minted test PATs: work prefix=${PAT_WORK:0:12} personal prefix=${PAT_PERSONAL:0:12}"
-```
-
-> The full plaintext values are held in `PAT_WORK` / `PAT_PERSONAL` only for use inside the heredoc that writes the multi-entry config. They must never be echoed or appear in subsequent pipelines except as the input to hash-compares.
-
-### [T4.1] Dry-run — warning + survivor disclosure + header
-```bash
-write_multi_entry_prompts "$PAT_WORK" "$PAT_PERSONAL"
-pre_sha=$(sha_of "$CLAUDE_CODE_CONFIG")
-out=$(bin/tiddly mcp configure claude-code --dry-run 2>&1)
-assert_no_plaintext_bearers "$out" "T4.1"
-echo "$out"
-```
-**Verify:**
-- [ ] Output contains `Bearer bm_REDACTED` at least once — positive confirmation that the redaction fired (negative-only checks can false-pass if the whole Before/After block is missing)
-- [ ] Stdout contains `Consolidation required:` (leading header that matches real-run gate)
-- [ ] Contains `claude-code:` followed by `2 existing Tiddly prompts entries will be consolidated into tiddly_prompts`
-- [ ] Both `personal_prompts` and `work_prompts` appear in the entry list
-- [ ] Contains the line `PAT from "personal_prompts" will be reused for tiddly_prompts if still valid; otherwise a fresh token will be minted.` (canonical-first-else-alphabetical picks `personal_prompts`)
-- [ ] `* ` marker next to `personal_prompts` in the entry list
-- [ ] `assert_unchanged T4.1 "$CLAUDE_CODE_CONFIG" "$pre_sha"`
-- [ ] `tokens list` shows no new cli-mcp-* tokens created by this run
-
-### [T4.2] Non-interactive without `--yes` errors with actionable message
-```bash
-write_multi_entry_prompts "$PAT_WORK" "$PAT_PERSONAL"
-pre_sha=$(sha_of "$CLAUDE_CODE_CONFIG")
-before_ids=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-/ {print $1}' | sort)
-# </dev/null ensures stdin is not a TTY — triggers the non-interactive path.
-set +e
-out=$(bin/tiddly mcp configure claude-code < /dev/null 2>&1); rc=$?
-set -e
-assert_no_plaintext_bearers "$out" "T4.2"
-echo "$out"
-echo "exit: $rc"
-after_ids=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-/ {print $1}' | sort)
-```
-**Verify:**
-- [ ] `rc != 0`
-- [ ] Output contains `consolidation needs confirmation`
-- [ ] Output contains `re-run with --yes to proceed, or --dry-run to preview`
-- [ ] `assert_unchanged T4.2 "$CLAUDE_CODE_CONFIG" "$pre_sha"`
-- [ ] `[ "$before_ids" = "$after_ids" ]` — no cli-mcp-* tokens were minted (critical: proves gate runs BEFORE PAT resolution under OAuth)
-- [ ] Output does NOT contain `Created tokens:` — the post-mint summary line must never render when the commit phase never ran
-
-<!-- T4.3, T4.5 reserved — append new tests rather than reusing slots -->
-
-### [T4.4] `--yes` bypasses prompt, consolidation happens
-```bash
-write_multi_entry_prompts "$PAT_WORK" "$PAT_PERSONAL"
-out=$(bin/tiddly mcp configure claude-code --yes < /dev/null 2>&1)
-assert_no_plaintext_bearers "$out" "T4.4"
-echo "$out"
-```
-**Verify:**
-- [ ] Exit 0
-- [ ] Output contains `Consolidation required:` + warning
-- [ ] Output contains `Proceeding (--yes).`
-- [ ] Output does NOT contain `Continue? [y/N]:` (prompt skipped). The positive "prompt appears under a TTY" direction is covered by the unit test `TestRunConfigure__consolidation_prompt_proceeds_on_yes` — see the Deferred table — so this NOT-contains assertion and the unit test form the pair.
-- [ ] `jq -e '.mcpServers.tiddly_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — canonical written
-- [ ] `jq -e '.mcpServers.work_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null` — work key gone
-- [ ] `jq -e '.mcpServers.personal_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null` — personal key gone
-- [ ] **Survivor value check via hash-compare only (neither value printed):**
-  ```bash
-  # The alphabetically-first entry (personal_prompts) wins under canonical-first-else-
-  # alphabetical. Its PAT becomes the tiddly_prompts Authorization IFF validate-then-mint
-  # reused it. If validation rejected it and a fresh token was minted, the survivor value
-  # differs — both outcomes are acceptable per the disclosure wording. Record which path
-  # fired for the agent to include in the run summary.
-  # NOTE: strip trailing newline from jq -r output before hashing. printf
-  # produces no trailing newline; jq -r appends one. Without `tr -d '\n'`
-  # the two hashes never match even when the stored PAT equals the expected.
-  expected=$(printf 'Bearer %s' "$PAT_PERSONAL" | SHA256 | awk '{print $1}')
-  actual=$(jq -r '.mcpServers.tiddly_prompts.headers.Authorization' "$CLAUDE_CODE_CONFIG" | tr -d '\n' | SHA256 | awk '{print $1}')
-  if [ "$expected" = "$actual" ]; then
-    report_test NOTE "T4.4 — outcome path" "reused survivor PAT (personal_prompts)"
-  else
-    # In the mint case, verify a fresh cli-mcp-* token was created.
-    # Use `grep ... >/dev/null` not `grep -q` — see § "How to use the
-    # report helpers" for the pipefail+grep -q anti-pattern.
-    if bin/tiddly tokens list 2>/dev/null | grep 'cli-mcp-claude-code-prompts-' >/dev/null; then
-      report_test NOTE "T4.4 — outcome path" "minted fresh token (validate-then-mint fallback)"
-    else
-      report_mismatch "T4.4" "fresh cli-mcp-claude-code-prompts- token created after mint path" "no cli-mcp-claude-code-prompts- token found in tokens list" product-bug "Survivor hash mismatch implies mint path fired, but no matching token exists server-side"
-    fi
-  fi
-  ```
-
-### [T4.6] Canonical-only config — no gate fires
-```bash
-# Restore canonical-only state
-bin/tiddly mcp configure claude-code --yes 2>/dev/null
-pre_sha=$(sha_of "$CLAUDE_CODE_CONFIG")
-out=$(bin/tiddly mcp configure claude-code < /dev/null 2>&1)
-```
-**Verify:**
-- [ ] Exit 0
-- [ ] Output does NOT contain `Consolidation required:` (no gate needed)
-- [ ] Output does NOT contain `Continue? [y/N]:` or error about confirmation
-- [ ] Normal `Configured: claude-code` summary appears
-
-### [T4.7] Dry-run — no header when no consolidation
-```bash
-# (still canonical-only after T4.6)
-out=$(bin/tiddly mcp configure claude-code --dry-run 2>&1)
-assert_no_plaintext_bearers "$out" "T4.7"
-```
-**Verify:**
-- [ ] Output does NOT contain `Consolidation required:` (only fires when warranted)
-- [ ] Normal dry-run diff still shown
-
-### [T4.8] Cross-tool gate — single header lists every affected tool
-
-Locks the non-interactive cross-tool rendering: multi-entry on BOTH claude-code and claude-desktop → one consolidation header names both, configure aborts without writes, no tokens minted.
-
-```bash
-# Multi-entry on two tools simultaneously.
-write_multi_entry_prompts         "$PAT_WORK" "$PAT_PERSONAL"
-write_multi_entry_prompts_desktop "$PAT_WORK" "$PAT_PERSONAL"
-pre_cc_sha=$(sha_of "$CLAUDE_CODE_CONFIG")
-pre_cd_sha=$(sha_of "$CLAUDE_DESKTOP_CONFIG")
-before_ids=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-/ {print $1}' | LC_ALL=C sort)
-# </dev/null ensures stdin is not a TTY — non-interactive path fires.
-set +e
-out=$(bin/tiddly mcp configure < /dev/null 2>&1); rc=$?
-set -e
-assert_no_plaintext_bearers "$out" "T4.8"
-echo "$out"
-echo "exit: $rc"
-after_ids=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-/ {print $1}' | LC_ALL=C sort)
-```
-**Verify:**
-- [ ] `rc != 0`
-- [ ] Exactly ONE `Consolidation required:` header (single header across tools)
-- [ ] Output lists BOTH `claude-code:` and `claude-desktop:` under that header
-- [ ] Output contains `consolidation needs confirmation`
-- [ ] Output contains `re-run with --yes to proceed, or --dry-run to preview`
-- [ ] `assert_unchanged T4.8 "$CLAUDE_CODE_CONFIG"     "$pre_cc_sha"`
-- [ ] `assert_unchanged T4.8 "$CLAUDE_DESKTOP_CONFIG"  "$pre_cd_sha"`
-- [ ] `[ "$before_ids" = "$after_ids" ]` — gate ran BEFORE PAT resolution; no tokens minted
-
-### [T4.8b] Cross-tool `--yes` happy path
-
-Success counterpart to T4.8: multi-entry on both tools + `--yes` → both end up canonical-only. Catches a regression where `--yes` is honored for tool 1 but drops through on tool 2.
-
-```bash
-PAT_WORK_48b=$(bin/tiddly tokens create "cli-mcp-test-t48b-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_PERSONAL_48b=$(bin/tiddly tokens create "cli-mcp-test-t48b-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_WORK_48b" ] && [ -n "$PAT_PERSONAL_48b" ] || { echo "FATAL: T4.8b token mint failed"; exit 1; }
-
-write_multi_entry_prompts         "$PAT_WORK_48b" "$PAT_PERSONAL_48b"
-write_multi_entry_prompts_desktop "$PAT_WORK_48b" "$PAT_PERSONAL_48b"
-
-out=$(bin/tiddly mcp configure --yes < /dev/null 2>&1)
-assert_no_plaintext_bearers "$out" "T4.8b"
-echo "$out"
-
-unset PAT_WORK_48b PAT_PERSONAL_48b
-```
-**Verify:**
-- [ ] Exit 0
-- [ ] Exactly ONE `Consolidation required:` header
-- [ ] Both `claude-code:` and `claude-desktop:` appear under that header
-- [ ] Output contains `Proceeding (--yes).`
-- [ ] claude-code: `jq -e '.mcpServers.tiddly_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — canonical written
-- [ ] claude-code: customs gone: `jq -e '.mcpServers.work_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null` AND `jq -e '.mcpServers.personal_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
-- [ ] claude-desktop: canonical written: `jq -e '.mcpServers.tiddly_prompts' "$CLAUDE_DESKTOP_CONFIG" >/dev/null`
-- [ ] claude-desktop: customs gone (same jq pattern as claude-code)
-
-### [T4.9] Codex multi-entry consolidation (TOML format)
-
-TOML parity for the JSON consolidation coverage above.
-
-```bash
-# Mint two fresh test tokens for Codex multi-entry setup.
-PAT_WORK_CODEX=$(bin/tiddly tokens create "cli-mcp-test-codex-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_PERSONAL_CODEX=$(bin/tiddly tokens create "cli-mcp-test-codex-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_WORK_CODEX" ] && [ -n "$PAT_PERSONAL_CODEX" ] || { echo "FATAL: failed to mint codex test tokens"; exit 1; }
-
-write_multi_entry_prompts_codex "$PAT_WORK_CODEX" "$PAT_PERSONAL_CODEX"
-
-out=$(bin/tiddly mcp configure codex --yes < /dev/null 2>&1)
-assert_no_plaintext_bearers "$out" "T4.9"
-echo "$out"
-```
-**Verify:**
-- [ ] Exit 0
-- [ ] Output contains `Consolidation required:` header
-- [ ] Output contains `codex:` followed by `2 existing Tiddly prompts entries will be consolidated into tiddly_prompts`
-- [ ] Output lists both `personal_prompts` and `work_prompts`
-- [ ] Output contains `PAT from "personal_prompts" will be reused for tiddly_prompts if still valid`
-- [ ] `python3 -c 'import tomllib,sys; c=tomllib.load(open(sys.argv[1],"rb")); assert "tiddly_prompts" in c["mcp_servers"]; assert "work_prompts" not in c["mcp_servers"]; assert "personal_prompts" not in c["mcp_servers"]' "$CODEX_CONFIG"` — canonical written, customs gone
-- [ ] Unset the plaintext: `unset PAT_WORK_CODEX PAT_PERSONAL_CODEX`
-
-### [T4.9b] Codex non-interactive without `--yes` — TOML parity for T4.2
-
-```bash
-PAT_WORK_CX2=$(bin/tiddly tokens create "cli-mcp-test-t49b-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_PERSONAL_CX2=$(bin/tiddly tokens create "cli-mcp-test-t49b-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_WORK_CX2" ] && [ -n "$PAT_PERSONAL_CX2" ] || { echo "FATAL: T4.9b token mint failed"; exit 1; }
-
-# T4.9 consolidated to canonical-only; rebuild multi-entry state for this test.
-write_multi_entry_prompts_codex "$PAT_WORK_CX2" "$PAT_PERSONAL_CX2"
-
-pre_sha=$(sha_of "$CODEX_CONFIG")
-before_ids=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-/ {print $1}' | LC_ALL=C sort)
-
-set +e
-out=$(bin/tiddly mcp configure codex < /dev/null 2>&1); rc=$?
-set -e
-assert_no_plaintext_bearers "$out" "T4.9b"
-echo "$out"
-echo "exit: $rc"
-
-after_ids=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-/ {print $1}' | LC_ALL=C sort)
-
-unset PAT_WORK_CX2 PAT_PERSONAL_CX2
-```
-**Verify:**
-- [ ] `rc != 0`
-- [ ] Output contains `consolidation needs confirmation`
-- [ ] Output contains `re-run with --yes to proceed, or --dry-run to preview`
-- [ ] `assert_unchanged T4.9b "$CODEX_CONFIG" "$pre_sha"` — Codex handler also wrote nothing on abort
-- [ ] `[ "$before_ids" = "$after_ids" ]` — no tokens minted (Codex gate runs BEFORE PAT resolution, same as claude-code)
-
-### [T4.10] Validate-then-mint fallback fires when survivor PAT is invalid
-
-Forces the mint path (T4.4 accepts either) by killing the would-be-survivor server-side.
-
-```bash
-# Rebuild multi-entry state (tokens from Phase 4 may have been consolidated).
-PAT_WORK_T410=$(bin/tiddly tokens create "cli-mcp-test-t410-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_PERSONAL_T410=$(bin/tiddly tokens create "cli-mcp-test-t410-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-write_multi_entry_prompts "$PAT_WORK_T410" "$PAT_PERSONAL_T410"
-
-# Kill the would-be-survivor (personal_prompts — alphabetically first).
-personal_id=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-t410-personal-/ {print $1; exit}')
-[ -n "$personal_id" ] || { echo "FATAL: could not find personal_prompts test token"; exit 1; }
-bin/tiddly tokens delete "$personal_id" --force 2>/dev/null
-
-# Record prompts-related cli-mcp-* tokens BEFORE configure.
-before_mints=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-claude-code-prompts-/ {print $1}' | sort)
-
-# Configure — validate-then-mint should fire because personal's PAT is now 401.
-out=$(bin/tiddly mcp configure claude-code --yes < /dev/null 2>&1)
-assert_no_plaintext_bearers "$out" "T4.10"
-echo "$out"
-
-after_mints=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-claude-code-prompts-/ {print $1}' | sort)
-new_mints=$(comm -13 <(echo "$before_mints") <(echo "$after_mints"))
-```
-**Verify:**
-- [ ] Exit 0
-- [ ] Output contains `Created tokens:` with a `cli-mcp-claude-code-prompts-*` entry — a fresh token was minted
-- [ ] `[ -n "$new_mints" ]` — at least one new prompts token exists server-side
-- [ ] `jq -e '.mcpServers.tiddly_prompts.headers.Authorization | startswith("Bearer bm_")' "$CLAUDE_CODE_CONFIG" >/dev/null`
-- [ ] **Negative survivor check (hash-compare only):** the new Authorization value should NOT equal `Bearer $PAT_PERSONAL_T410` (the revoked token):
-  ```bash
-  # NOTE: strip trailing newline from jq -r output before hashing (see T4.4).
-  rejected=$(printf 'Bearer %s' "$PAT_PERSONAL_T410" | SHA256 | awk '{print $1}')
-  actual=$(jq -r '.mcpServers.tiddly_prompts.headers.Authorization' "$CLAUDE_CODE_CONFIG" | tr -d '\n' | SHA256 | awk '{print $1}')
-  [ "$rejected" != "$actual" ] || { echo "FAIL: survivor PAT was reused despite being invalid"; exit 1; }
-  ```
-- [ ] Unset plaintext: `unset PAT_WORK_T410 PAT_PERSONAL_T410`
-
-### [T4.11] Mixed content + prompts multi-entry — both groups render under one header
-
-```bash
-# Mint four fresh tokens for the mixed-multi-entry setup.
-PC1=$(bin/tiddly tokens create "cli-mcp-test-mixed-c1-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PC2=$(bin/tiddly tokens create "cli-mcp-test-mixed-c2-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PP1=$(bin/tiddly tokens create "cli-mcp-test-mixed-p1-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PP2=$(bin/tiddly tokens create "cli-mcp-test-mixed-p2-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-
-# Write four entries via jq merge (preserves non-Tiddly entries).
-tmp=$(mktemp)
-[ -f "$CLAUDE_CODE_CONFIG" ] || echo "{}" > "$CLAUDE_CODE_CONFIG"
-jq --arg curl "$TIDDLY_CONTENT_MCP_URL" --arg purl "$TIDDLY_PROMPT_MCP_URL" \
-   --arg pc1 "$PC1" --arg pc2 "$PC2" --arg pp1 "$PP1" --arg pp2 "$PP2" \
-   '.mcpServers = (.mcpServers // {})
-    | del(.mcpServers.tiddly_notes_bookmarks, .mcpServers.tiddly_prompts)
-    | .mcpServers.work_content     = {type:"http", url:$curl, headers:{Authorization:("Bearer "+$pc1)}}
-    | .mcpServers.personal_content = {type:"http", url:$curl, headers:{Authorization:("Bearer "+$pc2)}}
-    | .mcpServers.work_prompts     = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$pp1)}}
-    | .mcpServers.personal_prompts = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$pp2)}}' \
-   "$CLAUDE_CODE_CONFIG" > "$tmp" && mv "$tmp" "$CLAUDE_CODE_CONFIG"
+# Seed a non-Tiddly URL on the canonical tiddly_prompts slot.
+jq '.mcpServers.tiddly_prompts = {
+      type: "http",
+      url: "https://example.com/my-prompts",
+      headers: {Authorization: "Bearer bm_user_pasted_xyz"}
+    }' "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
 chmod 0600 "$CLAUDE_CODE_CONFIG"
 
-# Capture pre-state BEFORE the dry-run so assert_unchanged can compare later.
 pre_sha=$(sha_of "$CLAUDE_CODE_CONFIG")
-
-out=$(bin/tiddly mcp configure claude-code --dry-run < /dev/null 2>&1)
-assert_no_plaintext_bearers "$out" "T4.11"
-echo "$out"
-
-# Tokens go in the normal Phase 10 cleanup (they all match cli-mcp-test-mixed-).
-unset PC1 PC2 PP1 PP2
+stderr_tmp=$(mktemp)
+set +e
+stdout=$(bin/tiddly mcp configure claude-code --dry-run 2>"$stderr_tmp"); rc=$?
+set -e
+stderr=$(cat "$stderr_tmp")
+rm -f "$stderr_tmp"
+assert_no_plaintext_bearers "$stdout" "T3.7-stdout"
+assert_no_plaintext_bearers "$stderr" "T3.7-stderr"
 ```
 **Verify:**
-- [ ] Exit 0
-- [ ] Exactly ONE `Consolidation required:` header in the output (single header covers both groups)
-- [ ] Output contains `2 existing Tiddly content entries will be consolidated into tiddly_notes_bookmarks`
-- [ ] Output contains `2 existing Tiddly prompts entries will be consolidated into tiddly_prompts`
-- [ ] All four entry names appear in the listing: `work_content`, `personal_content`, `work_prompts`, `personal_prompts`
-- [ ] `assert_unchanged T4.11 "$CLAUDE_CODE_CONFIG" "$pre_sha"` — dry-run did nothing
+- [ ] `rc == 0` — dry-run never aborts on a mismatch
+- [ ] `$stderr` contains `Warning: tiddly_prompts at https://example.com/my-prompts — real run will require --force` (channel-specific — NOT stdout)
+- [ ] `$stdout` still contains the normal dry-run diff (`--- claude-code ---` banner, `Before:` / `After:` sections)
+- [ ] `assert_unchanged T3.7 "$CLAUDE_CODE_CONFIG" "$pre_sha"` — no write
+
+### [T3.8] Dry-run + `--force` shows overwrite in diff, suppresses the warning
+
+`--force` is allowed under dry-run. The warning is suppressed because the diff IS the answer — users see exactly what the real-run overwrite would produce.
 
 ```bash
-# Interim cleanup — Phase 2-4 accumulated many cli-mcp-test-* tokens; without
-# pruning, Phase 6's `mcp configure` setup can hit the tier token cap (50).
-# Only deletes cli-mcp-test-* (harness-minted); leaves cli-mcp-<tool>-*
-# (produced by actual configure flows) alone so live configs don't break.
-cleanup_test_tokens
+# (canonical tiddly_prompts still points at https://example.com/my-prompts from T3.7)
+pre_sha=$(sha_of "$CLAUDE_CODE_CONFIG")
+stderr_tmp=$(mktemp)
+set +e
+stdout=$(bin/tiddly mcp configure claude-code --dry-run --force 2>"$stderr_tmp"); rc=$?
+set -e
+stderr=$(cat "$stderr_tmp")
+rm -f "$stderr_tmp"
+assert_no_plaintext_bearers "$stdout" "T3.8-stdout"
+assert_no_plaintext_bearers "$stderr" "T3.8-stderr"
+```
+**Verify:**
+- [ ] `rc == 0`
+- [ ] `$stderr` does NOT contain `real run will require --force` — warnings are suppressed under `--force`
+- [ ] `$stderr` does NOT contain `Forcing overwrite of` — the "Forcing overwrite of X" log is non-dry-run only
+- [ ] `$stdout` contains the canonical prompts URL (the overwrite target) so users can see what the real run would write
+- [ ] `assert_unchanged T3.8 "$CLAUDE_CODE_CONFIG" "$pre_sha"` — dry-run still writes nothing
+
+```bash
+# Restore clean state for subsequent phases.
+bin/tiddly mcp remove claude-code 2>/dev/null || true
+bin/tiddly mcp configure claude-code >/dev/null
 assert_auth_still_working
 ```
 
----
 
 ## Phase 5: Status
 
@@ -1769,6 +1588,8 @@ bin/tiddly mcp status --path "$TEST_PROJECT"
 
 ### [T5.4] Multi-entry rendered as multiple rows (regression guard for KAN-112)
 
+Status must render non-CLI-managed Tiddly-URL entries as their own rows (not fold them under a single "prompts" node). This is the user-visible half of the additive-configure contract: `configure` preserves these entries, and `status` must make them visible so users know what they have.
+
 ```bash
 PAT_WORK_54=$(bin/tiddly tokens create "cli-mcp-test-t54-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 PAT_PERSONAL_54=$(bin/tiddly tokens create "cli-mcp-test-t54-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
@@ -1784,8 +1605,10 @@ out=$(bin/tiddly mcp status 2>&1)
 - [ ] Both rows are under the claude-code prompts section (the `(name)` suffix appears after a `prompts` label)
 
 ```bash
-# Restore canonical-only for subsequent phases and drop the plaintext.
-bin/tiddly mcp configure claude-code --yes 2>/dev/null
+# Additive-configure: the CLI-managed entry is added alongside the
+# multi-entry setup; the user's work_prompts/personal_prompts are
+# preserved. Clean up the T5.4-specific tokens afterward.
+bin/tiddly mcp configure claude-code 2>/dev/null
 unset PAT_WORK_54 PAT_PERSONAL_54
 assert_auth_still_working
 ```
@@ -1807,7 +1630,7 @@ backup_path=$(echo "$out" | sed -n 's/.*Backed up previous config to \(.*\)$/\1/
 ```
 **Verify:**
 - [ ] Exit 0
-- [ ] Output contains `Removed Tiddly MCP servers from claude-code.`
+- [ ] Output contains `Removed tiddly_notes_bookmarks, tiddly_prompts from claude-code.`
 - [ ] `[ -n "$backup_path" ]` and `[ -f "$backup_path" ]` — exact backup from this command exists
 - [ ] `[ "$pre_sha" = "$(sha_of "$backup_path")" ]` — backup contains pre-remove state
 - [ ] `jq -e '.mcpServers.tiddly_notes_bookmarks == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
@@ -1830,7 +1653,7 @@ bin/tiddly mcp configure codex
 bin/tiddly mcp remove codex
 ```
 **Verify:**
-- [ ] Output: `Removed Tiddly MCP servers from codex.`
+- [ ] Output: `Removed tiddly_notes_bookmarks, tiddly_prompts from codex.`
 - [ ] `$CODEX_CONFIG` has no `tiddly_*` entries
 
 ### [T6.4] Remove Claude Desktop
@@ -1839,7 +1662,7 @@ bin/tiddly mcp configure claude-desktop
 bin/tiddly mcp remove claude-desktop
 ```
 **Verify:**
-- [ ] Output: `Removed Tiddly MCP servers from claude-desktop.`
+- [ ] Output: `Removed tiddly_notes_bookmarks, tiddly_prompts from claude-desktop.`
 - [ ] Stderr: `Restart Claude Desktop to apply changes.`
 - [ ] Config has no `tiddly_*` entries
 
@@ -1877,58 +1700,89 @@ echo "$out_remove"
 - [ ] `out_remove` contains `Deleted tokens:` listing those exact names
 - [ ] `bin/tiddly tokens list` confirms those tokens are gone
 
-### [T6.8] Remove `--delete-tokens` MULTI-ENTRY — HEADLINE REGRESSION GUARD
+### [T6.8] Remove `--delete-tokens` preserves non-CLI-managed entries (headline canonical-only guard)
+
+Under the canonical-name-only remove, non-CLI-managed entries (e.g. `work_prompts` from a multi-account setup) MUST survive remove entirely — both the config entries and their PATs. This test proves the split: two canonical CLI-minted tokens are revoked; the non-CLI-managed work/personal entries and their PATs stay intact.
 
 ```bash
-# Fresh tokens scoped to this test only.
+# Fresh tokens. Two are attached to the CLI-managed entries; two more are attached to user-managed work/personal entries.
+PAT_CONTENT_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-content-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PROMPTS_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-prompts-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 PAT_WORK_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 PAT_PERSONAL_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_WORK_68" ] && [ -n "$PAT_PERSONAL_68" ] || { echo "FATAL: token mint failed"; exit 1; }
+for v in PAT_CONTENT_68 PAT_PROMPTS_68 PAT_WORK_68 PAT_PERSONAL_68; do
+  eval "[ -n \"\$$v\" ]" || { echo "FATAL: token mint failed ($v)"; exit 1; }
+done
 
+# Install the user's non-CLI-managed entries first, then configure to add the
+# CLI-managed ones alongside (via jq — we need specific PAT values on the
+# canonical entries, not whatever configure happens to mint).
+bin/tiddly mcp remove claude-code 2>/dev/null || true
 write_multi_entry_prompts "$PAT_WORK_68" "$PAT_PERSONAL_68"
+jq --arg content "$PAT_CONTENT_68" --arg prompts "$PAT_PROMPTS_68" --arg curl "$TIDDLY_CONTENT_MCP_URL" --arg purl "$TIDDLY_PROMPT_MCP_URL" \
+  '.mcpServers.tiddly_notes_bookmarks = {type:"http", url:$curl, headers:{Authorization:("Bearer "+$content)}}
+   | .mcpServers.tiddly_prompts       = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$prompts)}}' \
+  "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
+chmod 0600 "$CLAUDE_CODE_CONFIG"
 
-# Capture the specific token IDs we just created (name match on the 6-8 suffix).
 before=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-/ {print $1}' | sort)
 echo "Tokens before remove: $before"
 
-out=$(bin/tiddly mcp remove claude-code --servers prompts --delete-tokens 2>&1)
+out=$(bin/tiddly mcp remove claude-code --delete-tokens 2>&1)
 assert_no_plaintext_bearers "$out" "T6.8"
 echo "$out"
 
-after=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-/ {print $1}' | sort)
-echo "Tokens after remove: $after"
+# Compute post-state of each token: the CLI-managed ones should be gone; the
+# user-managed ones should survive. Names-based match rather than IDs.
+after_content=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-content-/ {print $1}' | head -1)
+after_prompts=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-prompts-/ {print $1}' | head -1)
+after_work=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-work-/ {print $1}' | head -1)
+after_personal=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-personal-/ {print $1}' | head -1)
 
-# Unset the plaintext — no further use.
-unset PAT_WORK_68 PAT_PERSONAL_68
+unset PAT_CONTENT_68 PAT_PROMPTS_68 PAT_WORK_68 PAT_PERSONAL_68
 ```
 **Verify:**
 - [ ] Exit 0
-- [ ] `out` contains `Deleted tokens:` listing BOTH `cli-mcp-test-6-8-*` token names (the pre-fix bug revoked only one)
-- [ ] `[ -z "$after" ]` — both tokens actually gone from the server
-- [ ] `jq -e '.mcpServers.work_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
-- [ ] `jq -e '.mcpServers.personal_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
+- [ ] `out` contains `Removed tiddly_notes_bookmarks, tiddly_prompts from claude-code.`
+- [ ] `out` contains `Deleted tokens:` listing BOTH `cli-mcp-test-6-8-content-*` AND `cli-mcp-test-6-8-prompts-*` token names (and ONLY those — the work/personal tokens must NOT appear)
+- [ ] `[ -z "$after_content" ]` and `[ -z "$after_prompts" ]` — CLI-managed PATs revoked server-side
+- [ ] `[ -n "$after_work" ]` and `[ -n "$after_personal" ]` — user-managed PATs survive (canonical-only revocation)
+- [ ] `jq -e '.mcpServers.work_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — non-CLI-managed config entry survives
+- [ ] `jq -e '.mcpServers.personal_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — non-CLI-managed config entry survives
+- [ ] `jq -e '.mcpServers.tiddly_notes_bookmarks == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
+- [ ] `jq -e '.mcpServers.tiddly_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
 
-### [T6.8b] Shared-PAT partial remove — warning fires, retained binding loses access
+### [T6.8b] Shared-PAT consolidated warning — one line naming all retained entries
 
-Shared-PAT scenario (common under PAT auth): one token backs both content and prompts entries; partial `--delete-tokens --servers prompts` revokes it and silently breaks the retained content binding. The warning exists to surface this.
+Shared-PAT scenario: a CLI-managed entry (being revoked) and one or more non-CLI-managed entries (retained) reference the same PAT. The new consolidated warning fires one line per CLI-managed entry being revoked, listing every retained entry that shares its PAT (sorted alphabetically).
 
 ```bash
-# Fresh shared-PAT install: one token backing both servers.
+# Build state manually so each entry's PAT is predictable:
+#   - tiddly_notes_bookmarks: a DISTINCT PAT (must NOT appear in the
+#     shared-PAT warning — this is the point of the test)
+#   - tiddly_prompts (revoke target): PAT_SHARED
+#   - work_prompts (retained, non-CLI-managed): PAT_SHARED
+#   - personal_prompts (retained, non-CLI-managed): PAT_SHARED
+# Only the canonical prompts entry + the two non-CLI-managed entries
+# should share the PAT. The canonical content entry has its own PAT and
+# must be listed nowhere in the shared-PAT warning.
 bin/tiddly mcp remove claude-code 2>/dev/null || true
+PAT_CONTENT=$(bin/tiddly tokens create "cli-mcp-test-shared-content-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 PAT_SHARED=$(bin/tiddly tokens create "cli-mcp-test-shared-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_SHARED" ] || { echo "FATAL: token mint failed"; exit 1; }
+[ -n "$PAT_CONTENT" ] && [ -n "$PAT_SHARED" ] || { echo "FATAL: T6.8b token mint failed"; exit 1; }
 
-# Configure under PAT auth with the shared token — both server headers carry it.
-# Pass the token via the TIDDLY_TOKEN env var rather than --token, so the
-# plaintext never lands in argv where `ps` can read it. The CLI reads this
-# env var via internal/auth/token_manager.go (equivalent to --token for
-# this call). `env -u` scrubs it immediately after so it doesn't leak into
-# subsequent commands.
-TIDDLY_TOKEN="$PAT_SHARED" bin/tiddly mcp configure claude-code >/dev/null
+# Write the four-entry config directly.
+[ -f "$CLAUDE_CODE_CONFIG" ] || echo "{}" > "$CLAUDE_CODE_CONFIG"
+jq --arg curl "$TIDDLY_CONTENT_MCP_URL" --arg purl "$TIDDLY_PROMPT_MCP_URL" \
+   --arg content "$PAT_CONTENT" --arg shared "$PAT_SHARED" \
+   '.mcpServers = (.mcpServers // {})
+    | .mcpServers.tiddly_notes_bookmarks = {type:"http", url:$curl, headers:{Authorization:("Bearer "+$content)}}
+    | .mcpServers.tiddly_prompts         = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$shared)}}
+    | .mcpServers.work_prompts           = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$shared)}}
+    | .mcpServers.personal_prompts       = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$shared)}}' \
+   "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
+chmod 0600 "$CLAUDE_CODE_CONFIG"
 
-# Partial remove of the prompts server with --delete-tokens. Split capture
-# so the stderr routing assertion is meaningful — merging with 2>&1 would
-# hide a regression that accidentally printed the warning to stdout.
 stderr_tmp=$(mktemp)
 set +e
 stdout=$(bin/tiddly mcp remove claude-code --servers prompts --delete-tokens 2>"$stderr_tmp"); rc=$?
@@ -1941,83 +1795,98 @@ echo "--- stdout ---"; echo "$stdout"
 echo "--- stderr ---"; echo "$stderr"
 echo "exit: $rc"
 
-# Hash-compare only: we prove the content binding still references $PAT_SHARED
-# without ever echoing it.
-# NOTE: strip trailing newline from jq -r output before hashing (see T4.4).
-shared_hash=$(printf 'Bearer %s' "$PAT_SHARED" | SHA256 | awk '{print $1}')
-content_hash=$(jq -r '.mcpServers.tiddly_notes_bookmarks.headers.Authorization // empty' "$CLAUDE_CODE_CONFIG" | tr -d '\n' | SHA256 | awk '{print $1}')
-
-unset PAT_SHARED
+unset PAT_CONTENT PAT_SHARED
 ```
 **Verify:**
 - [ ] `rc == 0`
-- [ ] `$stderr` contains `Warning: token is shared with content server (still configured); it will also lose access.` (channel-specific assertion — NOT `$stdout`)
-- [ ] `$stdout` contains `Deleted tokens:` (the shared PAT was revoked as requested)
+- [ ] `$stderr` contains `Warning: token from tiddly_prompts is also used by personal_prompts, work_prompts (still configured); revoking will break those bindings.` — single consolidated line (channel-specific — NOT stdout). Retained names comma-joined, sorted alphabetically (`personal_prompts` before `work_prompts`).
+- [ ] `$stderr` does NOT name `tiddly_notes_bookmarks` in the shared-PAT warning — the canonical content entry has a distinct PAT and is NOT sharing with the revoke target.
+- [ ] `$stdout` contains `Deleted tokens:` (the CLI-managed prompts PAT was revoked as requested)
 - [ ] Prompts gone: `jq -e '.mcpServers.tiddly_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
 - [ ] Content retained: `jq -e '.mcpServers.tiddly_notes_bookmarks' "$CLAUDE_CODE_CONFIG" >/dev/null`
-- [ ] `[ "$shared_hash" = "$content_hash" ]` — the retained content entry still carries the now-revoked PAT, exactly the breakage the warning predicted
+- [ ] Non-CLI-managed entries survive: `jq -e '.mcpServers.work_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` and `jq -e '.mcpServers.personal_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null`
 
-> NOTE: T6.8b intentionally leaves `$CLAUDE_CODE_CONFIG` with the content binding pointing at a revoked token. T6.8c operates on `$CODEX_CONFIG` and doesn't depend on claude-code state; T6.9 reconfigures claude-code from scratch before its assertions. Don't add tests between T6.8b and T6.9 that read the claude-code content binding without reconfiguring first.
+> NOTE: T6.8b leaves `$CLAUDE_CODE_CONFIG` with work_prompts / personal_prompts carrying a now-revoked PAT (exactly the breakage the warning predicted) and tiddly_notes_bookmarks carrying `PAT_CONTENT`. T6.9 reconfigures claude-code from scratch. Don't add tests between T6.8b and T6.9 that depend on those PATs working.
 
-### [T6.8c] Codex multi-entry `--delete-tokens` — TOML parity for T6.8
+### [T6.8c] `--delete-tokens` informational note when PAT doesn't match any CLI-minted token
 
-```bash
-# Fresh tokens for the Codex multi-entry setup.
-PAT_WORK_68C=$(bin/tiddly tokens create "cli-mcp-test-6-8c-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_PERSONAL_68C=$(bin/tiddly tokens create "cli-mcp-test-6-8c-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_WORK_68C" ] && [ -n "$PAT_PERSONAL_68C" ] || { echo "FATAL: token mint failed"; exit 1; }
-
-write_multi_entry_prompts_codex "$PAT_WORK_68C" "$PAT_PERSONAL_68C"
-
-before=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8c-/ {print $1}' | LC_ALL=C sort)
-out=$(bin/tiddly mcp remove codex --servers prompts --delete-tokens 2>&1)
-assert_no_plaintext_bearers "$out" "T6.8c"
-echo "$out"
-after=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8c-/ {print $1}' | LC_ALL=C sort)
-
-unset PAT_WORK_68C PAT_PERSONAL_68C
-```
-**Verify:**
-- [ ] Exit 0
-- [ ] `out` contains `Deleted tokens:` — the pre-fix bug silently dropped one of the two under Codex too
-- [ ] `[ -z "$after" ]` — BOTH multi-entry tokens gone server-side (not just the survivor)
-- [ ] Codex config has no `work_prompts` / `personal_prompts` entries: `grep -E '^\[mcp_servers\.(work_prompts|personal_prompts)' "$CODEX_CONFIG"` exits non-zero
-
-### [T6.8d] Codex shared-PAT partial remove — TOML parity for T6.8b
+A canonical entry whose PAT was not created by the CLI (e.g. a user manually pasted a PAT from the Settings UI into the canonical slot) produces no deletion — but the user must see a per-entry note naming the specific entry so they understand why. Plan-specified wording: `Note: no CLI-created token matched the token attached to <entry>; nothing was revoked. Manage tokens at https://tiddly.me/settings.`
 
 ```bash
-# Fresh shared-PAT install for Codex. Start from clean slate.
-bin/tiddly mcp remove codex 2>/dev/null || true
-PAT_SHARED_CX=$(bin/tiddly tokens create "cli-mcp-test-shared-codex-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_SHARED_CX" ] || { echo "FATAL: T6.8d token mint failed"; exit 1; }
+bin/tiddly mcp remove claude-code 2>/dev/null || true
 
-# Configure Codex under PAT auth with the shared token — both server headers carry it.
-TIDDLY_TOKEN="$PAT_SHARED_CX" bin/tiddly mcp configure codex >/dev/null
+# Install a canonical tiddly_prompts entry with a PAT that was created via
+# `tokens create` (plaintext bm_* value) but has a NAME that doesn't match
+# the cli-mcp- pattern the CLI revokes. Using tokens create lets us get a
+# valid PAT; using a non-cli-mcp- NAME prevents DeleteTokensByPrefix from
+# matching it.
+PAT_MANUAL=$(bin/tiddly tokens create "manual-test-pat-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+[ -n "$PAT_MANUAL" ] || { echo "FATAL: T6.8c token mint failed"; exit 1; }
 
-# Partial remove of prompts with --delete-tokens. Split stdout/stderr so the
-# routing assertion is meaningful.
+# Configure claude-code normally (both CLI-managed entries land), then
+# overwrite tiddly_prompts' PAT with the manually-named token.
+bin/tiddly mcp configure claude-code >/dev/null
+jq --arg pat "$PAT_MANUAL" \
+  '.mcpServers.tiddly_prompts.headers.Authorization = "Bearer "+$pat' \
+  "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
+chmod 0600 "$CLAUDE_CODE_CONFIG"
+
 stderr_tmp=$(mktemp)
 set +e
-stdout=$(bin/tiddly mcp remove codex --servers prompts --delete-tokens 2>"$stderr_tmp"); rc=$?
+stdout=$(bin/tiddly mcp remove claude-code --servers prompts --delete-tokens 2>"$stderr_tmp"); rc=$?
 set -e
+stderr=$(cat "$stderr_tmp")
+rm -f "$stderr_tmp"
+assert_no_plaintext_bearers "$stdout" "T6.8c-stdout"
+assert_no_plaintext_bearers "$stderr" "T6.8c-stderr"
+echo "--- stdout ---"; echo "$stdout"
+echo "--- stderr ---"; echo "$stderr"
+
+# Clean up the manually-named token we created.
+manual_id=$(bin/tiddly tokens list 2>/dev/null | awk '/manual-test-pat-/ {print $1; exit}')
+[ -n "$manual_id" ] && bin/tiddly tokens delete "$manual_id" --force 2>/dev/null
+unset PAT_MANUAL manual_id
+```
+**Verify:**
+- [ ] `rc == 0`
+- [ ] `$stdout` contains `Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/settings.` (stdout, not stderr — it's an outcome report, not a warning)
+- [ ] `$stdout` does NOT contain `Deleted tokens:` — nothing got deleted
+
+### [T6.8d] Orphan-warning filter excludes tokens still referenced by retained entries
+
+Without `--delete-tokens`, the orphan-warning path fires. But tokens whose PAT is still in active use by a retained non-CLI-managed entry (e.g. a `work_prompts` entry keeping a cli-mcp-* token referenced) must be EXCLUDED from the warning — they're not orphans, they're in active use.
+
+```bash
+bin/tiddly mcp remove claude-code 2>/dev/null || true
+
+# Configure normally so the CLI-managed entries have freshly-minted
+# cli-mcp-* PATs.
+bin/tiddly mcp configure claude-code >/dev/null
+
+# Capture the PAT on tiddly_prompts and paste it into a new work_prompts
+# entry. After remove, that token will still be server-side (it's a valid
+# CLI-minted token) AND still referenced by a retained entry — the filter
+# must NOT report it as a potential orphan.
+prompts_pat=$(jq -r '.mcpServers.tiddly_prompts.headers.Authorization' "$CLAUDE_CODE_CONFIG" | sed 's/^Bearer //')
+jq --arg url "$TIDDLY_PROMPT_MCP_URL" --arg pat "$prompts_pat" \
+   '.mcpServers.work_prompts = {type:"http", url:$url, headers:{Authorization:("Bearer "+$pat)}}' \
+   "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
+chmod 0600 "$CLAUDE_CODE_CONFIG"
+unset prompts_pat
+
+stderr_tmp=$(mktemp)
+stdout=$(bin/tiddly mcp remove claude-code 2>"$stderr_tmp")
 stderr=$(cat "$stderr_tmp")
 rm -f "$stderr_tmp"
 assert_no_plaintext_bearers "$stdout" "T6.8d-stdout"
 assert_no_plaintext_bearers "$stderr" "T6.8d-stderr"
-echo "--- stdout ---"; echo "$stdout"
-echo "--- stderr ---"; echo "$stderr"
-echo "exit: $rc"
-
-unset PAT_SHARED_CX
 ```
 **Verify:**
-- [ ] `rc == 0`
-- [ ] `$stderr` contains `Warning: token is shared with content server (still configured); it will also lose access.` (channel-specific; same wording as T6.8b because the warning is emitted before the handler dispatch)
-- [ ] `$stdout` contains `Deleted tokens:`
-- [ ] Codex prompts entry gone: `grep -q '^\[mcp_servers\.tiddly_prompts' "$CODEX_CONFIG"` exits non-zero
-- [ ] Codex content entry retained: `grep -q '^\[mcp_servers\.tiddly_notes_bookmarks' "$CODEX_CONFIG"` exits 0
+- [ ] `$stderr` does NOT contain `Warning: PATs created for claude-code may still exist:` that names the prompts token — it's still in use by `work_prompts`, not an orphan. Either the warning doesn't fire at all (if content's token is the only true orphan and it'd mean a warning for a different name), or it fires only for the content token.
+- [ ] The token attached to `work_prompts` is still present on the server: `bin/tiddly tokens list 2>/dev/null | grep -F 'cli-mcp-claude-code-prompts'` finds something
+- [ ] `jq -e '.mcpServers.work_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — non-CLI-managed entry survives the remove
 
-> NOTE: T6.8d leaves `$CODEX_CONFIG`'s content binding pointing at a revoked PAT — same deliberate broken state as T6.8b. T6.9 reconfigures claude-code but doesn't touch Codex; if you add a test here that depends on Codex content auth working, reconfigure first.
+> NOTE: T6.8d leaves `work_prompts` alive in the config. T6.9 runs configure + remove without arguments, which should not interact with work_prompts — but restore state yourself if you add intervening tests.
 
 ### [T6.9] Remove without `--delete-tokens` — orphan warning
 ```bash
@@ -2032,13 +1901,17 @@ rm -f "$stderr_tmp"
 - [ ] `$stderr` contains `Warning: PATs created for claude-code may still exist:` (followed by cli-mcp-* names — don't assert the exact names; channel-specific, must be stderr not stdout)
 - [ ] `$stderr` contains `Run 'tiddly mcp remove claude-code --delete-tokens' to revoke` (actual tool name is interpolated, not a `<tool>` placeholder)
 
-### [T6.10] Remove idempotent
+### [T6.10] Remove idempotent — second run hits the no-op path
+
+Re-running remove after the canonical entries are already gone must not fail and must report accurately. The CLI distinguishes "removed something" from "nothing to remove" and prints the no-op message rather than a misleading "Removed …" line.
+
 ```bash
-bin/tiddly mcp remove claude-code  # already removed in T6.9
+out=$(bin/tiddly mcp remove claude-code 2>&1)  # already removed in T6.9
 ```
 **Verify:**
 - [ ] Exit 0
-- [ ] `Removed Tiddly MCP servers from claude-code.`
+- [ ] `$out` contains `No CLI-managed entries found in claude-code.`
+- [ ] `$out` does NOT contain `Removed tiddly_notes_bookmarks` — nothing was actually removed; the old wording would be a lie
 - [ ] No crash
 
 ```bash
