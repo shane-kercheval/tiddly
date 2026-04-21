@@ -101,56 +101,61 @@ The new query needs to, per tier:
 1. Identify the latest *versioned* row per `(user_id, entity_type, entity_id)` among rows owned by users in this tier.
 2. Delete rows in this tier older than `cutoff` **except** those identified in step 1.
 
-A clean way to express this in SQLAlchemy 2.0 is a CTE that ranks rows via `ROW_NUMBER()`:
+Two shapes are equally correct. **Prefer `NOT EXISTS` as the primary form** — it reads directly as the rule we want: "delete an aged row unless a higher-versioned row exists for the same entity." Fall back to the ranked CTE only if the generated SQL is clearer in that form for a particular reader.
+
+#### Primary: NOT EXISTS
 
 ```python
-from sqlalchemy import case, delete, func, select
-from sqlalchemy.sql import literal_column
-
-# Rank versioned rows per entity; NULL-version rows get rank 0 (never "preserved").
-ranked = (
-    select(
-        ContentHistory.id.label("id"),
-        func.row_number().over(
-            partition_by=(
-                ContentHistory.user_id,
-                ContentHistory.entity_type,
-                ContentHistory.entity_id,
-            ),
-            order_by=ContentHistory.version.desc(),
-        ).label("rn"),
-    )
-    .where(
-        ContentHistory.user_id.in_(
-            select(User.id).where(
-                func.coalesce(User.tier, Tier.FREE.value) == tier.value,
-            ),
-        ),
-        ContentHistory.version.is_not(None),  # only rank versioned rows
-    )
-    .cte("ranked_history")
+# Bind the tier-users subquery once and reuse, so the planner sees one scan.
+tier_users = (
+    select(User.id)
+    .where(func.coalesce(User.tier, Tier.FREE.value) == tier.value)
+    .subquery()
 )
 
-latest_ids = select(ranked.c.id).where(ranked.c.rn == 1)
+newer = aliased(ContentHistory)
 
 delete_stmt = delete(ContentHistory).where(
-    ContentHistory.user_id.in_(
-        select(User.id).where(
-            func.coalesce(User.tier, Tier.FREE.value) == tier.value,
+    ContentHistory.user_id.in_(select(tier_users.c.id)),
+    ContentHistory.created_at < cutoff,
+    # Preserve the single latest versioned row per entity: delete only if
+    # this row is an audit row (version IS NULL), OR a higher-versioned row
+    # exists for the same entity.
+    #
+    # IMPORTANT — foot-gun warning for future readers: do NOT narrow the
+    # `newer` subquery by adding `newer.created_at < cutoff` or similar.
+    # We must rank/compare across ALL versioned rows, aged or not. Narrowing
+    # to aged-only would preserve a stale aged anchor even when a fresh
+    # higher-versioned row already exists — which reintroduces the original
+    # bug in a different shape.
+    or_(
+        ContentHistory.version.is_(None),
+        exists().where(
+            newer.user_id == ContentHistory.user_id,
+            newer.entity_type == ContentHistory.entity_type,
+            newer.entity_id == ContentHistory.entity_id,
+            newer.version.is_not(None),
+            newer.version > ContentHistory.version,
         ),
     ),
-    ContentHistory.created_at < cutoff,
-    ContentHistory.id.not_in(latest_ids),
 )
 ```
 
-Notes:
-- Do not use `ORDER BY version DESC NULLS LAST` — we explicitly filter `version IS NOT NULL` in the CTE, so ordering is unambiguous.
-- The exclusion set only includes versioned rows. Audit rows (`version IS NULL`) are never in `latest_ids`, so they remain fully subject to `created_at < cutoff`.
-- Keep the existing `coalesce(User.tier, ...)` tier resolution.
-- Preserve the existing `result.rowcount` / stats / logging. The log line can stay the same; the semantics of "expired_deleted" are unchanged (it's still "rows deleted by this function").
+#### Alternative: ranked CTE with `ROW_NUMBER()`
 
-If the agent finds a measurably simpler or more idiomatic SQLAlchemy expression (e.g., correlated subquery with `MAX(version)`) that passes all tests and stays inside a single DELETE per tier, that's acceptable. Do not break the "one DELETE per tier" efficiency property.
+Same semantics via a CTE that ranks versioned rows per entity, then deletes aged rows whose id is not in `rn = 1`. Acceptable if the implementer finds it clearer. If you choose this form, carry the same foot-gun comment: the ranking must span all versioned rows, not aged-only.
+
+#### Notes (apply to either shape)
+
+- Audit rows (`version IS NULL`) are never "latest" for preservation purposes. They remain fully subject to `created_at < cutoff`.
+- Keep the existing `coalesce(User.tier, Tier.FREE.value)` tier resolution.
+- Bind the tier-users subquery once per tier iteration and reuse it, so the planner sees a single scan rather than two.
+- Preserve the existing `result.rowcount`, `CleanupStats`, and log line. The semantics of `expired_deleted` are unchanged ("rows deleted by this function").
+- Update the function docstring (`cleanup.py:127`) to reflect the new invariant: it no longer "deletes all history records older than retention period" — it deletes all such records *except the most recent versioned record per entity*.
+
+#### Benchmarking
+
+Do **not** make `EXPLAIN ANALYZE` a gating requirement. Both shapes plan well in PostgreSQL 17 for realistic cardinalities. Only benchmark if the choice between shapes is otherwise a coin flip for you and you have a realistic local dataset; otherwise ship the clearer one.
 
 ### What does NOT change
 
@@ -196,8 +201,34 @@ If the agent finds a measurably simpler or more idiomatic SQLAlchemy expression 
 9. **`test_boundary_exactly_at_cutoff_unchanged`**
    Re-confirm the existing boundary behavior: a row with `created_at == cutoff` is preserved (strict `<` comparison), and this interacts correctly with the new preservation rule. Likely the existing boundary test still passes; if not, adjust or add.
 
-10. **`test_idempotent_second_run`**
-    Run `cleanup_expired_history` twice in a row on the same seeded data → second run deletes zero rows and leaves the preserved set intact. Guards against a bug where the preservation predicate is computed inconsistently across runs.
+10. **`test_preservation_follows_latest_across_runs`**
+    Seed an entity with multiple aged versioned rows, run cleanup (leaves the latest preserved), then insert a *new* aged versioned row with a higher `version`, then run cleanup again. Assert: the previously-preserved row is now deleted (it is no longer the latest), and the new row is preserved. This catches bugs where preservation was cached, where `rn = 1` was computed against a stale view, or where the NOT EXISTS predicate was written against the wrong partition.
+
+### Symptom-level regression test (REQUIRED — the highest-value test in this milestone)
+
+The tests above prove rows survive/die correctly. This test proves the **user-visible bug is actually fixed**: that after cleanup, the next edit through the normal service path produces a working diff and a restorable anchor.
+
+**File:** `backend/tests/services/test_history_service.py` (preferred — service layer is where the predecessor-selection logic lives) or `backend/tests/api/test_history.py` if source/auth plumbing is relevant.
+
+**Critical: drive the update through the real service path.** The new edit must go through `HistoryService.record_action` (via the entity service's update path that calls it in production), **not** via a direct ORM insert of a `ContentHistory` row. The whole point of this test is proving the service correctly reads the preserved predecessor when computing the next diff. An ORM-direct test would pass even if `record_action` had a regression in predecessor selection.
+
+**Parameterize over both starting states** (use `pytest.mark.parametrize`):
+
+- **`versioned-aged`**: entity has multiple aged versioned history rows, all past cutoff.
+- **`audit-only-aged`**: entity has only aged audit rows (e.g., ARCHIVE/UNARCHIVE), all past cutoff, no versioned rows.
+
+For each starting state:
+
+1. Seed the entity and the aged history rows.
+2. Run `cleanup_expired_history` with an injected `now` that makes all seeded rows aged.
+3. Verify the expected surviving set (versioned-aged → exactly the latest versioned row survives; audit-only-aged → zero history rows survive).
+4. Perform an update on the entity **through the service layer** (e.g., `BookmarkService.update` / the path that calls `record_action`).
+5. Assert:
+   - A new `ContentHistory` row is written with a non-null `content_diff` when a predecessor exists; for `audit-only-aged`, the first post-cleanup edit behaves like a fresh CREATE (snapshot, no diff, version allocation is sensible — whatever `_get_next_version` yields here is the contract, pin it explicitly).
+   - `get_version_diff` for the new version returns non-null `before_metadata` when a predecessor exists (versioned-aged case); for audit-only-aged, the diff endpoint behaves as it does for a genuine CREATE.
+   - Restore to the preserved prior version succeeds (versioned-aged case only; nothing to restore to in audit-only-aged).
+
+Parameterizing this way subsumes the audit-only-edge concern without needing a separate test.
 
 ### Regression check
 
@@ -206,7 +237,7 @@ Run the full existing `test_cleanup.py` module to make sure no boundary/tier tes
 ### Local verification command
 
 ```bash
-PYTHONPATH=backend/src uv run pytest backend/tests/tasks/test_cleanup.py -v
+PYTHONPATH=backend/src uv run pytest backend/tests/tasks/test_cleanup.py backend/tests/services/test_history_service.py -v
 ```
 
 Then `make backend-verify` before declaring the milestone done.
@@ -226,15 +257,27 @@ Two small edits in §"Retention and Cleanup":
    to:
    > All history records **except the most recent versioned record** may be deleted by time-based cleanup. The retained record serves as the anchor for diff and restore on the next edit.
 
+Framing: this is a **behavior change + doc correction**, not a restoration of previously-documented behavior. `docs/content-versioning.md` currently documents the opposite of what we want (history starts fresh after long idle). The edits above correct that.
+
 No other docs should need updating. Specifically:
 - `AGENTS.md` — no change (no new commands, no architectural shift).
 - `docs/architecture.md` — no change (service topology unchanged). If the agent disagrees, flag it before editing.
-- `README.md`, `llms.txt`, pricing/features pages — no change (no user-visible feature change; the bugfix restores documented behavior).
+- `README.md`, `llms.txt`, pricing/features pages — no change (no new user-visible feature; this corrects degraded UX).
 - No changelog entry unless the user explicitly asks for one.
 
 ## 1.5 Stop Here
 
 After implementation + tests + doc updates are complete and `make backend-verify` passes, **stop and wait for human review.** Do not commit. Summarize:
-- Final query approach chosen (CTE vs correlated subquery vs other).
-- Any test surprises.
+- Final query approach chosen (NOT EXISTS vs ranked CTE vs other).
+- Any test surprises, especially in the symptom-level regression test (version allocation behavior for audit-only-aged starting state is the most likely surprise).
 - Any assumption you had to make that wasn't explicitly answered in §"Questions the Agent Should Raise."
+
+---
+
+## Merge Notes (not implementation steps — for the PR description)
+
+These don't belong inside the milestone work. Include them in the PR description / commit message for reviewer context and future archaeology:
+
+- **Behavior change, not bugfix framing:** previously-documented behavior in `docs/content-versioning.md` (history starts fresh after long idle) is being changed, not restored. Doc updated in same PR.
+- **Storage footprint shift:** `content_history` row count now scales with live-entity count (one retained row per entity for long-idle entities), not strictly with retention days. Still bounded — one row per entity is tiny, and hard-delete cascades still clean up. Noting so future "why is this table growing" investigations land here.
+- **Telemetry check before merging:** if any Grafana/Railway alert watches `expired_deleted` volume, confirm it won't false-alarm on the expected drop for tiers with many long-idle entities. Quick check with whoever owns cleanup telemetry.
