@@ -1,4 +1,6 @@
 """Integration tests for history recording in services."""
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from uuid import UUID, uuid4
 
@@ -9,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core import tier_limits
 from core.request_context import AuthType, RequestContext
 from core.tier_limits import Tier, TierLimits, get_tier_limits
+from models.bookmark import Bookmark
 from models.content_history import ActionType, ContentHistory, EntityType
 from models.user import User
 from schemas.bookmark import BookmarkCreate, BookmarkUpdate
@@ -19,6 +22,7 @@ from services.bookmark_service import BookmarkService, DuplicateUrlError
 from services.history_service import PRUNE_CHECK_INTERVAL, history_service
 from services.note_service import NoteService
 from services.prompt_service import PromptService
+from tasks.cleanup import cleanup_expired_history
 
 
 @pytest.fixture
@@ -1681,3 +1685,201 @@ class TestRelationshipHistoryIntegration:
         history = await get_entity_history(db_session, test_user.id, EntityType.PROMPT, prompt.id)
         assert len(history) == 1
         assert len(history[0].metadata_snapshot['relationships']) == 1
+
+
+class TestCleanupPreservationServicePathRegression:
+    """
+    Symptom-level regression test for KAN-123.
+
+    After time-based cleanup on a long-idle entity, the next edit driven
+    through the service layer must still produce a working diff and a
+    restorable anchor. Drives the post-cleanup update through
+    BookmarkService.update (not a direct ORM insert) so record_action
+    correctly reads the preserved predecessor when computing the next diff.
+    """
+
+    @pytest.mark.parametrize(
+        "starting_state",
+        ["versioned-aged", "audit-only-aged"],
+    )
+    async def test__edit_after_long_idle_produces_working_diff_and_anchor(
+        self,
+        db_session: AsyncSession,
+        test_user: User,
+        starting_state: str,
+    ) -> None:
+        """
+        Edit through the service after cleanup produces a working diff/anchor.
+
+        Two starting states:
+
+        - versioned-aged: multiple aged versioned rows. Preservation rule
+          retains the latest (v2); the next edit anchors on it and the diff
+          endpoint reads v2's metadata as `before_metadata`.
+
+        - audit-only-aged: only aged audit rows (e.g. ARCHIVE/UNARCHIVE).
+          This is a legacy-data edge case — it only arises for entities whose
+          CREATE record was deleted by pre-fix cleanup runs. New entities
+          always retain their CREATE. The contract here is a
+          pruned-predecessor UPDATE: `_get_next_version` over NULL versions
+          yields 1, so the first post-cleanup edit lands at v1 with
+          `action='update'`, `content_diff` set, `content_snapshot` None,
+          and `before_metadata` None on the diff endpoint. The frontend's
+          "Previous metadata unavailable" branch is the expected UX here.
+        """
+        now = datetime.now(UTC)
+        aged_at = now - timedelta(days=60)  # past FREE retention
+        service = BookmarkService()
+        limits = get_tier_limits(Tier.FREE)
+        context = make_context()
+
+        # Seed entity and aged history directly (bypasses service for seeding
+        # only — the post-cleanup edit below goes through the service).
+        bookmark = Bookmark(
+            user_id=test_user.id,
+            url="https://example.com/post-cleanup",
+            title="Current entity title",
+            content="current content",
+        )
+        db_session.add(bookmark)
+        await db_session.flush()
+
+        seeded_v2_metadata: dict | None = None
+        if starting_state == "versioned-aged":
+            # v1 CREATE (aged), v2 UPDATE (aged, metadata differs from entity).
+            db_session.add(ContentHistory(
+                user_id=test_user.id,
+                entity_type=EntityType.BOOKMARK.value,
+                entity_id=bookmark.id,
+                action=ActionType.CREATE.value,
+                version=1,
+                content_snapshot="v1 content",
+                metadata_snapshot={
+                    "title": "v1 title",
+                    "url": "https://example.com/post-cleanup",
+                    "tags": [],
+                },
+                source="web",
+                auth_type=AuthType.AUTH0.value,
+                created_at=aged_at,
+            ))
+            seeded_v2_metadata = {
+                "title": "v2 title",
+                "url": "https://example.com/post-cleanup",
+                "tags": [{"name": "tag-v2"}],
+            }
+            # Real reverse diff v2 -> v1. The test's assertions don't depend
+            # on this value being walked (reconstruction at v2 anchors on
+            # entity.content and applies v3's diff, not v2's), but using a
+            # valid diff here makes the test robust to future changes in
+            # reconstruction semantics — a failure would then point at the
+            # preservation rule, not a cryptic diff parser error.
+            v2_reverse_diff = history_service.dmp.patch_toText(
+                history_service.dmp.patch_make("v2 content", "v1 content"),
+            )
+            db_session.add(ContentHistory(
+                user_id=test_user.id,
+                entity_type=EntityType.BOOKMARK.value,
+                entity_id=bookmark.id,
+                action=ActionType.UPDATE.value,
+                version=2,
+                content_snapshot=None,
+                content_diff=v2_reverse_diff,
+                metadata_snapshot=seeded_v2_metadata,
+                source="web",
+                auth_type=AuthType.AUTH0.value,
+                created_at=aged_at,
+            ))
+        else:  # audit-only-aged
+            for action in [ActionType.ARCHIVE, ActionType.UNARCHIVE]:
+                db_session.add(ContentHistory(
+                    user_id=test_user.id,
+                    entity_type=EntityType.BOOKMARK.value,
+                    entity_id=bookmark.id,
+                    action=action.value,
+                    version=None,
+                    content_snapshot=None,
+                    content_diff=None,
+                    metadata_snapshot={"title": "audit"},
+                    source="web",
+                    auth_type=AuthType.AUTH0.value,
+                    created_at=aged_at,
+                ))
+        await db_session.commit()
+
+        # Inject a `now` that makes all seeded rows aged, and run cleanup.
+        await cleanup_expired_history(db_session, now=now)
+
+        # Verify expected surviving set.
+        surviving = await get_entity_history(
+            db_session, test_user.id, EntityType.BOOKMARK, bookmark.id,
+        )
+        if starting_state == "versioned-aged":
+            assert len(surviving) == 1
+            assert surviving[0].version == 2
+        else:
+            assert len(surviving) == 0
+
+        # Drive the post-cleanup edit through the service.
+        await service.update(
+            db_session,
+            test_user.id,
+            bookmark.id,
+            BookmarkUpdate(
+                title="title after edit",
+                content="updated content after long idle",
+            ),
+            limits,
+            context,
+        )
+
+        post = await get_entity_history(
+            db_session, test_user.id, EntityType.BOOKMARK, bookmark.id,
+        )
+
+        if starting_state == "versioned-aged":
+            # Exactly [preserved v2, new v3].
+            assert [r.version for r in post] == [2, 3]
+            new_record = post[-1]
+            assert new_record.action == ActionType.UPDATE.value
+            assert new_record.content_diff is not None
+
+            # Diff endpoint reads the right predecessor — v2's metadata.
+            diff = await history_service.get_version_diff(
+                db_session, test_user.id, EntityType.BOOKMARK, bookmark.id, 3,
+            )
+            assert diff.found is True
+            assert diff.before_metadata is not None
+            assert seeded_v2_metadata is not None
+            assert diff.before_metadata["title"] == seeded_v2_metadata["title"]
+            assert diff.before_metadata["url"] == seeded_v2_metadata["url"]
+            assert diff.before_metadata["tags"] == seeded_v2_metadata["tags"]
+
+            # Restore anchor works: reconstructing at v2 applies v3's
+            # reverse diff to the current entity content, yielding the
+            # pre-edit content.
+            recon = await history_service.reconstruct_content_at_version(
+                db_session, test_user.id, EntityType.BOOKMARK, bookmark.id, 2,
+            )
+            assert recon.found is True
+            assert recon.content == "current content"
+        else:
+            # audit-only-aged: pruned-predecessor UPDATE contract.
+            # _get_next_version over NULL versions yields 1; the first
+            # post-cleanup edit lands at v1 with action='update',
+            # content_diff set, content_snapshot None. Not a CREATE path.
+            assert len(post) == 1
+            new_record = post[-1]
+            assert new_record.version == 1
+            assert new_record.action == ActionType.UPDATE.value
+            assert new_record.content_diff is not None
+            assert new_record.content_snapshot is None
+
+            # Diff endpoint for v1 returns no predecessor metadata (no v0).
+            # Frontend renders "Previous metadata unavailable" here —
+            # expected degraded UX for this legacy-data edge.
+            diff = await history_service.get_version_diff(
+                db_session, test_user.id, EntityType.BOOKMARK, bookmark.id, 1,
+            )
+            assert diff.found is True
+            assert diff.before_metadata is None

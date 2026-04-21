@@ -106,17 +106,14 @@ Two shapes are equally correct. **Prefer `NOT EXISTS` as the primary form** — 
 #### Primary: NOT EXISTS
 
 ```python
-# Bind the tier-users subquery once and reuse, so the planner sees one scan.
-tier_users = (
-    select(User.id)
-    .where(func.coalesce(User.tier, Tier.FREE.value) == tier.value)
-    .subquery()
-)
-
 newer = aliased(ContentHistory)
 
 delete_stmt = delete(ContentHistory).where(
-    ContentHistory.user_id.in_(select(tier_users.c.id)),
+    ContentHistory.user_id.in_(
+        select(User.id).where(
+            func.coalesce(User.tier, Tier.FREE.value) == tier.value,
+        ),
+    ),
     ContentHistory.created_at < cutoff,
     # Preserve the single latest versioned row per entity: delete only if
     # this row is an audit row (version IS NULL), OR a higher-versioned row
@@ -148,8 +145,7 @@ Same semantics via a CTE that ranks versioned rows per entity, then deletes aged
 #### Notes (apply to either shape)
 
 - Audit rows (`version IS NULL`) are never "latest" for preservation purposes. They remain fully subject to `created_at < cutoff`.
-- Keep the existing `coalesce(User.tier, Tier.FREE.value)` tier resolution.
-- Bind the tier-users subquery once per tier iteration and reuse it, so the planner sees a single scan rather than two.
+- Keep the existing inline `coalesce(User.tier, Tier.FREE.value)` tier resolution — mirror the existing style in the file. Do **not** wrap it in a separate `.subquery()` binding: with the NOT EXISTS shape, the tier-users select is only referenced once (in the outer `user_id.in_(...)`), so the binding adds indirection without planner benefit.
 - Preserve the existing `result.rowcount`, `CleanupStats`, and log line. The semantics of `expired_deleted` are unchanged ("rows deleted by this function").
 - Update the function docstring (`cleanup.py:127`) to reflect the new invariant: it no longer "deletes all history records older than retention period" — it deletes all such records *except the most recent versioned record per entity*.
 
@@ -241,10 +237,11 @@ For each starting state:
    - `get_version_diff` for the new version returns non-null `before_metadata`, **and its contents equal the preserved row's `metadata_snapshot` field-for-field** (title, tags, url/name as applicable). This pins that the diff endpoint reads the right predecessor, not just that *some* predecessor exists.
    - `GET /history` for the entity (the list endpoint) returns the preserved row plus the new row — exactly the set we expect post-cleanup + post-edit. This confirms the history list endpoint reflects the post-cleanup state correctly.
    - Restore to the preserved prior version succeeds and returns the preserved row's content.
-6. Assert (audit-only-aged):
-   - The first post-cleanup edit behaves like a fresh CREATE: `content_snapshot` set, `content_diff` None, version allocation is sensible — pin whatever `_get_next_version` yields here as the contract.
-   - The diff endpoint behaves as it does for a genuine CREATE (no predecessor metadata).
+6. Assert (audit-only-aged) — **this is NOT a CREATE path, despite being v1. Pin the shape explicitly:**
+   - The new row is an UPDATE-at-v1: `action == 'update'`, `version == 1`, `content_diff is not None`, `content_snapshot is None`. `_get_next_version` returns 1 because `max(version)` over non-null versions is None with only audit rows present; `record_action` then follows the UPDATE branch since the entity already exists with differing content.
+   - `get_version_diff` for the new version returns `before_metadata is None` (no v0 record to read metadata from) and `action == 'update'`. The frontend "Previous metadata unavailable" branch is the expected, acceptable UX for this case.
    - `GET /history` returns exactly the one new row.
+   - **Do not attempt to "fix" the v1-update-with-diff shape in this PR.** File as a follow-up observation in the milestone summary (see §1.5). Semantic context: this state only arises for *legacy data* whose CREATE record was deleted by pre-fix cleanup runs. New entities always have their CREATE preserved by this fix, so they never reach audit-only-aged. The legacy cohort ages out over time; no ongoing gap.
 
 Parameterizing this way subsumes the audit-only-edge concern without needing a separate test.
 
@@ -287,8 +284,9 @@ No other docs should need updating. Specifically:
 
 After implementation + tests + doc updates are complete and `make backend-verify` passes, **stop and wait for human review.** Do not commit. Summarize:
 - Final query approach chosen (NOT EXISTS vs ranked CTE vs other).
-- Any test surprises, especially in the symptom-level regression test (version allocation behavior for audit-only-aged starting state is the most likely surprise).
+- Any test surprises.
 - Any assumption you had to make that wasn't explicitly answered in §"Questions the Agent Should Raise."
+- **Follow-up observation (do not fix in this PR):** the audit-only-aged starting state produces a v1 UPDATE-with-diff-no-snapshot row — unusual shape, but semantically consistent and bounded to pre-fix legacy data. Note whether the `GET /history` and diff-endpoint behavior for this row was as expected.
 
 ---
 
