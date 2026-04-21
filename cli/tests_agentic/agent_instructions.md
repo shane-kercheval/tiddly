@@ -340,6 +340,8 @@ fi
 
 **IMPORTANT: escape `--` prefix in grep/grep -F patterns.** `grep -F "--scope directory …"` parses the leading `--` as end-of-options for grep itself and then treats `scope directory …` as the pattern. Use `grep -F -- "$pattern"` (the `--` terminates grep's own option parsing) whenever the expected string starts with `--`.
 
+**IMPORTANT: snippets run under the engineer's login shell — likely zsh on macOS.** The `#!/usr/bin/env bash` shebangs on `lib.sh` / `phase0_setup.sh` / `per_call.sh` are inert when those files are sourced, and the Claude Code Bash tool inherits whatever shell invoked it. The harness helpers are written to be zsh-compatible; your test snippets need to be too. The trap: in zsh, `$var[...]` directly adjacent to `[` parses as array-subscript syntax, not string concatenation — so `echo "$out" | grep -E "^${hdr}[[:space:]]"` blows up with `bad output format specification` before the pipeline runs, fires the EXIT trap, and triggers crash-recovery (which wipes the sanitized state, ending the session). **Always wrap the variable in braces when it's immediately followed by `[`: use `${var}[[:space:]]`, not `$var[[:space:]]`.** When in doubt, assert against a file with `grep -F -- "literal" /tmp/tXY_out` instead of building a regex with shell variables inline.
+
 **Mandatory Bearer-leak guard — call before every `echo "$out"` on configure/remove/dry-run output:**
 
 ```bash
