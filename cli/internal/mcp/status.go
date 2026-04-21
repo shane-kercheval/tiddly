@@ -33,6 +33,7 @@ type ServerMatch struct {
 // OtherServer describes a non-tiddly MCP server entry.
 type OtherServer struct {
 	Name      string // config key name
+	URL       string // MCP server URL (may be empty for stdio entries whose args don't carry one)
 	Transport string // "http", "stdio", or "" if unknown
 }
 
@@ -80,7 +81,7 @@ func classifyServer(name, urlStr, transport string) (*ServerMatch, *OtherServer)
 	case isTiddlyPromptURL(urlStr):
 		return &ServerMatch{ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr}, nil
 	default:
-		return nil, &OtherServer{Name: name, Transport: transport}
+		return nil, &OtherServer{Name: name, URL: urlStr, Transport: transport}
 	}
 }
 

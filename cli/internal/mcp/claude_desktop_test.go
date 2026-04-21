@@ -435,7 +435,8 @@ func TestRemoveClaudeDesktop__prompts_only_preserves_content(t *testing.T) {
 	assert.NotContains(t, servers, serverNamePrompts)
 }
 
-func TestConfigureClaudeDesktop__replaces_custom_named_servers(t *testing.T) {
+func TestConfigureClaudeDesktop__preserves_custom_named_tiddly_url_entries(t *testing.T) {
+	// Additive contract: custom-named Tiddly-URL entries survive configure.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -455,13 +456,14 @@ func TestConfigureClaudeDesktop__replaces_custom_named_servers(t *testing.T) {
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
 
-	assert.NotContains(t, servers, "my_content")
+	assert.Contains(t, servers, "my_content", "custom-named Tiddly-URL entry must survive")
 	assert.Contains(t, servers, "tiddly_notes_bookmarks")
 	assert.Contains(t, servers, "tiddly_prompts")
 	assert.Contains(t, servers, "other-server")
 }
 
-func TestExtractClaudeDesktopPATs__custom_named_servers(t *testing.T) {
+func TestExtractClaudeDesktopPATs__ignores_custom_named_servers(t *testing.T) {
+	// ExtractPATs reads canonical entries only.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -479,8 +481,8 @@ func TestExtractClaudeDesktopPATs__custom_named_servers(t *testing.T) {
 	})
 
 	ext := extractClaudeDesktopPATs(configPath)
-	assert.Equal(t, "bm_custom_content", ext.ContentPAT)
-	assert.Equal(t, "bm_custom_prompts", ext.PromptPAT)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestConfigureClaudeDesktop__malformed_json_returns_error(t *testing.T) {

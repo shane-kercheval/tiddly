@@ -13,13 +13,13 @@ import (
 // extracted in the first place).
 func TestClassifyServer__routes_by_url(t *testing.T) {
 	cases := []struct {
-		name      string
-		inputName string
-		url       string
-		transport string
-		wantMatch bool            // true → expect *ServerMatch, false → expect *OtherServer
-		wantType  string          // only checked when wantMatch
-		wantMethod MatchMethod    // only checked when wantMatch
+		name       string
+		inputName  string
+		url        string
+		transport  string
+		wantMatch  bool        // true → expect *ServerMatch, false → expect *OtherServer
+		wantType   string      // only checked when wantMatch
+		wantMethod MatchMethod // only checked when wantMatch
 	}{
 		{
 			name:       "content URL with canonical name",
@@ -74,11 +74,11 @@ func TestClassifyServer__routes_by_url(t *testing.T) {
 			// name is only a hint for MatchByName tagging. Classifying by
 			// name alone would let a hostile or misconfigured entry
 			// impersonate a Tiddly route.
-			name:       "canonical name with non-tiddly URL — URL wins over name",
-			inputName:  serverNameContent,
-			url:        "https://somewhere-else.example.com/mcp",
-			transport:  "http",
-			wantMatch:  false,
+			name:      "canonical name with non-tiddly URL — URL wins over name",
+			inputName: serverNameContent,
+			url:       "https://somewhere-else.example.com/mcp",
+			transport: "http",
+			wantMatch: false,
 		},
 	}
 
@@ -97,11 +97,25 @@ func TestClassifyServer__routes_by_url(t *testing.T) {
 				require.Nil(t, match, "should not produce a ServerMatch")
 				require.NotNil(t, other, "expected an OtherServer")
 				assert.Equal(t, tc.inputName, other.Name)
+				assert.Equal(t, tc.url, other.URL,
+					"URL must round-trip to OtherServer so preflight can name the offending URL")
 				assert.Equal(t, tc.transport, other.Transport,
 					"transport should be passed through to OtherServer")
 			}
 		})
 	}
+}
+
+func TestClassifyServer__canonical_name_at_non_tiddly_url_records_url(t *testing.T) {
+	// Specific coverage for the preflight path: when a CLI-managed key
+	// (tiddly_prompts) points at a non-Tiddly URL, it lands in OtherServers
+	// and OtherServer.URL must hold the mismatched URL so preflight can
+	// surface it in the error.
+	const badURL = "https://example.com/my-prompts"
+	_, other := classifyServer(serverNamePrompts, badURL, "http")
+	require.NotNil(t, other)
+	assert.Equal(t, serverNamePrompts, other.Name)
+	assert.Equal(t, badURL, other.URL)
 }
 
 func TestClassifyServer__transport_ignored_for_tiddly_matches(t *testing.T) {

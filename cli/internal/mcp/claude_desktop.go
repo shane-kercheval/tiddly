@@ -38,9 +38,10 @@ type mcpServerEntry struct {
 	Args    []string `json:"args"`
 }
 
-// buildClaudeDesktopConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
-// Removes any existing entries pointing to tiddly URLs (regardless of key name) before adding
-// new entries under canonical names.
+// buildClaudeDesktopConfig reads the existing config (or creates empty) and
+// writes the CLI-managed entries under canonical names. Non-canonical entries
+// (including those pointing at Tiddly URLs under custom key names) are
+// preserved as-is.
 func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[string]any, error) {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
@@ -55,9 +56,6 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 	if !ok {
 		servers = make(map[string]any)
 	}
-
-	// Remove only the server types being configured (non-empty PAT means it's being configured)
-	removeJSONServersByTiddlyURL(servers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	if contentPAT != "" {
 		servers[serverNameContent] = mcpServerEntry{
@@ -177,7 +175,7 @@ func dryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, afte
 // extractAllClaudeDesktopTiddlyPATs returns every Bearer token from a
 // tiddly-URL entry in the Claude Desktop config, in canonical-first order.
 // Entries without an extractable PAT (missing/malformed --header) are
-// filtered out. Primitive; survivors derived via survivorsOfAllTiddlyPATs.
+// filtered out.
 func extractAllClaudeDesktopTiddlyPATs(configPath string) []TiddlyPAT {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
@@ -234,10 +232,9 @@ func extractAllClaudeDesktopTiddlyPATs(configPath string) []TiddlyPAT {
 	return out
 }
 
-// extractClaudeDesktopPATs returns survivor PATs derived from the full
-// canonical-first walk.
+// extractClaudeDesktopPATs returns PATs attached to canonical-named entries only.
 func extractClaudeDesktopPATs(configPath string) PATExtraction {
-	return survivorsOfAllTiddlyPATs(extractAllClaudeDesktopTiddlyPATs(configPath))
+	return canonicalEntryPATs(extractAllClaudeDesktopTiddlyPATs(configPath))
 }
 
 // extractPATFromDesktopArgs scans args for "--header" and extracts the Bearer token.

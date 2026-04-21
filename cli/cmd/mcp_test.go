@@ -1,9 +1,8 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,45 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestTranslateConfigureError__needs_confirmation_wraps_with_flag_advice(t *testing.T) {
-	err := translateConfigureError(mcp.ErrConsolidationNeedsConfirmation)
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, mcp.ErrConsolidationNeedsConfirmation,
-		"wrapped error must still unwrap to the sentinel")
-	assert.Contains(t, err.Error(), "--yes",
-		"advisory must reference the --yes flag so users know how to proceed")
-	assert.Contains(t, err.Error(), "--dry-run",
-		"advisory must reference --dry-run as the preview path")
-}
-
-func TestTranslateConfigureError__declined_wraps_with_no_changes_note(t *testing.T) {
-	err := translateConfigureError(mcp.ErrConsolidationDeclined)
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, mcp.ErrConsolidationDeclined)
-	assert.Contains(t, err.Error(), "no changes were made",
-		"decline advisory should reassure the user that nothing was written")
-}
-
-func TestTranslateConfigureError__passes_through_unrelated_errors(t *testing.T) {
-	// An error that isn't one of the known sentinels must pass through
-	// verbatim so cobra surfaces the real failure rather than a misleading
-	// consolidation-flavored message.
-	orig := errors.New("something unrelated broke")
-	got := translateConfigureError(orig)
-	assert.Equal(t, orig, got, "unrelated errors should pass through unchanged")
-}
-
-func TestTranslateConfigureError__wrapped_sentinels_still_translate(t *testing.T) {
-	// RunConfigure may wrap the sentinel via fmt.Errorf; translation must
-	// still find it via errors.Is traversal.
-	wrapped := fmt.Errorf("configuring claude-code: %w", mcp.ErrConsolidationDeclined)
-	got := translateConfigureError(wrapped)
-	assert.ErrorIs(t, got, mcp.ErrConsolidationDeclined)
-	assert.Contains(t, got.Error(), "no changes were made")
-}
 
 func TestMCPConfigure__not_logged_in(t *testing.T) {
 	store := testutil.NewMockCredStore()
@@ -1089,4 +1049,103 @@ func handlersWithOverrides(overrides map[string]string) []mcp.ToolHandler {
 		}
 	}
 	return handlers
+}
+
+func TestPrintConfigureSummary__emits_preserved_entries_line(t *testing.T) {
+	// Direct printer-level test: given a ConfigureResult with preserved
+	// entries across two tools, the summary must emit one line per tool,
+	// sorted by tool name, with the preserved names joined by ", " in
+	// their stored order (which RunConfigure sorts alphabetically before
+	// assignment).
+	result := &mcp.ConfigureResult{
+		ToolsConfigured: []string{"claude-code", "codex"},
+		PreservedEntries: map[string][]string{
+			"codex":       {"work_prompts"},
+			"claude-code": {"personal_prompts", "work_prompts"},
+		},
+	}
+
+	var buf bytes.Buffer
+	printConfigureSummary(&buf, result, false)
+	out := buf.String()
+
+	assert.Contains(t, out, "Preserved non-CLI-managed entries in claude-code: personal_prompts, work_prompts")
+	assert.Contains(t, out, "Preserved non-CLI-managed entries in codex: work_prompts")
+
+	// Tool names must appear in sorted order: claude-code before codex.
+	assert.Less(t,
+		bytesIndex(out, "in claude-code:"),
+		bytesIndex(out, "in codex:"),
+		"preserved-entries lines must be sorted by tool name",
+	)
+}
+
+func TestPrintConfigureSummary__no_preserved_line_when_empty(t *testing.T) {
+	// No PreservedEntries → no preserved line. Prevents a "Preserved…: "
+	// trailing-colon regression.
+	result := &mcp.ConfigureResult{ToolsConfigured: []string{"claude-code"}}
+	var buf bytes.Buffer
+	printConfigureSummary(&buf, result, false)
+	assert.NotContains(t, buf.String(), "Preserved")
+}
+
+// bytesIndex returns the index of needle in haystack, or -1 if absent.
+// Local helper so assert.Less can compare line positions without pulling
+// in strings.Index inline at each call site.
+func bytesIndex(haystack, needle string) int {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestMCPConfigure__mismatch_error_has_no_double_error_prefix(t *testing.T) {
+	// Regression guard for the "Error: Error: ..." bug: formatMismatchError
+	// must NOT include its own "Error:" prefix — main.go adds that. We drive
+	// the command through Cobra and inspect result.Err (which is what the
+	// entrypoint formats). A leading "Error:" inside the message would
+	// produce "Error: Error: ..." in the real terminal.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".claude.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+		"mcpServers": {
+			"tiddly_prompts": {
+				"type": "http",
+				"url": "https://example.com/my-prompts",
+				"headers": {"Authorization": "Bearer bm_custom"}
+			}
+		}
+	}`), 0600))
+
+	store := testutil.CredsWithPAT("bm_test123")
+	viper.Reset()
+	tm := auth.NewTokenManager(store, nil)
+
+	looker := testutil.NewMockExecLooker()
+	looker.Paths["claude"] = "/usr/bin/claude"
+
+	SetDeps(&AppDeps{
+		CredStore:    store,
+		TokenManager: tm,
+		ExecLooker:   looker,
+		ToolHandlers: handlersWithOverride("claude-code", configPath),
+	})
+	t.Cleanup(func() {
+		appDeps = nil
+		viper.Reset()
+	})
+
+	cmd := newRootCmd()
+	result := testutil.ExecuteCmd(t, cmd, "mcp", "configure", "claude-code")
+
+	require.Error(t, result.Err)
+	// The returned error is what main.go prefixes with "Error: ". It must
+	// therefore NOT start with "Error:" itself.
+	assert.NotContains(t, result.Err.Error(), "Error: ",
+		"formatMismatchError must not include its own 'Error:' prefix — main.go adds that")
+	// Sanity: the real mismatch copy must still be there.
+	assert.Contains(t, result.Err.Error(), "CLI-managed")
+	assert.Contains(t, result.Err.Error(), "--force")
 }

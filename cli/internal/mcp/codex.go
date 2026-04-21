@@ -36,7 +36,7 @@ func resolveCodexPath(configPath, scope, cwd string) (string, error) {
 // extractAllCodexTiddlyPATs returns every Bearer token from a tiddly-URL
 // entry in the Codex config, in canonical-first order. Entries without an
 // extractable PAT (missing/malformed http_headers.Authorization) are
-// filtered out. Primitive; survivors derived via survivorsOfAllTiddlyPATs.
+// filtered out.
 func extractAllCodexTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
 	config, err := readCodexConfig(rc.Path)
 	if err != nil {
@@ -66,15 +66,15 @@ func extractAllCodexTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
 	return out
 }
 
-// extractCodexPATs returns survivor PATs derived from the full
-// canonical-first walk.
+// extractCodexPATs returns PATs attached to canonical-named entries only.
 func extractCodexPATs(rc ResolvedConfig) PATExtraction {
-	return survivorsOfAllTiddlyPATs(extractAllCodexTiddlyPATs(rc))
+	return canonicalEntryPATs(extractAllCodexTiddlyPATs(rc))
 }
 
-// buildCodexConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
-// Removes any existing entries pointing to tiddly URLs (regardless of key name) before adding
-// new entries under canonical names.
+// buildCodexConfig reads the existing config (or creates empty) and writes
+// the CLI-managed entries under canonical names. Non-canonical entries
+// (including those pointing at Tiddly URLs under custom key names) are
+// preserved as-is.
 func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) {
 	config, err := readCodexConfig(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -84,9 +84,6 @@ func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) 
 	if config.MCPServers == nil {
 		config.MCPServers = make(map[string]codexMCPServer)
 	}
-
-	// Remove only the server types being configured (non-empty PAT means it's being configured)
-	removeCodexServersByTiddlyURL(config.MCPServers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	if contentPAT != "" {
 		config.MCPServers[serverNameContent] = codexMCPServer{

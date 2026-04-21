@@ -552,7 +552,8 @@ func TestRemoveCodex__prompts_only_preserves_content(t *testing.T) {
 	assert.NotContains(t, mcpServers, serverNamePrompts)
 }
 
-func TestConfigureCodex__replaces_custom_named_servers(t *testing.T) {
+func TestConfigureCodex__preserves_custom_named_tiddly_url_entries(t *testing.T) {
+	// Additive contract: custom-named Tiddly-URL entries survive configure.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
@@ -571,13 +572,14 @@ url = "https://other.example.com/mcp"
 
 	result := readTestTOML(t, configPath)
 	mcpServers := result["mcp_servers"].(map[string]any)
-	assert.NotContains(t, mcpServers, "my_content")
+	assert.Contains(t, mcpServers, "my_content", "custom-named Tiddly-URL entry must survive")
 	assert.Contains(t, mcpServers, "tiddly_notes_bookmarks")
 	assert.Contains(t, mcpServers, "tiddly_prompts")
 	assert.Contains(t, mcpServers, "other")
 }
 
-func TestExtractCodexPATs__custom_named_servers(t *testing.T) {
+func TestExtractCodexPATs__ignores_custom_named_servers(t *testing.T) {
+	// ExtractPATs reads canonical entries only.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
@@ -598,8 +600,8 @@ Authorization = "Bearer bm_custom_prompts"
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	ext := extractCodexPATs(rc)
-	assert.Equal(t, "bm_custom_content", ext.ContentPAT)
-	assert.Equal(t, "bm_custom_prompts", ext.PromptPAT)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestConfigureCodex__malformed_toml_returns_error(t *testing.T) {
