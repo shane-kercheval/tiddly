@@ -17,8 +17,9 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from core.tier_limits import TIER_LIMITS, Tier
 from models.bookmark import Bookmark
@@ -125,11 +126,18 @@ async def cleanup_expired_history(
     now: datetime | None = None,
 ) -> CleanupStats:
     """
-    Delete history records older than retention period, batched by tier.
+    Delete history records older than retention period, batched by tier,
+    except the most recent versioned record per entity.
 
     For each tier:
     1. Calculate the cutoff date based on tier's history_retention_days
-    2. Delete all history records for users in that tier older than cutoff
+    2. Delete all aged history records for users in that tier EXCEPT the
+       single most recent versioned record per (user_id, entity_type, entity_id)
+
+    Preserving the latest versioned record per entity guarantees diff and
+    restore remain functional after long idle periods. Audit records
+    (DELETE/UNDELETE/ARCHIVE/UNARCHIVE — NULL version) carry no diff/restore
+    value and remain fully subject to time-based pruning.
 
     This is more efficient than per-user deletion as it executes one DELETE
     per tier rather than one per user.
@@ -151,8 +159,21 @@ async def cleanup_expired_history(
     for tier, limits in TIER_LIMITS.items():
         cutoff = now - timedelta(days=limits.history_retention_days)
 
-        # Delete history for all users in this tier with aged records
-        # Use coalesce to handle NULL tier values (default to FREE)
+        # Delete aged history for users in this tier, preserving the single
+        # latest versioned row per entity. Use coalesce to handle NULL tier
+        # values (default to FREE).
+        #
+        # A row is deletable when aged AND either:
+        #   - it's an audit row (version IS NULL), OR
+        #   - a higher-versioned row exists for the same entity.
+        #
+        # IMPORTANT — foot-gun warning: do NOT narrow the `newer` self-alias
+        # by `newer.created_at < cutoff` or similar. The comparison must span
+        # ALL versioned rows for the entity (aged or fresh). Narrowing to
+        # aged-only would preserve a stale aged anchor even when a fresh
+        # higher-versioned row already exists, reintroducing the original bug
+        # in a different shape.
+        newer = aliased(ContentHistory)
         delete_stmt = delete(ContentHistory).where(
             ContentHistory.user_id.in_(
                 select(User.id).where(
@@ -160,6 +181,16 @@ async def cleanup_expired_history(
                 ),
             ),
             ContentHistory.created_at < cutoff,
+            or_(
+                ContentHistory.version.is_(None),
+                select(1).where(
+                    newer.user_id == ContentHistory.user_id,
+                    newer.entity_type == ContentHistory.entity_type,
+                    newer.entity_id == ContentHistory.entity_id,
+                    newer.version.is_not(None),
+                    newer.version > ContentHistory.version,
+                ).exists(),
+            ),
         )
 
         result = await db.execute(delete_stmt)

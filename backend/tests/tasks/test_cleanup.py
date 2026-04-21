@@ -5,7 +5,7 @@ These tests verify the cleanup logic handles all edge cases correctly
 since this is critical code that deletes production user data.
 """
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import func, select, text
@@ -18,6 +18,7 @@ from models.content_history import ActionType, ContentHistory, EntityType
 from models.note import Note
 from models.prompt import Prompt
 from models.user import User
+from services.history_service import history_service
 from tasks.cleanup import (
     SOFT_DELETE_EXPIRY_DAYS,
     CleanupStats,
@@ -48,6 +49,62 @@ def create_history_record(
         version=version,
         content_snapshot=f"Content v{version}",
         metadata_snapshot={"title": f"Test v{version}"},
+        source="web",
+        auth_type=AuthType.AUTH0.value,
+        created_at=created_at,
+    )
+
+
+def create_versioned_history_record(
+    user_id: UUID,
+    entity_type: EntityType,
+    entity_id: UUID,
+    version: int,
+    action: ActionType = ActionType.CREATE,
+    content_snapshot: str | None = None,
+    content_diff: str | None = None,
+    metadata: dict | None = None,
+    created_at: datetime | None = None,
+) -> ContentHistory:
+    """
+    Create a versioned ContentHistory record with explicit action/content shape.
+
+    Prefer over `create_history_record` when you need to control
+    content_snapshot/content_diff explicitly (e.g. UPDATE with diff only,
+    modulo-10 snapshot, CREATE with snapshot only).
+    """
+    return ContentHistory(
+        user_id=user_id,
+        entity_type=entity_type.value,
+        entity_id=entity_id,
+        action=action.value,
+        version=version,
+        content_snapshot=content_snapshot,
+        content_diff=content_diff,
+        metadata_snapshot=metadata or {"title": f"Test v{version}"},
+        source="web",
+        auth_type=AuthType.AUTH0.value,
+        created_at=created_at,
+    )
+
+
+def create_audit_history_record(
+    user_id: UUID,
+    entity_type: EntityType,
+    entity_id: UUID,
+    action: ActionType,
+    created_at: datetime | None = None,
+) -> ContentHistory:
+    """Create an audit (NULL version) ContentHistory record."""
+    return ContentHistory(
+        user_id=user_id,
+        entity_type=entity_type.value,
+        entity_id=entity_id,
+        action=action.value,
+        version=None,
+        content_snapshot=None,
+        content_diff=None,
+        metadata_snapshot={"title": "Audit marker"},
         source="web",
         auth_type=AuthType.AUTH0.value,
         created_at=created_at,
@@ -378,80 +435,113 @@ class TestCleanupExpiredHistoryBoundaryConditions:
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """Record created just past the retention boundary should be deleted."""
+        """
+        Record created just past the retention boundary should be deleted.
+
+        The preservation rule protects the *latest* versioned row per entity,
+        so this test seeds a fresh higher-versioned anchor (v2) to ensure
+        v1 is not the latest and thus remains deletable.
+        """
         now = datetime.now(UTC)
         entity_id = uuid4()
 
-        just_past_cutoff = now - timedelta(days=FREE_RETENTION_DAYS, seconds=1)
-        record = create_history_record(
+        # Fresh anchor (v2) so v1 is not the latest versioned row.
+        db_session.add(create_history_record(
             user_id=user.id,
             entity_type=EntityType.NOTE,
             entity_id=entity_id,
+            version=2,
+            created_at=now - timedelta(hours=1),
+        ))
+        just_past_cutoff = now - timedelta(days=FREE_RETENTION_DAYS, seconds=1)
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=1,
             created_at=just_past_cutoff,
-        )
-        db_session.add(record)
+        ))
         await db_session.commit()
 
         stats = await cleanup_expired_history(db_session, now=now)
 
         assert stats.expired_deleted == 1
         assert stats.expired_by_tier[Tier.FREE.value] == 1
-        assert await count_history_records(db_session, user.id) == 0
+        # v2 anchor remains; v1 deleted.
+        assert await count_history_records(db_session, user.id) == 1
 
     async def test__well_past_boundary__record_is_deleted(
         self,
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """Record created well past the retention boundary should be deleted."""
+        """
+        Record created well past the retention boundary should be deleted.
+
+        Seeds a fresh higher-versioned anchor (v2) so the aged v1 is not the
+        latest versioned row and thus remains deletable under the preservation
+        rule.
+        """
         now = datetime.now(UTC)
         entity_id = uuid4()
 
-        # Create record well past retention
-        record = create_history_record(
+        # Fresh anchor (v2) so v1 is not the latest versioned row.
+        db_session.add(create_history_record(
             user_id=user.id,
             entity_type=EntityType.NOTE,
             entity_id=entity_id,
+            version=2,
+            created_at=now - timedelta(hours=1),
+        ))
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=1,
             created_at=now - timedelta(days=FREE_RETENTION_DAYS + 5),
-        )
-        db_session.add(record)
+        ))
         await db_session.commit()
 
-        # Run cleanup
         stats = await cleanup_expired_history(db_session, now=now)
 
-        # Verify record WAS deleted
+        # v1 deleted; v2 anchor remains.
         assert stats.expired_deleted == 1
-        assert await count_history_records(db_session, user.id) == 0
+        assert await count_history_records(db_session, user.id) == 1
 
     async def test__mixed_ages__only_old_deleted(
         self,
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """With mixed record ages, only records past retention are deleted."""
+        """
+        With mixed record ages, only records past retention are deleted.
+
+        Versions are seeded so higher version = newer (realistic entity
+        evolution). v5 is fresh and serves as the latest-versioned anchor,
+        so all aged rows (v1, v2, v3) are deletable under the preservation
+        rule. v4 is exactly at the cutoff and preserved by strict `<`.
+        """
         now = datetime.now(UTC)
         entity_id = uuid4()
 
-        # Create records at various ages relative to retention period
+        # Higher version = newer (chronological with entity evolution).
         r = FREE_RETENTION_DAYS
         ages_and_expected = [
-            (timedelta(hours=1), True),                # just now - keep
-            (timedelta(days=r), True),                 # exactly at boundary - keep
-            (timedelta(days=r, seconds=1), False),     # just past boundary - delete
-            (timedelta(days=r + 5), False),            # well past boundary - delete
-            (timedelta(days=r * 10), False),           # far past boundary - delete
+            (timedelta(days=r * 10), False),           # v1 far past - delete
+            (timedelta(days=r + 5), False),            # v2 well past - delete
+            (timedelta(days=r, seconds=1), False),     # v3 just past - delete
+            (timedelta(days=r), True),                 # v4 exactly at boundary - keep
+            (timedelta(hours=1), True),                # v5 fresh / latest - keep
         ]
 
-        for version, (age, should_keep) in enumerate(ages_and_expected, 1):
-            record = create_history_record(
+        for version, (age, _) in enumerate(ages_and_expected, 1):
+            db_session.add(create_history_record(
                 user_id=user.id,
                 entity_type=EntityType.NOTE,
                 entity_id=entity_id,
                 version=version,
                 created_at=now - age,
-            )
-            db_session.add(record)
+            ))
         await db_session.commit()
 
         stats = await cleanup_expired_history(db_session, now=now)
@@ -469,12 +559,18 @@ class TestCleanupExpiredHistoryBatchByTier:
         self,
         db_session: AsyncSession,
     ) -> None:
-        """Multiple users in same tier are cleaned with single DELETE per tier."""
+        """
+        Multiple users in the same tier are cleaned with a single DELETE per tier.
+
+        Each user's entity gets a fresh v2 anchor so the aged v1 remains
+        deletable under the preservation rule. Verifies the tier-batched
+        DELETE applies to aged rows across all users in one statement.
+        """
         now = datetime.now(UTC)
 
         # Create 3 users all in FREE tier
         users = []
-        for i in range(3):
+        for _ in range(3):
             user = User(
                 auth0_id=f"test-tier-{uuid4()}",
                 email=f"tier-{uuid4()}@test.com",
@@ -484,26 +580,32 @@ class TestCleanupExpiredHistoryBatchByTier:
             users.append(user)
         await db_session.flush()
 
-        # Each user has old records
+        # Each user: aged v1 + fresh v2 anchor (so v1 is deletable).
+        entity_ids = {user.id: uuid4() for user in users}
         for user in users:
             db_session.add(create_history_record(
                 user_id=user.id,
                 entity_type=EntityType.NOTE,
-                entity_id=uuid4(),
+                entity_id=entity_ids[user.id],
+                version=1,
                 created_at=now - timedelta(days=60),
+            ))
+            db_session.add(create_history_record(
+                user_id=user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_ids[user.id],
+                version=2,
+                created_at=now - timedelta(hours=1),
             ))
         await db_session.commit()
 
-        # Run cleanup
         stats = await cleanup_expired_history(db_session, now=now)
 
-        # All 3 records deleted, tracked by tier
+        # 3 aged v1 rows deleted in one tier DELETE; 3 fresh v2 anchors remain.
         assert stats.expired_deleted == 3
         assert stats.expired_by_tier[Tier.FREE.value] == 3
-
-        # All users cleaned
         for user in users:
-            assert await count_history_records(db_session, user.id) == 0
+            assert await count_history_records(db_session, user.id) == 1
 
     async def test__unknown_tier__not_cleaned_by_any_tier(
         self,
@@ -568,25 +670,563 @@ class TestCleanupExpiredHistoryEntityTypes:
         db_session: AsyncSession,
         user: User,
     ) -> None:
-        """Cleanup applies to bookmark, note, and prompt history equally."""
+        """
+        Cleanup applies to bookmark, note, and prompt history equally.
+
+        Each entity gets an aged v1 + fresh v2 anchor so the aged rows
+        remain deletable under the preservation rule.
+        """
         now = datetime.now(UTC)
 
-        # Create old records for each entity type
         for entity_type in [EntityType.BOOKMARK, EntityType.NOTE, EntityType.PROMPT]:
+            entity_id = uuid4()
             db_session.add(create_history_record(
                 user_id=user.id,
                 entity_type=entity_type,
-                entity_id=uuid4(),
+                entity_id=entity_id,
+                version=1,
                 created_at=now - timedelta(days=60),
+            ))
+            db_session.add(create_history_record(
+                user_id=user.id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                version=2,
+                created_at=now - timedelta(hours=1),
             ))
         await db_session.commit()
 
-        # Run cleanup
         stats = await cleanup_expired_history(db_session, now=now)
 
-        # All 3 records deleted
+        # 3 aged v1 rows deleted across entity types; 3 fresh v2 anchors remain.
+        assert stats.expired_deleted == 3
+        assert await count_history_records(db_session, user.id) == 3
+
+
+class TestCleanupExpiredHistoryPreservesLatestVersioned:
+    """
+    Tests for the preservation rule in cleanup_expired_history.
+
+    Rule: always preserve the single most recent versioned ContentHistory row
+    per (user_id, entity_type, entity_id), regardless of age. Audit rows
+    (NULL version) are never "latest" for this rule — they remain fully
+    subject to time-based pruning.
+    """
+
+    @pytest.fixture
+    async def user(self, db_session: AsyncSession) -> User:
+        """Create a test user on FREE tier."""
+        user = User(
+            auth0_id=f"test-preserve-{uuid4()}",
+            email=f"preserve-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+        return user
+
+    async def test_preserves_only_versioned_record_when_aged(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """A single aged versioned row is preserved (not deleted)."""
+        now = datetime.now(UTC)
+        entity_id = uuid4()
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=1,
+            created_at=now - timedelta(days=FREE_RETENTION_DAYS + 10),
+        ))
+        await db_session.commit()
+
+        stats = await cleanup_expired_history(db_session, now=now)
+
+        assert stats.expired_deleted == 0
+        assert await count_history_records(db_session, user.id) == 1
+
+    async def test_preserves_latest_and_deletes_older_aged_records(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """Multiple aged versioned rows: only the highest-version row survives."""
+        now = datetime.now(UTC)
+        entity_id = uuid4()
+        aged_at = now - timedelta(days=FREE_RETENTION_DAYS + 10)
+        for version in [1, 2, 3]:
+            db_session.add(create_history_record(
+                user_id=user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                version=version,
+                created_at=aged_at,
+            ))
+        await db_session.commit()
+
+        stats = await cleanup_expired_history(db_session, now=now)
+
+        assert stats.expired_deleted == 2
+        rows = (await db_session.execute(
+            select(ContentHistory).where(ContentHistory.user_id == user.id),
+        )).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].version == 3
+
+    async def test_mixed_aged_and_fresh_records(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """
+        Mixed aged and fresh versioned rows for one entity: fresh rows always
+        preserved. Aged rows deleted when any higher versioned row exists.
+        """
+        now = datetime.now(UTC)
+        entity_id = uuid4()
+        aged_at = now - timedelta(days=FREE_RETENTION_DAYS + 10)
+        fresh_at = now - timedelta(hours=1)
+
+        # v1, v2 aged; v3 fresh (higher than both aged).
+        db_session.add(create_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            version=1, created_at=aged_at,
+        ))
+        db_session.add(create_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            version=2, created_at=aged_at,
+        ))
+        db_session.add(create_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            version=3, created_at=fresh_at,
+        ))
+        await db_session.commit()
+
+        stats = await cleanup_expired_history(db_session, now=now)
+
+        # v1, v2 deleted (v3 higher exists). v3 preserved (fresh and latest).
+        assert stats.expired_deleted == 2
+        rows = (await db_session.execute(
+            select(ContentHistory).where(ContentHistory.user_id == user.id),
+        )).scalars().all()
+        assert [r.version for r in rows] == [3]
+
+    async def test_audit_records_still_deleted_when_aged(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """Aged audit records (NULL version) are deleted; not exempted."""
+        now = datetime.now(UTC)
+        entity_id = uuid4()
+        aged_at = now - timedelta(days=FREE_RETENTION_DAYS + 10)
+        for action in [ActionType.ARCHIVE, ActionType.UNARCHIVE, ActionType.DELETE]:
+            db_session.add(create_audit_history_record(
+                user_id=user.id,
+                entity_type=EntityType.NOTE,
+                entity_id=entity_id,
+                action=action,
+                created_at=aged_at,
+            ))
+        await db_session.commit()
+
+        stats = await cleanup_expired_history(db_session, now=now)
+
         assert stats.expired_deleted == 3
         assert await count_history_records(db_session, user.id) == 0
+
+    async def test_audit_record_does_not_count_as_latest(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """
+        The "latest" anchor is the latest *versioned* row, not the latest row.
+        An aged audit row newer than all versioned rows is still deleted;
+        the latest versioned row is preserved.
+        """
+        now = datetime.now(UTC)
+        entity_id = uuid4()
+        old_aged = now - timedelta(days=FREE_RETENTION_DAYS + 10)
+        newer_aged = now - timedelta(days=FREE_RETENTION_DAYS + 2)
+
+        db_session.add(create_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            version=1, created_at=old_aged,
+        ))
+        db_session.add(create_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            version=2, created_at=old_aged,
+        ))
+        db_session.add(create_audit_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            action=ActionType.ARCHIVE, created_at=newer_aged,
+        ))
+        await db_session.commit()
+
+        stats = await cleanup_expired_history(db_session, now=now)
+
+        # v1 deleted (v2 higher). Audit deleted. v2 preserved (latest versioned).
+        assert stats.expired_deleted == 2
+        rows = (await db_session.execute(
+            select(ContentHistory).where(ContentHistory.user_id == user.id),
+        )).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].version == 2
+
+    async def test_preservation_is_per_entity_not_per_user(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """
+        One user, two entities: each entity independently retains its own
+        latest versioned row. Partition is per (user_id, entity_type, entity_id).
+        """
+        now = datetime.now(UTC)
+        aged_at = now - timedelta(days=FREE_RETENTION_DAYS + 10)
+        bookmark_id, note_id = uuid4(), uuid4()
+        for entity_type, entity_id in [
+            (EntityType.BOOKMARK, bookmark_id),
+            (EntityType.NOTE, note_id),
+        ]:
+            for version in [1, 2]:
+                db_session.add(create_history_record(
+                    user_id=user.id, entity_type=entity_type,
+                    entity_id=entity_id,
+                    version=version, created_at=aged_at,
+                ))
+        await db_session.commit()
+
+        stats = await cleanup_expired_history(db_session, now=now)
+
+        # Each entity preserves its v2; each v1 deleted. 2 deleted, 2 preserved.
+        assert stats.expired_deleted == 2
+        rows = (await db_session.execute(
+            select(ContentHistory).where(ContentHistory.user_id == user.id),
+        )).scalars().all()
+        assert len(rows) == 2
+        assert {r.entity_id for r in rows} == {bookmark_id, note_id}
+        assert all(r.version == 2 for r in rows)
+
+    async def test_preservation_respects_tier_boundaries(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """
+        Users in different tiers: each user's entity retains exactly its
+        latest versioned row, even when all rows are aged past both tier
+        cutoffs. Confirms the per-tier DELETE loop interacts correctly with
+        the preservation rule.
+        """
+        now = datetime.now(UTC)
+        # Aged well past PRO's 15-day retention (and FREE's 1-day).
+        aged_at = now - timedelta(days=100)
+
+        free_user = User(
+            auth0_id=f"free-{uuid4()}", email=f"free-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
+        )
+        pro_user = User(
+            auth0_id=f"pro-{uuid4()}", email=f"pro-{uuid4()}@test.com",
+            tier=Tier.PRO.value,
+        )
+        db_session.add_all([free_user, pro_user])
+        await db_session.flush()
+
+        free_entity_id, pro_entity_id = uuid4(), uuid4()
+        for u, entity_id in [(free_user, free_entity_id), (pro_user, pro_entity_id)]:
+            for version in [1, 2]:
+                db_session.add(create_history_record(
+                    user_id=u.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+                    version=version, created_at=aged_at,
+                ))
+        await db_session.commit()
+
+        await cleanup_expired_history(db_session, now=now)
+
+        for u, entity_id in [(free_user, free_entity_id), (pro_user, pro_entity_id)]:
+            rows = (await db_session.execute(
+                select(ContentHistory).where(ContentHistory.user_id == u.id),
+            )).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].version == 2
+            assert rows[0].entity_id == entity_id
+
+    async def test_soft_deleted_entity_history_preserved_like_active(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """
+        Soft-deleted (but not yet permanently deleted) entities: the latest
+        versioned history row is still preserved by time-based cleanup.
+        Permanent deletion via cleanup_soft_deleted_items cascades all
+        history — covered by TestCleanupSoftDeletedItems.
+        """
+        now = datetime.now(UTC)
+        note = Note(
+            user_id=user.id,
+            title="Soft deleted",
+            content="Content",
+            deleted_at=now - timedelta(days=5),  # inside 30-day cutoff
+        )
+        db_session.add(note)
+        await db_session.flush()
+
+        aged_at = now - timedelta(days=FREE_RETENTION_DAYS + 10)
+        for version in [1, 2]:
+            db_session.add(create_history_record(
+                user_id=user.id, entity_type=EntityType.NOTE, entity_id=note.id,
+                version=version, created_at=aged_at,
+            ))
+        await db_session.commit()
+
+        stats = await cleanup_expired_history(db_session, now=now)
+
+        # v1 deleted; v2 preserved (latest versioned).
+        assert stats.expired_deleted == 1
+        rows = (await db_session.execute(
+            select(ContentHistory).where(ContentHistory.user_id == user.id),
+        )).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].version == 2
+
+    async def test_boundary_exactly_at_cutoff_unchanged(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """
+        Strict `<` comparison preserves rows exactly at the cutoff, and this
+        interacts correctly with the preservation rule. A row at cutoff
+        that would otherwise be a non-latest version (and thus deletable)
+        is preserved because it is not aged by strict `<`.
+        """
+        now = datetime.now(UTC)
+        entity_id = uuid4()
+        at_cutoff = now - timedelta(days=FREE_RETENTION_DAYS)  # not aged (strict <)
+        aged = now - timedelta(days=FREE_RETENTION_DAYS, seconds=1)
+
+        db_session.add(create_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            version=1, created_at=at_cutoff,
+        ))
+        db_session.add(create_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            version=2, created_at=aged,
+        ))
+        db_session.add(create_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            version=3, created_at=aged,
+        ))
+        await db_session.commit()
+
+        stats = await cleanup_expired_history(db_session, now=now)
+
+        # v1 at cutoff: not aged → preserved.
+        # v2 aged; v3 higher exists → deleted.
+        # v3 aged; no higher versioned row → preserved (latest).
+        assert stats.expired_deleted == 1
+        rows = (await db_session.execute(
+            select(ContentHistory)
+            .where(ContentHistory.user_id == user.id)
+            .order_by(ContentHistory.version),
+        )).scalars().all()
+        assert [r.version for r in rows] == [1, 3]
+
+    async def test_preservation_follows_latest_across_runs(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """
+        Preservation re-evaluates "latest" on each run. After one cleanup
+        preserves the current latest, inserting a higher-versioned aged row
+        and re-running deletes the previously preserved row and preserves
+        the new latest.
+        """
+        now = datetime.now(UTC)
+        entity_id = uuid4()
+        aged_at = now - timedelta(days=FREE_RETENTION_DAYS + 10)
+
+        for version in [1, 2, 3]:
+            db_session.add(create_history_record(
+                user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+                version=version, created_at=aged_at,
+            ))
+        await db_session.commit()
+
+        await cleanup_expired_history(db_session, now=now)
+        rows = (await db_session.execute(
+            select(ContentHistory).where(ContentHistory.user_id == user.id),
+        )).scalars().all()
+        assert [r.version for r in rows] == [3]
+
+        # Insert a higher-versioned aged row.
+        db_session.add(create_history_record(
+            user_id=user.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+            version=4, created_at=aged_at,
+        ))
+        await db_session.commit()
+
+        await cleanup_expired_history(db_session, now=now)
+
+        # v3 now deleted (v4 higher exists). v4 preserved.
+        rows = (await db_session.execute(
+            select(ContentHistory).where(ContentHistory.user_id == user.id),
+        )).scalars().all()
+        assert [r.version for r in rows] == [4]
+
+    async def test_same_tier_users_isolated(
+        self,
+        db_session: AsyncSession,
+    ) -> None:
+        """
+        Two users in the same tier: the tier-batched DELETE preserves each
+        user's own latest versioned row. Partition is per
+        (user_id, entity_type, entity_id); users don't bleed into each other.
+        """
+        now = datetime.now(UTC)
+        aged_at = now - timedelta(days=FREE_RETENTION_DAYS + 10)
+        user_a = User(
+            auth0_id=f"a-{uuid4()}", email=f"a-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
+        )
+        user_b = User(
+            auth0_id=f"b-{uuid4()}", email=f"b-{uuid4()}@test.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add_all([user_a, user_b])
+        await db_session.flush()
+
+        entity_a, entity_b = uuid4(), uuid4()
+        for u, entity_id in [(user_a, entity_a), (user_b, entity_b)]:
+            for version in [1, 2]:
+                db_session.add(create_history_record(
+                    user_id=u.id, entity_type=EntityType.NOTE, entity_id=entity_id,
+                    version=version, created_at=aged_at,
+                ))
+        await db_session.commit()
+
+        await cleanup_expired_history(db_session, now=now)
+
+        for u, entity_id in [(user_a, entity_a), (user_b, entity_b)]:
+            rows = (await db_session.execute(
+                select(ContentHistory).where(ContentHistory.user_id == u.id),
+            )).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].version == 2
+            assert rows[0].entity_id == entity_id
+
+    @pytest.mark.parametrize(
+        ("preserved_version", "has_snapshot"),
+        [
+            (5, False),   # non-modulo-10: diff only, no snapshot
+            (10, True),   # modulo-10: snapshot set
+        ],
+    )
+    async def test_view_content_at_preserved_version(
+        self,
+        db_session: AsyncSession,
+        user: User,
+        preserved_version: int,
+        has_snapshot: bool,
+    ) -> None:
+        """
+        After cleanup leaves a single preserved row, reconstruction at that
+        version returns correct content. Pins both shapes: modulo-10
+        (snapshot present) and non-modulo (diff only, entity.content anchor).
+
+        When target_version == latest_version (single-row post-cleanup),
+        reconstruction short-circuits: returns content_snapshot if present,
+        else entity.content. Both should equal the entity's current content.
+        """
+        now = datetime.now(UTC)
+        entity_content = "current content"
+        note = Note(user_id=user.id, title="Test", content=entity_content)
+        db_session.add(note)
+        await db_session.flush()
+
+        aged_at = now - timedelta(days=FREE_RETENTION_DAYS + 10)
+        # UPDATE row at `preserved_version` with a real reverse diff
+        # (preserved_version -> preserved_version-1). content_snapshot is set
+        # only for modulo-10 versions per real-system semantics. Generating
+        # a valid diff here (instead of a placeholder) makes the test robust
+        # if reconstruction ever changes to apply the target row's own diff —
+        # a failure would then point at the preservation rule, not a cryptic
+        # diff parser error.
+        reverse_diff = history_service.dmp.patch_toText(
+            history_service.dmp.patch_make(entity_content, "prior content"),
+        )
+        db_session.add(create_versioned_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=note.id,
+            version=preserved_version,
+            action=ActionType.UPDATE,
+            content_snapshot=entity_content if has_snapshot else None,
+            content_diff=reverse_diff,
+            created_at=aged_at,
+        ))
+        await db_session.commit()
+
+        await cleanup_expired_history(db_session, now=now)
+
+        # Single row preserved.
+        rows = (await db_session.execute(
+            select(ContentHistory).where(ContentHistory.user_id == user.id),
+        )).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].version == preserved_version
+        assert (rows[0].content_snapshot is not None) is has_snapshot
+
+        # Reconstruction at the preserved version returns entity.content.
+        result = await history_service.reconstruct_content_at_version(
+            db_session, user.id, EntityType.NOTE, note.id, preserved_version,
+        )
+        assert result.found is True
+        assert result.content == entity_content
+
+    async def test_create_only_entity_preserved_when_aged(
+        self,
+        db_session: AsyncSession,
+        user: User,
+    ) -> None:
+        """
+        Entity with exactly one history record — a CREATE (action='create',
+        version=1, content_snapshot set, content_diff None) — aged past
+        cutoff is preserved. CREATE rows are first-class preservation-eligible
+        rows; not excluded by any check that assumes content_diff is set.
+        """
+        now = datetime.now(UTC)
+        entity_id = uuid4()
+        db_session.add(create_versioned_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=entity_id,
+            version=1,
+            action=ActionType.CREATE,
+            content_snapshot="Initial content",
+            content_diff=None,
+            created_at=now - timedelta(days=FREE_RETENTION_DAYS + 10),
+        ))
+        await db_session.commit()
+
+        stats = await cleanup_expired_history(db_session, now=now)
+
+        assert stats.expired_deleted == 0
+        rows = (await db_session.execute(
+            select(ContentHistory).where(ContentHistory.user_id == user.id),
+        )).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].action == ActionType.CREATE.value
+        assert rows[0].version == 1
+        assert rows[0].content_snapshot == "Initial content"
+        assert rows[0].content_diff is None
 
 
 class TestCleanupOrphanedHistory:
@@ -985,7 +1625,13 @@ class TestRunCleanupIntegration:
         self,
         db_session: AsyncSession,
     ) -> None:
-        """Verify detailed breakdown in stats matches actual deletions."""
+        """
+        Verify detailed breakdown in stats matches actual deletions.
+
+        Three aged v1 rows share one entity_id so they're non-latest relative
+        to a fresh v4 anchor; this keeps them deletable under the preservation
+        rule while still exercising the tier DELETE stats.
+        """
         now = datetime.now(UTC)
 
         user = User(
@@ -996,15 +1642,27 @@ class TestRunCleanupIntegration:
         db_session.add(user)
         await db_session.flush()
 
-        # Create 3 old history records
-        for v in range(1, 4):
+        # One real entity with 3 aged rows (v1, v2, v3) and a fresh v4 anchor.
+        # The real Note prevents the preserved v4 anchor from being caught by
+        # orphan cleanup later in run_cleanup.
+        real_note = Note(user_id=user.id, title="Real", content="Content")
+        db_session.add(real_note)
+        await db_session.flush()
+        for v in [1, 2, 3]:
             db_session.add(create_history_record(
                 user_id=user.id,
                 entity_type=EntityType.NOTE,
-                entity_id=uuid4(),
+                entity_id=real_note.id,
                 version=v,
                 created_at=now - timedelta(days=60),
             ))
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=real_note.id,
+            version=4,
+            created_at=now - timedelta(hours=1),
+        ))
 
         # Add orphans of different types
         db_session.add(create_history_record(
@@ -1036,7 +1694,7 @@ class TestRunCleanupIntegration:
         assert stats.soft_deleted_expired == 2
         assert stats.soft_deleted_by_type["notes"] == 2
 
-        # Verify expired breakdown
+        # Verify expired breakdown: 3 aged rows deleted, v4 anchor preserved.
         assert stats.expired_by_tier[Tier.FREE.value] == 3
         assert stats.expired_deleted == 3
 
@@ -1074,12 +1732,25 @@ class TestRunCleanupIntegration:
         db_session.add(deleted_note)
         await db_session.flush()
 
-        # 2. Old history record
+        # 2. Old history record (v1 aged) + fresh v2 anchor so v1 is deletable
+        #    under the preservation rule. Anchor to a real Note so the v2
+        #    anchor isn't swept up as an orphan by step 3 of run_cleanup.
+        real_note = Note(user_id=user.id, title="Real", content="Content")
+        db_session.add(real_note)
+        await db_session.flush()
         db_session.add(create_history_record(
             user_id=user.id,
             entity_type=EntityType.NOTE,
-            entity_id=uuid4(),
+            entity_id=real_note.id,
+            version=1,
             created_at=now - timedelta(days=60),
+        ))
+        db_session.add(create_history_record(
+            user_id=user.id,
+            entity_type=EntityType.NOTE,
+            entity_id=real_note.id,
+            version=2,
+            created_at=now - timedelta(hours=1),
         ))
 
         # 3. Orphaned history
