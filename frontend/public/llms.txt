@@ -273,7 +273,7 @@ If you need scripted access to these, authenticate with an Auth0 session.
 - `Alt+L`: Toggle line numbers.
 - `Alt+M`: Toggle monospace font.
 - `Alt+T`: Toggle table of contents sidebar (navigable list of headings).
-- Standard formatting: `Cmd+B` (bold), `Cmd+I` (italic), `Cmd+E` (inline code), `Cmd+K` (link), `Cmd+Shift+E` (code block), `Cmd+Shift+8` (bullet list), `Cmd+Shift+7` (numbered list), `Cmd+Shift+9` (task list).
+- Standard formatting: `Cmd+B` (bold), `Cmd+I` (italic), `Cmd+E` (inline code), `Cmd+K` (link), `Cmd+Shift+E` (code block), `Cmd+Shift+7` (bullet list), `Cmd+Shift+8` (numbered list), `Cmd+Shift+9` (checklist).
 
 ## Platform
 

@@ -1,10 +1,51 @@
 /**
  * Tests for markdown style extension helper functions.
  */
-import { describe, it, expect } from 'vitest'
-import { _testExports } from './markdownStyleExtension'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { EditorState } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
+import { _testExports, markdownStyleExtension } from './markdownStyleExtension'
 
-const { findImages, findLinks, findInlineCode, findStrikethrough, findHighlight, findBold, findItalic, findBlockquoteSyntax, findJinjaExpressions, parseLine } = _testExports
+const {
+  findImages,
+  findLinks,
+  findInlineCode,
+  findStrikethrough,
+  findHighlight,
+  findBold,
+  findItalic,
+  findBlockquoteSyntax,
+  findJinjaExpressions,
+  parseLine,
+  handleEditorMousedown,
+  handleEditorClick,
+  handleEditorMousemove,
+  handleEditorMouseleave,
+  handleEditorKeyup,
+} = _testExports
+
+/**
+ * Build a minimal EditorView for handler tests. jsdom doesn't compute layout,
+ * so we stub `posAtCoords` to return a fixed document position — handlers call
+ * it with client coords and only care about the returned doc position.
+ */
+function buildView(doc: string, posAtCoordsReturn: number | null): EditorView {
+  const parent = document.createElement('div')
+  const view = new EditorView({
+    state: EditorState.create({ doc, extensions: [markdownStyleExtension] }),
+    parent,
+  })
+  vi.spyOn(view, 'posAtCoords').mockReturnValue(posAtCoordsReturn)
+  return view
+}
+
+function makeMouseEvent(init: Partial<MouseEventInit> = {}, target?: HTMLElement): MouseEvent {
+  const event = new MouseEvent('mousedown', { button: 0, ...init })
+  // Give the event a non-null target so handler code that reads target.classList works.
+  Object.defineProperty(event, 'target', { value: target ?? document.createElement('div') })
+  vi.spyOn(event, 'preventDefault')
+  return event
+}
 
 describe('findImages', () => {
   it('should find a simple image', () => {
@@ -413,36 +454,80 @@ describe('parseLine', () => {
       const result = parseLine('123. Item', false)
       expect(result?.type).toBe('numbered')
     })
+
+    // prefixLen powers the per-line hanging-indent CSS variable so wrapped
+    // list lines align with the content after the marker (KAN-111).
+    describe('prefixLen (hanging indent width)', () => {
+      it('returns 2 for "- Item"', () => {
+        expect(parseLine('- Item', false)?.prefixLen).toBe(2)
+      })
+
+      it('returns 3 for "1. Item"', () => {
+        expect(parseLine('1. Item', false)?.prefixLen).toBe(3)
+      })
+
+      it('returns 5 for "123. Item"', () => {
+        expect(parseLine('123. Item', false)?.prefixLen).toBe(5)
+      })
+
+      it('includes leading indent for nested bullet', () => {
+        expect(parseLine('  - Nested', false)?.prefixLen).toBe(4)
+      })
+
+      it('includes leading indent for deeply nested bullet', () => {
+        expect(parseLine('      - Deep', false)?.prefixLen).toBe(8)
+      })
+
+      it('returns 6 for "- [ ] Item"', () => {
+        expect(parseLine('- [ ] Item', false)?.prefixLen).toBe(6)
+      })
+
+      it('includes leading indent for nested checklist', () => {
+        expect(parseLine('  - [x] Nested', false)?.prefixLen).toBe(8)
+      })
+    })
   })
 
-  describe('tasks', () => {
-    it('should detect unchecked task', () => {
-      const result = parseLine('- [ ] Task', false)
-      expect(result?.type).toBe('task')
+  describe('checklist', () => {
+    it('should detect unchecked checklist item', () => {
+      const result = parseLine('- [ ] Item', false)
+      expect(result?.type).toBe('checklist')
       expect(result?.checked).toBe(false)
     })
 
-    it('should detect checked task', () => {
-      const result = parseLine('- [x] Task', false)
-      expect(result?.type).toBe('task')
+    it('should detect checked checklist item', () => {
+      const result = parseLine('- [x] Item', false)
+      expect(result?.type).toBe('checklist')
       expect(result?.checked).toBe(true)
     })
 
-    it('should detect checked task with uppercase X', () => {
-      const result = parseLine('- [X] Task', false)
-      expect(result?.type).toBe('task')
+    it('should detect checked checklist item with uppercase X', () => {
+      const result = parseLine('- [X] Item', false)
+      expect(result?.type).toBe('checklist')
       expect(result?.checked).toBe(true)
     })
 
     it('should provide bracket position', () => {
-      const result = parseLine('- [ ] Task', false)
+      const result = parseLine('- [ ] Item', false)
       expect(result?.bracketPos).toBe(2)  // Position of [ for editing
     })
 
-    it('should handle indented tasks', () => {
-      const result = parseLine('  - [ ] Nested task', false)
-      expect(result?.type).toBe('task')
+    it('should handle indented checklist items', () => {
+      const result = parseLine('  - [ ] Nested item', false)
+      expect(result?.type).toBe('checklist')
       expect(result?.bracketPos).toBe(4)  // Position of [ for editing
+    })
+
+    // bracketPos is now computed from the actual match position of "[" so it
+    // stays correct for multi-space variants. The click-to-toggle handler
+    // dispatches a 3-character replacement at bracketPos; if this were off by
+    // one, the toggle would corrupt the line.
+    it('returns correct bracketPos for multi-space between marker and [', () => {
+      expect(parseLine('-  [ ] Item', false)?.bracketPos).toBe(3)
+    })
+
+    it('returns correct bracketPos for indent + multi-space', () => {
+      expect(parseLine('  -  [x] Item', false)?.bracketPos).toBe(5)
     })
   })
 
@@ -698,6 +783,281 @@ describe('findJinjaExpressions', () => {
       const result = findJinjaExpressions('{{}}')
       expect(result).toHaveLength(1)
       expect(result[0].type).toBe('variable')
+    })
+  })
+})
+
+describe('link dom event handlers', () => {
+  let views: EditorView[] = []
+
+  beforeEach(() => {
+    views = []
+  })
+
+  afterEach(() => {
+    views.forEach((v) => v.destroy())
+    vi.restoreAllMocks()
+  })
+
+  function track(view: EditorView): EditorView {
+    views.push(view)
+    return view
+  }
+
+  describe('handleEditorMousedown — cmd/ctrl intercept', () => {
+    it('returns true and prevents default when cmd+mousedown over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      // position 6 is inside "[example]"
+      const view = track(buildView(doc, 6))
+      const event = makeMouseEvent({ metaKey: true })
+
+      const handled = handleEditorMousedown(event, view)
+
+      expect(handled).toBe(true)
+      expect(event.preventDefault).toHaveBeenCalled()
+    })
+
+    it('does not intercept cmd+mousedown outside a link', () => {
+      const doc = 'plain text without any link'
+      const view = track(buildView(doc, 3))
+      const event = makeMouseEvent({ metaKey: true })
+
+      const handled = handleEditorMousedown(event, view)
+
+      expect(handled).toBe(false)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+    })
+
+    it('does not intercept plain mousedown over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const event = makeMouseEvent({})
+
+      const handled = handleEditorMousedown(event, view)
+
+      expect(handled).toBe(false)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+    })
+
+    it('also intercepts ctrl+mousedown over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const event = makeMouseEvent({ ctrlKey: true })
+
+      expect(handleEditorMousedown(event, view)).toBe(true)
+    })
+
+    it('treats url portion of [title](url) as part of the link', () => {
+      const doc = 'see [example](https://example.com) here'
+      // position 20 is inside the URL
+      const view = track(buildView(doc, 20))
+      const event = makeMouseEvent({ metaKey: true })
+
+      expect(handleEditorMousedown(event, view)).toBe(true)
+    })
+  })
+
+  describe('handleEditorClick — open link', () => {
+    it('opens link via window.open when cmd+click over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      const event = makeMouseEvent({ metaKey: true })
+
+      const handled = handleEditorClick(event, view)
+
+      expect(handled).toBe(true)
+      expect(openSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer')
+      expect(event.preventDefault).toHaveBeenCalled()
+    })
+
+    it('prepends https:// when URL lacks a scheme', () => {
+      const doc = '[bare](example.com)'
+      const view = track(buildView(doc, 3))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      const event = makeMouseEvent({ metaKey: true })
+
+      handleEditorClick(event, view)
+
+      expect(openSpy).toHaveBeenCalledWith('https://example.com', '_blank', 'noopener,noreferrer')
+    })
+
+    it('does nothing on plain click', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      const event = makeMouseEvent({})
+
+      const handled = handleEditorClick(event, view)
+
+      expect(handled).toBe(false)
+      expect(openSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not open when cmd+click outside a link', () => {
+      const doc = 'plain text without any link'
+      const view = track(buildView(doc, 3))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      const event = makeMouseEvent({ metaKey: true })
+
+      expect(handleEditorClick(event, view)).toBe(false)
+      expect(openSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('handleEditorMousemove — pointer cursor', () => {
+    it('adds link-hover class when cmd held over a link', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const event = makeMouseEvent({ metaKey: true })
+
+      handleEditorMousemove(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(true)
+    })
+
+    it('removes link-hover class when cmd no longer held', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.dom.classList.add('cm-md-link-hover')
+      const event = makeMouseEvent({})
+
+      handleEditorMousemove(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(false)
+    })
+
+    it('does not add link-hover class when cmd held but not over a link', () => {
+      const doc = 'plain text with no links here'
+      const view = track(buildView(doc, 5))
+      const event = makeMouseEvent({ metaKey: true })
+
+      handleEditorMousemove(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(false)
+    })
+
+    it('does not touch inline cursor style on contentDOM', () => {
+      // Guards the ownership invariant: this handler should not mutate
+      // inline cursor styles it doesn't own.
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.contentDOM.style.cursor = 'text'
+      const event = makeMouseEvent({})
+
+      handleEditorMousemove(event, view)
+
+      expect(view.contentDOM.style.cursor).toBe('text')
+    })
+  })
+
+  describe('handleEditorMouseleave', () => {
+    it('removes link-hover class on mouseleave', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.dom.classList.add('cm-md-link-hover')
+
+      handleEditorMouseleave(new MouseEvent('mouseleave'), view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(false)
+    })
+
+    it('does not touch inline cursor style on contentDOM', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.contentDOM.style.cursor = 'text'
+
+      handleEditorMouseleave(new MouseEvent('mouseleave'), view)
+
+      expect(view.contentDOM.style.cursor).toBe('text')
+    })
+  })
+
+  describe('handleEditorKeyup', () => {
+    it('removes link-hover class when cmd is released', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.dom.classList.add('cm-md-link-hover')
+      const event = new KeyboardEvent('keyup', { key: 'Meta' })
+
+      handleEditorKeyup(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(false)
+    })
+
+    it('does not remove link-hover class while cmd still held', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      view.dom.classList.add('cm-md-link-hover')
+      const event = new KeyboardEvent('keyup', { key: 'a', metaKey: true })
+
+      handleEditorKeyup(event, view)
+
+      expect(view.dom.classList.contains('cm-md-link-hover')).toBe(true)
+    })
+  })
+
+  describe('cmd+click end-to-end sequence', () => {
+    // Core contract of the fix: mousedown intercepts to prevent multi-cursor,
+    // and the subsequent click still opens the link with a single selection.
+    it('opens link and preserves single selection across mousedown+click', () => {
+      const doc = 'see [example](https://example.com) here'
+      const view = track(buildView(doc, 6))
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+
+      const initialRangeCount = view.state.selection.ranges.length
+
+      const mousedown = makeMouseEvent({ metaKey: true })
+      const mousedownHandled = handleEditorMousedown(mousedown, view)
+
+      const click = makeMouseEvent({ metaKey: true })
+      const clickHandled = handleEditorClick(click, view)
+
+      expect(mousedownHandled).toBe(true)
+      expect(clickHandled).toBe(true)
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://example.com',
+        '_blank',
+        'noopener,noreferrer',
+      )
+      // Selection untouched — no secondary cursor added.
+      expect(view.state.selection.ranges.length).toBe(initialRangeCount)
+    })
+  })
+
+  describe('checklist toggle on multi-space lines', () => {
+    // Locks in the bracketPos fix: parseLine now derives bracketPos from the
+    // actual match position of "[" so the click-to-toggle handler correctly
+    // replaces the 3-char checkbox even when there are multiple spaces
+    // between the marker and "[". Before the fix, bracketPos was hardcoded
+    // off-by-N and the toggle would corrupt the line.
+    it('toggles "[ ]" → "[x]" on a line with multi-space marker spacing', () => {
+      const doc = '-  [ ] Item'
+      // Any pos inside the line works; the handler re-derives bracketPos
+      // from parseLine on the line's text. Position 3 is "[".
+      const view = track(buildView(doc, 3))
+
+      const target = document.createElement('span')
+      target.className = 'cm-md-checklist-checkbox cm-md-checklist-checkbox-unchecked'
+      const event = makeMouseEvent({}, target)
+
+      const handled = handleEditorMousedown(event, view)
+
+      expect(handled).toBe(true)
+      expect(view.state.doc.toString()).toBe('-  [x] Item')
+    })
+
+    it('toggles "[x]" → "[ ]" on an indented multi-space line', () => {
+      const doc = '  -  [x] Item'
+      const view = track(buildView(doc, 5))
+
+      const target = document.createElement('span')
+      target.className = 'cm-md-checklist-checkbox cm-md-checklist-checkbox-checked'
+      const event = makeMouseEvent({}, target)
+
+      handleEditorMousedown(event, view)
+
+      expect(view.state.doc.toString()).toBe('  -  [ ] Item')
     })
   })
 })

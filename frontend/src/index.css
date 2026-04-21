@@ -522,7 +522,10 @@ body {
   @apply my-1;
 }
 
-/* Task lists (checkboxes) - Milkdown uses data attributes instead of input elements
+/* Checklist (checkboxes) - Milkdown uses data attributes instead of input elements.
+ * Note: Milkdown's GFM plugin tags items as `data-item-type="task"` — that
+ * attribute name is owned upstream and can't be renamed; we surface it as
+ * "Checklist" everywhere in our UI.
  * IMPORTANT: The checkbox click detection in MilkdownEditor.tsx (CHECKBOX_CLICK_AREA_WIDTH)
  * depends on these dimensions. The checkbox is 16px (h-4 w-4) + 8px gap = ~24px total.
  * If you change these styles, update CHECKBOX_CLICK_AREA_WIDTH in MilkdownEditor.tsx accordingly.
@@ -531,19 +534,19 @@ body {
   @apply list-none flex flex-wrap items-start gap-x-2;
 }
 
-/* Paragraph content inside task items should stay inline with checkbox */
+/* Paragraph content inside checklist items should stay inline with checkbox */
 .milkdown-wrapper .milkdown li[data-item-type="task"] > p {
   @apply flex-1 min-w-0;
 }
 
-/* Nested lists inside task items should take full width to appear below */
+/* Nested lists inside checklist items should take full width to appear below */
 .milkdown-wrapper .milkdown li[data-item-type="task"] > ul,
 .milkdown-wrapper .milkdown li[data-item-type="task"] > ol {
   @apply w-full my-0;
   margin-left: 1.5rem; /* Indent nested lists */
 }
 
-/* Remove margin from all nested lists within task items to prevent extra gaps */
+/* Remove margin from all nested lists within checklist items to prevent extra gaps */
 .milkdown-wrapper .milkdown li[data-item-type="task"] ul,
 .milkdown-wrapper .milkdown li[data-item-type="task"] ol {
   @apply my-0;
@@ -567,7 +570,7 @@ body {
   background-repeat: no-repeat;
 }
 
-/* Remove default bullet from task list parent */
+/* Remove default bullet from checklist parent */
 .milkdown-wrapper .milkdown ul:has(li[data-item-type="task"]) {
   @apply list-none pl-4;
 }

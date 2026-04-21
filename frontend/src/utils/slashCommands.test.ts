@@ -88,7 +88,7 @@ describe('buildCommands', () => {
       'Heading 3',
       'Bulleted list',
       'Numbered list',
-      'To-do list',
+      'Checklist',
       'Code block',
       'Blockquote',
       'Link',
@@ -108,7 +108,7 @@ describe('buildCommands', () => {
       'Heading 3',
       'Bulleted list',
       'Numbered list',
-      'To-do list',
+      'Checklist',
       'Code block',
       'Blockquote',
       'Link',
@@ -352,7 +352,7 @@ describe('apply functions', () => {
       ['Heading 3', '### '],
       ['Bulleted list', '- '],
       ['Numbered list', '1. '],
-      ['To-do list', '- [ ] '],
+      ['Checklist', '- [ ] '],
       ['Blockquote', '> '],
     ])('test__apply__%s__inserts_correct_text', (label: string, expected: string) => {
       const result = applyCommand('/', label)

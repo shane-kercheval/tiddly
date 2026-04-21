@@ -46,7 +46,7 @@ interface IconFactories {
   link: () => ReactNode
   bulletList: () => ReactNode
   orderedList: () => ReactNode
-  taskList: () => ReactNode
+  checklist: () => ReactNode
   blockquote: () => ReactNode
   horizontalRule: () => ReactNode
   heading1: () => ReactNode
@@ -225,7 +225,7 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
     label: 'Bulleted list',
     section: 'Insert',
     icon: icons.bulletList(),
-    shortcut: ['\u2318', '\u21e7', '8'],
+    shortcut: ['\u2318', '\u21e7', '7'],
     action: (view) => { toggleLinePrefix(view, '- ') },
   })
   commands.push({
@@ -233,14 +233,14 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
     label: 'Numbered list',
     section: 'Insert',
     icon: icons.orderedList(),
-    shortcut: ['\u2318', '\u21e7', '7'],
+    shortcut: ['\u2318', '\u21e7', '8'],
     action: (view) => { toggleLinePrefix(view, '1. ') },
   })
   commands.push({
-    id: 'todo-list',
-    label: 'To-do list',
+    id: 'checklist',
+    label: 'Checklist',
     section: 'Insert',
-    icon: icons.taskList(),
+    icon: icons.checklist(),
     shortcut: ['\u2318', '\u21e7', '9'],
     action: (view) => { toggleLinePrefix(view, '- [ ] ') },
   })

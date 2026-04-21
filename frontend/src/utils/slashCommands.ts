@@ -43,7 +43,7 @@ const SVG_ICONS: Record<string, string> = {
   h3: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h8"/><path d="M4 18V6"/><path d="M12 18V6"/><path d="M17.5 10.5c1.7-1 3.5 0 3.5 1.5a2 2 0 0 1-2 2"/><path d="M17 17.5c2 1.5 4 .3 4-1.5a2 2 0 0 0-2-2"/></svg>',
   bullet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="3" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="18" r="1" fill="currentColor" stroke="none"/></svg>',
   number: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h11M10 12h11M10 18h11"/><text x="2" y="9" font-size="8" fill="currentColor" stroke="none" font-weight="600">1</text><text x="2" y="15" font-size="8" fill="currentColor" stroke="none" font-weight="600">2</text><text x="2" y="21" font-size="8" fill="currentColor" stroke="none" font-weight="600">3</text></svg>',
-  todo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="2"/><path stroke-width="2.5" d="M6 12l3 3 5-5"/></svg>',
+  checklist: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="14" height="14" rx="2"/><path stroke-width="2.5" d="M6 12l3 3 5-5"/></svg>',
   code: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4c-2 0-3 1-3 3v3c0 1.5-1 2-2 2 1 0 2 .5 2 2v3c0 2 1 3 3 3M16 4c2 0 3 1 3 3v3c0 1.5 1 2 2 2-1 0-2 .5-2 2v3c0 2-1 3-3 3"/></svg>',
   quote: '<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="2.5" height="16" rx="1" fill="currentColor"/><path d="M10 8h10M10 12h8M10 16h6" stroke="currentColor" stroke-width="2"/></svg>',
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.828 10.172a4 4 0 0 0-5.656 0l-4 4a4 4 0 1 0 5.656 5.656l1.102-1.101"/><path d="M10.172 13.828a4 4 0 0 0 5.656 0l4-4a4 4 0 0 0-5.656-5.656l-1.1 1.1"/></svg>',
@@ -109,7 +109,7 @@ function buildCommands(showJinjaTools: boolean): Completion[] {
     { label: 'Heading 3', detail: '###', type: 'h3', section: BASIC_SECTION, boost: 4, apply: applySimple('### ') },
     { label: 'Bulleted list', detail: '-', type: 'bullet', section: BASIC_SECTION, boost: 3, apply: applySimple('- ') },
     { label: 'Numbered list', detail: '1.', type: 'number', section: BASIC_SECTION, boost: 2, apply: applySimple('1. ') },
-    { label: 'To-do list', detail: '- [ ]', type: 'todo', section: BASIC_SECTION, boost: 1, apply: applySimple('- [ ] ') },
+    { label: 'Checklist', detail: '- [ ]', type: 'checklist', section: BASIC_SECTION, boost: 1, apply: applySimple('- [ ] ') },
     {
       label: 'Code block',
       detail: '```',
@@ -215,9 +215,9 @@ function createSlashCommandSource(showJinjaTools: boolean): CompletionSource {
 // ---------------------------------------------------------------------------
 
 const SHORTCUT_MAP: Record<string, string[]> = {
-  bullet: ['⌘', '⇧', '8'],
-  number: ['⌘', '⇧', '7'],
-  todo: ['⌘', '⇧', '9'],
+  bullet: ['⌘', '⇧', '7'],
+  number: ['⌘', '⇧', '8'],
+  checklist: ['⌘', '⇧', '9'],
   quote: ['⌘', '⇧', '.'],
   code: ['⌘', '⇧', 'E'],
   link: ['⌘', 'K'],

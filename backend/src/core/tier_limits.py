@@ -83,7 +83,7 @@ _FIELD_LENGTHS = {
     "max_url_length": 2048,
     "max_prompt_name_length": 100,
     "max_argument_name_length": 100,
-    "max_argument_description_length": 500,
+    "max_argument_description_length": 1000,
 }
 
 TIER_LIMITS: dict[Tier, TierLimits] = {
