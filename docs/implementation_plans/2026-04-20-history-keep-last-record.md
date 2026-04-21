@@ -204,6 +204,19 @@ Do **not** make `EXPLAIN ANALYZE` a gating requirement. Both shapes plan well in
 10. **`test_preservation_follows_latest_across_runs`**
     Seed an entity with multiple aged versioned rows, run cleanup (leaves the latest preserved), then insert a *new* aged versioned row with a higher `version`, then run cleanup again. Assert: the previously-preserved row is now deleted (it is no longer the latest), and the new row is preserved. This catches bugs where preservation was cached, where `rn = 1` was computed against a stale view, or where the NOT EXISTS predicate was written against the wrong partition.
 
+11. **`test_same_tier_users_isolated`**
+    Two users **in the same tier**, each with their own entity and aged versioned rows → each user's entity retains exactly its own latest versioned row (2 rows preserved total). Distinct from #7 (which crosses tiers) and #6 (which uses a single user). The tier-batched DELETE runs one statement across all users in the tier; this test confirms the `(user_id, entity_type, entity_id)` partition keeps users isolated within a tier.
+
+12. **`test_view_content_at_preserved_version`** *(parameterized)*
+    After cleanup preserves a single versioned row, confirm `reconstruct_content_at_version` (the path used by the view-at-version endpoint) returns correct content for that version. **Parameterize over two shapes of the preserved row:**
+    - Preserved row is at a non-modulo-10 version (e.g., v5) → `content_snapshot` is None, row has `content_diff` only. Reconstruction must anchor on `entity.content` and skip the diff (target == latest, no diffs to apply).
+    - Preserved row is at a modulo-10 version (e.g., v10) → `content_snapshot` is set. Reconstruction can anchor on the snapshot.
+
+    Assert the returned content equals the entity's current content in both shapes. This pins the reconstruction path through a single-row post-cleanup history, which is a distinct code path from restore and from the diff endpoint.
+
+13. **`test_create_only_entity_preserved_when_aged`**
+    Entity with exactly one history record — a CREATE action (`action='create'`, `version=1`, `content_snapshot` set, `content_diff` None) — aged past cutoff → the CREATE record is preserved. Confirms CREATE records are first-class preservation-eligible rows (not accidentally excluded by a check that assumes `content_diff IS NOT NULL`).
+
 ### Symptom-level regression test (REQUIRED — the highest-value test in this milestone)
 
 The tests above prove rows survive/die correctly. This test proves the **user-visible bug is actually fixed**: that after cleanup, the next edit through the normal service path produces a working diff and a restorable anchor.
@@ -214,7 +227,7 @@ The tests above prove rows survive/die correctly. This test proves the **user-vi
 
 **Parameterize over both starting states** (use `pytest.mark.parametrize`):
 
-- **`versioned-aged`**: entity has multiple aged versioned history rows, all past cutoff.
+- **`versioned-aged`**: entity has multiple aged versioned history rows, all past cutoff. Seed so the preserved (latest versioned) row ends up at a version > 1 with a populated `metadata_snapshot` that differs from the post-edit state (so we can assert the diff endpoint reads the right `before_metadata`).
 - **`audit-only-aged`**: entity has only aged audit rows (e.g., ARCHIVE/UNARCHIVE), all past cutoff, no versioned rows.
 
 For each starting state:
@@ -223,10 +236,15 @@ For each starting state:
 2. Run `cleanup_expired_history` with an injected `now` that makes all seeded rows aged.
 3. Verify the expected surviving set (versioned-aged → exactly the latest versioned row survives; audit-only-aged → zero history rows survive).
 4. Perform an update on the entity **through the service layer** (e.g., `BookmarkService.update` / the path that calls `record_action`).
-5. Assert:
-   - A new `ContentHistory` row is written with a non-null `content_diff` when a predecessor exists; for `audit-only-aged`, the first post-cleanup edit behaves like a fresh CREATE (snapshot, no diff, version allocation is sensible — whatever `_get_next_version` yields here is the contract, pin it explicitly).
-   - `get_version_diff` for the new version returns non-null `before_metadata` when a predecessor exists (versioned-aged case); for audit-only-aged, the diff endpoint behaves as it does for a genuine CREATE.
-   - Restore to the preserved prior version succeeds (versioned-aged case only; nothing to restore to in audit-only-aged).
+5. Assert (versioned-aged):
+   - A new `ContentHistory` row is written with a non-null `content_diff`.
+   - `get_version_diff` for the new version returns non-null `before_metadata`, **and its contents equal the preserved row's `metadata_snapshot` field-for-field** (title, tags, url/name as applicable). This pins that the diff endpoint reads the right predecessor, not just that *some* predecessor exists.
+   - `GET /history` for the entity (the list endpoint) returns the preserved row plus the new row — exactly the set we expect post-cleanup + post-edit. This confirms the history list endpoint reflects the post-cleanup state correctly.
+   - Restore to the preserved prior version succeeds and returns the preserved row's content.
+6. Assert (audit-only-aged):
+   - The first post-cleanup edit behaves like a fresh CREATE: `content_snapshot` set, `content_diff` None, version allocation is sensible — pin whatever `_get_next_version` yields here as the contract.
+   - The diff endpoint behaves as it does for a genuine CREATE (no predecessor metadata).
+   - `GET /history` returns exactly the one new row.
 
 Parameterizing this way subsumes the audit-only-edge concern without needing a separate test.
 
@@ -280,4 +298,3 @@ These don't belong inside the milestone work. Include them in the PR description
 
 - **Behavior change, not bugfix framing:** previously-documented behavior in `docs/content-versioning.md` (history starts fresh after long idle) is being changed, not restored. Doc updated in same PR.
 - **Storage footprint shift:** `content_history` row count now scales with live-entity count (one retained row per entity for long-idle entities), not strictly with retention days. Still bounded — one row per entity is tiny, and hard-delete cascades still clean up. Noting so future "why is this table growing" investigations land here.
-- **Telemetry check before merging:** if any Grafana/Railway alert watches `expired_deleted` volume, confirm it won't false-alarm on the expected drop for tiers with many long-idle entities. Quick check with whoever owns cleanup telemetry.
