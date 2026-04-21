@@ -2,7 +2,7 @@
 
 End-to-end verification of the `tiddly` CLI. Structured for an AI agent to execute, but every step is readable by a human. Covers command surface, scope variants, multi-account safety (additive configure + CLI-managed-only remove), URL-mismatch fail-closed gate with `--force` override, timestamped backups, remove flows including `--delete-tokens` with structured per-entry reporting, skills, error handling, and auth.
 
-**Branch focus:** additive-configure and canonical-name-only remove work lives in the new T2.11–T2.13 (additive preservation, update-in-place, --force), T3.6–T3.8 (mismatch fail-closed across single/multi tools with pluralization, dry-run warnings), T5.4 (multi-row rendering regression — same fixture, different assertions now), and T6.8 / T6.8b / T6.8c / T6.8d (`--delete-tokens` reshaped for canonical-only revocation across JSON+TOML handlers). If time-boxed, prioritize those. Phases 7 and 8 are regression backstops. **Don't skip Phase 1** — T1.5 and T1.7 are contract locks that Phase 0's cleanup depends on (`tokens list` column order, status row format); if they break, the safety machinery breaks.
+**Branch focus:** additive-configure and canonical-name-only remove work lives in the new T2.11–T2.13 (additive preservation, update-in-place, --force), T3.6–T3.8 (mismatch fail-closed across single/multi tools with pluralization, dry-run warnings), T4.4 (multi-row rendering regression — same fixture, different assertions now), and T5.8 / T5.8b / T5.8c / T5.8d (`--delete-tokens` reshaped for canonical-only revocation across JSON+TOML handlers). If time-boxed, prioritize those. Phases 7 and 8 are regression backstops. **Don't skip Phase 1** — T1.5 and T1.7 are contract locks that Phase 0's cleanup depends on (`tokens list` column order, status row format); if they break, the safety machinery breaks.
 
 ## Runs against LOCAL test services ONLY
 
@@ -15,7 +15,7 @@ This procedure is scoped to a local development environment:
 
 It MUST NOT be run against production. The Phase 0 setup aborts if these env vars aren't set. Tokens minted during the run are test tokens against the local/dev account only; they never touch production state.
 
-The Phase 0 setup also **wipes user Tiddly entries from the real config files** (after backup) so every subsequent test operates on test tokens only, never on the user's real tokens. The user's real tokens stay alive on the local dev server (untouched) and get restored when the config files are restored in Phase 10.
+The Phase 0 setup also **wipes user Tiddly entries from the real config files** (after backup) so every subsequent test operates on test tokens only, never on the user's real tokens. The user's real tokens stay alive on the local dev server (untouched) and get restored when the config files are restored in Phase 9.
 
 **Before running anything:** read [§ CRITICAL: Never Echo Token Values](#critical-never-echo-token-values), [§ Reporting Protocol](#reporting-protocol-read-this-second), and [§ Safety Model](#safety-model). Recommendation: run against a dedicated test account on your local dev server.
 
@@ -93,14 +93,14 @@ Stop, write the mismatch report, wait for human discussion. Do NOT silently upda
 ### Edge cases
 
 - **Flaky environment.** If a test fails due to an obviously environmental issue (local API down, disk full, OAuth expired), report but don't categorize as product-bug. Category: `ambiguous` or a new `environment`.
-- **Order-dependent tests that fail on rerun.** Some tests mutate state in ways that affect subsequent runs (e.g. T6.5 removes entries that T6.6 expects to exist). If you're resuming mid-plan after a previous failure, suspect order dependency first and re-read the phase header.
+- **Order-dependent tests that fail on rerun.** Some tests mutate state in ways that affect subsequent runs (e.g. T5.5 removes entries that T5.6 expects to exist). If you're resuming mid-plan after a previous failure, suspect order dependency first and re-read the phase header.
 - **Timing-sensitive assertions.** Backup filename timestamps change every second. If the plan expects an exact filename and the actual has a different timestamp, that's not a mismatch — the plan should be using glob patterns for timestamps (e.g. `<path>.bak.*`). Report as plan-bug if the plan hardcodes a timestamp.
 
 ---
 
 ## Live Run Report
 
-The agent maintains a running markdown report at `$BACKUP_DIR/test-report.md` throughout the run. The engineer can `tail -f` it to follow progress in real time; on clean success, Phase 10 (and `on_exit` on failure) copies it to `<repo-root>/test-run-<UTC-ts>.md` for post-run inspection. The path is anchored via `git rev-parse --show-toplevel`, falling back to `$PWD` if that fails. The report starts blank and grows append-only.
+The agent maintains a running markdown report at `$BACKUP_DIR/test-report.md` throughout the run. The engineer can `tail -f` it to follow progress in real time; on clean success, Phase 9 (and `on_exit` on failure) copies it to `<repo-root>/test-run-<UTC-ts>.md` for post-run inspection. The path is anchored via `git rev-parse --show-toplevel`, falling back to `$PWD` if that fails. The report starts blank and grows append-only.
 
 ### What goes in the report
 
@@ -134,7 +134,7 @@ If you cannot use a test account, the procedure is still safe to run, but review
 
 - [ ] CLI is built: `make cli-build` (verify `bin/tiddly` exists)
 - [ ] Local API and MCP servers are running (tests run against local services, not production)
-- [ ] **Backend `VITE_DEV_MODE` is `false`.** Dev mode short-circuits all Bearer validation (PATs and JWTs alike resolve to a shared dev user), which silently breaks any test that depends on server-side token validation — most visibly T2.12's canonical-PAT validate-then-reuse path and the CLI-minted/orphan-token assertions in T6.8 / T6.8d. Phase 0 runs a probe that FATALs if dev mode is detected.
+- [ ] **Backend `VITE_DEV_MODE` is `false`.** Dev mode short-circuits all Bearer validation (PATs and JWTs alike resolve to a shared dev user), which silently breaks any test that depends on server-side token validation — most visibly T2.12's canonical-PAT validate-then-reuse path and the CLI-minted/orphan-token assertions in T5.8 / T5.8d. Phase 0 runs a probe that FATALs if dev mode is detected.
 - [ ] Authenticated via OAuth — see [§ Auth](#auth-engineer-must-do-this-manually) (human step, must happen before the agent starts)
 - [ ] API is reachable: `bin/tiddly status` shows API status `ok`
 
@@ -179,13 +179,13 @@ The per-call model means the EXIT trap fires after **every** Bash call (each cal
 To make this work, the trap is **failure-only**:
 
 - **`on_exit`** (registered by `per_call.sh`) — fires on every call's exit. On rc=0 it returns early and does nothing. On rc≠0 (a genuine crash) it does **crash recovery only**: restores configs and cleans up this-run tokens, but **preserves** `$BACKUP_DIR`, `$TEST_PROJECT`, and `/tmp/tiddly-test-state.env` so the engineer can inspect what went wrong.
-- **`final_teardown`** (defined in `lib.sh`, called explicitly from Phase 10) — does the full session-end cleanup: restore configs, revoke this-run tokens, copy the live report to the retained post-run location, and delete `$BACKUP_DIR`, `$TEST_PROJECT`, and `/tmp/tiddly-test-state.env`. Sets `TEARDOWN_COMPLETE=1` so the trap that fires as the shell exits sees the sentinel and no-ops.
+- **`final_teardown`** (defined in `lib.sh`, called explicitly from Phase 9) — does the full session-end cleanup: restore configs, revoke this-run tokens, copy the live report to the retained post-run location, and delete `$BACKUP_DIR`, `$TEST_PROJECT`, and `/tmp/tiddly-test-state.env`. Sets `TEARDOWN_COMPLETE=1` so the trap that fires as the shell exits sees the sentinel and no-ops.
 
 **Between-call** crashes (agent stops between tests) don't fire the trap. `$BACKUP_DIR` persists with original configs; the engineer can recover manually using the paths shown in the trap's WARNING (if the last call printed one). If a new run starts and `/tmp/tiddly-test-state.env` still exists but references a deleted `$BACKUP_DIR`, `per_call.sh` detects that staleness and FATALs with an actionable fix. **To proactively trigger cleanup on abort**: call `on_exit 1` to fire the crash-recovery path, or call `final_teardown` to do the explicit clean teardown — both are available after `per_call.sh` is sourced.
 
 ### Fixture helpers
 
-`write_multi_entry_prompts` / `write_multi_entry_prompts_desktop` / `write_multi_entry_prompts_codex` are defined in `lib.sh` and available after `per_call.sh` is sourced. They're used by T2.11, T5.4, T6.8, T6.8c.
+`write_multi_entry_prompts` / `write_multi_entry_prompts_desktop` / `write_multi_entry_prompts_codex` are defined in `lib.sh` and available after `per_call.sh` is sourced. They're used by T2.11, T4.4, T5.8, T5.8c.
 
 
 ## Auth (engineer must do this manually)
@@ -202,7 +202,7 @@ If you already ran `bin/tiddly login` bare and ended up logged into production, 
 
 ### Preflight — one check before you start
 
-Confirm `VITE_DEV_MODE=false` in the backend's `.env` (or is unset). Dev mode makes the backend accept any Bearer value as the dev user and silently breaks token-validation tests (T2.12 canonical reuse, T6.8 canonical revoke + orphan filter). Phase 0 has a probe that FATALs on detection, but checking here first saves a wasted run.
+Confirm `VITE_DEV_MODE=false` in the backend's `.env` (or is unset). Dev mode makes the backend accept any Bearer value as the dev user and silently breaks token-validation tests (T2.12 canonical reuse, T5.8 canonical revoke + orphan filter). Phase 0 has a probe that FATALs on detection, but checking here first saves a wasted run.
 
 ### Auth0 values — these are not secrets
 
@@ -535,7 +535,7 @@ backup_path=$(echo "$out" | sed -n 's/.*Backed up claude-desktop config to \(.*\
 - [ ] `jq -e --arg u "$TIDDLY_CONTENT_MCP_URL" '.mcpServers.tiddly_notes_bookmarks.args | contains([$u])' "$CLAUDE_DESKTOP_CONFIG" >/dev/null`
 - [ ] `jq -e '.mcpServers.tiddly_notes_bookmarks.args | map(startswith("Authorization: Bearer bm_")) | any' "$CLAUDE_DESKTOP_CONFIG" >/dev/null` — one arg is the well-formed auth header; never printed
 - [ ] Same assertions for `tiddly_prompts` with prompts URL
-- [ ] Stderr contains `Warning: Restart Claude Desktop to apply changes.` — **note the `Warning: ` prefix** (configure pushes the restart hint through `ConfigureResult.Warnings`, which `cmd/mcp.go` prefixes). This is asymmetric with `mcp remove claude-desktop` (T6.4), which prints the same sentence bare without the prefix — plan-side is matching actual product behavior, not a contract violation. Record as `report_test NOTE` if you're tempted to file it.
+- [ ] Stderr contains `Warning: Restart Claude Desktop to apply changes.` — **note the `Warning: ` prefix** (configure pushes the restart hint through `ConfigureResult.Warnings`, which `cmd/mcp.go` prefixes). This is asymmetric with `mcp remove claude-desktop` (T5.4), which prints the same sentence bare without the prefix — plan-side is matching actual product behavior, not a contract violation. Record as `report_test NOTE` if you're tempted to file it.
 - [ ] Non-Tiddly server keys preserved (diff `jq -r '.mcpServers | keys[]'` before/after)
 
 ### [T2.8] --expires flag mints with expiration
@@ -839,11 +839,11 @@ assert_auth_still_working
 ```
 
 
-## Phase 5: Status
+## Phase 4: Status
 
-`phase "Phase 5: Status"`.
+`phase "Phase 4: Status"`.
 
-### [T5.1] Status all scopes (default path)
+### [T4.1] Status all scopes (default path)
 ```bash
 bin/tiddly mcp status
 ```
@@ -854,7 +854,7 @@ bin/tiddly mcp status
 - [ ] For scopes with Tiddly entries: server rows end with `(<config_key>)` suffix
 - [ ] Header is `MCP Servers:`
 
-### [T5.2] Status with explicit project path
+### [T4.2] Status with explicit project path
 ```bash
 bin/tiddly mcp status --path "$TEST_PROJECT"
 ```
@@ -862,18 +862,18 @@ bin/tiddly mcp status --path "$TEST_PROJECT"
 - [ ] Header: `MCP Servers (path: $TEST_PROJECT):`
 - [ ] claude-code directory scope shows `~/.claude.json → projects[...]` annotation
 
-<!-- T5.3 removed — invalid --path handling covered by T1.5 (shared validator) -->
+<!-- T4.3 removed — invalid --path handling covered by T1.5 (shared validator) -->
 
-### [T5.4] Multi-entry rendered as multiple rows (regression guard for KAN-112)
+### [T4.4] Multi-entry rendered as multiple rows (regression guard for KAN-112)
 
 Status must render non-CLI-managed Tiddly-URL entries as their own rows (not fold them under a single "prompts" node). This is the user-visible half of the additive-configure contract: `configure` preserves these entries, and `status` must make them visible so users know what they have.
 
 ```bash
-PAT_WORK_54=$(bin/tiddly tokens create "cli-mcp-test-t54-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_PERSONAL_54=$(bin/tiddly tokens create "cli-mcp-test-t54-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_WORK_54" ] && [ -n "$PAT_PERSONAL_54" ] || { echo "FATAL: T5.4 token mint failed"; exit 1; }
+PAT_WORK_44=$(bin/tiddly tokens create "cli-mcp-test-t44-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_44=$(bin/tiddly tokens create "cli-mcp-test-t44-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+[ -n "$PAT_WORK_44" ] && [ -n "$PAT_PERSONAL_44" ] || { echo "FATAL: T4.4 token mint failed"; exit 1; }
 
-write_multi_entry_prompts "$PAT_WORK_54" "$PAT_PERSONAL_54"
+write_multi_entry_prompts "$PAT_WORK_44" "$PAT_PERSONAL_44"
 out=$(bin/tiddly mcp status 2>&1)
 ```
 **Verify (anchor on the trailing `(name)` suffix, not leading whitespace — `mcp status` prefixes tree rows with `│` (U+2502 box-drawing) which is not POSIX `[[:space:]]`):**
@@ -887,7 +887,7 @@ out=$(bin/tiddly mcp status 2>&1)
 # multi-entry setup; the user's work_prompts/personal_prompts are
 # preserved.
 bin/tiddly mcp configure claude-code 2>/dev/null
-unset PAT_WORK_54 PAT_PERSONAL_54
+unset PAT_WORK_44 PAT_PERSONAL_44
 
 # End-of-Phase-5 token sweep. Revokes every cli-mcp-test-* PAT minted
 # across Phases 2–5 so later phases don't hit the tier's token cap when
@@ -901,16 +901,16 @@ assert_auth_still_working
 
 ---
 
-## Phase 6: Remove
+## Phase 5: Remove
 
-`phase "Phase 6: Remove"`.
+`phase "Phase 5: Remove"`.
 
-### [T6.1] Remove Claude Code user scope
+### [T5.1] Remove Claude Code user scope
 ```bash
 bin/tiddly mcp configure claude-code    # ensure configured
 pre_sha=$(sha_of "$CLAUDE_CODE_CONFIG")
 out=$(bin/tiddly mcp remove claude-code 2>&1)
-assert_no_plaintext_bearers "$out" "T6.1"
+assert_no_plaintext_bearers "$out" "T5.1"
 echo "$out"
 backup_path=$(echo "$out" | sed -n 's/.*Backed up previous config to \(.*\)$/\1/p' | head -1)
 ```
@@ -924,7 +924,7 @@ backup_path=$(echo "$out" | sed -n 's/.*Backed up previous config to \(.*\)$/\1/
 - [ ] Non-Tiddly keys preserved (diff `jq -r '.mcpServers | keys[]'` before-remove vs now; pre-remove had tiddly_*; now tiddly_* gone; everything else unchanged)
 - [ ] Stderr may contain an orphan-token warning
 
-### [T6.2] Remove Claude Code directory scope
+### [T5.2] Remove Claude Code directory scope
 ```bash
 cd "$TEST_PROJECT" && "$TIDDLY_BIN" mcp configure claude-code --scope directory
 cd "$TEST_PROJECT" && "$TIDDLY_BIN" mcp remove claude-code --scope directory
@@ -933,7 +933,7 @@ cd "$TEST_PROJECT" && "$TIDDLY_BIN" mcp remove claude-code --scope directory
 - [ ] `projects["$TEST_PROJECT"].mcpServers` has no Tiddly keys
 - [ ] Top-level `mcpServers` NOT modified
 
-### [T6.3] Remove Codex
+### [T5.3] Remove Codex
 ```bash
 bin/tiddly mcp configure codex
 bin/tiddly mcp remove codex
@@ -942,7 +942,7 @@ bin/tiddly mcp remove codex
 - [ ] Output: `Removed tiddly_notes_bookmarks, tiddly_prompts from codex.`
 - [ ] `$CODEX_CONFIG` has no `tiddly_*` entries
 
-### [T6.4] Remove Claude Desktop
+### [T5.4] Remove Claude Desktop
 ```bash
 bin/tiddly mcp configure claude-desktop
 bin/tiddly mcp remove claude-desktop
@@ -952,7 +952,7 @@ bin/tiddly mcp remove claude-desktop
 - [ ] Stderr: `Restart Claude Desktop to apply changes.`
 - [ ] Config has no `tiddly_*` entries
 
-### [T6.5] Remove `--servers content` (partial remove)
+### [T5.5] Remove `--servers content` (partial remove)
 ```bash
 bin/tiddly mcp configure claude-code
 bin/tiddly mcp remove claude-code --servers content
@@ -961,7 +961,7 @@ bin/tiddly mcp remove claude-code --servers content
 - [ ] `tiddly_notes_bookmarks` removed
 - [ ] `tiddly_prompts` still present
 
-### [T6.6] Remove `--servers prompts` (partial remove)
+### [T5.6] Remove `--servers prompts` (partial remove)
 ```bash
 bin/tiddly mcp configure claude-code
 bin/tiddly mcp remove claude-code --servers prompts
@@ -970,15 +970,15 @@ bin/tiddly mcp remove claude-code --servers prompts
 - [ ] `tiddly_prompts` removed
 - [ ] `tiddly_notes_bookmarks` still present
 
-### [T6.7] Remove with `--delete-tokens` (clean single-entry case)
+### [T5.7] Remove with `--delete-tokens` (clean single-entry case)
 ```bash
 # Clean install so we know exactly what was minted.
 bin/tiddly mcp remove claude-code 2>/dev/null || true
 out_configure=$(bin/tiddly mcp configure claude-code 2>&1)
-assert_no_plaintext_bearers "$out_configure" "T6.7-configure"
+assert_no_plaintext_bearers "$out_configure" "T5.7-configure"
 echo "$out_configure"
 out_remove=$(bin/tiddly mcp remove claude-code --delete-tokens 2>&1)
-assert_no_plaintext_bearers "$out_remove" "T6.7-remove"
+assert_no_plaintext_bearers "$out_remove" "T5.7-remove"
 echo "$out_remove"
 ```
 **Verify:**
@@ -986,17 +986,17 @@ echo "$out_remove"
 - [ ] `out_remove` contains `Deleted tokens:` listing those exact names
 - [ ] `bin/tiddly tokens list` confirms those tokens are gone
 
-### [T6.8] Remove `--delete-tokens` preserves non-CLI-managed entries (headline canonical-only guard)
+### [T5.8] Remove `--delete-tokens` preserves non-CLI-managed entries (headline canonical-only guard)
 
 Under the canonical-name-only remove, non-CLI-managed entries (e.g. `work_prompts` from a multi-account setup) MUST survive remove entirely — both the config entries and their PATs. This test proves the split: two canonical CLI-minted tokens are revoked; the non-CLI-managed work/personal entries and their PATs stay intact.
 
 ```bash
 # Fresh tokens. Two are attached to the CLI-managed entries; two more are attached to user-managed work/personal entries.
-PAT_CONTENT_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-content-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_PROMPTS_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-prompts-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_WORK_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-PAT_PERSONAL_68=$(bin/tiddly tokens create "cli-mcp-test-6-8-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-for v in PAT_CONTENT_68 PAT_PROMPTS_68 PAT_WORK_68 PAT_PERSONAL_68; do
+PAT_CONTENT_58=$(bin/tiddly tokens create "cli-mcp-test-5-8-content-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PROMPTS_58=$(bin/tiddly tokens create "cli-mcp-test-5-8-prompts-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_WORK_58=$(bin/tiddly tokens create "cli-mcp-test-5-8-work-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+PAT_PERSONAL_58=$(bin/tiddly tokens create "cli-mcp-test-5-8-personal-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
+for v in PAT_CONTENT_58 PAT_PROMPTS_58 PAT_WORK_58 PAT_PERSONAL_58; do
   eval "[ -n \"\$$v\" ]" || { echo "FATAL: token mint failed ($v)"; exit 1; }
 done
 
@@ -1004,33 +1004,33 @@ done
 # CLI-managed ones alongside (via jq — we need specific PAT values on the
 # canonical entries, not whatever configure happens to mint).
 bin/tiddly mcp remove claude-code 2>/dev/null || true
-write_multi_entry_prompts "$PAT_WORK_68" "$PAT_PERSONAL_68"
-jq --arg content "$PAT_CONTENT_68" --arg prompts "$PAT_PROMPTS_68" --arg curl "$TIDDLY_CONTENT_MCP_URL" --arg purl "$TIDDLY_PROMPT_MCP_URL" \
+write_multi_entry_prompts "$PAT_WORK_58" "$PAT_PERSONAL_58"
+jq --arg content "$PAT_CONTENT_58" --arg prompts "$PAT_PROMPTS_58" --arg curl "$TIDDLY_CONTENT_MCP_URL" --arg purl "$TIDDLY_PROMPT_MCP_URL" \
   '.mcpServers.tiddly_notes_bookmarks = {type:"http", url:$curl, headers:{Authorization:("Bearer "+$content)}}
    | .mcpServers.tiddly_prompts       = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$prompts)}}' \
   "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
 chmod 0600 "$CLAUDE_CODE_CONFIG"
 
-before=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-/ {print $1}' | sort)
+before=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-5-8-/ {print $1}' | sort)
 echo "Tokens before remove: $before"
 
 out=$(bin/tiddly mcp remove claude-code --delete-tokens 2>&1)
-assert_no_plaintext_bearers "$out" "T6.8"
+assert_no_plaintext_bearers "$out" "T5.8"
 echo "$out"
 
 # Compute post-state of each token: the CLI-managed ones should be gone; the
 # user-managed ones should survive. Names-based match rather than IDs.
-after_content=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-content-/ {print $1}' | head -1)
-after_prompts=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-prompts-/ {print $1}' | head -1)
-after_work=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-work-/ {print $1}' | head -1)
-after_personal=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-6-8-personal-/ {print $1}' | head -1)
+after_content=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-5-8-content-/ {print $1}' | head -1)
+after_prompts=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-5-8-prompts-/ {print $1}' | head -1)
+after_work=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-5-8-work-/ {print $1}' | head -1)
+after_personal=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-5-8-personal-/ {print $1}' | head -1)
 
-unset PAT_CONTENT_68 PAT_PROMPTS_68 PAT_WORK_68 PAT_PERSONAL_68
+unset PAT_CONTENT_58 PAT_PROMPTS_58 PAT_WORK_58 PAT_PERSONAL_58
 ```
 **Verify:**
 - [ ] Exit 0
 - [ ] `out` contains `Removed tiddly_notes_bookmarks, tiddly_prompts from claude-code.`
-- [ ] `out` contains `Deleted tokens:` listing BOTH `cli-mcp-test-6-8-content-*` AND `cli-mcp-test-6-8-prompts-*` token names (and ONLY those — the work/personal tokens must NOT appear)
+- [ ] `out` contains `Deleted tokens:` listing BOTH `cli-mcp-test-5-8-content-*` AND `cli-mcp-test-5-8-prompts-*` token names (and ONLY those — the work/personal tokens must NOT appear)
 - [ ] `[ -z "$after_content" ]` and `[ -z "$after_prompts" ]` — CLI-managed PATs revoked server-side
 - [ ] `[ -n "$after_work" ]` and `[ -n "$after_personal" ]` — user-managed PATs survive (canonical-only revocation)
 - [ ] `jq -e '.mcpServers.work_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — non-CLI-managed config entry survives
@@ -1038,7 +1038,7 @@ unset PAT_CONTENT_68 PAT_PROMPTS_68 PAT_WORK_68 PAT_PERSONAL_68
 - [ ] `jq -e '.mcpServers.tiddly_notes_bookmarks == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
 - [ ] `jq -e '.mcpServers.tiddly_prompts == null' "$CLAUDE_CODE_CONFIG" >/dev/null`
 
-### [T6.8b] Shared-PAT consolidated warning — one line naming all retained entries
+### [T5.8b] Shared-PAT consolidated warning — one line naming all retained entries
 
 Shared-PAT scenario: a CLI-managed entry (being revoked) and one or more non-CLI-managed entries (retained) reference the same PAT. The new consolidated warning fires one line per CLI-managed entry being revoked, listing every retained entry that shares its PAT (sorted alphabetically).
 
@@ -1055,7 +1055,7 @@ Shared-PAT scenario: a CLI-managed entry (being revoked) and one or more non-CLI
 bin/tiddly mcp remove claude-code 2>/dev/null || true
 PAT_CONTENT=$(bin/tiddly tokens create "cli-mcp-test-shared-content-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
 PAT_SHARED=$(bin/tiddly tokens create "cli-mcp-test-shared-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_CONTENT" ] && [ -n "$PAT_SHARED" ] || { echo "FATAL: T6.8b token mint failed"; exit 1; }
+[ -n "$PAT_CONTENT" ] && [ -n "$PAT_SHARED" ] || { echo "FATAL: T5.8b token mint failed"; exit 1; }
 
 # Write the four-entry config directly.
 [ -f "$CLAUDE_CODE_CONFIG" ] || echo "{}" > "$CLAUDE_CODE_CONFIG"
@@ -1075,8 +1075,8 @@ stdout=$(bin/tiddly mcp remove claude-code --servers prompts --delete-tokens 2>"
 set -e
 stderr=$(cat "$stderr_tmp")
 rm -f "$stderr_tmp"
-assert_no_plaintext_bearers "$stdout" "T6.8b-stdout"
-assert_no_plaintext_bearers "$stderr" "T6.8b-stderr"
+assert_no_plaintext_bearers "$stdout" "T5.8b-stdout"
+assert_no_plaintext_bearers "$stderr" "T5.8b-stderr"
 echo "--- stdout ---"; echo "$stdout"
 echo "--- stderr ---"; echo "$stderr"
 echo "exit: $rc"
@@ -1092,9 +1092,9 @@ unset PAT_CONTENT PAT_SHARED
 - [ ] Content retained: `jq -e '.mcpServers.tiddly_notes_bookmarks' "$CLAUDE_CODE_CONFIG" >/dev/null`
 - [ ] Non-CLI-managed entries survive: `jq -e '.mcpServers.work_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` and `jq -e '.mcpServers.personal_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null`
 
-> NOTE: T6.8b leaves `$CLAUDE_CODE_CONFIG` with work_prompts / personal_prompts carrying a now-revoked PAT (exactly the breakage the warning predicted) and tiddly_notes_bookmarks carrying `PAT_CONTENT`. T6.9 reconfigures claude-code from scratch. Don't add tests between T6.8b and T6.9 that depend on those PATs working.
+> NOTE: T5.8b leaves `$CLAUDE_CODE_CONFIG` with work_prompts / personal_prompts carrying a now-revoked PAT (exactly the breakage the warning predicted) and tiddly_notes_bookmarks carrying `PAT_CONTENT`. T5.9 reconfigures claude-code from scratch. Don't add tests between T5.8b and T5.9 that depend on those PATs working.
 
-### [T6.8c] `--delete-tokens` informational note when PAT doesn't match any CLI-minted token
+### [T5.8c] `--delete-tokens` informational note when PAT doesn't match any CLI-minted token
 
 A canonical entry whose PAT was not created by the CLI (e.g. a user manually pasted a PAT from the Settings UI into the canonical slot) produces no deletion — but the user must see a per-entry note naming the specific entry so they understand why. Plan-specified wording: `Note: no CLI-created token matched the token attached to <entry>; nothing was revoked. Manage tokens at https://tiddly.me/settings.`
 
@@ -1107,7 +1107,7 @@ bin/tiddly mcp remove claude-code 2>/dev/null || true
 # valid PAT; using a non-cli-mcp- NAME prevents DeleteTokensByPrefix from
 # matching it.
 PAT_MANUAL=$(bin/tiddly tokens create "manual-test-pat-$(openssl rand -hex 3)" 2>&1 | grep -oE 'bm_[A-Za-z0-9_-]+' | head -1)
-[ -n "$PAT_MANUAL" ] || { echo "FATAL: T6.8c token mint failed"; exit 1; }
+[ -n "$PAT_MANUAL" ] || { echo "FATAL: T5.8c token mint failed"; exit 1; }
 
 # Configure claude-code normally (both CLI-managed entries land), then
 # overwrite tiddly_prompts' PAT with the manually-named token.
@@ -1123,8 +1123,8 @@ stdout=$(bin/tiddly mcp remove claude-code --servers prompts --delete-tokens 2>"
 set -e
 stderr=$(cat "$stderr_tmp")
 rm -f "$stderr_tmp"
-assert_no_plaintext_bearers "$stdout" "T6.8c-stdout"
-assert_no_plaintext_bearers "$stderr" "T6.8c-stderr"
+assert_no_plaintext_bearers "$stdout" "T5.8c-stdout"
+assert_no_plaintext_bearers "$stderr" "T5.8c-stderr"
 echo "--- stdout ---"; echo "$stdout"
 echo "--- stderr ---"; echo "$stderr"
 
@@ -1138,7 +1138,7 @@ unset PAT_MANUAL manual_id
 - [ ] `$stdout` contains `Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/settings.` (stdout, not stderr — it's an outcome report, not a warning)
 - [ ] `$stdout` does NOT contain `Deleted tokens:` — nothing got deleted
 
-### [T6.8d] Orphan-warning filter excludes tokens still referenced by retained entries
+### [T5.8d] Orphan-warning filter excludes tokens still referenced by retained entries
 
 Without `--delete-tokens`, the orphan-warning path fires. But tokens whose PAT is still in active use by a retained non-CLI-managed entry (e.g. a `work_prompts` entry keeping a cli-mcp-* token referenced) must be EXCLUDED from the warning — they're not orphans, they're in active use.
 
@@ -1164,17 +1164,17 @@ stderr_tmp=$(mktemp)
 stdout=$(bin/tiddly mcp remove claude-code 2>"$stderr_tmp")
 stderr=$(cat "$stderr_tmp")
 rm -f "$stderr_tmp"
-assert_no_plaintext_bearers "$stdout" "T6.8d-stdout"
-assert_no_plaintext_bearers "$stderr" "T6.8d-stderr"
+assert_no_plaintext_bearers "$stdout" "T5.8d-stdout"
+assert_no_plaintext_bearers "$stderr" "T5.8d-stderr"
 ```
 **Verify:**
 - [ ] `$stderr` does NOT contain `Warning: PATs created for claude-code may still exist:` that names the prompts token — it's still in use by `work_prompts`, not an orphan. Either the warning doesn't fire at all (if content's token is the only true orphan and it'd mean a warning for a different name), or it fires only for the content token.
 - [ ] The token attached to `work_prompts` is still present on the server: `bin/tiddly tokens list 2>/dev/null | grep -F 'cli-mcp-claude-code-prompts'` finds something
 - [ ] `jq -e '.mcpServers.work_prompts' "$CLAUDE_CODE_CONFIG" >/dev/null` — non-CLI-managed entry survives the remove
 
-> NOTE: T6.8d leaves `work_prompts` alive in the config. T6.9 runs configure + remove without arguments, which should not interact with work_prompts — but restore state yourself if you add intervening tests.
+> NOTE: T5.8d leaves `work_prompts` alive in the config. T5.9 runs configure + remove without arguments, which should not interact with work_prompts — but restore state yourself if you add intervening tests.
 
-### [T6.9] Remove without `--delete-tokens` — orphan warning
+### [T5.9] Remove without `--delete-tokens` — orphan warning
 ```bash
 bin/tiddly mcp configure claude-code
 # Split capture so the stderr routing assertion is meaningful.
@@ -1187,12 +1187,12 @@ rm -f "$stderr_tmp"
 - [ ] `$stderr` contains `Warning: PATs created for claude-code may still exist:` (followed by cli-mcp-* names — don't assert the exact names; channel-specific, must be stderr not stdout)
 - [ ] `$stderr` contains `Run 'tiddly mcp remove claude-code --delete-tokens' to revoke` (actual tool name is interpolated, not a `<tool>` placeholder)
 
-### [T6.10] Remove idempotent — second run hits the no-op path
+### [T5.10] Remove idempotent — second run hits the no-op path
 
 Re-running remove after the canonical entries are already gone must not fail and must report accurately. The CLI distinguishes "removed something" from "nothing to remove" and prints the no-op message rather than a misleading "Removed …" line.
 
 ```bash
-out=$(bin/tiddly mcp remove claude-code 2>&1)  # already removed in T6.9
+out=$(bin/tiddly mcp remove claude-code 2>&1)  # already removed in T5.9
 ```
 **Verify:**
 - [ ] Exit 0
@@ -1201,8 +1201,8 @@ out=$(bin/tiddly mcp remove claude-code 2>&1)  # already removed in T6.9
 - [ ] No crash
 
 ```bash
-# End-of-Phase-6 token sweep. T6.8/T6.8b/T6.8c/T6.8d mint several more
-# cli-mcp-test-* PATs than Phase 5, so sweep again before Phases 7–9.
+# End-of-Phase-6 token sweep. T5.8/T5.8b/T5.8c/T5.8d mint several more
+# cli-mcp-test-* PATs than Phase 4, so sweep again before Phases 7–9.
 # See lib.sh § "Interim token cleanup" for the naming-convention contract.
 cleanup_test_tokens
 
@@ -1211,11 +1211,11 @@ assert_auth_still_working
 
 ---
 
-## Phase 7: Skills
+## Phase 6: Skills
 
-`phase "Phase 7: Skills"`. No structural changes in this round, but included for completeness.
+`phase "Phase 6: Skills"`. No structural changes in this round, but included for completeness.
 
-### [T7.1] Claude Code, user scope (default)
+### [T6.1] Claude Code, user scope (default)
 ```bash
 bin/tiddly skills configure claude-code
 ```
@@ -1223,7 +1223,7 @@ bin/tiddly skills configure claude-code
 - [ ] Exit 0
 - [ ] Output contains either `claude-code: Configured N skill(s) to ~/.claude/skills` OR `claude-code: No skills to configure.`
 
-### [T7.2] Claude Code, directory scope
+### [T6.2] Claude Code, directory scope
 ```bash
 cd "$TEST_PROJECT" && "$TIDDLY_BIN" skills configure claude-code --scope directory
 ```
@@ -1231,22 +1231,22 @@ cd "$TEST_PROJECT" && "$TIDDLY_BIN" skills configure claude-code --scope directo
 - [ ] Exit 0
 - [ ] If skills exist: output contains `claude-code: Configured N skill(s) to <path>/.claude/skills` under `$TEST_PROJECT`
 
-### [T7.3] Codex, user scope
+### [T6.3] Codex, user scope
 ```bash
 bin/tiddly skills configure codex
 ```
 **Verify:**
 - [ ] Exit 0
-- [ ] Output contains either `codex: Configured N skill(s) to ~/.agents/skills` OR `codex: No skills to configure.` (mirrors T7.1's branching — the `~/.agents/skills` path is only printed when at least one skill matches)
+- [ ] Output contains either `codex: Configured N skill(s) to ~/.agents/skills` OR `codex: No skills to configure.` (mirrors T6.1's branching — the `~/.agents/skills` path is only printed when at least one skill matches)
 
-### [T7.4] Codex, directory scope
+### [T6.4] Codex, directory scope
 ```bash
 cd "$TEST_PROJECT" && "$TIDDLY_BIN" skills configure codex --scope directory
 ```
 **Verify:**
 - [ ] Skills extracted to `$TEST_PROJECT/.agents/skills/`
 
-### [T7.5] Claude Desktop, user scope (exports zip)
+### [T6.5] Claude Desktop, user scope (exports zip)
 ```bash
 bin/tiddly skills configure claude-desktop
 ```
@@ -1255,7 +1255,7 @@ bin/tiddly skills configure claude-desktop
 - [ ] If skills exist: output `claude-desktop: N skill(s) exported to /tmp/tiddly-skills-*.zip`
 - [ ] Output contains `Upload this file to Claude Desktop via Settings > Skills.`
 
-### [T7.6] `--tags` filter (default all)
+### [T6.6] `--tags` filter (default all)
 
 Asserts that `--tags a,b` (default match mode `all`) installs exactly the prompts the server-side filter would return. The verification compares the installed-skill directory listing against a client-side replay of the same filter, computed from `tiddly export --types prompt`. If the test environment has zero prompts matching both tags, the verification SKIPs rather than false-passing on an empty set.
 
@@ -1286,18 +1286,18 @@ installed=$(ls -1 "$CLAUDE_SKILLS_DIR" 2>/dev/null | LC_ALL=C sort)
 ```
 **Verify:**
 - [ ] `rc == 0`
-- [ ] If `$expected` is empty → `report_test SKIP "T7.6" "no prompts in dev DB match both python+skill tags; cannot verify filter"`; otherwise both following checks apply:
+- [ ] If `$expected` is empty → `report_test SKIP "T6.6" "no prompts in dev DB match both python+skill tags; cannot verify filter"`; otherwise both following checks apply:
 - [ ] `[ "$expected" = "$installed" ]` — installed set equals the tag-AND filtered set (same names, same count)
 - [ ] Every name in `$installed` is in `$expected` (no extra skill slipped in)
 
 ```bash
-# Snapshot T7.6's installed set so T7.7 can prove "any" is a superset of "all".
+# Snapshot T6.6's installed set so T6.7 can prove "any" is a superset of "all".
 t76_installed="$installed"
 ```
 
-### [T7.7] `--tag-match any`
+### [T6.7] `--tag-match any`
 
-Mirrors T7.6 but for OR semantics: `--tag-match any` must install every prompt with AT LEAST ONE of the tags.
+Mirrors T6.6 but for OR semantics: `--tag-match any` must install every prompt with AT LEAST ONE of the tags.
 
 ```bash
 rm -rf "$CLAUDE_SKILLS_DIR" 2>/dev/null
@@ -1319,11 +1319,11 @@ installed=$(ls -1 "$CLAUDE_SKILLS_DIR" 2>/dev/null | LC_ALL=C sort)
 ```
 **Verify:**
 - [ ] `rc == 0`
-- [ ] If `$expected` is empty → `report_test SKIP "T7.7" "no prompts in dev DB match either tag; cannot verify filter"`
+- [ ] If `$expected` is empty → `report_test SKIP "T6.7" "no prompts in dev DB match either tag; cannot verify filter"`
 - [ ] `[ "$expected" = "$installed" ]` — installed set equals the tag-OR filtered set
-- [ ] T7.7's `$installed` set is a **superset** of T7.6's set: `comm -23 <(echo "$t76_installed") <(echo "$installed")` is empty (capture T7.6's `$installed` into `$t76_installed` before this test runs; sanity check that "any" ⊇ "all")
+- [ ] T6.7's `$installed` set is a **superset** of T6.6's set: `comm -23 <(echo "$t76_installed") <(echo "$installed")` is empty (capture T6.6's `$installed` into `$t76_installed` before this test runs; sanity check that "any" ⊇ "all")
 
-### [T7.8] Auto-detect
+### [T6.8] Auto-detect
 ```bash
 bin/tiddly skills configure
 ```
@@ -1331,7 +1331,7 @@ bin/tiddly skills configure
 - [ ] Exit 0
 - [ ] One line per detected tool
 
-### [T7.9] Invalid scope
+### [T6.9] Invalid scope
 ```bash
 set +e
 out=$(bin/tiddly skills configure --scope invalid 2>&1); rc=$?
@@ -1341,7 +1341,7 @@ set -e
 - [ ] `rc != 0`
 - [ ] `$out` contains `invalid scope "invalid". Valid scopes: user, directory`
 
-### [T7.10] Skills list
+### [T6.10] Skills list
 ```bash
 bin/tiddly skills list
 ```
@@ -1349,7 +1349,7 @@ bin/tiddly skills list
 - [ ] Exit 0
 - [ ] `Available skills (N prompts):` or `No prompts found.`
 
-### [T7.11] Skills list with tag filter
+### [T6.11] Skills list with tag filter
 ```bash
 bin/tiddly skills list --tags python
 ```
@@ -1363,11 +1363,11 @@ assert_auth_still_working
 
 ---
 
-## Phase 8: Error handling
+## Phase 7: Error handling
 
-`phase "Phase 8: Error handling"`. Pure validation-failure cases; no side effects.
+`phase "Phase 7: Error handling"`. Pure validation-failure cases; no side effects.
 
-### [T8.1] Invalid tool — configure
+### [T7.1] Invalid tool — configure
 ```bash
 set +e
 out=$(bin/tiddly mcp configure invalid-tool 2>&1); rc=$?
@@ -1377,7 +1377,7 @@ set -e
 - [ ] `rc != 0`
 - [ ] `$out` contains `unknown tool "invalid-tool". Valid tools: claude-desktop, claude-code, codex`
 
-### [T8.2] Invalid tool — remove
+### [T7.2] Invalid tool — remove
 ```bash
 set +e
 out=$(bin/tiddly mcp remove invalid-tool 2>&1); rc=$?
@@ -1387,7 +1387,7 @@ set -e
 - [ ] `rc != 0`
 - [ ] `$out` contains `unknown tool "invalid-tool". Valid tools: claude-desktop, claude-code, codex`
 
-### [T8.3] Invalid scope
+### [T7.3] Invalid scope
 ```bash
 set +e
 out=$(bin/tiddly mcp configure claude-code --scope bad-scope 2>&1); rc=$?
@@ -1397,7 +1397,7 @@ set -e
 - [ ] `rc != 0`
 - [ ] `$out` contains `invalid scope "bad-scope". Valid scopes: user, directory`
 
-### [T8.4] Old scope `local` rejected
+### [T7.4] Old scope `local` rejected
 ```bash
 set +e
 out=$(bin/tiddly mcp configure claude-code --scope local 2>&1); rc=$?
@@ -1407,7 +1407,7 @@ set -e
 - [ ] `rc != 0`
 - [ ] `$out` contains `invalid scope "local". Valid scopes: user, directory`
 
-### [T8.5] Old scope `project` rejected
+### [T7.5] Old scope `project` rejected
 ```bash
 set +e
 out=$(bin/tiddly mcp configure claude-code --scope project 2>&1); rc=$?
@@ -1417,7 +1417,7 @@ set -e
 - [ ] `rc != 0`
 - [ ] `$out` contains `invalid scope "project". Valid scopes: user, directory`
 
-### [T8.6] Invalid `--servers`
+### [T7.6] Invalid `--servers`
 ```bash
 set +e
 out=$(bin/tiddly mcp configure claude-code --servers invalid 2>&1); rc=$?
@@ -1427,19 +1427,19 @@ set -e
 - [ ] `rc != 0`
 - [ ] `$out` contains `invalid server "invalid" in --servers flag. Valid values: content, prompts`
 
-### [T8.7] Empty `--servers`
+### [T7.7] Empty `--servers`
 ```bash
 # Redirect to a file (not a `| tee` pipeline) so we don't depend on pipefail
 # semantics when the CLI exits non-zero.
 set +e
-bin/tiddly mcp configure claude-code --servers "" > /tmp/t87_out 2>&1; rc=$?
+bin/tiddly mcp configure claude-code --servers "" > /tmp/t77_out 2>&1; rc=$?
 set -e
 ```
 **Verify:**
 - [ ] `rc != 0`
-- [ ] `grep -F -- '--servers flag requires at least one value: content, prompts' /tmp/t87_out` finds the error — **note the `--` option terminator**; without it grep parses `--servers …` as its own flags and fails
+- [ ] `grep -F -- '--servers flag requires at least one value: content, prompts' /tmp/t77_out` finds the error — **note the `--` option terminator**; without it grep parses `--servers …` as its own flags and fails
 
-### [T8.8] Tool not installed (skip if all tools detected)
+### [T7.8] Tool not installed (skip if all tools detected)
 ```bash
 # Only run if claude-desktop is NOT detected. Skip otherwise.
 set +e
@@ -1450,17 +1450,17 @@ set -e
 - [ ] `rc != 0`
 - [ ] `$out` contains `claude-desktop is not installed on this system`
 
-### [T8.9] Claude Desktop + skills `--scope directory`
+### [T7.9] Claude Desktop + skills `--scope directory`
 ```bash
 set +e
-bin/tiddly skills configure claude-desktop --scope directory > /tmp/t89_out 2>&1; rc=$?
+bin/tiddly skills configure claude-desktop --scope directory > /tmp/t79_out 2>&1; rc=$?
 set -e
 ```
 **Verify:**
 - [ ] `rc != 0`
-- [ ] `grep -F -- '--scope directory is not supported by: claude-desktop' /tmp/t89_out` finds the error — **note the `--` option terminator** (same reason as T8.7)
+- [ ] `grep -F -- '--scope directory is not supported by: claude-desktop' /tmp/t79_out` finds the error — **note the `--` option terminator** (same reason as T7.7)
 
-### [T8.10] Login — invalid PAT format
+### [T7.10] Login — invalid PAT format
 ```bash
 set +e
 out=$(bin/tiddly login --token "invalid_no_prefix" 2>&1); rc=$?
@@ -1470,7 +1470,7 @@ set -e
 - [ ] `rc != 0`
 - [ ] `$out` contains `invalid token format: must start with 'bm_'`
 
-### [T8.11] Login — bad token
+### [T7.11] Login — bad token
 ```bash
 set +e
 out=$(bin/tiddly login --token "bm_definitely_not_valid_token" 2>&1); rc=$?
@@ -1481,27 +1481,27 @@ set -e
 - [ ] `$out` contains `token verification failed`
 
 ```bash
-# Phase 8 ends with two failed-login attempts. If either somehow mutated
+# Phase 7 ends with two failed-login attempts. If either somehow mutated
 # stored credentials, every subsequent test would run under the wrong
-# identity. This assert catches that drift before Phase 9's logout makes
+# identity. This assert catches that drift before Phase 8's logout makes
 # the damage invisible.
 assert_auth_still_working
 ```
 
 ---
 
-## Phase 9: Auth / logout
+## Phase 8: Auth / logout
 
-`phase "Phase 9: Auth / logout"`. Runs at the end so earlier phases have auth available. Cleanup runs before logout.
+`phase "Phase 8: Auth / logout"`. Runs at the end so earlier phases have auth available. Cleanup runs before logout.
 
-### [T9.0] Cleanup tokens BEFORE logout
+### [T8.0] Cleanup tokens BEFORE logout
 ```bash
 cleanup_cli_mcp_tokens
 ```
 
-> INVARIANT: Between T9.0 here and Phase 10's explicit cleanup, **no new `cli-mcp-*` tokens must be minted.** The EXIT trap's cleanup will refuse to run unauthenticated (Gate 2), so anything minted after T9.1's `logout` but before T9.3's re-login would silently orphan. If you add a test between T9.0 and T9.3 that could mint a token, move it earlier or add a `cleanup_cli_mcp_tokens` call after it.
+> INVARIANT: Between T8.0 here and Phase 9's explicit cleanup, **no new `cli-mcp-*` tokens must be minted.** The EXIT trap's cleanup will refuse to run unauthenticated (Gate 2), so anything minted after T8.1's `logout` but before T8.3's re-login would silently orphan. If you add a test between T8.0 and T8.3 that could mint a token, move it earlier or add a `cleanup_cli_mcp_tokens` call after it.
 
-### [T9.1] `mcp status` works without auth
+### [T8.1] `mcp status` works without auth
 ```bash
 bin/tiddly logout
 bin/tiddly mcp status   # should succeed — status is read-only, doesn't need auth
@@ -1510,7 +1510,7 @@ bin/tiddly mcp status   # should succeed — status is read-only, doesn't need a
 - [ ] `logout`: exit 0, `Logged out successfully.`
 - [ ] `mcp status`: exit 0, MCP tree still rendered (reads local config files only)
 
-### [T9.2] Destructive commands fail when logged out
+### [T8.2] Destructive commands fail when logged out
 
 Each command needs its own rc capture — without the `set +e` guards, the first
 failure would abort the snippet and the remaining commands would never run.
@@ -1529,7 +1529,7 @@ set -e
 
 Exact phrasing per `internal/auth/keyring.go`'s `ErrNotLoggedIn`.
 
-### [T9.3] Re-login
+### [T8.3] Re-login
 Engineer runs this manually in the same terminal (agent cannot complete device flow):
 ```bash
 bin/tiddly login
@@ -1543,11 +1543,11 @@ bin/tiddly auth status
 
 ---
 
-## Phase 10: Final cleanup
+## Phase 9: Final cleanup
 
-`phase "Phase 10: Final cleanup"`. This is the **only** place the harness's destructive teardown runs. The per-call EXIT trap is failure-only by design (see § Execution model and `lib.sh` § "EXIT trap handler"); without this explicit Phase 10 call, the harness would leak `$BACKUP_DIR` / `$TEST_PROJECT` / `/tmp/tiddly-test-state.env` at session end.
+`phase "Phase 9: Final cleanup"`. This is the **only** place the harness's destructive teardown runs. The per-call EXIT trap is failure-only by design (see § Execution model and `lib.sh` § "EXIT trap handler"); without this explicit Phase 9 call, the harness would leak `$BACKUP_DIR` / `$TEST_PROJECT` / `/tmp/tiddly-test-state.env` at session end.
 
-`final_teardown` is **fail-closed**: it returns non-zero and preserves all artifacts (`$BACKUP_DIR`, state file, live report) if any cleanup/restore step fails, so the engineer always has the original configs to recover from. The common failure modes it catches: OAuth session dead at Phase 10 (can't revoke this-run's `cli-mcp-*` tokens), a config `cp` fails (e.g. disk full, permission flipped), or the report copy to the retained location fails.
+`final_teardown` is **fail-closed**: it returns non-zero and preserves all artifacts (`$BACKUP_DIR`, state file, live report) if any cleanup/restore step fails, so the engineer always has the original configs to recover from. The common failure modes it catches: OAuth session dead at Phase 9 (can't revoke this-run's `cli-mcp-*` tokens), a config `cp` fails (e.g. disk full, permission flipped), or the report copy to the retained location fails.
 
 ```bash
 source cli/tests_agentic/per_call.sh

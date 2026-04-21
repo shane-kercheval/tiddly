@@ -191,7 +191,7 @@ esac
 # ---------------------------------------------------------------------------
 #
 # Bogus bm_ Bearer → 401 in prod mode, 200 in dev mode. Dev mode breaks
-# server-side PAT validation (T2.12 canonical reuse, T6.8 / T6.8d canonical
+# server-side PAT validation (T2.12 canonical reuse, T5.8 / T5.8d canonical
 # revoke + orphan-filter assertions) silently.
 
 devmode_rc=$(curl -s -o /dev/null -w '%{http_code}' \
@@ -223,7 +223,7 @@ unset devmode_rc
 #
 # The procedure shells out to a handful of tools. Fail fast with a clear
 # message rather than crashing partway through a phase. Python's tomllib
-# (used by T6.8c / T6.8d verify steps) lives in the 3.11+ stdlib — older
+# (used by T5.8c / T5.8d verify steps) lives in the 3.11+ stdlib — older
 # Python3 on macOS defaults will blow up late.
 
 for tool in jq python3 openssl awk curl comm sort sed head grep; do

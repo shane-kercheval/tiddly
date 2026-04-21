@@ -65,5 +65,5 @@ fi
 # by design (clean call exits return early, so repeated per-call traps
 # don't tear down the harness between calls — see lib.sh § "EXIT trap
 # handler" for the full rationale). Final session-end cleanup runs via
-# final_teardown() from Phase 10, not via this trap.
+# final_teardown() from Phase 9, not via this trap.
 trap 'on_exit $?' EXIT

@@ -55,7 +55,7 @@ fi
 # ---------------------------------------------------------------------------
 
 # assert_unchanged: verify file's hash matches a prior snapshot.
-#   assert_unchanged "T5.1" "$PATH" "$pre_sha"
+#   assert_unchanged "T4.1" "$PATH" "$pre_sha"
 assert_unchanged() {
     local label="$1" path="$2" before="$3"
     local after
@@ -240,13 +240,13 @@ report_phase() {
 
 # Single-line test outcome. Status: PASS | FAIL | SKIP | NOTE.
 #   report_test PASS "T1.1 — Root help"
-#   report_test FAIL "T5.1 — Status" "stderr missing expected banner"
+#   report_test FAIL "T4.1 — Status" "stderr missing expected banner"
 #
 # CONVENTION: when retrying a test after fixing state, pass the SAME test ID
 # (2nd arg) as the failing call. Put retry context in the DETAIL (3rd arg).
-#   report_test FAIL "T6.8" "revoked token IDs mismatch"
-#   report_test PASS "T6.8" "re-run after work_prompts PAT fix"       ← correct
-#   report_test PASS "T6.8 (re-run after work_prompts PAT fix)" ""    ← WRONG
+#   report_test FAIL "T5.8" "revoked token IDs mismatch"
+#   report_test PASS "T5.8" "re-run after work_prompts PAT fix"       ← correct
+#   report_test PASS "T5.8 (re-run after work_prompts PAT fix)" ""    ← WRONG
 # report_summary() counts per-ID final state; renaming the ID on retry means
 # awk sees them as two separate tests and the FAIL isn't superseded.
 report_test() {
@@ -276,7 +276,7 @@ redact_for_report() {
 
 # Full mismatch report. Writes a structured block and exits non-zero
 # (triggering the EXIT trap).
-#   report_mismatch T5.1 "Not configured" "No Tiddly servers configured" plan-bug "..."
+#   report_mismatch T4.1 "Not configured" "No Tiddly servers configured" plan-bug "..."
 # Bearer values in any field are redacted before writing.
 report_mismatch() {
     local test="$1" expected="$2" actual="$3" category="$4" hypothesis="${5:-}"
@@ -299,7 +299,7 @@ report_mismatch() {
     exit 1
 }
 
-# End-of-run summary (call from Phase 10 before final cleanup).
+# End-of-run summary (call from Phase 9 before final cleanup).
 #
 # Counts unique test IDs by final state — a later PASS for the same ID
 # overrides an earlier FAIL. The raw REPORT_PASS/FAIL/SKIP counters
@@ -429,7 +429,7 @@ preflight_agent_env() {
 #      the engineer has canonical-named entries pointing at production URLs
 #      (which pass 1 skips because their URL doesn't match localhost).
 #
-# Phase 10 restores the originals from backup.
+# Phase 9 restores the originals from backup.
 
 sanitize_one() {
     # $TIDDLY_BIN (absolute) — sanitize runs from Phase 0 at repo root, but
@@ -588,7 +588,7 @@ cleanup_test_tokens() {
 #                 crash-recovery: restore configs, cleanup tokens. Does
 #                 NOT delete $BACKUP_DIR / $TEST_PROJECT / state.env —
 #                 the engineer may need those for forensic inspection.
-#   2. final_teardown — EXPLICIT. Phase 10 calls it at session end.
+#   2. final_teardown — EXPLICIT. Phase 9 calls it at session end.
 #                 Does the full destructive cleanup and sets the
 #                 TEARDOWN_COMPLETE sentinel so any subsequent trap
 #                 fire is a no-op.
@@ -648,7 +648,7 @@ on_exit() {
 # final_teardown — EXPLICIT clean shutdown
 # ---------------------------------------------------------------------------
 #
-# Called from Phase 10 as the last action of a successful test session.
+# Called from Phase 9 as the last action of a successful test session.
 # Does everything on_exit's old rc=0 branch used to do, but as an explicit
 # invocation rather than a by-side-effect-of-exit.
 #
@@ -662,7 +662,7 @@ on_exit() {
 # doesn't have to spelunk.
 #
 # Callers must return 1 after invoking this — it does not exit so the
-# caller controls the return semantics (which feed Phase 10's if-guard).
+# caller controls the return semantics (which feed Phase 9's if-guard).
 _final_teardown_abort() {
     local reason="$1"
     echo >&2
@@ -683,7 +683,7 @@ _final_teardown_abort() {
     echo >&2
     # Note: we do NOT set TEARDOWN_COMPLETE here — the trap that fires as
     # the shell exits should still treat this as an abnormal exit (rc≠0).
-    # Phase 10's caller is expected to `exit 1` after seeing our non-zero
+    # Phase 9's caller is expected to `exit 1` after seeing our non-zero
     # return, and the resulting on_exit crash-recovery path will attempt
     # a best-effort re-restore against the still-present $BACKUP_DIR.
 }
@@ -695,7 +695,7 @@ _final_teardown_abort() {
 # actionable recovery instructions) on any failure, leaving $BACKUP_DIR /
 # $TEST_PROJECT / state.env intact so the engineer can recover.
 #
-# Phase 10 calls this with `if ! final_teardown; then exit 1; fi`. On
+# Phase 9 calls this with `if ! final_teardown; then exit 1; fi`. On
 # non-zero return, the subsequent trap fires with rc=1 and does
 # best-effort crash recovery (see on_exit). BACKUP_DIR remains preserved
 # either way.

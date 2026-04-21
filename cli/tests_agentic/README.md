@@ -19,7 +19,7 @@ helpers, paths, and the cleanup trap back into the current shell.
 `cleanup_cli_mcp_tokens` / `cleanup_sibling_backups` / `cleanup_test_tokens`,
 `preflight_agent_env`, `sanitize_one` / `sanitize_canonical_json` /
 `sanitize_canonical_toml`, `on_exit` (the failure-only EXIT trap handler),
-`final_teardown` (the explicit session-end cleanup called from Phase 10),
+`final_teardown` (the explicit session-end cleanup called from Phase 9),
 and the shared multi-entry fixture writers (`write_multi_entry_prompts`
 and variants).
 
@@ -66,7 +66,7 @@ source cli/tests_agentic/per_call.sh
 # ... test commands ...
 ```
 
-Phase 10 (session-end cleanup, explicit — the trap won't do this for you):
+Phase 9 (session-end cleanup, explicit — the trap won't do this for you):
 
 ```bash
 source cli/tests_agentic/per_call.sh
@@ -93,7 +93,7 @@ run. Two functions split the concerns:
   does crash recovery only: restore configs + cleanup tokens, but
   preserves `$BACKUP_DIR`, `$TEST_PROJECT`, and state.env for forensic
   inspection.
-- **`final_teardown`** — explicit, called from Phase 10 only. Returns
+- **`final_teardown`** — explicit, called from Phase 9 only. Returns
   **non-zero on any cleanup/restore failure** (fail-closed by design).
   On success: restores configs, revokes this-run tokens, copies the
   live report to a retained post-run location, deletes `$BACKUP_DIR`,
@@ -101,7 +101,7 @@ run. Two functions split the concerns:
   subsequent trap fire is a no-op. On failure: prints actionable manual-
   recovery instructions (with copy-paste-ready `cp` commands) and returns
   1 without deleting `$BACKUP_DIR`, so the engineer has the originals
-  preserved. Phase 10's caller checks the return with `if !
+  preserved. Phase 9's caller checks the return with `if !
   final_teardown; then ... exit 1; fi`.
 
 To proactively trigger cleanup on abort: call `on_exit 1` (crash path,
