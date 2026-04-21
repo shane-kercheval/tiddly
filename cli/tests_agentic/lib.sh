@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Shared helpers for cli/agent_testing_procedure.md.
+# Shared helpers for cli/agent_instructions.md.
 #
 # This file contains ONLY pure function definitions and platform-detection
 # conditionals. Sourcing it never mutates state (no mktemp, no writes to
@@ -15,7 +15,7 @@
 # Under the Claude Code Bash tool's spawn-a-new-shell-per-call model,
 # every test-running Bash call should start with per_call.sh which does:
 #   set -euo pipefail
-#   source cli/test_procedure/lib.sh
+#   source cli/tests_agentic/lib.sh
 #   source /tmp/tiddly-test-state.env
 #   trap on_exit EXIT
 #
@@ -394,7 +394,7 @@ preflight_agent_env() {
             echo "       configs and tokens."                                               >&2
             echo                                                                            >&2
             echo "       Fix: exit Claude Code, open a fresh terminal, and paste the"      >&2
-            echo "       auth block from agent_testing_procedure.md (§ Auth). Re-launch"   >&2
+            echo "       auth block from agent_instructions.md (§ Auth). Re-launch"   >&2
             echo "       Claude Code from that same terminal so Bash inherits the exports." >&2
             exit 1
             ;;

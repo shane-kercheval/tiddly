@@ -144,21 +144,21 @@ If you cannot use a test account, the procedure is still safe to run, but review
 
 The test harness is designed around the Claude Code Bash tool's execution model: **every Bash call spawns a new shell with no memory of prior calls**. Functions, variables, and traps don't survive across calls.
 
-To make this workable, the stable pieces of the harness (helpers, Phase 0 setup, cleanup trap) live in checked-in shell files under `cli/test_procedure/`:
+To make this workable, the stable pieces of the harness (helpers, Phase 0 setup, cleanup trap) live in checked-in shell files under `cli/tests_agentic/`:
 
 - **`lib.sh`** — all shared function definitions (`sha_of`, `assert_*`, `report_*`, `backup_*` / `restore_*`, `cleanup_*`, `on_exit`, the `write_multi_entry_prompts*` fixture writers, etc.). Pure definitions — safe to source any number of times.
 - **`phase0_setup.sh`** — one-time Phase 0 setup: platform detection, preflight assertions, `mktemp`'d `$BACKUP_DIR` / `$REPORT` / `$TEST_PROJECT`, initial backups, token-ID snapshot, sanitize. Writes runtime state to `/tmp/tiddly-test-state.env` so subsequent calls can re-source it.
 - **`per_call.sh`** — the preamble every post-Phase-0 Bash call sources. Re-installs function definitions, runtime paths, and the EXIT trap.
 - **`README.md`** — structure overview + security contract.
 
-See `cli/test_procedure/README.md` for the full rundown.
+See `cli/tests_agentic/README.md` for the full rundown.
 
 ### Phase 0 — first Bash call of the session
 
 ```bash
 set -euo pipefail
-source cli/test_procedure/lib.sh
-source cli/test_procedure/phase0_setup.sh
+source cli/tests_agentic/lib.sh
+source cli/tests_agentic/phase0_setup.sh
 ```
 
 That's it. `phase0_setup.sh` does everything in the old inline block: platform detection, preflight, backups, snapshot, sanitize, trap install, and writes `/tmp/tiddly-test-state.env`. On success, `$BACKUP_DIR` / `$REPORT` / `$TEST_PROJECT` / `$CLAUDE_CODE_CONFIG` / etc. are exported and persisted to state.env for later calls.
@@ -166,7 +166,7 @@ That's it. `phase0_setup.sh` does everything in the old inline block: platform d
 ### Every subsequent test's Bash call
 
 ```bash
-source cli/test_procedure/per_call.sh
+source cli/tests_agentic/per_call.sh
 # ... test commands here ...
 ```
 
@@ -289,10 +289,10 @@ Run `make cli-verify` before this procedure to confirm those cover their invaria
 
 Every phase starts with `report_phase`. Every test ends with `report_test PASS|SKIP|NOTE ...` or `report_mismatch ...` (which exits non-zero and fires the EXIT trap — per the Reporting Protocol, stop and wait for the engineer).
 
-**Every post-Phase-0 Bash call must start with `source cli/test_procedure/per_call.sh`** — that's what brings `report_phase`, `report_test`, `assert_no_plaintext_bearers`, `$CLAUDE_CODE_CONFIG`, `$BACKUP_DIR`, and the EXIT trap back into the current shell (see § Execution model). The preamble is omitted from the test snippets below for brevity, but it's not optional.
+**Every post-Phase-0 Bash call must start with `source cli/tests_agentic/per_call.sh`** — that's what brings `report_phase`, `report_test`, `assert_no_plaintext_bearers`, `$CLAUDE_CODE_CONFIG`, `$BACKUP_DIR`, and the EXIT trap back into the current shell (see § Execution model). The preamble is omitted from the test snippets below for brevity, but it's not optional.
 
 ```bash
-source cli/test_procedure/per_call.sh
+source cli/tests_agentic/per_call.sh
 
 report_phase "Phase 1: Read-only"
 
@@ -1468,7 +1468,7 @@ bin/tiddly auth status
 `final_teardown` is **fail-closed**: it returns non-zero and preserves all artifacts (`$BACKUP_DIR`, state file, live report) if any cleanup/restore step fails, so the engineer always has the original configs to recover from. The common failure modes it catches: OAuth session dead at Phase 10 (can't revoke this-run's `cli-mcp-*` tokens), a config `cp` fails (e.g. disk full, permission flipped), or the report copy to the retained location fails.
 
 ```bash
-source cli/test_procedure/per_call.sh
+source cli/tests_agentic/per_call.sh
 
 # Finalize the live report with run summary counters BEFORE teardown —
 # final_teardown() copies the report to the retained location and then

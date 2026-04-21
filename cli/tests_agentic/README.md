@@ -1,6 +1,6 @@
 # CLI test-procedure harness
 
-Support files for `cli/agent_testing_procedure.md`. These exist because the
+Support files for `cli/agent_instructions.md`. These exist because the
 testing procedure is executed by an AI agent whose Bash tool spawns a fresh
 shell for every command — in-memory state (functions, variables, traps)
 doesn't survive across calls.
@@ -55,21 +55,21 @@ Phase 0 (first Bash call):
 
 ```bash
 set -euo pipefail
-source cli/test_procedure/lib.sh
-source cli/test_procedure/phase0_setup.sh
+source cli/tests_agentic/lib.sh
+source cli/tests_agentic/phase0_setup.sh
 ```
 
 Every subsequent test's Bash call:
 
 ```bash
-source cli/test_procedure/per_call.sh
+source cli/tests_agentic/per_call.sh
 # ... test commands ...
 ```
 
 Phase 10 (session-end cleanup, explicit — the trap won't do this for you):
 
 ```bash
-source cli/test_procedure/per_call.sh
+source cli/tests_agentic/per_call.sh
 report_summary
 final_teardown
 ```
@@ -123,7 +123,7 @@ startups — that's a low-probability case left unaddressed.
 ## What does NOT live here
 
 - **Test cases and verify checklists** stay in
-  `cli/agent_testing_procedure.md`. This file's job is stable harness code;
+  `cli/agent_instructions.md`. This file's job is stable harness code;
   the plan's job is what-to-test content.
 - **Per-run runtime state** (mktemp'd paths, token-ID snapshot, live report)
   stays on disk under `$BACKUP_DIR` / `/tmp/tiddly-test-state.env`. Never
