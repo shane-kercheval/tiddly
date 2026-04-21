@@ -44,7 +44,26 @@ fi
 # shellcheck source=/dev/null
 source /tmp/tiddly-test-state.env
 
+# Freshness check: the state file is a hard-coded path in /tmp and could be
+# left over from a previous run that aborted without cleaning up (state.env
+# survives but $BACKUP_DIR was deleted externally, or a crash left state.env
+# pointing at a no-longer-valid temp dir). Validate $BACKUP_DIR still exists
+# as a directory — if not, the state is stale and proceeding would misroute
+# cleanup / reporting to a dead path.
+if [ ! -d "${BACKUP_DIR:-/nonexistent}" ]; then
+    echo "FATAL: /tmp/tiddly-test-state.env references BACKUP_DIR=${BACKUP_DIR:-<unset>}" >&2
+    echo "       which no longer exists. This is a stale state file from a previous" >&2
+    echo "       aborted run." >&2
+    echo "       Fix: rm /tmp/tiddly-test-state.env, then re-run Phase 0:" >&2
+    echo "           source cli/test_procedure/lib.sh" >&2
+    echo "           source cli/test_procedure/phase0_setup.sh" >&2
+    exit 1
+fi
+
 # Re-install the EXIT trap. The handler lives in lib.sh; we re-register it
-# here because traps don't survive a new shell. Covers within-call crashes;
-# between-call crashes need manual recovery from $BACKUP_DIR.
+# here because traps don't survive a new shell. on_exit is FAILURE-ONLY
+# by design (clean call exits return early, so repeated per-call traps
+# don't tear down the harness between calls — see lib.sh § "EXIT trap
+# handler" for the full rationale). Final session-end cleanup runs via
+# final_teardown() from Phase 10, not via this trap.
 trap 'on_exit $?' EXIT

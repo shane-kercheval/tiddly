@@ -107,9 +107,13 @@ assert_no_plaintext_bearers() {
 #
 # On failure, do NOT echo $out — it contains the user's email. The FATAL
 # message + manual `bin/tiddly auth status` invocation is enough for diagnosis.
+#
+# Uses $TIDDLY_BIN (absolute path set by phase0_setup.sh) rather than the
+# relative bin/tiddly because this helper is reachable from the EXIT trap,
+# which can fire from any cwd (including $TEST_PROJECT).
 assert_auth_still_working() {
     local out
-    out=$(bin/tiddly auth status 2>&1)
+    out=$("$TIDDLY_BIN" auth status 2>&1)
     if ! echo "$out" | grep -qE '^Auth method:[[:space:]]+oauth'; then
         echo "FATAL: auth method is no longer 'oauth' — cleanup cannot run. Aborting." >&2
         echo "       Run 'bin/tiddly auth status' manually to inspect." >&2
@@ -162,24 +166,50 @@ backup_dir() {
     fi
 }
 
+# restore_file / restore_dir: return 0 on success, non-zero on failure.
+# A prior version swallowed cp failures via `cp && echo || echo` — which
+# always returned 0 because the fallback echo succeeded. final_teardown
+# now relies on the strict-return semantics to abort if any restore fails
+# (otherwise it would delete $BACKUP_DIR while configs were only partially
+# restored). on_exit's crash-recovery path calls these with `|| true` to
+# keep going on partial failures; final_teardown does NOT, and aborts on
+# the first failure.
 restore_file() {
     local src="$1" dest="$2"
     if [ -e "$src" ]; then
-        cp -p "$src" "$dest" && echo "Restored: $dest" || echo "WARNING: failed to restore $dest"
-    else
-        # Source wasn't backed up (didn't exist originally). Remove any file
-        # we may have created so state returns to "didn't exist."
-        rm -f "$dest" 2>/dev/null && echo "Removed (no original): $dest"
+        if cp -p "$src" "$dest"; then
+            echo "Restored: $dest"
+            return 0
+        fi
+        echo "WARNING: failed to restore $dest" >&2
+        return 1
     fi
+    # Source wasn't backed up (didn't exist originally). Remove any file
+    # we may have created so state returns to "didn't exist."
+    if rm -f "$dest" 2>/dev/null; then
+        echo "Removed (no original): $dest"
+        return 0
+    fi
+    echo "WARNING: failed to remove $dest" >&2
+    return 1
 }
 
 restore_dir() {
     local src="$1" dest="$2"
     if [ -d "$src" ]; then
-        rm -rf "$dest" && cp -rp "$src" "$dest" && echo "Restored: $dest" || echo "WARNING: failed to restore $dest"
-    else
-        rm -rf "$dest" 2>/dev/null && echo "Removed (no original): $dest"
+        if rm -rf "$dest" && cp -rp "$src" "$dest"; then
+            echo "Restored: $dest"
+            return 0
+        fi
+        echo "WARNING: failed to restore $dest" >&2
+        return 1
     fi
+    if rm -rf "$dest" 2>/dev/null; then
+        echo "Removed (no original): $dest"
+        return 0
+    fi
+    echo "WARNING: failed to remove $dest" >&2
+    return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -402,9 +432,12 @@ preflight_agent_env() {
 # Phase 10 restores the originals from backup.
 
 sanitize_one() {
+    # $TIDDLY_BIN (absolute) — sanitize runs from Phase 0 at repo root, but
+    # using the absolute path keeps this helper robust if called from any
+    # other context (and matches the pattern used by the other helpers).
     local tool="$1" out rc
     set +e
-    out=$(bin/tiddly mcp remove "$tool" 2>&1); rc=$?
+    out=$("$TIDDLY_BIN" mcp remove "$tool" 2>&1); rc=$?
     set -e
     if [ $rc -ne 0 ]; then
         echo "WARNING: Phase 0 sanitize of $tool exited $rc: $out" >&2
@@ -452,6 +485,9 @@ sanitize_canonical_toml() {
 # Delete ONLY cli-mcp-* tokens minted during THIS run. Diffs the current
 # cli-mcp-* IDs against the Phase 0 snapshot; deletes only additions.
 # Pre-existing tokens stay untouched.
+#
+# Uses $TIDDLY_BIN because this runs from the EXIT trap / final_teardown,
+# either of which can fire from any cwd.
 cleanup_cli_mcp_tokens() {
     echo "Cleaning up cli-mcp-* tokens created during THIS run…"
     local preexisting="$BACKUP_DIR/cli-mcp-ids-before.txt"
@@ -471,7 +507,7 @@ cleanup_cli_mcp_tokens() {
     # Gate 2: auth must be alive. Unauthed `tokens list` returns empty →
     # diff-cleanup would silently orphan every token minted during this run.
     local auth_line auth_mode
-    auth_line=$(bin/tiddly auth status 2>&1 | awk -F': ' '/^Auth method/ {print $2; exit}')
+    auth_line=$("$TIDDLY_BIN" auth status 2>&1 | awk -F': ' '/^Auth method/ {print $2; exit}')
     auth_mode=$(echo "$auth_line" | tr -d '[:space:]')
     if [ "$auth_mode" != "oauth" ]; then
         echo "  FATAL: auth not alive (auth method = '${auth_mode:-<none>}')." >&2
@@ -485,7 +521,7 @@ cleanup_cli_mcp_tokens() {
 
     local current new_ids
     # LC_ALL=C: byte-order sort for stable `comm -13` input.
-    current=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-/ {print $1}' | LC_ALL=C sort)
+    current=$("$TIDDLY_BIN" tokens list 2>/dev/null | awk '/cli-mcp-/ {print $1}' | LC_ALL=C sort)
     # Delete only IDs not in the pre-run snapshot.
     new_ids=$(comm -13 "$preexisting" <(echo "$current"))
     if [ -z "$new_ids" ]; then
@@ -494,7 +530,7 @@ cleanup_cli_mcp_tokens() {
     fi
     while read -r id; do
         [ -n "$id" ] || continue
-        bin/tiddly tokens delete "$id" --force 2>/dev/null && echo "  deleted: $id"
+        "$TIDDLY_BIN" tokens delete "$id" --force 2>/dev/null && echo "  deleted: $id"
     done <<< "$new_ids"
 }
 
@@ -523,66 +559,206 @@ cleanup_sibling_backups() {
 # `cli-mcp-<tool>-<server>-*` names, which are produced by `mcp configure`
 # itself and may still be referenced by live configs.
 cleanup_test_tokens() {
+    # Uses $TIDDLY_BIN — callable between phases, cwd may not be repo root.
     echo "Interim cleanup: deleting cli-mcp-test-* tokens accumulated so far…"
     local ids count=0
-    ids=$(bin/tiddly tokens list 2>/dev/null | awk '/cli-mcp-test-/ {print $1}')
+    ids=$("$TIDDLY_BIN" tokens list 2>/dev/null | awk '/cli-mcp-test-/ {print $1}')
     [ -n "$ids" ] || { echo "  (no cli-mcp-test-* tokens to delete)"; return 0; }
     while read -r id; do
         [ -n "$id" ] || continue
-        bin/tiddly tokens delete "$id" --force >/dev/null 2>&1 && count=$((count + 1))
+        "$TIDDLY_BIN" tokens delete "$id" --force >/dev/null 2>&1 && count=$((count + 1))
     done <<< "$ids"
     echo "  Deleted $count cli-mcp-test-* tokens."
 }
 
 # ---------------------------------------------------------------------------
-# EXIT trap handler
+# EXIT trap handler (CRASH RECOVERY ONLY)
 # ---------------------------------------------------------------------------
 #
-# Always attempt cleanup, even on failure. Clean exit removes $BACKUP_DIR
-# post-restore; failure preserves $BACKUP_DIR with a warning so the
-# engineer can recover manually.
+# IMPORTANT: under the Claude Code Bash-per-call model, EVERY Bash call's
+# shell exits at the end of its test snippet. That means the EXIT trap
+# fires after every call — not just at session end. If this handler did
+# the full "restore + delete BACKUP_DIR" teardown, finishing Phase 0 would
+# immediately tear down the harness and leave later calls with no
+# $BACKUP_DIR / $TEST_PROJECT.
 #
-# Trap registration itself happens in per_call.sh (every Bash call must
-# re-install the trap because the Claude Code Bash tool spawns a new shell
-# per call, so traps from prior calls don't survive). This file only
-# defines the handler function.
+# To handle this correctly, we split two concerns:
+#
+#   1. on_exit  — FAILURE-ONLY. Runs on abnormal exit (rc != 0). Does
+#                 crash-recovery: restore configs, cleanup tokens. Does
+#                 NOT delete $BACKUP_DIR / $TEST_PROJECT / state.env —
+#                 the engineer may need those for forensic inspection.
+#   2. final_teardown — EXPLICIT. Phase 10 calls it at session end.
+#                 Does the full destructive cleanup and sets the
+#                 TEARDOWN_COMPLETE sentinel so any subsequent trap
+#                 fire is a no-op.
+#
+# Trap registration happens in phase0_setup.sh and per_call.sh (every Bash
+# call must re-install the trap because Bash-per-call shells don't carry
+# traps across calls). This file only defines the handler function.
 
 on_exit() {
     local rc="${1:-$?}"
-    echo
-    phase "Cleanup (exit code: $rc)"
-    # Try token cleanup first; needs auth to work.
-    cleanup_cli_mcp_tokens || true
-    # Restore every config + skills dir (harmless if already correct).
-    restore_file "$BACKUP_DIR/claude_desktop_config.json" "$CLAUDE_DESKTOP_CONFIG"
-    restore_file "$BACKUP_DIR/.claude.json"               "$CLAUDE_CODE_CONFIG"
-    restore_file "$BACKUP_DIR/config.toml"                "$CODEX_CONFIG"
-    # Project-scope (.mcp.json in cwd) was backed up by Phase 0 only if the
-    # file existed at that time; restore if we have a backup for it.
-    [ -f "$BACKUP_DIR/project.mcp.json" ] && restore_file "$BACKUP_DIR/project.mcp.json" "$PROJECT_MCP_CONFIG"
-    restore_dir  "$BACKUP_DIR/claude-skills"              "$CLAUDE_SKILLS_DIR"
-    restore_dir  "$BACKUP_DIR/codex-skills"               "$CODEX_SKILLS_DIR"
-    cleanup_sibling_backups
-    rm -rf "$TEST_PROJECT" 2>/dev/null || true
-
+    # Clean call exits are the normal case — every test's Bash call ends
+    # with rc=0 and fires this trap. Return early so we don't wipe state
+    # between calls.
     if [ "$rc" -eq 0 ]; then
-        # Copy live report to repo root BEFORE deleting BACKUP_DIR. Report has
-        # no secrets; the mktemp path is useless to the engineer.
-        local retained_dir retained_report
-        retained_dir=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
-        retained_report="$retained_dir/test-run-$(date -u +%Y%m%dT%H%M%SZ).md"
-        cp -p "$REPORT" "$retained_report" 2>/dev/null || retained_report=""
-        rm -rf "$BACKUP_DIR"
-        echo "Backup dir removed after successful restore (no secret residue on disk)."
-        [ -n "$retained_report" ] && echo "Report retained: $retained_report"
-    else
-        echo
-        echo "WARNING: backup dir preserved at $BACKUP_DIR due to non-zero exit ($rc)."
-        echo "It contains copies of your real config files including Bearer tokens."
-        echo "The live report is at: $REPORT"
-        echo "Verify the restored configs are correct, then: rm -rf '$BACKUP_DIR'"
+        return 0
     fi
+    # Idempotency guard: if final_teardown already ran, the explicit
+    # cleanup happened via that path. Any subsequent non-zero exit (e.g.
+    # from a post-teardown error) should not try to touch state.env or
+    # $BACKUP_DIR again.
+    if [ "${TEARDOWN_COMPLETE:-0}" = "1" ]; then
+        return "$rc"
+    fi
+
+    # Crash recovery path. Restore originals; preserve $BACKUP_DIR and
+    # the live report so the engineer can inspect what went wrong.
+    echo
+    phase "Crash cleanup (exit code: $rc)"
+    # Token cleanup first; needs auth to work. Best-effort here — if it
+    # fails, orphaned tokens will appear in the engineer's settings UI
+    # but the trap's job is to restore local state, not guarantee
+    # server-side consistency under crash conditions.
+    cleanup_cli_mcp_tokens || true
+    # Restore every config + skills dir. `|| true` on each so one
+    # failing restore doesn't break out of the series (under set -e
+    # the helper's non-zero return would otherwise skip later restores).
+    # Best-effort is correct for crash recovery.
+    restore_file "$BACKUP_DIR/claude_desktop_config.json" "$CLAUDE_DESKTOP_CONFIG" || true
+    restore_file "$BACKUP_DIR/.claude.json"               "$CLAUDE_CODE_CONFIG"    || true
+    restore_file "$BACKUP_DIR/config.toml"                "$CODEX_CONFIG"          || true
+    [ -f "$BACKUP_DIR/project.mcp.json" ] && { restore_file "$BACKUP_DIR/project.mcp.json" "$PROJECT_MCP_CONFIG" || true; }
+    restore_dir  "$BACKUP_DIR/claude-skills"              "$CLAUDE_SKILLS_DIR"     || true
+    restore_dir  "$BACKUP_DIR/codex-skills"               "$CODEX_SKILLS_DIR"      || true
+    cleanup_sibling_backups || true
+
+    echo
+    echo "WARNING: backup dir preserved at $BACKUP_DIR due to non-zero exit ($rc)."
+    echo "It contains copies of your real config files including Bearer tokens."
+    echo "The live report is at: $REPORT"
+    echo "State file at /tmp/tiddly-test-state.env also preserved for inspection."
+    echo "Once you have what you need, clean up manually:"
+    echo "    rm -rf '$BACKUP_DIR' '$TEST_PROJECT' /tmp/tiddly-test-state.env"
     exit "$rc"
+}
+
+# ---------------------------------------------------------------------------
+# final_teardown — EXPLICIT clean shutdown
+# ---------------------------------------------------------------------------
+#
+# Called from Phase 10 as the last action of a successful test session.
+# Does everything on_exit's old rc=0 branch used to do, but as an explicit
+# invocation rather than a by-side-effect-of-exit.
+#
+# After this runs, TEARDOWN_COMPLETE=1 so any subsequent trap fire is a
+# no-op. Safe to call from any cwd — every path is absolute.
+
+# _final_teardown_abort: print a user-actionable abort message and return.
+# Called by final_teardown when any cleanup/restore step fails. Preserves
+# $BACKUP_DIR, state.env, and the live report so the engineer can recover
+# manually. The abort message enumerates the recovery paths so the engineer
+# doesn't have to spelunk.
+#
+# Callers must return 1 after invoking this — it does not exit so the
+# caller controls the return semantics (which feed Phase 10's if-guard).
+_final_teardown_abort() {
+    local reason="$1"
+    echo >&2
+    echo "FATAL: final_teardown aborted — $reason" >&2
+    echo "       The session's artifacts are PRESERVED for manual recovery:" >&2
+    echo "         \$BACKUP_DIR:  $BACKUP_DIR" >&2
+    echo "         live report:  $REPORT" >&2
+    echo "         state file:   /tmp/tiddly-test-state.env" >&2
+    echo >&2
+    echo "       Your original configs are in \$BACKUP_DIR. Restore manually:" >&2
+    [ -f "$BACKUP_DIR/.claude.json" ] &&                echo "         cp -p '$BACKUP_DIR/.claude.json' '$CLAUDE_CODE_CONFIG'" >&2
+    [ -f "$BACKUP_DIR/claude_desktop_config.json" ] && echo "         cp -p '$BACKUP_DIR/claude_desktop_config.json' '$CLAUDE_DESKTOP_CONFIG'" >&2
+    [ -f "$BACKUP_DIR/config.toml" ] &&                echo "         cp -p '$BACKUP_DIR/config.toml' '$CODEX_CONFIG'" >&2
+    [ -f "$BACKUP_DIR/project.mcp.json" ] &&           echo "         cp -p '$BACKUP_DIR/project.mcp.json' '$PROJECT_MCP_CONFIG'" >&2
+    echo >&2
+    echo "       Once recovery is complete, clean up:" >&2
+    echo "         rm -rf '$BACKUP_DIR' '$TEST_PROJECT' /tmp/tiddly-test-state.env" >&2
+    echo >&2
+    # Note: we do NOT set TEARDOWN_COMPLETE here — the trap that fires as
+    # the shell exits should still treat this as an abnormal exit (rc≠0).
+    # Phase 10's caller is expected to `exit 1` after seeing our non-zero
+    # return, and the resulting on_exit crash-recovery path will attempt
+    # a best-effort re-restore against the still-present $BACKUP_DIR.
+}
+
+# final_teardown: explicit session-end cleanup.
+#
+# Returns 0 only when every restore and the token cleanup succeeded AND
+# destructive state cleanup completed. Returns non-zero (after printing
+# actionable recovery instructions) on any failure, leaving $BACKUP_DIR /
+# $TEST_PROJECT / state.env intact so the engineer can recover.
+#
+# Phase 10 calls this with `if ! final_teardown; then exit 1; fi`. On
+# non-zero return, the subsequent trap fires with rc=1 and does
+# best-effort crash recovery (see on_exit). BACKUP_DIR remains preserved
+# either way.
+final_teardown() {
+    phase "Final teardown"
+
+    # Step 1: revoke this-run's cli-mcp-* tokens. If auth is dead or the
+    # API is unreachable, stop here — deleting $BACKUP_DIR would orphan
+    # the tokens server-side with no recovery path.
+    if ! cleanup_cli_mcp_tokens; then
+        _final_teardown_abort "token cleanup failed — this-run cli-mcp-* tokens may still exist server-side"
+        return 1
+    fi
+
+    # Step 2: restore every config and skills dir. Track failures across
+    # the whole set rather than aborting on the first — if multiple
+    # restores fail, the engineer sees all of them in one pass.
+    local restore_errors=0
+    restore_file "$BACKUP_DIR/claude_desktop_config.json" "$CLAUDE_DESKTOP_CONFIG" || restore_errors=$((restore_errors+1))
+    restore_file "$BACKUP_DIR/.claude.json"               "$CLAUDE_CODE_CONFIG"    || restore_errors=$((restore_errors+1))
+    restore_file "$BACKUP_DIR/config.toml"                "$CODEX_CONFIG"          || restore_errors=$((restore_errors+1))
+    if [ -f "$BACKUP_DIR/project.mcp.json" ]; then
+        restore_file "$BACKUP_DIR/project.mcp.json" "$PROJECT_MCP_CONFIG" || restore_errors=$((restore_errors+1))
+    fi
+    restore_dir "$BACKUP_DIR/claude-skills" "$CLAUDE_SKILLS_DIR" || restore_errors=$((restore_errors+1))
+    restore_dir "$BACKUP_DIR/codex-skills"  "$CODEX_SKILLS_DIR"  || restore_errors=$((restore_errors+1))
+
+    if [ "$restore_errors" -gt 0 ]; then
+        _final_teardown_abort "$restore_errors restore step(s) failed — originals still in \$BACKUP_DIR"
+        return 1
+    fi
+
+    # Sibling backups are best-effort: if the sweep fails (e.g. permission
+    # error on a specific .bak.<ts>), log and continue. The sibling backups
+    # aren't a correctness concern the way restoration is.
+    cleanup_sibling_backups || echo "WARNING: cleanup_sibling_backups reported issues; continuing." >&2
+
+    # Step 3: copy the live report to a retained location BEFORE deleting
+    # $BACKUP_DIR. Report has no secrets; the mktemp path is useless to
+    # the engineer post-run.
+    local retained_dir retained_report
+    retained_dir=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
+    retained_report="$retained_dir/test-run-$(date -u +%Y%m%dT%H%M%SZ).md"
+    if ! cp -p "$REPORT" "$retained_report" 2>/dev/null; then
+        _final_teardown_abort "failed to copy live report to $retained_report"
+        return 1
+    fi
+
+    # Step 4 — destructive cleanup. Every prior step succeeded, so the
+    # user-facing state is consistent. Set the sentinel BEFORE deletion:
+    # if any of the rm's below fails (rare but possible under odd
+    # permission states), the trap that fires on our exit must NOT try
+    # to re-restore from a partially-gone $BACKUP_DIR (restore_file's
+    # missing-source branch would rm -f the user's freshly restored
+    # configs).
+    export TEARDOWN_COMPLETE=1
+
+    rm -rf "$TEST_PROJECT" 2>/dev/null || true
+    rm -rf "$BACKUP_DIR"
+    rm -f /tmp/tiddly-test-state.env
+
+    echo "Backup dir removed after successful restore (no secret residue on disk)."
+    echo "Report retained: $retained_report"
 }
 
 # ---------------------------------------------------------------------------

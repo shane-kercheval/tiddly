@@ -174,9 +174,14 @@ source cli/test_procedure/per_call.sh
 
 ### Trap semantics under Bash-per-call
 
-The EXIT trap (defined in `lib.sh` as `on_exit`, registered by every call via `per_call.sh`) covers **within-call** crashes. If a single Bash call crashes mid-execution, the trap fires and cleanup runs.
+The per-call model means the EXIT trap fires after **every** Bash call (each call's shell exits at the end of its snippet). If the trap did the full "restore + delete `$BACKUP_DIR`" teardown, Phase 0's clean exit would wipe the harness before Phase 1 could run.
 
-**Between-call** crashes (agent stops between tests) don't auto-fire the trap. `$BACKUP_DIR` will still exist on disk with the original configs; the engineer can recover manually. If the agent is resumed, the first call that sources `per_call.sh` re-registers the trap and subsequent work is protected again. Cleanup on abort can be run proactively by invoking `on_exit 1` from a Bash call.
+To make this work, the trap is **failure-only**:
+
+- **`on_exit`** (registered by `per_call.sh`) — fires on every call's exit. On rc=0 it returns early and does nothing. On rc≠0 (a genuine crash) it does **crash recovery only**: restores configs and cleans up this-run tokens, but **preserves** `$BACKUP_DIR`, `$TEST_PROJECT`, and `/tmp/tiddly-test-state.env` so the engineer can inspect what went wrong.
+- **`final_teardown`** (defined in `lib.sh`, called explicitly from Phase 10) — does the full session-end cleanup: restore configs, revoke this-run tokens, copy the live report to the retained post-run location, and delete `$BACKUP_DIR`, `$TEST_PROJECT`, and `/tmp/tiddly-test-state.env`. Sets `TEARDOWN_COMPLETE=1` so the trap that fires as the shell exits sees the sentinel and no-ops.
+
+**Between-call** crashes (agent stops between tests) don't fire the trap. `$BACKUP_DIR` persists with original configs; the engineer can recover manually using the paths shown in the trap's WARNING (if the last call printed one). If a new run starts and `/tmp/tiddly-test-state.env` still exists but references a deleted `$BACKUP_DIR`, `per_call.sh` detects that staleness and FATALs with an actionable fix. **To proactively trigger cleanup on abort**: call `on_exit 1` to fire the crash-recovery path, or call `final_teardown` to do the explicit clean teardown — both are available after `per_call.sh` is sourced.
 
 ### Fixture helpers
 
@@ -1458,51 +1463,33 @@ bin/tiddly auth status
 
 ## Phase 10: Final cleanup
 
-`phase "Phase 10: Final cleanup"`. The EXIT trap will run this anyway; doing it explicitly here lets us observe success.
+`phase "Phase 10: Final cleanup"`. This is the **only** place the harness's destructive teardown runs. The per-call EXIT trap is failure-only by design (see § Execution model and `lib.sh` § "EXIT trap handler"); without this explicit Phase 10 call, the harness would leak `$BACKUP_DIR` / `$TEST_PROJECT` / `/tmp/tiddly-test-state.env` at session end.
+
+`final_teardown` is **fail-closed**: it returns non-zero and preserves all artifacts (`$BACKUP_DIR`, state file, live report) if any cleanup/restore step fails, so the engineer always has the original configs to recover from. The common failure modes it catches: OAuth session dead at Phase 10 (can't revoke this-run's `cli-mcp-*` tokens), a config `cp` fails (e.g. disk full, permission flipped), or the report copy to the retained location fails.
 
 ```bash
-# Finalize the live report with run summary counters.
+source cli/test_procedure/per_call.sh
+
+# Finalize the live report with run summary counters BEFORE teardown —
+# final_teardown() copies the report to the retained location and then
+# deletes $BACKUP_DIR; report_summary needs $REPORT still present.
 report_summary
 
-# Restore configs (idempotent with trap).
-restore_file "$BACKUP_DIR/claude_desktop_config.json" "$CLAUDE_DESKTOP_CONFIG"
-restore_file "$BACKUP_DIR/.claude.json"               "$CLAUDE_CODE_CONFIG"
-restore_file "$BACKUP_DIR/config.toml"                "$CODEX_CONFIG"
-[ -f "$BACKUP_DIR/project.mcp.json" ] && restore_file "$BACKUP_DIR/project.mcp.json" "$PROJECT_MCP_CONFIG"
-restore_dir  "$BACKUP_DIR/claude-skills"              "$CLAUDE_SKILLS_DIR"
-restore_dir  "$BACKUP_DIR/codex-skills"               "$CODEX_SKILLS_DIR"
+# Full session-end teardown. Returns 0 only on complete success; returns
+# non-zero (with actionable recovery instructions printed to stderr) on
+# any failure, leaving $BACKUP_DIR/state intact for manual recovery.
+if ! final_teardown; then
+    # On abort, the user-facing recovery instructions have already been
+    # printed by final_teardown. Exit non-zero so the shell's EXIT trap
+    # fires with rc!=0 — on_exit's crash-recovery path will do a
+    # best-effort re-restore against the still-preserved $BACKUP_DIR.
+    exit 1
+fi
 
-# Sweep CLI-emitted sibling .bak.<ts> files post-restore. See on_exit for
-# the full rationale.
-cleanup_sibling_backups
-
-# One more pass through cli-mcp-* tokens in case any reappeared.
-cleanup_cli_mcp_tokens
-
-# Unset local-service env vars.
-unset TIDDLY_API_URL TIDDLY_CONTENT_MCP_URL TIDDLY_PROMPT_MCP_URL
-unset TIDDLY_AUTH0_DOMAIN TIDDLY_AUTH0_CLIENT_ID TIDDLY_AUTH0_AUDIENCE
-unset SNAPSHOT_EXPECTED
-
-# Clear trap (we've explicitly cleaned up).
-trap - EXIT
-rm -rf "$TEST_PROJECT"
-
-# Save the live report to a retained location OUTSIDE $BACKUP_DIR so the
-# engineer has a post-run record, then delete the backup dir. This mirrors
-# on_exit's clean-success branch so the policy is the same whether Phase 10
-# runs or the trap fires: on success, NO secret residue on disk; the report
-# (no secrets) survives. On failure, the trap preserves $BACKUP_DIR instead.
-# Anchor the retained path to the repo root so the engineer actually finds
-# it — $REPORT lives inside a mktemp dir, whose parent is /tmp.
-retained_dir=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
-retained_report="$retained_dir/test-run-$(date -u +%Y%m%dT%H%M%SZ).md"
-cp -p "$REPORT" "$retained_report" 2>/dev/null || retained_report=""
-rm -rf "$BACKUP_DIR"
-echo "Backup dir removed after successful restore (no secret residue on disk)."
-[ -n "$retained_report" ] && echo "Report retained: $retained_report"
 echo "Done."
 ```
+
+If `final_teardown` aborts, the failure message includes the exact `cp` commands needed to restore each config manually. The trap's subsequent crash-recovery pass is a second layer of defense — by that point `$BACKUP_DIR` is still on disk so restores can retry.
 
 ---
 

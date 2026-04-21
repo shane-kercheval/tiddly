@@ -60,6 +60,54 @@ CODEX_SKILLS_DIR="$HOME/.agents/skills"
 PROJECT_MCP_CONFIG="$PWD/.mcp.json"
 
 # ---------------------------------------------------------------------------
+# 1b. Concurrent/stale-state guard
+# ---------------------------------------------------------------------------
+#
+# /tmp/tiddly-test-state.env is a fixed path. A pre-existing state.env
+# falls into one of two cases:
+#   (a) Stale from a previous run that aborted without cleanup, where the
+#       referenced $BACKUP_DIR has since been removed externally.
+#   (b) Live — another test session is actively running against the same
+#       user home directory.
+#
+# For (a) we can safely auto-recover: rm the stale state.env and proceed.
+# For (b) two sessions mutating the same configs would corrupt each other
+# regardless of state.env, so we refuse and let the engineer sort it out.
+#
+# Note: this check doesn't fully protect concurrent runs (two parallel
+# Phase 0s could race each other writing state.env). Multi-session
+# protection would need OS-level locking; catching the common aborted-
+# run case here is the valuable 90%.
+
+if [ -f /tmp/tiddly-test-state.env ]; then
+    # Read existing BACKUP_DIR in a subshell so we don't clobber our own
+    # environment if the file is malformed.
+    existing_backup=$(
+        set +euo pipefail
+        # shellcheck disable=SC1091
+        source /tmp/tiddly-test-state.env 2>/dev/null
+        echo "${BACKUP_DIR:-}"
+    )
+    if [ -n "$existing_backup" ] && [ -d "$existing_backup" ]; then
+        echo "FATAL: /tmp/tiddly-test-state.env references a live BACKUP_DIR:" >&2
+        echo "         $existing_backup" >&2
+        echo >&2
+        echo "       This typically means another test session is actively running" >&2
+        echo "       against this user's home directory, or a previous run is still" >&2
+        echo "       in flight. Two concurrent sessions will corrupt each other's" >&2
+        echo "       configs — refusing to start a second one." >&2
+        echo >&2
+        echo "       If you're certain no other session is running, clean up and retry:" >&2
+        echo "           rm -rf '$existing_backup' /tmp/tiddly-test-state.env" >&2
+        exit 1
+    fi
+    # Stale — BACKUP_DIR referenced in state.env is gone. Auto-recover.
+    echo "Notice: removing stale /tmp/tiddly-test-state.env from aborted previous run." >&2
+    rm -f /tmp/tiddly-test-state.env
+    unset existing_backup
+fi
+
+# ---------------------------------------------------------------------------
 # 2. TIDDLY_BIN resolution
 # ---------------------------------------------------------------------------
 #
