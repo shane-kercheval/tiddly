@@ -2,7 +2,11 @@
 
 End-to-end verification of the `tiddly` CLI. Structured for an AI agent to execute against a **local** dev environment.
 
-Each test describes a **behavioral claim**. You decide how to verify it — write whatever shell / `jq` / `python3` / filesystem checks fit your environment. There are no mandatory snippets. Where a setup step is non-trivial (multi-entry fixtures, byte-for-byte no-churn), the procedure sketches technique; the exact invocation is yours.
+Each test describes a **behavioral claim**. You decide how to verify it — write whatever shell / `jq` / `uv run python3` / filesystem checks fit your environment.
+
+**Every bash snippet in this document is a suggestion, not a mandate.** Phase 0's setup block, Phase 9's teardown block, the `tokens create` fixture in T5.8c, the `jq`-filter-and-sort compare in T6.6/T6.7 — these are illustrative of HOW to accomplish the goal described in prose. They are **not** the test. The test is the behavioral claim. The shell is a means to verify it.
+
+If a suggested command fails in your environment (wrong shell idiom, missing tool, output format that differs from what the doc assumed, regex that doesn't match, etc.), your job is to **adapt your approach and carry on** — not to halt because the example didn't run. See [§ When something goes wrong](#when-something-goes-wrong) for how to distinguish that case from a genuine product-behavior mismatch.
 
 ## Runs against LOCAL test services ONLY
 
@@ -16,28 +20,56 @@ Phase 0 aborts if these aren't set. The tokens this procedure mints live only on
 
 ---
 
-## When a test doesn't verify: stop and report
+## When something goes wrong
 
-You are the agent. You have interpretive room. When a behavioral claim doesn't verify, do **all** of the following:
+There are two very different "something went wrong" cases. Treat them differently.
 
-1. **Stop.** Do not attempt the next test. Do not run any cleanup, restore, or token-revocation step. Do not "adapt" the assertion.
-2. **Report.** Append a short block to the live report (see Phase 0 for the report path) with:
+### Case A: a suggested command didn't work — adapt and continue
+
+If a snippet in this document doesn't produce what the prose says it should — but the issue is with the **snippet**, not the product — adapt your approach and keep going. This is the expected path, not an error condition. The most common reasons:
+
+- Your shell (zsh vs bash) parses an idiom differently.
+- A tool the example assumed (`jq`, `awk`, `uv run python3`) is on a different version or absent.
+- The CLI's output format shifted slightly in a way that doesn't contradict the claim (e.g. extra whitespace, a new line that doesn't affect meaning).
+- The example has a regex typo or shell-quirk bug (zsh `$var[...]` subscript, `grep -q` under `pipefail`, a missing `--` option terminator).
+- The suggested setup step doesn't compose cleanly with the state left by a previous test.
+
+In any of these, adapt: verify the claim a different way. Dump the raw observation, understand what the actual behavior is, write a different check. Your strength is exactly this kind of local reasoning.
+
+**Log the adjustment in the report** so the procedure can be improved later:
+
+```
+- T<id> PASS (adapted: <one line saying what you changed and why>)
+```
+
+This is a signal, not a failure. It tells the engineer where the procedure's suggested shell is unreliable or outdated so they can tighten it.
+
+If your adaptation reveals that the product actually **does** misbehave (the different approach also fails, for the same observable reason), that's case B below.
+
+### Case B: the product's behavior contradicts the claim — stop and report
+
+When, after fair effort to verify it, the CLI's observable behavior contradicts the test's **behavioral claim** — that is the signal this procedure is designed to surface. Do the following:
+
+1. **Stop.** Do not run any cleanup, restore, or token-revocation step. Do not move to the next test. Do not adapt the **claim** itself — the claim is the test; rewriting it to match the product defeats the purpose.
+2. **Report.** Append a structured block to `$REPORT`:
    - Test ID.
-   - The claim you were verifying, in your own words.
-   - What you actually observed — command run, exit code, relevant output (paraphrased, never a raw Bearer value).
-   - Your best guess at category: **product-bug** (code behaves wrong), **plan-bug** (this doc's claim is outdated), **environment** (e.g. API down, permission issue), **ambiguous** (needs human judgment).
+   - The claim in your own words.
+   - What you actually observed — command you ran, exit code, relevant output (paraphrased, never a raw Bearer value).
+   - Category: **product-bug** (CLI's behavior is wrong), **plan-bug** (the claim is outdated or the test is mis-specified), **environment** (API down, auth died, permission issue), **ambiguous** (not enough evidence to classify).
    - A one-sentence hypothesis if you have one.
-3. **Wait** for the engineer. They classify and decide next steps. They may tell you to re-run, skip, re-phrase the claim, or file a product bug. They will run Phase 9 manually when they're done inspecting.
+3. **Wait** for the engineer. They'll decide whether this is a real bug, a plan update, or something you should retry.
 
-There is intentionally **no automatic destructive recovery**. A mismatch is almost always either a product bug (important — preserve the state), a plan bug (benign — adjust and continue), or a snippet-authoring mistake on your part (fixable in place). None of those want a full session wipe.
+### Before you report under Case B, sanity-check
 
-Before you report, sanity-check:
+- **Did you understand the claim correctly?** Re-read the test prose.
+- **Did you rule out a snippet issue?** Under Case A, you should have already tried a second approach. If multiple reasonable ways to verify the claim all independently show the product doing something different from what the claim says, that's a real product-vs-claim mismatch.
+- **Is it environmental?** `bin/tiddly auth status` and `bin/tiddly status` — if auth died or the API is down mid-run, that's environment, not a product bug.
 
-- **Did you understand the claim correctly?** Re-read the test.
-- **Is this a snippet-authoring bug?** Dump the raw observation (file contents, full captured output, return code). The overwhelming majority of "failures" are regex typos, shell-quirk issues (zsh array subscript `$var[...]`, `grep -q` + `pipefail` SIGPIPE race, `grep` parsing a leading `--` as its own flags), or an assertion that runs after state was overwritten by a later step.
-- **Is the failure environmental?** Check `bin/tiddly auth status` and `bin/tiddly status` output — if auth died or the API went down mid-run, that's environment, not a bug.
+If you still can't tell between product-bug and plan-bug on the evidence you have, mark **ambiguous** and report. Don't guess.
 
-If you're still unsure after these checks, mark it **ambiguous** and report. Don't try to guess between product-bug and plan-bug on slim evidence.
+### There is intentionally no automatic destructive recovery
+
+A mismatch is almost always (1) a product bug to investigate with the state preserved, (2) a plan bug to adjust, or (3) a snippet-authoring issue you've already worked around under Case A. None of those want a full session wipe. Preserve state; wait for the engineer.
 
 ---
 
@@ -56,6 +88,7 @@ The only place plaintext PAT values should ever surface is from the explicit `ti
 
 - CLI binary built: `make cli-build` produces `bin/tiddly` at the repo root.
 - Local API + MCP servers running on their default ports (8000 / 8001 / 8002).
+- **Python invocations go through `uv run`**: the project manages its Python environment with `uv`, not system `python3`. When a test needs Python (most often for TOML parsing via stdlib `tomllib`), prefer `uv run python3 -c '...'`. Bare `python3` will sometimes work (stdlib-only) but is stylistically inconsistent with the rest of the repo and can hit version drift on machines where system python lags the uv-managed one.
 - Backend `VITE_DEV_MODE=false`. Dev mode short-circuits PAT validation and silently breaks tests that depend on server-side token checks (T2.12 canonical reuse, T5.8 canonical revoke, T5.8d orphan filter). Phase 0 has an explicit probe; failing that probe means fix dev mode and re-run Phase 0.
 - OAuth session alive via `bin/tiddly login` — see [§ Auth](#auth-engineer-must-do-this-manually).
 
@@ -149,7 +182,7 @@ These aren't rules; they're landmines worth stepping around.
  - an empty test-project directory for directory-scope tests,
  - a live markdown report the agent appends to throughout the run.
 
-The following block does this. Run it as the first Bash call. **Remember the `BACKUP_DIR` and `TEST_PROJECT` paths it prints** — you'll export them at the top of every subsequent call.
+The block below is a **reference implementation** of the setup. Run it as-is if it works in your environment; adapt it freely if something doesn't (see [§ When something goes wrong](#when-something-goes-wrong)). The behavioral goals above are what matter; the exact bash is one way to reach them. **Remember the `BACKUP_DIR` and `TEST_PROJECT` paths it prints** — you'll export them at the top of every subsequent call.
 
 ```bash
 set -euo pipefail
@@ -226,7 +259,15 @@ done
 [ -d "$CLAUDE_SKILLS_DIR" ] && cp -rp "$CLAUDE_SKILLS_DIR" "$BACKUP_DIR/claude-skills"
 [ -d "$CODEX_SKILLS_DIR"  ] && cp -rp "$CODEX_SKILLS_DIR"  "$BACKUP_DIR/codex-skills"
 
-# ---- 6. Snapshot pre-existing cli-mcp-* token IDs -------------------------
+# ---- 6. Snapshot pre-existing <config>.bak.* siblings ---------------------
+# Phase 9 will sweep only the delta — siblings that APPEARED during this
+# run, not the user's older backups from prior sessions.
+for cfg in "$CLAUDE_DESKTOP_CONFIG" "$CLAUDE_CODE_CONFIG" "$CODEX_CONFIG"; do
+    find "$(dirname "$cfg")" -maxdepth 1 -name "$(basename "$cfg").bak.*" -type f 2>/dev/null
+done | LC_ALL=C sort > "$BACKUP_DIR/siblings-before.txt"
+echo "Pre-run CLI sibling backups: $(wc -l < "$BACKUP_DIR/siblings-before.txt") snapshotted."
+
+# ---- 7. Snapshot pre-existing cli-mcp-* token IDs -------------------------
 # Later teardown diffs current-vs-snapshot and revokes only the additions.
 # A silent `tokens list` failure here would cause every pre-existing token
 # to look "new" at teardown; fail loud if it happens.
@@ -234,7 +275,7 @@ snap=$(bin/tiddly tokens list 2>&1) || { echo "FATAL: tokens list failed"; echo 
 echo "$snap" | awk '/cli-mcp-/ {print $1}' | LC_ALL=C sort > "$BACKUP_DIR/cli-mcp-ids-before.txt"
 echo "Pre-run cli-mcp-* tokens: $(wc -l < "$BACKUP_DIR/cli-mcp-ids-before.txt") ids snapshotted."
 
-# ---- 7. Sanitize: strip user's Tiddly entries from live configs -----------
+# ---- 8. Sanitize: strip user's Tiddly entries from live configs -----------
 # Two-pass: `mcp remove` for URL-classifier-driven clearing of local entries,
 # then hard-strip canonical `tiddly_*` names regardless of URL (catches the
 # case where the engineer's real config has canonical-named production
@@ -246,6 +287,14 @@ done
 sanitize_canonical_json "$CLAUDE_DESKTOP_CONFIG"
 sanitize_canonical_json "$CLAUDE_CODE_CONFIG"
 sanitize_canonical_toml "$CODEX_CONFIG"
+
+# ---- 9. Clear live skills dirs (Phase 6 starts from empty) ----------------
+# Backups from step 5 are restored in Phase 9. Clearing now means every
+# Phase 6 test runs against a known-empty directory at session start, so
+# `skills configure`'s behavior is observable without prior-skill residue
+# confounding it. (Stale-skills from earlier T6 tests still apply — T6.6
+# and T6.7 have their own per-test wipe.)
+rm -rf "$CLAUDE_SKILLS_DIR" "$CODEX_SKILLS_DIR" 2>/dev/null || true
 
 echo
 echo "================================================"
@@ -329,7 +378,7 @@ Starts mutating live config files. The CLI takes `.bak.<timestamp>` sibling back
 
 `bin/tiddly mcp configure claude-code` exits 0 and:
 
-- Stdout contains `Configured: claude-code` and reports a backup path.
+- Stdout contains `Configured: claude-code` and a `Backed up claude-code config to <path>` line (exact prefix; `<path>` is the `.bak.<timestamp>` sibling the CLI created).
 - **If** a pre-existing config file was present, the reported backup path exists on disk and has the pre-command SHA (and the same file mode as the source).
 - `$CLAUDE_CODE_CONFIG` now has `.mcpServers.tiddly_notes_bookmarks` with `type: "http"`, `url` matching `$TIDDLY_CONTENT_MCP_URL`, and `headers.Authorization` starting with `Bearer bm_`.
 - Same for `.mcpServers.tiddly_prompts` at `$TIDDLY_PROMPT_MCP_URL`.
@@ -353,7 +402,7 @@ In `$TEST_PROJECT`, `$TIDDLY_BIN mcp configure claude-code --scope directory` ex
 
 `bin/tiddly mcp configure codex` exits 0, takes a backup of the existing TOML, and writes `[mcp_servers.tiddly_notes_bookmarks]` (with `url = ...` and `[mcp_servers.tiddly_notes_bookmarks.http_headers]` containing `Authorization = "Bearer bm_..."`) and the analogous section for `tiddly_prompts`. Existing non-Tiddly top-level sections are preserved.
 
-**TOML parsing tip:** `python3 -c 'import tomllib; ...'` works on Python 3.11+, which is a Phase 0 prerequisite. Use exit-code assertions without printing values (same hygiene as JSON).
+**TOML parsing tip:** `uv run python3 -c 'import tomllib; ...'` works on Python 3.11+ (project uses `uv` — see [§ Prerequisites](#prerequisites)). Use exit-code assertions without printing values (same hygiene as JSON).
 
 ### T2.6 — Codex, directory scope
 
@@ -367,7 +416,7 @@ In `$TEST_PROJECT`, `$TIDDLY_BIN mcp configure codex --scope directory` creates 
 
 Starting from a clean slate (e.g. `mcp remove claude-code --delete-tokens` first), `bin/tiddly mcp configure claude-code --expires 30` prints `Created tokens: cli-mcp-claude-code-*` (not `Reused`). In `tokens list` the new tokens' `EXPIRES` column holds a date roughly 30 days out (accept a ±1 day window for clock skew).
 
-**Parsing tip:** the `EXPIRES` column is a single whitespace-separated field; column 5 in the row layout `ID  NAME  PREFIX  LAST USED  EXPIRES  CREATED`. Header-position parsing is fragile because `LAST USED` can be `—` (multi-byte UTF-8).
+**Parsing tip:** filter to `cli-mcp-` data rows first, then parse. In a **data** row, EXPIRES is `$5` under default awk (whitespace-splitting): data rows have exactly 6 single-token fields — `LAST USED` is always an ISO date like `2026-05-21` or the em-dash `—`, one token either way. Avoid parsing the **header** row: its `LAST USED` has an internal space that makes `awk` see 7 words, so counting by header position is fragile (the em-dash `—` is also multi-byte UTF-8, so any byte-offset parsing is off).
 
 ### T2.9 — Auto-detect
 
@@ -417,7 +466,7 @@ A user hand-edited `tiddly_prompts` to point somewhere else (e.g. `https://examp
    + `tiddly_prompts → https://example.com/my-prompts` + `re-run with --force`. **Before** the next command, snapshot the on-disk URL — it must still be the bad one (default refusal must not write). Do the snapshot in-band; asserting against the live file post-`--force` is meaningless because `--force` overwrites it.
 3. Run `configure claude-code --force`, routing stderr separately (e.g. `... 2>/tmp/stderr_force`). Expected: exit 0; **stderr** (not stdout) contains `Forcing overwrite of tiddly_prompts (currently https://example.com/my-prompts)`; stdout contains `Configured: claude-code`; the live file's `tiddly_prompts.url` is now `$TIDDLY_PROMPT_MCP_URL`.
 
-After, restore a clean state for subsequent phases: `mcp remove claude-code; mcp configure claude-code`.
+After, restore a clean state for subsequent phases: `mcp remove claude-code --delete-tokens; mcp configure claude-code`. Use `--delete-tokens` on the remove so the previous run's PATs are revoked before fresh ones are minted — otherwise every restore-clean-state incantation across T2.13 / T3.7 / T3.8 leaks two live tokens server-side, which accumulates across the run and can hit the tier token cap.
 
 ---
 
@@ -457,7 +506,7 @@ Analogous: `--- claude-desktop ---` banner; `After:` section includes `npx` and 
 
 ### T3.7 — Dry-run on a URL-mismatch warns but does not abort
 
-With a canonical entry pointing at a non-Tiddly URL (as in T2.13 setup):
+**Setup:** re-seed the T2.13 fixture — T2.13 ends by restoring clean state, so the bad URL is gone at this point. `jq`-overwrite `.mcpServers.tiddly_prompts` to a non-Tiddly URL like `https://example.com/my-prompts` (a fresh canonical-shaped entry with `type: "http"`, the bad URL, and any well-formed `headers.Authorization: "Bearer bm_..."` value). Then:
 
 - `mcp configure claude-code --dry-run` exits 0 (dry-run is tolerant of mismatches — a real run would fail-closed).
 - **Stderr** (not stdout) contains `Warning: tiddly_prompts at https://example.com/my-prompts — real run will require --force`.
@@ -473,7 +522,7 @@ With the same non-Tiddly-URL state, `mcp configure claude-code --dry-run --force
 - **Stdout** contains the canonical prompts URL so the user can see what the real-run overwrite would write.
 - `$CLAUDE_CODE_CONFIG` unchanged.
 
-After, restore a clean state for subsequent phases.
+After, restore a clean state for subsequent phases: `mcp remove claude-code --delete-tokens; mcp configure claude-code` (same `--delete-tokens` rationale as T2.13's restore).
 
 ---
 
@@ -538,7 +587,10 @@ Fixture setup:
 1. Mint four PATs with clearly scoped names: `cli-mcp-test-t5-8-content-*`, `-prompts-*`, `-work-*`, `-personal-*`.
 2. Fresh `mcp remove claude-code`.
 3. Write `work_prompts` / `personal_prompts` via `write_multi_entry_prompts` (with the work + personal PATs).
-4. `jq`-overwrite the canonical `tiddly_notes_bookmarks` and `tiddly_prompts` entries so they carry the content + prompts PATs from step 1 (rather than whatever `configure` would mint). This is the point of the test — to assert precisely which PATs get revoked.
+4. Write **full** canonical entries into `$CLAUDE_CODE_CONFIG` via `jq` — not just header overwrites. The revoke path in `mcp remove` only extracts a PAT for revocation if the entry's URL classifies as a Tiddly MCP URL (see `cli/internal/mcp/claude_code.go`'s `isTiddlyContentURL` / `isTiddlyPromptURL`). So each canonical entry must include `type: "http"`, the correct Tiddly URL, **and** the PAT in `headers.Authorization`:
+   - `tiddly_notes_bookmarks` → `url: $TIDDLY_CONTENT_MCP_URL`, `Authorization: "Bearer $PAT_CONTENT_58"`.
+   - `tiddly_prompts`         → `url: $TIDDLY_PROMPT_MCP_URL`, `Authorization: "Bearer $PAT_PROMPTS_58"`.
+   Wrong URL here means the revoke path never sees the PAT, the assertion false-fails, and you'll misclassify a correct product as a bug.
 5. Record which of the four test-token IDs exist.
 6. Run `mcp remove claude-code --delete-tokens`.
 
@@ -571,7 +623,7 @@ Run `mcp remove claude-code --servers prompts --delete-tokens`:
 
 Scenario: the canonical `tiddly_prompts` entry holds a PAT that was created via `tokens create` but with a name that **doesn't** match the `cli-mcp-*` pattern (e.g. `manual-test-pat-<hex>`). The CLI cannot revoke it (by name-prefix matching), but it must surface a per-entry explanation.
 
-Fixture: fresh configure, then `jq`-overwrite `tiddly_prompts`'s Authorization with the manually-named PAT.
+Fixture: fresh configure, then `jq`-overwrite `tiddly_prompts`'s Authorization with the manually-named PAT. **Mint the manual token with a unique suffix** (e.g. `uniq=$(openssl rand -hex 3); bin/tiddly tokens create "manual-test-pat-$uniq"`) and record `$uniq` — you need it for precise cleanup at the end of the test.
 
 Run `mcp remove claude-code --servers prompts --delete-tokens`:
 
@@ -579,7 +631,12 @@ Run `mcp remove claude-code --servers prompts --delete-tokens`:
 - **Stdout** (outcome report, not warning) contains: `Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/settings.`
 - Stdout does NOT contain `Deleted tokens:`.
 
-Clean up the manually-named token when done.
+**Cleanup (required).** The manually-named token won't match Phase 9's `cli-mcp-*` diff-cleanup filter, so revoke it explicitly before moving on. Look it up by **exact name equality** — not a prefix match — to avoid grabbing a leaked `manual-test-pat-*` token from a prior aborted run:
+
+```bash
+manual_id=$(bin/tiddly tokens list 2>/dev/null | awk -v nm="manual-test-pat-$uniq" '$2 == nm {print $1; exit}')
+[ -n "$manual_id" ] && bin/tiddly tokens delete "$manual_id" --force
+```
 
 ### T5.8d — Orphan-warning filter excludes tokens still referenced by retained entries
 
@@ -612,19 +669,19 @@ No structural changes in this round; included for completeness.
 
 ### T6.1 — Skills configure, claude-code, user scope
 
-`bin/tiddly skills configure claude-code` exits 0. Output is either `claude-code: Configured N skill(s) to ~/.claude/skills` or `claude-code: No skills to configure.` (both outcomes are valid — depends on how many prompts in the dev DB are tagged as skills).
+`bin/tiddly skills configure claude-code` exits 0. The CLI prints `cfgResult.DestPath` verbatim (`cli/cmd/skills.go`) and the resolver returns an **absolute** path for user scope (`$HOME/.claude/skills`, no tilde). So output is either `claude-code: Configured N skill(s) to <absolute-home>/.claude/skills` (e.g. `/Users/you/.claude/skills`) or `claude-code: No skills to configure.` — both valid depending on how many prompts are tagged. Files land at `$CLAUDE_SKILLS_DIR` on disk.
 
 ### T6.2 — Claude-code, directory scope
 
-In `$TEST_PROJECT`: `$TIDDLY_BIN skills configure claude-code --scope directory`. If skills exist, output references `<$TEST_PROJECT>/.claude/skills`.
+In `$TEST_PROJECT`: `$TIDDLY_BIN skills configure claude-code --scope directory`. For directory scope the resolver returns the **relative** path `.claude/skills` — so the output reads `claude-code: Configured N skill(s) to .claude/skills` (no tilde, no `$TEST_PROJECT` prefix). Files land at `$TEST_PROJECT/.claude/skills/` because that's the cwd the relative path resolves against.
 
 ### T6.3 — Codex, user scope
 
-`bin/tiddly skills configure codex` exits 0. Output either mentions `~/.agents/skills` (when ≥1 skill matches) or says `codex: No skills to configure.`
+`bin/tiddly skills configure codex` exits 0. Output either `codex: Configured N skill(s) to <absolute-home>/.agents/skills` (absolute path, no tilde) or `codex: No skills to configure.`
 
 ### T6.4 — Codex, directory scope
 
-Skills extracted to `$TEST_PROJECT/.agents/skills/`.
+`$TIDDLY_BIN skills configure codex --scope directory` from `$TEST_PROJECT`: output contains the relative `.agents/skills` (no `$TEST_PROJECT` prefix in the text). Files extracted to `$TEST_PROJECT/.agents/skills/` on disk.
 
 ### T6.5 — Claude Desktop, user scope (zip export)
 
@@ -632,15 +689,54 @@ Skills extracted to `$TEST_PROJECT/.agents/skills/`.
 
 ### T6.6 — `--tags` filter, default `match=all`
 
-`skills configure claude-code --tags python,skill` installs exactly the set of prompts whose tags include **both** `python` AND `skill`. To verify, compute the expected set client-side by filtering `bin/tiddly export --types prompt` output (each prompt's metadata includes its tag list) and compare against the installed-skill directory contents.
+`skills configure claude-code --tags python,skill` installs exactly the set of prompts whose tags include **both** `python` AND `skill`.
 
-If the expected set is empty (no prompts match both tags in this dev DB), report SKIP for this test with a note — an all-empty compare would false-pass.
+**Before running,** wipe the skills dir: `rm -rf "$CLAUDE_SKILLS_DIR"`. Phase 0's sanitize cleared it at session start, but T6.1 has since installed skills (which `skills configure` doesn't remove on re-run; see `cli/cmd/skills.go:52`). A stale directory poisons the equality compare.
 
-Snapshot the T6.6 installed set; T6.7 uses it.
+**Verify with exact set equality** — compute the expected set client-side by replaying the backend's filter + normalize logic:
+
+1. `bin/tiddly export --types prompt` gives full prompt metadata (including tag lists).
+2. Filter to prompts whose tags contain both `python` and `skill`.
+3. Truncate each matching `.name` to the client's `name_max` (64 for claude-code). Mirror's the backend's `prompt.name[:64]` in `backend/src/services/skill_converter.py`.
+4. Collect into a **set** (e.g. `jq ... | sort -u`) — set semantics mean that if two prompts collide at the truncated name, they collapse to one entry, matching the backend's `_build_skills_dict` last-one-wins dedup (since we only care about membership here, we don't need to replay "which content won").
+
+Then compare the expected set against `ls -1 "$CLAUDE_SKILLS_DIR" | sort -u`. The two must be **equal**, not just subset-related, and non-empty (otherwise an all-empty compare false-passes).
+
+One way to do this (adapt if `jq` / field shape differs in your environment):
+
+```bash
+rm -rf "$CLAUDE_SKILLS_DIR"
+bin/tiddly skills configure claude-code --tags python,skill >/dev/null 2>&1
+export_json=$(mktemp)
+bin/tiddly export --types prompt > "$export_json" 2>/dev/null
+expected=$(jq -r '
+    .prompts // []
+    | map(select((.tags // []) as $t | ($t | index("python")) and ($t | index("skill"))))
+    | map(.name[0:64])
+    | unique
+    | .[]
+' "$export_json" | LC_ALL=C sort)
+rm -f "$export_json"
+installed=$(ls -1 "$CLAUDE_SKILLS_DIR" 2>/dev/null | LC_ALL=C sort)
+# Assertions:
+#   - $expected and $installed are non-empty (otherwise SKIP)
+#   - $expected == $installed (exact set equality)
+```
+
+If `$expected` is empty, SKIP with "no prompts in dev DB match both python+skill tags."
+
+**Caveat:** `jq`'s `[0:64]` is **byte-based** truncation; Python's backend slicing is **codepoint-based**. For ASCII-only prompt names (the overwhelming common case in dev DBs) these agree. If a prompt name contains multibyte characters near the 64-byte boundary, they can disagree by one split codepoint — SKIP with a note if you hit that.
+
+Snapshot the T6.6 `$installed` into `t76_installed` for T6.7's superset check.
 
 ### T6.7 — `--tag-match any`
 
-`--tag-match any` installs prompts matching at least one of the tags. Same client-side-replay comparison. Additionally assert that T6.7's installed set is a **superset** of T6.6's (OR ⊇ AND).
+`--tag-match any` installs prompts matching **at least one** of the tags. Same structure as T6.6, with two changes:
+
+1. Filter predicate uses OR instead of AND: `($t | index("python")) or ($t | index("skill"))`.
+2. Wipe the dir first (same rationale as T6.6): `rm -rf "$CLAUDE_SKILLS_DIR"`.
+
+Assert exact set equality between the normalized expected set and `$installed`, same as T6.6. Additionally assert T6.7's `$installed` is a **superset** of T6.6's: `comm -23 <(echo "$t76_installed") <(echo "$installed")` is empty (every T6.6 name appears in T6.7).
 
 ### T6.8 — Auto-detect
 
@@ -718,7 +814,15 @@ bin/tiddly login
 
 # Phase 9: Teardown
 
-Explicit — run this block as the last Bash call of the session. If any step fails, the block prints recovery instructions and leaves `$BACKUP_DIR` intact.
+Explicit — run this as the last Bash call of the session. The block below is a reference implementation; the behavioral goals are:
+
+- Revoke every `cli-mcp-*` token that appeared during this run (diff against the Phase 0 snapshot; revoke only the additions). Fail-closed — if auth is dead or a token delete fails, stop and preserve `$BACKUP_DIR` so the engineer can finish manually.
+- Restore the real config files and skills directories from `$BACKUP_DIR`.
+- Sweep CLI-emitted sibling backups (`<config>.bak.*`) that appeared during this run (delta against Phase 0's `siblings-before.txt` snapshot — never destroy pre-existing backups).
+- Copy `$REPORT` to a retained location (e.g. `<repo-root>/test-run-<UTC-ts>.md`) **before** deleting `$BACKUP_DIR`.
+- Delete `$TEST_PROJECT` and `$BACKUP_DIR` only if every previous step succeeded.
+
+Adapt the bash below as needed. If any step fails, print recovery instructions (at minimum: the `cp -p <backup> <live>` commands the engineer would need to restore manually) and leave `$BACKUP_DIR` on disk.
 
 ```bash
 set -euo pipefail
@@ -798,20 +902,24 @@ restore_dir() {
 restore_dir "$BACKUP_DIR/claude-skills" "$CLAUDE_SKILLS_DIR"
 restore_dir "$BACKUP_DIR/codex-skills"  "$CODEX_SKILLS_DIR"
 
-# ---- Step 3: sweep CLI-emitted sibling backups ----------------------------
+# ---- Step 3: sweep CLI-emitted sibling backups (this-run only) ------------
 # Every configure/remove wrote <config>.bak.<timestamp> siblings. Those hold
 # copies of the sanitized test-state configs + their PATs; remove them.
-# Use `find` rather than a glob — default zsh treats a non-matching glob as
-# a fatal error ("no matches found") and would abort this block if any of
-# the three config types has no siblings to sweep.
+# ONLY sweep siblings that appeared during THIS run — compute the delta
+# against Phase 0's $BACKUP_DIR/siblings-before.txt so we don't silently
+# destroy the user's older .bak.* files from prior CLI runs.
+current_siblings=$(
+    for cfg in "$CLAUDE_DESKTOP_CONFIG" "$CLAUDE_CODE_CONFIG" "$CODEX_CONFIG"; do
+        find "$(dirname "$cfg")" -maxdepth 1 -name "$(basename "$cfg").bak.*" -type f 2>/dev/null
+    done | LC_ALL=C sort
+)
+new_siblings=$(comm -13 "$BACKUP_DIR/siblings-before.txt" <(echo "$current_siblings"))
 swept=0
-for cfg in "$CLAUDE_DESKTOP_CONFIG" "$CLAUDE_CODE_CONFIG" "$CODEX_CONFIG"; do
-    while IFS= read -r bak; do
-        [ -n "$bak" ] || continue
-        rm -f "$bak" && swept=$((swept + 1))
-    done < <(find "$(dirname "$cfg")" -maxdepth 1 -name "$(basename "$cfg").bak.*" -type f 2>/dev/null)
-done
-note "swept $swept sibling backup(s)"
+while IFS= read -r bak; do
+    [ -n "$bak" ] || continue
+    rm -f "$bak" && swept=$((swept + 1))
+done <<< "$new_siblings"
+note "swept $swept sibling backup(s) created during this run"
 
 # ---- Step 4: copy report to a retained location ---------------------------
 retained="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/test-run-$(date -u +%Y%m%dT%H%M%SZ).md"
@@ -840,7 +948,7 @@ echo "Teardown complete. Report: $retained"
 
 # Reference: config shapes (one-liner each)
 
-All tests assert via `jq -e` (JSON) or `python3 -c 'import tomllib'` (TOML) with exit-code-only checks — never by printing values.
+All tests assert via `jq -e` (JSON) or `uv run python3 -c 'import tomllib'` (TOML) with exit-code-only checks — never by printing values.
 
 - **Claude Desktop** (JSON): `.mcpServers.<name> = {command:"npx", args:["mcp-remote", URL, "--header", "Authorization: Bearer bm_..."]}`
 - **Claude Code, user scope** (JSON, `~/.claude.json`): `.mcpServers.<name> = {type:"http", url:URL, headers:{Authorization:"Bearer bm_..."}}`
