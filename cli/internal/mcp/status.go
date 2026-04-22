@@ -33,6 +33,7 @@ type ServerMatch struct {
 // OtherServer describes a non-tiddly MCP server entry.
 type OtherServer struct {
 	Name      string // config key name
+	URL       string // MCP server URL (may be empty for stdio entries whose args don't carry one)
 	Transport string // "http", "stdio", or "" if unknown
 }
 
@@ -80,7 +81,7 @@ func classifyServer(name, urlStr, transport string) (*ServerMatch, *OtherServer)
 	case isTiddlyPromptURL(urlStr):
 		return &ServerMatch{ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr}, nil
 	default:
-		return nil, &OtherServer{Name: name, Transport: transport}
+		return nil, &OtherServer{Name: name, URL: urlStr, Transport: transport}
 	}
 }
 
@@ -108,11 +109,6 @@ func isTiddlyContentURL(rawURL string) bool {
 // isTiddlyPromptURL returns true if the URL points to the tiddly prompt MCP server.
 func isTiddlyPromptURL(rawURL string) bool {
 	return urlMatchesPrefix(rawURL, urlPrefix(PromptMCPURL()))
-}
-
-// isTiddlyURL returns true if the URL points to either tiddly MCP server.
-func isTiddlyURL(rawURL string) bool {
-	return isTiddlyContentURL(rawURL) || isTiddlyPromptURL(rawURL)
 }
 
 // extractServerURL returns the MCP URL from a server entry, checking both
@@ -153,61 +149,12 @@ func detectTransport(serverMap map[string]any) string {
 	return ""
 }
 
-// serverURLMatcher returns a predicate that matches tiddly MCP URLs based on
-// the requested server names. Used by Remove to selectively remove content,
-// prompts, or both servers.
-func serverURLMatcher(servers []string) func(string) bool {
-	wantContent, wantPrompts := false, false
-	for _, s := range servers {
-		switch s {
-		case ServerContent:
-			wantContent = true
-		case ServerPrompts:
-			wantPrompts = true
-		}
-	}
-	switch {
-	case wantContent && wantPrompts:
-		return isTiddlyURL
-	case wantContent:
-		return isTiddlyContentURL
-	case wantPrompts:
-		return isTiddlyPromptURL
-	default:
-		return isTiddlyURL // empty/nil = match all (safe zero value)
-	}
-}
-
-// removeJSONServersByTiddlyURL removes entries from a JSON mcpServers map
-// whose URL matches the given predicate (checking both HTTP and stdio/npx formats).
-func removeJSONServersByTiddlyURL(servers map[string]any, match func(string) bool) bool {
-	removed := false
-	for name, entry := range servers {
-		serverMap, _ := entry.(map[string]any)
-		if serverMap == nil {
-			continue
-		}
-		urlStr := extractServerURL(serverMap)
-		if match(urlStr) {
-			delete(servers, name)
-			removed = true
-		}
-	}
-	return removed
-}
-
 // sortCanonicalFirst sorts keys in place so that canonical server names
 // (serverNameContent, serverNamePrompts) come before other keys, then
-// alphabetically within each group. Used by the extractors so a canonical
-// entry's PAT wins over custom entries when multiple tiddly-URL entries
-// exist — and the alphabetical tiebreaker makes the selection deterministic
-// when no canonical entry is present.
-//
-// Status no longer uses this ordering (it surfaces every entry), but
-// ExtractPATs / AllTiddlyPATs must pick a deterministic order, and the
-// consolidation warning's "PAT from X will be reused" disclosure has to
-// match whatever the extractors actually do. Deleting this function would
-// silently diverge those — don't.
+// alphabetically within each group. AllTiddlyPATs returns its slice in
+// this order, which lets canonicalEntryPATs extract CLI-managed PATs
+// deterministically (canonical-named entry wins when duplicates exist;
+// alphabetical tiebreaker within a type is stable across runs).
 func sortCanonicalFirst(keys []string) {
 	sort.SliceStable(keys, func(i, j int) bool {
 		iCanonical := keys[i] == serverNameContent || keys[i] == serverNamePrompts

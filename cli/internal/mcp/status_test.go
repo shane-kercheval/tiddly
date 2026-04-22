@@ -105,41 +105,6 @@ func TestSortOtherServers(t *testing.T) {
 	assert.Equal(t, "zebra", servers[2].Name)
 }
 
-func TestServerURLMatcher__content_only(t *testing.T) {
-	match := serverURLMatcher([]string{"content"})
-	assert.True(t, match(ContentMCPURL()), "should match content URL")
-	assert.False(t, match(PromptMCPURL()), "should not match prompts URL")
-	assert.False(t, match("https://other.example.com"), "should not match non-tiddly URL")
-}
-
-func TestServerURLMatcher__prompts_only(t *testing.T) {
-	match := serverURLMatcher([]string{"prompts"})
-	assert.False(t, match(ContentMCPURL()), "should not match content URL")
-	assert.True(t, match(PromptMCPURL()), "should match prompts URL")
-	assert.False(t, match("https://other.example.com"), "should not match non-tiddly URL")
-}
-
-func TestServerURLMatcher__both(t *testing.T) {
-	match := serverURLMatcher([]string{"content", "prompts"})
-	assert.True(t, match(ContentMCPURL()), "should match content URL")
-	assert.True(t, match(PromptMCPURL()), "should match prompts URL")
-	assert.False(t, match("https://other.example.com"), "should not match non-tiddly URL")
-}
-
-func TestServerURLMatcher__nil_matches_all(t *testing.T) {
-	match := serverURLMatcher(nil)
-	assert.True(t, match(ContentMCPURL()), "nil should match content URL")
-	assert.True(t, match(PromptMCPURL()), "nil should match prompts URL")
-	assert.False(t, match("https://other.example.com"), "nil should not match non-tiddly URL")
-}
-
-func TestServerURLMatcher__empty_matches_all(t *testing.T) {
-	match := serverURLMatcher([]string{})
-	assert.True(t, match(ContentMCPURL()), "empty should match content URL")
-	assert.True(t, match(PromptMCPURL()), "empty should match prompts URL")
-	assert.False(t, match("https://other.example.com"), "empty should not match non-tiddly URL")
-}
-
 func TestSortServers__primary_by_server_type(t *testing.T) {
 	sr := &StatusResult{
 		Servers: []ServerMatch{

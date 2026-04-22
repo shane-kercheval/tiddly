@@ -95,6 +95,20 @@ func backupConfigFile(path string) (backupPath string, err error) {
 // because backup and write share the same parent directory.
 var atomicWriteFileFunc = atomicWriteFile
 
+// AtomicWriteFileFunc returns the current write function. Exposed so
+// out-of-package tests (cmd layer) can save-and-restore the hook while
+// simulating write failures.
+func AtomicWriteFileFunc() func(path string, data []byte, perm os.FileMode) error {
+	return atomicWriteFileFunc
+}
+
+// SetAtomicWriteFileFunc swaps the write function. Test-only; production
+// code never calls this. Pair with AtomicWriteFileFunc + t.Cleanup to
+// restore the original.
+func SetAtomicWriteFileFunc(f func(path string, data []byte, perm os.FileMode) error) {
+	atomicWriteFileFunc = f
+}
+
 // atomicWriteFile writes data to a temp file in the same directory and renames it to path.
 // This prevents corruption if the process is killed mid-write.
 // If the file already exists, its permissions are preserved. Otherwise defaultPerm is used.

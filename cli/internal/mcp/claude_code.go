@@ -4,15 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // extractAllClaudeCodeTiddlyPATs returns every Bearer token from a tiddly-URL
 // entry in the Claude Code config, in canonical-first order. Entries without
 // an extractable PAT (missing/malformed headers) are filtered out.
-//
-// This is the primitive; extractClaudeCodePATs (survivors) is derived via
-// survivorsOfAllTiddlyPATs so "who survives" has a single definition shared
-// with the consolidation warning.
 func extractAllClaudeCodeTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
@@ -51,10 +48,11 @@ func extractAllClaudeCodeTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
 	return out
 }
 
-// extractClaudeCodePATs returns survivor PATs (one per ServerType) derived
-// from the full canonical-first walk.
+// extractClaudeCodePATs returns PATs attached to canonical-named entries only.
+// Non-canonical Tiddly-URL entries (e.g. work_prompts) are deliberately ignored
+// so configure never reuses a PAT from a user's custom entry for the CLI-managed slot.
 func extractClaudeCodePATs(rc ResolvedConfig) PATExtraction {
-	return survivorsOfAllTiddlyPATs(extractAllClaudeCodeTiddlyPATs(rc))
+	return canonicalEntryPATs(extractAllClaudeCodeTiddlyPATs(rc))
 }
 
 // extractClaudeCodePATFromServer extracts the Bearer token from a Claude Code MCP server entry.
@@ -166,9 +164,9 @@ func buildClaudeCodeServers(contentPAT, promptPAT string) map[string]any {
 	return servers
 }
 
-// buildClaudeCodeConfig reads the existing config and merges in the tiddly MCP server entries.
-// Removes any existing entries pointing to tiddly URLs (regardless of key name) before adding
-// new entries under canonical names. Used by both configureClaudeCode and dryRunClaudeCode.
+// buildClaudeCodeConfig reads the existing config and writes the CLI-managed
+// entries under canonical names. Non-canonical entries (including those
+// pointing at Tiddly URLs under custom key names) are preserved as-is.
 func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map[string]any, error) {
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
@@ -185,9 +183,6 @@ func buildClaudeCodeConfig(rc ResolvedConfig, contentPAT, promptPAT string) (map
 	if servers == nil {
 		servers = make(map[string]any)
 	}
-
-	// Remove only the server types being configured (non-empty PAT means it's being configured)
-	removeJSONServersByTiddlyURL(servers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	for k, v := range newServers {
 		servers[k] = v
@@ -208,31 +203,53 @@ func configureClaudeCode(rc ResolvedConfig, contentPAT, promptPAT string) (backu
 	return writeJSONConfig(rc.Path, config)
 }
 
-// removeClaudeCode removes tiddly MCP server entries from the Claude Code config.
-// Identifies servers by URL, not by name, so custom-named entries are also
-// removed. Returns the timestamped backup path (empty if nothing changed or
-// no prior config existed).
-func removeClaudeCode(rc ResolvedConfig, serverFilter []string) (backupPath string, err error) {
+// removeClaudeCode deletes CLI-managed entries (canonical key names only)
+// from the Claude Code config. Non-canonical entries — including those
+// pointing at Tiddly URLs under custom names — are preserved.
+// A CLI-managed entry is deleted regardless of what URL it currently points
+// at; a user who repurposed the slot gets the recovery backup instead.
+func removeClaudeCode(rc ResolvedConfig, serverFilter []string) (*RemoveResult, error) {
+	result := &RemoveResult{}
+
 	config, err := readJSONConfig(rc.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return result, nil
 		}
-		return "", err
+		return result, err
 	}
 
 	servers := getServersForScope(config, rc.Scope, rc.Cwd)
 	if servers == nil {
-		return "", nil
+		return result, nil
 	}
 
-	if !removeJSONServersByTiddlyURL(servers, serverURLMatcher(serverFilter)) {
-		return "", nil
+	targetNames := canonicalNamesForServers(serverFilter)
+	var removed []string
+	for name := range servers {
+		if targetNames[name] {
+			removed = append(removed, name)
+		}
+	}
+	if len(removed) == 0 {
+		return result, nil
+	}
+	sort.Strings(removed)
+	for _, name := range removed {
+		delete(servers, name)
 	}
 
 	setMCPServersMap(config, rc.Scope, rc.Cwd, servers)
 
-	return writeJSONConfig(rc.Path, config)
+	backupPath, werr := writeJSONConfig(rc.Path, config)
+	result.BackupPath = backupPath
+	if werr != nil {
+		// Write failed after backup was taken; surface the backup path so
+		// the caller can tell the user where their recovery copy is.
+		return result, werr
+	}
+	result.RemovedEntries = removed
+	return result, nil
 }
 
 // statusClaudeCode returns MCP servers configured in Claude Code.

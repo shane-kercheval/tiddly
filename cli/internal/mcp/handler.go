@@ -9,31 +9,35 @@ var (
 
 // TiddlyPAT describes one Bearer token found in a tiddly-URL entry during a
 // config walk. Callers consume []TiddlyPAT in canonical-first order when
-// they need the full set of tokens (e.g. remove --delete-tokens must revoke
-// every tiddly-URL token, not just the survivor ExtractPATs would pick).
+// they need the full set of tokens.
 type TiddlyPAT struct {
 	ServerType string // ServerContent or ServerPrompts
 	Name       string // config key name
 	PAT        string // Bearer token value (never empty; entries without a PAT are filtered out)
 }
 
-// PATExtraction is the result of walking a tool's config to find reusable
-// tiddly PATs. The *PAT fields hold Bearer token values (empty if none found
-// or unextractable); the *Name fields hold the config key those PATs came
-// from. Callers needing "which entry would survive a consolidation" (e.g.
-// the consolidation warning) MUST use these names — parallel heuristics
-// will drift when the selection rules evolve.
+// RemoveResult describes the outcome of a Remove operation.
+// RemovedEntries lists canonical key names actually deleted from the config
+// file. Empty when nothing matched (no file, no canonical entries, or the
+// --servers scope excluded every canonical entry present). BackupPath is
+// the timestamped backup file created before a write; empty when no write
+// was attempted or no prior file existed.
 //
-// Derived from AllTiddlyPATs by picking the first entry per ServerType
-// (canonical-first ordering). Keeping the derivation in one place —
-// survivorsOfAllTiddlyPATs — means "who's the survivor" has a single
-// definition that both the consolidation warning and the commit-phase
-// reuse share.
+// Handlers always return a non-nil *RemoveResult, even on error paths.
+// In particular, a write failure AFTER the backup was taken returns
+// (&RemoveResult{BackupPath: path, RemovedEntries: nil}, err) so callers
+// can surface the recovery artifact before propagating the error.
+type RemoveResult struct {
+	RemovedEntries []string
+	BackupPath     string
+}
+
+// PATExtraction is the result of walking a tool's config for PATs attached to
+// CLI-managed entries (the canonical-named ones). Callers needing to reuse an
+// existing CLI-managed PAT during configure read from here.
 type PATExtraction struct {
-	ContentPAT  string
-	PromptPAT   string
-	ContentName string
-	PromptName  string
+	ContentPAT string
+	PromptPAT  string
 }
 
 // ToolHandler encapsulates all tool-specific behavior for MCP server management.
@@ -44,34 +48,73 @@ type ToolHandler interface {
 	Detect(looker ExecLooker) DetectedTool
 	ResolvePath(configPath, scope, cwd string) (string, error)
 	Configure(rc ResolvedConfig, contentPAT, promptPAT string, tool DetectedTool) (warnings []string, backupPath string, err error)
-	Remove(rc ResolvedConfig, servers []string) (backupPath string, err error)
+	Remove(rc ResolvedConfig, servers []string) (*RemoveResult, error)
 	Status(rc ResolvedConfig) (StatusResult, error)
 	DryRun(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error)
 	ExtractPATs(rc ResolvedConfig) PATExtraction
 	// AllTiddlyPATs returns every extractable Bearer token in the tool's
-	// config that points at a tiddly URL, in canonical-first order. Used
-	// by `remove --delete-tokens` so multi-entry configs (e.g.
-	// work_prompts + personal_prompts with distinct PATs) revoke every
-	// token, not just the survivor.
+	// config from entries whose URL classifies as a Tiddly URL, in
+	// canonical-first order. Used by `remove --delete-tokens`: the
+	// canonical subset supplies revoke targets; the full output feeds
+	// the retained-PAT set used for shared-PAT warnings and
+	// orphan-subtraction.
+	//
+	// Known limitation: a canonical-named entry whose URL is NOT a Tiddly
+	// URL (a repurposed slot) is not returned by this method. Such entries
+	// do not participate in shared-PAT warnings or orphan-subtraction.
+	// Accepted pre-GA limitation.
 	AllTiddlyPATs(rc ResolvedConfig) []TiddlyPAT
 }
 
-// survivorsOfAllTiddlyPATs picks the first non-empty PAT per ServerType
-// from a canonical-first-ordered slice. This is the single definition of
-// "who survives a consolidation"; both ExtractPATs (consumed by the
-// commit-phase reuse logic) and the consolidation warning (via
-// preflight-populated SurvivorName) route through this function.
-func survivorsOfAllTiddlyPATs(all []TiddlyPAT) PATExtraction {
+// CanonicalName returns the canonical config-entry key name for a server
+// type (e.g. ServerContent → "tiddly_notes_bookmarks"). Returns "" for
+// unknown types. Exposed so cmd-layer callers can identify canonical
+// entries without importing the private name constants.
+func CanonicalName(serverType string) string {
+	switch serverType {
+	case ServerContent:
+		return serverNameContent
+	case ServerPrompts:
+		return serverNamePrompts
+	default:
+		return ""
+	}
+}
+
+// canonicalNamesForServers maps a set of requested server types (from
+// --servers) to the canonical config key names Remove should delete. Used
+// by every per-handler Remove to keep the filter in one place.
+func canonicalNamesForServers(servers []string) map[string]bool {
+	out := make(map[string]bool, 2)
+	for _, s := range servers {
+		switch s {
+		case ServerContent:
+			out[serverNameContent] = true
+		case ServerPrompts:
+			out[serverNamePrompts] = true
+		}
+	}
+	return out
+}
+
+// canonicalEntryPATs picks the PAT attached to each canonical-named entry,
+// but only when the entry's URL classifies to the server type its name
+// implies. A cross-wired canonical slot (e.g. tiddly_prompts pointing at
+// the content URL) contributes NO PAT — reusing its PAT would let an
+// out-of-scope misconfigured slot leak its bearer into the in-scope write.
+// The preflight mismatch check flags the cross-wiring separately; this
+// function's job is to keep reuse strictly tied to correctly-wired slots.
+func canonicalEntryPATs(all []TiddlyPAT) PATExtraction {
 	var out PATExtraction
 	for _, p := range all {
-		switch p.ServerType {
-		case ServerContent:
+		switch {
+		case p.Name == serverNameContent && p.ServerType == ServerContent:
 			if out.ContentPAT == "" {
-				out.ContentPAT, out.ContentName = p.PAT, p.Name
+				out.ContentPAT = p.PAT
 			}
-		case ServerPrompts:
+		case p.Name == serverNamePrompts && p.ServerType == ServerPrompts:
 			if out.PromptPAT == "" {
-				out.PromptPAT, out.PromptName = p.PAT, p.Name
+				out.PromptPAT = p.PAT
 			}
 		}
 	}

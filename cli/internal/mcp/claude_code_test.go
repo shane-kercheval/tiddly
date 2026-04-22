@@ -58,10 +58,11 @@ func TestExtractClaudeCodePATs__malformed_file(t *testing.T) {
 	assert.Empty(t, ext.PromptPAT)
 }
 
-func TestExtractClaudeCodePATs__falls_through_canonical_with_missing_pat(t *testing.T) {
-	// The canonical entry exists but has no Authorization header. ExtractPATs
-	// must fall through to the next candidate (alphabetical-first custom entry)
-	// so the value and the disclosed survivor name agree.
+func TestExtractClaudeCodePATs__canonical_missing_pat_does_not_fall_through_to_custom(t *testing.T) {
+	// ExtractPATs reads ONLY the canonical entry. If the canonical entry
+	// lacks an Authorization header, the result is empty — configure's
+	// additive contract means we must NOT silently reuse a PAT from a user's
+	// custom entry (work_prompts, personal_prompts, etc.).
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 	writeTestJSON(t, configPath, map[string]any{
@@ -83,15 +84,12 @@ func TestExtractClaudeCodePATs__falls_through_canonical_with_missing_pat(t *test
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	ext := extractClaudeCodePATs(rc)
-	assert.Equal(t, "bm_work", ext.PromptPAT,
-		"PAT must come from work_prompts since canonical entry has no header")
-	assert.Equal(t, "work_prompts", ext.PromptName,
-		"survivor name must match the entry whose PAT was actually reused")
+	assert.Empty(t, ext.PromptPAT,
+		"ExtractPATs must not harvest a PAT from a non-canonical entry")
 }
 
 func TestExtractClaudeCodePATs__canonical_with_valid_pat_wins(t *testing.T) {
-	// Canonical entry has a valid PAT; the custom entry is alphabetically
-	// first but must NOT win because canonical-first ordering applies.
+	// Canonical entry has a valid PAT; custom entry's PAT is irrelevant.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 	writeTestJSON(t, configPath, map[string]any{
@@ -116,7 +114,6 @@ func TestExtractClaudeCodePATs__canonical_with_valid_pat_wins(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	ext := extractClaudeCodePATs(rc)
 	assert.Equal(t, "bm_canonical", ext.PromptPAT)
-	assert.Equal(t, serverNamePrompts, ext.PromptName)
 }
 
 func TestExtractAllClaudeCodeTiddlyPATs__multi_entry_returns_every_token(t *testing.T) {
@@ -186,7 +183,7 @@ func TestExtractAllClaudeCodeTiddlyPATs__filters_missing_pats(t *testing.T) {
 
 func TestExtractClaudeCodePATs__all_entries_empty_returns_zero(t *testing.T) {
 	// Every matching entry has a malformed/missing header → PATExtraction
-	// stays zero-valued (both PAT and Name empty), signaling "no survivor."
+	// stays zero-valued.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 	writeTestJSON(t, configPath, map[string]any{
@@ -208,7 +205,6 @@ func TestExtractClaudeCodePATs__all_entries_empty_returns_zero(t *testing.T) {
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	ext := extractClaudeCodePATs(rc)
 	assert.Empty(t, ext.PromptPAT)
-	assert.Empty(t, ext.PromptName)
 }
 
 // Configure/Remove/Status/DryRun tests
@@ -296,7 +292,7 @@ func TestRemoveClaudeCode__removes_servers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Remove
-	_, err = removeClaudeCode(rc, nil)
+	_, err = removeClaudeCode(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -310,7 +306,7 @@ func TestRemoveClaudeCode__no_file_is_noop(t *testing.T) {
 	configPath := filepath.Join(dir, ".claude.json")
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeClaudeCode(rc, nil)
+	_, err := removeClaudeCode(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
 }
 
@@ -329,7 +325,7 @@ func TestRemoveClaudeCode__no_tiddly_servers_skips_write(t *testing.T) {
 	writeTestJSON(t, configPath, existing)
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeClaudeCode(rc, nil)
+	_, err := removeClaudeCode(rc, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
@@ -695,43 +691,19 @@ func TestStatusClaudeCode__unknown_transport(t *testing.T) {
 	assert.Equal(t, "", sr.OtherServers[0].Transport)
 }
 
-func TestRemoveClaudeCode__removes_stdio_npx_servers(t *testing.T) {
+func TestRemoveClaudeCode__preserves_non_canonical_entries(t *testing.T) {
+	// Remove is canonical-name-only: custom-named entries — even at Tiddly
+	// URLs — survive because they represent deliberate user setups the CLI
+	// did not create and does not own.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
 	writeTestJSON(t, configPath, map[string]any{
 		"mcpServers": map[string]any{
-			"prompts": map[string]any{
-				"command": "npx",
-				"args": []any{
-					"mcp-remote",
-					PromptMCPURL(),
-					"--header",
-					"Authorization: Bearer bm_test123",
-				},
+			serverNameContent: map[string]any{
+				"type": "http",
+				"url":  ContentMCPURL(),
 			},
-			"other-server": map[string]any{
-				"type": "stdio",
-			},
-		},
-	})
-
-	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeClaudeCode(rc, nil)
-	require.NoError(t, err)
-
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.NotContains(t, servers, "prompts")
-	assert.Contains(t, servers, "other-server")
-}
-
-func TestRemoveClaudeCode__removes_custom_named_servers(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-
-	writeTestJSON(t, configPath, map[string]any{
-		"mcpServers": map[string]any{
 			"my_content": map[string]any{
 				"type": "http",
 				"url":  ContentMCPURL(),
@@ -740,21 +712,45 @@ func TestRemoveClaudeCode__removes_custom_named_servers(t *testing.T) {
 				"type": "http",
 				"url":  PromptMCPURL(),
 			},
-			"other-server": map[string]any{
-				"type": "stdio",
+			"other-server": map[string]any{"type": "stdio"},
+		},
+	})
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	result, err := removeClaudeCode(rc, []string{"content", "prompts"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{serverNameContent}, result.RemovedEntries)
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.NotContains(t, servers, serverNameContent, "canonical entry must be removed")
+	assert.Contains(t, servers, "my_content", "non-canonical Tiddly-URL entry must survive")
+	assert.Contains(t, servers, "my_prompts", "non-canonical Tiddly-URL entry must survive")
+	assert.Contains(t, servers, "other-server")
+}
+
+func TestRemoveClaudeCode__deletes_canonical_entry_with_non_tiddly_url(t *testing.T) {
+	// A canonical key the user repurposed (hand-edited to a local dev URL)
+	// is still CLI-managed by name. Remove deletes it regardless of URL;
+	// the backup is the recovery path.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type":    "http",
+				"url":     "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_user_custom"},
 			},
 		},
 	})
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := removeClaudeCode(rc, nil)
+	result, err := removeClaudeCode(rc, []string{"prompts"})
 	require.NoError(t, err)
-
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.NotContains(t, servers, "my_content")
-	assert.NotContains(t, servers, "my_prompts")
-	assert.Contains(t, servers, "other-server")
+	assert.Equal(t, []string{serverNamePrompts}, result.RemovedEntries)
+	assert.NotEmpty(t, result.BackupPath, "user's repurposed entry is preserved in the backup")
 }
 
 func TestRemoveClaudeCode__content_only_preserves_prompts(t *testing.T) {
@@ -791,11 +787,13 @@ func TestRemoveClaudeCode__prompts_only_preserves_content(t *testing.T) {
 	assert.NotContains(t, servers, serverNamePrompts)
 }
 
-func TestConfigureClaudeCode__replaces_custom_named_servers(t *testing.T) {
+func TestConfigureClaudeCode__preserves_custom_named_tiddly_url_entries(t *testing.T) {
+	// Configure is additive: custom-named entries pointing at Tiddly URLs
+	// (e.g. my_content for a second account) are left alone; only the
+	// canonical entries are written.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
-	// Pre-populate with custom-named entries pointing to tiddly URLs
 	writeTestJSON(t, configPath, map[string]any{
 		"mcpServers": map[string]any{
 			"my_content": map[string]any{
@@ -814,14 +812,15 @@ func TestConfigureClaudeCode__replaces_custom_named_servers(t *testing.T) {
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
 
-	// Custom-named entry should be removed, canonical name should exist
-	assert.NotContains(t, servers, "my_content")
+	assert.Contains(t, servers, "my_content", "custom-named Tiddly-URL entry must survive")
 	assert.Contains(t, servers, "tiddly_notes_bookmarks")
 	assert.Contains(t, servers, "tiddly_prompts")
 	assert.Contains(t, servers, "other-server")
 }
 
-func TestExtractClaudeCodePATs__custom_named_servers(t *testing.T) {
+func TestExtractClaudeCodePATs__ignores_custom_named_servers(t *testing.T) {
+	// ExtractPATs reads canonical entries only. PATs attached to custom
+	// names must NOT be harvested for CLI-managed-slot reuse.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
 
@@ -842,8 +841,8 @@ func TestExtractClaudeCodePATs__custom_named_servers(t *testing.T) {
 
 	rc := ResolvedConfig{Path: configPath, Scope: "user"}
 	ext := extractClaudeCodePATs(rc)
-	assert.Equal(t, "bm_custom_content", ext.ContentPAT)
-	assert.Equal(t, "bm_custom_prompts", ext.PromptPAT)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestConfigureClaudeCode__content_only_preserves_existing_prompts(t *testing.T) {

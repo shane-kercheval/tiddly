@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,27 +19,24 @@ import (
 // dryRunPlaceholder is the token shown in dry-run output when a new token would be created.
 const dryRunPlaceholder = "<new-token-would-be-created>"
 
-// tiddlyURLMatcher returns a predicate that matches only the server types being
-// configured (indicated by non-empty PAT). When only one PAT is set, only that
-// server type's URLs are matched, preserving the other. When both are set, all
-// tiddly URLs are matched. When neither is set, nothing is matched (no-op).
-func tiddlyURLMatcher(contentPAT, promptPAT string) func(string) bool {
-	hasContent := contentPAT != ""
-	hasPrompts := promptPAT != ""
-	switch {
-	case hasContent && hasPrompts:
-		return isTiddlyURL
-	case hasContent:
-		return isTiddlyContentURL
-	case hasPrompts:
-		return isTiddlyPromptURL
-	default:
-		return func(string) bool { return false }
-	}
-}
-
-// tokenPrefixLen is the number of leading characters the API stores as token_prefix.
+// tokenPrefixLen is the number of leading characters the API stores as
+// token_prefix. Not exported — callers that need the derived prefix value
+// use PATPrefix() instead of doing the slice themselves.
 const tokenPrefixLen = 12
+
+// PATPrefix returns the leading characters of pat that match the
+// token_prefix the API stores for each token. Returns "" when pat is too
+// short to yield a usable prefix (that case is semantically "no match
+// possible" — callers may treat it as "nothing to subtract" or "nothing
+// to delete" depending on context). Centralizing this avoids the duplicate
+// len-gated slice pattern that previously lived in both DeleteTokensByPrefix
+// and the cmd-layer orphan-token filter.
+func PATPrefix(pat string) string {
+	if len(pat) < tokenPrefixLen {
+		return ""
+	}
+	return pat[:tokenPrefixLen]
+}
 
 // ConfigureOpts configures the MCP configure flow.
 type ConfigureOpts struct {
@@ -54,99 +52,54 @@ type ConfigureOpts struct {
 	Output    io.Writer
 	ErrOutput io.Writer
 
-	// AssumeYes bypasses the interactive consolidation prompt (set via --yes).
-	AssumeYes bool
-	// Stdin is the source for the interactive confirmation prompt.
-	// Tests inject a *bytes.Buffer; production uses os.Stdin.
-	Stdin io.Reader
-	// IsInteractive reports whether stdin is connected to a terminal. When
-	// nil, falls back to detecting stdin itself. Tests override to simulate
-	// interactive vs non-interactive runs without a real TTY.
-	IsInteractive func() bool
+	// Force, when true, tells preflight to proceed even if a CLI-managed
+	// key exists at an unexpected URL (non-Tiddly or wrong-type Tiddly).
+	// The mismatched entry is overwritten with the canonical value. Does
+	// NOT override any other safety check.
+	Force bool
 }
 
-// ErrConsolidationDeclined is returned when the user says "no" at the
-// interactive consolidation prompt. The cmd layer surfaces this with an
-// actionable user message.
-var ErrConsolidationDeclined = errors.New("consolidation declined by user")
+// canonicalMismatch describes a CLI-managed-named key whose current URL
+// doesn't match the expected Tiddly URL for its type. Covers BOTH the
+// non-Tiddly URL sub-case (entry shows up in OtherServers) and the
+// wrong-type Tiddly URL sub-case (entry shows up in Servers with
+// MatchByName but a ServerType that disagrees with the expected one).
+type canonicalMismatch struct {
+	Name string // serverNameContent or serverNamePrompts
+	URL  string // current on-disk URL
+}
 
-// ErrConsolidationNeedsConfirmation is returned when the CLI detects that
-// a configure would consolidate multiple tiddly entries but cannot prompt
-// (non-interactive stdin) and --yes was not passed. The cmd layer wraps
-// this with flag-name guidance; the sentinel itself is deliberately terse
-// so the mcp package doesn't bake in knowledge of CLI flag names.
-var ErrConsolidationNeedsConfirmation = errors.New("consolidation needs confirmation")
+// toolMismatches groups per-tool mismatches for aggregated error reporting.
+type toolMismatches struct {
+	ToolName   string
+	ConfigPath string
+	Entries    []canonicalMismatch
+}
 
 // preflightedTool holds per-tool state computed during Phase 1 (pre-flight)
 // of RunConfigure. Everything here is gathered without mutating the user's
-// filesystem or any server-side state — so a subsequent "no" at the
-// confirmation gate leaves nothing to clean up.
+// filesystem or any server-side state.
 type preflightedTool struct {
-	tool           DetectedTool
-	handler        ToolHandler
-	rc             ResolvedConfig
-	consolidations []ConsolidationGroup // nil when no consolidation would occur
+	tool            DetectedTool
+	handler         ToolHandler
+	rc              ResolvedConfig
+	preservedNames  []string            // non-canonical Tiddly-URL entry names the run leaves alone, scoped to opts.Servers
+	forceOverwrites []canonicalMismatch // populated only when opts.Force && this tool has mismatches
 }
 
-// anyConsolidations reports whether any preflighted tool has at least one
-// ConsolidationGroup. Used to decide whether to emit the leading header
-// in both dry-run and gate paths.
-func anyConsolidations(plan []preflightedTool) bool {
-	for _, pf := range plan {
-		if len(pf.consolidations) > 0 {
-			return true
-		}
+// ServerTypeForCanonicalName is the inverse of CanonicalName: given a
+// CLI-managed entry key name, returns its expected server type. ok is
+// false for any non-canonical name. Paired with CanonicalName so callers
+// can translate both directions through a single source of truth.
+func ServerTypeForCanonicalName(name string) (serverType string, ok bool) {
+	switch name {
+	case serverNameContent:
+		return ServerContent, true
+	case serverNamePrompts:
+		return ServerPrompts, true
+	default:
+		return "", false
 	}
-	return false
-}
-
-// confirmConsolidations is the single cross-tool confirmation gate. Emits a
-// combined warning covering every tool whose configure would collapse
-// multiple existing Tiddly entries, then:
-//   - opts.AssumeYes          → proceed, print "--yes" acknowledgment
-//   - interactive stdin       → prompt y/N once (default No)
-//   - non-interactive stdin   → return ErrConsolidationNeedsConfirmation
-//
-// Returning nil means either no consolidation is required or the user
-// confirmed. Returning an error means the caller must abort before any
-// writes or API mutations — no partial state.
-func confirmConsolidations(opts ConfigureOpts, plan []preflightedTool, isPATAuth bool) error {
-	if !anyConsolidations(plan) {
-		return nil
-	}
-
-	fmt.Fprintln(opts.Output, "Consolidation required:")
-	for _, pf := range plan {
-		if len(pf.consolidations) > 0 {
-			writeConsolidationWarning(opts.Output, pf.tool.Name, pf.consolidations, isPATAuth)
-		}
-	}
-
-	if opts.AssumeYes {
-		fmt.Fprintln(opts.Output, "Proceeding (--yes).")
-		return nil
-	}
-
-	interactive := opts.IsInteractive
-	if interactive == nil {
-		interactive = defaultIsInteractive
-	}
-	if !interactive() {
-		return ErrConsolidationNeedsConfirmation
-	}
-
-	stdin := opts.Stdin
-	if stdin == nil {
-		stdin = os.Stdin
-	}
-	ok, err := promptYesNo(opts.Output, stdin, "Continue? [y/N]: ")
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrConsolidationDeclined
-	}
-	return nil
 }
 
 // wantServer returns true if the given server name is in the requested servers list.
@@ -163,9 +116,7 @@ func (o ConfigureOpts) wantServer(name string) bool {
 }
 
 // BackupRecord points at a single timestamped backup file created before
-// a destructive write. Captured as a typed struct rather than a display
-// string so future consumers (e.g. a `tiddly mcp restore` subcommand) can
-// work with the data directly instead of parsing formatted output.
+// a destructive write.
 type BackupRecord struct {
 	Tool string // tool name (e.g. "claude-desktop")
 	Path string // absolute path to the <original>.bak.<timestamp> file
@@ -178,16 +129,28 @@ type ConfigureResult struct {
 	TokensReused    []string
 	Warnings        []string
 	// Backups holds one record per tool whose config file existed before
-	// configure and was copied to a timestamped backup. Surfaces to the
-	// user so they know where their recovery copy landed.
+	// configure and was copied to a timestamped backup.
 	Backups []BackupRecord
+	// PreservedEntries lists, per tool, the non-canonical Tiddly-URL entry
+	// names that were left alone by this run. Scoped to opts.Servers.
+	PreservedEntries map[string][]string
 }
 
-// RunConfigure orchestrates MCP server configuration for the given tools in
-// three phases: pre-flight (read-only discovery), confirmation gate (single
-// y/N across all tools), and commit (PAT resolution + Configure). The split
-// ensures no server-side token creation or filesystem writes happen before
-// the user confirms — a "no" at the gate leaves the system untouched.
+// RunConfigure orchestrates MCP server configuration for the given tools.
+//
+// Phase 1 (preflight): resolve paths, read current state, detect CLI-managed
+// slots pointing at unexpected URLs, gather preserved-entry names. No writes
+// or server-side mutations.
+//
+// Preflight outcome:
+//   - No mismatches → proceed to commit.
+//   - opts.Force → mark mismatched slots for overwrite, proceed to commit.
+//   - opts.DryRun → emit per-entry stderr warnings, proceed to commit so
+//     the diff is still produced.
+//   - Otherwise → return an aggregated error before any tool's commit runs.
+//
+// Phase 2 (commit): PAT resolution + Configure. Commit-phase failure for a
+// tool revokes that tool's freshly-minted tokens to avoid orphans.
 func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, error) {
 	if opts.Output == nil {
 		opts.Output = os.Stdout
@@ -207,14 +170,11 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 			"Using your current token for MCP servers. Login via 'tiddly login' to auto-create dedicated tokens per server.")
 	}
 
-	// Phase 1: Pre-flight. Resolve paths, read current state, detect
-	// consolidations. No filesystem writes, no server-side mutations.
-	//
-	// Status errors are tolerated in dry-run (the diff is still useful as
-	// a preview), but fail-closed in a real configure: if we can't read
-	// the existing config, we can't detect consolidation, and silently
-	// proceeding would bypass the safety gate the user is relying on.
+	// Phase 1: preflight. Status errors are tolerated in dry-run but
+	// fail-closed in a real configure — otherwise we'd bypass the
+	// URL-mismatch detection the user is relying on.
 	plan := make([]preflightedTool, 0, len(tools))
+	var allMismatches []toolMismatches
 	for _, tool := range tools {
 		if !tool.Detected {
 			continue
@@ -231,63 +191,109 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 			return nil, fmt.Errorf("%s: %w", tool.Name, err)
 		}
 
-		var groups []ConsolidationGroup
+		pf := preflightedTool{tool: tool, handler: handler, rc: rc}
+
 		sr, statusErr := handler.Status(rc)
 		switch {
 		case statusErr != nil && opts.DryRun:
-			// Supplementary warning only; diff is still informative.
+			// Diff is still informative; skip mismatch + preserved-entry derivation for this tool.
+			plan = append(plan, pf)
+			continue
 		case statusErr != nil:
 			return nil, fmt.Errorf("reading %s config for safety check: %w", tool.Name, statusErr)
-		default:
-			groups = detectConsolidations(sr, opts.Servers)
 		}
 
-		// Populate SurvivorName per group under OAuth so the warning's
-		// "PAT from X will be reused" matches the entry ExtractPATs
-		// actually picks during commit. Under PAT auth the warning
-		// doesn't use SurvivorName — it frames the consolidation as a
-		// rebind to the login account — so we skip the read.
-		if !isPATAuth && len(groups) > 0 {
-			ext := handler.ExtractPATs(rc)
-			for i := range groups {
-				groups[i].SurvivorName = survivorNameFor(ext, groups[i].ServerType)
+		// Mismatch detection, scoped to opts.Servers. Both sub-cases route
+		// here: non-Tiddly URL entries live in sr.OtherServers; wrong-type
+		// Tiddly URL entries live in sr.Servers with MatchByName.
+		var mismatches []canonicalMismatch
+		for _, o := range sr.OtherServers {
+			expected, known := ServerTypeForCanonicalName(o.Name)
+			if !known {
+				continue
+			}
+			if !opts.wantServer(expected) {
+				continue
+			}
+			mismatches = append(mismatches, canonicalMismatch{Name: o.Name, URL: o.URL})
+		}
+		for _, s := range sr.Servers {
+			if s.MatchMethod != MatchByName {
+				continue
+			}
+			expected, known := ServerTypeForCanonicalName(s.Name)
+			if !known {
+				continue
+			}
+			if s.ServerType == expected {
+				continue
+			}
+			if !opts.wantServer(expected) {
+				continue
+			}
+			mismatches = append(mismatches, canonicalMismatch{Name: s.Name, URL: s.URL})
+		}
+		sort.Slice(mismatches, func(i, j int) bool { return mismatches[i].Name < mismatches[j].Name })
+
+		if len(mismatches) > 0 {
+			allMismatches = append(allMismatches, toolMismatches{
+				ToolName:   tool.Name,
+				ConfigPath: rc.Path,
+				Entries:    mismatches,
+			})
+		}
+
+		// Preserved-entries derivation: non-canonical Tiddly-URL entries
+		// whose server type is in scope for this run.
+		var preserved []string
+		for _, s := range sr.Servers {
+			if s.MatchMethod != MatchByURL {
+				continue
+			}
+			if !opts.wantServer(s.ServerType) {
+				continue
+			}
+			preserved = append(preserved, s.Name)
+		}
+		sort.Strings(preserved)
+		pf.preservedNames = preserved
+
+		plan = append(plan, pf)
+	}
+
+	// Resolve mismatch outcome. Order matters: Force is checked BEFORE
+	// DryRun so `--dry-run --force` shows the diff with overwrites applied
+	// and no warnings.
+	switch {
+	case len(allMismatches) == 0:
+		// nothing to do
+	case opts.Force:
+		for i := range plan {
+			for _, m := range allMismatches {
+				if m.ToolName == plan[i].tool.Name {
+					plan[i].forceOverwrites = m.Entries
+				}
 			}
 		}
-
-		plan = append(plan, preflightedTool{tool: tool, handler: handler, rc: rc, consolidations: groups})
-	}
-
-	// Phase 2: Single confirmation gate. Skipped in dry-run — dry-run
-	// emits per-tool warnings alongside each diff instead of gating,
-	// but still prints a leading "Consolidation required:" header so the
-	// dry-run and real-run outputs open the same way. A user who runs
-	// dry-run followed by real shouldn't see formatting churn for what
-	// is the same underlying event.
-	if !opts.DryRun {
-		if err := confirmConsolidations(opts, plan, isPATAuth); err != nil {
-			return nil, err
+	case opts.DryRun:
+		for _, m := range allMismatches {
+			for _, e := range m.Entries {
+				fmt.Fprintf(opts.ErrOutput,
+					"Warning: %s at %s — real run will require --force\n", e.Name, e.URL)
+			}
 		}
-	} else if anyConsolidations(plan) {
-		fmt.Fprintln(opts.Output, "Consolidation required:")
+	default:
+		return nil, formatMismatchError(allMismatches)
 	}
 
-	// Phase 3: Commit. PAT resolution (which may create tokens server-side)
-	// and the filesystem write happen here, after the user has confirmed.
-	//
-	// Errors below return the partial result so the caller can display what
-	// already succeeded. Crucially, any OAuth tokens minted for the FAILING
-	// tool are revoked server-side — otherwise a Configure failure would
-	// leave orphaned tokens on the user's account that they'd have to chase
-	// down manually. Tokens minted for earlier successful tools stay put:
-	// they're in those tools' written configs and must remain usable.
+	// Phase 2: commit. PAT resolution (which may create tokens server-side)
+	// and the filesystem write happen here. Commit-phase errors return the
+	// partial result alongside the error so callers can surface what already
+	// succeeded. Minted tokens for the FAILING tool are revoked to avoid
+	// orphaning them on the user's account.
 	for _, pf := range plan {
 		res, err := resolveToolPATs(opts, pf.handler, pf.tool, pf.rc, isPATAuth)
 		if err != nil {
-			// Some mints may have already happened before the failing one
-			// (content minted, prompts failed). Revoke what we have. Use a
-			// detached context with its own timeout so Ctrl+C or an outer
-			// cancellation doesn't cascade into the cleanup and silently
-			// orphan the tokens we just created.
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 			err = withRevokeError(err, revokeMintedTokens(cleanupCtx, opts.Client, res.Minted))
 			cancel()
@@ -296,100 +302,122 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 
 		if opts.DryRun {
 			fmt.Fprintf(opts.Output, "\n--- %s ---\n", pf.tool.Name)
-			if len(pf.consolidations) > 0 {
-				writeConsolidationWarning(opts.Output, pf.tool.Name, pf.consolidations, isPATAuth)
-			}
 			before, after, dErr := pf.handler.DryRun(pf.rc, res.ContentPAT, res.PromptPAT)
 			if dErr != nil {
-				// Consistent with the commit-phase partial-result contract:
-				// return what we've accumulated (TokensReused from prior
-				// iterations) even though nothing was written. Dry-run has
-				// no mints to revoke.
 				return result, dErr
 			}
 			printDiff(opts.Output, pf.rc.Path, before, after)
-			// Dry-run does not write anything, so ToolsConfigured stays empty.
-			// The field's contract is "tools whose configs were actually
-			// written to disk"; a future consumer (e.g. `tiddly mcp restore`
-			// consulting result.Backups) must not be fooled by a dry-run
-			// listing a tool as configured. Similarly TokensCreated stays
-			// empty — no server-side mint happened under dry-run.
 			result.TokensReused = append(result.TokensReused, res.Reused...)
 			continue
 		}
 
+		// Emit the force-overwrite log only here, after PAT resolution
+		// succeeded and immediately before the write attempt, so a failure
+		// in resolveToolPATs never produces a misleading "Forcing overwrite
+		// of X" line followed by an error.
+		for _, e := range pf.forceOverwrites {
+			fmt.Fprintf(opts.ErrOutput, "Forcing overwrite of %s (currently %s)\n", e.Name, e.URL)
+		}
+
 		warnings, backupPath, cErr := pf.handler.Configure(pf.rc, res.ContentPAT, res.PromptPAT, pf.tool)
-		// Record the backup unconditionally if one was taken. Configure
-		// creates the backup BEFORE attempting the write, so even a failed
-		// write leaves a valid recovery copy on disk — and that's exactly
-		// the case where the user most needs to know where it is.
 		if backupPath != "" {
 			result.Backups = append(result.Backups, BackupRecord{Tool: pf.tool.Name, Path: backupPath})
 		}
 		if cErr != nil {
-			// Detached cleanup context: see note at the resolveToolPATs
-			// error path above. We want revoke to run even if the user
-			// Ctrl+C'd or an outer deadline fired — that's when orphan
-			// cleanup matters most.
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 			cErr = withRevokeError(cErr, revokeMintedTokens(cleanupCtx, opts.Client, res.Minted))
 			cancel()
 			return result, fmt.Errorf("configuring %s: %w", pf.tool.Name, cErr)
 		}
 
-		// Success: only now promote the mints and reuses into the visible
-		// summary. If Configure had failed we'd have revoked them instead.
-		// Backups were already recorded above (they survive write failures).
 		for _, m := range res.Minted {
 			result.TokensCreated = append(result.TokensCreated, m.Name)
 		}
 		result.TokensReused = append(result.TokensReused, res.Reused...)
 		result.Warnings = append(result.Warnings, warnings...)
 		result.ToolsConfigured = append(result.ToolsConfigured, pf.tool.Name)
+		if len(pf.preservedNames) > 0 {
+			if result.PreservedEntries == nil {
+				result.PreservedEntries = make(map[string][]string)
+			}
+			result.PreservedEntries[pf.tool.Name] = pf.preservedNames
+		}
 	}
 
 	return result, nil
 }
 
+// formatMismatchError renders the aggregated CLI-managed-URL-mismatch error.
+// Single-tool and multi-tool forms have distinct headers and footers:
+// single-tool pluralizes on entry count within one tool ("it"/"them",
+// "entry"/"entries", "has"/"have") and says "the file"; multi-tool always
+// uses "them" and says "each file". No leading "Error: " — the process
+// entrypoint (main.go) prefixes all returned errors with that.
+func formatMismatchError(mismatches []toolMismatches) error {
+	var b strings.Builder
+	if len(mismatches) == 1 {
+		m := mismatches[0]
+		n := len(m.Entries)
+		entryWord := "entry"
+		verb := "has"
+		pronoun := "it"
+		if n > 1 {
+			entryWord = "entries"
+			verb = "have"
+			pronoun = "them"
+		}
+		fmt.Fprintf(&b, "%d CLI-managed %s in %s %s an unexpected URL:\n",
+			n, entryWord, m.ConfigPath, verb)
+		for _, e := range m.Entries {
+			fmt.Fprintf(&b, "  - %s → %s\n", e.Name, e.URL)
+		}
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Options:")
+		fmt.Fprintf(&b, "  - Preserve %s: edit the file to rename the %s, then re-run.\n", pronoun, entryWord)
+		fmt.Fprintf(&b, "  - Replace %s:  re-run with --force.\n", pronoun)
+	} else {
+		fmt.Fprintf(&b, "unexpected URLs on CLI-managed entries in %d tools:\n\n", len(mismatches))
+		for i, m := range mismatches {
+			if i > 0 {
+				fmt.Fprintln(&b)
+			}
+			fmt.Fprintf(&b, "%s (%s):\n", m.ToolName, m.ConfigPath)
+			for _, e := range m.Entries {
+				fmt.Fprintf(&b, "  - %s → %s\n", e.Name, e.URL)
+			}
+		}
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Options:")
+		fmt.Fprintln(&b, "  - Preserve them: edit each file to rename the mismatched entries, then re-run.")
+		fmt.Fprintln(&b, "  - Replace them:  re-run with --force (applies to all tools in this run).")
+	}
+	return errors.New(strings.TrimRight(b.String(), "\n"))
+}
+
 // mintedToken records a server-side PAT created during a commit-phase run
-// so we can revoke it if a subsequent step (another PAT mint, the config
-// write) fails for the same tool. Keeping this local to the commit loop —
-// instead of writing straight into ConfigureResult — means we only promote
-// the records to the user-visible summary after the tool fully succeeds.
+// so we can revoke it if a subsequent step for the same tool fails.
 type mintedToken struct {
 	ID   string
 	Name string
 	// Token is the plaintext PAT. Used only to derive a last-4 prefix in
-	// cleanup error messages so users can identify orphans in their
-	// settings UI. Do NOT log the full value, serialize this struct, or
-	// pass it across process/log-sink boundaries.
+	// cleanup error messages.
 	Token string
 }
 
-// toolPATResolution is the per-tool output of resolveToolPATs. It separates
-// "attempted" (minted) from "settled" (reused) so the commit loop can decide
-// what to promote to ConfigureResult after Configure either succeeds or
-// fails and triggers revoke.
+// toolPATResolution is the per-tool output of resolveToolPATs.
 type toolPATResolution struct {
 	ContentPAT string
 	PromptPAT  string
-	Minted     []mintedToken // server-side tokens created this run; revoke targets on failure
-	Reused     []string      // "tool/serverType" labels for tokens that already existed and passed validation
+	Minted     []mintedToken // revoke targets on failure
+	Reused     []string      // "tool/serverType" labels for reused tokens
 }
 
 // resolveToolPATs determines the content and prompt PATs for a specific tool.
-// For PAT auth: reuses the login token (no server-side mutation). For OAuth:
-// extracts existing PATs from the tool's config, validates them, and creates
-// new ones only when needed. Newly-minted token metadata is returned in
-// toolPATResolution.Minted so the caller can revoke on failure.
+// For PAT auth: reuses the login token. For OAuth: reads existing CLI-managed
+// PATs, validates them, creates new ones only when needed.
 func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool, rc ResolvedConfig, isPATAuth bool) (toolPATResolution, error) {
 	var out toolPATResolution
 	if isPATAuth {
-		// No validation needed here. `tiddly login` validated this PAT
-		// server-side; the window between login and configure is too small
-		// for server-side revocation to be a realistic failure mode.
-		// OAuth-reused PATs ARE validated below because they come from a
-		// config file of unknown age — a different risk class.
 		pat := opts.Client.Token
 		if opts.wantServer(ServerContent) {
 			out.ContentPAT = pat
@@ -400,7 +428,6 @@ func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool,
 		return out, nil
 	}
 
-	// OAuth: try to reuse existing PATs from the tool's config
 	ext := handler.ExtractPATs(rc)
 
 	if opts.wantServer(ServerContent) {
@@ -433,15 +460,8 @@ func resolveToolPATs(opts ConfigureOpts, handler ToolHandler, tool DetectedTool,
 	return out, nil
 }
 
-// resolveServerPAT resolves a single PAT for a specific server. If an
-// existing PAT is found and valid, it's reused (reused=true, minted=nil).
-// Otherwise a new one is created on the server (minted points to the
-// new token record). No mutation of any shared result — the caller owns
-// promoting records to the user-visible summary.
+// resolveServerPAT resolves a single PAT for a specific server.
 func resolveServerPAT(opts ConfigureOpts, toolName, serverType, existingPAT string) (pat string, minted *mintedToken, reused bool, err error) {
-	// Dry-run: skip network calls entirely — show placeholder for new tokens,
-	// optimistically reuse existing ones without validation. This previews
-	// the config as-is; a real configure will validate and replace stale PATs.
 	if opts.DryRun {
 		if existingPAT != "" {
 			return existingPAT, nil, true, nil
@@ -449,7 +469,6 @@ func resolveServerPAT(opts ConfigureOpts, toolName, serverType, existingPAT stri
 		return dryRunPlaceholder, nil, false, nil
 	}
 
-	// Try to reuse existing PAT
 	if existingPAT != "" {
 		valid, vErr := validatePAT(opts.Ctx, opts.Client.BaseURL, existingPAT)
 		if vErr != nil {
@@ -460,7 +479,6 @@ func resolveServerPAT(opts ConfigureOpts, toolName, serverType, existingPAT stri
 		}
 	}
 
-	// Create a new PAT
 	name := generateTokenName(toolName, serverType)
 	resp, cErr := opts.Client.CreateToken(opts.Ctx, name, opts.ExpiresIn)
 	if cErr != nil {
@@ -469,19 +487,11 @@ func resolveServerPAT(opts ConfigureOpts, toolName, serverType, existingPAT stri
 	return resp.Token, &mintedToken{ID: resp.ID, Name: resp.Name, Token: resp.Token}, false, nil
 }
 
-// cleanupTimeout bounds the best-effort token-revoke window. Uses a
-// detached context so Ctrl+C or an outer deadline doesn't kill the cleanup
-// and silently leave orphaned tokens on the user's account. 10s is enough
-// for a handful of DELETE /tokens/{id} calls at normal network latency.
+// cleanupTimeout bounds the best-effort token-revoke window.
 const cleanupTimeout = 10 * time.Second
 
 // withRevokeError joins a commit-phase primary error with a revoke-failure
-// error if cleanup also failed. Uses errors.Join so callers can errors.Is
-// against either side of the failure (the primary describes what went
-// wrong; the revoke error names specific tokens that now need manual
-// cleanup). The user-facing string renders as two lines — the root cause
-// above, the cleanup note below — which is easier to read in a terminal
-// than a single flattened message.
+// error if cleanup also failed.
 func withRevokeError(primary, revoke error) error {
 	if revoke == nil {
 		return primary
@@ -490,12 +500,6 @@ func withRevokeError(primary, revoke error) error {
 }
 
 // revokeMintedTokens best-effort deletes the given server-side tokens by ID.
-// Used to clean up after a commit-phase failure so we don't leave orphaned
-// tokens on the account.
-//
-// Returns nil if every token was deleted (or there were none to delete).
-// Returns a summary error naming each token that could NOT be revoked so
-// the user can finish the cleanup manually in their settings.
 func revokeMintedTokens(ctx context.Context, client *api.Client, minted []mintedToken) error {
 	if len(minted) == 0 {
 		return nil
@@ -503,15 +507,14 @@ func revokeMintedTokens(ctx context.Context, client *api.Client, minted []minted
 	var orphans []string
 	for _, m := range minted {
 		if delErr := client.DeleteToken(ctx, m.ID); delErr != nil {
-			// Use the first-12 TokenPrefix — matches what the server stores
-			// in api.TokenInfo.TokenPrefix and what the settings UI shows,
-			// so the user can correlate this error directly with the row
-			// they need to delete manually. The `if` guard is defensive
-			// against a bug that produced a shorter-than-expected token;
-			// not expected to fire for server-generated PATs.
-			prefix := m.Token
-			if len(prefix) > tokenPrefixLen {
-				prefix = prefix[:tokenPrefixLen]
+			prefix := PATPrefix(m.Token)
+			if prefix == "" {
+				// Defensive: tokens minted by the API are always long
+				// enough; this branch only fires if an adversarial/mock
+				// response returned something truncated. Fall back to
+				// the whole token rather than printing "" which would
+				// be confusing.
+				prefix = m.Token
 			}
 			orphans = append(orphans, fmt.Sprintf("%s (prefix %s)", m.Name, prefix))
 		}
@@ -537,7 +540,7 @@ func generateTokenName(tool, server string) string {
 // validatePAT checks whether a PAT is still valid by calling GET /users/me.
 // Returns (true, nil) if the token works (200) or needs consent (451).
 // Returns (false, nil) if the token is definitively invalid (401).
-// Returns (false, err) if validation couldn't be determined (network error, 500, etc.).
+// Returns (false, err) if validation couldn't be determined.
 func validatePAT(ctx context.Context, baseURL, pat string) (bool, error) {
 	client := api.NewClient(baseURL, pat, "pat")
 	_, err := client.GetMe(ctx)
@@ -547,61 +550,105 @@ func validatePAT(ctx context.Context, baseURL, pat string) (bool, error) {
 	if apiErr, ok := err.(*api.APIError); ok {
 		switch apiErr.StatusCode {
 		case 451:
-			return true, nil // consent needed but token is still valid
+			return true, nil
 		case 401:
-			return false, nil // definitively invalid
+			return false, nil
 		}
 	}
 	return false, fmt.Errorf("validating token: %w", err)
 }
 
+// TokenRevokeRequest names a PAT whose matching server-side tokens should be
+// revoked. EntryLabel is a caller-chosen label (typically the canonical entry
+// name) that the result is tagged with so the caller can surface a per-entry
+// note when nothing matched.
+type TokenRevokeRequest struct {
+	EntryLabel string
+	PAT        string
+}
 
-// DeleteTokensByPrefix finds and deletes tokens that match a PAT's prefix.
-// Only deletes tokens whose name starts with tokenNamePrefix ("cli-mcp-") to avoid
-// accidentally deleting user-created tokens that share a token prefix.
-// Used by remove --delete-tokens. Returns the names of successfully deleted tokens
-// and any errors encountered during individual deletions.
-func DeleteTokensByPrefix(ctx context.Context, client *api.Client, pats []string) ([]string, error) {
+// TokenRevokeResult mirrors one input request. DeletedNames lists the
+// cli-mcp-* token names revoked for this PAT (empty if nothing matched);
+// Err is populated only for per-request failures — top-level errors from
+// DeleteTokensByPrefix cover list-tokens failure.
+type TokenRevokeResult struct {
+	EntryLabel   string
+	DeletedNames []string
+	Err          error
+}
+
+// DeleteTokensByPrefix revokes server-side tokens whose token_prefix matches
+// any input PAT and whose name starts with the cli-mcp- prefix (avoiding
+// accidental deletion of user-created tokens that happen to share a prefix).
+//
+// Returns one result per input request in input order, preserving EntryLabels.
+// Requests sharing a PAT are deduped internally: one deletion pass per unique
+// PAT, with the resulting DeletedNames and Err mirrored into every matching
+// result. Callers never see duplicate deletions or false "nothing matched"
+// for shared PATs.
+//
+// For PATs too short to yield a prefix (see PATPrefix), the result has an empty
+// DeletedNames and nil Err — treated as "nothing matched" so the caller can
+// emit a per-entry note consistently. The top-level error is reserved for
+// list-tokens failure.
+func DeleteTokensByPrefix(ctx context.Context, client *api.Client, reqs []TokenRevokeRequest) ([]TokenRevokeResult, error) {
+	results := make([]TokenRevokeResult, len(reqs))
+	for i, r := range reqs {
+		results[i].EntryLabel = r.EntryLabel
+	}
+	if len(reqs) == 0 {
+		return results, nil
+	}
+
 	tokens, err := client.ListTokens(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing tokens: %w", err)
 	}
 
-	var deleted []string
-	var deleteErrors []error
-	for _, pat := range pats {
-		if len(pat) < tokenPrefixLen {
+	// One deletion pass per unique PAT; mirror the outcome back to every
+	// result whose PAT matches.
+	type patOutcome struct {
+		deleted []string
+		err     error
+	}
+	byPAT := make(map[string]*patOutcome)
+	for _, r := range reqs {
+		if _, ok := byPAT[r.PAT]; ok {
 			continue
 		}
-		prefix := pat[:tokenPrefixLen]
-		for _, t := range tokens {
-			if t.TokenPrefix == prefix && strings.HasPrefix(t.Name, tokenNamePrefix) {
-				if err := client.DeleteToken(ctx, t.ID); err != nil {
-					deleteErrors = append(deleteErrors, fmt.Errorf("deleting token %s: %w", t.Name, err))
-				} else {
-					deleted = append(deleted, t.Name)
+		o := &patOutcome{}
+		if prefix := PATPrefix(r.PAT); prefix != "" {
+			var perPATErrors []error
+			for _, t := range tokens {
+				if t.TokenPrefix == prefix && strings.HasPrefix(t.Name, tokenNamePrefix) {
+					if delErr := client.DeleteToken(ctx, t.ID); delErr != nil {
+						perPATErrors = append(perPATErrors, fmt.Errorf("deleting token %s: %w", t.Name, delErr))
+					} else {
+						o.deleted = append(o.deleted, t.Name)
+					}
 				}
 			}
+			if len(perPATErrors) > 0 {
+				o.err = errors.Join(perPATErrors...)
+			}
 		}
+		byPAT[r.PAT] = o
 	}
-	if len(deleteErrors) > 0 {
-		return deleted, errors.Join(deleteErrors...)
+
+	for i, r := range reqs {
+		o := byPAT[r.PAT]
+		results[i].DeletedNames = o.deleted
+		results[i].Err = o.err
 	}
-	return deleted, nil
+	return results, nil
 }
 
-
 // bearerRE matches "Bearer bm_<token>" sequences in either JSON-escaped or
-// raw form. Matches the Authorization header value in claude-code/codex
-// JSON+TOML configs and the inline --header string in claude-desktop stdio
-// args. Captures the "Bearer " prefix (and the space) so the replacement
-// can keep it and substitute only the PAT.
+// raw form.
 var bearerRE = regexp.MustCompile(`Bearer[ \t]+bm_[A-Za-z0-9_-]+`)
 
 // redactBearers replaces every "Bearer bm_<token>" with "Bearer bm_REDACTED"
 // so dry-run output never lands tokens in the user's terminal history.
-// tokens create still prints plaintext by design; mcp configure --dry-run
-// is not an explicit token-display command, so it shouldn't leak.
 func redactBearers(s string) string {
 	return bearerRE.ReplaceAllString(s, "Bearer bm_REDACTED")
 }
@@ -618,31 +665,36 @@ func printDiff(w io.Writer, path, before, after string) {
 	fmt.Fprintln(w, redactBearers(after))
 }
 
-// CheckOrphanedTokens checks for cli-mcp-{toolName}-* tokens that may be orphaned after removal.
-// Only returns tokens whose name matches the given tool and server types, so removing one
-// server type doesn't report tokens for the other.
-// Token names follow the pattern "cli-mcp-{tool}-{serverType}-{suffix}".
-func CheckOrphanedTokens(ctx context.Context, client *api.Client, toolName string, serverTypes []string) ([]string, error) {
+// CheckOrphanedTokens returns server-side tokens matching the
+// cli-mcp-{toolName}-{serverType}- name pattern. The caller must subtract
+// tokens whose TokenPrefix matches a PAT still referenced by a retained
+// entry on disk before presenting them as "potentially orphaned" —
+// otherwise tokens in active use by non-canonical entries would be
+// misreported.
+//
+// Known limitation: does not see repurposed canonical slots (canonical
+// names at non-Tiddly URLs). A CLI-minted PAT pasted into such an entry
+// may be reported as "potentially orphaned" even though it's still in use.
+// Accepted pre-GA; see the plan document for context.
+func CheckOrphanedTokens(ctx context.Context, client *api.Client, toolName string, serverTypes []string) ([]api.TokenInfo, error) {
 	tokens, err := client.ListTokens(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build prefixes for the server types being removed
 	var prefixes []string
 	for _, st := range serverTypes {
 		prefixes = append(prefixes, fmt.Sprintf("%s%s-%s-", tokenNamePrefix, toolName, st))
 	}
-	// Fallback: if no server types specified, match all tokens for this tool
 	if len(prefixes) == 0 {
 		prefixes = []string{fmt.Sprintf("%s%s-", tokenNamePrefix, toolName)}
 	}
 
-	var orphaned []string
+	var orphaned []api.TokenInfo
 	for _, t := range tokens {
 		for _, p := range prefixes {
 			if strings.HasPrefix(t.Name, p) {
-				orphaned = append(orphaned, t.Name)
+				orphaned = append(orphaned, t)
 				break
 			}
 		}

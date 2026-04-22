@@ -14,7 +14,6 @@ import (
 	"testing"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
-	"github.com/shane-kercheval/tiddly/cli/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -595,14 +594,14 @@ func TestCheckOrphanedTokens__finds_mcp_tokens_for_tool(t *testing.T) {
 	orphaned, err := CheckOrphanedTokens(context.Background(), client, "claude-code", []string{"content", "prompts"})
 	require.NoError(t, err)
 	assert.Len(t, orphaned, 2)
-	assert.Contains(t, orphaned[0], "cli-mcp-claude-code-")
-	assert.Contains(t, orphaned[1], "cli-mcp-claude-code-")
+	assert.Contains(t, orphaned[0].Name, "cli-mcp-claude-code-")
+	assert.Contains(t, orphaned[1].Name, "cli-mcp-claude-code-")
 
 	// Should only return codex tokens
 	orphaned, err = CheckOrphanedTokens(context.Background(), client, "codex", []string{"content", "prompts"})
 	require.NoError(t, err)
 	assert.Len(t, orphaned, 1)
-	assert.Contains(t, orphaned[0], "cli-mcp-codex-")
+	assert.Contains(t, orphaned[0].Name, "cli-mcp-codex-")
 }
 
 func TestCheckOrphanedTokens__no_orphans(t *testing.T) {
@@ -638,13 +637,13 @@ func TestCheckOrphanedTokens__filters_by_server_type(t *testing.T) {
 	orphaned, err := CheckOrphanedTokens(context.Background(), client, "claude-code", []string{"content"})
 	require.NoError(t, err)
 	require.Len(t, orphaned, 1)
-	assert.Contains(t, orphaned[0], "content")
+	assert.Contains(t, orphaned[0].Name, "content")
 
 	// Prompts only — should only find prompts token
 	orphaned, err = CheckOrphanedTokens(context.Background(), client, "claude-code", []string{"prompts"})
 	require.NoError(t, err)
 	require.Len(t, orphaned, 1)
-	assert.Contains(t, orphaned[0], "prompts")
+	assert.Contains(t, orphaned[0].Name, "prompts")
 }
 
 func TestGenerateTokenName__format(t *testing.T) {
@@ -656,32 +655,6 @@ func TestGenerateTokenName__unique(t *testing.T) {
 	name1 := generateTokenName("claude-code", "content")
 	name2 := generateTokenName("claude-code", "content")
 	assert.NotEqual(t, name1, name2, "names should be unique due to random suffix")
-}
-
-func TestTiddlyURLMatcher__both_pats(t *testing.T) {
-	match := tiddlyURLMatcher("bm_content", "bm_prompts")
-	assert.True(t, match(ContentMCPURL()))
-	assert.True(t, match(PromptMCPURL()))
-	assert.False(t, match("https://other.example.com/mcp"))
-}
-
-func TestTiddlyURLMatcher__content_only(t *testing.T) {
-	match := tiddlyURLMatcher("bm_content", "")
-	assert.True(t, match(ContentMCPURL()))
-	assert.False(t, match(PromptMCPURL()))
-}
-
-func TestTiddlyURLMatcher__prompts_only(t *testing.T) {
-	match := tiddlyURLMatcher("", "bm_prompts")
-	assert.False(t, match(ContentMCPURL()))
-	assert.True(t, match(PromptMCPURL()))
-}
-
-func TestTiddlyURLMatcher__neither_pat_matches_nothing(t *testing.T) {
-	match := tiddlyURLMatcher("", "")
-	assert.False(t, match(ContentMCPURL()))
-	assert.False(t, match(PromptMCPURL()))
-	assert.False(t, match("https://other.example.com/mcp"))
 }
 
 func TestConfigureClaudeCode__both_pats_empty_preserves_existing(t *testing.T) {
@@ -787,14 +760,21 @@ func TestDeleteTokensByPrefix__matches_and_deletes(t *testing.T) {
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
 
 	// PATs whose first 12 chars match the token_prefix
-	pats := []string{"bm_abcdefghijklmnop", "bm_123456789jklmnop"}
-	deleted, err := DeleteTokensByPrefix(context.Background(), client, pats)
+	reqs := []TokenRevokeRequest{
+		{EntryLabel: "tiddly_notes_bookmarks", PAT: "bm_abcdefghijklmnop"},
+		{EntryLabel: "tiddly_prompts", PAT: "bm_123456789jklmnop"},
+	}
+	results, err := DeleteTokensByPrefix(context.Background(), client, reqs)
 
 	require.NoError(t, err)
 	assert.Contains(t, deletedIDs, "tok-1")
 	assert.Contains(t, deletedIDs, "tok-2")
 	assert.NotContains(t, deletedIDs, "tok-3")
-	assert.Len(t, deleted, 2)
+	require.Len(t, results, 2)
+	assert.Equal(t, "tiddly_notes_bookmarks", results[0].EntryLabel)
+	assert.Equal(t, []string{"cli-mcp-claude-code-content-a1b2c3"}, results[0].DeletedNames)
+	assert.Equal(t, "tiddly_prompts", results[1].EntryLabel)
+	assert.Equal(t, []string{"cli-mcp-claude-code-prompts-d4e5f6"}, results[1].DeletedNames)
 }
 
 func TestDeleteTokensByPrefix__partial_failure_returns_deleted_and_error(t *testing.T) {
@@ -821,14 +801,21 @@ func TestDeleteTokensByPrefix__partial_failure_returns_deleted_and_error(t *test
 
 	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
 
-	pats := []string{"bm_abcdefghijklmnop", "bm_123456789jklmnop"}
-	deleted, err := DeleteTokensByPrefix(context.Background(), client, pats)
+	reqs := []TokenRevokeRequest{
+		{EntryLabel: "tiddly_notes_bookmarks", PAT: "bm_abcdefghijklmnop"},
+		{EntryLabel: "tiddly_prompts", PAT: "bm_123456789jklmnop"},
+	}
+	results, err := DeleteTokensByPrefix(context.Background(), client, reqs)
 
-	// Should return both the successfully deleted token AND the error
-	assert.Len(t, deleted, 1)
-	assert.Contains(t, deleted, "cli-mcp-claude-code-content-a1b2c3")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cli-mcp-claude-code-prompts-d4e5f6")
+	// Top-level err is reserved for list-tokens failure, so no error here —
+	// the per-request failure is on results[1].Err.
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	assert.Equal(t, []string{"cli-mcp-claude-code-content-a1b2c3"}, results[0].DeletedNames)
+	assert.NoError(t, results[0].Err)
+	assert.Empty(t, results[1].DeletedNames)
+	require.Error(t, results[1].Err)
+	assert.Contains(t, results[1].Err.Error(), "cli-mcp-claude-code-prompts-d4e5f6")
 }
 
 func TestExtractPATs__claude_desktop_handler(t *testing.T) {
@@ -1010,330 +997,10 @@ func TestPrintDiff__redacts_bearer_across_all_three_formats(t *testing.T) {
 	}
 }
 
-func TestRunConfigure__dry_run_warns_about_multi_entry_consolidation(t *testing.T) {
-	// Simulate a user who manually set up work_prompts + personal_prompts for
-	// two tiddly accounts. A dry-run configure should warn that both will be
-	// consolidated into a single canonical entry, so the user understands
-	// what's at stake before proceeding.
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-
-	writeTestJSON(t, configPath, map[string]any{
-		"mcpServers": map[string]any{
-			"work_prompts": map[string]any{
-				"type": "http",
-				"url":  PromptMCPURL(),
-				"headers": map[string]any{
-					"Authorization": "Bearer bm_work",
-				},
-			},
-			"personal_prompts": map[string]any{
-				"type": "http",
-				"url":  PromptMCPURL(),
-				"headers": map[string]any{
-					"Authorization": "Bearer bm_personal",
-				},
-			},
-		},
-	})
-
-	client := api.NewClient("http://unused", "bm_test", "pat")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	_, err := RunConfigure(ConfigureOpts{
-		Handlers: DefaultHandlers(),
-		Client:   client,
-		AuthType: "pat",
-		DryRun:   true,
-		Output:   stdout,
-	}, tools)
-
-	require.NoError(t, err)
-
-	out := stdout.String()
-	// Dry-run opens with the same "Consolidation required:" header that the
-	// real-run gate prints, so users who dry-run → real see consistent
-	// framing for the same underlying event.
-	assert.Contains(t, out, "Consolidation required:",
-		"dry-run must print the same opening header as the real-run gate")
-	assert.Contains(t, out, "claude-code:")
-	assert.Contains(t, out, "prompts entries will be consolidated into tiddly_prompts")
-	assert.Contains(t, out, "work_prompts")
-	assert.Contains(t, out, "personal_prompts")
-	// PAT auth rebinds all entries to the current login; the message
-	// reflects that instead of claiming a specific entry's PAT "survives".
-	assert.Contains(t, out, "current logged-in account")
-}
-
-func TestRunConfigure__dry_run_no_warning_when_single_entries(t *testing.T) {
-	// Canonical single-entry setup — dry-run should NOT emit the consolidation
-	// warning because nothing will be lost.
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-
-	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
-	require.NoError(t, err)
-
-	client := api.NewClient("http://unused", "bm_new", "pat")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	_, err = RunConfigure(ConfigureOpts{
-		Handlers: DefaultHandlers(),
-		Client:   client,
-		AuthType: "pat",
-		DryRun:   true,
-		Output:   stdout,
-	}, tools)
-
-	require.NoError(t, err)
-	assert.NotContains(t, stdout.String(), "will be consolidated",
-		"no consolidation warning should appear for canonical single-entry configs")
-	assert.NotContains(t, stdout.String(), "Consolidation required:",
-		"the leading header must only appear when there is a consolidation to confirm")
-}
-
-func TestRunConfigure__dry_run_servers_flag_scopes_warning(t *testing.T) {
-	// Multi-entry on prompts, but user passes --servers content. The
-	// consolidation only affects the prompts type, which is NOT being
-	// configured, so no warning should appear.
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-
-	writeTestJSON(t, configPath, map[string]any{
-		"mcpServers": map[string]any{
-			"tiddly_notes_bookmarks": map[string]any{
-				"type": "http",
-				"url":  ContentMCPURL(),
-			},
-			"work_prompts": map[string]any{
-				"type": "http",
-				"url":  PromptMCPURL(),
-			},
-			"personal_prompts": map[string]any{
-				"type": "http",
-				"url":  PromptMCPURL(),
-			},
-		},
-	})
-
-	client := api.NewClient("http://unused", "bm_test", "pat")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	_, err := RunConfigure(ConfigureOpts{
-		Handlers: DefaultHandlers(),
-		Client:   client,
-		AuthType: "pat",
-		DryRun:   true,
-		Servers:  []string{"content"},
-		Output:   stdout,
-	}, tools)
-
-	require.NoError(t, err)
-	assert.NotContains(t, stdout.String(), "will be consolidated",
-		"--servers content should not warn about prompts-only multi-entry")
-}
-
-// multiPromptsConfig writes a .claude.json with two custom-named prompt
-// entries (work + personal) against the same tiddly URL. Used by the
-// consolidation-prompt tests.
-func multiPromptsConfig(t *testing.T, configPath string) {
-	t.Helper()
-	writeTestJSON(t, configPath, map[string]any{
-		"mcpServers": map[string]any{
-			"work_prompts": map[string]any{
-				"type": "http",
-				"url":  PromptMCPURL(),
-				"headers": map[string]any{
-					"Authorization": "Bearer bm_work",
-				},
-			},
-			"personal_prompts": map[string]any{
-				"type": "http",
-				"url":  PromptMCPURL(),
-				"headers": map[string]any{
-					"Authorization": "Bearer bm_personal",
-				},
-			},
-		},
-	})
-}
-
-func TestRunConfigure__consolidation_prompt_proceeds_on_yes(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-	multiPromptsConfig(t, configPath)
-
-	client := api.NewClient("http://unused", "bm_test", "pat")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	_, err := RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "pat",
-		Output:        stdout,
-		Stdin:         strings.NewReader("y\n"),
-		IsInteractive: func() bool { return true },
-	}, tools)
-	require.NoError(t, err)
-
-	out := stdout.String()
-	assert.Contains(t, out, "will be consolidated", "warning should appear")
-	assert.Contains(t, out, "Continue? [y/N]", "prompt should appear")
-
-	// Post-consolidation: single canonical prompt entry remains.
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.Contains(t, servers, "tiddly_prompts")
-	assert.NotContains(t, servers, "work_prompts", "custom name should be wiped")
-	assert.NotContains(t, servers, "personal_prompts", "custom name should be wiped")
-}
-
-func TestRunConfigure__consolidation_prompt_aborts_on_no(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-	multiPromptsConfig(t, configPath)
-
-	client := api.NewClient("http://unused", "bm_test", "pat")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	_, err := RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "pat",
-		Output:        stdout,
-		Stdin:         strings.NewReader("n\n"),
-		IsInteractive: func() bool { return true },
-	}, tools)
-	require.ErrorIs(t, err, ErrConsolidationDeclined)
-
-	// Declining must leave the config untouched — both entries survive.
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.Contains(t, servers, "work_prompts", "work entry should be preserved on decline")
-	assert.Contains(t, servers, "personal_prompts", "personal entry should be preserved on decline")
-	assert.NotContains(t, servers, "tiddly_prompts", "no canonical entry should be written on decline")
-}
-
-func TestRunConfigure__consolidation_non_interactive_errors_without_yes(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-	multiPromptsConfig(t, configPath)
-
-	client := api.NewClient("http://unused", "bm_test", "pat")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	_, err := RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "pat",
-		Output:        stdout,
-		IsInteractive: func() bool { return false },
-	}, tools)
-	require.ErrorIs(t, err, ErrConsolidationNeedsConfirmation)
-
-	// Non-interactive decline must also leave the config untouched.
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.Contains(t, servers, "work_prompts")
-	assert.Contains(t, servers, "personal_prompts")
-}
-
-func TestRunConfigure__declining_before_writes_creates_no_server_tokens(t *testing.T) {
-	// Regression guard for the correctness bug where resolveToolPATs ran
-	// BEFORE the confirmation gate, causing OAuth token minting (and the
-	// pre-check GET /users/me) to hit the API even when the user ultimately
-	// said no. The mock server is configured with NO routes — any API call
-	// triggers t.Errorf via MockAPI, failing the test. That makes "no API
-	// calls happened" an assertable property.
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-	multiPromptsConfig(t, configPath)
-
-	mock := testutil.NewMockAPI(t)
-	client := api.NewClient(mock.URL(), "bm_oauth_access", "oauth")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	_, err := RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "oauth",
-		Output:        stdout,
-		Stdin:         strings.NewReader("n\n"),
-		IsInteractive: func() bool { return true },
-	}, tools)
-	require.ErrorIs(t, err, ErrConsolidationDeclined)
-
-	// Config must be untouched (same two custom-named entries).
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.Contains(t, servers, "work_prompts")
-	assert.Contains(t, servers, "personal_prompts")
-	assert.NotContains(t, servers, "tiddly_prompts")
-}
-
-func TestRunConfigure__non_interactive_decline_creates_no_server_tokens(t *testing.T) {
-	// Parallel to the above, but under the non-interactive gate path.
-	// Non-interactive + no --yes must fail BEFORE any API call.
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-	multiPromptsConfig(t, configPath)
-
-	mock := testutil.NewMockAPI(t)
-	client := api.NewClient(mock.URL(), "bm_oauth_access", "oauth")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	_, err := RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "oauth",
-		Output:        stdout,
-		IsInteractive: func() bool { return false },
-	}, tools)
-	require.ErrorIs(t, err, ErrConsolidationNeedsConfirmation)
-
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.Contains(t, servers, "work_prompts")
-	assert.Contains(t, servers, "personal_prompts")
-}
-
 func TestRunConfigure__status_error_aborts_non_dry_run(t *testing.T) {
-	// If Status fails in a non-dry-run, the consolidation check is blind,
-	// and silently proceeding would bypass the safety gate. Preflight must
-	// propagate the error and abort before any write.
+	// If Status fails in a non-dry-run, URL-mismatch detection is blind and
+	// silently proceeding would bypass the fail-closed safety net. Preflight
+	// must propagate the error and abort before any write.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "not-a-valid-file.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("{{ not valid json"), 0600))
@@ -1346,11 +1013,10 @@ func TestRunConfigure__status_error_aborts_non_dry_run(t *testing.T) {
 	}
 
 	_, err := RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "pat",
-		Output:        stdout,
-		IsInteractive: func() bool { return true },
+		Handlers: DefaultHandlers(),
+		Client:   client,
+		AuthType: "pat",
+		Output:   stdout,
 	}, tools)
 	require.Error(t, err, "non-dry-run must fail closed on Status error")
 	assert.Contains(t, err.Error(), "reading claude-code config for safety check")
@@ -1359,174 +1025,6 @@ func TestRunConfigure__status_error_aborts_non_dry_run(t *testing.T) {
 	data, readErr := os.ReadFile(configPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, "{{ not valid json", string(data))
-}
-
-func TestRunConfigure__single_gate_across_multiple_tools(t *testing.T) {
-	// User has multi-entry on two different tools. One confirmation gate
-	// should cover both; a "no" must leave BOTH untouched (atomicity),
-	// not partially consolidate one while aborting the other.
-	dir := t.TempDir()
-	claudeCodePath := filepath.Join(dir, ".claude.json")
-	claudeDesktopPath := filepath.Join(dir, "claude_desktop_config.json")
-
-	multiPromptsConfig(t, claudeCodePath)
-	writeTestJSON(t, claudeDesktopPath, map[string]any{
-		"mcpServers": map[string]any{
-			"work_prompts": map[string]any{
-				"command": "npx",
-				"args":    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer bm_work"},
-			},
-			"personal_prompts": map[string]any{
-				"command": "npx",
-				"args":    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer bm_personal"},
-			},
-		},
-	})
-
-	client := api.NewClient("http://unused", "bm_test", "pat")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: claudeCodePath},
-		{Name: "claude-desktop", Detected: true, ConfigPath: claudeDesktopPath, HasNpx: true},
-	}
-
-	_, err := RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "pat",
-		Output:        stdout,
-		Stdin:         strings.NewReader("n\n"),
-		IsInteractive: func() bool { return true },
-	}, tools)
-	require.ErrorIs(t, err, ErrConsolidationDeclined)
-
-	// Combined warning should list BOTH tools before the single prompt.
-	out := stdout.String()
-	assert.Contains(t, out, "claude-code:", "combined warning should mention claude-code")
-	assert.Contains(t, out, "claude-desktop:", "combined warning should mention claude-desktop")
-	// Exactly one prompt appears.
-	assert.Equal(t, 1, strings.Count(out, "Continue? [y/N]:"),
-		"only one prompt should appear across multiple tools needing consolidation")
-
-	// Both tools' configs must be preserved.
-	claudeCodeConfig := readTestJSON(t, claudeCodePath)
-	claudeCodeServers := claudeCodeConfig["mcpServers"].(map[string]any)
-	assert.Contains(t, claudeCodeServers, "work_prompts")
-	assert.Contains(t, claudeCodeServers, "personal_prompts")
-
-	claudeDesktopConfig := readTestJSON(t, claudeDesktopPath)
-	claudeDesktopServers := claudeDesktopConfig["mcpServers"].(map[string]any)
-	assert.Contains(t, claudeDesktopServers, "work_prompts")
-	assert.Contains(t, claudeDesktopServers, "personal_prompts")
-}
-
-func TestRunConfigure__oauth_multi_entry_proceed_reuses_surviving_pat(t *testing.T) {
-	// Full OAuth happy-path after the preflight → gate → commit restructure:
-	// multi-entry prompts + canonical content, user confirms, the surviving
-	// prompts PAT is validated and reused (no new token minted), the
-	// non-surviving entry is discarded, and a single canonical entry is
-	// written. This is the complement of the "decline creates no tokens"
-	// regression guard — it proves the accept branch actually works.
-	var (
-		validatedPATs []string
-		tokenCalls    int
-	)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == "GET" && r.URL.Path == "/users/me":
-			auth := r.Header.Get("Authorization")
-			validatedPATs = append(validatedPATs, auth)
-			_ = json.NewEncoder(w).Encode(api.UserInfo{ID: "u1", Email: "t@t.com"})
-		case r.Method == "POST" && r.URL.Path == "/tokens/":
-			tokenCalls++
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{ID: "tok-new", Token: "bm_new"})
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
-
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-
-	// One canonical content entry (single-entry, no consolidation for content)
-	// + two custom prompts entries (consolidation required).
-	writeTestJSON(t, configPath, map[string]any{
-		"mcpServers": map[string]any{
-			"tiddly_notes_bookmarks": map[string]any{
-				"type": "http",
-				"url":  ContentMCPURL(),
-				"headers": map[string]any{
-					"Authorization": "Bearer bm_existing_content",
-				},
-			},
-			// Neither prompts entry is canonical, so alphabetical order
-			// (personal before work) decides the survivor under canonical-first.
-			"personal_prompts": map[string]any{
-				"type": "http",
-				"url":  PromptMCPURL(),
-				"headers": map[string]any{
-					"Authorization": "Bearer bm_personal_prompt",
-				},
-			},
-			"work_prompts": map[string]any{
-				"type": "http",
-				"url":  PromptMCPURL(),
-				"headers": map[string]any{
-					"Authorization": "Bearer bm_work_prompt",
-				},
-			},
-		},
-	})
-
-	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	result, err := RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "oauth",
-		Output:        stdout,
-		Stdin:         strings.NewReader("y\n"),
-		IsInteractive: func() bool { return true },
-	}, tools)
-
-	require.NoError(t, err)
-	assert.Equal(t, 0, tokenCalls, "no tokens should be minted when existing PATs are valid")
-
-	// Both existing PATs were validated: content's, and the surviving
-	// prompts one (personal_prompts, alphabetically first).
-	assert.Contains(t, validatedPATs, "Bearer bm_existing_content",
-		"content PAT should be validated for reuse")
-	assert.Contains(t, validatedPATs, "Bearer bm_personal_prompt",
-		"surviving prompts PAT (personal_prompts) should be validated for reuse")
-	assert.NotContains(t, validatedPATs, "Bearer bm_work_prompt",
-		"non-surviving prompts PAT (work_prompts) should NOT touch the API")
-
-	assert.Len(t, result.TokensReused, 2, "both content and surviving prompts PATs reused")
-	assert.Empty(t, result.TokensCreated)
-
-	// Verify final filesystem state: canonical entries only, with the
-	// surviving personal_prompts PAT bound to tiddly_prompts.
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-
-	assert.NotContains(t, servers, "work_prompts", "non-surviving entry must be deleted")
-	assert.NotContains(t, servers, "personal_prompts", "original custom key must be deleted")
-	require.Contains(t, servers, "tiddly_prompts", "canonical prompts entry must be written")
-	require.Contains(t, servers, "tiddly_notes_bookmarks", "canonical content entry preserved")
-
-	prompts := servers["tiddly_prompts"].(map[string]any)
-	headers := prompts["headers"].(map[string]any)
-	assert.Equal(t, "Bearer bm_personal_prompt", headers["Authorization"],
-		"the surviving PAT (from personal_prompts) must be what's written under the canonical key")
 }
 
 func TestRunConfigure__commit_phase_failure_preserves_earlier_writes(t *testing.T) {
@@ -1882,72 +1380,6 @@ func TestRunConfigure__preflight_failure_returns_nil_result(t *testing.T) {
 	assert.Nil(t, result, "preflight failure must return nil result — nothing happened")
 }
 
-func TestRunConfigure__consolidation_assume_yes_bypasses_prompt(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-	multiPromptsConfig(t, configPath)
-
-	client := api.NewClient("http://unused", "bm_test", "pat")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	// AssumeYes + non-interactive stdin: should still proceed without prompt.
-	_, err := RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "pat",
-		Output:        stdout,
-		AssumeYes:     true,
-		IsInteractive: func() bool { return false },
-	}, tools)
-	require.NoError(t, err)
-
-	out := stdout.String()
-	assert.Contains(t, out, "will be consolidated", "warning should still be shown")
-	assert.NotContains(t, out, "Continue? [y/N]", "prompt must be skipped under --yes")
-	assert.Contains(t, out, "Proceeding (--yes)")
-
-	config := readTestJSON(t, configPath)
-	servers := config["mcpServers"].(map[string]any)
-	assert.Contains(t, servers, "tiddly_prompts")
-}
-
-func TestRunConfigure__no_prompt_when_single_entries(t *testing.T) {
-	// Canonical single-entry setup: consolidation helper returns nil,
-	// so the prompt machinery is never invoked. Verifies the common
-	// case isn't impacted by the new confirmation flow.
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".claude.json")
-
-	rc := ResolvedConfig{Path: configPath, Scope: "user"}
-	_, err := configureClaudeCode(rc, "bm_content", "bm_prompts")
-	require.NoError(t, err)
-
-	client := api.NewClient("http://unused", "bm_new", "pat")
-	stdout := &bytes.Buffer{}
-
-	tools := []DetectedTool{
-		{Name: "claude-code", Detected: true, ConfigPath: configPath},
-	}
-
-	// IsInteractive returns false — if the prompt machinery fired erroneously,
-	// this would trigger ErrConsolidationNeedsConfirmation.
-	_, err = RunConfigure(ConfigureOpts{
-		Handlers:      DefaultHandlers(),
-		Client:        client,
-		AuthType:      "pat",
-		Output:        stdout,
-		IsInteractive: func() bool { return false },
-	}, tools)
-	require.NoError(t, err, "single-entry configure must not gate on confirmation")
-
-	assert.NotContains(t, stdout.String(), "will be consolidated")
-	assert.NotContains(t, stdout.String(), "Continue? [y/N]")
-}
-
 func TestRunRemove__valid_config_creates_backup_before_writing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
@@ -1964,14 +1396,17 @@ func TestRunRemove__valid_config_creates_backup_before_writing(t *testing.T) {
 	writeTestJSON(t, configPath, existingConfig)
 
 	h := &ClaudeDesktopHandler{}
-	backupPath, err := h.Remove(ResolvedConfig{Path: configPath, Scope: "user"}, []string{"content", "prompts"})
+	result, err := h.Remove(ResolvedConfig{Path: configPath, Scope: "user"}, []string{"content", "prompts"})
 	require.NoError(t, err)
-	require.NotEmpty(t, backupPath, "Remove should return backup path when a write occurred")
-	assert.True(t, strings.HasPrefix(backupPath, configPath+".bak."),
-		"backup filename should be <path>.bak.<timestamp>; got %q", backupPath)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"tiddly_notes_bookmarks"}, result.RemovedEntries,
+		"RemovedEntries must list the canonical names actually deleted")
+	require.NotEmpty(t, result.BackupPath, "Remove should return backup path when a write occurred")
+	assert.True(t, strings.HasPrefix(result.BackupPath, configPath+".bak."),
+		"backup filename should be <path>.bak.<timestamp>; got %q", result.BackupPath)
 
 	// Backup file should exist with the original content (including the tiddly server)
-	backupData, backupErr := os.ReadFile(backupPath)
+	backupData, backupErr := os.ReadFile(result.BackupPath)
 	require.NoError(t, backupErr, "backup file should exist")
 	assert.Contains(t, string(backupData), "tiddly_notes_bookmarks")
 }
@@ -2006,4 +1441,792 @@ func TestRunConfigure__no_existing_file_does_not_create_backup(t *testing.T) {
 	newData, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(newData), "tiddly_notes_bookmarks")
+}
+
+// ---------------------------------------------------------------------------
+// Additive-configure (M1) tests — URL-mismatch detection, --force, preserved
+// entries. Exhaustively covers the preflight and commit paths introduced when
+// the consolidation gate was removed.
+// ---------------------------------------------------------------------------
+
+func TestRunConfigure__additive_preserves_non_canonical_tiddly_entries(t *testing.T) {
+	// User configured work_prompts + personal_prompts manually; configure
+	// must add the canonical entries WITHOUT touching those non-canonical
+	// ones (no consolidation).
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"work_prompts": map[string]any{
+				"type":    "http",
+				"url":     PromptMCPURL(),
+				"headers": map[string]any{"Authorization": "Bearer bm_work"},
+			},
+			"personal_prompts": map[string]any{
+				"type":    "http",
+				"url":     PromptMCPURL(),
+				"headers": map[string]any{"Authorization": "Bearer bm_personal"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	stdout := &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	result, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat", Output: stdout,
+	}, tools)
+	require.NoError(t, err)
+	assert.Contains(t, result.ToolsConfigured, "claude-code")
+
+	config := readTestJSON(t, configPath)
+	servers := config["mcpServers"].(map[string]any)
+	assert.Contains(t, servers, "work_prompts", "non-canonical entry must survive")
+	assert.Contains(t, servers, "personal_prompts", "non-canonical entry must survive")
+	assert.Contains(t, servers, "tiddly_prompts", "canonical prompts entry must be written")
+}
+
+func TestRunConfigure__does_not_reuse_pat_from_non_canonical_entry(t *testing.T) {
+	// OAuth: no canonical entry exists, only non-canonical ones. ExtractPATs
+	// must NOT harvest work_prompts' PAT for tiddly_prompts — configure
+	// should mint a fresh token.
+	var mintedCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/tokens/":
+			mintedCount++
+			var req api.TokenCreateRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{ID: "tok-new", Name: req.Name, Token: "bm_new"})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"work_prompts": map[string]any{
+				"type":    "http",
+				"url":     PromptMCPURL(),
+				"headers": map[string]any{"Authorization": "Bearer bm_work_prompt"},
+			},
+		},
+	})
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout := &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "oauth",
+		Servers: []string{ServerPrompts}, Output: stdout,
+	}, tools)
+	require.NoError(t, err)
+	assert.Equal(t, 1, mintedCount, "must mint a fresh token — non-canonical PAT is not reused")
+}
+
+func TestRunConfigure__refuses_overwrite_when_managed_key_has_non_tiddly_url(t *testing.T) {
+	// The CLI-managed key tiddly_prompts points at a non-Tiddly URL (user
+	// hand-edit). Configure must fail closed, mint nothing, write nothing.
+	var tokenCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenCalls++
+		w.WriteHeader(500)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	original := map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type":    "http",
+				"url":     "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_custom"},
+			},
+		},
+	}
+	writeTestJSON(t, configPath, original)
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "oauth",
+		Output: stdout, ErrOutput: stderr,
+	}, tools)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CLI-managed")
+	assert.Contains(t, err.Error(), "unexpected URL")
+	assert.Contains(t, err.Error(), "--force")
+	assert.NotContains(t, err.Error(), "canonical",
+		"user-facing error must NOT use the word 'canonical'")
+	assert.Equal(t, 0, tokenCalls, "no API calls should happen when preflight fails closed")
+
+	// Config file must be unchanged.
+	after := readTestJSON(t, configPath)
+	assert.Equal(t, original["mcpServers"], after["mcpServers"])
+}
+
+func TestRunConfigure__refuses_when_canonical_name_has_wrong_type_tiddly_url(t *testing.T) {
+	// tiddly_prompts points at the CONTENT Tiddly URL (cross-wired). Same
+	// fail-closed behavior and same error template as the non-Tiddly URL case.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type":    "http",
+				"url":     ContentMCPURL(),
+				"headers": map[string]any{"Authorization": "Bearer bm_wrong"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	stdout := &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat", Output: stdout,
+	}, tools)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), serverNamePrompts)
+	assert.Contains(t, err.Error(), ContentMCPURL())
+	assert.Contains(t, err.Error(), "--force")
+}
+
+func TestRunConfigure__does_not_refuse_on_out_of_scope_mismatch(t *testing.T) {
+	// tiddly_prompts has a non-Tiddly URL, but --servers content scopes
+	// the run to the content slot. Mismatch is out of scope → ignored.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type":    "http",
+				"url":     "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_custom"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	stdout := &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	result, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+		Servers: []string{ServerContent}, Output: stdout,
+	}, tools)
+	require.NoError(t, err, "out-of-scope mismatch must not block configure")
+	assert.Contains(t, result.ToolsConfigured, "claude-code")
+
+	// Prompts slot must still have the user's custom URL (untouched).
+	after := readTestJSON(t, configPath)
+	servers := after["mcpServers"].(map[string]any)
+	prompts := servers[serverNamePrompts].(map[string]any)
+	assert.Equal(t, "https://example.com/my-prompts", prompts["url"])
+}
+
+func TestRunConfigure__servers_scope_refuses_only_on_in_scope_mismatch(t *testing.T) {
+	// BOTH canonicals have URL mismatches, but --servers content scopes to
+	// content. The error must mention content but NOT prompts.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"type": "http", "url": "http://localhost:8001/mcp",
+				"headers": map[string]any{"Authorization": "Bearer bm_a"},
+			},
+			serverNamePrompts: map[string]any{
+				"type": "http", "url": "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_b"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	stdout := &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+		Servers: []string{ServerContent}, Output: stdout,
+	}, tools)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), serverNameContent)
+	assert.NotContains(t, err.Error(), serverNamePrompts,
+		"out-of-scope mismatched slot must not appear in the error")
+}
+
+func TestRunConfigure__error_format_single_tool_one_mismatch(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type": "http", "url": "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_x"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+	}, tools)
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "1 CLI-managed entry")
+	assert.Contains(t, msg, "has an unexpected URL")
+	assert.Contains(t, msg, "Preserve it")
+	assert.Contains(t, msg, "Replace it")
+}
+
+func TestRunConfigure__error_format_single_tool_multiple_mismatches(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"type": "http", "url": "http://localhost:8001/mcp",
+				"headers": map[string]any{"Authorization": "Bearer bm_a"},
+			},
+			serverNamePrompts: map[string]any{
+				"type": "http", "url": "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_b"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+	}, tools)
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "2 CLI-managed entries")
+	assert.Contains(t, msg, "have an unexpected URL")
+	assert.Contains(t, msg, "Preserve them")
+	assert.Contains(t, msg, "Replace them")
+}
+
+func TestRunConfigure__error_format_uses_CLI_managed_wording(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type": "http", "url": "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_x"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+	}, tools)
+	require.Error(t, err)
+	assert.NotContains(t, strings.ToLower(err.Error()), "canonical",
+		"user-facing error copy must not use 'canonical'")
+}
+
+func TestRunConfigure__dry_run_warns_on_mismatch_but_shows_diff(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type": "http", "url": "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_x"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+		DryRun: true, Output: stdout, ErrOutput: stderr,
+	}, tools)
+	require.NoError(t, err, "dry-run must not abort on mismatch")
+	assert.Contains(t, stderr.String(), "Warning")
+	assert.Contains(t, stderr.String(), serverNamePrompts)
+	assert.Contains(t, stderr.String(), "--force")
+	assert.Contains(t, stdout.String(), "claude-code")
+	assert.Contains(t, stdout.String(), "Before")
+}
+
+func TestRunConfigure__force_with_dry_run_shows_overwrite_without_warning(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type": "http", "url": "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_x"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+		DryRun: true, Force: true, Output: stdout, ErrOutput: stderr,
+	}, tools)
+	require.NoError(t, err)
+	assert.NotContains(t, stderr.String(), "real run will require",
+		"--force suppresses the per-entry warning under dry-run")
+	// Non-dry-run-only log must NOT appear under dry-run.
+	assert.NotContains(t, stderr.String(), "Forcing overwrite of")
+	// Diff still shows the canonical prompts URL (the after state).
+	assert.Contains(t, stdout.String(), PromptMCPURL())
+}
+
+func TestRunConfigure__aggregates_mismatches_across_multiple_tools(t *testing.T) {
+	dir := t.TempDir()
+	ccPath := filepath.Join(dir, ".claude.json")
+	desktopPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, ccPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type": "http", "url": "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_a"},
+			},
+		},
+	})
+	writeTestJSON(t, desktopPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "http://localhost:8001/mcp", "--header", "Authorization: Bearer bm_b"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	tools := []DetectedTool{
+		{Name: "claude-code", Detected: true, ConfigPath: ccPath},
+		{Name: "claude-desktop", Detected: true, ConfigPath: desktopPath, HasNpx: true},
+	}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+	}, tools)
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "2 tools")
+	assert.Contains(t, msg, "claude-code")
+	assert.Contains(t, msg, "claude-desktop")
+	assert.Contains(t, msg, "--force (applies to all tools in this run)")
+}
+
+func TestRunConfigure__force_overwrites_canonical_with_non_tiddly_url(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type": "http", "url": "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_old"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+		Force: true, Output: stdout, ErrOutput: stderr,
+	}, tools)
+	require.NoError(t, err)
+	assert.Contains(t, stderr.String(), "Forcing overwrite of "+serverNamePrompts)
+	assert.Contains(t, stderr.String(), "https://example.com/my-prompts")
+
+	after := readTestJSON(t, configPath)
+	servers := after["mcpServers"].(map[string]any)
+	prompts := servers[serverNamePrompts].(map[string]any)
+	assert.Equal(t, PromptMCPURL(), prompts["url"], "--force must rewrite the URL to canonical")
+}
+
+func TestRunConfigure__force_is_no_op_when_no_mismatch(t *testing.T) {
+	// --force is an override; without a mismatch, it produces no extra noise.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+		Force: true, Output: stdout, ErrOutput: stderr,
+	}, tools)
+	require.NoError(t, err)
+	assert.NotContains(t, stderr.String(), "Forcing overwrite")
+}
+
+func TestRunConfigure__reports_preserved_non_canonical_entries(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"work_prompts":     map[string]any{"type": "http", "url": PromptMCPURL()},
+			"personal_prompts": map[string]any{"type": "http", "url": PromptMCPURL()},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	result, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+	}, tools)
+	require.NoError(t, err)
+	require.NotNil(t, result.PreservedEntries)
+	preserved := result.PreservedEntries["claude-code"]
+	assert.ElementsMatch(t, []string{"work_prompts", "personal_prompts"}, preserved)
+}
+
+func TestRunConfigure__preserved_entries_scoped_to_requested_servers(t *testing.T) {
+	// --servers content: work_prompts (prompts-typed) must NOT be reported
+	// as preserved because it's out of scope.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"work_content": map[string]any{"type": "http", "url": ContentMCPURL()},
+			"work_prompts": map[string]any{"type": "http", "url": PromptMCPURL()},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	result, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+		Servers: []string{ServerContent},
+	}, tools)
+	require.NoError(t, err)
+	preserved := result.PreservedEntries["claude-code"]
+	assert.Equal(t, []string{"work_content"}, preserved,
+		"only in-scope non-canonical entries should be reported as preserved")
+}
+
+func TestDeleteTokensByPrefix__empty_reqs_returns_no_error(t *testing.T) {
+	// With no requests, the helper should not even call ListTokens.
+	var listCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		listCalls++
+		w.WriteHeader(500)
+	}))
+	defer server.Close()
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	results, err := DeleteTokensByPrefix(context.Background(), client, nil)
+	require.NoError(t, err)
+	assert.Empty(t, results)
+	assert.Equal(t, 0, listCalls)
+}
+
+// ---------------------------------------------------------------------------
+// Review-driven additions: cross-contamination guard, hard-error ordering,
+// --force log timing, DeleteTokensByPrefix helper-level coverage.
+// ---------------------------------------------------------------------------
+
+func TestRunConfigure__does_not_reuse_pat_from_cross_wired_canonical_slot(t *testing.T) {
+	// Regression guard for the ExtractPATs cross-contamination bug:
+	// tiddly_prompts is cross-wired to the content URL (user hand-edit).
+	// --servers content scopes the run to content; tiddly_prompts is
+	// out-of-scope so it survives untouched. No canonical content entry
+	// exists. Configure must MINT a fresh content token — it must NOT
+	// reuse the PAT from the cross-wired tiddly_prompts slot.
+	var mintedCount int
+	var validatedPATs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/users/me":
+			validatedPATs = append(validatedPATs, r.Header.Get("Authorization"))
+			_ = json.NewEncoder(w).Encode(api.UserInfo{ID: "u1"})
+		case r.Method == "POST" && r.URL.Path == "/tokens/":
+			mintedCount++
+			var req api.TokenCreateRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(api.TokenCreateResponse{ID: "tok-new", Name: req.Name, Token: "bm_minted"})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			// Cross-wired: canonical prompts name at the CONTENT URL.
+			serverNamePrompts: map[string]any{
+				"type":    "http",
+				"url":     ContentMCPURL(),
+				"headers": map[string]any{"Authorization": "Bearer bm_cross_wired"},
+			},
+		},
+	})
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout := &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "oauth",
+		Servers: []string{ServerContent}, Output: stdout,
+	}, tools)
+	require.NoError(t, err)
+	assert.Equal(t, 1, mintedCount,
+		"content slot must mint fresh — cross-wired prompts PAT must not bleed in")
+	assert.NotContains(t, validatedPATs, "Bearer bm_cross_wired",
+		"cross-wired PAT must not even reach validation — canonicalEntryPATs filters it out")
+}
+
+func TestRunConfigure__hard_error_on_second_tool_discards_first_tool_mismatch(t *testing.T) {
+	// Tool A has an in-scope URL mismatch; tool B has a malformed config
+	// (Status parse error). The hard error from tool B must surface alone;
+	// tool A's accumulated mismatch must NOT appear in the error.
+	dir := t.TempDir()
+	toolAPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, toolAPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type":    "http",
+				"url":     "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_a"},
+			},
+		},
+	})
+
+	toolBPath := filepath.Join(dir, "claude_desktop_config.json")
+	require.NoError(t, os.WriteFile(toolBPath, []byte("{{ not valid json"), 0600))
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	tools := []DetectedTool{
+		{Name: "claude-code", Detected: true, ConfigPath: toolAPath},
+		{Name: "claude-desktop", Detected: true, ConfigPath: toolBPath, HasNpx: true},
+	}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+	}, tools)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading claude-desktop config for safety check",
+		"hard error from tool B must surface")
+	assert.NotContains(t, err.Error(), "CLI-managed",
+		"tool A's accumulated mismatch must be discarded when a hard error fires")
+	assert.NotContains(t, err.Error(), serverNamePrompts,
+		"tool A's mismatched entry name must not leak into the hard-error message")
+}
+
+func TestRunConfigure__hard_error_on_first_tool_short_circuits_second_tool_scan(t *testing.T) {
+	// Tool A has a parse error; tool B has an in-scope mismatch. The parse
+	// error from tool A must surface; tool B must never be scanned
+	// (its mismatch must NOT appear in the error).
+	dir := t.TempDir()
+	toolAPath := filepath.Join(dir, ".claude.json")
+	require.NoError(t, os.WriteFile(toolAPath, []byte("{{ not valid json"), 0600))
+
+	toolBPath := filepath.Join(dir, "claude_desktop_config.json")
+	writeTestJSON(t, toolBPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "http://localhost:8001/mcp", "--header", "Authorization: Bearer bm_b"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	tools := []DetectedTool{
+		{Name: "claude-code", Detected: true, ConfigPath: toolAPath},
+		{Name: "claude-desktop", Detected: true, ConfigPath: toolBPath, HasNpx: true},
+	}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+	}, tools)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading claude-code config for safety check",
+		"hard error from tool A must surface")
+	assert.NotContains(t, err.Error(), serverNameContent,
+		"tool B's mismatch must not appear — tool B was never scanned")
+}
+
+func TestRunConfigure__force_log_not_emitted_when_pat_resolution_fails(t *testing.T) {
+	// Regression guard for the "Forcing overwrite..." log timing: if
+	// resolveToolPATs fails (e.g. token mint error), the log must not have
+	// already been printed. Users should never see "Forcing overwrite of X"
+	// followed by an error — it implies an overwrite happened.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Fail every /tokens/ POST so mint errors trigger before any write.
+		if r.Method == "POST" && r.URL.Path == "/tokens/" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"type":    "http",
+				"url":     "https://example.com/my-prompts",
+				"headers": map[string]any{"Authorization": "Bearer bm_old"},
+			},
+		},
+	})
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	tools := []DetectedTool{{Name: "claude-code", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "oauth",
+		Force: true, Output: stdout, ErrOutput: stderr,
+	}, tools)
+	require.Error(t, err, "mint failure must surface")
+	assert.NotContains(t, stderr.String(), "Forcing overwrite of",
+		"force log must not fire before resolveToolPATs succeeds")
+}
+
+func TestDeleteTokensByPrefix__shared_pat_fans_out_single_deletion(t *testing.T) {
+	// Two requests sharing one PAT must produce exactly one server-side
+	// DELETE; both results must mirror the same DeletedNames.
+	var deleteCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/tokens/":
+			// TokenPrefix must equal PAT[:tokenPrefixLen] (12) to match.
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-shared", Name: "cli-mcp-claude-code-content-abc", TokenPrefix: "bm_shared_12"},
+			})
+		case r.Method == "DELETE" && r.URL.Path == "/tokens/tok-shared":
+			deleteCalls++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	reqs := []TokenRevokeRequest{
+		{EntryLabel: "tiddly_notes_bookmarks", PAT: "bm_shared_1234567"},
+		{EntryLabel: "tiddly_prompts", PAT: "bm_shared_1234567"},
+	}
+	results, err := DeleteTokensByPrefix(context.Background(), client, reqs)
+	require.NoError(t, err)
+	assert.Equal(t, 1, deleteCalls, "shared PAT must dedupe to a single DELETE")
+	require.Len(t, results, 2)
+	assert.Equal(t, []string{"cli-mcp-claude-code-content-abc"}, results[0].DeletedNames,
+		"both requests must surface the same DeletedNames from the single delete")
+	assert.Equal(t, []string{"cli-mcp-claude-code-content-abc"}, results[1].DeletedNames)
+	assert.NoError(t, results[0].Err)
+	assert.NoError(t, results[1].Err)
+}
+
+func TestDeleteTokensByPrefix__preserves_order_and_labels_with_mixed_shared_and_unique_pats(t *testing.T) {
+	// Requests: [A→pat1, B→pat2, C→pat1]. Results must come back as
+	// [A, B, C] in order. A and C share DeletedNames (shared PAT);
+	// B is independent. Note tokenPrefixLen=12: the TokenPrefix values
+	// below must exactly equal PAT[:12] to match.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/tokens/":
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-1", Name: "cli-mcp-claude-code-content-x1", TokenPrefix: "bm_pat1shrd_"},
+				{ID: "tok-2", Name: "cli-mcp-claude-code-prompts-x2", TokenPrefix: "bm_pat2uniq_"},
+			})
+		case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/tokens/"):
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	reqs := []TokenRevokeRequest{
+		{EntryLabel: "A", PAT: "bm_pat1shrd_tail"},
+		{EntryLabel: "B", PAT: "bm_pat2uniq_tail"},
+		{EntryLabel: "C", PAT: "bm_pat1shrd_tail"},
+	}
+	results, err := DeleteTokensByPrefix(context.Background(), client, reqs)
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+
+	// Order and labels must be preserved.
+	assert.Equal(t, "A", results[0].EntryLabel)
+	assert.Equal(t, "B", results[1].EntryLabel)
+	assert.Equal(t, "C", results[2].EntryLabel)
+
+	// A and C share the shared-PAT deletion.
+	assert.Equal(t, []string{"cli-mcp-claude-code-content-x1"}, results[0].DeletedNames)
+	assert.Equal(t, []string{"cli-mcp-claude-code-content-x1"}, results[2].DeletedNames)
+
+	// B has the unique-PAT deletion.
+	assert.Equal(t, []string{"cli-mcp-claude-code-prompts-x2"}, results[1].DeletedNames)
+}
+
+func TestDeleteTokensByPrefix__short_pat_returns_empty_not_error(t *testing.T) {
+	// A PAT too short for a prefix (see PATPrefix) must yield an empty DeletedNames
+	// with nil Err (treated as "nothing matched" for consistent caller
+	// handling of per-entry notes).
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == "GET" && r.URL.Path == "/tokens/" {
+			_ = json.NewEncoder(w).Encode([]api.TokenInfo{
+				{ID: "tok-1", Name: "cli-mcp-x-content-abc", TokenPrefix: "bm_anyprefix"},
+			})
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	client := api.NewClient(server.URL, "oauth-jwt", "oauth")
+	reqs := []TokenRevokeRequest{{EntryLabel: "tiddly_prompts", PAT: "bm_short"}} // too short for a prefix (see PATPrefix)
+	results, err := DeleteTokensByPrefix(context.Background(), client, reqs)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "tiddly_prompts", results[0].EntryLabel)
+	assert.Empty(t, results[0].DeletedNames, "short PAT must not match anything")
+	assert.NoError(t, results[0].Err, "short PAT must not surface an error")
 }

@@ -203,8 +203,6 @@ func TestCodexHandler__extract_pats_no_config(t *testing.T) {
 	ext := h.ExtractPATs(rc)
 	assert.Empty(t, ext.ContentPAT)
 	assert.Empty(t, ext.PromptPAT)
-	assert.Empty(t, ext.ContentName)
-	assert.Empty(t, ext.PromptName)
 }
 
 func TestDetectAll__returns_results_in_handler_order(t *testing.T) {
