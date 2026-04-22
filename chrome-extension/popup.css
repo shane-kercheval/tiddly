@@ -31,7 +31,7 @@ body {
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  padding: 8px 8px 0 8px;
+  padding: 0 8px;
   border-bottom: 1px solid #f3f4f6;
 }
 
@@ -106,7 +106,7 @@ body {
 }
 
 .popup:has(#search-view:not([hidden])) {
-  height: 500px;
+  height: 537px;
   display: flex;
   flex-direction: column;
 }
