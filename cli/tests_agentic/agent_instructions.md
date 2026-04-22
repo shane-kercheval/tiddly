@@ -36,15 +36,17 @@ If a snippet in this document doesn't produce what the prose says it should — 
 
 In any of these, adapt: verify the claim a different way. Dump the raw observation, understand what the actual behavior is, write a different check. Your strength is exactly this kind of local reasoning.
 
-**Log the adjustment in the report** so the procedure can be improved later:
+**Concrete example.** Say T2.7 suggests asserting `jq -e '.mcpServers.tiddly_notes_bookmarks.args | index("mcp-remote")' $CLAUDE_DESKTOP_CONFIG`, and `index` returns `null` on your config because `args` is shaped differently than the doc assumed. You check with `jq '.mcpServers.tiddly_notes_bookmarks.args' $CLAUDE_DESKTOP_CONFIG` and see `args` does contain `"mcp-remote"` — just not as a top-level string. Switch to `jq -e '.mcpServers.tiddly_notes_bookmarks.args | any(.[]?; . == "mcp-remote")' ...` and continue. Log:
 
 ```
-- T<id> PASS (adapted: <one line saying what you changed and why>)
+- T2.7 PASS (adapted: jq index → any(.[]?;) for nested-array shape)
 ```
 
 This is a signal, not a failure. It tells the engineer where the procedure's suggested shell is unreliable or outdated so they can tighten it.
 
-If your adaptation reveals that the product actually **does** misbehave (the different approach also fails, for the same observable reason), that's case B below.
+**SKIP variant — inconclusive after fair adaptation.** When a test genuinely can't be verified — not because the product misbehaves, but because the local environment or dev DB doesn't have the preconditions (e.g. T6.6 where no prompts in this dev DB match the required tags) — log `- T<id> SKIP (adapted <n> ways, inconclusive — <one-line reason>)`. **SKIP is never an alternative to Case B.** If you have any evidence the product behavior contradicts the claim, report Case B regardless of how many adaptations you've tried. SKIP is narrowly for "the test can't meaningfully fire in this environment."
+
+If your adaptation reveals that the product actually **does** misbehave (the different approach also fails, for the same observable reason), that's Case B below.
 
 ### Case B: the product's behavior contradicts the claim — stop and report
 
@@ -378,8 +380,8 @@ Starts mutating live config files. The CLI takes `.bak.<timestamp>` sibling back
 
 `bin/tiddly mcp configure claude-code` exits 0 and:
 
-- Stdout contains `Configured: claude-code` and a `Backed up claude-code config to <path>` line (exact prefix; `<path>` is the `.bak.<timestamp>` sibling the CLI created).
-- **If** a pre-existing config file was present, the reported backup path exists on disk and has the pre-command SHA (and the same file mode as the source).
+- Stdout contains `Configured: claude-code`.
+- **If** a pre-existing `$CLAUDE_CODE_CONFIG` was present, stdout also contains a `Backed up claude-code config to <path>` line (exact prefix; `<path>` is the `.bak.<timestamp>` sibling the CLI created). That path exists on disk, has the pre-command SHA, and preserves the source's file mode. If no prior config existed, no `Backed up` line is emitted — that's `backupConfigFile`'s documented behavior (`cli/internal/mcp/config_io.go`), not a defect.
 - `$CLAUDE_CODE_CONFIG` now has `.mcpServers.tiddly_notes_bookmarks` with `type: "http"`, `url` matching `$TIDDLY_CONTENT_MCP_URL`, and `headers.Authorization` starting with `Bearer bm_`.
 - Same for `.mcpServers.tiddly_prompts` at `$TIDDLY_PROMPT_MCP_URL`.
 - No pre-existing `mcpServers` key disappeared (diff the key set before/after; only `tiddly_*` keys should be new, everything else unchanged).
@@ -462,8 +464,7 @@ The OAuth-vs-PAT outcome differs textually — under OAuth stdout says `Reused t
 A user hand-edited `tiddly_prompts` to point somewhere else (e.g. `https://example.com/my-prompts`). Default configure refuses; `--force` overwrites and logs the per-entry forcing line to **stderr**.
 
 1. Seed a non-Tiddly URL on `.mcpServers.tiddly_prompts` via `jq`.
-2. Run `configure claude-code`. Expected: non-zero exit; stdout contains `1 CLI-managed entry` (singular) + `has an unexpected URL`
-   + `tiddly_prompts → https://example.com/my-prompts` + `re-run with --force`. **Before** the next command, snapshot the on-disk URL — it must still be the bad one (default refusal must not write). Do the snapshot in-band; asserting against the live file post-`--force` is meaningless because `--force` overwrites it.
+2. Run `configure claude-code`. Expected: non-zero exit; **stderr** contains `1 CLI-managed entry` (singular) + `has an unexpected URL` + `tiddly_prompts → https://example.com/my-prompts` + `re-run with --force`. (The mismatch error is a `RunE` return; cobra is configured with `SilenceErrors: true`, so `main.go` prints it to `os.Stderr` — none of it lands on stdout. Capture with e.g. `2>/tmp/stderr_refuse`.) **Before** the next command, snapshot the on-disk URL — it must still be the bad one (default refusal must not write). Do the snapshot in-band; asserting against the live file post-`--force` is meaningless because `--force` overwrites it.
 3. Run `configure claude-code --force`, routing stderr separately (e.g. `... 2>/tmp/stderr_force`). Expected: exit 0; **stderr** (not stdout) contains `Forcing overwrite of tiddly_prompts (currently https://example.com/my-prompts)`; stdout contains `Configured: claude-code`; the live file's `tiddly_prompts.url` is now `$TIDDLY_PROMPT_MCP_URL`.
 
 After, restore a clean state for subsequent phases: `mcp remove claude-code --delete-tokens; mcp configure claude-code`. Use `--delete-tokens` on the remove so the previous run's PATs are revoked before fresh ones are minted — otherwise every restore-clean-state incantation across T2.13 / T3.7 / T3.8 leaks two live tokens server-side, which accumulates across the run and can hit the tier token cap.
@@ -604,12 +605,34 @@ After:
 
 Scenario: a canonical entry being revoked shares its PAT with one or more retained (non-CLI-managed) entries. The warning fires as **one consolidated line per revoking entry**, listing every retained entry that shares its PAT, sorted alphabetically.
 
-Fixture:
+Fixture shape:
 
 - `tiddly_notes_bookmarks` with its own distinct PAT (must NOT appear in the warning).
-- `tiddly_prompts`, `work_prompts`, `personal_prompts` all sharing a single PAT (build via `tokens create` + `jq`).
+- `tiddly_prompts`, `work_prompts`, `personal_prompts` all sharing a single PAT.
 
-Run `mcp remove claude-code --servers prompts --delete-tokens`:
+Concrete recipe (one way to build this — adapt if your shell differs):
+
+```bash
+bin/tiddly mcp remove claude-code --delete-tokens 2>/dev/null || true
+uniq=$(openssl rand -hex 3)
+PAT_CONTENT=$(bin/tiddly tokens create "cli-mcp-test-shared-content-$uniq" 2>&1 | awk '/^  bm_/ {print $1}')
+PAT_SHARED=$(bin/tiddly tokens create  "cli-mcp-test-shared-$uniq"         2>&1 | awk '/^  bm_/ {print $1}')
+[ -n "$PAT_CONTENT" ] && [ -n "$PAT_SHARED" ] || { echo "FATAL: T5.8b token mint failed"; exit 1; }
+
+[ -f "$CLAUDE_CODE_CONFIG" ] || echo "{}" > "$CLAUDE_CODE_CONFIG"
+jq --arg curl "$TIDDLY_CONTENT_MCP_URL" --arg purl "$TIDDLY_PROMPT_MCP_URL" \
+   --arg content "$PAT_CONTENT" --arg shared "$PAT_SHARED" \
+   '.mcpServers = (.mcpServers // {})
+    | .mcpServers.tiddly_notes_bookmarks = {type:"http", url:$curl, headers:{Authorization:("Bearer "+$content)}}
+    | .mcpServers.tiddly_prompts         = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$shared)}}
+    | .mcpServers.work_prompts           = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$shared)}}
+    | .mcpServers.personal_prompts       = {type:"http", url:$purl, headers:{Authorization:("Bearer "+$shared)}}' \
+   "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
+chmod 0600 "$CLAUDE_CODE_CONFIG"
+unset PAT_CONTENT PAT_SHARED uniq      # consume immediately; no PAT lingers in the shell
+```
+
+Then run `mcp remove claude-code --servers prompts --delete-tokens`:
 
 - Exit 0.
 - **Stderr** contains exactly: `Warning: token from tiddly_prompts is also used by personal_prompts, work_prompts (still configured); revoking will break those bindings.` The retained names are comma-joined, alphabetically sorted (→ `personal_prompts` before `work_prompts`).
@@ -617,7 +640,7 @@ Run `mcp remove claude-code --servers prompts --delete-tokens`:
 - Stdout contains `Deleted tokens:`.
 - Canonical prompts entry removed; `work_prompts` / `personal_prompts` entries preserved (their PATs are now dead, but the entries themselves are still in the config).
 
-**Note:** this test intentionally leaves `work_prompts` and `personal_prompts` with a revoked PAT. T5.9 reconfigures from scratch.
+**Note:** this test intentionally leaves `work_prompts` and `personal_prompts` with a revoked PAT. T5.9 explicitly wipes those residuals before running (see the reset step just below T5.8d).
 
 ### T5.8c — `--delete-tokens` note when PAT doesn't match any CLI-minted token
 
@@ -642,9 +665,32 @@ manual_id=$(bin/tiddly tokens list 2>/dev/null | awk -v nm="manual-test-pat-$uni
 
 Scenario: after `configure`, copy the `tiddly_prompts` PAT into a new `work_prompts` entry so the CLI-minted PAT is still in active use. Then run `mcp remove claude-code` **without** `--delete-tokens`. The orphan-warning path fires, but the still-in-use PAT must NOT appear in the warning.
 
+**Recommended fixture idiom** — in-place `jq` rewrite that copies the prompts PAT to `work_prompts` without ever landing the plaintext in a shell variable:
+
+```bash
+bin/tiddly mcp configure claude-code >/dev/null
+jq '.mcpServers.work_prompts = {
+      type: "http",
+      url: env.TIDDLY_PROMPT_MCP_URL,
+      headers: .mcpServers.tiddly_prompts.headers
+    }' "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
+chmod 0600 "$CLAUDE_CODE_CONFIG"
+# No captured token — no `echo`/`set -x` leak surface.
+```
+
+Then run `mcp remove claude-code` (no `--delete-tokens`) and assert:
+
 - **Stderr** does NOT contain a `Warning: PATs created for claude-code may still exist:` line that names the prompts token (either no warning at all, or a warning that covers only the content token).
 - `tokens list` still shows the prompts token.
 - `work_prompts` entry survives the remove.
+
+**Reset before T5.9.** T5.8b left `work_prompts` and `personal_prompts` in the config (with a revoked PAT); T5.8d overwrites `work_prompts` and leaves `personal_prompts` alone. `configure`/`remove` are canonical-only and will not clear those — so explicitly wipe them now so T5.9 runs against a true clean slate:
+
+```bash
+jq 'del(.mcpServers.work_prompts, .mcpServers.personal_prompts)' "$CLAUDE_CODE_CONFIG" > "$CLAUDE_CODE_CONFIG.tmp" && mv "$CLAUDE_CODE_CONFIG.tmp" "$CLAUDE_CODE_CONFIG"
+```
+
+This is on-disk only — server-side PAT cleanup (for the CLI-minted token now orphaned in `tokens list` after T5.8d's removal) is deferred to Phase 8/9's diff-based sweep, which handles it by design.
 
 ### T5.9 — Remove without `--delete-tokens` — orphan warning
 
@@ -685,7 +731,7 @@ In `$TEST_PROJECT`: `$TIDDLY_BIN skills configure claude-code --scope directory`
 
 ### T6.5 — Claude Desktop, user scope (zip export)
 
-`bin/tiddly skills configure claude-desktop` exits 0. If skills exist, output mentions a zip at `/tmp/tiddly-skills-*.zip` plus the hint `Upload this file to Claude Desktop via Settings > Skills.`
+`bin/tiddly skills configure claude-desktop` exits 0. If skills exist, output mentions a zip path ending in `tiddly-skills-*.zip` plus the hint `Upload this file to Claude Desktop via Settings > Skills.` The zip lands in `os.TempDir()` — on macOS that's `$TMPDIR` (usually under `/var/folders/.../T/`), not `/tmp`. Don't pin the `/tmp` prefix; match on the filename pattern.
 
 ### T6.6 — `--tags` filter, default `match=all`
 
@@ -725,7 +771,7 @@ installed=$(ls -1 "$CLAUDE_SKILLS_DIR" 2>/dev/null | LC_ALL=C sort)
 
 If `$expected` is empty, SKIP with "no prompts in dev DB match both python+skill tags."
 
-**Caveat:** `jq`'s `[0:64]` is **byte-based** truncation; Python's backend slicing is **codepoint-based**. For ASCII-only prompt names (the overwhelming common case in dev DBs) these agree. If a prompt name contains multibyte characters near the 64-byte boundary, they can disagree by one split codepoint — SKIP with a note if you hit that.
+**Note:** `jq`'s string slicing is codepoint-based, matching the backend's Python `name[:64]` slicing — so membership equality holds regardless of whether prompt names contain multibyte characters. (Earlier revisions of this doc warned of a byte-vs-codepoint mismatch; that was wrong — `jq -n '"😀abc"|.[0:1]'` returns `"😀"` intact.)
 
 Snapshot the T6.6 `$installed` into `t76_installed` for T6.7's superset check.
 
@@ -871,7 +917,12 @@ else
     if [ -n "$new_ids" ]; then
         while read -r id; do
             [ -n "$id" ] || continue
-            "$TIDDLY_BIN" tokens delete "$id" --force >/dev/null 2>&1 && note "revoked token $id"
+            if "$TIDDLY_BIN" tokens delete "$id" --force >/dev/null 2>&1; then
+                note "revoked token $id"
+            else
+                note "FAILED to revoke token $id"
+                errors=$((errors+1))
+            fi
         done <<< "$new_ids"
     else
         note "no new cli-mcp-* tokens to revoke"
@@ -946,6 +997,16 @@ echo "Teardown complete. Report: $retained"
 
 ---
 
+# Reference: known assumptions
+
+Things the procedure quietly relies on. If any of these changes, the run's bookkeeping quietly goes wrong — worth re-reviewing if you touch the surfaces below.
+
+- **`bin/tiddly tokens list` returns all tokens in one response.** No pagination parameter is passed; Phase 0's `cli-mcp-*` snapshot and Phase 9's diff-cleanup both assume the full set is visible in a single call. If `tokens list` ever paginates, both phases need an update to page through.
+- **Peak run token count is ~15–25 `cli-mcp-*` tokens.** `cli-mcp-test-*` PATs are swept at the ends of Phases 4 and 5; `cli-mcp-<tool>-<server>-*` PATs minted by `configure` persist until Phase 8's pre-logout cleanup. If your test account's tier cap is tighter than ~30, raise it or use a dedicated test account.
+- **The `--delete-tokens` restore idiom in T2.13 and T3.8 is safe because Phase 0 enforces OAuth.** Under PAT auth, revoking the canonical-slot PAT could revoke the session itself; Phase 0's preflight makes that inapplicable here.
+
+---
+
 # Reference: config shapes (one-liner each)
 
 All tests assert via `jq -e` (JSON) or `uv run python3 -c 'import tomllib'` (TOML) with exit-code-only checks — never by printing values.
@@ -997,4 +1058,4 @@ Legacy scope values `local` and `project` are rejected at validation.
 |---|---|---|
 | claude-code | `~/.claude/skills/` | `.claude/skills/` (relative to cwd) |
 | codex | `~/.agents/skills/` | `.agents/skills/` (relative to cwd) |
-| claude-desktop | zip at `/tmp/tiddly-skills-*.zip` | not supported |
+| claude-desktop | zip at `<os.TempDir()>/tiddly-skills-*.zip` (macOS: `$TMPDIR`, Linux: usually `/tmp`) | not supported |
