@@ -2,6 +2,7 @@ import { resetChromeStorage, setupPopupDOM, mockMessages } from './setup.js';
 import {
   SCRAPE_CAP, DRAFT_KEY, DRAFT_IMMUTABLE_KEY,
   isRestrictedPage, isValidLimits, counterText,
+  pickDefaultTab, setPopupMode, activateTab, setTabEnabled,
   updateLimitFeedback, updateSaveButtonState, applyLimits,
   setupDOM, resetState,
   saveDraft, clearDraft, getPageData,
@@ -73,6 +74,124 @@ describe('isRestrictedPage', () => {
   it('returns false for http URLs', () => {
     expect(isRestrictedPage('https://example.com')).toBe(false);
     expect(isRestrictedPage('http://example.com')).toBe(false);
+  });
+});
+
+describe('pickDefaultTab', () => {
+  it('returns null when no token', () => {
+    expect(pickDefaultTab({ url: 'https://example.com', hasToken: false })).toBeNull();
+  });
+
+  it('returns "search" for restricted URLs', () => {
+    expect(pickDefaultTab({ url: 'chrome://newtab/', hasToken: true })).toBe('search');
+    expect(pickDefaultTab({ url: 'chrome://settings/', hasToken: true })).toBe('search');
+    expect(pickDefaultTab({ url: 'about:blank', hasToken: true })).toBe('search');
+    expect(pickDefaultTab({ url: undefined, hasToken: true })).toBe('search');
+    expect(pickDefaultTab({ url: 'view-source:https://example.com', hasToken: true })).toBe('search');
+    expect(pickDefaultTab({ url: 'data:text/html,hi', hasToken: true })).toBe('search');
+  });
+
+  it('returns "save" for regular http(s) URLs', () => {
+    expect(pickDefaultTab({ url: 'https://example.com', hasToken: true })).toBe('save');
+    expect(pickDefaultTab({ url: 'http://example.com', hasToken: true })).toBe('save');
+  });
+});
+
+describe('setPopupMode', () => {
+  beforeEach(() => {
+    resetState();
+    setupPopupDOM();
+  });
+
+  it('setup mode shows setup-view and hides header + panels', () => {
+    setPopupMode('setup');
+    expect(document.getElementById('setup-view').hidden).toBe(false);
+    expect(document.getElementById('popup-header').hidden).toBe(true);
+    expect(document.getElementById('save-view').hidden).toBe(true);
+    expect(document.getElementById('search-view').hidden).toBe(true);
+  });
+
+  it('app mode hides setup-view and shows the header', () => {
+    setPopupMode('setup');
+    setPopupMode('app');
+    expect(document.getElementById('setup-view').hidden).toBe(true);
+    expect(document.getElementById('popup-header').hidden).toBe(false);
+  });
+});
+
+describe('activateTab', () => {
+  beforeEach(() => {
+    resetState();
+    setupPopupDOM();
+    setPopupMode('app');
+  });
+
+  it('activating "save" shows save panel, hides search panel, flips aria-selected', () => {
+    activateTab('save');
+    expect(document.getElementById('save-view').hidden).toBe(false);
+    expect(document.getElementById('search-view').hidden).toBe(true);
+    expect(document.getElementById('tab-save').getAttribute('aria-selected')).toBe('true');
+    expect(document.getElementById('tab-search').getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('activating "search" swaps which panel is visible', () => {
+    activateTab('save');
+    activateTab('search');
+    expect(document.getElementById('search-view').hidden).toBe(false);
+    expect(document.getElementById('save-view').hidden).toBe(true);
+    expect(document.getElementById('tab-search').getAttribute('aria-selected')).toBe('true');
+    expect(document.getElementById('tab-save').getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('roving tabindex: active tab has tabindex 0, inactive has -1', () => {
+    activateTab('save');
+    expect(document.getElementById('tab-save').tabIndex).toBe(0);
+    expect(document.getElementById('tab-search').tabIndex).toBe(-1);
+
+    activateTab('search');
+    expect(document.getElementById('tab-save').tabIndex).toBe(-1);
+    expect(document.getElementById('tab-search').tabIndex).toBe(0);
+  });
+
+  it('does nothing when target tab is disabled', () => {
+    activateTab('search');
+    setTabEnabled('save', false, "can't save here");
+    activateTab('save');
+    expect(document.getElementById('search-view').hidden).toBe(false);
+    expect(document.getElementById('tab-search').getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+describe('setTabEnabled', () => {
+  beforeEach(() => {
+    resetState();
+    setupPopupDOM();
+    setPopupMode('app');
+  });
+
+  it('disabling sets aria-disabled, tabindex=-1, title, aria-label, and adds class', () => {
+    setTabEnabled('save', false, 'reason text');
+    const tab = document.getElementById('tab-save');
+    expect(tab.getAttribute('aria-disabled')).toBe('true');
+    expect(tab.tabIndex).toBe(-1);
+    expect(tab.title).toBe('reason text');
+    expect(tab.getAttribute('aria-label')).toBe('reason text');
+    expect(tab.classList.contains('tab-disabled')).toBe(true);
+  });
+
+  it('enabling clears aria-disabled, title, aria-label, and the class', () => {
+    setTabEnabled('save', false, 'reason');
+    setTabEnabled('save', true);
+    const tab = document.getElementById('tab-save');
+    expect(tab.hasAttribute('aria-disabled')).toBe(false);
+    expect(tab.title).toBe('');
+    expect(tab.hasAttribute('aria-label')).toBe(false);
+    expect(tab.classList.contains('tab-disabled')).toBe(false);
+  });
+
+  it('enabling without a prior disable is a no-op and does not throw', () => {
+    expect(() => setTabEnabled('save', true)).not.toThrow();
+    expect(document.getElementById('tab-save').hasAttribute('aria-disabled')).toBe(false);
   });
 });
 
@@ -875,6 +994,23 @@ describe('initSearchView', () => {
     expect(searchCall).toBeTruthy();
     expect(searchCall[0].sort_by).toBe('created_at');
     expect(searchCall[0].sort_order).toBe('desc');
+  });
+
+  it('does not mutate panel visibility (panels are the controller\'s responsibility)', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    const searchView = document.getElementById('search-view');
+    const saveView = document.getElementById('save-view');
+    searchView.hidden = true;
+    saveView.hidden = true;
+
+    await initSearchView();
+
+    expect(searchView.hidden).toBe(true);
+    expect(saveView.hidden).toBe(true);
   });
 });
 

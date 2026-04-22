@@ -196,10 +196,11 @@ Note: Codex does not support MCP Prompts natively (the `/prompt-name` invocation
 
 ### Chrome Extension
 
-The Tiddly Bookmarks Chrome extension lets you save the current page as a bookmark with one click. It uses Personal Access Tokens (PATs) for authentication.
+The Tiddly Bookmarks Chrome extension lets you save the current page as a bookmark or search your existing bookmarks from a tabbed popup. It uses Personal Access Tokens (PATs) for authentication.
 
-- **Save flow:** Click the extension icon on any page to see a pre-filled form (URL, title, description, tags). Page content is captured automatically for full-text search. Tags are pre-selected from your defaults and last-used tags, with selectable chips from your existing tags.
-- **Search:** On restricted pages (new tab, chrome://, etc.), the extension shows a search interface with your recent bookmarks and full-text search.
+- **Tabbed popup:** The popup has two tabs (Save and Search) plus a settings button. The default tab depends on the current page — a regular webpage opens to Save, while a new tab, `chrome://` page, or other restricted URL opens to Search. You can switch tabs manually at any time; Save is disabled on pages that can't be bookmarked.
+- **Save flow:** On the Save tab, a pre-filled form (URL, title, description, tags) captures page content automatically for full-text search. Tags are pre-selected from your defaults and last-used tags, with selectable chips from your existing tags.
+- **Search flow:** On the Search tab, browse your recent bookmarks or full-text search across titles, descriptions, URLs, and content. Filter by tag and sort by created, relevance, last used, modified, or title.
 - **Setup:** Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/npjlfgkihebhandkknldnjlcdmcpomkc), then open the extension options and enter a Personal Access Token (create one in Settings > Personal Access Tokens on tiddly.me). Optionally configure default tags that will be pre-selected on every save.
 
 ### CLI

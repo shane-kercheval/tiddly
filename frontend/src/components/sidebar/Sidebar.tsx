@@ -59,6 +59,7 @@ import {
   ExternalLinkIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChromeIcon,
   IconWithBadge,
 } from '../icons'
 import { Tooltip } from '../ui'
@@ -682,6 +683,15 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
                   isCollapsed={isCollapsed}
                   onClick={onNavClick}
                   icon={<HelpIcon className="h-[18px] w-[18px] text-gray-500" />}
+                  trailingIcon={<ExternalLinkIcon className="h-3 w-3 text-gray-400" />}
+                  external
+                />
+                <SidebarNavItem
+                  to="/docs/extensions/chrome"
+                  label="Chrome Extension"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<ChromeIcon className="h-[18px] w-[18px]" />}
                   trailingIcon={<ExternalLinkIcon className="h-3 w-3 text-gray-400" />}
                   external
                 />

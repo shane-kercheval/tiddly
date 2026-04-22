@@ -8,6 +8,7 @@ export const DRAFT_IMMUTABLE_KEY = 'draftImmutable';
 // --- DOM refs (set via setupDOM) ---
 
 let setupView, saveView, searchView;
+let popupHeader, tabSave, tabSearch, settingsBtn;
 let saveForm, loadingIndicator, urlInput, titleInput, descriptionInput;
 let titleLimit, descriptionLimit;
 let tagsInput, tagChipsContainer, tagSuggestions, saveBtn, saveStatus, clearTagsBtn;
@@ -37,6 +38,10 @@ export function setupDOM(elements) {
   setupView = elements.setupView;
   saveView = elements.saveView;
   searchView = elements.searchView;
+  popupHeader = elements.popupHeader;
+  tabSave = elements.tabSave;
+  tabSearch = elements.tabSearch;
+  settingsBtn = elements.settingsBtn;
   saveForm = elements.saveForm;
   loadingIndicator = elements.loadingIndicator;
   urlInput = elements.urlInput;
@@ -81,6 +86,10 @@ export function resetState() {
   setupView = null;
   saveView = null;
   searchView = null;
+  popupHeader = null;
+  tabSave = null;
+  tabSearch = null;
+  settingsBtn = null;
   saveForm = null;
   loadingIndicator = null;
   urlInput = null;
@@ -108,6 +117,13 @@ export function resetState() {
 
 export function isRestrictedPage(url) {
   return !url || /^(chrome|about|chrome-extension|devtools|edge|data|blob|view-source):/.test(url);
+}
+
+// Returns 'save' | 'search' for the tab to activate on popup open,
+// or null when the popup should render the setup view instead.
+export function pickDefaultTab({ url, hasToken }) {
+  if (!hasToken) return null;
+  return isRestrictedPage(url) ? 'search' : 'save';
 }
 
 export function counterText(current, max) {
@@ -167,10 +183,59 @@ export function isValidLimits(obj) {
 
 // --- DOM helpers ---
 
-export function showView(name) {
-  setupView.hidden = name !== 'setup';
-  saveView.hidden = name !== 'save';
-  searchView.hidden = name !== 'search';
+// Two orthogonal axes: setup vs app mode, and which content tab is active.
+// setPopupMode gates the whole UI; activateTab switches panels within app mode.
+
+export function setPopupMode(mode) {
+  if (mode === 'setup') {
+    setupView.hidden = false;
+    popupHeader.hidden = true;
+    saveView.hidden = true;
+    searchView.hidden = true;
+  } else {
+    setupView.hidden = true;
+    popupHeader.hidden = false;
+  }
+}
+
+function tabElement(name) {
+  return name === 'save' ? tabSave : tabSearch;
+}
+
+function panelElement(name) {
+  return name === 'save' ? saveView : searchView;
+}
+
+export function activateTab(name) {
+  const target = tabElement(name);
+  if (target.getAttribute('aria-disabled') === 'true') return;
+
+  for (const which of ['save', 'search']) {
+    const tab = tabElement(which);
+    const panel = panelElement(which);
+    const isActive = which === name;
+    tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    tab.tabIndex = isActive ? 0 : -1;
+    panel.hidden = !isActive;
+  }
+}
+
+export function setTabEnabled(name, enabled, reason) {
+  const tab = tabElement(name);
+  if (enabled) {
+    tab.removeAttribute('aria-disabled');
+    tab.removeAttribute('title');
+    tab.removeAttribute('aria-label');
+    tab.classList.remove('tab-disabled');
+  } else {
+    tab.setAttribute('aria-disabled', 'true');
+    tab.tabIndex = -1;
+    tab.classList.add('tab-disabled');
+    if (reason) {
+      tab.title = reason;
+      tab.setAttribute('aria-label', reason);
+    }
+  }
 }
 
 export function updateLimitFeedback(input, feedbackEl, maxLength) {
@@ -674,8 +739,6 @@ function refreshActiveTags() {
 }
 
 export async function initSearchView() {
-  showView('search');
-
   // Fetch tags for the filter dropdown
   chrome.runtime.sendMessage({ type: 'GET_TAGS' }).then(result => {
     if (result?.success && Array.isArray(result.data?.tags)) {

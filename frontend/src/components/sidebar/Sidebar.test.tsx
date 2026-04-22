@@ -81,12 +81,19 @@ vi.mock('../../stores/tagsStore', () => ({
   },
 }))
 
+const mockSidebarStoreState = vi.hoisted(() => ({
+  current: {
+    isCollapsed: false,
+    expandedSections: [] as string[],
+  },
+}))
+
 vi.mock('../../stores/sidebarStore', () => ({
   useSidebarStore: (selector: (state: Record<string, unknown>) => unknown) => {
     const state = {
-      isCollapsed: false,
+      isCollapsed: mockSidebarStoreState.current.isCollapsed,
       isMobileOpen: false,
-      expandedSections: [],
+      expandedSections: mockSidebarStoreState.current.expandedSections,
       toggleSection: vi.fn(),
       toggleCollapse: vi.fn(),
       toggleMobile: vi.fn(),
@@ -164,6 +171,8 @@ describe('Sidebar', () => {
     mockDeleteFilter.mockResolvedValue(undefined)
     mockFetchSidebar.mockResolvedValue(undefined)
     mockUpdateSidebar.mockResolvedValue(undefined)
+    mockSidebarStoreState.current.isCollapsed = false
+    mockSidebarStoreState.current.expandedSections = []
   })
 
   describe('command palette', () => {
@@ -539,6 +548,36 @@ describe('Sidebar', () => {
           expect(mockRollbackSidebar).toHaveBeenCalled()
         })
       })
+    })
+  })
+
+  describe('Chrome Extension shortcut', () => {
+    beforeEach(() => {
+      mockSidebarStoreState.current.expandedSections = ['settings']
+    })
+
+    it('renders a Chrome Extension link pointing at /docs/extensions/chrome', () => {
+      render(<Sidebar />, { wrapper: createWrapper(['/app/content']) })
+
+      const links = screen.getAllByRole('link').filter(
+        (l) => l.getAttribute('href') === '/docs/extensions/chrome'
+      )
+      expect(links.length).toBeGreaterThan(0)
+      expect(links[0]).toHaveAttribute('target', '_blank')
+      expect(links[0]).toHaveAttribute('rel', 'noopener noreferrer')
+      expect(links[0].textContent).toContain('Chrome Extension')
+    })
+
+    it('is positioned immediately after the Docs link in the settings section', () => {
+      render(<Sidebar />, { wrapper: createWrapper(['/app/content']) })
+
+      const allLinks = screen.getAllByRole('link')
+      const docsIdx = allLinks.findIndex((l) => l.getAttribute('href') === '/docs')
+      const chromeIdx = allLinks.findIndex(
+        (l) => l.getAttribute('href') === '/docs/extensions/chrome'
+      )
+      expect(docsIdx).toBeGreaterThanOrEqual(0)
+      expect(chromeIdx).toBe(docsIdx + 1)
     })
   })
 })

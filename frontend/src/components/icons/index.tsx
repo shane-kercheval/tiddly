@@ -330,6 +330,16 @@ export const LinkIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   </svg>
 )
 
+/** Chrome browser logo (brand colors) */
+export const ChromeIcon = ({ className = 'h-5 w-5' }: IconProps): ReactNode => (
+  <svg className={className} viewBox="0 0 24 24">
+    <path fill="#EA4335" d="M12 0C8.21 0 4.831 1.757 2.632 4.501l3.953 6.848A5.454 5.454 0 0 1 12 6.545h10.691A12 12 0 0 0 12 0z" />
+    <path fill="#34A853" d="M1.931 5.47A11.943 11.943 0 0 0 0 12c0 6.012 4.42 10.991 10.189 11.864l3.953-6.847a5.45 5.45 0 0 1-6.865-2.29z" />
+    <path fill="#FBBC05" d="M15.273 7.636a5.446 5.446 0 0 1 1.45 7.09l.002.001h-.002l-5.344 9.257c.206.01.413.016.621.016 6.627 0 12-5.373 12-12 0-1.54-.29-3.011-.818-4.364z" />
+    <circle fill="#4285F4" cx="12" cy="12" r="4.364" />
+  </svg>
+)
+
 /** External link icon (arrow pointing up-right) */
 export const ExternalLinkIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
