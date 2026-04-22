@@ -323,7 +323,8 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         const chipContent = (
           <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-px text-xs font-normal border ${chipStyle} ${item.deleted ? 'opacity-60' : ''} ${item.archived ? 'opacity-60' : ''}`}>
             <Icon className="h-3 w-3" />
-            <span className={`max-w-[120px] truncate ${item.deleted ? 'line-through' : ''}`}>
+            {/* `after:content-[''] after:block` suppresses Safari's automatic native tooltip on CSS-truncated text (WebKit bug 114304: https://bugs.webkit.org/show_bug.cgi?id=114304). The generated block child breaks the heuristic; it has zero size so layout is unaffected. Without this, Safari shows a second, unstyled tooltip alongside our custom <Tooltip>. */}
+            <span className={`max-w-[120px] truncate after:content-[''] after:block ${item.deleted ? 'line-through' : ''}`}>
               {displayTitle}
             </span>
           </span>
