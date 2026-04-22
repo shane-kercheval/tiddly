@@ -170,6 +170,7 @@ The Claude Code Bash tool spawns a fresh shell per call. Functions, variables, a
   - `grep -q` inside a pipeline under `set -o pipefail` can exit 141 (SIGPIPE) on large inputs. Prefer `grep PATTERN >/dev/null` or grep against a file.
   - `grep -F "--foo"` treats `--foo` as grep's own flags. Use `grep -F -- "--foo"`.
 - **Large CLI output (dry-run diffs can be 100 KB+) is more reliable written to a file than captured into `$(cmd)` and echoed.**
+- **Never iterate multi-line command output with `for x in $(cmd)`.** Word-splitting flattens newlines and joins everything into a single argv. Use `while IFS= read -r x; do ...; done < <(cmd)` (or pipe into the loop) instead. This bites `bin/tiddly tokens list | awk '/cli-mcp-/ {print $1}'` and any other multi-row consumer — `for id in $(...)` will silently process the whole token list as one giant ID.
 
 These aren't rules; they're landmines worth stepping around.
 
@@ -398,7 +399,9 @@ Symmetric to T2.2 — both entries present afterward.
 
 ### T2.4 — claude-code, directory scope
 
-In `$TEST_PROJECT`, `$TIDDLY_BIN mcp configure claude-code --scope directory` exits 0. `$CLAUDE_CODE_CONFIG` now has both entries under `.projects["$TEST_PROJECT"].mcpServers`. The top-level `.mcpServers` key set is unchanged (i.e. user-scope state wasn't modified).
+In `$TEST_PROJECT`, `$TIDDLY_BIN mcp configure claude-code --scope directory` exits 0. `$CLAUDE_CODE_CONFIG` now has both entries under `.projects["$TEST_PROJECT"].mcpServers`. The top-level `.mcpServers` **semantic** content is unchanged — user-scope state wasn't modified.
+
+**Check method:** compare with `jq -S '.mcpServers' "$CLAUDE_CODE_CONFIG"` before vs. after (`-S` sorts keys for stable output). **Don't byte-compare the whole file.** The CLI rewrites the entire config on any write (even directory-scope writes that only touch `.projects[...]`), and Go's `json.MarshalIndent` doesn't preserve the user's original key ordering — so bytes can shift even when no key changed. `jq -S` on the `.mcpServers` subtree gives a stable comparison that reflects semantic intent.
 
 ### T2.5 — Codex, user scope
 
@@ -422,7 +425,9 @@ Starting from a clean slate (e.g. `mcp remove claude-code --delete-tokens` first
 
 ### T2.9 — Auto-detect
 
-`bin/tiddly mcp configure` (no tool arg) exits 0, lists every detected tool under `Configured:`, and each tool's config is updated.
+`bin/tiddly mcp configure` (no tool arg) exits 0 and each detected tool's config is updated.
+
+**Output format:** a single comma-joined line — `Configured: <tool1>, <tool2>, <tool3>` (`cli/cmd/mcp.go` joins `ToolsConfigured` with `", "`). Don't grep for `Configured: claude-code` as a substring expecting a per-tool line; grep per tool name with `grep -Fw claude-code` (or similar) against the captured output.
 
 ### T2.10 — Status row format after configure
 
@@ -491,7 +496,9 @@ The SHA of `$CLAUDE_CODE_CONFIG` is unchanged before vs. after the command. The 
 
 ### T3.3 — Dry-run placeholder for would-be tokens
 
-After ensuring no existing PATs to reuse (`mcp remove claude-code --delete-tokens`, which covers the clean case), `mcp configure claude-code --dry-run` shows `<new-token-would-be-created>` in the `After:` section. The `tokens list` count is unchanged (no tokens actually minted).
+After ensuring no existing PATs to reuse (`mcp remove claude-code --delete-tokens`, which covers the clean case), `mcp configure claude-code --dry-run` shows the placeholder in the `After:` section. The `tokens list` count is unchanged (no tokens actually minted).
+
+**Grep target:** `new-token-would-be-created` (inner text only — no angle brackets in the pattern). The Go source defines the placeholder as the literal string `<new-token-would-be-created>`, but it surfaces inside a JSON-marshaled string value (the `Authorization` header). Go's `json.MarshalIndent` defaults to `SetEscapeHTML(true)`, which emits `<` as the 6-character unicode-escape sequence `\u003c` and `>` as `\u003e`. So the actual on-the-wire bytes in the `After:` block are e.g. `"Authorization": "Bearer \u003cnew-token-would-be-created\u003e"`. The product's own unit tests at `cli/internal/mcp/configure_test.go:270-271` assert on the inner text only for exactly this reason — a literal `<...>` substring grep won't match.
 
 ### T3.4 — Dry-run, Codex
 
