@@ -73,16 +73,24 @@ fi
 # ---------------------------------------------------------------------------
 
 # assert_unchanged: verify file's hash matches a prior snapshot.
-#   assert_unchanged "T4.1" "$PATH" "$pre_sha"
+#   assert_unchanged "T4.1" "$FILE" "$pre_sha"
+#
+# NOTE: the second parameter is intentionally named `file`, not `path`.
+# In zsh, lowercase `path` is a special array auto-linked to $PATH —
+# `local path="$2"` would silently clobber PATH for the duration of
+# this function, making every external tool (awk, sha256sum, …)
+# unreachable and producing cryptic "command not found" errors that
+# cascade into false assertion failures. Same family of trap as the
+# existing `test_status` dodge in report_test (zsh's readonly `$status`).
 assert_unchanged() {
-    local label="$1" path="$2" before="$3"
+    local label="$1" file="$2" before="$3"
     local after
-    after=$(sha_of "$path")
+    after=$(sha_of "$file")
     if [ "$before" != "$after" ]; then
-        echo "FAIL [$label]: $path changed (before=$before after=$after)"
+        echo "FAIL [$label]: $file changed (before=$before after=$after)"
         return 1
     fi
-    echo "OK   [$label]: $path unchanged"
+    echo "OK   [$label]: $file unchanged"
 }
 
 # assert_no_plaintext_bearers: FATAL if a blob contains "Bearer bm_<anything
