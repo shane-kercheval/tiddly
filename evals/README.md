@@ -72,6 +72,18 @@ uv run pytest 'evals/prompt_mcp/test_update_prompt.py::test_update_prompt[gpt-4o
 
 **NOTE**: Changes to MCP Servers (e.g. instructions/tool-descriptions, code changes to servers) are not hot reloaded; the MCP Servers need to be restarted.
 
+## Viewing Results
+
+Each run writes a timestamped JSON file to `evals/<suite>/results/` containing every sample's prompt, tool predictions, tool results, check outcomes, and tracebacks. The eval viewer is a local web UI for browsing those files — use it to inspect individual failures, compare runs across models, and diagnose why a check failed.
+
+```bash
+# One-time setup
+make eval-viewer-install
+
+# Start the viewer (opens a local web app)
+make eval-viewer
+```
+
 ## Directory Structure
 
 ```
@@ -85,11 +97,12 @@ evals/
 │   ├── config_update_item.yaml         # update_item test cases
 │   ├── test_update_item.py             # update_item eval tests
 │   └── schema_snapshot.py              # Utility: dump tools/list JSON for pre/post-upgrade diffing
-└── prompt_mcp/                          # Prompt MCP server evals
-    ├── config_edit_prompt_content.yaml  # edit_prompt_content test cases
-    ├── test_edit_prompt_content.py      # edit_prompt_content eval tests
-    ├── config_update_prompt.yaml        # update_prompt test cases
-    └── test_update_prompt.py            # update_prompt eval tests
+├── prompt_mcp/                         # Prompt MCP server evals
+│   ├── config_edit_prompt_content.yaml # edit_prompt_content test cases
+│   ├── test_edit_prompt_content.py     # edit_prompt_content eval tests
+│   ├── config_update_prompt.yaml       # update_prompt test cases
+│   └── test_update_prompt.py           # update_prompt eval tests
+└── viewer/                             # Local web UI for browsing eval results (make eval-viewer)
 ```
 
 ## Configuration
