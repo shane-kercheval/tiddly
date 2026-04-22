@@ -60,6 +60,32 @@ if [ ! -d "${BACKUP_DIR:-/nonexistent}" ]; then
     exit 1
 fi
 
+# PATH sanity probe — catch transient tool-lookup failures BEFORE the trap
+# is installed and BEFORE any test snippet runs. The Bash tool spawns a
+# fresh shell per call and re-evaluates the user's login-shell profile;
+# stochastic profile conditions (direnv, plugin managers, conditional
+# PATH exports) can occasionally produce a narrower PATH in a given call.
+# When that happens mid-test, helpers like sha_of silently produce empty
+# output and downstream assertions surface as false mismatches — which
+# fire the EXIT trap and wipe the session. Probing here means a flake
+# FATALs cleanly at preamble time rather than mid-test.
+for _tool in awk jq python3 openssl; do
+    command -v "$_tool" >/dev/null 2>&1 || {
+        echo "FATAL: '$_tool' not on PATH in this Bash call." >&2
+        echo "       PATH=$PATH" >&2
+        echo "       This is an env flake (transient shell-profile state). Either" >&2
+        echo "       retry the call, or fix the login-shell profile to guarantee" >&2
+        echo "       /usr/bin and /usr/local/bin are always present." >&2
+        exit 1
+    }
+done
+# sha256sum on Linux, shasum on macOS — accept either.
+command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || {
+    echo "FATAL: neither sha256sum nor shasum on PATH. PATH=$PATH" >&2
+    exit 1
+}
+unset _tool
+
 # Re-install the EXIT trap. The handler lives in lib.sh; we re-register it
 # here because traps don't survive a new shell. on_exit is FAILURE-ONLY
 # by design (clean call exits return early, so repeated per-call traps

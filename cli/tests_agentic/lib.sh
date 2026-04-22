@@ -34,12 +34,30 @@ else
 fi
 
 # sha_of: hash a single file (or "MISSING" if absent).
+#
+# Fails loudly on internal error instead of returning empty stdout. A prior
+# version would silently produce "" if SHA256 or awk failed (e.g. a transient
+# PATH glitch where `sha256sum` vanished mid-session), which then cascaded
+# through `pre_sha=$(sha_of ...)` into downstream `assert_unchanged` calls
+# and surfaced as a FALSE mismatch rather than a clear env-failure signal.
+# Empty output here is always a bug — either a missing tool or a broken
+# pipeline — so we refuse to return it.
 sha_of() {
-    if [ -e "$1" ]; then
-        SHA256 "$1" | awk '{print $1}'
-    else
+    if [ ! -e "$1" ]; then
         echo "MISSING"
+        return 0
     fi
+    local out
+    out=$(SHA256 "$1" 2>/dev/null | awk '{print $1}')
+    if [ -z "$out" ]; then
+        echo "FATAL: sha_of '$1' produced empty output — SHA256 or awk failed (PATH glitch? missing tool?)." >&2
+        echo "       PATH=$PATH" >&2
+        echo "       command -v sha256sum: $(command -v sha256sum 2>&1 || echo none)" >&2
+        echo "       command -v shasum:    $(command -v shasum 2>&1 || echo none)" >&2
+        echo "       command -v awk:       $(command -v awk 2>&1 || echo none)" >&2
+        return 1
+    fi
+    echo "$out"
 }
 
 # file_mode: portable octal-mode read. stat(1) syntax differs between
