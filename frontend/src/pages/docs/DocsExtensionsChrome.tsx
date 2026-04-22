@@ -12,8 +12,10 @@ export function DocsExtensionsChrome(): ReactNode {
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-2">Chrome Extension</h1>
       <p className="text-sm text-gray-600 mb-8">
-        Save bookmarks to Tiddly with one click from any webpage. The extension auto-scrapes
-        page metadata and captures content for full-text search.
+        Save bookmarks or search your collection from a tabbed popup. The extension auto-scrapes
+        page metadata and captures content for full-text search. A regular webpage opens to the
+        Save tab; a new tab or <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">chrome://</code> page
+        opens to the Search tab. You can switch tabs manually at any time.
       </p>
 
       {/* Setup */}
@@ -81,10 +83,10 @@ export function DocsExtensionsChrome(): ReactNode {
 
       {/* Saving Bookmarks */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-lg font-bold text-gray-900 mb-3">Saving Bookmarks</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Save Tab</h2>
         <p className="text-sm text-gray-600 mb-4">
-          Click the extension icon on any webpage to open the save popup. The form is
-          pre-filled with data extracted from the page:
+          Click the extension icon on any webpage to open the popup. The Save tab is selected by
+          default on regular pages, with a form pre-filled from the page:
         </p>
 
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 mb-4">
@@ -108,16 +110,19 @@ export function DocsExtensionsChrome(): ReactNode {
         </InfoCallout>
       </div>
 
-      {/* Search Mode */}
+      {/* Search Tab */}
       <div className="mt-10 border-t border-gray-200 pt-10">
-        <h2 className="text-lg font-bold text-gray-900 mb-3">Search Mode</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Search Tab</h2>
         <p className="text-sm text-gray-600 mb-4">
-          On restricted pages where saving isn&apos;t possible — like new tab, <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">chrome://</code> pages,
-          or other extension pages — the popup automatically switches to search mode.
+          Switch to Search from any page, or let the popup default to it on restricted pages
+          like new tabs, <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">chrome://</code> pages,
+          or other extension pages (where saving isn&apos;t possible — the Save tab is disabled
+          on those).
         </p>
         <ul className="space-y-1.5 text-sm text-gray-600">
           <li>Browse your recent bookmarks sorted by creation date</li>
           <li>Type to search across titles, descriptions, URLs, and content</li>
+          <li>Filter by tag and sort by created, relevance, last used, modified, or title</li>
           <li>Click a result to open it in a new tab</li>
           <li>Load more results with pagination</li>
         </ul>
