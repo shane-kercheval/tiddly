@@ -83,7 +83,8 @@ evals/
 │   ├── config_edit_content.yaml        # edit_content test cases
 │   ├── test_edit_content.py            # edit_content eval tests
 │   ├── config_update_item.yaml         # update_item test cases
-│   └── test_update_item.py             # update_item eval tests
+│   ├── test_update_item.py             # update_item eval tests
+│   └── schema_snapshot.py              # Utility: dump tools/list JSON for pre/post-upgrade diffing
 └── prompt_mcp/                          # Prompt MCP server evals
     ├── config_edit_prompt_content.yaml  # edit_prompt_content test cases
     ├── test_edit_prompt_content.py      # edit_prompt_content eval tests
@@ -148,6 +149,30 @@ checks:
 2. Add a `config.yaml` with test cases and checks
 3. Create test file(s) using the `@evaluate` decorator
 4. Use shared utilities from `evals/utils.py`
+
+## Utility Scripts
+
+### `content_mcp/schema_snapshot.py`
+
+Dumps the Content MCP server's advertised `tools/list` output (tool names,
+descriptions, input schemas, annotations) to stdout as sorted JSON. Intended
+for diffing **before and after** a `fastmcp` upgrade (or any change that
+might alter how tool metadata is serialized) to catch LLM-visible drift that
+unit tests cannot detect.
+
+```bash
+# On the current fastmcp version
+uv run python evals/content_mcp/schema_snapshot.py > /tmp/before.json
+
+# After upgrading (e.g., `uv lock --upgrade-package fastmcp && uv sync`)
+uv run python evals/content_mcp/schema_snapshot.py > /tmp/after.json
+
+diff -u /tmp/before.json /tmp/after.json
+```
+
+An empty diff is a strong signal that the eval suite should behave the same
+on the new version. A non-empty diff is not necessarily a regression, but
+must be inspected.
 
 ## How It Works
 
