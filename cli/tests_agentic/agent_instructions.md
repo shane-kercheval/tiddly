@@ -1,13 +1,8 @@
 # CLI Agent Testing Procedure
 
-End-to-end verification of the `tiddly` CLI. Structured for an AI agent to
-execute against a **local** dev environment.
+End-to-end verification of the `tiddly` CLI. Structured for an AI agent to execute against a **local** dev environment.
 
-Each test describes a **behavioral claim**. You decide how to verify it —
-write whatever shell / `jq` / `python3` / filesystem checks fit your
-environment. There are no mandatory snippets. Where a setup step is
-non-trivial (multi-entry fixtures, byte-for-byte no-churn), the procedure
-sketches technique; the exact invocation is yours.
+Each test describes a **behavioral claim**. You decide how to verify it — write whatever shell / `jq` / `python3` / filesystem checks fit your environment. There are no mandatory snippets. Where a setup step is non-trivial (multi-entry fixtures, byte-for-byte no-churn), the procedure sketches technique; the exact invocation is yours.
 
 ## Runs against LOCAL test services ONLY
 
@@ -17,120 +12,68 @@ TIDDLY_CONTENT_MCP_URL=http://localhost:8001/mcp
 TIDDLY_PROMPT_MCP_URL=http://localhost:8002/mcp
 ```
 
-Phase 0 aborts if these aren't set. The tokens this procedure mints live
-only on the local dev server. The user's **real config files** on disk
-(`~/.claude.json`, Claude Desktop config, `~/.codex/config.toml`) are
-reused — Phase 0 backs them up, sanitizes them, and Phase 9 restores the
-originals. Everything between Phase 0 and Phase 9 is a reversible mutation
-of real files. Treat the backup directory accordingly.
+Phase 0 aborts if these aren't set. The tokens this procedure mints live only on the local dev server. The user's **real config files** on disk (`~/.claude.json`, Claude Desktop config, `~/.codex/config.toml`) are reused — Phase 0 backs them up, sanitizes them, and Phase 9 restores the originals. Everything between Phase 0 and Phase 9 is a reversible mutation of real files. Treat the backup directory accordingly.
 
 ---
 
 ## When a test doesn't verify: stop and report
 
-You are the agent. You have interpretive room. When a behavioral claim
-doesn't verify, do **all** of the following:
+You are the agent. You have interpretive room. When a behavioral claim doesn't verify, do **all** of the following:
 
-1. **Stop.** Do not attempt the next test. Do not run any cleanup, restore,
-   or token-revocation step. Do not "adapt" the assertion.
-2. **Report.** Append a short block to the live report (see Phase 0 for
-   the report path) with:
+1. **Stop.** Do not attempt the next test. Do not run any cleanup, restore, or token-revocation step. Do not "adapt" the assertion.
+2. **Report.** Append a short block to the live report (see Phase 0 for the report path) with:
    - Test ID.
    - The claim you were verifying, in your own words.
-   - What you actually observed — command run, exit code, relevant output
-     (paraphrased, never a raw Bearer value).
-   - Your best guess at category: **product-bug** (code behaves wrong),
-     **plan-bug** (this doc's claim is outdated), **environment** (e.g.
-     API down, permission issue), **ambiguous** (needs human judgment).
+   - What you actually observed — command run, exit code, relevant output (paraphrased, never a raw Bearer value).
+   - Your best guess at category: **product-bug** (code behaves wrong), **plan-bug** (this doc's claim is outdated), **environment** (e.g. API down, permission issue), **ambiguous** (needs human judgment).
    - A one-sentence hypothesis if you have one.
-3. **Wait** for the engineer. They classify and decide next steps. They
-   may tell you to re-run, skip, re-phrase the claim, or file a product
-   bug. They will run Phase 9 manually when they're done inspecting.
+3. **Wait** for the engineer. They classify and decide next steps. They may tell you to re-run, skip, re-phrase the claim, or file a product bug. They will run Phase 9 manually when they're done inspecting.
 
-There is intentionally **no automatic destructive recovery**. A mismatch
-is almost always either a product bug (important — preserve the state),
-a plan bug (benign — adjust and continue), or a snippet-authoring mistake
-on your part (fixable in place). None of those want a full session wipe.
+There is intentionally **no automatic destructive recovery**. A mismatch is almost always either a product bug (important — preserve the state), a plan bug (benign — adjust and continue), or a snippet-authoring mistake on your part (fixable in place). None of those want a full session wipe.
 
 Before you report, sanity-check:
 
 - **Did you understand the claim correctly?** Re-read the test.
-- **Is this a snippet-authoring bug?** Dump the raw observation (file
-  contents, full captured output, return code). The overwhelming
-  majority of "failures" are regex typos, shell-quirk issues (zsh array
-  subscript `$var[...]`, `grep -q` + `pipefail` SIGPIPE race, `grep`
-  parsing a leading `--` as its own flags), or an assertion that runs
-  after state was overwritten by a later step.
-- **Is the failure environmental?** Check `bin/tiddly auth status` and
-  `bin/tiddly status` output — if auth died or the API went down
-  mid-run, that's environment, not a bug.
+- **Is this a snippet-authoring bug?** Dump the raw observation (file contents, full captured output, return code). The overwhelming majority of "failures" are regex typos, shell-quirk issues (zsh array subscript `$var[...]`, `grep -q` + `pipefail` SIGPIPE race, `grep` parsing a leading `--` as its own flags), or an assertion that runs after state was overwritten by a later step.
+- **Is the failure environmental?** Check `bin/tiddly auth status` and `bin/tiddly status` output — if auth died or the API went down mid-run, that's environment, not a bug.
 
-If you're still unsure after these checks, mark it **ambiguous** and
-report. Don't try to guess between product-bug and plan-bug on slim
-evidence.
+If you're still unsure after these checks, mark it **ambiguous** and report. Don't try to guess between product-bug and plan-bug on slim evidence.
 
 ---
 
 ## Never echo plaintext Bearer values
 
-The only place plaintext PAT values should ever surface is from the
-explicit `tiddly tokens create` path, and those must be consumed
-immediately (piped into a config mutation, assigned to a shell variable
-that is `unset` right after use). Specifically:
+The only place plaintext PAT values should ever surface is from the explicit `tiddly tokens create` path, and those must be consumed immediately (piped into a config mutation, assigned to a shell variable that is `unset` right after use). Specifically:
 
-- **Never** `cat`, `head`, `tail`, `less`, or `grep -o 'Bearer .*'` on
-  a config file. Use `jq -e` / `tomllib` with exit-code assertions that
-  don't print values.
-- **Never** include raw config contents or Bearer values in your report.
-  If what you want to report is token-bearing, hash it, name it (the
-  `cli-mcp-*` name), or cite the first 12 characters of the PAT prefix
-  (safe — that's what `tokens list` shows) instead of the full value.
-- **Never** `set -x` around a block that has a captured PAT — it echoes
-  every assignment including the token.
-- On any `configure` / `remove` / `dry-run` output you're about to echo,
-  call `assert_no_plaintext_bearers "$out" "T<id>"` from `lib.sh` first.
-  It FATALs if a raw Bearer slipped through the CLI's redactor. If it
-  fires, that **is** the finding — report it and stop.
+- **Never** `cat`, `head`, `tail`, `less`, or `grep -o 'Bearer .*'` on a config file. Use `jq -e` / `tomllib` with exit-code assertions that don't print values.
+- **Never** include raw config contents or Bearer values in your report. If what you want to report is token-bearing, hash it, name it (the `cli-mcp-*` name), or cite the first 12 characters of the PAT prefix (safe — that's what `tokens list` shows) instead of the full value.
+- **Never** `set -x` around a block that has a captured PAT — it echoes every assignment including the token.
+- On any `configure` / `remove` / `dry-run` output you're about to echo, call `assert_no_plaintext_bearers "$out" "T<id>"` from `lib.sh` first. It FATALs if a raw Bearer slipped through the CLI's redactor. If it fires, that **is** the finding — report it and stop.
 
 ---
 
 ## Prerequisites
 
-- CLI binary built: `make cli-build` produces `bin/tiddly` at the repo
-  root.
-- Local API + MCP servers running on their default ports (8000 / 8001 /
-  8002).
-- Backend `VITE_DEV_MODE=false`. Dev mode short-circuits PAT validation
-  and silently breaks tests that depend on server-side token checks
-  (T2.12 canonical reuse, T5.8 canonical revoke, T5.8d orphan filter).
-  Phase 0 has an explicit probe; failing that probe means fix dev mode
-  and re-run Phase 0.
+- CLI binary built: `make cli-build` produces `bin/tiddly` at the repo root.
+- Local API + MCP servers running on their default ports (8000 / 8001 / 8002).
+- Backend `VITE_DEV_MODE=false`. Dev mode short-circuits PAT validation and silently breaks tests that depend on server-side token checks (T2.12 canonical reuse, T5.8 canonical revoke, T5.8d orphan filter). Phase 0 has an explicit probe; failing that probe means fix dev mode and re-run Phase 0.
 - OAuth session alive via `bin/tiddly login` — see [§ Auth](#auth-engineer-must-do-this-manually).
 
 ---
 
 ## Auth (engineer must do this manually)
 
-The agent cannot complete the OAuth device flow (requires a browser).
-This must be set up **before** the agent is launched.
+The agent cannot complete the OAuth device flow (requires a browser). This must be set up **before** the agent is launched.
 
 ### Critical — `.env` is NOT read by the CLI
 
-The Go CLI reads **shell environment variables**, not `backend/.env`.
-Variables like `VITE_AUTH0_DOMAIN` are backend/frontend-only; the CLI
-can't see them. If you skip the exports below and run `bin/tiddly login`
-bare, the CLI falls back to hardcoded **production** defaults and your
-token ends up being a production token that the local backend will 401
-on.
+The Go CLI reads **shell environment variables**, not `backend/.env`. Variables like `VITE_AUTH0_DOMAIN` are backend/frontend-only; the CLI can't see them. If you skip the exports below and run `bin/tiddly login` bare, the CLI falls back to hardcoded **production** defaults and your token ends up being a production token that the local backend will 401 on.
 
-If you already ran `bin/tiddly login` bare and ended up logged into
-production, run `bin/tiddly logout` first, then start over from step 2.
+If you already ran `bin/tiddly login` bare and ended up logged into production, run `bin/tiddly logout` first, then start over from step 2.
 
 ### Auth0 values — these are not secrets
 
-Auth0 domain, client ID, and audience are public identifiers. They ship
-in frontend bundles and OAuth URLs. The values below are for this repo's
-dev Auth0 tenant. If you forked with a different tenant, replace them.
+Auth0 domain, client ID, and audience are public identifiers. They ship in frontend bundles and OAuth URLs. The values below are for this repo's dev Auth0 tenant. If you forked with a different tenant, replace them.
 
 ### Paste this block in a fresh terminal
 
@@ -153,15 +96,13 @@ bin/tiddly login
 bin/tiddly auth status      # should show 'Auth method: oauth' + your dev email
 ```
 
-Then **launch Claude Code from this same terminal** so the agent's Bash
-tool inherits these env vars.
+Then **launch Claude Code from this same terminal** so the agent's Bash tool inherits these env vars.
 
 ---
 
 ## Deferred / not-covered-here
 
-These behaviors are verified by Go unit tests (`make cli-verify`), not
-this procedure:
+These behaviors are verified by Go unit tests (`make cli-verify`), not this procedure:
 
 | Behavior | Test name |
 |---|---|
@@ -185,27 +126,15 @@ Run `make cli-verify` before this procedure.
 
 ## Tips for the agent (Bash-per-call model)
 
-The Claude Code Bash tool spawns a fresh shell per call. Functions,
-variables, and traps from prior calls don't survive. Practical
-consequences:
+The Claude Code Bash tool spawns a fresh shell per call. Functions, variables, and traps from prior calls don't survive. Practical consequences:
 
-- **You (the agent) have memory; the shell does not.** Phase 0 creates
-  a backup directory and a test project directory. Remember these paths
-  and pass them as env exports at the top of every subsequent call. A
-  convenient idiom: begin each call with an `export BACKUP_DIR=...`,
-  `export TEST_PROJECT=...` block listing the paths you need.
-- **Source `lib.sh` if you want its helpers in a given call.** It's a
-  small utility file; sourcing is idempotent and side-effect free.
+- **You (the agent) have memory; the shell does not.** Phase 0 creates a backup directory and a test project directory. Remember these paths and pass them as env exports at the top of every subsequent call. A convenient idiom: begin each call with an `export BACKUP_DIR=...`, `export TEST_PROJECT=...` block listing the paths you need.
+- **Source `lib.sh` if you want its helpers in a given call.** It's a small utility file; sourcing is idempotent and side-effect free.
 - **Known shell quirks you'll hit on macOS zsh:**
-  - `$var[...]` adjacent to `[` is parsed as array-subscript syntax.
-    Use `${var}[...]` or write the value to a file first.
-  - `grep -q` inside a pipeline under `set -o pipefail` can exit 141
-    (SIGPIPE) on large inputs. Prefer `grep PATTERN >/dev/null` or
-    grep against a file.
-  - `grep -F "--foo"` treats `--foo` as grep's own flags. Use
-    `grep -F -- "--foo"`.
-- **Large CLI output (dry-run diffs can be 100 KB+) is more reliable
-  written to a file than captured into `$(cmd)` and echoed.**
+  - `$var[...]` adjacent to `[` is parsed as array-subscript syntax. Use `${var}[...]` or write the value to a file first.
+  - `grep -q` inside a pipeline under `set -o pipefail` can exit 141 (SIGPIPE) on large inputs. Prefer `grep PATTERN >/dev/null` or grep against a file.
+  - `grep -F "--foo"` treats `--foo` as grep's own flags. Use `grep -F -- "--foo"`.
+- **Large CLI output (dry-run diffs can be 100 KB+) is more reliable written to a file than captured into `$(cmd)` and echoed.**
 
 These aren't rules; they're landmines worth stepping around.
 
@@ -215,16 +144,12 @@ These aren't rules; they're landmines worth stepping around.
 
 **Behavioral goal:** produce a sandboxed starting state —
  - real configs backed up to a dedicated directory (mode 0700),
- - canonical `tiddly_*` entries sanitized out of live configs so tests
-   never operate on the user's real tokens,
- - pre-existing `cli-mcp-*` token IDs snapshotted for later diff-based
-   cleanup,
+ - canonical `tiddly_*` entries sanitized out of live configs so tests never operate on the user's real tokens,
+ - pre-existing `cli-mcp-*` token IDs snapshotted for later diff-based cleanup,
  - an empty test-project directory for directory-scope tests,
  - a live markdown report the agent appends to throughout the run.
 
-The following block does this. Run it as the first Bash call. **Remember
-the `BACKUP_DIR` and `TEST_PROJECT` paths it prints** — you'll export them
-at the top of every subsequent call.
+The following block does this. Run it as the first Bash call. **Remember the `BACKUP_DIR` and `TEST_PROJECT` paths it prints** — you'll export them at the top of every subsequent call.
 
 ```bash
 set -euo pipefail
@@ -334,8 +259,7 @@ echo "Export these at the top of every subsequent Bash call."
 echo "================================================"
 ```
 
-**After Phase 0, at the top of every Bash call, re-export the paths
-printed above** (values will differ each run):
+**After Phase 0, at the top of every Bash call, re-export the paths printed above** (values will differ each run):
 
 ```bash
 export BACKUP_DIR=<path from Phase 0>
@@ -361,92 +285,61 @@ No mutations, no server-state changes.
 
 ### T1.1 — Help surfaces
 
-`bin/tiddly --help`, `mcp --help`, `skills --help` all exit 0 and the
-output lists the expected subcommands and flags.
+`bin/tiddly --help`, `mcp --help`, `skills --help` all exit 0 and the output lists the expected subcommands and flags.
 
-- Root help: subcommands `login`, `logout`, `auth`, `status`, `mcp`,
-  `skills`, `tokens`; global flags `--token`, `--api-url`.
+- Root help: subcommands `login`, `logout`, `auth`, `status`, `mcp`, `skills`, `tokens`; global flags `--token`, `--api-url`.
 - `mcp --help`: subcommands `configure`, `status`, `remove`.
 - `skills --help`: subcommands `configure`, `list`.
 
 ### T1.3 — `mcp configure --help` content
 
-Exit 0. Help text lists the flags `--dry-run`, `--scope`, `--expires`,
-`--servers`, `--force`; valid args `claude-desktop`, `claude-code`,
-`codex`. The help text mentions:
+Exit 0. Help text lists the flags `--dry-run`, `--scope`, `--expires`, `--servers`, `--force`; valid args `claude-desktop`, `claude-code`, `codex`. The help text mentions:
 
-- The CLI-managed entry names (`tiddly_notes_bookmarks`,
-  `tiddly_prompts`) and that other entries are preserved (e.g. the
-  example entry `work_prompts`).
+- The CLI-managed entry names (`tiddly_notes_bookmarks`, `tiddly_prompts`) and that other entries are preserved (e.g. the example entry `work_prompts`).
 - `--force` as the override for URL-mismatch refusal.
 - `.bak.<timestamp>` backup filenames.
 
-It does **not** mention `--yes` / `-y` (removed with the additive-configure
-rework) and does **not** contain the words "consolidate" / "consolidation"
-/ "migrations from manual setups are safe".
+It does **not** mention `--yes` / `-y` (removed with the additive-configure rework) and does **not** contain the words "consolidate" / "consolidation" / "migrations from manual setups are safe".
 
 ### T1.5 — `status` overview
 
-`bin/tiddly status` exits 0 and its output contains the sections
-`Tiddly CLI v`, `Authentication:`, `API:`, `MCP Servers:`, `Skills:`. The
-header is exactly `MCP Servers:` (no `(path: ...)` suffix when `--path`
-isn't passed). Each detected tool appears; undetected tools are labeled
-`Not detected`. Any configured row ends with `(<config_key_name>)` in
-parentheses showing the on-disk entry name.
+`bin/tiddly status` exits 0 and its output contains the sections `Tiddly CLI v`, `Authentication:`, `API:`, `MCP Servers:`, `Skills:`. The header is exactly `MCP Servers:` (no `(path: ...)` suffix when `--path` isn't passed). Each detected tool appears; undetected tools are labeled `Not detected`. Any configured row ends with `(<config_key_name>)` in parentheses showing the on-disk entry name.
 
-With `--path "$TEST_PROJECT"`, the header becomes
-`MCP Servers (path: $TEST_PROJECT):`.
+With `--path "$TEST_PROJECT"`, the header becomes `MCP Servers (path: $TEST_PROJECT):`.
 
-With `--path /nonexistent/path`, the command exits non-zero and the
-error mentions "does not exist".
+With `--path /nonexistent/path`, the command exits non-zero and the error mentions "does not exist".
 
 ### T1.6 — `auth status`
 
-Exit 0. Output contains `Auth method:` (one of `pat` / `oauth` / `flag` /
-`env`) and `API URL:`.
+Exit 0. Output contains `Auth method:` (one of `pat` / `oauth` / `flag` / `env`) and `API URL:`.
 
 ### T1.7 — `tokens list` output contract
 
-This is a **contract lock** — Phase 0's token snapshot and Phase 9's
-cleanup both parse `tokens list` assuming the ID is column 1. A silent
-column reorder or header rename would silently break cleanup.
+This is a **contract lock** — Phase 0's token snapshot and Phase 9's cleanup both parse `tokens list` assuming the ID is column 1. A silent column reorder or header rename would silently break cleanup.
 
-The header row contains the substrings `ID`, `NAME`, and `PREFIX`, in
-that order (`NAME` appears before `PREFIX`), plus an `EXPIRES` column
-(T2.8 depends on that column existing). Column 1 under the header is
-the token ID.
+The header row contains the substrings `ID`, `NAME`, and `PREFIX`, in that order (`NAME` appears before `PREFIX`), plus an `EXPIRES` column (T2.8 depends on that column existing). Column 1 under the header is the token ID.
 
 ---
 
 # Phase 2: Configure — happy paths
 
-Starts mutating live config files. The CLI takes `.bak.<timestamp>`
-sibling backups; Phase 0 also holds originals in `$BACKUP_DIR`.
+Starts mutating live config files. The CLI takes `.bak.<timestamp>` sibling backups; Phase 0 also holds originals in `$BACKUP_DIR`.
 
 ### T2.1 — claude-code, user scope (default)
 
 `bin/tiddly mcp configure claude-code` exits 0 and:
 
 - Stdout contains `Configured: claude-code` and reports a backup path.
-- **If** a pre-existing config file was present, the reported backup
-  path exists on disk and has the pre-command SHA (and the same file
-  mode as the source).
-- `$CLAUDE_CODE_CONFIG` now has `.mcpServers.tiddly_notes_bookmarks`
-  with `type: "http"`, `url` matching `$TIDDLY_CONTENT_MCP_URL`, and
-  `headers.Authorization` starting with `Bearer bm_`.
+- **If** a pre-existing config file was present, the reported backup path exists on disk and has the pre-command SHA (and the same file mode as the source).
+- `$CLAUDE_CODE_CONFIG` now has `.mcpServers.tiddly_notes_bookmarks` with `type: "http"`, `url` matching `$TIDDLY_CONTENT_MCP_URL`, and `headers.Authorization` starting with `Bearer bm_`.
 - Same for `.mcpServers.tiddly_prompts` at `$TIDDLY_PROMPT_MCP_URL`.
-- No pre-existing `mcpServers` key disappeared (diff the key set
-  before/after; only `tiddly_*` keys should be new, everything else
-  unchanged).
+- No pre-existing `mcpServers` key disappeared (diff the key set before/after; only `tiddly_*` keys should be new, everything else unchanged).
 
-**Do the URL / header checks with `jq -e` exit codes, not by printing
-values.** See [§ Never echo plaintext Bearer values](#never-echo-plaintext-bearer-values).
+**Do the URL / header checks with `jq -e` exit codes, not by printing values.** See [§ Never echo plaintext Bearer values](#never-echo-plaintext-bearer-values).
 
 ### T2.2 — `--servers content` preserves prompts
 
-`bin/tiddly mcp configure claude-code --servers content` exits 0. After,
-both `tiddly_notes_bookmarks` (written) and `tiddly_prompts` (preserved
-from T2.1) are present in `$CLAUDE_CODE_CONFIG`.
+`bin/tiddly mcp configure claude-code --servers content` exits 0. After, both `tiddly_notes_bookmarks` (written) and `tiddly_prompts` (preserved from T2.1) are present in `$CLAUDE_CODE_CONFIG`.
 
 ### T2.3 — `--servers prompts` preserves content
 
@@ -454,98 +347,57 @@ Symmetric to T2.2 — both entries present afterward.
 
 ### T2.4 — claude-code, directory scope
 
-In `$TEST_PROJECT`, `$TIDDLY_BIN mcp configure claude-code --scope directory`
-exits 0. `$CLAUDE_CODE_CONFIG` now has both entries under
-`.projects["$TEST_PROJECT"].mcpServers`. The top-level `.mcpServers` key
-set is unchanged (i.e. user-scope state wasn't modified).
+In `$TEST_PROJECT`, `$TIDDLY_BIN mcp configure claude-code --scope directory` exits 0. `$CLAUDE_CODE_CONFIG` now has both entries under `.projects["$TEST_PROJECT"].mcpServers`. The top-level `.mcpServers` key set is unchanged (i.e. user-scope state wasn't modified).
 
 ### T2.5 — Codex, user scope
 
-`bin/tiddly mcp configure codex` exits 0, takes a backup of the existing
-TOML, and writes `[mcp_servers.tiddly_notes_bookmarks]` (with `url = ...`
-and `[mcp_servers.tiddly_notes_bookmarks.http_headers]` containing
-`Authorization = "Bearer bm_..."`) and the analogous section for
-`tiddly_prompts`. Existing non-Tiddly top-level sections are preserved.
+`bin/tiddly mcp configure codex` exits 0, takes a backup of the existing TOML, and writes `[mcp_servers.tiddly_notes_bookmarks]` (with `url = ...` and `[mcp_servers.tiddly_notes_bookmarks.http_headers]` containing `Authorization = "Bearer bm_..."`) and the analogous section for `tiddly_prompts`. Existing non-Tiddly top-level sections are preserved.
 
-**TOML parsing tip:** `python3 -c 'import tomllib; ...'` works on Python
-3.11+, which is a Phase 0 prerequisite. Use exit-code assertions without
-printing values (same hygiene as JSON).
+**TOML parsing tip:** `python3 -c 'import tomllib; ...'` works on Python 3.11+, which is a Phase 0 prerequisite. Use exit-code assertions without printing values (same hygiene as JSON).
 
 ### T2.6 — Codex, directory scope
 
-In `$TEST_PROJECT`, `$TIDDLY_BIN mcp configure codex --scope directory`
-creates `$TEST_PROJECT/.codex/config.toml` with both canonical entries.
-The user-scope `$CODEX_CONFIG` is byte-identical before and after
-(SHA compare).
+In `$TEST_PROJECT`, `$TIDDLY_BIN mcp configure codex --scope directory` creates `$TEST_PROJECT/.codex/config.toml` with both canonical entries. The user-scope `$CODEX_CONFIG` is byte-identical before and after (SHA compare).
 
 ### T2.7 — Claude Desktop, user scope
 
-`bin/tiddly mcp configure claude-desktop` exits 0 and writes to the
-Claude Desktop config a stdio-launcher shape:
-`.mcpServers.tiddly_notes_bookmarks` has `command: "npx"` and an `args`
-array that contains `"mcp-remote"`, `$TIDDLY_CONTENT_MCP_URL`, and a
-`"Authorization: Bearer bm_..."` header arg. Same shape for
-`tiddly_prompts`. Stderr contains `Warning: Restart Claude Desktop to
-apply changes.` (note the `Warning:` prefix — configure uses the
-`ConfigureResult.Warnings` channel).
+`bin/tiddly mcp configure claude-desktop` exits 0 and writes to the Claude Desktop config a stdio-launcher shape: `.mcpServers.tiddly_notes_bookmarks` has `command: "npx"` and an `args` array that contains `"mcp-remote"`, `$TIDDLY_CONTENT_MCP_URL`, and a `"Authorization: Bearer bm_..."` header arg. Same shape for `tiddly_prompts`. Stderr contains `Warning: Restart Claude Desktop to apply changes.` (note the `Warning:` prefix — configure uses the `ConfigureResult.Warnings` channel).
 
 ### T2.8 — `--expires 30` sets expiration ~30 days out
 
-Starting from a clean slate (e.g. `mcp remove claude-code --delete-tokens`
-first), `bin/tiddly mcp configure claude-code --expires 30` prints
-`Created tokens: cli-mcp-claude-code-*` (not `Reused`). In `tokens list`
-the new tokens' `EXPIRES` column holds a date roughly 30 days out
-(accept a ±1 day window for clock skew).
+Starting from a clean slate (e.g. `mcp remove claude-code --delete-tokens` first), `bin/tiddly mcp configure claude-code --expires 30` prints `Created tokens: cli-mcp-claude-code-*` (not `Reused`). In `tokens list` the new tokens' `EXPIRES` column holds a date roughly 30 days out (accept a ±1 day window for clock skew).
 
-**Parsing tip:** the `EXPIRES` column is a single whitespace-separated
-field; column 5 in the row layout
-`ID  NAME  PREFIX  LAST USED  EXPIRES  CREATED`. Header-position
-parsing is fragile because `LAST USED` can be `—` (multi-byte UTF-8).
+**Parsing tip:** the `EXPIRES` column is a single whitespace-separated field; column 5 in the row layout `ID  NAME  PREFIX  LAST USED  EXPIRES  CREATED`. Header-position parsing is fragile because `LAST USED` can be `—` (multi-byte UTF-8).
 
 ### T2.9 — Auto-detect
 
-`bin/tiddly mcp configure` (no tool arg) exits 0, lists every detected
-tool under `Configured:`, and each tool's config is updated.
+`bin/tiddly mcp configure` (no tool arg) exits 0, lists every detected tool under `Configured:`, and each tool's config is updated.
 
 ### T2.10 — Status row format after configure
 
-`bin/tiddly status` shows each Tiddly row ending with
-`(tiddly_notes_bookmarks)` or `(tiddly_prompts)` — the actual config key
-matches what's on disk. Multiple scopes render cleanly.
+`bin/tiddly status` shows each Tiddly row ending with `(tiddly_notes_bookmarks)` or `(tiddly_prompts)` — the actual config key matches what's on disk. Multiple scopes render cleanly.
 
 ### T2.11 — Additive configure preserves non-CLI-managed entries
 
-Headline of the additive-configure rework. Given an existing config with
-non-canonical Tiddly entries (`work_prompts` and `personal_prompts`,
-each with its own PAT), `configure` adds the canonical CLI-managed
-entries alongside them and names the preserved entries.
+Headline of the additive-configure rework. Given an existing config with non-canonical Tiddly entries (`work_prompts` and `personal_prompts`, each with its own PAT), `configure` adds the canonical CLI-managed entries alongside them and names the preserved entries.
 
 Set up the fixture:
 
 1. Mint two PATs via `tiddly tokens create cli-mcp-test-t2-11-...`.
-2. Write both as non-CLI-managed entries in `$CLAUDE_CODE_CONFIG`
-   (pointing at `$TIDDLY_PROMPT_MCP_URL`). The
-   `write_multi_entry_prompts` helper in `lib.sh` does this.
+2. Write both as non-CLI-managed entries in `$CLAUDE_CODE_CONFIG` (pointing at `$TIDDLY_PROMPT_MCP_URL`). The `write_multi_entry_prompts` helper in `lib.sh` does this.
 3. Run `bin/tiddly mcp configure claude-code`.
 
 After:
 
 - Exit 0.
-- Stdout contains `Preserved non-CLI-managed entries in claude-code:`
-  followed by both `work_prompts` and `personal_prompts` (order-independent).
-- `jq`: `tiddly_prompts` added; `work_prompts` and `personal_prompts`
-  survived.
-- Stdout does **not** say `consolidate` / `Consolidation required` (that
-  gate is gone).
-- Remember to `unset` any plaintext PAT variables after the fixture
-  write.
+- Stdout contains `Preserved non-CLI-managed entries in claude-code:` followed by both `work_prompts` and `personal_prompts` (order-independent).
+- `jq`: `tiddly_prompts` added; `work_prompts` and `personal_prompts` survived.
+- Stdout does **not** say `consolidate` / `Consolidation required` (that gate is gone).
+- Remember to `unset` any plaintext PAT variables after the fixture write.
 
 ### T2.12 — Canonical update-in-place: no churn on re-run
 
-Running `configure` twice in a row against an already-correctly-configured
-state must not churn tokens or rewrite the canonical entries. Under
-OAuth, existing PATs are validated and reused; under PAT auth, the
-login PAT is rewritten identically. Either way the bytes don't change.
+Running `configure` twice in a row against an already-correctly-configured state must not churn tokens or rewrite the canonical entries. Under OAuth, existing PATs are validated and reused; under PAT auth, the login PAT is rewritten identically. Either way the bytes don't change.
 
 1. Ensure a known-good state: `bin/tiddly mcp configure claude-code`.
 2. Snapshot the canonical entries' JSON (hash `jq -c '.mcpServers.tiddly_notes_bookmarks'` and `.tiddly_prompts` separately).
@@ -554,34 +406,18 @@ login PAT is rewritten identically. Either way the bytes don't change.
 
 Stdout contains `Configured: claude-code`, no `unexpected URL` refusal.
 
-The OAuth-vs-PAT outcome differs textually — under OAuth stdout says
-`Reused tokens:`; under PAT auth it does not (login PAT is used
-directly). Either path is correct. Worth recording in the report as a
-NOTE-line for log readability.
+The OAuth-vs-PAT outcome differs textually — under OAuth stdout says `Reused tokens:`; under PAT auth it does not (login PAT is used directly). Either path is correct. Worth recording in the report as a NOTE-line for log readability.
 
 ### T2.13 — `--force` overwrites a canonical entry at a non-Tiddly URL
 
-A user hand-edited `tiddly_prompts` to point somewhere else (e.g.
-`https://example.com/my-prompts`). Default configure refuses; `--force`
-overwrites and logs the per-entry forcing line to **stderr**.
+A user hand-edited `tiddly_prompts` to point somewhere else (e.g. `https://example.com/my-prompts`). Default configure refuses; `--force` overwrites and logs the per-entry forcing line to **stderr**.
 
 1. Seed a non-Tiddly URL on `.mcpServers.tiddly_prompts` via `jq`.
-2. Run `configure claude-code`. Expected: non-zero exit; stdout
-   contains `1 CLI-managed entry` (singular) + `has an unexpected URL`
-   + `tiddly_prompts → https://example.com/my-prompts` + `re-run with
-   --force`. **Before** the next command, snapshot the on-disk URL —
-   it must still be the bad one (default refusal must not write). Do
-   the snapshot in-band; asserting against the live file post-`--force`
-   is meaningless because `--force` overwrites it.
-3. Run `configure claude-code --force`, routing stderr separately
-   (e.g. `... 2>/tmp/stderr_force`). Expected: exit 0; **stderr** (not
-   stdout) contains `Forcing overwrite of tiddly_prompts (currently
-   https://example.com/my-prompts)`; stdout contains
-   `Configured: claude-code`; the live file's `tiddly_prompts.url` is
-   now `$TIDDLY_PROMPT_MCP_URL`.
+2. Run `configure claude-code`. Expected: non-zero exit; stdout contains `1 CLI-managed entry` (singular) + `has an unexpected URL`
+   + `tiddly_prompts → https://example.com/my-prompts` + `re-run with --force`. **Before** the next command, snapshot the on-disk URL — it must still be the bad one (default refusal must not write). Do the snapshot in-band; asserting against the live file post-`--force` is meaningless because `--force` overwrites it.
+3. Run `configure claude-code --force`, routing stderr separately (e.g. `... 2>/tmp/stderr_force`). Expected: exit 0; **stderr** (not stdout) contains `Forcing overwrite of tiddly_prompts (currently https://example.com/my-prompts)`; stdout contains `Configured: claude-code`; the live file's `tiddly_prompts.url` is now `$TIDDLY_PROMPT_MCP_URL`.
 
-After, restore a clean state for subsequent phases:
-`mcp remove claude-code; mcp configure claude-code`.
+After, restore a clean state for subsequent phases: `mcp remove claude-code; mcp configure claude-code`.
 
 ---
 
@@ -591,75 +427,50 @@ No config writes; no server mutations.
 
 ### T3.1 — Dry-run, claude-code, user scope
 
-`bin/tiddly mcp configure claude-code --dry-run` exits 0. Its output
-contains the banner `--- claude-code ---`, a `File:` line, and either
-`Before:` + `After:` sections or a `(new file)` marker. Both
-`tiddly_notes_bookmarks` and `tiddly_prompts` appear in the diff.
+`bin/tiddly mcp configure claude-code --dry-run` exits 0. Its output contains the banner `--- claude-code ---`, a `File:` line, and either `Before:` + `After:` sections or a `(new file)` marker. Both `tiddly_notes_bookmarks` and `tiddly_prompts` appear in the diff.
 
-The SHA of `$CLAUDE_CODE_CONFIG` is unchanged before vs. after the
-command. The token count from `tokens list` is unchanged.
+The SHA of `$CLAUDE_CODE_CONFIG` is unchanged before vs. after the command. The token count from `tokens list` is unchanged.
 
-**Under PAT auth** (not OAuth), stderr contains `Using your current
-token for MCP servers`. Under OAuth, this advisory is absent.
+**Under PAT auth** (not OAuth), stderr contains `Using your current token for MCP servers`. Under OAuth, this advisory is absent.
 
-**Tip:** the dry-run diff can dump a large real `~/.claude.json` (often
-100 KB+). Redirect stdout to a file rather than capturing into a shell
-variable and echoing — `$(cmd)`-then-`echo` on large blobs is shell-
-flaky across zsh/bash.
+**Tip:** the dry-run diff can dump a large real `~/.claude.json` (often 100 KB+). Redirect stdout to a file rather than capturing into a shell variable and echoing — `$(cmd)`-then-`echo` on large blobs is shell- flaky across zsh/bash.
 
 ### T3.2 — Dry-run, directory scope
 
-`$TIDDLY_BIN mcp configure claude-code --scope directory --dry-run`
-(run from `$TEST_PROJECT`) shows the diff under the project-path key.
-`$CLAUDE_CODE_CONFIG` unchanged.
+`$TIDDLY_BIN mcp configure claude-code --scope directory --dry-run` (run from `$TEST_PROJECT`) shows the diff under the project-path key. `$CLAUDE_CODE_CONFIG` unchanged.
 
 ### T3.3 — Dry-run placeholder for would-be tokens
 
-After ensuring no existing PATs to reuse
-(`mcp remove claude-code --delete-tokens`, which covers the clean case),
-`mcp configure claude-code --dry-run` shows
-`<new-token-would-be-created>` in the `After:` section. The `tokens list`
-count is unchanged (no tokens actually minted).
+After ensuring no existing PATs to reuse (`mcp remove claude-code --delete-tokens`, which covers the clean case), `mcp configure claude-code --dry-run` shows `<new-token-would-be-created>` in the `After:` section. The `tokens list` count is unchanged (no tokens actually minted).
 
 ### T3.4 — Dry-run, Codex
 
-`bin/tiddly mcp configure codex --dry-run` shows `--- codex ---` banner
-and TOML-format `Before:` / `After:`. `$CODEX_CONFIG` unchanged.
+`bin/tiddly mcp configure codex --dry-run` shows `--- codex ---` banner and TOML-format `Before:` / `After:`. `$CODEX_CONFIG` unchanged.
 
 ### T3.5 — Dry-run, Claude Desktop
 
-Analogous: `--- claude-desktop ---` banner; `After:` section includes
-`npx` and `mcp-remote`. Config unchanged.
+Analogous: `--- claude-desktop ---` banner; `After:` section includes `npx` and `mcp-remote`. Config unchanged.
 
 ### T3.6 — Dry-run does NOT emit the real-run summary line
 
-`bin/tiddly mcp configure claude-code --dry-run` output does not contain
-`Configured: claude-code` — the summary line is gated on non-dry-run.
-The banner and diff are the dry-run signal.
+`bin/tiddly mcp configure claude-code --dry-run` output does not contain `Configured: claude-code` — the summary line is gated on non-dry-run. The banner and diff are the dry-run signal.
 
 ### T3.7 — Dry-run on a URL-mismatch warns but does not abort
 
 With a canonical entry pointing at a non-Tiddly URL (as in T2.13 setup):
 
-- `mcp configure claude-code --dry-run` exits 0 (dry-run is tolerant of
-  mismatches — a real run would fail-closed).
-- **Stderr** (not stdout) contains
-  `Warning: tiddly_prompts at https://example.com/my-prompts — real run
-  will require --force`.
+- `mcp configure claude-code --dry-run` exits 0 (dry-run is tolerant of mismatches — a real run would fail-closed).
+- **Stderr** (not stdout) contains `Warning: tiddly_prompts at https://example.com/my-prompts — real run will require --force`.
 - **Stdout** contains the normal dry-run diff.
 - `$CLAUDE_CODE_CONFIG` is unchanged.
 
 ### T3.8 — Dry-run + `--force` suppresses the warning, shows the overwrite
 
-With the same non-Tiddly-URL state,
-`mcp configure claude-code --dry-run --force` exits 0.
+With the same non-Tiddly-URL state, `mcp configure claude-code --dry-run --force` exits 0.
 
-- **Stderr** does NOT contain `real run will require --force` (warning
-  suppressed under `--force`).
-- **Stderr** does NOT contain `Forcing overwrite of` (that log is
-  non-dry-run only).
-- **Stdout** contains the canonical prompts URL so the user can see
-  what the real-run overwrite would write.
+- **Stderr** does NOT contain `real run will require --force` (warning suppressed under `--force`).
+- **Stderr** does NOT contain `Forcing overwrite of` (that log is non-dry-run only).
+- **Stdout** contains the canonical prompts URL so the user can see what the real-run overwrite would write.
 - `$CLAUDE_CODE_CONFIG` unchanged.
 
 After, restore a clean state for subsequent phases.
@@ -670,11 +481,7 @@ After, restore a clean state for subsequent phases.
 
 ### T4.1 — Status across tools (default path)
 
-`bin/tiddly mcp status` exits 0 and renders a per-tool tree. For scopes
-with no Tiddly entries: the output contains `No Tiddly servers
-configured. Run '` followed by a hint like `tiddly mcp configure
-claude-code`. For scopes with Tiddly entries: server rows end with
-`(<config_key>)`. Header is `MCP Servers:`.
+`bin/tiddly mcp status` exits 0 and renders a per-tool tree. For scopes with no Tiddly entries: the output contains `No Tiddly servers configured. Run '` followed by a hint like `tiddly mcp configure claude-code`. For scopes with Tiddly entries: server rows end with `(<config_key>)`. Header is `MCP Servers:`.
 
 ### T4.2 — Status with explicit `--path`
 
@@ -684,19 +491,11 @@ claude-code`. For scopes with Tiddly entries: server rows end with
 
 ### T4.4 — Multi-entry rendered as multiple rows (KAN-112 regression)
 
-After setting up `work_prompts` and `personal_prompts` (as in T2.11),
-`bin/tiddly mcp status` renders **each as its own row** under the
-claude-code prompts section — not folded under one "prompts" node. Both
-rows have the `(work_prompts)` and `(personal_prompts)` suffixes visible.
-Neither row appears under an "Other servers" section.
+After setting up `work_prompts` and `personal_prompts` (as in T2.11), `bin/tiddly mcp status` renders **each as its own row** under the claude-code prompts section — not folded under one "prompts" node. Both rows have the `(work_prompts)` and `(personal_prompts)` suffixes visible. Neither row appears under an "Other servers" section.
 
-**Tip:** `mcp status` prefixes tree rows with `│` (U+2502 box-drawing),
-which isn't POSIX whitespace. Anchor greps on the trailing `(<name>)`
-suffix, not on leading whitespace.
+**Tip:** `mcp status` prefixes tree rows with `│` (U+2502 box-drawing), which isn't POSIX whitespace. Anchor greps on the trailing `(<name>)` suffix, not on leading whitespace.
 
-After, reconfigure and then sweep any accumulated `cli-mcp-test-*` PATs
-to stay under the tier token cap (see the inline sweep snippet at the
-end of [§ Phase 5](#phase-5-remove)).
+After, reconfigure and then sweep any accumulated `cli-mcp-test-*` PATs to stay under the tier token cap (see the inline sweep snippet at the end of [§ Phase 5](#phase-5-remove)).
 
 ---
 
@@ -704,37 +503,23 @@ end of [§ Phase 5](#phase-5-remove)).
 
 ### T5.1 — Remove claude-code, user scope
 
-`bin/tiddly mcp configure claude-code` then `bin/tiddly mcp remove
-claude-code`: exit 0, stdout contains `Removed tiddly_notes_bookmarks,
-tiddly_prompts from claude-code.` and a `Backed up previous config to
-<path>` line. The reported backup path exists and its SHA matches the
-pre-remove SHA. Both canonical entries are gone from the live config;
-other entries preserved. Stderr may contain an orphan-token warning.
+`bin/tiddly mcp configure claude-code` then `bin/tiddly mcp remove claude-code`: exit 0, stdout contains `Removed tiddly_notes_bookmarks, tiddly_prompts from claude-code.` and a `Backed up previous config to <path>` line. The reported backup path exists and its SHA matches the pre-remove SHA. Both canonical entries are gone from the live config; other entries preserved. Stderr may contain an orphan-token warning.
 
 ### T5.2 — Remove claude-code, directory scope
 
-Configure then remove `--scope directory` from within `$TEST_PROJECT`.
-The `.projects["$TEST_PROJECT"].mcpServers` object has no `tiddly_*`
-keys; top-level `.mcpServers` is unchanged.
+Configure then remove `--scope directory` from within `$TEST_PROJECT`. The `.projects["$TEST_PROJECT"].mcpServers` object has no `tiddly_*` keys; top-level `.mcpServers` is unchanged.
 
 ### T5.3 — Remove Codex
 
-Configure then remove `codex`. Stdout: `Removed tiddly_notes_bookmarks,
-tiddly_prompts from codex.` The TOML has no `tiddly_*` tables.
+Configure then remove `codex`. Stdout: `Removed tiddly_notes_bookmarks, tiddly_prompts from codex.` The TOML has no `tiddly_*` tables.
 
 ### T5.4 — Remove Claude Desktop
 
-Configure then remove `claude-desktop`. Stdout:
-`Removed tiddly_notes_bookmarks, tiddly_prompts from claude-desktop.`
-Stderr contains `Restart Claude Desktop to apply changes.` (note: this
-flavor is bare, without the `Warning:` prefix that the configure path
-adds — this asymmetry is the actual product behavior; record as
-informational).
+Configure then remove `claude-desktop`. Stdout: `Removed tiddly_notes_bookmarks, tiddly_prompts from claude-desktop.` Stderr contains `Restart Claude Desktop to apply changes.` (note: this flavor is bare, without the `Warning:` prefix that the configure path adds — this asymmetry is the actual product behavior; record as informational).
 
 ### T5.5 — Remove `--servers content` is partial
 
-Configure claude-code, then `mcp remove claude-code --servers content`.
-`tiddly_notes_bookmarks` removed; `tiddly_prompts` still present.
+Configure claude-code, then `mcp remove claude-code --servers content`. `tiddly_notes_bookmarks` removed; `tiddly_prompts` still present.
 
 ### T5.6 — Remove `--servers prompts` is partial
 
@@ -742,107 +527,65 @@ Symmetric to T5.5.
 
 ### T5.7 — Remove `--delete-tokens` (clean single-entry case)
 
-Clean install: `mcp remove claude-code` to clear, then
-`mcp configure claude-code` (note the `Created tokens: cli-mcp-...`
-names), then `mcp remove claude-code --delete-tokens`. Stdout contains
-`Deleted tokens:` listing those same names. `tokens list` confirms they
-are gone server-side.
+Clean install: `mcp remove claude-code` to clear, then `mcp configure claude-code` (note the `Created tokens: cli-mcp-...` names), then `mcp remove claude-code --delete-tokens`. Stdout contains `Deleted tokens:` listing those same names. `tokens list` confirms they are gone server-side.
 
 ### T5.8 — Remove `--delete-tokens` preserves non-CLI-managed entries and their PATs (headline)
 
-The canonical-name-only remove contract: revoking CLI-managed tokens
-must not touch user-managed entries or their PATs.
+The canonical-name-only remove contract: revoking CLI-managed tokens must not touch user-managed entries or their PATs.
 
 Fixture setup:
 
-1. Mint four PATs with clearly scoped names:
-   `cli-mcp-test-t5-8-content-*`, `-prompts-*`, `-work-*`, `-personal-*`.
+1. Mint four PATs with clearly scoped names: `cli-mcp-test-t5-8-content-*`, `-prompts-*`, `-work-*`, `-personal-*`.
 2. Fresh `mcp remove claude-code`.
-3. Write `work_prompts` / `personal_prompts` via
-   `write_multi_entry_prompts` (with the work + personal PATs).
-4. `jq`-overwrite the canonical `tiddly_notes_bookmarks` and
-   `tiddly_prompts` entries so they carry the content + prompts PATs
-   from step 1 (rather than whatever `configure` would mint). This is
-   the point of the test — to assert precisely which PATs get revoked.
+3. Write `work_prompts` / `personal_prompts` via `write_multi_entry_prompts` (with the work + personal PATs).
+4. `jq`-overwrite the canonical `tiddly_notes_bookmarks` and `tiddly_prompts` entries so they carry the content + prompts PATs from step 1 (rather than whatever `configure` would mint). This is the point of the test — to assert precisely which PATs get revoked.
 5. Record which of the four test-token IDs exist.
 6. Run `mcp remove claude-code --delete-tokens`.
 
 After:
 
-- Exit 0. Stdout contains `Removed tiddly_notes_bookmarks,
-  tiddly_prompts from claude-code.` and `Deleted tokens:` listing
-  **exactly** the content + prompts test tokens (not work / personal).
-- Server-side: the content + prompts PATs are gone from `tokens list`;
-  work + personal PATs remain.
-- Live config: `work_prompts` and `personal_prompts` entries still
-  present; `tiddly_*` entries gone.
+- Exit 0. Stdout contains `Removed tiddly_notes_bookmarks, tiddly_prompts from claude-code.` and `Deleted tokens:` listing **exactly** the content + prompts test tokens (not work / personal).
+- Server-side: the content + prompts PATs are gone from `tokens list`; work + personal PATs remain.
+- Live config: `work_prompts` and `personal_prompts` entries still present; `tiddly_*` entries gone.
 
 ### T5.8b — Shared-PAT consolidated warning
 
-Scenario: a canonical entry being revoked shares its PAT with one or
-more retained (non-CLI-managed) entries. The warning fires as **one
-consolidated line per revoking entry**, listing every retained entry
-that shares its PAT, sorted alphabetically.
+Scenario: a canonical entry being revoked shares its PAT with one or more retained (non-CLI-managed) entries. The warning fires as **one consolidated line per revoking entry**, listing every retained entry that shares its PAT, sorted alphabetically.
 
 Fixture:
 
-- `tiddly_notes_bookmarks` with its own distinct PAT (must NOT appear
-  in the warning).
-- `tiddly_prompts`, `work_prompts`, `personal_prompts` all sharing a
-  single PAT (build via `tokens create` + `jq`).
+- `tiddly_notes_bookmarks` with its own distinct PAT (must NOT appear in the warning).
+- `tiddly_prompts`, `work_prompts`, `personal_prompts` all sharing a single PAT (build via `tokens create` + `jq`).
 
 Run `mcp remove claude-code --servers prompts --delete-tokens`:
 
 - Exit 0.
-- **Stderr** contains exactly:
-  `Warning: token from tiddly_prompts is also used by personal_prompts,
-  work_prompts (still configured); revoking will break those bindings.`
-  The retained names are comma-joined, alphabetically sorted (→
-  `personal_prompts` before `work_prompts`).
-- **Stderr** does NOT name `tiddly_notes_bookmarks` (its PAT is not
-  shared with the revoke target).
+- **Stderr** contains exactly: `Warning: token from tiddly_prompts is also used by personal_prompts, work_prompts (still configured); revoking will break those bindings.` The retained names are comma-joined, alphabetically sorted (→ `personal_prompts` before `work_prompts`).
+- **Stderr** does NOT name `tiddly_notes_bookmarks` (its PAT is not shared with the revoke target).
 - Stdout contains `Deleted tokens:`.
-- Canonical prompts entry removed; `work_prompts` / `personal_prompts`
-  entries preserved (their PATs are now dead, but the entries themselves
-  are still in the config).
+- Canonical prompts entry removed; `work_prompts` / `personal_prompts` entries preserved (their PATs are now dead, but the entries themselves are still in the config).
 
-**Note:** this test intentionally leaves `work_prompts` and
-`personal_prompts` with a revoked PAT. T5.9 reconfigures from scratch.
+**Note:** this test intentionally leaves `work_prompts` and `personal_prompts` with a revoked PAT. T5.9 reconfigures from scratch.
 
 ### T5.8c — `--delete-tokens` note when PAT doesn't match any CLI-minted token
 
-Scenario: the canonical `tiddly_prompts` entry holds a PAT that was
-created via `tokens create` but with a name that **doesn't** match the
-`cli-mcp-*` pattern (e.g. `manual-test-pat-<hex>`). The CLI cannot
-revoke it (by name-prefix matching), but it must surface a per-entry
-explanation.
+Scenario: the canonical `tiddly_prompts` entry holds a PAT that was created via `tokens create` but with a name that **doesn't** match the `cli-mcp-*` pattern (e.g. `manual-test-pat-<hex>`). The CLI cannot revoke it (by name-prefix matching), but it must surface a per-entry explanation.
 
-Fixture: fresh configure, then `jq`-overwrite `tiddly_prompts`'s
-Authorization with the manually-named PAT.
+Fixture: fresh configure, then `jq`-overwrite `tiddly_prompts`'s Authorization with the manually-named PAT.
 
 Run `mcp remove claude-code --servers prompts --delete-tokens`:
 
 - Exit 0.
-- **Stdout** (outcome report, not warning) contains:
-  `Note: no CLI-created token matched the token attached to
-  tiddly_prompts; nothing was revoked. Manage tokens at
-  https://tiddly.me/settings.`
+- **Stdout** (outcome report, not warning) contains: `Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/settings.`
 - Stdout does NOT contain `Deleted tokens:`.
 
 Clean up the manually-named token when done.
 
 ### T5.8d — Orphan-warning filter excludes tokens still referenced by retained entries
 
-Scenario: after `configure`, copy the `tiddly_prompts` PAT into a new
-`work_prompts` entry so the CLI-minted PAT is still in active use. Then
-run `mcp remove claude-code` **without** `--delete-tokens`. The
-orphan-warning path fires, but the still-in-use PAT must NOT appear in
-the warning.
+Scenario: after `configure`, copy the `tiddly_prompts` PAT into a new `work_prompts` entry so the CLI-minted PAT is still in active use. Then run `mcp remove claude-code` **without** `--delete-tokens`. The orphan-warning path fires, but the still-in-use PAT must NOT appear in the warning.
 
-- **Stderr** does NOT contain a
-  `Warning: PATs created for claude-code may still exist:` line that
-  names the prompts token (either no warning at all, or a warning that
-  covers only the content token).
+- **Stderr** does NOT contain a `Warning: PATs created for claude-code may still exist:` line that names the prompts token (either no warning at all, or a warning that covers only the content token).
 - `tokens list` still shows the prompts token.
 - `work_prompts` entry survives the remove.
 
@@ -850,29 +593,16 @@ the warning.
 
 Configure, then remove (no `--delete-tokens`).
 
-- **Stderr** contains `Warning: PATs created for claude-code may still
-  exist:` followed by `cli-mcp-*` names (don't assert on exact names —
-  environment-dependent).
-- **Stderr** contains `Run 'tiddly mcp remove claude-code
-  --delete-tokens' to revoke` (the tool name is interpolated, not a
-  `<tool>` placeholder).
+- **Stderr** contains `Warning: PATs created for claude-code may still exist:` followed by `cli-mcp-*` names (don't assert on exact names — environment-dependent).
+- **Stderr** contains `Run 'tiddly mcp remove claude-code --delete-tokens' to revoke` (the tool name is interpolated, not a `<tool>` placeholder).
 
 ### T5.10 — Remove idempotent — no-op path
 
-After T5.9, re-running `mcp remove claude-code` exits 0. Stdout contains
-`No CLI-managed entries found in claude-code.` Stdout does NOT contain
-`Removed tiddly_notes_bookmarks` (the CLI distinguishes "removed
-something" from "nothing to remove" and must not lie).
+After T5.9, re-running `mcp remove claude-code` exits 0. Stdout contains `No CLI-managed entries found in claude-code.` Stdout does NOT contain `Removed tiddly_notes_bookmarks` (the CLI distinguishes "removed something" from "nothing to remove" and must not lie).
 
 ### End-of-phase housekeeping
 
-Sweep accumulated `cli-mcp-test-*` tokens so later phases don't blow
-the tier token cap. These test-only PATs are named with a reserved
-`cli-mcp-test-` prefix; sweep them specifically, never the
-`cli-mcp-<tool>-<server>-*` names (those are minted by `configure` and
-may still be referenced by live configs). One pass with `tokens list`
-filtered on `cli-mcp-test-` + `tokens delete <id> --force` is enough.
-Verify `bin/tiddly auth status` still shows `oauth` before proceeding.
+Sweep accumulated `cli-mcp-test-*` tokens so later phases don't blow the tier token cap. These test-only PATs are named with a reserved `cli-mcp-test-` prefix; sweep them specifically, never the `cli-mcp-<tool>-<server>-*` names (those are minted by `configure` and may still be referenced by live configs). One pass with `tokens list` filtered on `cli-mcp-test-` + `tokens delete <id> --force` is enough. Verify `bin/tiddly auth status` still shows `oauth` before proceeding.
 
 ---
 
@@ -882,22 +612,15 @@ No structural changes in this round; included for completeness.
 
 ### T6.1 — Skills configure, claude-code, user scope
 
-`bin/tiddly skills configure claude-code` exits 0. Output is either
-`claude-code: Configured N skill(s) to ~/.claude/skills` or
-`claude-code: No skills to configure.` (both outcomes are valid —
-depends on how many prompts in the dev DB are tagged as skills).
+`bin/tiddly skills configure claude-code` exits 0. Output is either `claude-code: Configured N skill(s) to ~/.claude/skills` or `claude-code: No skills to configure.` (both outcomes are valid — depends on how many prompts in the dev DB are tagged as skills).
 
 ### T6.2 — Claude-code, directory scope
 
-In `$TEST_PROJECT`:
-`$TIDDLY_BIN skills configure claude-code --scope directory`. If skills
-exist, output references `<$TEST_PROJECT>/.claude/skills`.
+In `$TEST_PROJECT`: `$TIDDLY_BIN skills configure claude-code --scope directory`. If skills exist, output references `<$TEST_PROJECT>/.claude/skills`.
 
 ### T6.3 — Codex, user scope
 
-`bin/tiddly skills configure codex` exits 0. Output either mentions
-`~/.agents/skills` (when ≥1 skill matches) or says
-`codex: No skills to configure.`
+`bin/tiddly skills configure codex` exits 0. Output either mentions `~/.agents/skills` (when ≥1 skill matches) or says `codex: No skills to configure.`
 
 ### T6.4 — Codex, directory scope
 
@@ -905,50 +628,35 @@ Skills extracted to `$TEST_PROJECT/.agents/skills/`.
 
 ### T6.5 — Claude Desktop, user scope (zip export)
 
-`bin/tiddly skills configure claude-desktop` exits 0. If skills exist,
-output mentions a zip at `/tmp/tiddly-skills-*.zip` plus the hint
-`Upload this file to Claude Desktop via Settings > Skills.`
+`bin/tiddly skills configure claude-desktop` exits 0. If skills exist, output mentions a zip at `/tmp/tiddly-skills-*.zip` plus the hint `Upload this file to Claude Desktop via Settings > Skills.`
 
 ### T6.6 — `--tags` filter, default `match=all`
 
-`skills configure claude-code --tags python,skill` installs exactly
-the set of prompts whose tags include **both** `python` AND `skill`.
-To verify, compute the expected set client-side by filtering
-`bin/tiddly export --types prompt` output (each prompt's metadata
-includes its tag list) and compare against the installed-skill
-directory contents.
+`skills configure claude-code --tags python,skill` installs exactly the set of prompts whose tags include **both** `python` AND `skill`. To verify, compute the expected set client-side by filtering `bin/tiddly export --types prompt` output (each prompt's metadata includes its tag list) and compare against the installed-skill directory contents.
 
-If the expected set is empty (no prompts match both tags in this dev
-DB), report SKIP for this test with a note — an all-empty compare would
-false-pass.
+If the expected set is empty (no prompts match both tags in this dev DB), report SKIP for this test with a note — an all-empty compare would false-pass.
 
 Snapshot the T6.6 installed set; T6.7 uses it.
 
 ### T6.7 — `--tag-match any`
 
-`--tag-match any` installs prompts matching at least one of the tags.
-Same client-side-replay comparison. Additionally assert that T6.7's
-installed set is a **superset** of T6.6's (OR ⊇ AND).
+`--tag-match any` installs prompts matching at least one of the tags. Same client-side-replay comparison. Additionally assert that T6.7's installed set is a **superset** of T6.6's (OR ⊇ AND).
 
 ### T6.8 — Auto-detect
 
-`bin/tiddly skills configure` exits 0, one output line per detected
-tool.
+`bin/tiddly skills configure` exits 0, one output line per detected tool.
 
 ### T6.9 — Invalid scope
 
-`skills configure --scope invalid` exits non-zero; error contains
-`invalid scope "invalid". Valid scopes: user, directory`.
+`skills configure --scope invalid` exits non-zero; error contains `invalid scope "invalid". Valid scopes: user, directory`.
 
 ### T6.10 — Skills list
 
-`bin/tiddly skills list` exits 0. Output starts with
-`Available skills (N prompts):` or `No prompts found.`
+`bin/tiddly skills list` exits 0. Output starts with `Available skills (N prompts):` or `No prompts found.`
 
 ### T6.11 — Skills list with tag filter
 
-`bin/tiddly skills list --tags python` exits 0, lists only
-`python`-tagged prompts.
+`bin/tiddly skills list --tags python` exits 0, lists only `python`-tagged prompts.
 
 ---
 
@@ -970,8 +678,7 @@ Pure validation-failure cases; no side effects on configs or tokens.
 | T7.10 | `login --token "invalid_no_prefix"` | non-zero; `invalid token format: must start with 'bm_'` |
 | T7.11 | `login --token "bm_definitely_not_valid_token"` | non-zero; `token verification failed` |
 
-After these, verify `auth status` still shows `oauth` — two failed
-login attempts shouldn't have mutated credentials.
+After these, verify `auth status` still shows `oauth` — two failed login attempts shouldn't have mutated credentials.
 
 ---
 
@@ -987,14 +694,11 @@ Phase 9 re-runs this same cleanup as a safety net (belt-and-suspenders). If the 
 
 ### T8.1 — `mcp status` works without auth
 
-`bin/tiddly logout`: exit 0, stdout `Logged out successfully.`
-`bin/tiddly mcp status`: exit 0, MCP tree still renders (read-only
-command; reads local config only).
+`bin/tiddly logout`: exit 0, stdout `Logged out successfully.` `bin/tiddly mcp status`: exit 0, MCP tree still renders (read-only command; reads local config only).
 
 ### T8.2 — Destructive commands fail when logged out
 
-Each of the following exits non-zero with an error containing
-`not logged in. Run 'tiddly login' to authenticate`:
+Each of the following exits non-zero with an error containing `not logged in. Run 'tiddly login' to authenticate`:
 
 - `bin/tiddly mcp configure claude-code`
 - `bin/tiddly skills list`
@@ -1008,16 +712,13 @@ Each of the following exits non-zero with an error containing
 bin/tiddly login
 ```
 
-**Agent:** `bin/tiddly auth status` → shows `Auth method: oauth` with
-dev account.
+**Agent:** `bin/tiddly auth status` → shows `Auth method: oauth` with dev account.
 
 ---
 
 # Phase 9: Teardown
 
-Explicit — run this block as the last Bash call of the session. If any
-step fails, the block prints recovery instructions and leaves
-`$BACKUP_DIR` intact.
+Explicit — run this block as the last Bash call of the session. If any step fails, the block prints recovery instructions and leaves `$BACKUP_DIR` intact.
 
 ```bash
 set -euo pipefail
@@ -1132,22 +833,19 @@ echo "Teardown complete. Report: $retained"
 - MCP tools return real data.
 - Prompts render through the prompt MCP server.
 - Skills are invocable in Claude Code / Codex.
-- OAuth device flow works end-to-end (`tiddly login` without
-  `--token`).
+- OAuth device flow works end-to-end (`tiddly login` without `--token`).
 - Uploaded skills zip works in Claude Desktop (Settings > Skills).
 
 ---
 
 # Reference: config shapes (one-liner each)
 
-All tests assert via `jq -e` (JSON) or `python3 -c 'import tomllib'`
-(TOML) with exit-code-only checks — never by printing values.
+All tests assert via `jq -e` (JSON) or `python3 -c 'import tomllib'` (TOML) with exit-code-only checks — never by printing values.
 
 - **Claude Desktop** (JSON): `.mcpServers.<name> = {command:"npx", args:["mcp-remote", URL, "--header", "Authorization: Bearer bm_..."]}`
 - **Claude Code, user scope** (JSON, `~/.claude.json`): `.mcpServers.<name> = {type:"http", url:URL, headers:{Authorization:"Bearer bm_..."}}`
 - **Claude Code, directory scope** (same file): same shape under `.projects["<path>"].mcpServers.<name>`
-- **Codex** (TOML, `~/.codex/config.toml` or `.codex/config.toml`):
-  `[mcp_servers.<name>]` with `url` + `[mcp_servers.<name>.http_headers]` with `Authorization`
+- **Codex** (TOML, `~/.codex/config.toml` or `.codex/config.toml`): `[mcp_servers.<name>]` with `url` + `[mcp_servers.<name>.http_headers]` with `Authorization`
 
 # Reference: backup filename format
 
@@ -1158,8 +856,7 @@ Every destructive `configure`/`remove` writes a sibling:
 <config_path>.bak.<YYYYMMDDTHHMMSSZ>.1      # collision suffix (.1..1000)
 ```
 
-Permissions match the source (0600 for files holding PATs). Never
-overwritten (O_EXCL). Phase 9's teardown sweeps them.
+Permissions match the source (0600 for files holding PATs). Never overwritten (O_EXCL). Phase 9's teardown sweeps them.
 
 # Reference: key constants
 
