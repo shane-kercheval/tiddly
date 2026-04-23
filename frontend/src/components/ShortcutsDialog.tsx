@@ -39,6 +39,7 @@ const leftColumnGroups: ShortcutGroup[] = [
       { keys: ['s'], description: 'Focus page search' },
       { keys: ['\u2318', '\u21E7', 'P'], description: 'Command palette' },
       { keys: ['\u2318', 'Click'], description: 'Open card in new tab' },
+      { keys: ['\u21E7', 'Click'], description: 'Open bookmark relationship in Tiddly (instead of URL)' },
       { keys: ['Esc'], description: 'Close modal / Unfocus search' },
     ],
   },

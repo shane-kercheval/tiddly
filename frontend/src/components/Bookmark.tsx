@@ -14,7 +14,7 @@
  * - Fetch metadata functionality
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import type { ReactNode, FormEvent } from 'react'
+import type { ReactNode, FormEvent, MouseEvent as ReactMouseEvent } from 'react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { InlineEditableUrl } from './InlineEditableUrl'
@@ -132,7 +132,7 @@ interface BookmarkProps {
   /** Called when history button is clicked */
   onShowHistory?: () => void
   /** Called when a linked content item is clicked for navigation */
-  onNavigateToLinked?: (item: LinkedItem) => void
+  onNavigateToLinked?: (item: LinkedItem, event?: ReactMouseEvent) => void
   /** Pre-populated relationships from navigation state (quick-create linked) */
   initialRelationships?: RelationshipInputPayload[]
   /** Pre-populated linked item display cache from navigation state */
