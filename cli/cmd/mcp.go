@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
@@ -51,6 +53,7 @@ func newMCPConfigureCmd() *cobra.Command {
 		scope     string
 		expiresIn int
 		servers   string
+		force     bool
 	)
 
 	cmd := &cobra.Command{
@@ -58,7 +61,14 @@ func newMCPConfigureCmd() *cobra.Command {
 		Short: "Configure MCP servers for AI tools",
 		Long: `Configure Tiddly MCP servers for AI tools.
 
-Servers are identified by URL, not by name. If an existing entry points to a Tiddly MCP URL (regardless of its key name), it is replaced with the canonical entry. This means re-configuring and migrations from manual setups are safe.
+Configure writes two CLI-managed entries: tiddly_notes_bookmarks (content server) and tiddly_prompts (prompt server). These are the only entries the CLI creates or modifies. If you have other entries pointing at Tiddly URLs under different names (for example, work_prompts and personal_prompts for multiple accounts), configure leaves them alone. After a run, configure lists any preserved non-CLI-managed entries so you can see what was left unchanged.
+
+If a CLI-managed entry already exists but points at a URL that's not the expected Tiddly URL for its type, configure refuses by default and tells you which entry is mismatched. Either rename the entry in the config file to preserve it, or re-run with --force to overwrite. Use --dry-run to preview either path without committing (without --force, dry-run shows the diff plus warnings; with --force, dry-run shows the diff with the overwrite applied).
+
+Before destructive writes, the existing config file is copied to <path>.bak.<timestamp> alongside the original.
+
+Tools:
+  claude-desktop, claude-code, codex (auto-detect if omitted)
 
 Scope:
   The --scope flag controls where the MCP server config is written. The default is "user",
@@ -72,7 +82,8 @@ Examples:
   tiddly mcp configure claude-code                      Configure for a specific tool
   tiddly mcp configure claude-code --scope directory    Configure for the current directory only
   tiddly mcp configure --dry-run                        Preview changes without writing
-  tiddly mcp configure --servers content                Configure only the content server`,
+  tiddly mcp configure --servers content                Configure only the content server
+  tiddly mcp configure --force                          Overwrite a mismatched CLI-managed entry`,
 		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateScope(scope); err != nil {
@@ -171,29 +182,24 @@ Examples:
 				ExpiresIn: expires,
 				Output:    cmd.OutOrStdout(),
 				ErrOutput: cmd.ErrOrStderr(),
+				Force:     force,
 			}
 
 			configureResult, err := mcp.RunConfigure(opts, targetTools)
-			if err != nil {
-				return err
-			}
 
-			if !dryRun {
-				// Print summary
-				if len(configureResult.TokensCreated) > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "Created tokens: %s\n", strings.Join(configureResult.TokensCreated, ", "))
+			// Print the partial summary BEFORE surfacing any error so a
+			// user whose tool-2 failed can still see what tool-1 did.
+			// Warnings are intentionally printed regardless of dry-run.
+			if configureResult != nil {
+				if !dryRun {
+					printConfigureSummary(cmd.OutOrStdout(), configureResult, err != nil)
 				}
-				if len(configureResult.TokensReused) > 0 {
-					fmt.Fprintf(cmd.OutOrStdout(), "Reused tokens: %s\n", strings.Join(configureResult.TokensReused, ", "))
+				for _, warning := range configureResult.Warnings {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Configured: %s\n", strings.Join(configureResult.ToolsConfigured, ", "))
 			}
 
-			for _, warning := range configureResult.Warnings {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
-			}
-
-			return nil
+			return err
 		},
 	}
 
@@ -201,6 +207,7 @@ Examples:
 	cmd.Flags().StringVar(&scope, "scope", "user", "Config scope: user (all projects) or directory (current directory only)")
 	cmd.Flags().IntVar(&expiresIn, "expires", 0, "PAT expiration in days (1-365, or 0 for no expiration)")
 	cmd.Flags().StringVar(&servers, "servers", "content,prompts", "Which MCP servers to configure: content, prompts, or both")
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite CLI-managed entries that point at non-Tiddly URLs or wrong-type Tiddly URLs")
 
 	return cmd
 }
@@ -280,22 +287,25 @@ func newMCPRemoveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:       "remove <tool>",
 		Short:     "Remove MCP server configuration for a tool",
-		Long: `Remove Tiddly MCP server entries from a tool's config file. All other config keys are preserved.
+		Long: `Remove the CLI-managed entries (tiddly_notes_bookmarks, tiddly_prompts) from a tool's config file. Other entries pointing at Tiddly URLs under different names — e.g. work_prompts or personal_prompts — are preserved. A CLI-managed entry is removed regardless of what URL it currently points at. The prior config is saved to <path>.bak.<timestamp> before the write. If no CLI-managed entries exist, remove reports so and exits cleanly.
 
-Servers are identified by URL, not by name. Any entry pointing to a Tiddly MCP URL is removed, even if the key name differs from the default.
+With --delete-tokens, the CLI only targets PATs attached to CLI-managed entries. If one of those PATs is also referenced by a preserved entry, the CLI warns that revoking will break the preserved binding and then proceeds. If a CLI-managed entry's PAT doesn't match any CLI-created server-side token, the CLI prints an informational note referencing that entry.
 
-With --delete-tokens (requires OAuth login), the CLI reads PATs from the tool's config before removing entries, then revokes those tokens from your account. Without --delete-tokens, warns about potentially orphaned tokens.
+The shared-PAT warning and orphan-token filter consider only entries whose URL still points at a Tiddly MCP server. A CLI-managed key hand-edited to a non-Tiddly URL is invisible to these safeguards — its PAT will not participate in shared-PAT detection or orphan filtering.
 
 Claude Desktop users: restart Claude Desktop after removing.
 
-Use --servers to selectively remove only the content or prompts server, preserving the other.
+Use --servers to scope the removal to only content or only prompts, leaving the other CLI-managed entry untouched.
+
+Tools:
+  claude-desktop, claude-code, codex
 
 Examples:
-  tiddly mcp remove claude-code                          Remove MCP entries
-  tiddly mcp remove claude-code --delete-tokens          Remove entries and revoke PATs
+  tiddly mcp remove claude-code                          Remove CLI-managed entries
+  tiddly mcp remove claude-code --delete-tokens          Remove entries and revoke their PATs
   tiddly mcp remove codex --scope directory              Remove from directory config
-  tiddly mcp remove claude-code --servers content        Remove only the content server
-  tiddly mcp remove claude-code --servers content --delete-tokens  Remove content server and revoke its PAT`,
+  tiddly mcp remove claude-code --servers content        Remove only tiddly_notes_bookmarks
+  tiddly mcp remove claude-code --servers content --delete-tokens  Remove tiddly_notes_bookmarks and revoke its PAT`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: mcp.ValidToolNames(mcp.DefaultHandlers()),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -348,61 +358,149 @@ Examples:
 				return err
 			}
 
-			// Extract PATs from config BEFORE removing entries, filtered by serverList
-			var extractedPATs []string
-			if deleteTokens {
-				contentPAT, promptPAT := handler.ExtractPATs(rc)
-				wantContent := slices.Contains(serverList, mcp.ServerContent)
-				wantPrompts := slices.Contains(serverList, mcp.ServerPrompts)
-				if wantContent && contentPAT != "" {
-					extractedPATs = append(extractedPATs, contentPAT)
+			// Collect revoke targets and retained PATs from pre-remove config
+			// state. Done before handler.Remove so the shared-PAT warning and
+			// orphan-token filter see the world as it was, not after the
+			// canonical entries have already been deleted. Both branches
+			// (--delete-tokens AND the orphan-warning path) need retainedPATs,
+			// so this runs unconditionally; revokeReqs stays empty unless
+			// --delete-tokens was requested.
+			//
+			// NOTE: do NOT dedupe by PAT here. One TokenRevokeRequest per
+			// canonical entry is deliberate — DeleteTokensByPrefix dedupes
+			// server-side deletions internally and mirrors the outcome back
+			// to every request sharing a PAT. Pre-deduping at this layer
+			// would collapse two canonical entries into one request and
+			// silently drop per-entry attribution (the "no CLI-created token
+			// matched" note and any per-request error).
+			var revokeReqs []mcp.TokenRevokeRequest // one per canonical entry to revoke
+			var retainedPATs []mcp.TiddlyPAT        // non-canonical entries keeping their PATs
+			{
+				targetTypes := map[string]bool{}
+				if slices.Contains(serverList, mcp.ServerContent) {
+					targetTypes[mcp.ServerContent] = true
 				}
-				// Dedup: only skip if contentPAT was already added (wantContent && same value)
-				if wantPrompts && promptPAT != "" && (!wantContent || promptPAT != contentPAT) {
-					extractedPATs = append(extractedPATs, promptPAT)
+				if slices.Contains(serverList, mcp.ServerPrompts) {
+					targetTypes[mcp.ServerPrompts] = true
 				}
-				// Warn when a shared PAT is being revoked while the other server is retained
-				if contentPAT != "" && contentPAT == promptPAT && wantContent != wantPrompts {
-					retained := mcp.ServerPrompts
-					if wantPrompts {
-						retained = mcp.ServerContent
+				for _, p := range handler.AllTiddlyPATs(rc) {
+					canonicalType, isCanonical := mcp.ServerTypeForCanonicalName(p.Name)
+					if isCanonical && targetTypes[canonicalType] {
+						if deleteTokens {
+							revokeReqs = append(revokeReqs, mcp.TokenRevokeRequest{
+								EntryLabel: p.Name,
+								PAT:        p.PAT,
+							})
+						}
+					} else {
+						retainedPATs = append(retainedPATs, p)
 					}
-					fmt.Fprintf(cmd.ErrOrStderr(),
-						"Warning: token is shared with %s server (still configured); it will also lose access.\n", retained)
 				}
 			}
 
-			// Remove config entries
-			if err := handler.Remove(rc, serverList); err != nil {
+			result, err := handler.Remove(rc, serverList)
+			// Surface the backup path before anything else so the user
+			// always sees where their recovery copy is — including on
+			// write-failure paths.
+			if result.BackupPath != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "Backed up previous config to %s\n", result.BackupPath)
+			}
+			if err != nil {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed Tiddly MCP servers from %s.\n", toolName)
+			if len(result.RemovedEntries) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "No CLI-managed entries found in %s.\n", toolName)
+				return nil
+			}
 
-			// Token cleanup
-			result, err := appDeps.TokenManager.ResolveToken(flagToken, true)
-			if err == nil {
-				client := api.NewClient(apiURL(), result.Token, result.AuthType)
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %s from %s.\n",
+				strings.Join(result.RemovedEntries, ", "), toolName)
 
-				if deleteTokens && len(extractedPATs) > 0 {
-					deleted, delErr := mcp.DeleteTokensByPrefix(cmd.Context(), client, extractedPATs)
-					if len(deleted) > 0 {
-						fmt.Fprintf(cmd.OutOrStdout(), "Deleted tokens: %s\n", strings.Join(deleted, ", "))
+			// Shared-PAT warning: for each revoke target, surface which
+			// retained entries share its PAT. One consolidated line per
+			// canonical entry, retained names sorted.
+			for _, req := range revokeReqs {
+				var sharedBy []string
+				for _, r := range retainedPATs {
+					if r.PAT == req.PAT {
+						sharedBy = append(sharedBy, r.Name)
 					}
+				}
+				if len(sharedBy) > 0 {
+					sort.Strings(sharedBy)
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"Warning: token from %s is also used by %s (still configured); revoking will break those bindings.\n",
+						req.EntryLabel, strings.Join(sharedBy, ", "))
+				}
+			}
+
+			// Token cleanup (auth resolution failure silently skips — pre-existing
+			// rough edge, tracked separately).
+			tokResult, tokErr := appDeps.TokenManager.ResolveToken(flagToken, true)
+			if tokErr == nil {
+				client := api.NewClient(apiURL(), tokResult.Token, tokResult.AuthType)
+
+				if deleteTokens && len(revokeReqs) > 0 {
+					results, delErr := mcp.DeleteTokensByPrefix(cmd.Context(), client, revokeReqs)
 					if delErr != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Some tokens could not be deleted: %v\n", delErr)
+						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", delErr)
+					}
+					var allDeleted []string
+					seenNames := make(map[string]bool)
+					for _, r := range results {
+						if len(r.DeletedNames) == 0 && r.Err == nil {
+							// Unmatched PAT (or short/garbled) — nothing was
+							// revoked. Inform the user, naming the specific entry.
+							fmt.Fprintf(cmd.OutOrStdout(),
+								"Note: no CLI-created token matched the token attached to %s; nothing was revoked. Manage tokens at https://tiddly.me/settings.\n",
+								r.EntryLabel)
+							continue
+						}
+						if r.Err != nil {
+							fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %v\n", r.Err)
+						}
+						for _, n := range r.DeletedNames {
+							if !seenNames[n] {
+								seenNames[n] = true
+								allDeleted = append(allDeleted, n)
+							}
+						}
+					}
+					if len(allDeleted) > 0 {
+						sort.Strings(allDeleted)
+						fmt.Fprintf(cmd.OutOrStdout(), "Deleted tokens: %s\n", strings.Join(allDeleted, ", "))
 					}
 				} else if !deleteTokens {
 					orphaned, orphanErr := mcp.CheckOrphanedTokens(cmd.Context(), client, toolName, serverList)
 					if orphanErr == nil && len(orphaned) > 0 {
-						fmt.Fprintf(cmd.ErrOrStderr(),
-							"Warning: PATs created for %s may still exist: %s\n", toolName, strings.Join(orphaned, ", "))
-						suggestedCmd := fmt.Sprintf("tiddly mcp remove %s --delete-tokens", toolName)
-						if len(serverList) == 1 {
-							suggestedCmd += fmt.Sprintf(" --servers %s", serverList[0])
+						// Filter out tokens whose TokenPrefix matches a PAT
+						// still referenced by a retained entry on disk — those
+						// aren't orphans, they're in active use by non-canonical
+						// entries.
+						retainedPrefixes := map[string]bool{}
+						for _, p := range retainedPATs {
+							if prefix := mcp.PATPrefix(p.PAT); prefix != "" {
+								retainedPrefixes[prefix] = true
+							}
 						}
-						fmt.Fprintf(cmd.ErrOrStderr(),
-							"Run '%s' to revoke, or manage tokens at https://tiddly.me/settings.\n", suggestedCmd)
+						var names []string
+						for _, t := range orphaned {
+							if retainedPrefixes[t.TokenPrefix] {
+								continue
+							}
+							names = append(names, t.Name)
+						}
+						if len(names) > 0 {
+							fmt.Fprintf(cmd.ErrOrStderr(),
+								"Warning: PATs created for %s may still exist: %s\n", toolName, strings.Join(names, ", "))
+							suggestedCmd := fmt.Sprintf("tiddly mcp remove %s --delete-tokens", toolName)
+							if len(serverList) == 1 {
+								suggestedCmd += fmt.Sprintf(" --servers %s", serverList[0])
+							}
+							fmt.Fprintf(cmd.ErrOrStderr(),
+								"Run '%s' to revoke, or manage tokens at https://tiddly.me/settings.\n", suggestedCmd)
+						}
 					}
 				}
 			}
@@ -437,4 +535,41 @@ func isValidTool(name string, toolNames []string) bool {
 		}
 	}
 	return false
+}
+
+// printConfigureSummary prints what configure did or partially did. When
+// partial is true, the heading switches to "Partially configured" so a
+// user staring at a follow-up error knows the listed tools still completed.
+func printConfigureSummary(w io.Writer, result *mcp.ConfigureResult, partial bool) {
+	if len(result.TokensCreated) > 0 {
+		fmt.Fprintf(w, "Created tokens: %s\n", strings.Join(result.TokensCreated, ", "))
+	}
+	if len(result.TokensReused) > 0 {
+		fmt.Fprintf(w, "Reused tokens: %s\n", strings.Join(result.TokensReused, ", "))
+	}
+	label := "Configured"
+	if partial {
+		label = "Partially configured (run aborted after these)"
+	}
+	if len(result.ToolsConfigured) > 0 {
+		fmt.Fprintf(w, "%s: %s\n", label, strings.Join(result.ToolsConfigured, ", "))
+	}
+	// Backups are recorded per-tool only after a successful handler.Configure,
+	// so on partial-failure runs this list reflects only tools that
+	// completed — never the tool that failed mid-write.
+	for _, b := range result.Backups {
+		fmt.Fprintf(w, "Backed up %s config to %s\n", b.Tool, b.Path)
+	}
+	// Preserved non-CLI-managed entries, sorted by tool name for deterministic output.
+	if len(result.PreservedEntries) > 0 {
+		toolNames := make([]string, 0, len(result.PreservedEntries))
+		for n := range result.PreservedEntries {
+			toolNames = append(toolNames, n)
+		}
+		sort.Strings(toolNames)
+		for _, n := range toolNames {
+			fmt.Fprintf(w, "Preserved non-CLI-managed entries in %s: %s\n",
+				n, strings.Join(result.PreservedEntries[n], ", "))
+		}
+	}
 }

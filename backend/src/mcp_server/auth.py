@@ -19,7 +19,7 @@ def get_bearer_token() -> str:
     Raises:
         AuthenticationError: If no valid Bearer token is present.
     """
-    headers = get_http_headers()
+    headers = get_http_headers(include={"authorization"})
     auth_header = headers.get("authorization", "")
 
     parts = auth_header.split(maxsplit=1)

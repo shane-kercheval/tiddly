@@ -1,5 +1,4 @@
 """Tests for BaseEntityService._compute_changed_fields()."""
-import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -206,7 +205,6 @@ class TestComputeChangedFields:
 class TestComputeChangedFieldsIntegration:
     """Integration tests verifying changed_fields appears in history records."""
 
-    @pytest.mark.asyncio
     async def test__bookmark_create__sets_changed_fields(
         self,
         db_session,
@@ -241,7 +239,6 @@ class TestComputeChangedFieldsIntegration:
         assert "url" in record.changed_fields
         assert "tags" in record.changed_fields
 
-    @pytest.mark.asyncio
     async def test__bookmark_update_title__sets_changed_fields_title_only(
         self,
         db_session,
@@ -278,7 +275,6 @@ class TestComputeChangedFieldsIntegration:
         record = result.scalar_one()
         assert record.changed_fields == ["title"]
 
-    @pytest.mark.asyncio
     async def test__bookmark_update_content_and_tags__sets_both(
         self,
         db_session,
@@ -315,7 +311,6 @@ class TestComputeChangedFieldsIntegration:
         assert "content" in record.changed_fields
         assert "tags" in record.changed_fields
 
-    @pytest.mark.asyncio
     async def test__note_create__sets_changed_fields(
         self,
         db_session,
@@ -340,7 +335,6 @@ class TestComputeChangedFieldsIntegration:
         assert "content" in record.changed_fields
         assert "title" in record.changed_fields
 
-    @pytest.mark.asyncio
     async def test__prompt_create__sets_changed_fields(
         self,
         db_session,
@@ -370,7 +364,6 @@ class TestComputeChangedFieldsIntegration:
         assert "name" in record.changed_fields
         assert "arguments" in record.changed_fields
 
-    @pytest.mark.asyncio
     async def test__audit_actions__have_null_changed_fields(
         self,
         db_session,
@@ -398,7 +391,6 @@ class TestComputeChangedFieldsIntegration:
         record = result.scalar_one()
         assert record.changed_fields is None
 
-    @pytest.mark.asyncio
     async def test__changed_fields_in_api_response(
         self,
         client: AsyncClient,

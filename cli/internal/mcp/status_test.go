@@ -105,47 +105,48 @@ func TestSortOtherServers(t *testing.T) {
 	assert.Equal(t, "zebra", servers[2].Name)
 }
 
-func TestServerURLMatcher__content_only(t *testing.T) {
-	match := serverURLMatcher([]string{"content"})
-	assert.True(t, match(ContentMCPURL()), "should match content URL")
-	assert.False(t, match(PromptMCPURL()), "should not match prompts URL")
-	assert.False(t, match("https://other.example.com"), "should not match non-tiddly URL")
+func TestSortServers__primary_by_server_type(t *testing.T) {
+	sr := &StatusResult{
+		Servers: []ServerMatch{
+			{ServerType: ServerPrompts, Name: "tiddly_prompts"},
+			{ServerType: ServerContent, Name: "tiddly_notes_bookmarks"},
+		},
+	}
+	sr.SortServers()
+
+	assert.Equal(t, ServerContent, sr.Servers[0].ServerType, "content should sort before prompts")
+	assert.Equal(t, ServerPrompts, sr.Servers[1].ServerType)
 }
 
-func TestServerURLMatcher__prompts_only(t *testing.T) {
-	match := serverURLMatcher([]string{"prompts"})
-	assert.False(t, match(ContentMCPURL()), "should not match content URL")
-	assert.True(t, match(PromptMCPURL()), "should match prompts URL")
-	assert.False(t, match("https://other.example.com"), "should not match non-tiddly URL")
+func TestSortServers__secondary_by_name_within_type(t *testing.T) {
+	sr := &StatusResult{
+		Servers: []ServerMatch{
+			{ServerType: ServerPrompts, Name: "work_prompts"},
+			{ServerType: ServerContent, Name: "zebra_content"},
+			{ServerType: ServerPrompts, Name: "personal_prompts"},
+			{ServerType: ServerContent, Name: "alpha_content"},
+		},
+	}
+	sr.SortServers()
+
+	// Grouped by type (content first), then alphabetical within each group.
+	assert.Equal(t, ServerContent, sr.Servers[0].ServerType)
+	assert.Equal(t, "alpha_content", sr.Servers[0].Name)
+	assert.Equal(t, ServerContent, sr.Servers[1].ServerType)
+	assert.Equal(t, "zebra_content", sr.Servers[1].Name)
+	assert.Equal(t, ServerPrompts, sr.Servers[2].ServerType)
+	assert.Equal(t, "personal_prompts", sr.Servers[2].Name)
+	assert.Equal(t, ServerPrompts, sr.Servers[3].ServerType)
+	assert.Equal(t, "work_prompts", sr.Servers[3].Name)
 }
 
-func TestServerURLMatcher__both(t *testing.T) {
-	match := serverURLMatcher([]string{"content", "prompts"})
-	assert.True(t, match(ContentMCPURL()), "should match content URL")
-	assert.True(t, match(PromptMCPURL()), "should match prompts URL")
-	assert.False(t, match("https://other.example.com"), "should not match non-tiddly URL")
-}
-
-func TestServerURLMatcher__nil_matches_all(t *testing.T) {
-	match := serverURLMatcher(nil)
-	assert.True(t, match(ContentMCPURL()), "nil should match content URL")
-	assert.True(t, match(PromptMCPURL()), "nil should match prompts URL")
-	assert.False(t, match("https://other.example.com"), "nil should not match non-tiddly URL")
-}
-
-func TestServerURLMatcher__empty_matches_all(t *testing.T) {
-	match := serverURLMatcher([]string{})
-	assert.True(t, match(ContentMCPURL()), "empty should match content URL")
-	assert.True(t, match(PromptMCPURL()), "empty should match prompts URL")
-	assert.False(t, match("https://other.example.com"), "empty should not match non-tiddly URL")
-}
-
-func TestCanonicalNamesFirst(t *testing.T) {
+func TestSortCanonicalFirst(t *testing.T) {
+	// In-place mutation: no return value, the passed slice is reordered.
 	keys := []string{"zebra", serverNamePrompts, "alpha", serverNameContent}
-	sorted := canonicalNamesFirst(keys)
+	sortCanonicalFirst(keys)
 
-	assert.Equal(t, serverNameContent, sorted[0])
-	assert.Equal(t, serverNamePrompts, sorted[1])
-	assert.Equal(t, "alpha", sorted[2])
-	assert.Equal(t, "zebra", sorted[3])
+	assert.Equal(t, serverNameContent, keys[0])
+	assert.Equal(t, serverNamePrompts, keys[1])
+	assert.Equal(t, "alpha", keys[2])
+	assert.Equal(t, "zebra", keys[3])
 }

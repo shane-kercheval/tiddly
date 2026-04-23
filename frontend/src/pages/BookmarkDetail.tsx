@@ -28,6 +28,7 @@ import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
 import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { usePageTitle } from '../hooks/usePageTitle'
+import { useAIAvailability } from '../hooks/useAIAvailability'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload } from '../types'
 import type { LinkedItem } from '../utils/relationships'
 import { getApiErrorMessage, getDomain, isEffectivelyArchived, isNotFoundError } from '../utils'
@@ -88,6 +89,7 @@ export function BookmarkDetail(): ReactNode {
   const { fetchBookmark, fetchMetadata } = useBookmarks()
   const handleNavigateToLinked = useLinkedNavigation()
   const { tags: tagSuggestions } = useTagsStore()
+  const { available: aiAvailable } = useAIAvailability()
   const fullWidthLayout = useUIPreferencesStore((state) => state.fullWidthLayout)
   const createMutation = useCreateBookmark()
   const updateMutation = useUpdateBookmark()
@@ -317,6 +319,7 @@ export function BookmarkDetail(): ReactNode {
         onNavigateToLinked={handleNavigateToLinked}
         initialRelationships={locationState?.initialRelationships}
         initialLinkedItems={locationState?.initialLinkedItems}
+        aiAvailable={aiAvailable}
       />
       {showHistory && bookmarkId && (
         <HistorySidebar

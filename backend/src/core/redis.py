@@ -165,6 +165,91 @@ class RedisClient:
             logger.warning("Redis DELETE failed: %s", e)
             return False
 
+    async def scan_keys(self, pattern: str) -> list[str]:
+        """Scan for keys matching pattern. Returns empty list if unavailable."""
+        if not self._client:
+            return []
+        try:
+            keys = []
+            async for key in self._client.scan_iter(match=pattern):
+                keys.append(key.decode() if isinstance(key, bytes) else key)
+            return keys
+        except RedisError as e:
+            logger.warning("Redis SCAN failed: %s", e)
+            return []
+
+    async def hgetall(self, key: str) -> dict[str, str] | None:
+        """Get all fields from a hash. Returns None if unavailable."""
+        if not self._client:
+            return None
+        try:
+            result = await self._client.hgetall(key)
+            return {
+                (k.decode() if isinstance(k, bytes) else k): (
+                    v.decode() if isinstance(v, bytes) else v
+                )
+                for k, v in result.items()
+            }
+        except RedisError as e:
+            logger.warning("Redis HGETALL failed: %s", e)
+            return None
+
+    async def zcount(
+        self, key: str, min_score: float | str, max_score: float | str,
+    ) -> int | None:
+        """
+        Count entries in a sorted set with scores in the given range.
+
+        Bounds follow Redis ZCOUNT semantics: numeric values are inclusive,
+        `-inf` / `+inf` are open, and string values prefixed with `(` are
+        exclusive (e.g. `"(123"` means "greater than 123"). Returns the count,
+        or `None` if Redis is unavailable. Does not mutate the set — safe for
+        read-only status checks.
+        """
+        if not self._client:
+            return None
+        try:
+            return await self._client.zcount(key, min_score, max_score)
+        except RedisError as e:
+            logger.warning("Redis ZCOUNT failed: %s", e)
+            return None
+
+    async def ttl(self, key: str) -> int | None:
+        """
+        Seconds until `key` expires. Thin wrapper over redis-py's TTL.
+
+        Normalizes Redis's three-way return value into `int | None`:
+
+        - Positive integer → seconds remaining until the key expires.
+        - Redis returns `-2` (key does not exist) → returns `None`.
+        - Redis returns `-1` (key exists, no expiry set) → returns `None`
+          *and* logs a warning. Under normal operation every counter key
+          should have an expiry; a key without one is an invariant violation
+          (manual Redis intervention, a new non-expiring writer, etc.) and
+          worth surfacing to logs even though callers don't need to care.
+        - Redis unavailable or errors → returns `None`.
+
+        Callers should treat `None` as "no reset timestamp available" rather
+        than trying to distinguish missing-vs-no-expiry-vs-error. Does not
+        mutate the key — safe for read-only status checks.
+        """
+        if not self._client:
+            return None
+        try:
+            raw = await self._client.ttl(key)
+        except RedisError as e:
+            logger.warning("Redis TTL failed: %s", e)
+            return None
+        if raw == -1:
+            logger.warning(
+                "Redis key exists without expiry — expected all counter keys to have TTL",
+                extra={"key": key},
+            )
+            return None
+        if raw == -2 or not isinstance(raw, int) or raw <= 0:
+            return None
+        return raw
+
     async def pipeline(self) -> Pipeline | None:
         """Get pipeline for batched operations, returns None if unavailable."""
         if not self._client:

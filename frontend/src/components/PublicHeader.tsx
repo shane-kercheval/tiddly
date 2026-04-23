@@ -57,6 +57,7 @@ export function PublicHeader(): ReactNode {
   const location = useLocation()
 
   const [productOpen, setProductOpen] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const [prevPath, setPrevPath] = useState(location.pathname)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -73,10 +74,11 @@ export function PublicHeader(): ReactNode {
     }
   }, [productOpen])
 
-  // Close dropdown on route change
+  // Close menus on route change
   if (prevPath !== location.pathname) {
     setPrevPath(location.pathname)
     if (productOpen) setProductOpen(false)
+    if (mobileOpen) setMobileOpen(false)
   }
 
   // Show border when scrolled
@@ -152,7 +154,7 @@ export function PublicHeader(): ReactNode {
           </nav>
         </div>
 
-        {/* Right: Auth buttons */}
+        {/* Right: Auth buttons + mobile menu toggle */}
         <div className="flex items-center gap-3">
           {isAuthenticated || isDevMode ? (
             <PrefetchLink
@@ -164,8 +166,72 @@ export function PublicHeader(): ReactNode {
           ) : (
             <AuthButtons />
           )}
+          <button
+            type="button"
+            onClick={() => setMobileOpen(!mobileOpen)}
+            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileOpen}
+            aria-controls="public-mobile-menu"
+            className="-mr-1 inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 sm:hidden"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              {mobileOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </div>
       </div>
+
+      {/* Mobile nav panel */}
+      {mobileOpen && (
+        <div
+          id="public-mobile-menu"
+          className="border-t border-gray-200/60 bg-white sm:hidden"
+        >
+          <nav className="mx-auto flex max-w-5xl flex-col gap-1 px-6 py-3">
+            <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
+              Product
+            </div>
+            {productItems.map((item) => (
+              <PrefetchLink
+                key={item.path}
+                to={item.path}
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  isActiveLink(item.path)
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                }`}
+              >
+                {item.label}
+              </PrefetchLink>
+            ))}
+            <div className="my-1 border-t border-gray-100" />
+            <PrefetchLink
+              to="/docs"
+              className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                isActiveLink('/docs')
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              Docs
+            </PrefetchLink>
+            <PrefetchLink
+              to="/pricing"
+              className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                isActiveLink('/pricing')
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              }`}
+            >
+              Pricing
+            </PrefetchLink>
+          </nav>
+        </div>
+      )}
     </header>
   )
 }

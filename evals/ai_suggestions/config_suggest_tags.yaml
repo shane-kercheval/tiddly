@@ -1,0 +1,414 @@
+name: "suggest_tags: Tag Suggestion Quality"
+description: |
+  Tests tag suggestion quality by calling suggest_tags() directly with curated
+  context. Verifies structural correctness (expected tags present, dedup works)
+  and semantic relevance (LLM judge scores all tags as topically related).
+
+models:
+  - name: "gemini/gemini-flash-lite-latest"
+    temperature: 0.7
+  - name: "openai/gpt-5.4-nano"
+    temperature: 0.7
+  - name: "anthropic/claude-haiku-4-5"
+    temperature: 0.7
+
+eval:
+  judge_model: "openai/gpt-5.4-mini"
+  samples: 10
+  pass_threshold: 0.8
+  max_concurrency: 10
+
+# ~30 tags covering web dev, data science, devops, general programming.
+# Shared across all test cases — simulates a user's established tag vocabulary.
+tag_vocabulary:
+  - name: "python"
+    count: 47
+  - name: "javascript"
+    count: 38
+  - name: "react"
+    count: 25
+  - name: "flask"
+    count: 18
+  - name: "docker"
+    count: 16
+  - name: "kubernetes"
+    count: 14
+  - name: "machine-learning"
+    count: 13
+  - name: "api"
+    count: 12
+  - name: "devops"
+    count: 11
+  - name: "web-dev"
+    count: 10
+  - name: "database"
+    count: 9
+  - name: "testing"
+    count: 8
+  - name: "security"
+    count: 7
+  - name: "cloud"
+    count: 7
+  - name: "tutorial"
+    count: 6
+  - name: "typescript"
+    count: 6
+  - name: "ci-cd"
+    count: 5
+  - name: "data-science"
+    count: 5
+  - name: "deep-learning"
+    count: 4
+  - name: "rust"
+    count: 4
+  - name: "aws"
+    count: 4
+  - name: "node-js"
+    count: 3
+  - name: "git"
+    count: 3
+  - name: "linux"
+    count: 3
+  - name: "architecture"
+    count: 3
+  - name: "performance"
+    count: 2
+  - name: "monitoring"
+    count: 2
+  - name: "authentication"
+    count: 2
+  - name: "rest-api"
+    count: 2
+  - name: "web-scraping"
+    count: 1
+
+test_cases:
+  - id: "python-flask-tutorial"
+    metadata:
+      description: "Full context (title + description + content + URL) — should produce python and flask tags"
+    input:
+      title: "Building REST APIs with Flask"
+      description: "A comprehensive tutorial on building production-ready REST APIs using Python's Flask framework, covering routing, request handling, authentication, and deployment."
+      content_snippet: "Flask is a lightweight WSGI web application framework in Python. It is designed to make getting started quick and easy, with the ability to scale up to complex applications. In this tutorial, we'll build a complete REST API with Flask, including user authentication with JWT tokens, input validation with Marshmallow, and deployment to AWS."
+      content_type: "bookmark"
+      url: "https://example.com/flask-rest-api-tutorial"
+      current_tags: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["python", "flask"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "Suggested tags include all must_contain tags (case-insensitive)"
+
+  - id: "javascript-react-guide"
+    metadata:
+      description: "Full context — should produce javascript and react tags"
+    input:
+      title: "React Hooks Deep Dive"
+      description: "An in-depth guide to React hooks including useState, useEffect, useContext, and custom hooks with practical examples."
+      content_snippet: "React Hooks let you use state and other React features without writing a class. useState lets you add state to function components. useEffect handles side effects like data fetching and subscriptions. Custom hooks let you extract component logic into reusable functions."
+      content_type: "bookmark"
+      url: "https://example.com/react-hooks-guide"
+      current_tags: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["javascript", "react"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "Suggested tags include all must_contain tags (case-insensitive)"
+
+  - id: "postgres-index-note"
+    metadata:
+      description: "Title + description, no content — should still produce database and performance tags"
+    input:
+      title: "PostgreSQL Index Optimization"
+      description: "Notes on B-tree vs GIN indexes, partial indexes, covering indexes, and using EXPLAIN ANALYZE to identify slow query plans."
+      content_snippet: null
+      content_type: "note"
+      url: null
+      current_tags: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["database"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "database is directly relevant to PostgreSQL content"
+
+  - id: "machine-learning-paper"
+    metadata:
+      description: "Title + content, no description — should produce machine-learning tag"
+    input:
+      title: "Attention Is All You Need — Transformer Architecture"
+      description: null
+      content_snippet: "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. The Transformer uses multi-head self-attention to draw global dependencies between input and output. Experiments on machine translation tasks show these models achieve state-of-the-art results."
+      content_type: "bookmark"
+      url: null
+      current_tags: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["machine-learning"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "Suggested tags include all must_contain tags (case-insensitive)"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.tags"
+          forbidden: ["python", "api"]
+          case_sensitive: false
+        metadata:
+          name: "Excluded tags absent"
+          description: "This is a theoretical ML paper — python and api are not discussed"
+
+  - id: "title-only"
+    metadata:
+      description: "Only a title, no description or content — tests minimal input"
+    input:
+      title: "Flask REST API Tutorial"
+      description: null
+      content_snippet: null
+      content_type: "bookmark"
+      url: null
+      current_tags: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["flask"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "Suggested tags include all must_contain tags (case-insensitive)"
+
+  - id: "description-only"
+    metadata:
+      description: "Only a description, no title or content — tests description-driven tagging"
+    input:
+      title: null
+      description: "A detailed guide to deploying Kubernetes clusters on AWS EKS, covering pod scheduling, service mesh with Istio, and automated scaling with HPA."
+      content_snippet: null
+      content_type: "note"
+      url: null
+      current_tags: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["kubernetes", "aws"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "Both kubernetes and aws are directly mentioned in the description"
+
+  - id: "description-and-content"
+    metadata:
+      description: "Description + content but no title — tests tagging without a title"
+    input:
+      title: null
+      description: "Setting up CI/CD pipelines with GitHub Actions for Python projects."
+      content_snippet: "GitHub Actions provides a powerful CI/CD platform integrated directly into your repository. For Python projects, you can set up automated testing with pytest, linting with ruff, type checking with mypy, and deployment to PyPI. This guide walks through creating a complete pipeline from scratch."
+      content_type: "bookmark"
+      url: null
+      current_tags: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["python", "ci-cd"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "Both python and ci-cd are directly mentioned in the content"
+
+  - id: "existing-tags-excluded"
+    metadata:
+      description: "current_tags=['python'] — python must not appear in suggestions (dedup)"
+    input:
+      title: "Python Web Scraping with BeautifulSoup"
+      description: "Tutorial on extracting data from websites using Python and BeautifulSoup."
+      content_snippet: null
+      content_type: "bookmark"
+      url: null
+      current_tags: ["python"]
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["web-scraping"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "web-scraping is directly mentioned and in vocabulary"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.tags"
+          forbidden: ["python"]
+          case_sensitive: false
+        metadata:
+          name: "Excluded tags absent"
+          description: "Tags in current_tags are filtered out by the service (case-insensitive dedup)"
+
+  - id: "vocabulary-preference"
+    metadata:
+      description: "Vocabulary has 'machine-learning' but not 'ml' — LLM should prefer existing vocabulary"
+    input:
+      title: "Introduction to ML Model Training"
+      description: "How to train and evaluate ML models using scikit-learn and TensorFlow."
+      content_snippet: null
+      content_type: "bookmark"
+      url: null
+      current_tags: []
+    checks:
+      # Vocabulary contains "machine-learning" but not "ml" — LLM should prefer the vocabulary form
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["machine-learning"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "LLM uses existing vocabulary tag 'machine-learning' instead of inventing 'ml'"
+
+  - id: "idiosyncratic-vocabulary"
+    metadata:
+      description: "Vocabulary has 'ts' instead of 'typescript' — LLM should use the user's variant, not the common form"
+    input:
+      title: "TypeScript Type Guards and Discriminated Unions"
+      description: "How to use type narrowing, type guards, and discriminated unions in TypeScript for safer runtime type checking."
+      content_snippet: null
+      content_type: "bookmark"
+      url: null
+      current_tags: []
+      tag_vocabulary_overrides:
+        - replace: "typescript"
+          with: "ts"
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.tags"
+          required: ["ts"]
+          case_sensitive: false
+        metadata:
+          name: "Expected tags present"
+          description: "LLM suggests 'ts' (user's vocabulary) instead of 'typescript'"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.tags"
+          forbidden: ["typescript"]
+          case_sensitive: false
+        metadata:
+          name: "Excluded tags absent"
+          description: "LLM does not suggest 'typescript' since it's not in the vocabulary"
+
+  - id: "tag-count-boundary"
+    metadata:
+      description: "Broad content covering many topics — should still stay within 3-7 tag limit"
+    input:
+      title: "2024 Year in Review: Technology Trends"
+      description: "A comprehensive review of the year's biggest technology trends."
+      content_snippet: "2024 was a landmark year for technology. Artificial intelligence dominated headlines with GPT-4 and Claude leading the charge. Kubernetes continued its reign in cloud infrastructure. Rust gained momentum in systems programming. React Server Components matured in the frontend ecosystem. Python remained the top language for data science. DevOps practices evolved with platform engineering. Web3 faced a reckoning while practical blockchain applications grew. Cybersecurity threats escalated with sophisticated AI-powered attacks."
+      content_type: "bookmark"
+      url: null
+      current_tags: []
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.tag_count"
+          min_value: 3
+          max_value: 7
+        metadata:
+          name: "Tag count within 3–7"
+          description: "Prompt asks for 3–7 tags; broad content shouldn't exceed 7 or return fewer than 3"
+
+# Global checks — applied to every test case
+checks:
+  # Tags list is non-empty
+  - type: "is_empty"
+    arguments:
+      value: "$.output.value.tags"
+      negate: true
+    metadata:
+      name: "Tags list is non-empty"
+      description: "Every suggestion request should produce at least one tag"
+
+  # Tag count within bounds (3-7 per prompt guidelines)
+  - type: "threshold"
+    arguments:
+      value: "$.output.value.tag_count"
+      max_value: 7
+    metadata:
+      name: "Tag count within bounds"
+      description: "No more than 7 tags (service enforces this cap)"
+
+  # All tags are relevant (LLM judge)
+  - type: "llm_judge"
+    arguments:
+      prompt: |
+        You are evaluating tag suggestions for a content item.
+
+        ## Item
+        - Title: "{{$.test_case.input.title}}"
+        - Description: "{{$.test_case.input.description}}"
+        - Content snippet: "{{$.test_case.input.content_snippet}}"
+        - URL: "{{$.test_case.input.url}}"
+        - Content type: {{$.test_case.input.content_type}}
+
+        ## User's tag vocabulary (for context only)
+        {{$.output.value.vocabulary_names}}
+
+        ## Tags to evaluate
+        {{$.output.value.tags}}
+
+        ## Your job
+
+        Score each suggested tag as relevant (1) or irrelevant (0).
+
+        **A tag is relevant (1)** if the item discusses the topic the tag
+        names. "Discusses" includes:
+          - The topic is named explicitly in title/description/content, OR
+          - The topic is clearly implied by the content (e.g. a snippet about
+            "Transformer attention-based architecture for machine translation"
+            implies `nlp`, `deep-learning`, `neural-networks`, `attention` —
+            all are directly relevant even without literal keyword match).
+
+        **A tag is irrelevant (0)** ONLY when the item does not discuss the
+        tag's topic at all. Examples of true irrelevance:
+          - `python` on a Docker Compose guide that doesn't mention Python.
+          - `web-dev` on a PostgreSQL index guide.
+
+        **Do NOT score 0 for the following reasons** — these are out of
+        scope for relevance judging:
+          - "Too generic" (broad categories are relevant if the topic is
+            discussed — e.g. `machine-learning` on an ML paper is correct,
+            not too-general).
+          - "Not explicitly framed as X" (implied topics count as discussed).
+          - "Too specific" or "redundant with another tag" (having both
+            `neural-networks` and `attention-mechanism` on a Transformer
+            paper is fine, not redundant-score-one).
+          - "Not in the user's vocabulary" (vocabulary membership is
+            irrelevant to relevance; new tags are allowed).
+
+        ## Output
+
+        Return one `scores` entry for each tag being evaluated:
+          - `tag`: the tag string
+          - `relevant`: true if the item discusses the tag's topic, false otherwise
+          - `reason`: a brief explanation
+
+        Include EVERY tag from the "Tags to evaluate" list exactly once —
+        don't skip any, and don't add new ones.
+      response_model: "tags"
+    metadata:
+      name: "All tags are relevant to content"
+      description: "LLM judge scores each tag for relevance; passes if at most 1 tag is irrelevant"

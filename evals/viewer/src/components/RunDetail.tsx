@@ -65,25 +65,30 @@ export default function RunDetail() {
             </div>
           )}
           <div>
-            <span className="text-xs text-gray-400">Success Rate</span>
-            <p className="font-medium text-gray-900 tabular-nums">{(results.success_rate * 100).toFixed(1)}%</p>
+            <span className="text-xs text-gray-400">Pass Mode</span>
+            <p className="font-medium text-gray-900">{results.pass_mode === 'per_test_case' ? 'Per Test Case' : 'Sample'}</p>
           </div>
+          {results.pass_mode === 'per_test_case' && results.per_test_case ? (
+            <div>
+              <span className="text-xs text-gray-400">Test Cases</span>
+              <p className="font-medium text-gray-900 tabular-nums">
+                {results.per_test_case.filter(tc => tc.rate >= results.pass_threshold).length} / {results.per_test_case.length} passing
+              </p>
+            </div>
+          ) : (
+            <div>
+              <span className="text-xs text-gray-400">Samples</span>
+              <p className="font-medium text-gray-900 tabular-nums">
+                {results.passed_samples} / {results.total_samples} passing
+              </p>
+            </div>
+          )}
           <div>
             <span className="text-xs text-gray-400">Threshold</span>
-            <p className="font-medium text-gray-900 tabular-nums">{(results.success_threshold * 100).toFixed(0)}%</p>
+            <p className="font-medium text-gray-900 tabular-nums">{(results.pass_threshold * 100).toFixed(0)}%</p>
           </div>
           <div>
-            <span className="text-xs text-gray-400">Samples</span>
-            <p className="font-medium text-gray-900 tabular-nums">
-              {results.passed_samples} passed / {results.total_samples} total
-            </p>
-          </div>
-          <div>
-            <span className="text-xs text-gray-400">Test Cases</span>
-            <p className="font-medium text-gray-900 tabular-nums">{config.num_test_cases}</p>
-          </div>
-          <div>
-            <span className="text-xs text-gray-400">Samples/Case</span>
+            <span className="text-xs text-gray-400">Samples per Test Case</span>
             <p className="font-medium text-gray-900 tabular-nums">{config.samples}</p>
           </div>
           <div>
@@ -115,8 +120,43 @@ export default function RunDetail() {
         </div>
       </div>
 
-      <SummaryMatrix results={run.results} />
-      <TestCaseTable results={run.results} />
+      <SummaryMatrix results={run.results} passThreshold={results.pass_threshold} />
+      <TestCaseTable results={run.results} passThreshold={results.pass_threshold} />
+
+      <details className="mt-4">
+        <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
+          How to interpret these results
+        </summary>
+        <div className="mt-2 bg-gray-50 rounded-lg border border-gray-200 p-4 text-xs text-gray-600 space-y-2">
+          <p>
+            <strong>Pass Mode</strong> determines how pass/fail is decided:
+          </p>
+          <ul className="list-disc ml-4 space-y-1">
+            <li>
+              <strong>Per Test Case</strong> — Each test case is evaluated independently across all samples.
+              A test case passes if it succeeds in at least <em>threshold</em>% of samples.
+              The overall eval passes if all test cases individually meet the threshold.
+            </li>
+            <li>
+              <strong>Sample</strong> — A sample passes if all test cases pass within that sample.
+              The overall eval passes if at least <em>threshold</em>% of samples pass.
+            </li>
+          </ul>
+          <p>
+            <strong>Samples</strong> are independent runs of the same test cases. Multiple samples capture variance from non-deterministic LLM outputs (e.g., temperature {'>'} 0).
+          </p>
+          <p>
+            <strong>Checks</strong> are individual assertions on each test case output. A sample passes for a test case only if all checks pass.
+            Deterministic checks (subset, disjoint, threshold) verify structural correctness.
+            LLM judge checks verify semantic quality.
+          </p>
+          <p>
+            <strong>Summary matrix colors</strong>: <span className="text-emerald-700">Green</span> = 100% pass rate.{' '}
+            <span className="text-amber-700">Amber</span> = above threshold but not 100%.{' '}
+            <span className="text-red-700">Red</span> = below threshold.
+          </p>
+        </div>
+      </details>
     </div>
   )
 }

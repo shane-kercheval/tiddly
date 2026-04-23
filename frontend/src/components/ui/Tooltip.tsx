@@ -152,7 +152,7 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
         createPortal(
           <div
             ref={tooltipRef}
-            className={`fixed z-[9999] bg-gray-800 text-white text-xs rounded shadow-lg ${sizeClasses} ${
+            className={`fixed z-[9999] pointer-events-none bg-gray-800 text-white text-xs rounded shadow-lg ${sizeClasses} ${
               position === 'left'
                 ? '-translate-x-full -translate-y-1/2'
                 : position === 'right'

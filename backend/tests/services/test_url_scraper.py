@@ -37,7 +37,6 @@ from services.url_scraper import (
 class TestFetchUrl:
     """Tests for fetch_url function."""
 
-    @pytest.mark.asyncio
     async def test__fetch_url__success(self) -> None:
         """Successful fetch returns HTML content and metadata."""
         html = '<html><head><title>Test</title></head><body>Content</body></html>'
@@ -71,7 +70,6 @@ class TestFetchUrl:
                 http2=True,
             )
 
-    @pytest.mark.asyncio
     async def test__fetch_url__timeout(self) -> None:
         """Timeout returns error info without raising."""
         with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
@@ -88,7 +86,6 @@ class TestFetchUrl:
             assert result.status_code is None
             assert result.error == "Request timed out"
 
-    @pytest.mark.asyncio
     async def test__fetch_url__connection_error(self) -> None:
         """Connection error returns error info without raising."""
         with patch('services.url_scraper.httpx.AsyncClient') as mock_client_class:
@@ -104,7 +101,6 @@ class TestFetchUrl:
             assert result.error is not None
             assert "Request failed" in result.error
 
-    @pytest.mark.asyncio
     async def test__fetch_url__unsupported_content_type(self) -> None:
         """Unsupported content type (not HTML or PDF) returns error."""
         mock_response = AsyncMock()
@@ -128,7 +124,6 @@ class TestFetchUrl:
             assert result.content_type == 'image/png'
             assert "Unsupported content type" in result.error
 
-    @pytest.mark.asyncio
     async def test__fetch_url__pdf_content_type(self) -> None:
         """PDF content type returns bytes content."""
         pdf_bytes = b'%PDF-1.4 fake pdf content'
@@ -155,7 +150,6 @@ class TestFetchUrl:
             assert result.is_html is False
             assert result.error is None
 
-    @pytest.mark.asyncio
     async def test__fetch_url__custom_timeout(self) -> None:
         """Custom timeout is passed to client."""
         mock_response = AsyncMock()
@@ -181,7 +175,6 @@ class TestFetchUrl:
                 http2=True,
             )
 
-    @pytest.mark.asyncio
     async def test__fetch_url__redirect_captured(self) -> None:
         """Final URL after redirects is captured."""
         mock_response = AsyncMock()
@@ -202,7 +195,6 @@ class TestFetchUrl:
 
             assert result.final_url == 'https://www.example.com/final-page'
 
-    @pytest.mark.asyncio
     async def test__fetch_url__404_not_found(self) -> None:
         """404 response returns error instead of error page HTML."""
         mock_response = AsyncMock()
@@ -226,7 +218,6 @@ class TestFetchUrl:
             assert result.error == "HTTP 404"
             assert result.final_url == 'https://example.com/missing'
 
-    @pytest.mark.asyncio
     async def test__fetch_url__403_forbidden(self) -> None:
         """403 response (auth-gated content) returns error."""
         mock_response = AsyncMock()
@@ -248,7 +239,6 @@ class TestFetchUrl:
             assert result.status_code == 403
             assert "403" in result.error
 
-    @pytest.mark.asyncio
     async def test__fetch_url__500_server_error(self) -> None:
         """500 response returns error instead of error page."""
         mock_response = AsyncMock()
@@ -651,7 +641,6 @@ class TestSSRFProtection:
 
     # --- fetch_url SSRF protection integration tests ---
 
-    @pytest.mark.asyncio
     async def test__fetch_url__blocks_localhost(self) -> None:
         """fetch_url blocks localhost URLs."""
         result = await fetch_url('http://localhost:8080/api')
@@ -659,7 +648,6 @@ class TestSSRFProtection:
         assert result.error is not None
         assert 'localhost' in result.error.lower()
 
-    @pytest.mark.asyncio
     async def test__fetch_url__blocks_private_ip(self) -> None:
         """fetch_url blocks private IP addresses."""
         result = await fetch_url('http://192.168.1.1/')
@@ -667,14 +655,12 @@ class TestSSRFProtection:
         assert result.error is not None
         assert 'private' in result.error.lower() or 'blocked' in result.error.lower()
 
-    @pytest.mark.asyncio
     async def test__fetch_url__blocks_loopback(self) -> None:
         """fetch_url blocks 127.0.0.1."""
         result = await fetch_url('http://127.0.0.1:3000/')
         assert result.content is None
         assert result.error is not None
 
-    @pytest.mark.asyncio
     async def test__fetch_url__blocks_redirect_to_private(self) -> None:
         """fetch_url blocks redirects to private addresses."""
         mock_response = AsyncMock()
@@ -704,7 +690,6 @@ class TestSSRFProtection:
                 assert result.error is not None
                 assert 'blocked' in result.error.lower() or 'redirect' in result.error.lower()
 
-    @pytest.mark.asyncio
     async def test__fetch_url__allows_public_urls(self) -> None:
         """fetch_url allows public URLs (with mocked response)."""
         mock_response = AsyncMock()
@@ -846,7 +831,6 @@ class TestExtractPdfContent:
 class TestScrapeUrl:
     """Tests for scrape_url high-level function."""
 
-    @pytest.mark.asyncio
     async def test__scrape_url__extracts_html_content_and_metadata(self) -> None:
         """scrape_url extracts content and metadata from HTML pages."""
         html = '''
@@ -882,7 +866,6 @@ class TestScrapeUrl:
             assert result.final_url == 'https://example.com/'
             assert result.content_type == 'text/html; charset=utf-8'
 
-    @pytest.mark.asyncio
     async def test__scrape_url__extracts_pdf_content_and_metadata(self) -> None:
         """scrape_url extracts content and metadata from PDF files."""
         pdf_bytes = (PDFS_DIR / 'arxiv_paper.pdf').read_bytes()
@@ -913,7 +896,6 @@ class TestScrapeUrl:
             assert result.final_url == 'https://arxiv.org/pdf/test.pdf'
             assert result.content_type == 'application/pdf'
 
-    @pytest.mark.asyncio
     async def test__scrape_url__propagates_fetch_errors(self) -> None:
         """scrape_url propagates errors from fetch_url."""
         mock_response = AsyncMock()
@@ -935,7 +917,6 @@ class TestScrapeUrl:
             assert result.text is None
             assert result.metadata is None
 
-    @pytest.mark.asyncio
     async def test__scrape_url__handles_unsupported_content_type(self) -> None:
         """scrape_url returns error for unsupported content types."""
         mock_response = AsyncMock()

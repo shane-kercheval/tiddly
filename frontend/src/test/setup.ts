@@ -40,7 +40,7 @@ vi.mock('../hooks/useLimits', () => ({
       max_url_length: 2000,
       max_prompt_name_length: 100,
       max_argument_name_length: 100,
-      max_argument_description_length: 500,
+      max_argument_description_length: 1000,
     },
     isLoading: false,
     error: null,

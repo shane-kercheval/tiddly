@@ -5,6 +5,7 @@
  * handle page title, heading, and layout differences.
  */
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { DocsSection } from '../pages/docs/components/DocsSection'
 
 interface FAQItemProps {
@@ -313,6 +314,51 @@ export function FAQContent(): ReactNode {
                 (like "auth" matching "authentication") work automatically.
               </p>
             </>
+          }
+        />
+      </DocsSection>
+
+      <DocsSection title="AI Features">
+        <FAQItem
+          question="What are AI suggestions?"
+          answer={
+            <>
+              <p>
+                Pro accounts get AI-powered suggestions to help organize content. Tag and
+                relationship suggestions appear automatically when you open the tag or linked
+                content input. Title, description, and argument suggestions are triggered by
+                clicking the sparkle icon next to the field. See{' '}
+                <Link to="/docs/features/ai" className="text-blue-600 hover:underline">AI Features</Link>{' '}
+                for full details.
+              </p>
+            </>
+          }
+        />
+        <FAQItem
+          question="Can I use my own API key?"
+          answer={
+            <>
+              <p>
+                Yes. In Settings → AI Configuration, you can add your own API key and select
+                a model from any supported provider (OpenAI, Anthropic, Google). This gives you
+                higher rate limits and the ability to use more powerful models for suggestions.
+              </p>
+              <p>
+                The model override currently applies to all suggestion types (tags, relationships,
+                metadata, arguments). Future AI features like text auto-complete and chat will
+                have independent model overrides.
+              </p>
+            </>
+          }
+        />
+        <FAQItem
+          question="Which tiers include AI features?"
+          answer={
+            <p>
+              AI suggestions are available on the Pro tier. Free and Standard tiers do not
+              include AI features. Pro includes 500 AI calls per day with platform-provided
+              models, or 2,000 per day when using your own API key.
+            </p>
           }
         />
       </DocsSection>

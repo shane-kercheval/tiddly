@@ -29,7 +29,7 @@ const stubIcons = {
   link: () => createElement('span', null, 'link'),
   bulletList: () => createElement('span', null, 'bulletList'),
   orderedList: () => createElement('span', null, 'orderedList'),
-  taskList: () => createElement('span', null, 'taskList'),
+  checklist: () => createElement('span', null, 'checklist'),
   blockquote: () => createElement('span', null, 'blockquote'),
   horizontalRule: () => createElement('span', null, 'horizontalRule'),
   heading1: () => createElement('span', null, 'heading1'),
@@ -214,7 +214,7 @@ describe('buildEditorCommands', () => {
     expect(insertIds).toContain('heading-3')
     expect(insertIds).toContain('bullet-list')
     expect(insertIds).toContain('numbered-list')
-    expect(insertIds).toContain('todo-list')
+    expect(insertIds).toContain('checklist')
     expect(insertIds).toContain('code-block')
     expect(insertIds).toContain('blockquote')
     expect(insertIds).toContain('link')

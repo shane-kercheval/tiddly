@@ -28,7 +28,6 @@ async def test_user(db_session: AsyncSession) -> User:
 class TestContentHistoryModel:
     """Tests for ContentHistory model creation and fields."""
 
-    @pytest.mark.asyncio
     async def test__create__with_all_fields(
         self,
         db_session: AsyncSession,
@@ -67,7 +66,6 @@ class TestContentHistoryModel:
         assert history.token_prefix is None
         assert history.created_at is not None
 
-    @pytest.mark.asyncio
     async def test__create__with_pat_auth(
         self,
         db_session: AsyncSession,
@@ -96,7 +94,6 @@ class TestContentHistoryModel:
         assert history.token_prefix == "bm_a3f8xyz1234"
         assert history.source == "mcp-content"
 
-    @pytest.mark.asyncio
     async def test__create__metadata_only_action(
         self,
         db_session: AsyncSession,
@@ -149,7 +146,6 @@ class TestContentHistoryEnums:
 class TestContentHistoryJsonb:
     """Tests for JSONB metadata_snapshot field."""
 
-    @pytest.mark.asyncio
     async def test__metadata_snapshot__stores_complex_json(
         self,
         db_session: AsyncSession,
@@ -194,7 +190,6 @@ class TestContentHistoryJsonb:
 class TestContentHistoryRelationships:
     """Tests for ContentHistory relationships."""
 
-    @pytest.mark.asyncio
     async def test__user_relationship__works(
         self,
         db_session: AsyncSession,
@@ -226,7 +221,6 @@ class TestContentHistoryRelationships:
         assert loaded_history.user.id == test_user.id
         assert loaded_history.user.email == "contenthistory@test.com"
 
-    @pytest.mark.asyncio
     async def test__user_content_history__relationship(
         self,
         db_session: AsyncSession,
@@ -260,7 +254,6 @@ class TestContentHistoryRelationships:
 class TestContentHistoryUniqueConstraint:
     """Tests for unique constraint on (user_id, entity_type, entity_id, version)."""
 
-    @pytest.mark.asyncio
     async def test__duplicate_version__raises_integrity_error(
         self,
         db_session: AsyncSession,
@@ -302,7 +295,6 @@ class TestContentHistoryUniqueConstraint:
         with pytest.raises(IntegrityError):
             await db_session.commit()
 
-    @pytest.mark.asyncio
     async def test__same_version_different_entity__succeeds(
         self,
         db_session: AsyncSession,
@@ -349,7 +341,6 @@ class TestContentHistoryUniqueConstraint:
         histories = result.scalars().all()
         assert len(histories) == 2
 
-    @pytest.mark.asyncio
     async def test__same_version_different_entity_type__succeeds(
         self,
         db_session: AsyncSession,

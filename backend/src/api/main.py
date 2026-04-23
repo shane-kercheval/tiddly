@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -8,6 +9,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from api.routers import (
+    ai,
     bookmarks,
     consent,
     content,
@@ -23,6 +25,15 @@ from api.routers import (
     tokens,
     users,
 )
+from litellm.exceptions import (
+    APIConnectionError as LiteLLMAPIConnectionError,
+    APIError as LiteLLMAPIError,
+    AuthenticationError as LiteLLMAuthenticationError,
+    BadRequestError as LiteLLMBadRequestError,
+    RateLimitError as LiteLLMRateLimitError,
+    Timeout as LiteLLMTimeout,
+)
+
 from core.auth_cache import AuthCache, set_auth_cache
 from core.config import get_settings
 from core.http_cache import ETagMiddleware
@@ -30,6 +41,10 @@ from core.rate_limit_config import RateLimitExceededError
 from core.redis import RedisClient, set_redis_client
 from db.session import engine
 from services.exceptions import FieldLimitExceededError, QuotaExceededError
+from services.llm_service import LLMService, set_llm_service
+from services.suggestion_service import LLMParseFailedError
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -50,12 +65,17 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     auth_cache = AuthCache(redis_client)
     set_auth_cache(auth_cache)
 
+    # Startup: Initialize LLM service
+    llm_service = LLMService(app_settings)
+    set_llm_service(llm_service)
+
     yield
 
     # Shutdown: Dispose database connection pool
     await engine.dispose()
 
-    # Shutdown: Clean up auth cache and Redis
+    # Shutdown: Clean up LLM service, auth cache, and Redis
+    set_llm_service(None)
     set_auth_cache(None)
     await redis_client.close()
     set_redis_client(None)
@@ -102,11 +122,81 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
 
 app_settings = get_settings()
 
+
+# Tag metadata surfaces as per-section introductions in the Swagger UI.
+# Keep descriptions concise; point at docs/ for deeper coverage.
+_OPENAPI_TAGS = [
+    {
+        "name": "ai",
+        "description": (
+            "AI-powered endpoints: tag / metadata / relationship / prompt-argument "
+            "suggestions, plus supporting config endpoints (`/ai/health`, "
+            "`/ai/models`, `/ai/validate-key`).\n\n"
+            "### Authentication\n\n"
+            "Auth0 JWT required. Personal Access Tokens (`bm_*`) are rejected "
+            "with 403 — AI features are deliberately not available to PATs as "
+            "a cost-safety guard against automated scripts.\n\n"
+            "### Bring-Your-Own-Key (BYOK)\n\n"
+            "Optionally send `X-LLM-Api-Key: <provider key>` to use your own "
+            "provider credentials instead of the platform's. BYOK calls consume "
+            "the separate `AI_BYOK` rate-limit bucket (not `AI_PLATFORM`) and "
+            "can select any supported `model`. Platform calls (header omitted) "
+            "are silently locked to use-case defaults — the `model` request "
+            "field is ignored. The header is held in request memory only — "
+            "never logged, stored, or returned in error responses.\n\n"
+            "### Rate limits\n\n"
+            "AI endpoints use dedicated buckets (`AI_PLATFORM`, `AI_BYOK`) "
+            "separate from the normal read/write quotas. Today only PRO tier "
+            "has non-zero AI limits (FREE and STANDARD are `0/0` for both "
+            "buckets and will always 429). Successful responses include "
+            "`X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset`. "
+            "Tiddly-level 429s (tier quota exhausted) include `Retry-After`; "
+            "provider-level 429s (`error_code: llm_rate_limited`) do not — "
+            "use exponential backoff for those.\n\n"
+            "`/ai/health` and `/ai/models` are the two exceptions — they skip "
+            "the AI buckets AND the global read/write limiter entirely. Poll "
+            "`/ai/health` freely to refresh quota-remaining UI; it returns "
+            "both per-minute and daily remaining values.\n\n"
+            "**Quota consumption vs. LLM call.** Rate-limit quota is charged "
+            "*before* the handler runs (it's a FastAPI `Depends`). Even "
+            "endpoints that short-circuit with an empty response (e.g. "
+            "`/ai/suggest-relationships` when all inputs are empty, "
+            "`/ai/suggest-prompt-arguments` when every placeholder in "
+            "the template is already declared) still decrement the "
+            "bucket. Only the LLM call itself is skipped.\n\n"
+            "### Discovering models\n\n"
+            "Call `GET /ai/models` to list supported model IDs and see the "
+            "server's per-use-case defaults. The `model` field on BYOK "
+            "requests must come from this list.\n\n"
+            "### Error handling\n\n"
+            "Most errors use a common envelope `{detail: string, error_code?: "
+            "string}` — see the per-endpoint **Responses** panels for the full "
+            "catalog. Two shapes are different:\n\n"
+            "- **422** uses FastAPI's standard validation-error array: "
+            "`{detail: [{loc, msg, type}, ...]}`. On suggestion endpoints, "
+            "BYOK provider-auth failures also surface as 422 but with the "
+            "common envelope and `error_code: llm_auth_failed`. "
+            "`/ai/validate-key` is the exception — it normalizes provider "
+            "auth failures to `200 {\"valid\": false}` because testing the "
+            "key is the endpoint's explicit purpose.\n"
+            "- **451** uses a structured consent-required payload where "
+            "`detail` is itself an object — direct the user to the consent "
+            "flow.\n\n"
+            "Typed `error_code` values starting with `llm_*` indicate upstream "
+            "LLM provider failures (`llm_auth_failed`, `llm_rate_limited`, "
+            "`llm_timeout`, `llm_bad_request`, `llm_connection_error`, "
+            "`llm_parse_failed`, `llm_unavailable`)."
+        ),
+    },
+]
+
+
 app = FastAPI(
     title="Tiddly API",
     description="A content management system with tagging and search capabilities.",
     version="0.1.0",
     lifespan=lifespan,
+    openapi_tags=_OPENAPI_TAGS,
 )
 
 
@@ -161,6 +251,105 @@ async def field_limit_exceeded_exception_handler(
     )
 
 
+# LiteLLM exception handlers — map provider errors to HTTP responses.
+# Defined inline to match the pattern of existing exception handlers above.
+# All LLM errors use llm_* error codes so the frontend can distinguish them
+# from platform auth errors (which use HTTP 401).
+
+
+@app.exception_handler(LiteLLMAuthenticationError)
+async def llm_auth_exception_handler(
+    _request: Request, exc: LiteLLMAuthenticationError,
+) -> JSONResponse:
+    """LLM authentication failed (bad API key) → 422."""
+    logger.warning("llm_auth_failed", extra={"error": str(exc)})
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "LLM authentication failed. Check your API key.",
+            "error_code": "llm_auth_failed",
+        },
+    )
+
+
+@app.exception_handler(LiteLLMBadRequestError)
+async def llm_bad_request_exception_handler(
+    _request: Request, exc: LiteLLMBadRequestError,
+) -> JSONResponse:
+    """Invalid request to LLM provider → 400."""
+    logger.warning("llm_bad_request", extra={"error": str(exc)})
+    return JSONResponse(
+        status_code=400,
+        content={"detail": "Invalid request to LLM provider.", "error_code": "llm_bad_request"},
+    )
+
+
+@app.exception_handler(LiteLLMRateLimitError)
+async def llm_rate_limit_exception_handler(
+    _request: Request, exc: LiteLLMRateLimitError,
+) -> JSONResponse:
+    """LLM provider rate limit exceeded → 429."""
+    logger.warning("llm_rate_limited", extra={"error": str(exc)})
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "LLM provider rate limit exceeded. Try again later.",
+            "error_code": "llm_rate_limited",
+        },
+    )
+
+
+@app.exception_handler(LiteLLMTimeout)
+async def llm_timeout_exception_handler(
+    _request: Request, exc: LiteLLMTimeout,
+) -> JSONResponse:
+    """LLM request timed out → 504."""
+    logger.warning("llm_timeout", extra={"error": str(exc)})
+    return JSONResponse(
+        status_code=504,
+        content={"detail": "LLM request timed out. Try again.", "error_code": "llm_timeout"},
+    )
+
+
+@app.exception_handler(LiteLLMAPIConnectionError)
+async def llm_connection_exception_handler(
+    _request: Request, exc: LiteLLMAPIConnectionError,
+) -> JSONResponse:
+    """Could not connect to LLM provider → 502."""
+    logger.warning("llm_connection_error", extra={"error": str(exc)})
+    return JSONResponse(
+        status_code=502,
+        content={
+            "detail": "Could not connect to LLM provider.",
+            "error_code": "llm_connection_error",
+        },
+    )
+
+
+@app.exception_handler(LiteLLMAPIError)
+async def llm_unavailable_exception_handler(
+    _request: Request, exc: LiteLLMAPIError,
+) -> JSONResponse:
+    """Catch-all for unknown LiteLLM errors → 503."""
+    logger.warning("llm_unavailable", extra={"error": str(exc)})
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "AI service temporarily unavailable.", "error_code": "llm_unavailable"},
+    )
+
+
+@app.exception_handler(LLMParseFailedError)
+async def llm_parse_failed_exception_handler(
+    _request: Request, exc: LLMParseFailedError,
+) -> JSONResponse:
+    """LLM returned an unparseable structured-output response → 502."""
+    logger.warning("llm_parse_failed", extra={"error": exc.message})
+    return JSONResponse(
+        status_code=502,
+        content={"detail": exc.message, "error_code": "llm_parse_failed"},
+    )
+
+
 # Rate limit headers middleware (innermost, runs first on response)
 app.add_middleware(RateLimitHeadersMiddleware)
 
@@ -180,6 +369,7 @@ app.add_middleware(
     max_age=3600,
 )
 
+app.include_router(ai.router)
 app.include_router(health.router)
 app.include_router(users.router)
 app.include_router(consent.router)

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { SampleResult, CheckResult } from '../types'
 import CheckBody from './CheckViews'
+import SyntaxJson from './SyntaxJson'
 
 interface SampleRowProps {
   sample: SampleResult
@@ -72,7 +73,7 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
   const [openChecks, setOpenChecks] = useState<Set<number>>(new Set())
   const checksContainerRef = useRef<HTMLDivElement>(null)
   const passed = samplePassed(sample)
-  const duration = sample.execution_context.output.metadata.duration_seconds
+  const duration = sample.execution_context.output.metadata?.duration_seconds
   const value = sample.execution_context.output.value as Record<string, string | object | null>
   const usage = value.usage as { total_cost?: number; input_tokens?: number; output_tokens?: number } | undefined
 
@@ -96,7 +97,7 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
         }`}>
           {passed ? 'pass' : 'fail'}
         </span>
-        <span className="text-gray-500 text-xs tabular-nums">{duration.toFixed(2)}s</span>
+        {duration != null && <span className="text-gray-500 text-xs tabular-nums">{duration.toFixed(2)}s</span>}
         {usage?.total_cost != null && (
           <span className="text-gray-400 text-xs tabular-nums">${usage.total_cost.toFixed(4)}</span>
         )}
@@ -149,9 +150,16 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
               Test Case
               <span className="font-normal text-gray-300 ml-1.5">Input and expected values for this test case</span>
             </summary>
-            <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto whitespace-pre-wrap mt-1">
-              {JSON.stringify({ id: testCase.id, input: testCase.input, expected: testCase.expected, metadata: testCase.metadata }, null, 2)}
-            </pre>
+            <SyntaxJson data={{ id: testCase.id, input: testCase.input, expected: testCase.expected, metadata: testCase.metadata }} className="mt-1" />
+          </details>
+        )}
+        {(
+          <details>
+            <summary className="text-xs font-medium text-gray-400 cursor-pointer">
+              Output
+              <span className="font-normal text-gray-300 ml-1.5">Value returned by the test function</span>
+            </summary>
+            <SyntaxJson data={value} className="mt-1" />
           </details>
         )}
         {(value.prompt || value.llm_prompt) && (
@@ -171,9 +179,7 @@ export default function SampleRow({ sample, index }: SampleRowProps) {
               Tool Predictions
               <span className="font-normal text-gray-300 ml-1.5">The tool call(s) the LLM chose to make</span>
             </summary>
-            <pre className="text-xs bg-gray-50 p-2.5 rounded overflow-x-auto mt-1">
-              {JSON.stringify(value.tool_predictions, null, 2)}
-            </pre>
+            <SyntaxJson data={value.tool_predictions} className="mt-1" />
           </details>
         )}
         {value.final_content && (

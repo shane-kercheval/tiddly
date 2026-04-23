@@ -172,7 +172,6 @@ class TestCanonicalPair:
 class TestValidateContentExists:
     """Tests for content existence validation."""
 
-    @pytest.mark.asyncio
     async def test__validate_content_exists__bookmark_found(
         self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
     ) -> None:
@@ -182,7 +181,6 @@ class TestValidateContentExists:
         )
         assert result is True
 
-    @pytest.mark.asyncio
     async def test__validate_content_exists__note_found(
         self, db_session: AsyncSession, test_user: User, note_a: Note,
     ) -> None:
@@ -192,7 +190,6 @@ class TestValidateContentExists:
         )
         assert result is True
 
-    @pytest.mark.asyncio
     async def test__validate_content_exists__prompt_found(
         self, db_session: AsyncSession, test_user: User, prompt_a: Prompt,
     ) -> None:
@@ -202,7 +199,6 @@ class TestValidateContentExists:
         )
         assert result is True
 
-    @pytest.mark.asyncio
     async def test__validate_content_exists__nonexistent_returns_false(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
@@ -212,7 +208,6 @@ class TestValidateContentExists:
         )
         assert result is False
 
-    @pytest.mark.asyncio
     async def test__validate_content_exists__invalid_type_returns_false(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
@@ -222,7 +217,6 @@ class TestValidateContentExists:
         )
         assert result is False
 
-    @pytest.mark.asyncio
     async def test__validate_content_exists__soft_deleted_returns_false(
         self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
     ) -> None:
@@ -235,7 +229,6 @@ class TestValidateContentExists:
         )
         assert result is False
 
-    @pytest.mark.asyncio
     async def test__validate_content_exists__archived_returns_true(
         self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
     ) -> None:
@@ -248,7 +241,6 @@ class TestValidateContentExists:
         )
         assert result is True
 
-    @pytest.mark.asyncio
     async def test__validate_content_exists__other_user_returns_false(
         self, db_session: AsyncSession, other_user: User, bookmark_a: Bookmark,
     ) -> None:
@@ -267,7 +259,6 @@ class TestValidateContentExists:
 class TestCreateRelationship:
     """Tests for relationship creation."""
 
-    @pytest.mark.asyncio
     async def test__create_relationship__bookmark_to_bookmark(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, bookmark_b: Bookmark,
@@ -282,7 +273,6 @@ class TestCreateRelationship:
         assert rel.user_id == test_user.id
         assert rel.relationship_type == 'related'
 
-    @pytest.mark.asyncio
     async def test__create_relationship__bookmark_to_note(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -295,7 +285,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__bookmark_to_prompt(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, prompt_a: Prompt,
@@ -308,7 +297,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__note_to_bookmark(
         self, db_session: AsyncSession, test_user: User,
         note_a: Note, bookmark_a: Bookmark,
@@ -321,7 +309,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__note_to_note(
         self, db_session: AsyncSession, test_user: User,
         note_a: Note, note_b: Note,
@@ -334,7 +321,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__note_to_prompt(
         self, db_session: AsyncSession, test_user: User,
         note_a: Note, prompt_a: Prompt,
@@ -347,7 +333,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__prompt_to_bookmark(
         self, db_session: AsyncSession, test_user: User,
         prompt_a: Prompt, bookmark_a: Bookmark,
@@ -360,7 +345,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__prompt_to_note(
         self, db_session: AsyncSession, test_user: User,
         prompt_a: Prompt, note_a: Note,
@@ -373,7 +357,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__prompt_to_prompt(
         self, db_session: AsyncSession, test_user: User,
         prompt_a: Prompt, prompt_b: Prompt,
@@ -386,7 +369,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__with_description(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -399,7 +381,6 @@ class TestCreateRelationship:
         )
         assert rel.description == 'Background reading'
 
-    @pytest.mark.asyncio
     async def test__create_relationship__description_optional(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -412,7 +393,6 @@ class TestCreateRelationship:
         )
         assert rel.description is None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__canonical_ordering(
         self, db_session: AsyncSession, test_user: User,
         note_a: Note, bookmark_a: Bookmark,
@@ -430,7 +410,6 @@ class TestCreateRelationship:
         assert rel.target_type == 'note'
         assert rel.target_id == note_a.id
 
-    @pytest.mark.asyncio
     async def test__create_relationship__reverse_direction_deduplicates(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -448,7 +427,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__duplicate_rejected(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -466,7 +444,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__self_reference_rejected_bookmark(
         self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
     ) -> None:
@@ -478,7 +455,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__self_reference_rejected_note(
         self, db_session: AsyncSession, test_user: User, note_a: Note,
     ) -> None:
@@ -490,7 +466,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__self_reference_rejected_prompt(
         self, db_session: AsyncSession, test_user: User, prompt_a: Prompt,
     ) -> None:
@@ -502,7 +477,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__source_not_found(
         self, db_session: AsyncSession, test_user: User, note_a: Note,
     ) -> None:
@@ -515,7 +489,6 @@ class TestCreateRelationship:
             )
         assert exc_info.value.content_type == 'bookmark'
 
-    @pytest.mark.asyncio
     async def test__create_relationship__target_not_found(
         self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
     ) -> None:
@@ -528,7 +501,6 @@ class TestCreateRelationship:
             )
         assert exc_info.value.content_type == 'note'
 
-    @pytest.mark.asyncio
     async def test__create_relationship__soft_deleted_source_rejected(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -544,7 +516,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__soft_deleted_target_rejected(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -560,7 +531,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__archived_source_allowed(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -576,7 +546,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__archived_target_allowed(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -592,7 +561,6 @@ class TestCreateRelationship:
         )
         assert rel.id is not None
 
-    @pytest.mark.asyncio
     async def test__create_relationship__different_user_content_rejected(
         self, db_session: AsyncSession,
         other_user: User, bookmark_a: Bookmark,
@@ -611,7 +579,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__invalid_source_type_rejected(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
@@ -623,7 +590,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__invalid_target_type_rejected(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
@@ -635,7 +601,6 @@ class TestCreateRelationship:
                 'related',
             )
 
-    @pytest.mark.asyncio
     async def test__create_relationship__invalid_relationship_type_rejected(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -648,7 +613,6 @@ class TestCreateRelationship:
                 'invalid',
             )
 
-    @pytest.mark.asyncio
     async def test__create__enforces_max_per_entity(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,
@@ -668,7 +632,6 @@ class TestCreateRelationship:
                 max_per_entity=1,
             )
 
-    @pytest.mark.asyncio
     async def test__create__duplicate_at_limit_raises_duplicate_not_quota(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -687,7 +650,6 @@ class TestCreateRelationship:
                 max_per_entity=1,
             )
 
-    @pytest.mark.asyncio
     async def test__create__no_limit_when_max_per_entity_is_none(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,
@@ -713,7 +675,6 @@ class TestCreateRelationship:
 class TestGetRelationship:
     """Tests for fetching a single relationship."""
 
-    @pytest.mark.asyncio
     async def test__get_relationship__found(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -728,7 +689,6 @@ class TestGetRelationship:
         assert fetched is not None
         assert fetched.id == created.id
 
-    @pytest.mark.asyncio
     async def test__get_relationship__not_found(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
@@ -736,7 +696,6 @@ class TestGetRelationship:
         result = await get_relationship(db_session, test_user.id, uuid4())
         assert result is None
 
-    @pytest.mark.asyncio
     async def test__get_relationship__wrong_user(
         self, db_session: AsyncSession, test_user: User,
         other_user: User, bookmark_a: Bookmark, note_a: Note,
@@ -759,7 +718,6 @@ class TestGetRelationship:
 class TestUpdateRelationship:
     """Tests for updating relationship metadata."""
 
-    @pytest.mark.asyncio
     async def test__update_relationship__description(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -778,7 +736,6 @@ class TestUpdateRelationship:
         assert updated.description == 'Updated description'
         assert changed is True
 
-    @pytest.mark.asyncio
     async def test__update_relationship__clear_description(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -797,7 +754,6 @@ class TestUpdateRelationship:
         assert updated.description is None
         assert changed is True
 
-    @pytest.mark.asyncio
     async def test__update_relationship__no_change_when_not_provided(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -814,7 +770,6 @@ class TestUpdateRelationship:
         assert updated.description == 'Keep this'
         assert changed is False
 
-    @pytest.mark.asyncio
     async def test__update_relationship__bumps_updated_at(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -835,7 +790,6 @@ class TestUpdateRelationship:
         assert updated.updated_at > original_updated_at
         assert changed is True
 
-    @pytest.mark.asyncio
     async def test__update_relationship__no_change_does_not_bump_updated_at(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -853,7 +807,6 @@ class TestUpdateRelationship:
         assert updated.updated_at == original_updated_at
         assert changed is False
 
-    @pytest.mark.asyncio
     async def test__update_relationship__not_found(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
@@ -874,7 +827,6 @@ class TestUpdateRelationship:
 class TestDeleteRelationship:
     """Tests for deleting a single relationship."""
 
-    @pytest.mark.asyncio
     async def test__delete_relationship__success(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -892,7 +844,6 @@ class TestDeleteRelationship:
         fetched = await get_relationship(db_session, test_user.id, rel.id)
         assert fetched is None
 
-    @pytest.mark.asyncio
     async def test__delete_relationship__not_found(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
@@ -900,7 +851,6 @@ class TestDeleteRelationship:
         result = await delete_relationship(db_session, test_user.id, uuid4())
         assert result is False
 
-    @pytest.mark.asyncio
     async def test__delete_relationship__wrong_user(
         self, db_session: AsyncSession, test_user: User,
         other_user: User, bookmark_a: Bookmark, note_a: Note,
@@ -927,7 +877,6 @@ class TestDeleteRelationship:
 class TestGetRelationshipsForContent:
     """Tests for querying relationships by content item."""
 
-    @pytest.mark.asyncio
     async def test__get_relationships__related_from_source(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -945,7 +894,6 @@ class TestGetRelationshipsForContent:
         assert total == 1
         assert results[0].id == rel.id
 
-    @pytest.mark.asyncio
     async def test__get_relationships__related_from_target(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -962,7 +910,6 @@ class TestGetRelationshipsForContent:
         assert len(results) == 1
         assert results[0].id == rel.id
 
-    @pytest.mark.asyncio
     async def test__get_relationships__related_bidirectional(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -983,7 +930,6 @@ class TestGetRelationshipsForContent:
         assert len(from_target) == 1
         assert from_source[0].id == from_target[0].id == rel.id
 
-    @pytest.mark.asyncio
     async def test__get_relationships__empty_result(
         self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
     ) -> None:
@@ -994,7 +940,6 @@ class TestGetRelationshipsForContent:
         assert results == []
         assert total == 0
 
-    @pytest.mark.asyncio
     async def test__get_relationships__nonexistent_content_returns_empty(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
@@ -1004,7 +949,6 @@ class TestGetRelationshipsForContent:
         )
         assert results == []
 
-    @pytest.mark.asyncio
     async def test__get_relationships__filter_by_type(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1029,7 +973,6 @@ class TestGetRelationshipsForContent:
         )
         assert len(results) == 0
 
-    @pytest.mark.asyncio
     async def test__get_relationships__multiple_relationships(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note, prompt_a: Prompt,
@@ -1056,7 +999,6 @@ class TestGetRelationshipsForContent:
         assert len(results) == 3
         assert total == 3
 
-    @pytest.mark.asyncio
     async def test__get_relationships__ordered_by_created_at_desc(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,
@@ -1079,7 +1021,6 @@ class TestGetRelationshipsForContent:
         assert results[0].id == rel2.id
         assert results[1].id == rel1.id
 
-    @pytest.mark.asyncio
     async def test__get_relationships__cross_user_isolation(
         self, db_session: AsyncSession, test_user: User,
         other_user: User, bookmark_a: Bookmark, note_a: Note,
@@ -1104,7 +1045,6 @@ class TestGetRelationshipsForContent:
 class TestDeleteRelationshipsForContent:
     """Tests for bulk cleanup when content is permanently deleted."""
 
-    @pytest.mark.asyncio
     async def test__delete_relationships_for_content__as_source(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,
@@ -1131,7 +1071,6 @@ class TestDeleteRelationshipsForContent:
         )
         assert results == []
 
-    @pytest.mark.asyncio
     async def test__delete_relationships_for_content__as_target(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, bookmark_b: Bookmark, note_a: Note,
@@ -1153,7 +1092,6 @@ class TestDeleteRelationshipsForContent:
         )
         assert count == 2
 
-    @pytest.mark.asyncio
     async def test__delete_relationships_for_content__mixed_source_and_target(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, prompt_a: Prompt,
@@ -1176,7 +1114,6 @@ class TestDeleteRelationshipsForContent:
         )
         assert count == 2
 
-    @pytest.mark.asyncio
     async def test__delete_relationships_for_content__no_relationships(
         self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
     ) -> None:
@@ -1186,7 +1123,6 @@ class TestDeleteRelationshipsForContent:
         )
         assert count == 0
 
-    @pytest.mark.asyncio
     async def test__delete_relationships_for_content__user_scoped(
         self, db_session: AsyncSession, test_user: User,
         other_user: User, bookmark_a: Bookmark, note_a: Note,
@@ -1213,7 +1149,6 @@ class TestDeleteRelationshipsForContent:
 class TestEnrichWithContentInfo:
     """Tests for enrich_with_content_info batch resolution."""
 
-    @pytest.mark.asyncio
     async def test__enrich__future_archived_at_not_flagged_as_archived(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1242,7 +1177,6 @@ class TestEnrichWithContentInfo:
         else:
             assert item.target_archived is False
 
-    @pytest.mark.asyncio
     async def test__enrich__past_archived_at_flagged_as_archived(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1269,7 +1203,6 @@ class TestEnrichWithContentInfo:
         else:
             assert item.target_archived is True
 
-    @pytest.mark.asyncio
     async def test__enrich__empty_list_returns_empty(
         self, db_session: AsyncSession, test_user: User,
     ) -> None:
@@ -1277,7 +1210,6 @@ class TestEnrichWithContentInfo:
         result = await enrich_with_content_info(db_session, test_user.id, [])
         assert result == []
 
-    @pytest.mark.asyncio
     async def test__enrich__prompt_name_populated_for_prompts(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, prompt_a: Prompt,
@@ -1298,7 +1230,6 @@ class TestEnrichWithContentInfo:
         assert item.source_prompt_name is None
         assert item.target_prompt_name == 'prompt-a'
 
-    @pytest.mark.asyncio
     async def test__enrich__prompt_name_null_for_non_prompts(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1318,7 +1249,6 @@ class TestEnrichWithContentInfo:
         assert item.source_prompt_name is None
         assert item.target_prompt_name is None
 
-    @pytest.mark.asyncio
     async def test__enrich__prompt_title_and_name_both_populated(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, prompt_a: Prompt,
@@ -1349,7 +1279,6 @@ class TestEnrichWithContentInfo:
 class TestGetRelationshipsSnapshot:
     """Tests for get_relationships_snapshot()."""
 
-    @pytest.mark.asyncio
     async def test__snapshot__empty_when_no_relationships(
         self, db_session: AsyncSession, test_user: User, bookmark_a: Bookmark,
     ) -> None:
@@ -1359,7 +1288,6 @@ class TestGetRelationshipsSnapshot:
         )
         assert result == []
 
-    @pytest.mark.asyncio
     async def test__snapshot__returns_target_perspective(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1378,7 +1306,6 @@ class TestGetRelationshipsSnapshot:
         assert result[0]['relationship_type'] == 'related'
         assert result[0]['description'] is None
 
-    @pytest.mark.asyncio
     async def test__snapshot__perspective_when_entity_is_on_target_side(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1397,7 +1324,6 @@ class TestGetRelationshipsSnapshot:
         assert result[0]['target_type'] == 'bookmark'
         assert result[0]['target_id'] == str(bookmark_a.id)
 
-    @pytest.mark.asyncio
     async def test__snapshot__sorted_deterministically(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note, prompt_a: Prompt,
@@ -1427,7 +1353,6 @@ class TestGetRelationshipsSnapshot:
         assert types[1] == 'note'
         assert types[2] == 'prompt'
 
-    @pytest.mark.asyncio
     async def test__snapshot__includes_description(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1443,7 +1368,6 @@ class TestGetRelationshipsSnapshot:
         )
         assert result[0]['description'] == 'See also'
 
-    @pytest.mark.asyncio
     async def test__snapshot__stable_across_calls(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,
@@ -1475,7 +1399,6 @@ class TestGetRelationshipsSnapshot:
 class TestSyncRelationshipsForEntity:
     """Tests for sync_relationships_for_entity()."""
 
-    @pytest.mark.asyncio
     async def test__sync__adds_new_relationships(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1493,7 +1416,6 @@ class TestSyncRelationshipsForEntity:
         )
         assert count == 1
 
-    @pytest.mark.asyncio
     async def test__sync__removes_extra_relationships(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,
@@ -1523,7 +1445,6 @@ class TestSyncRelationshipsForEntity:
         assert len(snapshot) == 1
         assert snapshot[0]['target_id'] == str(note_a.id)
 
-    @pytest.mark.asyncio
     async def test__sync__empty_list_clears_all(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1542,7 +1463,6 @@ class TestSyncRelationshipsForEntity:
         )
         assert snapshot == []
 
-    @pytest.mark.asyncio
     async def test__sync__noop_when_already_matching(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1565,7 +1485,6 @@ class TestSyncRelationshipsForEntity:
         )
         assert len(snapshot) == 1
 
-    @pytest.mark.asyncio
     async def test__sync__mixed_adds_and_removes(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note, prompt_a: Prompt,
@@ -1594,7 +1513,6 @@ class TestSyncRelationshipsForEntity:
         assert str(note_b.id) in target_ids
         assert str(prompt_a.id) in target_ids
 
-    @pytest.mark.asyncio
     async def test__sync__updates_description_for_existing(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1623,7 +1541,6 @@ class TestSyncRelationshipsForEntity:
         )
         assert snapshot[0]['description'] == 'New desc'
 
-    @pytest.mark.asyncio
     async def test__sync__skips_nonexistent_targets(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1646,7 +1563,6 @@ class TestSyncRelationshipsForEntity:
         assert len(snapshot) == 1
         assert snapshot[0]['target_id'] == str(note_a.id)
 
-    @pytest.mark.asyncio
     async def test__sync__raises_on_nonexistent_target_by_default(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark,
@@ -1661,7 +1577,6 @@ class TestSyncRelationshipsForEntity:
                 db_session, test_user.id, 'bookmark', bookmark_a.id, desired,
             )
 
-    @pytest.mark.asyncio
     async def test__sync__handles_duplicate_gracefully(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note,
@@ -1689,7 +1604,6 @@ class TestSyncRelationshipsForEntity:
         )
         assert len(snapshot) == 1
 
-    @pytest.mark.asyncio
     async def test__sync__enforces_max_per_entity(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,
@@ -1705,7 +1619,6 @@ class TestSyncRelationshipsForEntity:
                 max_per_entity=1,
             )
 
-    @pytest.mark.asyncio
     async def test__sync__no_limit_when_max_per_entity_is_none(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,
@@ -1723,7 +1636,6 @@ class TestSyncRelationshipsForEntity:
         )
         assert len(snapshot) == 2
 
-    @pytest.mark.asyncio
     async def test__sync__skips_limit_during_restore(
         self, db_session: AsyncSession, test_user: User,
         bookmark_a: Bookmark, note_a: Note, note_b: Note,

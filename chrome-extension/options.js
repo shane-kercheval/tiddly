@@ -47,6 +47,8 @@ saveBtn.addEventListener('click', () => {
 });
 
 async function loadTags() {
+  // Clear any stale outcome from a previous save attempt so each retry starts fresh.
+  saveStatus.hidden = true;
   tagsSection.hidden = false;
   tagsStatus.hidden = false;
   tagsStatus.textContent = 'Loading tags...';

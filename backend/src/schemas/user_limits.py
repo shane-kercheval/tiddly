@@ -39,6 +39,12 @@ class UserLimitsResponse(BaseModel):
     rate_sensitive_per_minute: int
     rate_sensitive_per_day: int
 
+    # AI rate limits
+    rate_ai_per_minute: int
+    rate_ai_per_day: int
+    rate_ai_byok_per_minute: int
+    rate_ai_byok_per_day: int
+
     # Relationship limits
     max_relationships_per_entity: int
 

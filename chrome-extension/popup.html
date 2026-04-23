@@ -14,16 +14,24 @@
       <button id="open-options" class="btn-primary">Open Settings</button>
     </div>
 
+    <!-- Tabbed header: tablist + adjacent settings button -->
+    <div id="popup-header" class="popup-header" hidden>
+      <div role="tablist" aria-label="Tiddly Bookmarks" class="tablist">
+        <button type="button" role="tab" id="tab-save" aria-controls="save-view" aria-selected="true" tabindex="0" class="tab">Save</button>
+        <button type="button" role="tab" id="tab-search" aria-controls="search-view" aria-selected="false" tabindex="-1" class="tab">Search</button>
+      </div>
+      <button type="button" id="settings-btn" class="settings-btn" aria-label="Open settings" title="Settings">
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/>
+          <circle cx="12" cy="12" r="3" stroke-width="2"/>
+        </svg>
+      </button>
+    </div>
+
     <!-- Save form (Milestone 2) -->
-    <div id="save-view" hidden>
+    <div id="save-view" role="tabpanel" aria-labelledby="tab-save" hidden>
       <div class="view-header">
         <input type="text" id="url" readonly>
-        <button type="button" id="save-settings-link" class="settings-link" title="Settings">
-          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/>
-            <circle cx="12" cy="12" r="3" stroke-width="2"/>
-          </svg>
-        </button>
       </div>
       <div id="loading-indicator" class="loading" role="status" aria-label="Loading page information">
         <div class="spinner"></div>
@@ -55,16 +63,10 @@
     </div>
 
     <!-- Search view (Milestone 3) -->
-    <div id="search-view" hidden>
+    <div id="search-view" role="tabpanel" aria-labelledby="tab-search" hidden>
       <div class="search-header">
         <div class="view-header">
           <input type="text" id="search-input" placeholder="Search Tiddly Bookmarks...">
-          <button type="button" id="search-settings-link" class="settings-link" title="Settings">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"/>
-              <circle cx="12" cy="12" r="3" stroke-width="2"/>
-            </svg>
-          </button>
         </div>
         <div class="search-filters">
           <div class="search-tag-picker">

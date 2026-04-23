@@ -18,7 +18,7 @@ interface RestoreActionProps {
 
 export function RestoreAction({ onRestore, entityName }: RestoreActionProps): ReactNode {
   return (
-    <Tooltip content="Restore" compact>
+    <Tooltip content="Restore" compact delay={500}>
       <button
         onClick={(e) => { e.stopPropagation(); onRestore() }}
         className="btn-icon"

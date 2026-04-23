@@ -431,7 +431,7 @@ function getAffectedFiles(
     if (selectedTools.has('claude-code')) {
       files.push(scope === 'user'
         ? { path: '~/.claude.json', description: 'Claude Code MCP (--scope user)' }
-        : { path: '~/.claude.json', description: 'Claude Code MCP (--scope local, under project key)' })
+        : { path: '~/.claude.json', description: 'Claude Code MCP (--scope directory, under project key)' })
     }
     if (selectedTools.has('codex')) {
       files.push(scope === 'user'

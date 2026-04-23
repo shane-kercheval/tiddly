@@ -10,6 +10,9 @@ Deploy Tiddly services to Railway using Docker.
 | **content-mcp** | Content MCP server (bookmarks/notes) | Railpack |
 | **prompt-mcp** | Prompt MCP server (prompts capability) | Railpack |
 | **frontend** | React SPA | Railpack |
+| **ai-usage-flush** | Hourly cron that flushes Redis AI cost buckets into `ai_usage` | `Dockerfile.api` |
+| **cleanup** | Daily cron: tier-based history retention + soft-delete expiry + orphan-history sweep | `Dockerfile.api` |
+| **orphan-relationships** | Daily cron: detects (and optionally deletes) rows in `content_relationships` whose source/target entity no longer exists | `Dockerfile.api` |
 | **Postgres** | PostgreSQL database | (managed by Railway) |
 | **Redis** | Rate limiting and auth cache | (managed by Railway) |
 
@@ -64,10 +67,12 @@ Redis is used for:
 
 ### Step 3: Create Services
 
-Create 4 services, each connected to your GitHub repo:
+Create 7 services, each connected to your GitHub repo:
 
-1. Click **+ Create** → **GitHub Repo** → Select `bookmarks`
-2. Repeat 3 more times (you'll have 4 services all pointing to the same repo)
+1. Click **+ Create** → **GitHub Repo** → Select `tiddly`
+2. Repeat 6 more times (you'll have 7 services all pointing to the same repo)
+
+All seven are created the same way — Railway does NOT have a distinct "Cron Job" service type. The last three services (`ai-usage-flush`, `cleanup`, `orphan-relationships`) become crons by setting a **Cron Schedule** on each in Step 4; everything else is a regular long-running service.
 
 ### Step 4: Configure Each Service
 
@@ -134,6 +139,84 @@ Click on each service → **Settings** tab → Configure as follows:
 **Settings → Networking:**
 - Click **Generate Domain**
 
+#### AI Usage Flush Service (Cron)
+
+Hourly job that flushes Redis AI-cost buckets into the `ai_usage` Postgres table. Runs as a regular Railway service with a cron schedule attached — Railway does not have a separate "Cron Job" service type. Runs independently of the API so its failure mode is isolated.
+
+**Settings → Source:**
+- Rename service to `ai-usage-flush`
+- Enable **Wait for CI**
+
+**Settings → Build:**
+- Builder: **Dockerfile**
+- Dockerfile Path: `/Dockerfile.api`
+- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`
+
+**Settings → Deploy:**
+- **Cron Schedule:** `30 * * * *` (every hour at :30, UTC). Railway's minimum interval is 5 minutes.
+- **Custom Start Command:** `uv run python -m tasks.ai_usage_flush`
+  - For Dockerfile deploys this overrides the image's `CMD` in **exec form** (no shell). The command has no shell constructs and `PYTHONPATH=/app/backend/src` is already baked into `Dockerfile.api`, so no shell wrapping or `cd` is needed.
+- **Pre-Deploy Command:** leave empty (migrations are owned by the api service).
+
+**Settings → Networking:**
+- No public domain — the cron writes to Postgres/Redis over Railway's private network only.
+
+**Cron behavior on Railway (worth knowing before first run — applies to all three cron services):**
+- Schedules are UTC.
+- Execution time can drift by a few minutes — Railway does not guarantee minute precision.
+- If a prior run is still in flight when the next tick fires, Railway **skips** the new execution.
+- The cron process must exit when the task completes. All three scripts (`ai_usage_flush.py`, `cleanup.py`, `orphan_relationships.py`) use `asyncio.run(...)` and exit cleanly.
+- The Cron Runs tab has a **Run now** button to trigger an ad-hoc execution of the current deployment. Useful for verifying the cron works after a config change without waiting for the next scheduled tick. Alternatively, to force the normal scheduled path, temporarily change the schedule to a near-future expression (e.g. `*/5 * * * *`), observe a run, then revert.
+- If a push to `main` doesn't trigger a redeploy (occasionally observed for cron services), force a fresh build against the current `main` HEAD: `Cmd+K` on the service in the Railway dashboard → **Deploy latest commit**. Confirm the new code is live via the version marker in the cron's start-up log line (see next bullet).
+- Each cron logs a version marker on start — e.g., `cleanup.py` logs `Starting cleanup task (version=...)` using `CLEANUP_TASK_VERSION` (UTC timestamp, `YYYY-MM-DDTHH:MMZ`). Update the constant to the current UTC time when shipping changes; the log line then confirms at a glance whether a given run is on the new code.
+- The `ai_usage_flush` upsert uses SET (not INCREMENT), and `cleanup` / `orphan-relationships` are idempotent by construction — so re-runs of any service are safe.
+
+#### Cleanup Service (Cron)
+
+Daily job that enforces tier-based history retention (`content_history`), permanently deletes soft-deleted items older than 30 days, and sweeps orphan `content_history` rows whose entity was hard-deleted. DB-only — does not need Redis.
+
+**Settings → Source:**
+- Rename service to `cleanup`
+- Enable **Wait for CI**
+
+**Settings → Build:**
+- Builder: **Dockerfile**
+- Dockerfile Path: `/Dockerfile.api`
+- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`
+
+**Settings → Deploy:**
+- **Cron Schedule:** `0 3 * * *` (daily at 03:00 UTC)
+- **Custom Start Command:** `uv run python -m tasks.cleanup`
+- **Pre-Deploy Command:** leave empty.
+
+**Settings → Networking:**
+- No public domain.
+
+#### Orphan Relationships Service (Cron)
+
+Daily job that finds rows in `content_relationships` whose source or target entity no longer exists, and (when `--delete` is passed) deletes them. Independent of the `cleanup` service — separate failure mode. DB-only.
+
+**Settings → Source:**
+- Rename service to `orphan-relationships`
+- Enable **Wait for CI**
+
+**Settings → Build:**
+- Builder: **Dockerfile**
+- Dockerfile Path: `/Dockerfile.api`
+- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`
+
+**Settings → Deploy:**
+- **Cron Schedule:** `0 4 * * *` (daily at 04:00 UTC — offset by an hour from `cleanup` so they don't pile on the DB simultaneously)
+- **Custom Start Command:** start in **report-only mode first**, then switch to delete mode once verified.
+  - **Initial (report-only):** `uv run python -m tasks.orphan_relationships`
+  - **After verifying zero-or-small orphan counts:** `uv run python -m tasks.orphan_relationships --delete`
+- **Pre-Deploy Command:** leave empty.
+
+**Settings → Networking:**
+- No public domain.
+
+**Why report-only first:** `content_relationships` is write-light and orphans should be near-zero on a healthy system. Running in report mode for one cycle confirms the detector isn't finding false positives (e.g. a live entity it can't see due to a model misalignment) before you authorize deletes.
+
 ### Step 5: Configure Environment Variables
 
 Click on each service → **Variables** tab.
@@ -177,6 +260,66 @@ To set DATABASE_URL:
 | `DB_MAX_OVERFLOW` | `10` | Temporary DB connections per worker |
 | `DB_POOL_RECYCLE` | `3600` | Recycle connections older than N seconds |
 | `REDIS_POOL_SIZE` | `5` | Redis connections per worker |
+
+**AI / LLM variables:**
+
+Only `OPENAI_API_KEY` is required for the initial deploy. The only AI use case wired up today (suggestions) defaults to `openai/gpt-5.4-nano`, and platform users are locked to the use-case default in code — no other platform key is reachable on the platform path. BYOK users supply their own keys via the `X-LLM-Api-Key` header and do not depend on these vars.
+
+```
+OPENAI_API_KEY=<your OpenAI key>
+```
+
+Add the following **when additional AI use cases ship** (TRANSFORM / AUTO_COMPLETE default to Gemini; CHAT defaults to OpenAI):
+
+```
+GEMINI_API_KEY=<your Google AI Studio key>
+ANTHROPIC_API_KEY=<your Anthropic key>
+```
+
+Optional per-use-case model overrides (change only if you want to deviate from defaults — and add the matching provider key if the override points to a different provider):
+
+```
+LLM_MODEL_SUGGESTIONS=openai/gpt-5.4-nano
+LLM_MODEL_TRANSFORM=gemini/gemini-flash-lite-latest
+LLM_MODEL_AUTO_COMPLETE=gemini/gemini-flash-lite-latest
+LLM_MODEL_CHAT=openai/gpt-5.4-mini
+```
+
+**Database migrations:** `ai_usage` and `ai_usage_analytics` (Postgres view used by the analytics role, see Step 8) are applied automatically by the pre-deploy `alembic upgrade head` command configured on this service — no manual migration step is needed.
+
+#### AI Usage Flush Service Variables
+
+```
+DATABASE_URL=postgresql+asyncpg://<same value as api service>
+REDIS_URL=${{Redis.REDIS_URL}}
+AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service, e.g. https://tiddly.me>
+```
+
+Follow the same `postgresql+asyncpg://` rule as the API service (manually copy the Postgres URL and replace the `postgresql://` prefix — do NOT use `${{Postgres.DATABASE_URL}}` directly).
+
+**Why `AUTH0_CUSTOM_CLAIM_NAMESPACE` is required even for a cron:** the cron imports `db.session`, which instantiates `Settings()` at module load. The Settings validator (`core/config.py`) hard-requires this variable in non-dev mode as a safety check against silent Auth0 misconfiguration on the API. Cron tasks don't touch auth, but they share the same Settings class. Without this var, the container crashes at import.
+
+#### Cleanup Service Variables
+
+DB-only; no Redis needed.
+
+```
+DATABASE_URL=postgresql+asyncpg://<same value as api service>
+AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service>
+```
+
+Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE` is required for the same reason as above — Settings validation.
+
+#### Orphan Relationships Service Variables
+
+DB-only; no Redis needed.
+
+```
+DATABASE_URL=postgresql+asyncpg://<same value as api service>
+AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service>
+```
+
+Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE` is required for the same reason as above — Settings validation.
 
 #### Content MCP Service Variables
 
@@ -364,6 +507,46 @@ Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 
 **Note:** If you click **Deploy** in the dashboard before pushing, you'll see "Deployment waiting" until CI passes. Push to `main` to trigger the GitHub Actions workflow.
 
+### Step 8: Post-Deploy AI Configuration
+
+One-time setup required the first time you enable AI features. Only the OpenAI cap (8a) is a hard requirement for the initial deploy.
+
+#### 8a. Provider spend caps (required)
+
+Configure a monthly spend cap on every provider whose platform key is set on the API service. Provider-enforced caps suspend service when reached, so this is the primary safeguard against runaway cost — there is no application-level circuit breaker.
+
+- **OpenAI** (required today — platform default for suggestions): [OpenAI billing dashboard → limits](https://platform.openai.com/account/limits). Set a monthly budget before enabling Pro-tier AI access.
+- **Google AI Studio** (add when Gemini-backed use cases ship): set a project-level monthly spend cap (e.g. $50/month) in the Google AI Studio console.
+- **Anthropic** (add when Anthropic-backed use cases ship): set a monthly spend limit in the Anthropic console.
+
+Do not skip this — an unbounded platform key is the single largest cost-exposure risk of the AI feature set.
+
+#### 8b. Analytics reader role (optional, recommended)
+
+Create a separate read-only Postgres login scoped to the `ai_usage_analytics` view. The view replaces `user_id` with a pseudonymized `user_hash` (SHA-256) and exposes only cost/usage fields — no content tables, no auth tables, not even the base `ai_usage` table. Run this **manually** via Railway's database shell. Do NOT put credentials in migrations or source control.
+
+```sql
+-- Create the role with a strong, randomly generated password
+CREATE ROLE analytics_reader LOGIN PASSWORD '<generated-password>';
+
+-- Allow connection to the database and visibility into the public schema
+GRANT CONNECT ON DATABASE railway TO analytics_reader;
+GRANT USAGE ON SCHEMA public TO analytics_reader;
+
+-- Grant SELECT on the analytics view ONLY — never the base `ai_usage` table
+GRANT SELECT ON ai_usage_analytics TO analytics_reader;
+```
+
+Connection string for analytics tools / local CLI (Railway Postgres requires SSL):
+
+```bash
+psql "postgresql://analytics_reader:<password>@<railway-host>:<port>/railway?sslmode=require"
+```
+
+Use a separate role per consumer (one for each analytics tool, one for CLI) so credentials can be revoked independently. To grant access to a future analytics view, create the view with only the columns needed and `GRANT SELECT` on it to this role — do not widen access to base tables.
+
+The `ai_usage_analytics` view and the `pgcrypto` extension it depends on are created by the `38f5a24e651f` migration and ship with the deploy. No schema work is needed before running the role/GRANT SQL above.
+
 ---
 
 ## Verify Deployment
@@ -372,6 +555,28 @@ Push your changes to `main` branch. With **Wait for CI** enabled, Railway will:
 2. **Frontend:** Visit `https://<frontend-domain>` - should show login page
 3. **Content MCP:** Visit `https://<content-mcp-domain>/mcp` - should respond to MCP requests
 4. **Prompt MCP:** Visit `https://<prompt-mcp-domain>/mcp` - should respond to MCP requests
+5. **AI Usage Flush cron:** Railway dashboard → `ai-usage-flush` service → **Deployments** tab. Verify at least one run has occurred at `:30` past the hour. One of three log outputs is expected:
+   - `ai_usage_flush: no keys found` — Redis has no `ai_stats:*` keys at all (no AI traffic yet)
+   - `ai_usage_flush: no completed hourly buckets to flush` — keys exist but only for the current hour (the flush intentionally excludes in-flight hours)
+   - `ai_usage_flush: complete` — buckets were flushed, logged with `keys_processed` and `total_cost_flushed`
+6. **Cleanup cron:** Railway dashboard → `cleanup` service → **Deployments** tab. After the first `0 3 * * *` UTC run, logs start with `Starting cleanup task` and end with `Cleanup complete: {...}` containing `soft_deleted_expired`, `expired_deleted`, `orphaned_deleted`. Any exceptions are surfaced via Railway's deployment failure indicator.
+7. **Orphan Relationships cron:** Railway dashboard → `orphan-relationships` service → **Deployments** tab. After the first `0 4 * * *` UTC run, logs start with `Starting orphan relationship cleanup (delete=...)` and end with `Orphan relationship cleanup complete: {...}` containing `orphaned_source`, `orphaned_target`, `total_deleted`. Expect all zeros on a healthy system. **Before switching to `--delete`:** confirm `orphaned_source + orphaned_target = 0` for at least one scheduled run in report-only mode.
+8. **AI endpoints** (requires an Auth0 token):
+   ```bash
+   curl -H "Authorization: Bearer <token>" https://<api>/ai/health
+   # → {"available": true, "byok": false,
+   #    "remaining_per_minute": ..., "limit_per_minute": ...,
+   #    "remaining_per_day": ..., "limit_per_day": ...,
+   #    "resets_at": null}   // ISO 8601 UTC; null until first AI call in the window
+
+   curl -H "Authorization: Bearer <token>" https://<api>/ai/models
+   # → {"models": [...7 models...], "defaults": {...}}
+   ```
+9. **Database objects** (via Railway Postgres shell):
+   ```sql
+   SELECT COUNT(*) FROM ai_usage;             -- 0 initially
+   SELECT COUNT(*) FROM ai_usage_analytics;   -- 0 initially; view must exist
+   ```
 
 ---
 

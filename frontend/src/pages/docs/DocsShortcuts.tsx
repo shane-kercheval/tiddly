@@ -53,9 +53,10 @@ export function DocsShortcuts(): ReactNode {
       <table className="w-full">
         <tbody>
           <ShortcutRow keys={['/']} description="Focus search bar" />
-          <ShortcutRow keys={['f']} description="Focus page search" />
+          <ShortcutRow keys={['s']} description="Focus page search" />
           <ShortcutRow keys={['\u2318', '\u21E7', 'P']} description="Command palette" />
           <ShortcutRow keys={['\u2318', 'Click']} description="Open card in new tab" />
+          <ShortcutRow keys={['\u21E7', 'Click']} description="Open bookmark relationship in Tiddly (instead of URL)" />
           <ShortcutRow keys={['Esc']} description="Close modal / unfocus search" />
         </tbody>
       </table>
@@ -101,9 +102,9 @@ export function DocsShortcuts(): ReactNode {
           <ShortcutRow keys={['\u2318', '\u21E7', '.']} description="Blockquote" />
           <ShortcutRow keys={['\u2318', 'E']} description="Inline code" />
           <ShortcutRow keys={['\u2318', '\u21E7', 'E']} description="Code block" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '8']} description="Bullet list" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '7']} description="Numbered list" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '9']} description="Task list" />
+          <ShortcutRow keys={['\u2318', '\u21E7', '7']} description="Bullet list" />
+          <ShortcutRow keys={['\u2318', '\u21E7', '8']} description="Numbered list" />
+          <ShortcutRow keys={['\u2318', '\u21E7', '9']} description="Checklist" />
           <ShortcutRow keys={['\u2318', 'K']} description="Insert link" />
           <ShortcutRow keys={['\u2318', '\u21E7', '-']} description="Horizontal rule" />
           <ShortcutRow keys={['\u2318', 'D']} description="Select next occurrence" />
@@ -119,7 +120,7 @@ export function DocsShortcuts(): ReactNode {
       </p>
       <ul className="space-y-1.5 text-sm text-gray-600 mb-4">
         <li>Heading 1, Heading 2, Heading 3</li>
-        <li>Bulleted list, Numbered list, To-do list</li>
+        <li>Bulleted list, Numbered list, Checklist</li>
         <li>Code block, Blockquote, Link, Horizontal rule</li>
       </ul>
       <p className="text-sm text-gray-600">

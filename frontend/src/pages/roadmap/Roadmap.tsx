@@ -23,6 +23,14 @@ const ROADMAP: RoadmapColumn[] = [
     accentColor: 'border-t-gray-300',
     items: [
       {
+        title: 'AI auto-complete',
+        description: 'Inline completions while writing notes and prompt templates.',
+      },
+      {
+        title: 'AI chat',
+        description: 'Conversational interface for searching and managing content.',
+      },
+      {
         title: 'OAuth for MCP',
         description: 'Connect MCP clients like ChatGPT without personal access tokens.',
       },
@@ -54,6 +62,10 @@ const ROADMAP: RoadmapColumn[] = [
     accentColor: 'border-t-amber-500',
     items: [
       {
+        title: 'Semantic search',
+        description: 'Vector-based search using embeddings for meaning-aware content discovery.',
+      },
+      {
         title: 'Mobile app',
         description: 'Native mobile experience backed by the existing API.',
       },
@@ -64,6 +76,11 @@ const ROADMAP: RoadmapColumn[] = [
     description: 'Recently launched.',
     accentColor: 'border-t-green-500',
     items: [
+      {
+        title: 'AI-powered suggestions',
+        description: 'Tag, metadata, relationship, and prompt argument suggestions powered by AI. Includes BYOK support and per-use-case configuration.',
+        date: '2026-04',
+      },
       {
         title: 'Tiddly CLI',
         description: 'Command-line tool for configuring MCP servers and syncing agent skills.',
@@ -139,14 +156,6 @@ const ROADMAP: RoadmapColumn[] = [
 ]
 
 const IDEAS: RoadmapItem[] = [
-  {
-    title: 'AI-assisted features',
-    description: 'Tag suggestions, auto-generated descriptions, and smart summaries.',
-  },
-  {
-    title: 'AI chat',
-    description: 'Conversational interface for searching and managing content.',
-  },
   {
     title: 'Chrome extension editing',
     description: 'Edit bookmarks and notes directly from the extension popup.',

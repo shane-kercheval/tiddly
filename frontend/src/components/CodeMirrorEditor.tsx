@@ -31,7 +31,7 @@ import {
   LinkIcon,
   BulletListIcon,
   OrderedListIcon,
-  TaskListIcon,
+  ChecklistIcon,
   BlockquoteIcon,
   HorizontalRuleIcon,
   HeadingIcon,
@@ -57,6 +57,7 @@ import {
   insertCodeBlock,
   insertHorizontalRule,
   insertText,
+  LINE_PREFIXES,
 } from '../utils/editorFormatting'
 import { buildEditorCommands, type MenuCallbacks, type EditorCommand } from './editor/editorCommands'
 import { EditorCommandMenu } from './editor/EditorCommandMenu'
@@ -68,14 +69,6 @@ const MARKERS = {
   strikethrough: { before: '~~', after: '~~' },
   highlight: { before: '==', after: '==' },
   inlineCode: { before: '`', after: '`' },
-} as const
-
-/** Line prefixes for block-style formatting. */
-const LINE_PREFIXES = {
-  blockquote: '> ',
-  bulletList: '- ',
-  numberedList: '1. ',
-  taskList: '- [ ] ',
 } as const
 
 interface CodeMirrorEditorProps {
@@ -165,10 +158,10 @@ function createMarkdownKeyBindings(): KeyBinding[] {
     // Code
     { key: 'Mod-e', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after)) },
     { key: 'Mod-Shift-e', run: ifWritable((view) => insertCodeBlock(view)) },
-    // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
-    { key: 'Mod-Shift-7', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList)) },
-    { key: 'Mod-Shift-8', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList)) },
-    { key: 'Mod-Shift-9', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.taskList)) },
+    // Lists (matches toolbar/menu order: 7=bullet, 8=numbered, 9=checklist)
+    { key: 'Mod-Shift-7', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList)) },
+    { key: 'Mod-Shift-8', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList)) },
+    { key: 'Mod-Shift-9', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.checklist)) },
     // Links and other
     { key: 'Mod-k', run: ifWritable((view) => insertLink(view)) },
     { key: 'Mod-Shift--', run: ifWritable((view) => insertHorizontalRule(view)) },
@@ -418,7 +411,7 @@ export function CodeMirrorEditor({
       link: () => <LinkIcon />,
       bulletList: () => <BulletListIcon />,
       orderedList: () => <OrderedListIcon />,
-      taskList: () => <TaskListIcon />,
+      checklist: () => <ChecklistIcon />,
       blockquote: () => <BlockquoteIcon />,
       horizontalRule: () => <HorizontalRuleIcon />,
       heading1: () => <HeadingIcon level={1} />,
@@ -630,14 +623,14 @@ export function CodeMirrorEditor({
           <ToolbarSeparator />
 
           {/* Lists */}
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title="Bullet List (⌘⇧8)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title="Bullet List (⌘⇧7)">
             <BulletListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title="Numbered List (⌘⇧7)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title="Numbered List (⌘⇧8)">
             <OrderedListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.taskList))} title="Task List (⌘⇧9)">
-            <TaskListIcon />
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.checklist))} title="Checklist (⌘⇧9)">
+            <ChecklistIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />

@@ -36,7 +36,7 @@ export function DeleteAction({ onDelete, entityName }: DeleteActionProps): React
 
   // Soft delete in other views
   return (
-    <Tooltip content="Delete" compact>
+    <Tooltip content="Delete" compact delay={500}>
       <button
         onClick={(e) => { e.stopPropagation(); onDelete() }}
         className="btn-icon-danger"

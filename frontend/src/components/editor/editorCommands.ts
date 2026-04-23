@@ -14,6 +14,7 @@ import {
   insertCodeBlock,
   insertHorizontalRule,
   insertText,
+  LINE_PREFIXES,
 } from '../../utils/editorFormatting'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './jinjaTemplates'
 
@@ -46,7 +47,7 @@ interface IconFactories {
   link: () => ReactNode
   bulletList: () => ReactNode
   orderedList: () => ReactNode
-  taskList: () => ReactNode
+  checklist: () => ReactNode
   blockquote: () => ReactNode
   horizontalRule: () => ReactNode
   heading1: () => ReactNode
@@ -204,45 +205,45 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
     label: 'Heading 1',
     section: 'Insert',
     icon: icons.heading1(),
-    action: (view) => { toggleLinePrefix(view, '# ') },
+    action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.h1) },
   })
   commands.push({
     id: 'heading-2',
     label: 'Heading 2',
     section: 'Insert',
     icon: icons.heading2(),
-    action: (view) => { toggleLinePrefix(view, '## ') },
+    action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.h2) },
   })
   commands.push({
     id: 'heading-3',
     label: 'Heading 3',
     section: 'Insert',
     icon: icons.heading3(),
-    action: (view) => { toggleLinePrefix(view, '### ') },
+    action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.h3) },
   })
   commands.push({
     id: 'bullet-list',
     label: 'Bulleted list',
     section: 'Insert',
     icon: icons.bulletList(),
-    shortcut: ['\u2318', '\u21e7', '8'],
-    action: (view) => { toggleLinePrefix(view, '- ') },
+    shortcut: ['\u2318', '\u21e7', '7'],
+    action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.bulletList) },
   })
   commands.push({
     id: 'numbered-list',
     label: 'Numbered list',
     section: 'Insert',
     icon: icons.orderedList(),
-    shortcut: ['\u2318', '\u21e7', '7'],
-    action: (view) => { toggleLinePrefix(view, '1. ') },
+    shortcut: ['\u2318', '\u21e7', '8'],
+    action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.numberedList) },
   })
   commands.push({
-    id: 'todo-list',
-    label: 'To-do list',
+    id: 'checklist',
+    label: 'Checklist',
     section: 'Insert',
-    icon: icons.taskList(),
+    icon: icons.checklist(),
     shortcut: ['\u2318', '\u21e7', '9'],
-    action: (view) => { toggleLinePrefix(view, '- [ ] ') },
+    action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.checklist) },
   })
   commands.push({
     id: 'code-block',
@@ -258,7 +259,7 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
     section: 'Insert',
     icon: icons.blockquote(),
     shortcut: ['\u2318', '\u21e7', '.'],
-    action: (view) => { toggleLinePrefix(view, '> ') },
+    action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.blockquote) },
   })
   commands.push({
     id: 'link',

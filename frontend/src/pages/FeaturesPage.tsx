@@ -9,6 +9,7 @@ import { PromptMCPAnimation } from '../components/PromptMCPAnimation'
 import { NoteMCPAnimation } from '../components/NoteMCPAnimation'
 import { ChromeExtensionAnimation } from '../components/ChromeExtensionAnimation'
 import { VersionHistoryAnimation } from '../components/VersionHistoryAnimation'
+import { AIPromptArgumentAnimation } from '../components/AIPromptArgumentAnimation'
 import {
   SparklesIcon,
   TagIcon,
@@ -160,8 +161,39 @@ function FeaturesContent({
         </div>
       </section>
 
-      {/* 3. Version History */}
+      {/* 3. AI-powered suggestions */}
       <section className="py-20">
+        <div className="mx-auto max-w-5xl px-6 sm:px-8 lg:px-12">
+          <div className="mb-8 text-center">
+            <h2 className="text-3xl font-bold text-gray-900">AI-powered suggestions</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-gray-600">
+              Get intelligent suggestions for tags, titles, descriptions, and related content.
+            </p>
+          </div>
+          <ReplayableAnimation Component={AIPromptArgumentAnimation} />
+          <ul className="mx-auto mt-8 grid max-w-2xl gap-3 text-sm text-gray-600 sm:grid-cols-2">
+            <li className="flex items-start gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" />
+              Tag suggestions based on content and your vocabulary
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" />
+              Title and description generation from content
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" />
+              Related content discovery across your library
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" />
+              Prompt argument suggestions from template placeholders
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      {/* 4. Version History */}
+      <section className="bg-gray-50 py-20">
         <div className="mx-auto max-w-5xl px-6 sm:px-8 lg:px-12">
           <div className="mb-8 text-center">
             <h2 className="text-3xl font-bold text-gray-900">Every change, tracked and reversible</h2>

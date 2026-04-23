@@ -3,6 +3,7 @@ from fastapi import Depends
 
 from core.auth import (
     get_current_user,
+    get_current_user_ai,
     get_current_user_auth0_only,
     get_current_user_auth0_only_without_consent,
     get_current_user_without_consent,
@@ -42,11 +43,21 @@ def get_current_limits_auth0_only(
     return resolve_tier_limits(current_user.tier, dev_mode=settings.dev_mode)
 
 
+def get_current_limits_ai(
+    current_user: CachedUser = Depends(get_current_user_ai),
+    settings: Settings = Depends(get_settings),
+) -> TierLimits:
+    """Get tier limits for AI endpoints (no global rate limiting triggered)."""
+    return resolve_tier_limits(current_user.tier, dev_mode=settings.dev_mode)
+
+
 __all__ = [
     "get_async_session",
     "get_current_limits",
+    "get_current_limits_ai",
     "get_current_limits_auth0_only",
     "get_current_user",
+    "get_current_user_ai",
     "get_current_user_auth0_only",
     "get_current_user_auth0_only_without_consent",
     "get_current_user_without_consent",

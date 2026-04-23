@@ -14,7 +14,7 @@
  * - Fetch metadata functionality
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import type { ReactNode, FormEvent } from 'react'
+import type { ReactNode, FormEvent, MouseEvent as ReactMouseEvent } from 'react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { InlineEditableUrl } from './InlineEditableUrl'
@@ -36,6 +36,9 @@ import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useBookmarks } from '../hooks/useBookmarks'
 import { useRelationshipState } from '../hooks/useRelationshipState'
 import { useQuickCreateLinked } from '../hooks/useQuickCreateLinked'
+import { useAITagIntegration } from '../hooks/useAITagIntegration'
+import { useAIRelationshipIntegration } from '../hooks/useAIRelationshipIntegration'
+import { useAIMetadataIntegration } from '../hooks/useAIMetadataIntegration'
 import { toRelationshipInputs, relationshipsEqual } from '../utils/relationships'
 import type { LinkedItem } from '../utils/relationships'
 import type { Bookmark as BookmarkType, BookmarkCreate, BookmarkUpdate, RelationshipInputPayload, TagCount, UserLimits } from '../types'
@@ -129,11 +132,13 @@ interface BookmarkProps {
   /** Called when history button is clicked */
   onShowHistory?: () => void
   /** Called when a linked content item is clicked for navigation */
-  onNavigateToLinked?: (item: LinkedItem) => void
+  onNavigateToLinked?: (item: LinkedItem, event?: ReactMouseEvent) => void
   /** Pre-populated relationships from navigation state (quick-create linked) */
   initialRelationships?: RelationshipInputPayload[]
   /** Pre-populated linked item display cache from navigation state */
   initialLinkedItems?: LinkedItem[]
+  /** Whether AI features are available for this user's tier */
+  aiAvailable?: boolean
 }
 
 /**
@@ -170,6 +175,7 @@ export function Bookmark({
   onNavigateToLinked,
   initialRelationships,
   initialLinkedItems,
+  aiAvailable = false,
 }: BookmarkProps): ReactNode {
   const isCreate = !bookmark
 
@@ -280,6 +286,14 @@ export function Bookmark({
   const [contentKey, setContentKey] = useState(0) // Force editor remount when content is fetched
   const autoFetchedRef = useRef<string | null>(null)
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // AI tag suggestions
+  const { aiTagSuggestions, isAiTagsLoading, aiTagsHasError, handleTagInputOpen, handleTagInputClose, handleTagsChange } =
+    useAITagIntegration(current, setCurrent, aiAvailable, 'bookmark')
+  const { aiRelationshipSuggestions, isAiRelationshipsLoading, aiRelationshipsHasError, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
+    useAIRelationshipIntegration({ ...current, contentId: bookmark?.id ?? null }, aiAvailable)
+  const { titleSuggestProps, descriptionSuggestProps } =
+    useAIMetadataIntegration(current, setCurrent, aiAvailable)
 
   // Refs
   const tagInputRef = useRef<InlineEditableTagsHandle>(null)
@@ -716,9 +730,6 @@ export function Bookmark({
     setErrors((prev) => (prev.content ? { ...prev, content: undefined } : prev))
   }, [])
 
-  const handleTagsChange = useCallback((tags: string[]): void => {
-    setCurrent((prev) => ({ ...prev, tags }))
-  }, [])
 
   const handleArchiveScheduleChange = useCallback((archivedAt: string): void => {
     setCurrent((prev) => ({ ...prev, archivedAt }))
@@ -958,6 +969,7 @@ export function Bookmark({
             disabled={isSaving || isReadOnly}
             error={errors.title}
             maxLength={limits.max_title_length}
+            {...titleSuggestProps}
           />
 
           {/* Description */}
@@ -968,6 +980,7 @@ export function Bookmark({
             disabled={isSaving || isReadOnly}
             maxLength={limits.max_description_length}
             error={errors.description}
+            {...descriptionSuggestProps}
           />
 
           {/* Metadata: icons row + chips row */}
@@ -1037,6 +1050,12 @@ export function Bookmark({
                 suggestions={tagSuggestions}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
+                aiSuggestions={aiTagSuggestions}
+                isAiLoading={isAiTagsLoading}
+                aiHasError={aiTagsHasError}
+                aiAvailable={aiAvailable}
+                onOpen={handleTagInputOpen}
+                onClose={handleTagInputClose}
               />
 
               <LinkedContentChips
@@ -1044,12 +1063,18 @@ export function Bookmark({
                 contentType="bookmark"
                 contentId={bookmark?.id ?? null}
                 items={linkedItems}
-                onAdd={handleAddRelationship}
+                onAdd={(item) => handleAddRelationshipWithDismiss(item, handleAddRelationship)}
                 onRemove={handleRemoveRelationship}
                 onNavigate={onNavigateToLinked}
                 disabled={isSaving || isReadOnly}
                 showAddButton={false}
                 onQuickCreate={handleQuickCreate}
+                aiSuggestions={aiRelationshipSuggestions}
+                isAiLoading={isAiRelationshipsLoading}
+                aiHasError={aiRelationshipsHasError}
+                aiAvailable={aiAvailable}
+                onOpen={handleLinkedContentOpen}
+                onClose={handleLinkedContentClose}
               />
             </div>
           </div>

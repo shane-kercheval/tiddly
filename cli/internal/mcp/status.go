@@ -33,6 +33,7 @@ type ServerMatch struct {
 // OtherServer describes a non-tiddly MCP server entry.
 type OtherServer struct {
 	Name      string // config key name
+	URL       string // MCP server URL (may be empty for stdio entries whose args don't carry one)
 	Transport string // "http", "stdio", or "" if unknown
 }
 
@@ -44,10 +45,14 @@ type StatusResult struct {
 }
 
 // SortServers sorts the Servers slice so "content" comes before "prompts",
-// ensuring deterministic output regardless of map iteration order.
+// with secondary sort by config key name so multiple entries of the same
+// type (e.g. work_prompts and personal_prompts) render in stable order.
 func (sr *StatusResult) SortServers() {
 	sort.Slice(sr.Servers, func(i, j int) bool {
-		return sr.Servers[i].ServerType < sr.Servers[j].ServerType
+		if sr.Servers[i].ServerType != sr.Servers[j].ServerType {
+			return sr.Servers[i].ServerType < sr.Servers[j].ServerType
+		}
+		return sr.Servers[i].Name < sr.Servers[j].Name
 	})
 }
 
@@ -56,6 +61,28 @@ func sortOtherServers(servers []OtherServer) {
 	sort.Slice(servers, func(i, j int) bool {
 		return servers[i].Name < servers[j].Name
 	})
+}
+
+// classifyServer routes a single config entry to the Tiddly servers list or
+// the "other" list based on its URL. Used by all three tool detectors to keep
+// classification logic in one place and prevent parallel bugs across handlers.
+//
+// Returns exactly one non-nil pointer: either a *ServerMatch (tiddly content or
+// prompts URL) or an *OtherServer (any other URL). transport is used only when
+// building the OtherServer; ignored for tiddly matches.
+func classifyServer(name, urlStr, transport string) (*ServerMatch, *OtherServer) {
+	method := MatchByURL
+	if name == serverNameContent || name == serverNamePrompts {
+		method = MatchByName
+	}
+	switch {
+	case isTiddlyContentURL(urlStr):
+		return &ServerMatch{ServerType: ServerContent, Name: name, MatchMethod: method, URL: urlStr}, nil
+	case isTiddlyPromptURL(urlStr):
+		return &ServerMatch{ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr}, nil
+	default:
+		return nil, &OtherServer{Name: name, URL: urlStr, Transport: transport}
+	}
 }
 
 // urlPrefix returns scheme + host + path (without query/fragment) for a URL.
@@ -82,11 +109,6 @@ func isTiddlyContentURL(rawURL string) bool {
 // isTiddlyPromptURL returns true if the URL points to the tiddly prompt MCP server.
 func isTiddlyPromptURL(rawURL string) bool {
 	return urlMatchesPrefix(rawURL, urlPrefix(PromptMCPURL()))
-}
-
-// isTiddlyURL returns true if the URL points to either tiddly MCP server.
-func isTiddlyURL(rawURL string) bool {
-	return isTiddlyContentURL(rawURL) || isTiddlyPromptURL(rawURL)
 }
 
 // extractServerURL returns the MCP URL from a server entry, checking both
@@ -127,53 +149,13 @@ func detectTransport(serverMap map[string]any) string {
 	return ""
 }
 
-// serverURLMatcher returns a predicate that matches tiddly MCP URLs based on
-// the requested server names. Used by Remove to selectively remove content,
-// prompts, or both servers.
-func serverURLMatcher(servers []string) func(string) bool {
-	wantContent, wantPrompts := false, false
-	for _, s := range servers {
-		switch s {
-		case ServerContent:
-			wantContent = true
-		case ServerPrompts:
-			wantPrompts = true
-		}
-	}
-	switch {
-	case wantContent && wantPrompts:
-		return isTiddlyURL
-	case wantContent:
-		return isTiddlyContentURL
-	case wantPrompts:
-		return isTiddlyPromptURL
-	default:
-		return isTiddlyURL // empty/nil = match all (safe zero value)
-	}
-}
-
-// removeJSONServersByTiddlyURL removes entries from a JSON mcpServers map
-// whose URL matches the given predicate (checking both HTTP and stdio/npx formats).
-func removeJSONServersByTiddlyURL(servers map[string]any, match func(string) bool) bool {
-	removed := false
-	for name, entry := range servers {
-		serverMap, _ := entry.(map[string]any)
-		if serverMap == nil {
-			continue
-		}
-		urlStr := extractServerURL(serverMap)
-		if match(urlStr) {
-			delete(servers, name)
-			removed = true
-		}
-	}
-	return removed
-}
-
-// canonicalNamesFirst returns keys sorted so that canonical server names
-// (serverNameContent, serverNamePrompts) come before other keys, ensuring
-// deterministic match selection when both canonical and custom entries exist.
-func canonicalNamesFirst(keys []string) []string {
+// sortCanonicalFirst sorts keys in place so that canonical server names
+// (serverNameContent, serverNamePrompts) come before other keys, then
+// alphabetically within each group. AllTiddlyPATs returns its slice in
+// this order, which lets canonicalEntryPATs extract CLI-managed PATs
+// deterministically (canonical-named entry wins when duplicates exist;
+// alphabetical tiebreaker within a type is stable across runs).
+func sortCanonicalFirst(keys []string) {
 	sort.SliceStable(keys, func(i, j int) bool {
 		iCanonical := keys[i] == serverNameContent || keys[i] == serverNamePrompts
 		jCanonical := keys[j] == serverNameContent || keys[j] == serverNamePrompts
@@ -182,5 +164,4 @@ func canonicalNamesFirst(keys []string) []string {
 		}
 		return strings.Compare(keys[i], keys[j]) < 0
 	})
-	return keys
 }

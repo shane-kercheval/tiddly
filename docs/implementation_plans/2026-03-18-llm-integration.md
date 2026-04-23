@@ -1,18 +1,20 @@
 # LLM Integration
 
-**Date:** 2026-03-18
-**Status:** Draft — iterating on plan before implementation
-
 ## Overview
 
-Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction layer. Features range from simple structured-output suggestions (tags, titles) to streaming chat, all gated by tier and rate limits.
+Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction layer. This plan covers the backend service layer and suggestion features (backend + frontend) — all gated by tier and rate limits.
+
+**Related plans:**
+- [LLM Auto-Complete](2026-04-01-llm-autocomplete.md) — auto-complete PoC (depends on this plan)
+- [LLM Chat & Context Management](2026-04-02-llm-chat.md) — chat, context management, selection actions (depends on this plan)
 
 **Key decisions:**
 - **LiteLLM SDK** (in-process, no proxy) for provider abstraction. The SDK is a pure translation layer that calls provider APIs (OpenAI, Anthropic, Google, etc.) directly — no LiteLLM servers involved.
-- **Pro tier** gets AI features with platform keys (Gemini 2.5 Flash Lite as default model — cheapest viable option at $0.10/$0.40 per M tokens in/out)
+- **Pro tier** gets AI features with platform keys (OpenAI gpt-5.4-nano as default suggestions model — $0.20/$1.25 per M tokens in/out. Originally Gemini Flash Lite but switched due to chronic 503 reliability issues.)
 - **BYOK (Bring Your Own Key)** lets users bypass platform rate limits and choose their own model/provider
 - **User API keys** stored in browser `localStorage`, passed via `X-LLM-Api-Key` header, never persisted server-side
 - **All AI endpoints** live under a new `/ai/` router
+- **Milestone structure:** 1a (LLM Service + Router) → 1b (Rate Limiting) → 1c (Cost Tracking) → 2 (Suggestion Backend) → 3a (AI Store + Settings + API Layer) → 3b (Tag Suggestion UI) → 3c (Relationship Suggestion UI) → 3d (Metadata Suggestion UI) → 3e (Argument Suggestion UI) → 3f (Pricing/Docs Sync) → 4 (Deployment & Verification). Each code milestone is independently deployable and testable. The deployment milestone is done after merging to main.
 
 **References:**
 - LiteLLM docs: https://docs.litellm.ai/docs/
@@ -23,22 +25,22 @@ Add AI-powered features to tiddly.me using LiteLLM as the provider abstraction l
 
 ---
 
-## Milestone 1: Backend LLM Service Layer & AI Router Foundation
+## Milestone 1a: LLM Service + AI Router
 
 ### Goal & Outcome
 
-Establish the backend infrastructure for all AI features. After this milestone:
+Establish the core backend infrastructure for AI features. After this milestone:
 
-- A new `LLMService` wraps LiteLLM with use-case-based model resolution, key routing (platform vs BYOK), and error handling
-- A new `/ai/` router exists with proper auth, rate limiting, and a health-check endpoint
-- AI rate limits are enforced per tier (new `ai` operation type), with separate BYOK limits
-- Per-call cost tracking via Redis (per-user + per-use-case/model/key-source granularity)
-- A daily Railway cron job flushes Redis cost data to a DB summary table
-- The foundation is reusable by all subsequent milestones
+- A new `LLMService` wraps LiteLLM with use-case-based model resolution, key routing (platform vs BYOK), and cost calculation. LiteLLM exceptions propagate from the service — error-to-HTTP mapping is handled in the router layer (see Cross-Cutting Concerns > Error Handling).
+- A new `/ai/` router exists with a health-check endpoint and models endpoint
+- BYOK header extraction works
+- The service is wired up and callable, but not yet rate-limited or cost-tracked
 
 ### Implementation Outline
 
 #### 1. LLM Service (`backend/src/services/llm_service.py`)
+
+**Note:** `litellm` must be moved from dev dependencies to main dependencies in `pyproject.toml` before deploying (currently only installed with `--no-dev` excluded).
 
 Thin wrapper around LiteLLM. Uses use-case-based model resolution — different features can use different models without code changes.
 
@@ -54,10 +56,10 @@ class KeySource(StrEnum):
 class AIUseCase(StrEnum):
     SUGGESTIONS = "suggestions"   # tags, title, description, relationships — fast & cheap
     TRANSFORM = "transform"       # improve, summarize, explain — medium quality
-    COMPLETION = "completion"     # auto-complete — fast & cheap
+    AUTO_COMPLETE = "auto_complete"  # editor auto-complete — fast & cheap
     CHAT = "chat"                 # conversational — higher quality
 
-class LLMConfig:
+class LLMConfig(BaseModel):
     """Resolved config for a single LLM call."""
     model: str            # e.g. "gemini/gemini-2.5-flash-lite"
     api_key: str          # platform key or user-provided key
@@ -77,9 +79,9 @@ class LLMService:
                 api_key=self._resolve_platform_key(settings.llm_model_transform, settings),
                 key_source=KeySource.PLATFORM,
             ),
-            AIUseCase.COMPLETION: LLMConfig(
-                model=settings.llm_model_completion,
-                api_key=self._resolve_platform_key(settings.llm_model_completion, settings),
+            AIUseCase.AUTO_COMPLETE: LLMConfig(
+                model=settings.llm_model_auto_complete,
+                api_key=self._resolve_platform_key(settings.llm_model_auto_complete, settings),
                 key_source=KeySource.PLATFORM,
             ),
             AIUseCase.CHAT: LLMConfig(
@@ -89,13 +91,24 @@ class LLMService:
             ),
         }
 
+    # Explicit mapping — no string parsing, trivially extensible
+    _PROVIDER_KEY_MAP: dict[str, str] = {
+        "gemini/": "gemini_api_key",
+        "anthropic/": "anthropic_api_key",
+        "openai/": "openai_api_key",
+        "gpt-": "openai_api_key",  # Legacy OpenAI names without prefix — verify if still needed with current LiteLLM
+    }
+
     @staticmethod
     def _resolve_platform_key(model: str, settings: Settings) -> str:
-        """Determine which provider API key to use based on model prefix."""
-        # e.g. "gemini/..." → settings.gemini_api_key
-        #      "anthropic/..." → settings.anthropic_api_key
-        #      "gpt-..." or "openai/..." → settings.openai_api_key
-        ...
+        """Determine which provider API key to use based on model prefix.
+        Prefix-matched in order, first match wins. Raises ValueError for unknown prefix."""
+        for prefix, key_attr in LLMService._PROVIDER_KEY_MAP.items():
+            if model.startswith(prefix):
+                return getattr(settings, key_attr)
+        raise ValueError(f"Unknown model prefix: {model}. Add mapping to _PROVIDER_KEY_MAP.")
+
+    _SUPPORTED_MODEL_IDS = {d["id"] for d in _SUPPORTED_MODEL_DEFS}
 
     def resolve_config(
         self,
@@ -106,8 +119,11 @@ class LLMService:
         """Determine which key and model to use.
         - If user provides a key: use their key + their model (or use-case default model)
         - Otherwise: use platform key + use-case model (ignore user model choice)
+        - user_model is validated against the supported models allowlist (SSRF prevention)
         """
         if user_api_key:
+            if user_model and user_model not in self._SUPPORTED_MODEL_IDS:
+                raise ValueError(f"Unsupported model: {user_model}")
             return LLMConfig(
                 model=user_model or self._platform_configs[use_case].model,
                 api_key=user_api_key,
@@ -129,10 +145,12 @@ class LLMService:
             api_key=config.api_key,
             response_format=response_format,
             temperature=temperature,
+            timeout=30,
+            num_retries=1,
         )
-        # Cost is available directly for non-streaming
-        # response._hidden_params['response_cost']
-        return response
+        # Cost via public API (not _hidden_params which is private/unstable)
+        cost = completion_cost(completion_response=response)
+        return response, cost
 
     async def stream(
         self,
@@ -147,13 +165,18 @@ class LLMService:
             api_key=config.api_key,
             temperature=temperature,
             stream=True,
+            timeout=60,
+            # No num_retries for streaming — retries are complex with partial streams
         )
 ```
 
 **Design decisions:**
-- **Singleton** — created once at startup, injected via FastAPI dependency. Stateless, so no concurrency issues.
+- **Singleton via lifespan** — created in `lifespan()`, stored in `app.state`, exposed via a `get_llm_service()` dependency function (same pattern as `RedisClient`). `__init__` takes `Settings`, so it can't be instantiated at module level.
 - **Use-case model mapping** — each `AIUseCase` maps to a model via env vars. Changing a use case's model is a config change, not a code change.
-- **Provider key resolution** — `_resolve_platform_key` parses the model prefix (`gemini/` → `GEMINI_API_KEY`, `anthropic/` → `ANTHROPIC_API_KEY`, etc.) so switching a use case to a different provider automatically picks up the right key.
+- **Provider key resolution** — `_PROVIDER_KEY_MAP` is an explicit dict mapping model prefixes to settings attribute names. No string parsing or implicit conventions — adding a new provider is one dict entry. First matching prefix wins.
+- **BYOK model allowlist** — `resolve_config()` validates `user_model` against the curated `_SUPPORTED_MODEL_DEFS` allowlist before accepting it. This prevents SSRF: LiteLLM interprets model strings as provider routing directives (e.g. `openai/<model>` with custom `api_base`), so an arbitrary string could direct server-originated HTTP requests to attacker-controlled endpoints. The allowlist eliminates this by restricting BYOK model selection to known, vetted model IDs. Raises `ValueError` for unsupported models. The UI constrains choices via a dropdown, but the API is directly callable by any authenticated user.
+- **Timeout + retry** — `complete()` has a 30s timeout and `num_retries=1` (idempotent, safe to retry transient 500s). `stream()` has a 60s timeout and no retries (streaming retries are complex with partial responses).
+- **Cost via public API** — both streaming and non-streaming use `completion_cost()` (not `_hidden_params` which is private and has broken across LiteLLM versions).
 
 #### 2. Settings additions (`backend/src/core/config.py`)
 
@@ -163,18 +186,215 @@ Add new env vars — per-use-case models + per-provider API keys:
 # LLM models per use case
 llm_model_suggestions: str = "gemini/gemini-2.5-flash-lite"
 llm_model_transform: str = "gemini/gemini-2.5-flash-lite"
-llm_model_completion: str = "gemini/gemini-2.5-flash-lite"
+llm_model_auto_complete: str = "gemini/gemini-2.5-flash-lite"
 llm_model_chat: str = "gemini/gemini-2.5-flash"
 
 # Provider API keys (only needed for providers referenced by models above)
 gemini_api_key: str = ""
 openai_api_key: str = ""
 anthropic_api_key: str = ""
+
+# LLM call timeouts (seconds)
+llm_timeout_default: int = 30     # non-streaming (suggestions, transforms)
+llm_timeout_streaming: int = 60   # streaming (chat)
 ```
 
-#### 3. AI rate limits (`backend/src/core/tier_limits.py`)
+#### 3. AI Router (`backend/src/api/routers/ai.py`)
 
-Add a new `ai` category to `TierLimits` with separate BYOK limits:
+All `/ai/` endpoints use `get_current_user_ai` for auth (Auth0-only, no default rate limiting — see Milestone 1b for the auth dependency). AI features are for the web frontend and native apps only, not for programmatic PAT access. If programmatic AI access is needed in the future (e.g. bulk auto-tag via CLI), it can be added intentionally with its own rate limit considerations.
+
+**Note:** Until Milestone 1b is complete, use `get_current_user_auth0_only` as a temporary placeholder. The AI-specific auth dependency that skips global rate limiting is introduced in 1b.
+
+```python
+router = APIRouter(prefix="/ai", tags=["ai"])
+
+@router.get("/health")
+async def ai_health(
+    current_user: User = Depends(get_current_user_ai),
+    limits: TierLimits = Depends(get_current_limits_ai),
+    llm_api_key: str | None = Depends(get_llm_api_key),
+):
+    """Check if AI features are available for this user. No AI rate limit consumed."""
+    has_byok = llm_api_key is not None
+    return {
+        "available": limits.rate_ai_per_day > 0 or (has_byok and limits.rate_ai_byok_per_day > 0),
+        "byok": has_byok,
+    }
+```
+
+**Note:** `get_current_limits_ai` depends on `get_current_user_ai` (not `get_current_user`). The existing `get_current_limits` depends on `get_current_user` which calls `_apply_rate_limit()` — using it on AI endpoints would re-introduce the double-limiting bug. Create `get_current_limits_ai` in `dependencies.py` that calls `resolve_tier_limits()` with the user from `get_current_user_ai`. See Milestone 1b §3 for the `remaining_daily`/`limit_daily` quota fields added after rate limiting is in place.
+
+#### 4. Validate-key endpoint
+
+```python
+@router.post("/validate-key")
+async def validate_key(
+    current_user: User = Depends(get_current_user_ai),
+    llm_api_key: str | None = Depends(get_llm_api_key),
+):
+    """Validate a BYOK API key by making a minimal provider call."""
+    if not llm_api_key:
+        raise HTTPException(status_code=400, detail="No API key provided")
+    config = llm_service.resolve_config(AIUseCase.SUGGESTIONS, llm_api_key)
+    # Make a minimal LLM call (short prompt, low max_tokens) to verify the key works
+    # Return {"valid": True} on success
+    # On AuthenticationError → {"valid": False, "error": "Key rejected by provider"}
+```
+
+This endpoint makes a real provider call, so it IS rate-limited (AI_BYOK bucket once Milestone 1b is complete). The settings page "Test connection" button calls this, not `/ai/health`.
+
+#### 5. Models endpoint
+
+```python
+@router.get("/models")
+async def ai_models(
+    current_user: User = Depends(get_current_user_ai),
+):
+    """Return curated list of supported models and per-use-case defaults."""
+    return {
+        "models": SUPPORTED_MODELS,
+        "defaults": {
+            uc.value: llm_service.get_model_for_use_case(uc)
+            for uc in AIUseCase
+        },
+    }
+```
+
+The model list is server-driven — adding a new supported model doesn't require a frontend deploy. The `defaults` map shows the platform model per use case. The curated list is stored as a constant `SUPPORTED_MODELS` (e.g. in `llm_service.py` or a dedicated module), not in the database.
+
+No AI rate limit consumed — this is a configuration endpoint, not an LLM call.
+
+**Curated model list — GA models only (no preview/experimental).** Preview models lack stability guarantees, have lower rate limits, and can be shut down without notice (e.g. Gemini 3 Pro Preview was shut down March 9, 2026). When preview models go GA, they're added to this list — a one-line constant change.
+
+```python
+# Static metadata per model — id, provider, tier are manually maintained
+_SUPPORTED_MODEL_DEFS = [
+    # Google Gemini
+    {"id": "gemini/gemini-2.5-flash-lite", "provider": "google", "tier": "budget"},
+    {"id": "gemini/gemini-2.5-flash",      "provider": "google", "tier": "balanced"},
+    {"id": "gemini/gemini-2.5-pro",         "provider": "google", "tier": "flagship"},
+    # OpenAI
+    {"id": "openai/gpt-5.4-nano",          "provider": "openai", "tier": "budget"},
+    {"id": "openai/gpt-5.4-mini",          "provider": "openai", "tier": "balanced"},
+    {"id": "openai/gpt-5.4",               "provider": "openai", "tier": "flagship"},
+    # Anthropic
+    {"id": "anthropic/claude-haiku-4-5",    "provider": "anthropic", "tier": "budget"},
+    {"id": "anthropic/claude-sonnet-4-6",   "provider": "anthropic", "tier": "balanced"},
+    {"id": "anthropic/claude-opus-4-6",     "provider": "anthropic", "tier": "flagship"},
+]
+
+def build_supported_models() -> list[dict]:
+    """Build the supported models list with pricing from LiteLLM's SDK.
+    Called at startup. Pricing auto-updates with LiteLLM version bumps."""
+    models = []
+    for defn in _SUPPORTED_MODEL_DEFS:
+        model_id = defn["id"]
+        entry = {**defn}
+        # Populate pricing from LiteLLM's model cost map (e.g. litellm.model_cost)
+        # Verify during implementation which SDK function returns per-model pricing
+        cost_info = litellm.model_cost.get(model_id)
+        if cost_info:
+            entry["input_cost_per_million"] = cost_info["input_cost_per_token"] * 1_000_000
+            entry["output_cost_per_million"] = cost_info["output_cost_per_token"] * 1_000_000
+        else:
+            logger.warning("model_cost_not_found", model_id=model_id)
+            # Omit cost fields — frontend shows tier only
+        models.append(entry)
+    return models
+
+SUPPORTED_MODELS = build_supported_models()
+```
+
+All 9 models support structured output (Pydantic `response_format`). The list is 3 providers × 3 tiers (budget / balanced / flagship) — scannable and covers all price points. The `tier` field can be used by the frontend to group the dropdown or to recommend models per use case in the future. Pricing is populated from LiteLLM's SDK at startup — never hardcoded.
+
+**Notes for implementation:**
+- Verify the exact LiteLLM model ID prefixes (e.g. `openai/gpt-5.4` vs `gpt-5.4`). The `_PROVIDER_KEY_MAP` must match.
+- Verify which LiteLLM SDK function returns per-model pricing (likely `litellm.model_cost` or `litellm.get_model_cost_map()`). The token-level costs need to be converted to per-million for display.
+- Investigate whether LiteLLM provides a friendly display name for models or whether we maintain our own `id → name` mapping. Decide whether the display name should include the provider (e.g. "Google Gemini 2.5 Flash Lite" vs "Gemini 2.5 Flash Lite") based on what looks clearest in the dropdown.
+- If a model isn't in LiteLLM's cost map, log a warning and omit cost fields — the frontend falls back to showing tier only.
+- The model IDs in this plan (e.g. `openai/gpt-5.4-nano`) are templates based on research. Substitute with whatever models are actually available and recognized by the installed LiteLLM version. The curated list structure (3 providers × 3 tiers) stays the same — use real model IDs.
+
+#### 6. BYOK header extraction
+
+A new dependency that optionally extracts the user's API key from the `X-LLM-Api-Key` header. This is separate from auth — the user is still authenticated via JWT/PAT as normal.
+
+```python
+def get_llm_api_key(request: Request) -> str | None:
+    return request.headers.get("X-LLM-Api-Key")
+```
+
+#### 7. Register router in `api/main.py`
+
+Add `app.include_router(ai_router)` alongside existing routers.
+
+### Testing Strategy
+
+- **Unit tests for LLMService:**
+  - `resolve_config(SUGGESTIONS)` returns platform config with correct model
+  - `resolve_config(CHAT)` returns a different model than `resolve_config(SUGGESTIONS)` (when configured differently)
+  - `resolve_config` with user key → `KeySource.USER`, uses user's key
+  - `resolve_config` with user key + supported user model → uses both
+  - `resolve_config` with user key + unsupported user model → raises `ValueError` (SSRF prevention via allowlist)
+  - `resolve_config` with user key + no model → falls back to use-case default model
+  - `resolve_config` without user key → `KeySource.PLATFORM`, ignores user model choice
+  - `_resolve_platform_key` correctly maps `gemini/...` → gemini key, `anthropic/...` → anthropic key, `gpt-...` → openai key
+  - `_resolve_platform_key` raises `ValueError` for unknown provider prefix
+  - `complete` calls `acompletion` with correct args including `timeout=30` and `num_retries=1` (mock LiteLLM)
+  - `complete` with `response_format` passes Pydantic model through
+  - `complete` returns cost via `completion_cost()` (not `_hidden_params`)
+  - `stream` calls `acompletion` with `timeout=60` and no `num_retries`
+  - LiteLLM exceptions propagate from service (not caught internally)
+
+- **Router-level error handling tests (shared exception handler on AI router):**
+  - LiteLLM `AuthenticationError` → `llm_auth_failed` (422)
+  - LiteLLM `RateLimitError` → `llm_rate_limited` (429)
+  - LiteLLM timeout → `llm_timeout` (504)
+  - LiteLLM `BadRequestError` → `llm_bad_request` (400)
+  - LiteLLM `APIConnectionError` → `llm_connection_error` (502)
+  - Unknown LiteLLM error → `llm_unavailable` (503)
+
+- **Integration tests for `/ai/health`:**
+  - Pro user → `available: true`
+  - Free user → `available: false`
+  - Pro user with `X-LLM-Api-Key` header → `byok: true`
+  - Does not trigger global rate limiter (no WRITE/READ quota consumed via `get_current_limits_ai`)
+
+- **Integration tests for `/ai/validate-key`:**
+  - Valid BYOK key → `{"valid": true}`
+  - Invalid BYOK key → `{"valid": false, "error": "..."}`
+  - No key provided → 400
+  - Rate limited under AI_BYOK bucket (once 1b is complete)
+
+- **Integration tests for `/ai/models`:**
+  - Returns curated model list with id, name, provider, costs
+  - Returns per-use-case defaults matching settings configuration
+
+- **Smoke tests per supported model (skipped if provider API key not set):**
+  - For each model in `SUPPORTED_MODELS`, make a minimal `complete()` call with a simple prompt and a Pydantic `response_format` (structured output)
+  - Assert: response is valid, structured output parses correctly, `completion_cost()` returns non-zero
+  - Skip via pytest marker per provider (e.g. `@pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"))`) so CI without keys still passes
+  - Run manually before deploys or on a schedule to catch provider/model changes early
+  - Also validates `_PROVIDER_KEY_MAP` mappings and LiteLLM model ID prefixes — if a prefix is wrong, the smoke test fails
+
+---
+
+## Milestone 1b: AI Rate Limiting
+
+### Goal & Outcome
+
+After this milestone:
+
+- AI rate limits are enforced per tier via two new operation types (`AI_PLATFORM` / `AI_BYOK`)
+- A dedicated `get_current_user_ai` auth dependency skips global rate limiting (prevents double-limiting)
+- A separate AI rate limit dependency selects the correct bucket based on the BYOK header
+- `/ai/health` is exempt from AI rate limiting and returns remaining quota
+- The foundation is in place for all AI endpoints to be properly gated
+
+### Implementation Outline
+
+#### 1. AI rate limits (`backend/src/core/tier_limits.py`)
+
+Add new AI rate limit fields to `TierLimits`. These map to two new operation types — `AI_PLATFORM` and `AI_BYOK`:
 
 ```python
 # AI rate limits (platform key)
@@ -191,232 +411,293 @@ Proposed values:
 |------|--------|--------|-------------|-------------|
 | Free | 0 | 0 | 0 | 0 |
 | Standard | 0 | 0 | 0 | 0 |
-| Pro | 15 | 100 | 60 | 1000 |
+| Pro | 30 | 500 | 120 | 2000 |
 | Dev | 1000 | 10000 | 1000 | 10000 |
 
-The rate limit check will select platform or BYOK limits based on whether `X-LLM-Api-Key` header is present.
+#### 2. Rate limit integration
 
-#### 4. Rate limit integration
+Add `AI_PLATFORM` and `AI_BYOK` to the `OperationType` enum in `rate_limit_config.py`. Update the `SENSITIVE` operation type's comment to remove AI/LLM from its scope (it currently claims `# Future: AI/LLM endpoints, bulk operations` — AI now has its own types).
 
-Add `AI` to the `OperationType` enum in `rate_limit_config.py`. The `/ai/*` path prefix maps to this operation type. The rate limit middleware/dependency needs to know whether the request is BYOK to select the right limits.
+**Do NOT map `/ai/*` in the global path-based rate limiter.** The existing auth dependencies (`get_current_user`, `get_current_user_auth0_only`, etc.) all call `_apply_rate_limit()`, which maps requests to READ/WRITE/SENSITIVE via `get_operation_type()`. If AI endpoints used these dependencies, a POST to `/ai/suggest-tags` would consume WRITE quota *and* AI quota — double-limiting.
 
-#### 5. Cost tracking via Redis
+**Solution:** Create a new `get_current_user_ai` auth dependency that:
+1. Authenticates the user (Auth0-only, blocks PATs)
+2. Checks consent
+3. Does **NOT** call `_apply_rate_limit()` — skips the global route-based limiter entirely
 
-After each LLM call, record cost and request count in Redis using pipelined `HINCRBYFLOAT`/`HINCRBY`. Two keys per call:
+Then create a separate AI rate limit dependency (`apply_ai_rate_limit`) used by `/ai/` router endpoints:
+1. Checks whether the `X-LLM-Api-Key` header is present — if absent, returns early (no quota consumed for invalid requests like validate-key without a key)
+2. Selects `AI_BYOK` operation type (only BYOK calls are rate-limited by this dependency; platform AI calls will use it in Milestone 2)
+3. Calls `check_rate_limit()` with the appropriate type
+4. Stores the result in `request.state.rate_limit_info` so the `RateLimitHeadersMiddleware` adds `X-RateLimit-*` headers to successful responses (same pattern as the global rate limiter)
+
+This keeps AI rate limiting fully isolated from the global auth pipeline.
+
+`/ai/health` and `/ai/models` are exempt from AI rate limiting — they are configuration/status endpoints, not LLM calls. They use `get_current_user_ai` for auth but do not depend on the AI rate limit dependency.
+
+**Zero-limit short-circuit:** `check_rate_limit()` short-circuits for tiers with zero limits (FREE/STANDARD AI) — returns denied immediately without hitting Redis. This avoids unnecessary Redis round-trips for a foregone conclusion.
+
+**`UserLimitsResponse` sync:** Add `rate_ai_per_minute`, `rate_ai_per_day`, `rate_ai_byok_per_minute`, `rate_ai_byok_per_day` to `UserLimitsResponse` in `schemas/user_limits.py` and `UserLimits` in `frontend/src/types.ts` to keep the API contract and frontend type in sync.
+
+#### 3. Create `get_current_limits_ai` dependency
+
+The existing `get_current_limits` in `dependencies.py` depends on `get_current_user` (which calls `_apply_rate_limit()`). Using it on AI endpoints would re-introduce double-limiting. Create `get_current_limits_ai` that depends on `get_current_user_ai` instead:
+
+```python
+def get_current_limits_ai(
+    current_user: CachedUser = Depends(get_current_user_ai),
+    settings: Settings = Depends(get_settings),
+) -> TierLimits:
+    """Get tier limits for AI endpoints (no global rate limiting triggered)."""
+    return resolve_tier_limits(current_user.tier, dev_mode=settings.dev_mode)
+```
+
+#### 4. Update `/ai/health` to return remaining quota
+
+Update the health endpoint to read the AI rate limit bucket from Redis and return `remaining_daily` and `limit_daily`:
+
+```python
+@router.get("/health")
+async def ai_health(
+    current_user: User = Depends(get_current_user_ai),
+    limits: TierLimits = Depends(get_current_limits_ai),
+    llm_api_key: str | None = Depends(get_llm_api_key),
+):
+    """Check if AI features are available for this user. No AI rate limit consumed."""
+    has_byok = llm_api_key is not None
+    ai_bucket = OperationType.AI_BYOK if has_byok else OperationType.AI_PLATFORM
+    quota = await get_rate_limit_status(current_user.id, ai_bucket, get_tier_safely(current_user.tier))
+    return {
+        "available": limits.rate_ai_per_day > 0 or (has_byok and limits.rate_ai_byok_per_day > 0),
+        "byok": has_byok,
+        "remaining_daily": quota.remaining,
+        "limit_daily": quota.limit,
+    }
+```
+
+#### 5. Replace temporary auth dependency
+
+Replace the `get_current_user_auth0_only` placeholder from Milestone 1a with `get_current_user_ai` on all `/ai/` endpoints. Replace `get_current_limits` with `get_current_limits_ai` on all `/ai/` endpoints.
+
+### Testing Strategy
+
+- **Unit tests for auth:**
+  - `get_current_user_ai` authenticates user (Auth0-only, blocks PATs)
+  - `get_current_user_ai` checks consent
+  - `get_current_user_ai` does NOT call `_apply_rate_limit()` (no WRITE/READ quota consumed)
+
+- **Unit tests for rate limits:**
+  - Pro tier has non-zero AI limits (both platform and BYOK)
+  - Free/Standard tiers have zero AI limits (both platform and BYOK)
+  - BYOK limits are higher than platform limits for Pro
+  - Zero-limit tiers short-circuit without hitting Redis
+  - AI rate limit dependency selects `AI_BYOK` when `X-LLM-Api-Key` header present
+  - AI rate limit dependency returns early (no quota consumed) when no BYOK key present
+  - `/ai/health` does not consume AI quota
+  - `/ai/models` does not consume AI quota
+
+- **Integration tests for AI rate limiting:**
+  - `remaining_daily` and `limit_daily` present in health response
+  - After N AI calls, `remaining_daily` reflects correct remaining count (reads from Redis AI bucket)
+  - `validate-key` without BYOK key returns 400 without consuming quota
+  - Successful AI-limited responses include `X-RateLimit-*` headers
+  - AI endpoint calls do not consume global READ/WRITE rate limit quota (isolation test)
+
+---
+
+## Milestone 1c: Cost Tracking + Flush
+
+### Goal & Outcome
+
+After this milestone:
+
+- Every LLM call records cost in Redis with hourly buckets
+- A structured info log is emitted per LLM call for audit trail
+- An hourly Railway cron job flushes Redis cost data to a Postgres `ai_usage` table
+- Cost data is durable and queryable for analytics and spend monitoring
+
+### Implementation Outline
+
+#### 1. Cost tracking via Redis
+
+After each LLM call, record cost and request count in Redis using pipelined `HINCRBYFLOAT`/`HINCRBY`. One key per unique combination of user + hour + use_case + model + key_source:
 
 ```
-# Per-user daily totals (for user dashboards, budget caps)
-ai_stats:user:{user_id}:{date}
-  → fields: cost (float), count (int)
-
-# Per-dimension breakdown (for operational analytics)
-ai_stats:detail:{date}:{use_case}:{model}:{key_source}
+ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}
   → fields: cost (float), count (int)
 ```
+
+Where `{hour}` is formatted as `YYYY-MM-DDTHH` (e.g. `2026-04-05T14`).
+
+Each key maps 1:1 to a row in the `ai_usage` table. No separate "detail" keys — operational analytics (total cost by model, cost by use case) come from `GROUP BY` queries on the table.
 
 All keys get a 7-day TTL as a safety net.
 
-**Cost calculation:**
-- Non-streaming: use `response._hidden_params['response_cost']` directly (works for all providers)
-- Streaming: use `completion_cost(model=model, prompt=prompt_text, completion=full_response_text)` after stream is consumed (verified in PoC notebook — `_hidden_params['response_cost']` returns `0.0` for streaming across all providers)
+**Cost calculation:** Use `completion_cost(completion_response=response)` for both streaming and non-streaming. This is LiteLLM's public API — do not use `_hidden_params['response_cost']` which is private and has broken across versions. For streaming, call `completion_cost()` after the stream is fully consumed. Wrap in try/except — if cost calculation fails (e.g. LiteLLM version has stale pricing data), return 0.0 and log a warning. Cost tracking must never break a successful LLM response. For platform keys, add a test asserting cost is non-zero to catch LiteLLM version drift early.
 
-Redis update is fire-and-forget (wrapped in try/except, never blocks the response). If Redis is down, the call still succeeds — cost data is lost for that call but the user isn't affected.
+**Logging:** Every LLM call emits a structured info log *before* the Redis write: `logger.info("llm_call", user_id=..., use_case=..., model=..., key_source=..., cost=..., latency_ms=...)`. This provides a complete audit trail and secondary data source for reconciliation. Log metadata only — never log prompts, completions, or API keys.
+
+Redis update is fire-and-forget (wrapped in try/except, never blocks the response). If Redis is down, the call still succeeds — cost data is lost for that call but the user isn't affected. On Redis failure, log a structured warning (`logger.warning("cost_tracking_failed", user_id=..., cost=..., use_case=..., reason=...)`).
 
 ```python
-# In LLMService or a helper called after each LLM call
 async def track_cost(
     redis: RedisClient,
-    user_id: int,
+    user_id: UUID,
     use_case: AIUseCase,
     model: str,
     key_source: KeySource,
     cost: float,
 ) -> None:
-    date = datetime.utcnow().strftime("%Y-%m-%d")
+    hour = datetime.utcnow().strftime("%Y-%m-%dT%H")
     ttl = 7 * 86400  # 7 days
 
     pipe = await redis.pipeline()
     if pipe is None:
         return
 
-    user_key = f"ai_stats:user:{user_id}:{date}"
-    detail_key = f"ai_stats:detail:{date}:{use_case}:{model}:{key_source}"
+    key = f"ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}"
 
-    pipe.hincrbyfloat(user_key, "cost", cost)
-    pipe.hincrby(user_key, "count", 1)
-    pipe.expire(user_key, ttl)
-    pipe.hincrbyfloat(detail_key, "cost", cost)
-    pipe.hincrby(detail_key, "count", 1)
-    pipe.expire(detail_key, ttl)
+    pipe.hincrbyfloat(key, "cost", cost)
+    pipe.hincrby(key, "count", 1)
+    pipe.expire(key, ttl)
 
     await pipe.execute()
 ```
 
-#### 6. Daily cost flush — DB table + Railway cron
+#### 2. Hourly cost flush — DB table + Railway cron
 
-**DB table** (`ai_usage_daily`):
+**DB table** (`ai_usage`) — single-grain fact table with hourly buckets. Generate the migration via `make migration msg='add ai_usage table'` — **never create Alembic migrations manually** (this has been a source of issues).
 
 ```
-date        DATE
-use_case    VARCHAR     -- suggestions, chat, completion, transform
-model       VARCHAR     -- gemini/gemini-2.5-flash-lite, etc.
-key_source  VARCHAR     -- platform, user
-user_id     INT         (nullable — NULL for detail rows, set for per-user rows)
-cost        DECIMAL
-count       INT
+bucket_start    TIMESTAMPTZ     -- truncated to hour
+user_id         UUID NOT NULL
+use_case        VARCHAR         -- suggestions, chat, auto_complete, transform
+model           VARCHAR         -- gemini/gemini-2.5-flash-lite, etc.
+key_source      VARCHAR         -- platform, user
+request_count   INT
+total_cost      DECIMAL
+UNIQUE (bucket_start, user_id, use_case, model, key_source)
 ```
 
-Both per-user and per-dimension stats go in the same table. Detail rows have `user_id = NULL`.
+One grain, one table. Global analytics (total cost by model, cost by use case) are derived via `GROUP BY` — no mixed-grain rows with `user_id = NULL`. Hourly buckets provide enough resolution for operational monitoring without excessive row count.
 
-**Railway cron service** — runs daily at 00:30 UTC. Uses the same `Dockerfile.api` as the API service with a different start command. This shares all backend code (DB models, Redis client, settings) without duplication.
+##### Flush function
 
-Railway configuration:
-- Dockerfile: `Dockerfile.api` (same as API)
-- Start command override: `uv run python -m tasks.daily`
-- Schedule: `30 0 * * *`
-
-The `tasks.daily` entrypoint (`backend/src/tasks/daily.py`) runs all daily tasks sequentially:
-1. Flush AI usage from Redis to DB
-2. Cleanup trash (soft-deleted items past retention)
-3. Cleanup old history records
-
-Each task logs its results. If one fails, it logs the error and continues to the next.
+Create `async def flush_ai_usage(db: AsyncSession, redis: RedisClient) -> None` in a new module `backend/src/tasks/ai_usage_flush.py`. This is a standalone, independently testable function — it does not depend on or call `run_cleanup()`.
 
 The flush step:
-1. Scan for yesterday's keys (`ai_stats:user:*:{yesterday}` and `ai_stats:detail:{yesterday}:*`)
-2. Read all hashes
-3. Upsert summary rows into `ai_usage_daily`
-4. Delete processed keys only after successful DB write
+1. Scan for all `ai_stats:*` keys with an hour stamp older than the current hour (not just the previous hour — this ensures skipped hours are recovered if the cron misses runs)
+2. Parse each key to extract user_id, hour, use_case, model, key_source
+3. Read all hashes (cost, count)
+4. Upsert rows into `ai_usage` (`INSERT ON CONFLICT UPDATE`, incrementing `request_count` and `total_cost`)
+5. Delete processed Redis keys only after successful DB write
+6. Log summary: number of keys processed, total cost flushed
 
-**Note:** `litellm` must be moved from dev dependencies to main dependencies in `pyproject.toml` before deploying (currently only installed with `--no-dev` excluded).
-
-#### 7. AI Router (`backend/src/api/routers/ai.py`)
-
-```python
-router = APIRouter(prefix="/ai", tags=["ai"])
-
-@router.get("/health")
-async def ai_health(
-    current_user: User = Depends(get_current_user),
-    limits: TierLimits = Depends(get_current_limits),
-    llm_api_key: str | None = Depends(get_llm_api_key),
-):
-    """Check if AI features are available for this user."""
-    has_byok = llm_api_key is not None
-    return {
-        "available": limits.rate_ai_per_day > 0 or (has_byok and limits.rate_ai_byok_per_day > 0),
-        "byok": has_byok,
-        "use_case_models": {
-            uc.value: llm_service.get_model_for_use_case(uc)
-            for uc in AIUseCase
-        },
-    }
-```
-
-#### 8. BYOK header extraction
-
-A new dependency that optionally extracts the user's API key from the `X-LLM-Api-Key` header. This is separate from auth — the user is still authenticated via JWT/PAT as normal.
+The module also has a `main()` entrypoint for cron invocation. Follow the same session/Redis initialization pattern as `backend/src/tasks/cleanup.py` — create engine and session directly, get the Redis singleton. Do NOT use FastAPI DI helpers (`get_async_session`, etc.) which are designed for request-scoped dependency injection, not standalone scripts.
 
 ```python
-def get_llm_api_key(request: Request) -> str | None:
-    return request.headers.get("X-LLM-Api-Key")
+async def main() -> None:
+    """Entrypoint for Railway cron."""
+    # Follow cleanup.py pattern: create engine, session factory, and Redis client directly
+    engine = create_async_engine(settings.database_url)
+    async_session = async_sessionmaker(engine)
+    redis = get_redis_client()  # global singleton
+
+    async with async_session() as db:
+        await flush_ai_usage(db, redis)
+
+    await engine.dispose()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-#### 9. Register router in `api/main.py`
-
-Add `app.include_router(ai_router)` alongside existing routers.
+Railway deployment and verification are covered in the Deployment milestone at the end of this plan.
 
 ### Testing Strategy
 
-- **Unit tests for LLMService:**
-  - `resolve_config(SUGGESTIONS)` returns platform config with correct model
-  - `resolve_config(CHAT)` returns a different model than `resolve_config(SUGGESTIONS)` (when configured differently)
-  - `resolve_config` with user key → `KeySource.USER`, uses user's key
-  - `resolve_config` with user key + user model → uses both
-  - `resolve_config` with user key + no model → falls back to use-case default model
-  - `resolve_config` without user key → `KeySource.PLATFORM`, ignores user model choice
-  - `_resolve_platform_key` correctly maps `gemini/...` → gemini key, `anthropic/...` → anthropic key, `gpt-...` → openai key
-  - `_resolve_platform_key` raises clear error for unknown provider prefix
-  - `complete` calls `acompletion` with correct args (mock LiteLLM)
-  - `complete` with `response_format` passes Pydantic model through
-  - Error handling: LiteLLM raises `AuthenticationError` (bad key) → surfaced cleanly
-  - Error handling: LiteLLM raises `RateLimitError` (provider rate limit) → surfaced cleanly
-  - Error handling: LiteLLM raises timeout → surfaced cleanly
-
-- **Unit tests for rate limits:**
-  - Pro tier has non-zero AI limits (both platform and BYOK)
-  - Free/Standard tiers have zero AI limits (both platform and BYOK)
-  - BYOK limits are higher than platform limits for Pro
-  - AI operation type correctly identified for `/ai/*` paths
-  - Rate limit check uses BYOK limits when `X-LLM-Api-Key` is present
-  - Rate limit check uses platform limits when no BYOK header
-
 - **Unit tests for cost tracking:**
-  - `track_cost` writes to both user and detail Redis keys
-  - `track_cost` with Redis unavailable → no error raised (fire-and-forget)
-  - Correct key format: `ai_stats:user:{user_id}:{date}` and `ai_stats:detail:{date}:{use_case}:{model}:{key_source}`
+  - `track_cost` writes Redis key with correct format: `ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}`
+  - `track_cost` with Redis unavailable → no error raised, warning logged
   - TTL is set on keys
+  - `completion_cost()` failure → returns 0.0, warning logged, response not broken
+  - Platform key cost is non-zero (catches LiteLLM version drift)
+  - Structured info log emitted on every LLM call (metadata only, no prompts/completions/keys)
 
-- **Unit tests for cost flush cron:**
-  - Reads yesterday's Redis keys → writes correct rows to DB
-  - Handles empty Redis (no keys for yesterday) gracefully
+- **Unit tests for `flush_ai_usage()` (tested independently, not via `run_cleanup`):**
+  - Seed Redis with known keys → flushes correct rows to `ai_usage` table (key segments map 1:1 to table columns)
+  - Scans all keys older than current hour (not just previous hour)
+  - Handles skipped hours: seed keys for 3 different hours → all flushed in one run
+  - Handles empty Redis gracefully
+  - Upserts increment `request_count` and `total_cost` on conflict
   - Deletes processed Redis keys after successful DB write
   - Handles DB write failure → does not delete Redis keys (data preserved for retry)
-
-- **Integration tests for `/ai/health`:**
-  - Pro user → `available: true`
-  - Free user → `available: false`
-  - Pro user with `X-LLM-Api-Key` header → `byok: true`
-  - Response includes use-case model mapping
-  - Rate limit enforcement: exhaust AI limit, next request returns 429
+  - Logs summary with keys processed and total cost flushed
 
 ---
 
 ## Milestone 2: Suggestion Features — Backend
+
+> **Depends on:** Milestone 1a (LLM Service), Milestone 1b (Rate Limiting)
 
 ### Goal & Outcome
 
 After this milestone:
 
 - `POST /ai/suggest-tags` — given item metadata, returns suggested tags
-- `POST /ai/suggest-metadata` — given content/URL, returns suggested title and description
-- `POST /ai/suggest-relationships` — given an item, returns candidate related items
+- `POST /ai/suggest-metadata` — given content/URL, returns suggested title and/or description (controlled by `fields` parameter)
+- `POST /ai/suggest-relationships` — given an item, returns candidate related items via title + tag search
+- `POST /ai/suggest-arguments` — given a prompt template, returns argument names + descriptions
 - All endpoints return structured Pydantic responses
 - All endpoints work with both platform keys and BYOK
+- LLM response validation: malformed responses return 502 (`llm_invalid_response`), not 500
 
 ### Implementation Outline
 
 #### 1. Request/response schemas (`backend/src/schemas/ai.py`)
 
+All string fields have `max_length` validators to prevent cost abuse at the API boundary — a malicious or buggy client sending 100k characters would burn platform API budget without these guards.
+
+All request schemas include an optional `model` field. This is the user's BYOK model override — the LiteLLM model ID from their settings (e.g. `"anthropic/claude-sonnet-4-6"`). The frontend always sends it if the user has an override configured; the backend ignores it when no BYOK key is present (can't use a user-selected model with our platform key). See `LLMService.resolve_config()` in Milestone 1a for the resolution logic.
+
 ```python
 class SuggestTagsRequest(BaseModel):
-    title: str | None = None
-    url: str | None = None
-    description: str | None = None
-    content_snippet: str | None = None  # first N chars of content
-    existing_tags: list[str] = []       # user's current tag vocabulary
+    model: str | None = None             # BYOK model override (ignored without BYOK key)
+    title: str | None = Field(None, max_length=500)
+    url: str | None = Field(None, max_length=2000)
+    description: str | None = Field(None, max_length=1000)
+    content_snippet: str | None = Field(None, max_length=2500)
+    current_tags: list[str] = []        # tags already on this item (for deduplication)
 
 class SuggestTagsResponse(BaseModel):
     tags: list[str]
 
 class SuggestMetadataRequest(BaseModel):
-    url: str | None = None
-    title: str | None = None
-    content_snippet: str | None = None
+    model: str | None = None             # BYOK model override (ignored without BYOK key)
+    fields: list[Literal["title", "description"]] = ["title", "description"]  # which fields to generate
+    url: str | None = Field(None, max_length=2000)
+    title: str | None = Field(None, max_length=500)        # context when generating description
+    description: str | None = Field(None, max_length=1000) # context when generating title
+    content_snippet: str | None = Field(None, max_length=2500)
 
 class SuggestMetadataResponse(BaseModel):
-    title: str
-    description: str
+    title: str | None = None       # None when not requested via fields
+    description: str | None = None # None when not requested via fields
 
 class SuggestRelationshipsRequest(BaseModel):
-    entity_id: str
-    entity_type: str  # bookmark, note, prompt
+    model: str | None = None             # BYOK model override (ignored without BYOK key)
+    source_id: str | None = None         # source item ID for self-match exclusion
+    title: str | None = Field(None, max_length=500)
+    url: str | None = Field(None, max_length=2000)
+    description: str | None = Field(None, max_length=1000)
+    content_snippet: str | None = Field(None, max_length=2500)
+    current_tags: list[str] = []                  # for tag-based candidate search
+    existing_relationship_ids: list[str] = []     # for deduplication
 
 class RelationshipCandidate(BaseModel):
     entity_id: str
     entity_type: str
     title: str
-    reasoning: str
 
 class SuggestRelationshipsResponse(BaseModel):
     candidates: list[RelationshipCandidate]
@@ -426,41 +707,67 @@ class SuggestRelationshipsResponse(BaseModel):
 
 Store prompt templates as constants in a module (e.g. `backend/src/services/llm_prompts.py`). These are system prompts that instruct the LLM on how to respond. Keep them simple and iterate.
 
+**Data boundary:** The client sends item context (title, url, description, content_snippet, current_tags) because the item may not be saved yet or may have unsaved edits. The server loads user context (tag vocabulary, recent items for few-shot examples) from the database — the client doesn't need to assemble this.
+
 Key design choices for prompts:
-- **Tag suggestions:** Instruct the LLM to prefer reusing tags from `existing_tags` when relevant, and to suggest lowercase, hyphenated tags consistent with the user's existing style.
-- **Metadata suggestions:** Generate concise title and description. The title should be short (under 100 chars). The description should be 1-2 sentences.
-- **Relationship suggestions:** This is a two-step operation. First, search for candidate items (using existing content search). Then send the current item + candidates to the LLM to judge relevance.
+- **Tag suggestions:** The server builds the prompt with:
+  1. The item's metadata from the request (title, url, description, content_snippet)
+  2. The user's tag vocabulary sorted by frequency (queried from DB)
+  3. Few-shot examples: recent items that use the item's `current_tags`, showing title/description + tags. If no current tags, use the user's most recent items instead.
+  4. Instructions: prefer reusing tags from the vocabulary, suggest lowercase hyphenated tags consistent with the user's style, the examples are for style reference only — do not simply duplicate them.
+  5. The response excludes any tags already in `current_tags` (server-side deduplication).
+- **Metadata suggestions:** The `fields` parameter controls which fields are generated (`["title"]`, `["description"]`, or both). The prompt adapts: non-requested fields appear as context ("Title: My Article") while requested fields appear as targets ("Current title (to improve): ..."). Internal response format models (`_TitleOnly`, `_DescriptionOnly`, `_TitleAndDescription`) constrain the LLM's structured output to exactly the requested fields. The title should be short (under 100 chars). The description should be 1-2 sentences.
+- **Relationship suggestions:** Two-step: search for candidates, then LLM judges relevance. Two sequential searches — title (relevance-ranked) and tags (recency-ranked) — provide orthogonal signals. Results are deduped by ID with title results prioritized. Source item excluded via `source_id`. Per candidate: title, type, first 200 chars of description, and first 200 chars of content_preview. Cap at 10 candidates.
+
+**BYOK structured output:** Suggestion endpoints require models that support structured output (Pydantic `response_format`). This works reliably with OpenAI, Gemini, and Anthropic major models. If a BYOK user chooses a model that doesn't support structured output, LiteLLM will raise an error that our error handler surfaces as `llm_bad_request`. The `/ai/health` endpoint should document which capabilities each use case requires so BYOK users can make informed model choices.
 
 #### 3. AI router endpoints
 
 Each endpoint follows the same pattern:
 
-```python
-@router.post("/suggest-tags", response_model=SuggestTagsResponse)
-async def suggest_tags(
-    data: SuggestTagsRequest,
-    current_user: User = Depends(get_current_user),
-    limits: TierLimits = Depends(get_current_limits),
-    llm_api_key: str | None = Depends(get_llm_api_key),
-):
-    if limits.rate_ai_per_day == 0:
-        raise QuotaExceededError(resource="ai", current=0, limit=0)
-    config = llm_service.resolve_config(AIUseCase.SUGGESTIONS, llm_api_key)
-    # Build messages from prompt template + request data
-    # Call llm_service.complete(..., response_format=SuggestTagsResponse)
-    # Track cost via Redis
-    # Return parsed response
-```
+Each endpoint uses `apply_ai_rate_limit` (enforces AI_PLATFORM or AI_BYOK based on BYOK header — zero-limit tiers get 429 immediately). `validate-key` keeps `apply_ai_rate_limit_byok` (BYOK-only, returns early without key).
+
+LLM response parsing uses `_parse_llm_response()` which catches `ValidationError` and returns HTTP 502 with `llm_invalid_response` error code — not a bare 500. Cost is tracked before parsing (via `track_cost()`) so provider billing is always recorded even when response parsing fails.
 
 #### 4. Relationship suggestions — search step
 
-The `/ai/suggest-relationships` endpoint needs to first find candidate items to evaluate. Use the existing `ContentService` search to find items with similar tags or text, then pass the top N candidates to the LLM for relevance judgment.
+The `/ai/suggest-relationships` endpoint finds candidate items via search, then asks the LLM to judge relevance.
 
-**Open question:** What's the right search strategy for candidates? Options:
-- Search by the current item's tags
-- Search by the current item's title as a text query
-- Both, deduplicated
-- How many candidates to send to the LLM? 10? 20?
+**Search strategy:** Two sequential searches (not concurrent — `AsyncSession` is not safe for concurrent use):
+1. **Title search** (`sort_by="relevance"`, `limit=10`) — full-text relevance ranking against the item's title
+2. **Tag search** (`tags=current_tags`, `tag_match="any"`, `sort_by="updated_at"`, `limit=10`) — items sharing any of the source item's tags, ordered by recency
+
+Results are deduped by ID with title results prioritized (first-seen ordering). Source item excluded via `source_id`. Existing relationships excluded via `existing_relationship_ids`. Cap at 10 candidates.
+
+Per candidate, send to the LLM: title, type, entity_id, first 200 chars of description, and first 200 chars of content_preview. Returns empty list (no LLM call) if no title and no tags, or if search returns no candidates after filtering.
+
+#### 5. Prompt argument suggestions
+
+A single endpoint handles all three argument suggestion use cases — the LLM context is the same (prompt content + argument info) and the response format is the same (list of argument objects).
+
+```python
+class SuggestArgumentsRequest(BaseModel):
+    model: str | None = None                    # BYOK model override
+    prompt_content: str | None = Field(None, max_length=5000)  # the prompt template text
+    arguments: list[ArgumentInput] = []         # existing arguments (for context)
+    target: str | None = None                   # which argument to suggest for (name or index); null = generate all
+
+class ArgumentInput(BaseModel):
+    name: str | None = Field(None, max_length=200)
+    description: str | None = Field(None, max_length=500)
+
+class ArgumentSuggestion(BaseModel):
+    name: str
+    description: str
+
+class SuggestArgumentsResponse(BaseModel):
+    arguments: list[ArgumentSuggestion]
+```
+
+**Three use cases, one endpoint:**
+- **Generate all arguments:** Send `prompt_content` with no `target`. Placeholders (`{{ variable }}`) are extracted deterministically via regex — the LLM does not guess at variable names. Existing arguments are excluded before the LLM call. The LLM generates descriptions for the remaining placeholders. If all placeholders already have arguments, returns empty (no LLM call). Response names are validated via `validate_argument_name()` — invalid names are silently filtered.
+- **Suggest argument name:** Send `target` identifying the argument by name, with that argument's `description` populated and `name` empty. The LLM returns a single-item list with a suggested name. `prompt_content` is optional but improves quality.
+- **Suggest argument description:** Send `target` identifying the argument by name, with that argument's `name` populated and `description` empty. The LLM returns a single-item list with a suggested description. `prompt_content` is optional but improves quality.
 
 ### Testing Strategy
 
@@ -470,408 +777,690 @@ The `/ai/suggest-relationships` endpoint needs to first find candidate items to 
   - Free/Standard user → 402 quota exceeded
   - Pro user → success
   - BYOK user → success with user's key passed through
-  - Verify prompt construction includes existing_tags for tag suggestions
+  - Verify prompt construction includes user's tag vocabulary from DB (sorted by frequency)
+  - Verify prompt construction includes few-shot examples from recent items
+  - Verify response excludes tags already in `current_tags`
   - Verify prompt construction truncates content_snippet if too long
+  - Oversized `content_snippet` (exceeds max_length) → 422 validation error
+  - BYOK model without structured output support → `llm_bad_request` error with clear message
 
 - **Unit tests for relationship suggestions:**
   - Search step returns candidates → passed to LLM
   - Search returns no candidates → returns empty list (no LLM call needed)
   - Current item excluded from candidates
+  - Candidate descriptions truncated to 200 chars in prompt
+
+- **Unit tests for argument suggestions:**
+  - Generate all: prompt content with `{{ placeholders }}` → returns name + description per placeholder
+  - Generate all: existing arguments excluded from suggestions
+  - Suggest name: argument with description only → returns suggested name
+  - Suggest description: argument with name only → returns suggested description
+  - No prompt content + no description → still returns best-effort suggestion
+  - Prompt content improves suggestion quality (verified via prompt construction, not output)
+
+- **Cost tracking verification per endpoint:**
+  - Each new AI endpoint must verify that `track_cost()` is called and that cost is non-null for the default platform model. This catches LiteLLM pricing gaps before they reach production as silent `cost=None` values. Test via the integration tests below (assert cost was written to Redis or passed to track_cost).
 
 - **Integration tests (mock LiteLLM, real DB):**
   - End-to-end flow: create a bookmark → call suggest-tags → get tags back
   - Rate limit enforcement: exhaust AI limit → 429
+  - Cost tracking: verify track_cost() receives non-null cost for each endpoint
 
 ---
 
 ## Milestone 3: Suggestion Features — Frontend
 
-### Goal & Outcome
+> **Depends on:** Milestone 2 (Suggestion Backend). Milestone 1c (Cost Tracking) is recommended but not blocking — suggestions work without cost tracking, you just lack spend visibility.
 
-After this milestone:
+Split into sub-milestones to manage scope. Each is independently deployable.
 
-- Users can trigger tag/metadata suggestions from the bookmark/note/prompt edit UI
-- A "Suggest tags" button appears near the tag input
-- A "Suggest title/description" option is available when creating/editing items
-- Suggestion results are shown as selectable options (not auto-applied)
-- AI settings page exists in Settings with BYOK configuration
-- Relationship suggestions are accessible from the item detail view
+---
 
-### Implementation Outline
+### Milestone 3a: AI Store + Settings Page + API Layer
 
-#### 1. AI settings store + settings page
+#### Goal & Outcome
 
-New Zustand store (`stores/aiStore.ts`) for:
-- `apiKey: string | null` — from localStorage
-- `model: string | null` — user's preferred model (only used with BYOK)
-- `setApiKey(key)` / `clearApiKey()` — persist to/from localStorage
-- `isConfigured: boolean` — derived: true if BYOK key is set
+After this sub-milestone:
 
-New settings page section or tab for AI configuration:
-- API key input (masked, with show/hide toggle)
-- Provider/model selection (only enabled when API key is set)
-- Model dropdown: curated short list + "Custom" text field for power users
-- Clear key button
-- Test connection button (calls `/ai/health` with the key)
+- Zustand store manages per-use-case BYOK keys and model overrides (persisted to localStorage)
+- "AI Configuration" settings page with expandable per-use-case rows for API key management and model selection
+- API integration layer with per-use-case request helper (no global interceptor)
+- Feature gating via `/ai/health` — AI UI elements hidden for unsupported tiers, feature descriptions visible to all
+- `/ai/health` response cached in a hook for use across all AI UI components
+- Dual quota display (included + BYOK) when user has any BYOK keys configured
+- AI feature descriptions table on settings page (visible to all tiers for value communication)
+- New `/docs/features/ai` docs page with detailed AI feature documentation
+- Sidebar settings section is collapsible with persisted state
+- Docs link in sidebar settings section (opens in new tab)
 
-#### 2. Tag suggestion UI
+#### Implementation Outline
 
-Near the tag input (in `InlineEditableTags` or the parent component):
-- A small button/icon that triggers `POST /ai/suggest-tags`
-- Loading state while waiting for response
-- Suggested tags appear as selectable chips below the input
-- Clicking a chip adds it to the item's tags
-- "Add all" / "Dismiss" buttons
+##### 1. AI settings store + settings page
 
-The request should include:
-- Current item's title, URL (if bookmark), description, content (first ~2000 chars)
-- User's existing tag vocabulary (from the tags store, which already caches all tags)
+**Zustand store** (`stores/aiStore.ts`):
 
-#### 3. Metadata suggestion UI
+Per-use-case configuration — each use case has its own API key and model override:
+- `useCaseConfigs: Record<AIUseCase, UseCaseConfig>` where `UseCaseConfig = { apiKey: string | null, model: string | null }`. Persisted to localStorage.
+- `setApiKey(useCase, key)` / `clearApiKey(useCase)` — set/clear key for a specific use case. Clearing also resets the model override for that use case.
+- `clearAllKeys()` — reset all use cases to defaults.
+- `setModel(useCase, modelId)` / `clearModel(useCase)` — set/remove a model override for a use case.
+- `getConfig(useCase)` — returns `{ apiKey, model }` for a use case.
 
-On the create/edit form for bookmarks and notes:
-- A "Suggest" button near the title/description fields (or a single button that suggests both)
-- Shows suggested title and description as a preview
-- User can accept (replaces field), edit, or dismiss
-- Only shown when there's enough content to suggest from (e.g. URL or content body exists)
+**Design decision — per-use-case keys instead of a single global key:** A single BYOK key doesn't work across model families (an Anthropic key can't call a Gemini model). Per-use-case keys allow users to configure different providers for different features (e.g., Anthropic for suggestions, OpenAI for chat). This also simplifies `validate-key` — each test connection sends both the key and the selected model, so the backend tests the key against the correct provider.
 
-#### 4. Relationship suggestion UI
+**Settings page** — new page named "AI Configuration" at `/app/settings/ai`, positioned before the existing "AI Integration" (MCP) page. Follows existing settings patterns (`max-w-3xl pt-3`, uses app CSS classes `input`, `select`, `btn-primary`, `btn-secondary`, `btn-ghost`).
 
-On the item detail view, near the relationships section:
-- A "Suggest related items" button
-- Shows candidates with their reasoning
-- User can select which ones to link
-- Creates relationships for selected candidates
+The page fetches `/ai/models` on load to get the curated model list and per-use-case defaults.
 
-#### 5. API integration
+**Quota display:** At the top of the page. Shows "AI calls remaining today: X / Y". When any BYOK key is configured, also shows "Your key: X / Y" — fetched via a second `/ai/health` call with the BYOK key header. The two quota buckets (included and BYOK) are tracked independently by the backend.
 
-All AI API calls include the BYOK key header if configured:
+**Use case rows:** One expandable row per use case (Suggestions, Transform, Auto-Complete, Chat). Each row shows:
+
+**Collapsed state:**
+- Left: Use case label + description (e.g. "Suggestions — Tags, metadata, and relationships")
+- Right: Current model ID (e.g. `gemini/gemini-2.5-flash-lite`) + chevron
+- Model IDs are displayed as-is (not formatted) — they include the provider prefix which is clear to users configuring API keys
+
+**Expanded state** (click to toggle, active use cases only):
+- Model dropdown — populated from `/ai/models`. Shows raw model IDs. Appears as a dropdown as soon as the API key input has any text (driven by local input state, not committed store state). When no key input, shows the default model ID as read-only text.
+- API key input — masked by default, show/hide toggle. Test button and Clear button inline to the right.
+- Test connection — calls `POST /ai/validate-key` with both the key (header) and selected model (body). Success: green checkmark + "Connected". Failure: red inline error.
+- Info text below input about localStorage-only storage.
+
+**Inactive use cases** (Transform, Auto-Complete, Chat): shown with "Coming soon" label, not expandable. Updated as milestones ship — controlled by `ACTIVE_USE_CASES` constant.
+
+##### 2. Feature gating hook
+
+`useAIAvailability()` hook calls `GET /ai/health` and caches the result. Returns `{ available, byok, remainingDaily, limitDaily, isLoading }`. All AI UI components use this to determine whether to show/hide/disable AI features.
+
+**Cache invalidation:** Invalidate after each AI call (not TTL-based). The AI API methods in §6 are the single point where all suggestion calls flow, so invalidation is centralized there — each successful call invalidates the health cache so quota display updates immediately. The settings page's "Test connection" (`validate-key`) also consumes BYOK quota, so it must invalidate the health cache after a successful call too.
+
+##### 3. API integration
+
+See §6 below for the API integration layer (helper function for per-use-case headers, AI API methods).
+
+##### 4. Backend: validate-key accepts model param
+
+`POST /ai/validate-key` accepts an optional `{ model: string | null }` request body via `ValidateKeyRequest` schema. The model is passed to `resolve_config()` so the backend tests the key against the correct provider. If the model is unsupported (not in the allowlist), returns 400. If omitted, falls back to the platform default model for the suggestions use case.
+
+#### Testing (3a)
+
+**Store tests** (`aiStore.test.ts`):
+- setApiKey sets key for a specific use case without affecting others
+- clearApiKey clears key and model for one use case, preserves others
+- clearAllKeys resets all use cases to defaults
+- setModel / clearModel per use case
+- clearModel preserves the API key
+- getConfig returns correct config per use case
+- Default state: all use cases `{ apiKey: null, model: null }`
+
+**API layer tests** (`aiApi.test.ts`):
+- aiRequestConfig returns empty headers + null model when no key configured
+- aiRequestConfig returns X-LLM-Api-Key header when key configured
+- aiRequestConfig returns model override when set
+- aiRequestConfig reads the correct use case config (not another use case's)
+- fetchAIHealth sends no header by default, sends BYOK header when API key provided
+- validateKey sends both key header and model in body for the specified use case
+- validateKey with no key configured sends no header
+- suggestTags/Metadata/Relationships/Arguments pass model + headers from helper
+- All suggestion methods and validateKey invalidate health cache
+
+**Settings page tests** (`SettingsAI.test.tsx`):
+- Renders page heading and use case section with click instruction
+- Renders all four use case rows with descriptions
+- Inactive use cases show "Coming soon", are not expandable
+- Active use case row expands/collapses on click
+- Expanded row shows model as text when no key input
+- Model dropdown appears as soon as key input has text
+- Info text visible inside expanded row
+- Per-use-case key persists to store for specific use case only
+- Password visibility toggle works
+- Clear clears key + model for that use case
+- Test connection success/failure/network-error states
+- Test button disabled when no key entered
+- Test button is inline next to API key input
+- validateKey called with the correct use case
+- Model dropdown shows raw model IDs (not blank)
+- Selecting non-default model sets override, selecting default clears it
+- Uses app CSS classes (select, input, btn-secondary)
+- Models loading spinner and error states
+- Quota display visible when AI available
+- Both included and BYOK quota shown when key is configured
+- Collapsed subtitle shows description and model ID
+
+**Backend tests** (`test_ai.py`):
+- validate-key without model falls back to platform default (existing test, still passes)
+- validate-key with explicit model uses that model for the test call (verifies acompletion receives it)
+- validate-key with unsupported model returns 400
+- All existing rate limit / header tests pass unchanged
+
+---
+
+### Milestone 3b: Tag Suggestion UI
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Suggested tags appear as muted chips when the tag input is opened
+- Clicking a suggestion promotes it to a regular tag
+- Suggestions are server-driven — the frontend sends item context, the server returns tags
+
+#### Implementation Outline
+
+##### Tag suggestion UI
+
+**Trigger:** When the user clicks the tag icon to open the tag input, the frontend fires `POST /ai/suggest-tags` in the background — only if:
+1. AI is available for the user's tier (check `available` from `/ai/health`, see §7 Feature Gating)
+2. The item has at least some context to base suggestions on (title, description, content, or url exists). If the item is completely blank, don't fire — it would waste a rate-limited API call for useless results. No separate button — the suggestion request is tied to the intent of "I'm working on tags."
+
+**Request:** The frontend sends the current item's state:
+- `title`, `url` (if bookmark), `description`, `content_snippet` (first ~2000 chars of content)
+- `current_tags` — the tags currently on this item (may include unsaved selections)
+- `model` — BYOK model override if configured
+
+The server handles all user context (tag vocabulary, few-shot examples) — see Milestone 2 §2.
+
+**Display — detail/edit view:** Suggested tags appear as muted/transparent chips (e.g. dashed border, lower opacity) to the right of the existing tag pills. This visually separates "tags you have" from "tags the AI recommends." Clicking a suggestion promotes it — it moves to the left and adopts the standard chip style (added to the item's tags). Suggestions are dismissed automatically when the tag input is closed.
+
+**Display — list view:** Same interaction. Existing tags appear on the left, suggestions appear to the right in the muted style. Clicking promotes them.
+
+**Deduplication:** The server excludes tags already in `current_tags` from the response. The frontend doesn't need to filter.
+
+**Error handling:** Silent. If the API call fails, no suggestions are shown — the tag input works normally. Log the error to the console. No toast (suggestions are a nice-to-have, not a critical flow).
+
+**Loading state:** Implemented — spinning loader icons added to all suggestion UI components.
+
+#### Testing (3b)
+
+- Tag suggestions: opening tag input triggers suggestion request (if AI available)
+- Tag suggestions: muted chips appear to the right of existing tags
+- Tag suggestions: clicking a suggestion promotes it to a regular tag (moves left, standard style)
+- Tag suggestions: closing tag input clears suggestions
+- Tag suggestions: API error → no suggestions shown, no toast, error logged to console
+- Tag suggestions: not triggered for non-Pro users (no API call fired)
+- Tag suggestions: not triggered when item is completely blank (no title, description, content, or url)
+
+---
+
+### Milestone 3c: Relationship Suggestion UI
+
+#### Lessons from 3b to apply
+
+- **Availability gating:** Call `useAIAvailability()` in the page component (has QueryClient), pass `aiAvailable` as a prop to the detail component. Test every call site — verify no API call fires when `available` is false.
+- **Shared hook pattern:** Create `useRelationshipSuggestions` parallel to `useTagSuggestions`.
+- **Request identity for race conditions:** Use a per-request ID counter (not a shared boolean) to discard stale responses.
+- **Content-based caching:** Single-item cache keyed by content fields. Dismiss updates cache. `clearSuggestions` preserves cache for reopens.
+- **QueryClient test compatibility:** Components that use AI hooks must not call `useAIAvailability` directly — accept `aiAvailable` as a prop. Mock `useAIAvailability` in test files that render without QueryClientProvider.
+- **DropdownPortal:** Already applied to LinkedContentChips — relationship suggestion chips render inline (not in a dropdown), so no portal needed for the chips themselves.
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Relationship suggestions appear as muted chips when the linked content input is opened
+- Clicking a suggestion creates the relationship
+- Follows the established chip suggestion pattern from 3b (tag suggestions)
+
+#### Implementation Outline
+
+Same UX pattern as tag suggestions — suggestions fire in the background, appear as muted chips, click to promote. Detail/edit view only (relationships are not managed from the list view).
+
+**Trigger:** When the user clicks the link icon to open the linked content input, the frontend fires `POST /ai/suggest-relationships` in the background — only if:
+1. AI is available for the user's tier (see §7 Feature Gating)
+2. The item has a title or current_tags (the server searches by title and/or tags — description and content alone are not sufficient). If neither exists, don't fire.
+
+**Request:** The frontend sends the current item's state:
+- `source_id` — the item's ID (if saved) for self-match exclusion
+- `title`, `url` (if bookmark), `description`, `content_snippet` (first ~2000 chars)
+- `current_tags` — used for tag-based candidate search (orthogonal to title search)
+- `existing_relationship_ids` — for deduplication (server excludes these from candidates)
+- `model` — BYOK model override if configured
+
+The server handles all search and LLM work — see Milestone 2 §4.
+
+**Display:** Suggested items appear as muted/transparent chips (same visual treatment as tag suggestions) to the right of existing linked content chips. Clicking a suggestion promotes it — creates the relationship, chip adopts the standard linked content style. Suggestions are dismissed when the linked content input is closed.
+
+**Search strategy:** The server runs two sequential searches — title (relevance-ranked) and tags (recency-ranked) — then deduplicates. See Milestone 2 §4 for details. A note for future: when pgvector semantic search lands, its results can be merged with full-text results for better candidate coverage.
+
+**No candidates:** If search returns zero results, the server returns an empty list without making an LLM call. The frontend shows nothing — no error, no empty state message.
+
+**Error handling:** Silent — same as tag suggestions. Log to console.
+
+**Loading state:** Implemented — spinning loader icons added to all suggestion UI components.
+
+#### Testing (3c)
+
+- Opening linked content input triggers suggestion request (if AI available + item has context)
+- Muted chips appear to the right of existing linked content chips
+- Clicking a suggestion promotes it (creates relationship, standard chip style)
+- Closing linked content input clears suggestions
+- Not triggered when item has no title or tags (context gate)
+- Not triggered for non-Pro users — no API call fires (availability gate)
+- API error → no suggestions shown, error logged to console
+- Race condition: stale response discarded when new request starts
+- Cache: reopening without content change reuses cached suggestions
+- Cache: dismissed suggestions stay dismissed on reopen
+
+**Availability gate (all call sites):**
+- Relationship suggestions in Bookmark detail: verify no API call when aiAvailable=false
+- Relationship suggestions in Note detail: verify no API call when aiAvailable=false
+- Relationship suggestions in Prompt detail: verify no API call when aiAvailable=false
+
+---
+
+### Milestone 3d: Metadata Suggestion UI
+
+#### Lessons from 3b to apply
+
+- **Availability gating:** Pass `aiAvailable` prop from page to component. Test every call site — verify icons hidden and no API call when `available` is false.
+- **QueryClient test compatibility:** Components must not call `useAIAvailability` directly. Mock it in test files that render without QueryClientProvider.
+- **Shared hook pattern:** Create a metadata suggestion hook or integrate into existing patterns. Avoid duplicating wiring across Bookmark/Note/Prompt.
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Sparkle icons appear next to title and description fields
+- Clicking generates a suggestion for the requested field(s)
+- Uses the `fields` parameter to generate only what's needed
+
+#### Implementation Outline
+
+A sparkle/magic icon at the right edge of the title and description input fields on bookmark, note, and prompt edit forms. The interaction is the same across all content types.
+
+**No user context needed:** Unlike tag suggestions, titles and descriptions are content-specific — there's no "user's titling style" to learn from. The client sends item context, the server calls the LLM directly.
+
+**Icon states:**
+1. **Hidden:** User doesn't have AI available (tier check from `/ai/health`, see §7)
+2. **Visible + disabled (grayed out):** User has AI but insufficient context to generate from. Tooltip explains what's needed (e.g. "Add content to enable AI title suggestion").
+3. **Visible + enabled:** Enough context exists. Clickable.
+
+**Visibility conditions:**
+- **Title icon enabled when:** description OR content exists (need something to derive a title from)
+- **Description icon enabled when:** content exists (title alone isn't enough to generate a meaningful description; title + content works, content alone works)
+
+**Behavior:** Clicking the icon calls `POST /ai/suggest-metadata` with the `fields` parameter set based on context:
+- Click title icon with description empty → `fields: ["title", "description"]` (generate both, populate both fields)
+- Click title icon with description filled → `fields: ["title"]` (generate title only, existing description sent as context)
+- Click description icon with title empty → `fields: ["title", "description"]` (generate both, populate both fields)
+- Click description icon with title filled → `fields: ["description"]` (generate description only, existing title sent as context)
+
+On success, only the requested fields are populated in the response (`title: str | None`, `description: str | None`). The frontend updates only the non-null fields. The user can undo via Cmd+Z (standard browser undo) or type over it. No preview/accept/dismiss modal — that's over-engineered for a single text field replacement.
+
+**Error handling:** Same as tag suggestions — silent. If the API fails, nothing happens. Log to console.
+
+**Loading state:** Implemented — spinning loader icons added to all suggestion UI components.
+
+#### Testing (3d)
+
+- Metadata suggestion: icon hidden for non-Pro users — no API call fires (availability gate)
+- Metadata suggestion: icon disabled (grayed out) when insufficient context, tooltip shown
+- Metadata suggestion: title icon enabled when description or content exists
+- Metadata suggestion: description icon enabled when content exists
+- Metadata suggestion: click replaces field content with suggestion
+- Metadata suggestion: `fields` parameter set correctly based on which fields are empty/filled
+- Metadata suggestion: Cmd+Z undoes the replacement
+- Metadata suggestion: API error → nothing happens, error logged to console
+
+**Availability gate (all call sites):**
+- Bookmark detail: verify icon hidden and no API call when aiAvailable=false
+- Note detail: verify icon hidden and no API call when aiAvailable=false
+- Prompt detail: verify icon hidden and no API call when aiAvailable=false
+
+---
+
+### Milestone 3e: Argument Suggestion UI
+
+#### Lessons from 3b/3d to apply
+
+- **Availability gating:** Pass `aiAvailable` prop from page to component. Test every call site — verify icons hidden and no API call when `available` is false.
+- **Sparkle icon pattern:** Same three icon states as metadata suggestions (hidden / disabled with tooltip / enabled). Reuse the pattern established in 3d.
+- **QueryClient test compatibility:** Mock `useAIAvailability` in test files.
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Sparkle icons in the prompt editor's arguments section
+- Generate-all button suggests arguments from template placeholders
+- Individual name/description suggestions for each argument
+
+#### Implementation Outline
+
+Magic icons in the prompt editor's arguments section. Same three icon states as metadata suggestions (hidden / disabled with tooltip / enabled).
+
+**Generate all arguments — magic icon next to the "+" (add argument) button:**
+- Calls `POST /ai/suggest-arguments` with `prompt_content` and existing `arguments`, no `target`
+- On success, appends the suggested arguments to the existing list
+- **Icon enabled when:** prompt content exists
+- **Icon disabled tooltip:** "Add prompt content to enable AI argument generation"
+
+**Suggest argument name — magic icon next to the argument name field:**
+- Calls `POST /ai/suggest-arguments` with `target` set to this argument, description populated
+- On success, replaces the name field. Cmd+Z to undo.
+- **Icon enabled when:** argument description exists
+- **Icon disabled tooltip:** "Add a description to suggest a name"
+
+**Suggest argument description — magic icon next to the argument description field:**
+- Calls `POST /ai/suggest-arguments` with `target` set to this argument, name populated
+- On success, replaces the description field. Cmd+Z to undo.
+- **Icon enabled when:** argument name exists
+- **Icon disabled tooltip:** "Add a name to suggest a description"
+
+`prompt_content` is sent when available (improves quality) but is not required for individual name/description suggestions.
+
+**Error handling:** Silent — same pattern as other suggestions. Log to console.
+
+**Loading state:** Implemented — spinning loader icons added to all suggestion UI components.
+
+#### Testing (3e)
+
+- Generate-all icon enabled when prompt content exists, disabled otherwise
+- Generate-all appends suggestions to existing argument list
+- Suggest-name icon enabled when argument description exists
+- Suggest-description icon enabled when argument name exists
+- Click replaces field content, Cmd+Z undoes
+- All icons hidden for non-Pro users — no API call fires (availability gate)
+- API error → nothing happens, error logged to console
+
+**Availability gate:**
+- Argument suggestion icons in prompt editor: verify icons hidden and no API call when aiAvailable=false
+
+---
+
+### Milestone 3f: Pricing/Docs Sync
+
+#### Goal & Outcome
+
+After this sub-milestone:
+
+- Pricing page shows AI rate limits per tier
+- LandingPage FAQ updated if it mentions limits
+- llms.txt includes AI rate limit information
+- All frontend types are in sync with backend schemas
+
+#### Implementation Outline
+
+Update the following files with AI rate limit information:
+- `frontend/src/pages/Pricing.tsx` — add AI calls row to pricing comparison table
+- `frontend/src/pages/LandingPage.tsx` — update FAQ if it mentions limits
+- `frontend/public/llms.txt` — add AI rate limits to Tier Limits section
+
+#### Testing (3f)
+
+- Pricing page displays AI rate limit information per tier
+- AI rate limit values match backend tier configuration
+
+---
+
+### Cross-cutting: API integration (shared by 3a-3d)
+
+#### 6. API integration
+
+All AI API calls include the per-use-case BYOK key header and model override:
 
 ```tsx
-const aiApi = {
-  suggestTags: (data: SuggestTagsRequest) =>
-    api.post<SuggestTagsResponse>('/ai/suggest-tags', data, {
-      headers: aiStore.apiKey ? { 'X-LLM-Api-Key': aiStore.apiKey } : {},
-    }),
-  // ...
+// Helper reads the correct key+model for a use case from the store
+function aiRequestConfig(useCase: AIUseCase) {
+  const config = useAIStore.getState().getConfig(useCase)
+  return {
+    model: config.model,
+    headers: config.apiKey ? { 'X-LLM-Api-Key': config.apiKey } : {},
+  }
+}
+
+export async function suggestTags(data: SuggestTagsRequest) {
+  const { model, headers } = aiRequestConfig('suggestions')
+  const response = await api.post('/ai/suggest-tags', { ...data, model }, { headers })
+  invalidateHealthCache()
+  return response.data
 }
 ```
 
-**Open question:** Should the BYOK header be added via an axios interceptor (like auth) or per-request? Per-request is simpler since only `/ai/` endpoints need it. But an interceptor keeps it DRY if we add more AI endpoints over time. Leaning toward interceptor that only adds the header for `/ai/` paths.
+**Design decision — helper function instead of axios interceptor:** With per-use-case keys, the interceptor pattern is a poor fit because it sees the URL but doesn't know which use case the request serves. Each API method already knows its use case, so the helper function reads the correct config directly. This is explicit, debuggable, and doesn't require extending axios types. The auth token interceptor remains — it applies uniformly to all requests, which is the right use case for interceptors.
 
-#### 6. Feature gating
+#### 7. Feature gating
 
 AI features should be hidden/disabled for users whose tier doesn't support them. The `/ai/health` endpoint (or the user's limits from `useLimits()`) tells the frontend whether AI is available. Don't show suggestion buttons to Free/Standard users — or show them disabled with an upgrade prompt.
 
-### Testing Strategy
+**Sync AI rate limit fields to frontend:** The backend `UserLimitsResponse` schema was updated in Milestone 1b to include `rate_ai_per_minute`, `rate_ai_per_day`, `rate_ai_byok_per_minute`, `rate_ai_byok_per_day`. The frontend `UserLimits` type was already updated in 1b. Pricing page, landing page, and llms.txt sync is covered in Milestone 3e.
 
-- **Component tests:**
-  - Tag suggestion button: click → loading state → shows suggested tags → click tag adds it
-  - Tag suggestion button: hidden for non-Pro users
-  - Metadata suggestion: shows preview, accept replaces fields
-  - AI settings: entering key persists to localStorage, clearing removes it
-  - AI settings: test connection button calls health endpoint
-
-- **API integration tests (mock API responses):**
-  - BYOK header included when key is configured
-  - BYOK header omitted when no key
-  - Error handling: 429 rate limit → shows appropriate message
-  - Error handling: 402 quota → shows upgrade prompt
+Testing for each sub-milestone is defined in its own section above (Testing 3a–3f). Execution order: 3a → 3b → 3c → 3d → 3e → 3f.
 
 ---
 
-## Milestone 4: Selection Actions (Rewrite/Improve) — Backend & Frontend
+## Milestone 4: Deployment & Verification
+
+> **Depends on:** All code milestones merged to main.
 
 ### Goal & Outcome
 
 After this milestone:
 
-- Users can select text in the editor, press Cmd+/, and choose AI actions (e.g. "Improve writing", "Summarize", "Explain")
-- The result replaces the selection (for improve/summarize) or appears in a popover (for explain)
+- LLM provider API keys are configured in Railway
+- The AI usage flush cron job is running hourly
+- All AI infrastructure is verified working in production
+- Spend protection is configured at the provider level
+- README_DEPLOY.md is updated with all AI-related deployment steps (env vars, cron job, migration, spend caps)
 
-### Implementation Outline
+### Railway Configuration
 
-#### 1. Backend endpoint
+#### 1. API service — add LLM environment variables
 
-```
-POST /ai/transform
-```
-
-```python
-class TransformRequest(BaseModel):
-    text: str                    # selected text
-    action: str                  # "improve" | "summarize" | "explain"
-    context: str | None = None   # surrounding text for better results
-
-class TransformResponse(BaseModel):
-    result: str
-```
-
-Single endpoint, action determines the system prompt. No streaming needed since selections are typically short.
-
-#### 2. Command menu integration
-
-Add AI commands to the existing `editorCommands.ts`:
-
-```ts
-// New section: "AI" (only shown when selection is non-empty and AI is available)
-{ id: 'ai-improve', label: 'Improve writing', section: 'AI', icon: SparkleIcon }
-{ id: 'ai-summarize', label: 'Summarize', section: 'AI', icon: ... }
-{ id: 'ai-explain', label: 'Explain', section: 'AI', icon: ... }
-```
-
-These commands are conditionally included based on:
-- User has a non-empty selection in the editor
-- User's tier supports AI (or BYOK is configured)
-
-#### 3. Replacement flow
-
-When the user selects an AI command:
-
-1. Capture the current selection range
-2. Show a loading indicator (inline or in the command menu area)
-3. Call `POST /ai/transform`
-4. **For improve/summarize:** Replace the selection with the result via CodeMirror transaction (`view.dispatch({ changes: { from, to, insert: result } })`). Undo via `Cmd+Z` restores original — no ghost text preview needed.
-5. **For explain:** Show result in a popover/tooltip positioned near the selection. User dismisses with Escape or clicking away.
-
-#### 4. Popover component for "Explain"
-
-A floating panel anchored to the selection coordinates (similar to how `EditorCommandMenu` positions itself). Shows the explanation text with a close button. Dismissed by Escape or clicking outside.
-
-### Testing Strategy
-
-- **Backend:**
-  - Each action type (improve, summarize, explain) generates appropriate system prompt
-  - Context is included in prompt when provided
-  - Empty text → 400 error
-  - Response schema validates correctly
-
-- **Frontend:**
-  - AI commands appear in command menu only when text is selected
-  - AI commands hidden when no selection or non-Pro without BYOK
-  - Improve action: replaces selection with result
-  - Explain action: shows popover, Escape dismisses
-  - Loading state shown during API call
-  - Error handling: API failure → toast, selection preserved
-  - Undo after replacement restores original text
-
----
-
-## Milestone 5: Auto-Complete PoC
-
-### Goal & Outcome
-
-After this milestone:
-
-- As the user types in the note editor, completions appear as ghost text after a debounce pause
-- Tab accepts the suggestion, Escape or continued typing dismisses it
-- A keyboard shortcut or setting toggles auto-complete on/off
-- This is a PoC — optimize for learning, not perfection
-
-### Implementation Outline
-
-#### 1. Backend endpoint
+**Required for initial deploy** — only the OpenAI key is needed today:
 
 ```
-POST /ai/complete
+OPENAI_API_KEY=<your OpenAI key>
 ```
 
-```python
-class CompleteRequest(BaseModel):
-    prefix: str       # text before cursor (current paragraph + a few preceding paragraphs)
-    suffix: str       # text after cursor (a few following paragraphs, for context)
+Only the suggestion use case is wired up, and its default model is `openai/gpt-5.4-nano`. Platform users are locked to the use-case default in `LLMService.resolve_config`, so no other platform key is reachable via platform-tier traffic right now.
 
-class CompleteResponse(BaseModel):
-    completion: str   # the suggested continuation
-```
-
-Non-streaming. The prompt instructs the LLM to continue the text naturally — complete the current sentence or add 1-2 sentences. Keep completions short for speed and relevance.
-
-**Open question:** How much context to send? Too little = bad suggestions. Too much = slow + expensive. Starting point: ~500 chars before cursor, ~200 chars after. Iterate based on quality.
-
-#### 2. CodeMirror ghost text extension
-
-A CodeMirror extension that renders suggestion text as ghost text:
-
-- Uses `Decoration.widget()` to insert a styled span after the cursor position
-- Styled with reduced opacity (e.g. `opacity: 0.4`, same font)
-- **Tab** keymap (high precedence): if ghost text is active, accept it (insert into document), consume the key
-- **Escape** keymap (high precedence): if ghost text is active, dismiss it, consume the key (prevents closing the note)
-- Any other keypress: dismiss ghost text, let the keypress proceed normally
-
-#### 3. Debounce + cancellation logic
-
-A CodeMirror extension or React hook that:
-
-1. Listens to document changes (typing)
-2. On each change, cancels any pending request (`AbortController`)
-3. Starts a debounce timer (~300-500ms)
-4. After debounce, extracts prefix/suffix around cursor
-5. Calls `POST /ai/complete`
-6. On response, shows ghost text at current cursor position
-7. If cursor has moved since the request was sent, discards the result
-
-```ts
-// Simplified flow
-const controller = new AbortController()
-const timer = setTimeout(async () => {
-  const { prefix, suffix } = extractContext(view)
-  const response = await aiApi.complete({ prefix, suffix }, controller.signal)
-  if (!controller.signal.aborted) {
-    showGhostText(view, response.completion)
-  }
-}, DEBOUNCE_MS)
-```
-
-#### 4. Toggle
-
-- User setting stored in localStorage (like line wrap, line numbers)
-- Keyboard shortcut to toggle (TBD — e.g. `Ctrl+Shift+Space`)
-- Visual indicator in editor toolbar showing on/off state
-
-### Testing Strategy
-
-- **Backend:**
-  - Valid prefix/suffix → completion returned
-  - Empty prefix → still returns something reasonable (start of document)
-  - Response is short (prompt instructs brevity)
-  - Rate limiting enforced
-
-- **Frontend:**
-  - Ghost text appears after debounce period
-  - Tab accepts ghost text (text inserted into document)
-  - Escape dismisses ghost text
-  - Typing dismisses ghost text
-  - New typing after dismissal triggers new request
-  - Rapid typing doesn't flood requests (debounce works, old requests cancelled)
-  - Ghost text not shown if cursor moved since request
-  - Toggle on/off works, persists across sessions
-  - Disabled for non-Pro users without BYOK
-
----
-
-## Milestone 6: Chat
-
-### Goal & Outcome
-
-After this milestone:
-
-- A chat sidebar panel on item detail pages where users can converse with an LLM
-- The LLM has the current item's content as context
-- Streaming responses (tokens appear as they arrive)
-- Conversation is ephemeral (not persisted — lost on navigation/refresh)
-
-### Implementation Outline
-
-#### 1. Backend streaming endpoint
+**Add later when additional use cases ship** (TRANSFORM / AUTO_COMPLETE default to Gemini, CHAT defaults to OpenAI):
 
 ```
-POST /ai/chat
+GEMINI_API_KEY=<your Google AI Studio key>
+ANTHROPIC_API_KEY=<your Anthropic key>
 ```
 
-```python
-class ChatMessage(BaseModel):
-    role: str       # "user" or "assistant"
-    content: str
+BYOK users supply their own keys via the `X-LLM-Api-Key` header for any supported provider regardless of which platform keys are set — BYOK does not depend on these env vars.
 
-class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
-    context: str | None = None    # current item content, injected as system context
-    entity_id: str | None = None  # for audit/logging purposes
+Optional model overrides (defaults are fine for initial deployment):
+```
+LLM_MODEL_SUGGESTIONS=openai/gpt-5.4-nano
+LLM_MODEL_TRANSFORM=gemini/gemini-flash-lite-latest
+LLM_MODEL_AUTO_COMPLETE=gemini/gemini-flash-lite-latest
+LLM_MODEL_CHAT=openai/gpt-5.4-mini
 ```
 
-Returns a `StreamingResponse` with `text/event-stream` content type (Server-Sent Events). Each event is a chunk of the assistant's response.
+If you override `LLM_MODEL_SUGGESTIONS` to a non-OpenAI model, add the corresponding provider key before redeploying.
 
-```python
-@router.post("/chat")
-async def chat(
-    data: ChatRequest,
-    current_user: User = Depends(get_current_user),
-    limits: TierLimits = Depends(get_current_limits),
-    llm_api_key: str | None = Depends(get_llm_api_key),
-):
-    config = llm_service.resolve_config(AIUseCase.CHAT, llm_api_key)
-    messages = build_chat_messages(data.context, data.messages)
-    stream = await llm_service.stream(messages, config)
+#### 2. Database migrations
 
-    async def event_generator():
-        async for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield f"data: {json.dumps({'content': delta})}\n\n"
-        yield "data: [DONE]\n\n"
+Two migrations ship with this PR and run automatically via the API service's pre-deploy command `uv run alembic upgrade head` (see `README_DEPLOY.md` → Step 4 → API Service → Deploy):
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+- `0f315127925c_add_ai_usage_table.py` — creates the `ai_usage` table
+- `38f5a24e651f_add_ai_usage_analytics_view_and_pgcrypto_extension.py` — enables `pgcrypto` and creates the `ai_usage_analytics` view used by the analytics role (step 5)
+
+No manual action required. After deploy, verify both objects exist:
+
+```sql
+SELECT COUNT(*) FROM ai_usage;             -- should return 0
+SELECT COUNT(*) FROM ai_usage_analytics;   -- should return 0
 ```
 
-**Open questions:**
-- **Context injection:** Should the full item content go in the system prompt? For long notes, this could be expensive. Maybe truncate to first N characters, or let the user choose what context to include.
-- **Conversation length:** Should we cap the number of messages in the conversation history to control costs/context window? e.g. keep last 20 messages.
-- **Chat scope:** Starting with per-item chat (current item as context). Global chat with search across all content = tool use / RAG, which is a future feature.
+#### 3. Create the AI Usage Flush cron service
 
-#### 2. Frontend chat sidebar
+Deploy the flush task as its own Railway service with a cron schedule — independent of any other background task so it has one responsibility, one schedule, and one failure mode. Railway does NOT have a distinct "Cron Job" service type; a cron is just a regular service with a **Cron Schedule** set in its Deploy settings.
 
-A new right sidebar panel (similar to history sidebar) that appears on item detail pages:
+See `README_DEPLOY.md` → Step 4 → "AI Usage Flush Service (Cron)" for the authoritative click-path. In summary:
 
-- Toggle with a keyboard shortcut (TBD) or button in the toolbar
-- Chat message list (scrollable, auto-scrolls to bottom on new messages)
-- Text input at the bottom with send button (Enter to send, Shift+Enter for newline)
-- Streaming: assistant messages update in real-time as SSE chunks arrive
-- Loading indicator while waiting for first chunk
-- Conversation messages stored in component state (ephemeral)
-- Current item's content automatically included as context in each request
+1. Create a new service in the project: **+ Create** → **GitHub Repo** → select the repo.
+2. Rename to `ai-usage-flush` and enable **Wait for CI**.
+3. Settings → Build: Dockerfile builder, path `/Dockerfile.api`, watch paths `backend/**`, `pyproject.toml`, `Dockerfile.api`.
+4. Settings → Deploy:
+   - **Cron Schedule:** `30 * * * *` (every hour at :30 UTC)
+   - **Custom Start Command:** `uv run python -m tasks.ai_usage_flush` (no `cd` needed — the Dockerfile sets `PYTHONPATH=/app/backend/src`)
+   - Leave **Pre-Deploy Command** empty (migrations belong to the api service)
+5. Settings → Networking: do NOT generate a public domain.
+6. Variables: `DATABASE_URL=postgresql+asyncpg://<same as api>` and `REDIS_URL=${{Redis.REDIS_URL}}`.
 
-#### 3. SSE client
+Operational notes: schedules are UTC, Railway's minimum interval is 5 minutes, overlapping runs are skipped (the flush is also idempotent via upsert-SET), and there is no "Run Now" button — to force a test run, temporarily change the schedule to `*/5 * * * *` then revert.
 
-Use `fetch` with `ReadableStream` for SSE consumption (not `EventSource`, which doesn't support POST or custom headers):
+**Note:** the cleanup cron (`backend/src/tasks/cleanup.py`, daily history/soft-delete sweep) is a separate task and is not yet deployed to Railway. It does NOT invoke the AI flush. Standing up the cleanup cron is tracked separately and is not a blocker for this milestone.
 
-```ts
-const response = await fetch('/ai/chat', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-    ...(aiStore.apiKey ? { 'X-LLM-Api-Key': aiStore.apiKey } : {}),
-  },
-  body: JSON.stringify(chatRequest),
-})
+#### 4. Configure provider spend protection
 
-const reader = response.body.getReader()
-const decoder = new TextDecoder()
+**CRITICAL:** Set a monthly spend cap on every provider whose platform API key is configured on the API service. Provider-side caps suspend service at the provider level when reached, eliminating the need for a custom circuit breaker.
 
-while (true) {
-  const { done, value } = await reader.read()
-  if (done) break
-  const text = decoder.decode(value)
-  // Parse SSE lines, update message state
-}
+- **OpenAI** (required today — platform default for suggestions): set a monthly budget in the [OpenAI billing dashboard](https://platform.openai.com/account/limits) before enabling Pro-tier AI access. This is the one cap you MUST set for the initial deploy.
+- **Google AI Studio** (add when Gemini-backed use cases ship): set a project-level monthly spend cap (e.g. $50/month).
+- **Anthropic** (add when Anthropic-backed use cases ship): set a monthly spend limit in the Anthropic console.
+
+Only configure caps for providers whose platform keys are actually set on the API service. Providers used solely via BYOK are bounded by the user's own account, not yours.
+
+#### 5. Create a read-only analytics role
+
+**How it works:**
+- Each AI API call records cost and request count in Redis. An hourly cron job flushes these into the `ai_usage` Postgres table as aggregated hourly rows.
+- A database view, `ai_usage_analytics`, selects only the fields needed for analytics.
+- That view replaces raw `user_id` with a deterministic hash (`user_hash`).
+- A separate Postgres login, `analytics_reader`, gets SELECT on the view only.
+- That role gets no access to users, bookmarks, notes, prompts, tokens, or even the base `ai_usage` table.
+
+**Why that is safer:**
+- **Principle of least privilege:** the analytics credential can only read one curated object.
+- **Future-proofing:** if `ai_usage` later gains a sensitive column, it is not exposed unless the view is explicitly updated.
+- **No content access:** notes/bookmarks/prompts are in different tables with no grants.
+- **No raw user IDs:** the consumer sees a pseudonymous `user_hash`, so it can group "same user over time" without seeing the actual UUID.
+- **Read-only boundary:** this role cannot modify data, only query the approved view.
+
+Create a Postgres role with access to a curated analytics view (not the base table). This lets you connect analytics tools or run local queries without exposing user content or raw user IDs.
+
+The view hashes `user_id` so analytics can aggregate by user (same user always produces the same hash) while reducing direct exposure of real user IDs. Granting on the view instead of the base table also prevents future columns added to `ai_usage` from being auto-exposed.
+
+**Schema objects** (extension + view) ship as an Alembic migration: `38f5a24e651f_add_ai_usage_analytics_view_and_pgcrypto_extension.py`. It runs automatically via Railway's pre-deploy command. The migration body is equivalent to:
+
+```sql
+-- Enable pgcrypto for hashing (may already be available on Railway)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Create the analytics view with pseudonymized user_id
+CREATE VIEW ai_usage_analytics AS
+SELECT
+    id, bucket_start,
+    encode(digest(user_id::text, 'sha256'), 'hex') AS user_hash,
+    use_case, model, key_source, request_count, total_cost
+FROM ai_usage;
 ```
 
-#### 4. Chat message rendering
+**Role and credentials** — run manually via `psql` or Railway's database shell (do NOT put credentials in migrations or source control):
 
-- User messages: right-aligned, styled differently from assistant messages
-- Assistant messages: left-aligned, supports markdown rendering
-- Reuse existing markdown rendering approach for assistant messages
+```sql
+-- Create the role (use a strong generated password)
+CREATE ROLE analytics_reader LOGIN PASSWORD '<generated-password>';
 
-### Testing Strategy
+-- Allow connection to the database
+GRANT CONNECT ON DATABASE railway TO analytics_reader;
 
-- **Backend:**
-  - Streaming endpoint returns valid SSE format
-  - Context is included in system message
-  - Conversation history is passed through correctly
-  - Empty messages list → 400 error
-  - Rate limiting enforced (each chat request counts as one AI operation)
-  - BYOK key passed through to LiteLLM
+-- Allow access to the public schema (required to see tables)
+GRANT USAGE ON SCHEMA public TO analytics_reader;
 
-- **Frontend:**
-  - Sending a message adds it to the conversation and triggers API call
-  - Streaming response updates assistant message in real-time
-  - Chat sidebar opens/closes correctly
-  - Context from current item is included in requests
-  - Navigation away clears conversation
-  - Error handling: network error → error message in chat
-  - Error handling: 429 rate limit → appropriate message
-  - BYOK header included when configured
+-- Grant read-only access to the analytics view only (NOT the base table)
+GRANT SELECT ON ai_usage_analytics TO analytics_reader;
+```
+
+**To add future analytics views**, create a view with only the columns needed and grant SELECT on it:
+```sql
+CREATE VIEW <new_analytics_view> AS SELECT ... FROM <table>;
+GRANT SELECT ON <new_analytics_view> TO analytics_reader;
+```
+
+**Connecting locally via CLI:**
+```bash
+psql "postgresql://analytics_reader:<password>@<railway-host>:<port>/railway?sslmode=require"
+```
+
+The role can only SELECT on `ai_usage_analytics`. Attempting to read any other table or view (users, bookmarks, ai_usage, etc.) returns a permission error.
+
+**Connecting analytics tools (Metabase, Grafana, etc.):**
+Use the `analytics_reader` connection string. The tool sees only granted views. This prevents access to content tables (bookmarks, notes, users, etc.). The analytics view still exposes anonymized usage patterns (request frequency, model preferences, timing) — acceptable for operational analytics but be aware this is user-linked telemetry.
+
+**Notes:**
+- `ai_usage.user_id` is a plain UUID — no foreign key to the users table, no cascade deletes. User account deletion does not affect cost data.
+- The `user_hash` is pseudonymized (unsalted SHA-256) — not truly anonymous. If a user UUID is known from another source (logs, support tooling, etc.), the hash can be recomputed and matched. This is sufficient for operational analytics but should not be treated as strong anonymization.
+- Railway's Postgres connection requires SSL (`?sslmode=require` in the connection string).
+- Use a separate read-only role per analytics consumer (e.g., one for Metabase, one for CLI access) so credentials can be revoked independently.
+
+#### 6. Update README_DEPLOY.md
+
+Add all AI-related deployment steps to `README_DEPLOY.md` — the master reference for what's deployed and how. Include:
+
+- LLM environment variables — `OPENAI_API_KEY` required today; `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` added when their use cases ship; optional `LLM_MODEL_*` overrides
+- AI usage flush cron service setup (separate Railway cron, `30 * * * *`, `uv run python -m tasks.ai_usage_flush`, Dockerfile `Dockerfile.api`, needs `DATABASE_URL` + `REDIS_URL`)
+- Automatic migrations: `ai_usage` table + `ai_usage_analytics` view run via pre-deploy
+- Provider spend caps: required for every provider whose platform key is set (OpenAI required today)
+- Analytics reader role: one-time manual `psql` setup for role + GRANTs (credentials never in source control)
+- Verification steps (health check, rate limits, flush logs)
+
+### Verification Checklist
+
+After deployment, verify each component is working:
+
+#### AI endpoints are live
+
+```bash
+# Health check (requires Auth0 token)
+curl -H "Authorization: Bearer <token>" https://<api>/ai/health
+# Expected: {"available": true, "byok": false, "remaining_daily": ..., "limit_daily": ...}
+
+# Models endpoint
+curl -H "Authorization: Bearer <token>" https://<api>/ai/models
+# Expected: {"models": [...], "defaults": {...}} with 7 models
+# (3 OpenAI + 3 Anthropic + 1 Gemini; the Gemini flash-latest and pro-latest entries
+# are intentionally disabled in _SUPPORTED_MODEL_DEFS due to chronic 503s from Google.)
+```
+
+#### Validate-key works with a real key
+
+```bash
+curl -X POST -H "Authorization: Bearer <token>" \
+     -H "X-LLM-Api-Key: <a valid Gemini key>" \
+     https://<api>/ai/validate-key
+# Expected: {"valid": true}
+```
+
+#### Cost tracking writes to Redis
+
+After making a real AI call (once Milestone 2 endpoints exist), check Redis for `ai_stats:*` keys:
+
+```bash
+# Connect to Railway Redis and check for keys
+redis-cli SCAN 0 MATCH "ai_stats:*"
+```
+
+If no real AI calls are available yet, you can verify the flush cron runs successfully by checking its logs (it should log `ai_usage_flush: no keys found` on an empty Redis).
+
+#### Flush cron is running
+
+1. Check Railway dashboard → AI Usage Flush service → Deployments tab
+2. Verify the cron has run at least once (check logs)
+3. Expected log output: `ai_usage_flush: no keys found` (if no AI calls yet) or `ai_usage_flush: complete` with `keys_processed` and `total_cost_flushed`
+
+#### Database table exists
+
+```sql
+SELECT COUNT(*) FROM ai_usage;
+-- Should return 0 initially, rows appear after AI calls + flush
+```
+
+#### Rate limiting works
+
+```bash
+# Check that AI health returns remaining quota
+curl -H "Authorization: Bearer <token>" https://<api>/ai/health
+# remaining_daily and limit_daily should reflect tier limits
+```
 
 ---
 
@@ -879,18 +1468,18 @@ while (true) {
 
 ### Error Handling
 
-LiteLLM can raise several provider-specific errors. The LLM service should catch and normalize these:
+LiteLLM raises typed exceptions for provider errors. The `LLMService` does NOT catch these — it lets them propagate. Error-to-HTTP mapping is handled by a shared exception handler registered on the AI router. This keeps the service layer clean and testable without HTTP concerns, and avoids duplicating try/except in every endpoint. The handler returns a structured JSON error body with an `error` code that distinguishes LLM provider failures from platform failures. This is critical for BYOK users — a bad user API key should not look like a tiddly auth failure.
 
-| LiteLLM Error | Our Response | HTTP Status |
-|---|---|---|
-| `AuthenticationError` | "Invalid API key" | 401 |
-| `RateLimitError` | "Provider rate limit exceeded, try again later" | 429 |
-| `Timeout` | "LLM request timed out" | 504 |
-| `BadRequestError` | "Invalid request to LLM provider" | 400 |
-| `APIConnectionError` | "Could not connect to LLM provider" | 502 |
-| Other | "AI service temporarily unavailable" | 503 |
+| LiteLLM Error | HTTP Status | Error Code | Message |
+|---|---|---|---|
+| `AuthenticationError` | 422 | `llm_auth_failed` | "Your API key was rejected by the provider" |
+| `RateLimitError` | 429 | `llm_rate_limited` | "Provider rate limit exceeded, try again later" |
+| `Timeout` | 504 | `llm_timeout` | "LLM request timed out" |
+| `BadRequestError` | 400 | `llm_bad_request` | "Invalid request to LLM provider" |
+| `APIConnectionError` | 502 | `llm_connection_error` | "Could not connect to LLM provider" |
+| Other | 503 | `llm_unavailable` | "AI service temporarily unavailable" |
 
-For BYOK users, error messages should make it clear when the issue is with their key/provider (not our platform).
+All LLM provider errors use `llm_*` error codes so the frontend can unambiguously distinguish them from platform auth errors (which use HTTP 401 with different error codes). Note `AuthenticationError` returns 422 (not 401) to avoid conflation with tiddly session/token auth.
 
 ### Tier Limits Documentation Sync
 
@@ -904,14 +1493,14 @@ When AI rate limits are added, update:
 
 - BYOK keys: transit only (HTTPS), never logged, never stored, never included in error responses
 - Platform keys: env vars only, never exposed in API responses
-- Input validation: truncate content snippets sent to LLMs to prevent abuse (e.g. someone sending 100k chars to burn our API budget)
+- Input validation: `max_length` on all Pydantic request schema string fields to prevent cost abuse at the API boundary (see Milestone 2, section 1)
 - Prompt injection: structured output (Pydantic `response_format`) helps enforce expected response format for suggestion features
 
 ### Cost Management
 
-- **Real-time tracking:** Redis hashes accumulate cost + count per user and per use-case/model/key-source (see Milestone 1, section 5)
-- **Historical data:** Daily Railway cron flushes Redis to `ai_usage_daily` DB table (see Milestone 1, section 6)
-- **Cost calculation:** Non-streaming uses `response._hidden_params['response_cost']`. Streaming uses `completion_cost(model, prompt, completion)` after stream is consumed (verified in PoC — streaming `response_cost` returns 0.0 for all providers).
-- Set a monthly budget alert on the Gemini API key
-- Consider a daily platform cost cap that disables platform AI if exceeded (emergency brake) — can be checked against Redis per-user key before each call
-- Content snippet truncation: limit input to ~2000 chars for suggestions, ~5000 for chat context
+- **Real-time tracking:** Redis hashes accumulate cost + count per user and per use-case/model/key-source with hourly buckets (see Milestone 1c, section 1)
+- **Historical data:** Separate hourly Railway cron service flushes Redis to `ai_usage` DB table (see Milestone 1c for code, Milestone 4 for deployment)
+- **Cost calculation:** Both streaming and non-streaming use `completion_cost(completion_response=response)` — the public LiteLLM API. Do not use `_hidden_params` (private, unstable across versions).
+- **Audit trail:** Every LLM call emits a structured info log with metadata (user_id, use_case, model, key_source, cost, latency). Never log prompts, completions, or API keys.
+- **CRITICAL — Platform spend protection:** See Milestone 4 §4. Set a monthly spend cap on every provider whose platform key is configured (OpenAI required today; Gemini and Anthropic added when their use cases ship). Providers enforce the cap at their level — service is suspended when the cap is reached, so this replaces a custom circuit breaker.
+- Content snippet truncation: enforced via `max_length` on Pydantic request schemas (see Milestone 2, section 1)

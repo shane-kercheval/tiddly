@@ -56,6 +56,10 @@ import {
   SparklesIcon,
   HistoryIcon,
   HelpIcon,
+  ExternalLinkIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  ChromeMonoIcon,
   IconWithBadge,
 } from '../icons'
 import { Tooltip } from '../ui'
@@ -114,7 +118,7 @@ interface SidebarContentProps {
 function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarContentProps): ReactNode {
   const navigate = useNavigate()
   const location = useLocation()
-  const { toggleCollapse, isGroupCollapsed, toggleGroup } =
+  const { toggleCollapse, isGroupCollapsed, toggleGroup, expandedSections, toggleSection } =
     useSidebarStore()
   const sidebar = useSettingsStore((state) => state.sidebar)
   const updateSidebar = useSettingsStore((state) => state.updateSidebar)
@@ -606,55 +610,93 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
             </div>
           )}
 
-          {/* Settings Section (not draggable) */}
+          {/* Settings Section (collapsible, not draggable) */}
           <div className="mt-4 border-t border-gray-200 pt-3">
             {!isCollapsed && (
-              <div className="px-3 pt-1 pb-2 text-xs font-medium text-gray-400 uppercase tracking-wider">Settings</div>
+              <button
+                type="button"
+                onClick={() => toggleSection('settings')}
+                className="flex w-full items-center justify-between px-3 pt-1 pb-2 text-xs font-medium text-gray-400 uppercase tracking-wider hover:text-gray-600"
+                aria-expanded={expandedSections.includes('settings')}
+                aria-label="Toggle settings"
+              >
+                <span>Settings</span>
+                {expandedSections.includes('settings')
+                  ? <ChevronDownIcon className="h-3 w-3" />
+                  : <ChevronRightIcon className="h-3 w-3" />}
+              </button>
             )}
-            <div className="space-y-0.5">
-              <SidebarNavItem
-                to="/app/settings/general"
-                label="General"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-                icon={<AdjustmentsIcon className="h-[18px] w-[18px] text-gray-500" />}
-              />
-              <SidebarNavItem
-                to="/app/settings/tags"
-                label="Tags"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-                icon={<TagIcon className="h-[18px] w-[18px] text-gray-500" />}
-              />
-              <SidebarNavItem
-                to="/app/settings/tokens"
-                label="Personal Access Tokens"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-                icon={<KeyIcon className="h-[18px] w-[18px] text-gray-500" />}
-              />
-              <SidebarNavItem
-                to="/app/settings/ai-integration"
-                label="AI Integration"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-                icon={<SparklesIcon className="h-[18px] w-[18px] text-gray-500" />}
-              />
-              <SidebarNavItem
-                to="/app/settings/history"
-                label="Version History"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-                icon={<HistoryIcon className="h-[18px] w-[18px] text-gray-500" />}
-              />
-              <SidebarNavItem
-                to="/app/settings/faq"
-                label="FAQ"
-                isCollapsed={isCollapsed}
-                onClick={onNavClick}
-                icon={<HelpIcon className="h-[18px] w-[18px] text-gray-500" />}
-              />
-            </div>
+            {(isCollapsed || expandedSections.includes('settings')) && (
+              <div className="space-y-0.5">
+                <SidebarNavItem
+                  to="/app/settings/general"
+                  label="General"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<AdjustmentsIcon className="h-[18px] w-[18px] text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/tags"
+                  label="Tags"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<TagIcon className="h-[18px] w-[18px] text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/tokens"
+                  label="Personal Access Tokens"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<KeyIcon className="h-[18px] w-[18px] text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/ai"
+                  label="AI Configuration"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<SparklesIcon className="h-[18px] w-[18px] text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/ai-integration"
+                  label="AI Integration"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<SparklesIcon className="h-[18px] w-[18px] text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/history"
+                  label="Version History"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<HistoryIcon className="h-[18px] w-[18px] text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/faq"
+                  label="FAQ"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<HelpIcon className="h-[18px] w-[18px] text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/docs"
+                  label="Docs"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<HelpIcon className="h-[18px] w-[18px] text-gray-500" />}
+                  trailingIcon={<ExternalLinkIcon className="h-3 w-3 text-gray-400" />}
+                  external
+                />
+                <SidebarNavItem
+                  to="/docs/extensions/chrome"
+                  label="Chrome Extension"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<ChromeMonoIcon className="h-[18px] w-[18px] text-gray-500" />}
+                  trailingIcon={<ExternalLinkIcon className="h-3 w-3 text-gray-400" />}
+                  external
+                />
+              </div>
+            )}
           </div>
         </nav>
 

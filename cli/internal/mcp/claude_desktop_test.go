@@ -14,7 +14,7 @@ func TestConfigureClaudeDesktop__new_config(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
-	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	_, err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -46,7 +46,7 @@ func TestConfigureClaudeDesktop__preserves_existing(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	_, err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -66,11 +66,11 @@ func TestConfigureClaudeDesktop__content_only_preserves_existing_prompts(t *test
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
 	// Configure both servers first
-	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	_, err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Re-configure with only content PAT (simulates --servers content)
-	err = configureClaudeDesktop(configPath, "bm_new_content", "")
+	_, err = configureClaudeDesktop(configPath, "bm_new_content", "")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -93,11 +93,11 @@ func TestConfigureClaudeDesktop__prompts_only_preserves_existing_content(t *test
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
 	// Configure both servers first
-	err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	_, err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
 	require.NoError(t, err)
 
 	// Re-configure with only prompts PAT (simulates --servers prompts)
-	err = configureClaudeDesktop(configPath, "", "bm_new_prompts")
+	_, err = configureClaudeDesktop(configPath, "", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -120,8 +120,10 @@ func TestConfigureClaudeDesktop__idempotent(t *testing.T) {
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
 	// Configure twice
-	require.NoError(t, configureClaudeDesktop(configPath, "bm_old", "bm_old"))
-	require.NoError(t, configureClaudeDesktop(configPath, "bm_new", "bm_new"))
+	_, err := configureClaudeDesktop(configPath, "bm_old", "bm_old")
+	require.NoError(t, err)
+	_, err = configureClaudeDesktop(configPath, "bm_new", "bm_new")
+	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
@@ -151,7 +153,7 @@ func TestRemoveClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := removeClaudeDesktop(configPath, nil)
+	_, err := removeClaudeDesktop(configPath, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -163,7 +165,7 @@ func TestRemoveClaudeDesktop__removes_tiddly_servers(t *testing.T) {
 }
 
 func TestRemoveClaudeDesktop__missing_file_is_noop(t *testing.T) {
-	err := removeClaudeDesktop("/nonexistent/path.json", nil)
+	_, err := removeClaudeDesktop("/nonexistent/path.json", []string{"content", "prompts"})
 	assert.NoError(t, err)
 }
 
@@ -178,12 +180,12 @@ func TestRemoveClaudeDesktop__no_tiddly_servers_skips_write(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, existing)
 
-	err := removeClaudeDesktop(configPath, nil)
+	_, err := removeClaudeDesktop(configPath, []string{"content", "prompts"})
 	require.NoError(t, err)
 
 	// No backup should be created since nothing was removed
-	_, statErr := os.Stat(configPath + ".bak")
-	assert.True(t, os.IsNotExist(statErr), "no backup should be created on no-op remove")
+	backupMatches, _ := filepath.Glob(configPath + ".bak.*")
+	assert.Empty(t, backupMatches, "no backup should be created on no-op remove")
 }
 
 func TestStatusClaudeDesktop__configured(t *testing.T) {
@@ -259,11 +261,41 @@ func TestStatusClaudeDesktop__url_based_detection(t *testing.T) {
 	}
 }
 
+func TestStatusClaudeDesktop__work_and_personal_prompts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	// Two tiddly prompt entries under distinct names (e.g. work + personal
+	// accounts with different PATs) should both surface.
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			"work_prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer bm_work"},
+			},
+			"personal_prompts": map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", PromptMCPURL(), "--header", "Authorization: Bearer bm_personal"},
+			},
+		},
+	})
+
+	sr, err := statusClaudeDesktop(configPath)
+	require.NoError(t, err)
+	assert.Len(t, sr.Servers, 2)
+	assert.Equal(t, "personal_prompts", sr.Servers[0].Name)
+	assert.Equal(t, ServerPrompts, sr.Servers[0].ServerType)
+	assert.Equal(t, "work_prompts", sr.Servers[1].Name)
+	assert.Equal(t, ServerPrompts, sr.Servers[1].ServerType)
+	assert.Empty(t, sr.OtherServers)
+}
+
 func TestStatusClaudeDesktop__includes_url_on_tiddly_servers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
-	require.NoError(t, configureClaudeDesktop(configPath, "bm_content", "bm_prompts"))
+	_, err := configureClaudeDesktop(configPath, "bm_content", "bm_prompts")
+	require.NoError(t, err)
 
 	sr, err := statusClaudeDesktop(configPath)
 	require.NoError(t, err)
@@ -323,12 +355,18 @@ func TestStatusClaudeDesktop__only_other_servers(t *testing.T) {
 	assert.Equal(t, "my-tool", sr.OtherServers[0].Name)
 }
 
-func TestRemoveClaudeDesktop__removes_custom_named_servers(t *testing.T) {
+func TestRemoveClaudeDesktop__preserves_non_canonical_entries(t *testing.T) {
+	// Canonical-name-only: custom-named entries — even at Tiddly URLs —
+	// survive because they're user-managed, not CLI-managed.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
 	writeTestJSON(t, configPath, map[string]any{
 		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", ContentMCPURL()},
+			},
 			"my_content": map[string]any{
 				"command": "npx",
 				"args":    []string{"mcp-remote", ContentMCPURL()},
@@ -341,14 +379,37 @@ func TestRemoveClaudeDesktop__removes_custom_named_servers(t *testing.T) {
 		},
 	})
 
-	err := removeClaudeDesktop(configPath, nil)
+	result, err := removeClaudeDesktop(configPath, []string{"content", "prompts"})
 	require.NoError(t, err)
+	assert.Equal(t, []string{serverNameContent}, result.RemovedEntries)
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
-	assert.NotContains(t, servers, "my_content")
-	assert.NotContains(t, servers, "my_prompts")
+	assert.NotContains(t, servers, serverNameContent)
+	assert.Contains(t, servers, "my_content", "non-canonical Tiddly-URL entry must survive")
+	assert.Contains(t, servers, "my_prompts", "non-canonical Tiddly-URL entry must survive")
 	assert.Contains(t, servers, "other-server")
+}
+
+func TestRemoveClaudeDesktop__deletes_canonical_entry_with_non_tiddly_url(t *testing.T) {
+	// A repurposed canonical slot (hand-edited to a local dev URL) is still
+	// removed by name. The backup preserves the user's repurposed content.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNamePrompts: map[string]any{
+				"command": "npx",
+				"args":    []string{"mcp-remote", "https://example.com/my-prompts"},
+			},
+		},
+	})
+
+	result, err := removeClaudeDesktop(configPath, []string{"prompts"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{serverNamePrompts}, result.RemovedEntries)
+	assert.NotEmpty(t, result.BackupPath)
 }
 
 func TestRemoveClaudeDesktop__content_only_preserves_prompts(t *testing.T) {
@@ -368,7 +429,7 @@ func TestRemoveClaudeDesktop__content_only_preserves_prompts(t *testing.T) {
 		},
 	})
 
-	err := removeClaudeDesktop(configPath, []string{"content"})
+	_, err := removeClaudeDesktop(configPath, []string{"content"})
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -394,7 +455,7 @@ func TestRemoveClaudeDesktop__prompts_only_preserves_content(t *testing.T) {
 		},
 	})
 
-	err := removeClaudeDesktop(configPath, []string{"prompts"})
+	_, err := removeClaudeDesktop(configPath, []string{"prompts"})
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
@@ -403,7 +464,8 @@ func TestRemoveClaudeDesktop__prompts_only_preserves_content(t *testing.T) {
 	assert.NotContains(t, servers, serverNamePrompts)
 }
 
-func TestConfigureClaudeDesktop__replaces_custom_named_servers(t *testing.T) {
+func TestConfigureClaudeDesktop__preserves_custom_named_tiddly_url_entries(t *testing.T) {
+	// Additive contract: custom-named Tiddly-URL entries survive configure.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -417,19 +479,20 @@ func TestConfigureClaudeDesktop__replaces_custom_named_servers(t *testing.T) {
 		},
 	})
 
-	err := configureClaudeDesktop(configPath, "bm_new_content", "bm_new_prompts")
+	_, err := configureClaudeDesktop(configPath, "bm_new_content", "bm_new_prompts")
 	require.NoError(t, err)
 
 	config := readTestJSON(t, configPath)
 	servers := config["mcpServers"].(map[string]any)
 
-	assert.NotContains(t, servers, "my_content")
+	assert.Contains(t, servers, "my_content", "custom-named Tiddly-URL entry must survive")
 	assert.Contains(t, servers, "tiddly_notes_bookmarks")
 	assert.Contains(t, servers, "tiddly_prompts")
 	assert.Contains(t, servers, "other-server")
 }
 
-func TestExtractClaudeDesktopPATs__custom_named_servers(t *testing.T) {
+func TestExtractClaudeDesktopPATs__ignores_custom_named_servers(t *testing.T) {
+	// ExtractPATs reads canonical entries only.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 
@@ -446,9 +509,9 @@ func TestExtractClaudeDesktopPATs__custom_named_servers(t *testing.T) {
 		},
 	})
 
-	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
-	assert.Equal(t, "bm_custom_content", contentPAT)
-	assert.Equal(t, "bm_custom_prompts", promptPAT)
+	ext := extractClaudeDesktopPATs(configPath)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestConfigureClaudeDesktop__malformed_json_returns_error(t *testing.T) {
@@ -456,7 +519,7 @@ func TestConfigureClaudeDesktop__malformed_json_returns_error(t *testing.T) {
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
 
-	err := configureClaudeDesktop(configPath, "bm_test", "bm_test")
+	_, err := configureClaudeDesktop(configPath, "bm_test", "bm_test")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parsing")
 }
@@ -481,9 +544,9 @@ func TestExtractClaudeDesktopPATs__valid_config(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, config)
 
-	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
-	assert.Equal(t, "bm_content123", contentPAT)
-	assert.Equal(t, "bm_prompt456", promptPAT)
+	ext := extractClaudeDesktopPATs(configPath)
+	assert.Equal(t, "bm_content123", ext.ContentPAT)
+	assert.Equal(t, "bm_prompt456", ext.PromptPAT)
 }
 
 func TestExtractClaudeDesktopPATs__no_tiddly_servers(t *testing.T) {
@@ -497,15 +560,15 @@ func TestExtractClaudeDesktopPATs__no_tiddly_servers(t *testing.T) {
 	}
 	writeTestJSON(t, configPath, config)
 
-	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractClaudeDesktopPATs(configPath)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractClaudeDesktopPATs__missing_file(t *testing.T) {
-	contentPAT, promptPAT := extractClaudeDesktopPATs("/nonexistent/path.json")
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractClaudeDesktopPATs("/nonexistent/path.json")
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractClaudeDesktopPATs__malformed_file(t *testing.T) {
@@ -513,9 +576,9 @@ func TestExtractClaudeDesktopPATs__malformed_file(t *testing.T) {
 	configPath := filepath.Join(dir, "claude_desktop_config.json")
 	require.NoError(t, os.WriteFile(configPath, []byte("not json{"), 0644))
 
-	contentPAT, promptPAT := extractClaudeDesktopPATs(configPath)
-	assert.Empty(t, contentPAT)
-	assert.Empty(t, promptPAT)
+	ext := extractClaudeDesktopPATs(configPath)
+	assert.Empty(t, ext.ContentPAT)
+	assert.Empty(t, ext.PromptPAT)
 }
 
 func TestExtractBearerToken(t *testing.T) {

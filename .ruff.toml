@@ -14,6 +14,15 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
+# `timeout` and `num_retries` on the LLM wrapper and suggestion service are
+# pass-through parameters for LiteLLM's `acompletion(timeout=..., num_retries=...)`
+# — we're not implementing a timeout context ourselves, so `asyncio.timeout`
+# doesn't apply. Callers use these to tune latency vs resilience (short for
+# UI, long for evals). Multi-line signatures put the param on its own line,
+# so `# noqa` on the def line doesn't suppress the warning.
+"backend/src/services/llm_service.py" = ["ASYNC109"]
+"backend/src/services/suggestion_service.py" = ["ASYNC109"]
+
 "*/tests/*" = [
     # ignore same warnings as above
     "ANN001", "ANN101", "ANN204", "ANN206",

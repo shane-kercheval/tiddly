@@ -60,6 +60,13 @@ class TierLimits:
     rate_sensitive_per_minute: int
     rate_sensitive_per_day: int
 
+    # AI rate limits (platform key)
+    rate_ai_per_minute: int
+    rate_ai_per_day: int
+    # AI rate limits (BYOK — user provides their own key)
+    rate_ai_byok_per_minute: int
+    rate_ai_byok_per_day: int
+
     # Relationship limits
     max_relationships_per_entity: int  # Max links per content item
 
@@ -76,7 +83,7 @@ _FIELD_LENGTHS = {
     "max_url_length": 2048,
     "max_prompt_name_length": 100,
     "max_argument_name_length": 100,
-    "max_argument_description_length": 500,
+    "max_argument_description_length": 1000,
 }
 
 TIER_LIMITS: dict[Tier, TierLimits] = {
@@ -95,6 +102,10 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         rate_write_per_day=200,
         rate_sensitive_per_minute=5,
         rate_sensitive_per_day=25,
+        rate_ai_per_minute=0,
+        rate_ai_per_day=0,
+        rate_ai_byok_per_minute=0,
+        rate_ai_byok_per_day=0,
         max_relationships_per_entity=50,
         history_retention_days=1,
         max_history_per_entity=100,
@@ -114,6 +125,10 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         rate_write_per_day=1_000,
         rate_sensitive_per_minute=15,
         rate_sensitive_per_day=100,
+        rate_ai_per_minute=0,
+        rate_ai_per_day=0,
+        rate_ai_byok_per_minute=0,
+        rate_ai_byok_per_day=0,
         max_relationships_per_entity=50,
         history_retention_days=5,
         max_history_per_entity=100,
@@ -133,6 +148,10 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         rate_write_per_day=5_000,
         rate_sensitive_per_minute=30,
         rate_sensitive_per_day=250,
+        rate_ai_per_minute=30,
+        rate_ai_per_day=500,
+        rate_ai_byok_per_minute=120,
+        rate_ai_byok_per_day=2_000,
         max_relationships_per_entity=50,
         history_retention_days=15,
         max_history_per_entity=100,
@@ -161,6 +180,10 @@ TIER_LIMITS: dict[Tier, TierLimits] = {
         rate_write_per_day=1_000_000,
         rate_sensitive_per_minute=1_000_000,
         rate_sensitive_per_day=1_000_000,
+        rate_ai_per_minute=1_000_000,
+        rate_ai_per_day=1_000_000,
+        rate_ai_byok_per_minute=1_000_000,
+        rate_ai_byok_per_day=1_000_000,
         max_relationships_per_entity=1_000_000,
         history_retention_days=1_000,
         max_history_per_entity=1_000_000,

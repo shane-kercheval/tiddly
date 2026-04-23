@@ -196,10 +196,11 @@ Note: Codex does not support MCP Prompts natively (the `/prompt-name` invocation
 
 ### Chrome Extension
 
-The Tiddly Bookmarks Chrome extension lets you save the current page as a bookmark with one click. It uses Personal Access Tokens (PATs) for authentication.
+The Tiddly Bookmarks Chrome extension lets you save the current page as a bookmark or search your existing bookmarks from a tabbed popup. It uses Personal Access Tokens (PATs) for authentication.
 
-- **Save flow:** Click the extension icon on any page to see a pre-filled form (URL, title, description, tags). Page content is captured automatically for full-text search. Tags are pre-selected from your defaults and last-used tags, with selectable chips from your existing tags.
-- **Search:** On restricted pages (new tab, chrome://, etc.), the extension shows a search interface with your recent bookmarks and full-text search.
+- **Tabbed popup:** The popup has two tabs (Save and Search) plus a settings button. The default tab depends on the current page — a regular webpage opens to Save, while a new tab, `chrome://` page, or other restricted URL opens to Search. You can switch tabs manually at any time; Save is disabled on pages that can't be bookmarked.
+- **Save flow:** On the Save tab, a pre-filled form (URL, title, description, tags) captures page content automatically for full-text search. Tags are pre-selected from your defaults and last-used tags, with selectable chips from your existing tags.
+- **Search flow:** On the Search tab, browse your recent bookmarks or full-text search across titles, descriptions, URLs, and content. Filter by tag and sort by created, relevance, last used, modified, or title.
 - **Setup:** Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/npjlfgkihebhandkknldnjlcdmcpomkc), then open the extension options and enter a Personal Access Token (create one in Settings > Personal Access Tokens on tiddly.me). Optionally configure default tags that will be pre-selected on every save.
 
 ### CLI
@@ -238,7 +239,15 @@ Also supports dry-run mode and automatic token management. Full documentation at
 
 ### Programmatic API Access
 
-The full REST API is available at `https://api.tiddly.me`. Authenticate with a PAT via `Authorization: Bearer bm_...` header. PATs support all read and write operations except sensitive endpoints (URL metadata scraping, token management, account settings).
+The full REST API is available at `https://api.tiddly.me`. Authenticate with a PAT via `Authorization: Bearer bm_...` header. PATs support all standard read and write operations on bookmarks, notes, prompts, tags, filters, and history.
+
+**PATs are rejected (403) on a few security-sensitive surfaces:**
+- **AI endpoints** (`/ai/*` — tag/metadata/relationship/argument suggestions, health, models, validate-key): Auth0 JWT only. This is deliberate — AI features are not intended for programmatic automation due to cost implications.
+- **Token management** (`/tokens/*`): Auth0 only, to prevent a compromised PAT from minting more PATs.
+- **User settings** (`/settings/*`): Auth0 only, for account-level changes.
+- **URL metadata scraping** (`GET /bookmarks/fetch-metadata`): Auth0 only (outbound URL fetching is rate-limited and cost-sensitive).
+
+If you need scripted access to these, authenticate with an Auth0 session.
 
 ## Keyboard Shortcuts and Tips
 
@@ -255,6 +264,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - `Cmd+Shift+S`: Save and close.
 - `Cmd+Click` on a card: Open in new tab.
 - `Shift+Cmd+Click` on a bookmark: Open the URL without tracking usage.
+- `Shift+Click` on a bookmark relationship chip: Open the bookmark entity in Tiddly (default click opens the URL in a new tab).
 - `w`: Toggle full-width layout.
 
 ### Markdown Editor
@@ -265,7 +275,7 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - `Alt+L`: Toggle line numbers.
 - `Alt+M`: Toggle monospace font.
 - `Alt+T`: Toggle table of contents sidebar (navigable list of headings).
-- Standard formatting: `Cmd+B` (bold), `Cmd+I` (italic), `Cmd+E` (inline code), `Cmd+K` (link), `Cmd+Shift+E` (code block), `Cmd+Shift+8` (bullet list), `Cmd+Shift+7` (numbered list), `Cmd+Shift+9` (task list).
+- Standard formatting: `Cmd+B` (bold), `Cmd+I` (italic), `Cmd+E` (inline code), `Cmd+K` (link), `Cmd+Shift+E` (code block), `Cmd+Shift+7` (bullet list), `Cmd+Shift+8` (numbered list), `Cmd+Shift+9` (checklist).
 
 ## Platform
 
@@ -276,7 +286,11 @@ The full REST API is available at `https://api.tiddly.me`. Authenticate with a P
 - **Multi-tenant**: All content is isolated by user ID. There is no sharing functionality.
 - **Privacy**: No client-side/end-to-end encryption (would prevent full-text search). The database administrator could technically access user data. Self-hosting is available for complete privacy.
 - **Data export**: The CLI provides `tiddly export` for bulk JSON export of bookmarks, notes, and prompts. Supports filtering by content type (`--types`), writing to file (`--output`), and including archived items (`--include-archived`). The full REST API can also be used with a PAT to export content programmatically.
-- **Future plans**: Optional AI-powered features (summarization, auto-suggestions, enhanced search) are planned but not yet implemented — these will be completely opt-in and may be priced separately.
+- **AI features** (Pro): AI-powered suggestions for organizing content. Users can bring their own API key (BYOK) for higher rate limits and custom model selection.
+  - **Tag suggestions** — Suggested automatically when opening the tag input. Appear as muted chips; click to accept.
+  - **Title & description suggestions** — Click the sparkle icon next to the field to generate.
+  - **Relationship suggestions** — Suggested automatically when opening the linked content input. Click to link.
+  - **Argument suggestions** — Click sparkle icons in the prompt arguments section to generate names, descriptions, or all arguments from template placeholders.
 
 ## Tier Limits
 
@@ -288,6 +302,7 @@ Currently in beta — all accounts have Pro access at no charge.
 - **Personal Access Tokens**: Up to 3 active tokens.
 - **Version history**: 1-day retention, up to 100 versions per entity.
 - **Rate limits**: 60 reads/min, 500 reads/day; 20 writes/min, 200 writes/day; 5 sensitive/min, 25 sensitive/day.
+- **AI rate limits**: No AI calls (AI features not available on Free tier).
 - **Field limits**: Titles up to 200 characters, descriptions up to 1,000 characters, tag names up to 50 characters, URLs up to 2,048 characters.
 - **Relationships**: Up to 50 per entity.
 - **Tags**: Up to 100 per entity.
@@ -298,6 +313,7 @@ Currently in beta — all accounts have Pro access at no charge.
 - **Personal Access Tokens**: Up to 10 active tokens.
 - **Version history**: 5-day retention, up to 100 versions per entity.
 - **Rate limits**: 120 reads/min, 2,000 reads/day; 60 writes/min, 1,000 writes/day; 15 sensitive/min, 100 sensitive/day.
+- **AI rate limits**: No AI calls (AI features not available on Standard tier).
 - All other limits same as Free tier.
 
 ### Pro Tier ($5/month or $4/month billed annually)
@@ -306,6 +322,7 @@ Currently in beta — all accounts have Pro access at no charge.
 - **Personal Access Tokens**: Up to 50 active tokens.
 - **Version history**: 15-day retention, up to 100 versions per entity.
 - **Rate limits**: 300 reads/min, 10,000 reads/day; 200 writes/min, 5,000 writes/day; 30 sensitive/min, 250 sensitive/day.
+- **AI rate limits**: 30 AI calls/min, 500 AI calls/day; with BYOK (bring your own key): 120 calls/min, 2,000 calls/day.
 - All other limits same as Free tier.
 
 ## Use Cases and Examples

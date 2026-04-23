@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
-import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +74,6 @@ async def _create_relationship(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_create__success(client: AsyncClient) -> None:
     """Create a relationship between bookmark and note."""
     bm = await _create_bookmark(client)
@@ -98,7 +96,6 @@ async def test__api_create__success(client: AsyncClient) -> None:
     assert 'updated_at' in data
 
 
-@pytest.mark.asyncio
 async def test__api_create__with_description(client: AsyncClient) -> None:
     """Create a relationship with a description."""
     bm = await _create_bookmark(client)
@@ -111,7 +108,6 @@ async def test__api_create__with_description(client: AsyncClient) -> None:
     assert data['description'] == 'Related context'
 
 
-@pytest.mark.asyncio
 async def test__api_create__duplicate(client: AsyncClient) -> None:
     """Duplicate relationship returns 409."""
     bm = await _create_bookmark(client)
@@ -130,7 +126,6 @@ async def test__api_create__duplicate(client: AsyncClient) -> None:
     assert response.json()['detail']['error_code'] == 'DUPLICATE_RELATIONSHIP'
 
 
-@pytest.mark.asyncio
 async def test__api_create__reverse_duplicate(client: AsyncClient) -> None:
     """Creating B->A when A->B exists returns 409 (canonical ordering)."""
     bm = await _create_bookmark(client)
@@ -149,7 +144,6 @@ async def test__api_create__reverse_duplicate(client: AsyncClient) -> None:
     assert response.status_code == 409
 
 
-@pytest.mark.asyncio
 async def test__api_create__self_reference_rejected(client: AsyncClient) -> None:
     """Self-reference returns 400."""
     bm = await _create_bookmark(client)
@@ -164,7 +158,6 @@ async def test__api_create__self_reference_rejected(client: AsyncClient) -> None
     assert response.status_code == 400
 
 
-@pytest.mark.asyncio
 async def test__api_create__source_not_found(client: AsyncClient) -> None:
     """Non-existent source content returns 404."""
     note = await _create_note(client)
@@ -179,7 +172,6 @@ async def test__api_create__source_not_found(client: AsyncClient) -> None:
     assert response.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test__api_create__target_not_found(client: AsyncClient) -> None:
     """Non-existent target content returns 404."""
     bm = await _create_bookmark(client)
@@ -194,7 +186,6 @@ async def test__api_create__target_not_found(client: AsyncClient) -> None:
     assert response.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test__api_create__invalid_relationship_type(client: AsyncClient) -> None:
     """Invalid relationship_type returns 422."""
     bm = await _create_bookmark(client)
@@ -210,7 +201,6 @@ async def test__api_create__invalid_relationship_type(client: AsyncClient) -> No
     assert response.status_code == 422
 
 
-@pytest.mark.asyncio
 async def test__api_create__description_max_length(client: AsyncClient) -> None:
     """Description over 500 chars returns 422."""
     bm = await _create_bookmark(client)
@@ -227,7 +217,6 @@ async def test__api_create__description_max_length(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-@pytest.mark.asyncio
 async def test__api_create__empty_description_normalized_to_null(client: AsyncClient) -> None:
     """Empty string description is normalized to null."""
     bm = await _create_bookmark(client)
@@ -245,7 +234,6 @@ async def test__api_create__empty_description_normalized_to_null(client: AsyncCl
     assert response.json()['description'] is None
 
 
-@pytest.mark.asyncio
 async def test__api_create__whitespace_description_normalized_to_null(client: AsyncClient) -> None:
     """Whitespace-only description is normalized to null."""
     bm = await _create_bookmark(client)
@@ -263,7 +251,6 @@ async def test__api_create__whitespace_description_normalized_to_null(client: As
     assert response.json()['description'] is None
 
 
-@pytest.mark.asyncio
 async def test__api_create__soft_deleted_source_rejected(client: AsyncClient) -> None:
     """Cannot create relationship to soft-deleted content."""
     bm = await _create_bookmark(client)
@@ -283,7 +270,6 @@ async def test__api_create__soft_deleted_source_rejected(client: AsyncClient) ->
     assert response.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test__api_create__archived_source_allowed(client: AsyncClient) -> None:
     """Can create relationship to archived content."""
     bm = await _create_bookmark(client)
@@ -297,7 +283,6 @@ async def test__api_create__archived_source_allowed(client: AsyncClient) -> None
     assert data['id'] is not None
 
 
-@pytest.mark.asyncio
 async def test__api_create__all_content_type_combinations(client: AsyncClient) -> None:
     """All 6 cross-type combinations work (3 same-type + 3 cross-type)."""
     bm1 = await _create_bookmark(client, title='BM1')
@@ -334,7 +319,6 @@ async def test__api_create__all_content_type_combinations(client: AsyncClient) -
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_get__success(client: AsyncClient) -> None:
     """Get a relationship by ID."""
     bm = await _create_bookmark(client)
@@ -348,7 +332,6 @@ async def test__api_get__success(client: AsyncClient) -> None:
     assert data['relationship_type'] == 'related'
 
 
-@pytest.mark.asyncio
 async def test__api_get__not_found(client: AsyncClient) -> None:
     """Non-existent relationship returns 404."""
     response = await client.get(f'/relationships/{FAKE_UUID}')
@@ -360,7 +343,6 @@ async def test__api_get__not_found(client: AsyncClient) -> None:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_update__description(client: AsyncClient) -> None:
     """Update relationship description."""
     bm = await _create_bookmark(client)
@@ -375,7 +357,6 @@ async def test__api_update__description(client: AsyncClient) -> None:
     assert response.json()['description'] == 'Updated description'
 
 
-@pytest.mark.asyncio
 async def test__api_update__clear_description(client: AsyncClient) -> None:
     """Set description to null."""
     bm = await _create_bookmark(client)
@@ -393,7 +374,6 @@ async def test__api_update__clear_description(client: AsyncClient) -> None:
     assert response.json()['description'] is None
 
 
-@pytest.mark.asyncio
 async def test__api_update__empty_body_no_change(client: AsyncClient) -> None:
     """PATCH with empty body leaves description unchanged."""
     bm = await _create_bookmark(client)
@@ -408,7 +388,6 @@ async def test__api_update__empty_body_no_change(client: AsyncClient) -> None:
     assert response.json()['description'] == 'Keep this'
 
 
-@pytest.mark.asyncio
 async def test__api_update__whitespace_description_normalized_to_null(client: AsyncClient) -> None:
     """Whitespace-only description in update is normalized to null."""
     bm = await _create_bookmark(client)
@@ -426,7 +405,6 @@ async def test__api_update__whitespace_description_normalized_to_null(client: As
     assert response.json()['description'] is None
 
 
-@pytest.mark.asyncio
 async def test__api_update__description_max_length(client: AsyncClient) -> None:
     """Description over 500 chars returns 422."""
     bm = await _create_bookmark(client)
@@ -440,7 +418,6 @@ async def test__api_update__description_max_length(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
-@pytest.mark.asyncio
 async def test__api_update__not_found(client: AsyncClient) -> None:
     """Update non-existent relationship returns 404."""
     response = await client.patch(
@@ -455,7 +432,6 @@ async def test__api_update__not_found(client: AsyncClient) -> None:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_delete__success(client: AsyncClient) -> None:
     """Delete a relationship."""
     bm = await _create_bookmark(client)
@@ -470,7 +446,6 @@ async def test__api_delete__success(client: AsyncClient) -> None:
     assert response.status_code == 404
 
 
-@pytest.mark.asyncio
 async def test__api_delete__not_found(client: AsyncClient) -> None:
     """Delete non-existent relationship returns 404."""
     response = await client.delete(f'/relationships/{FAKE_UUID}')
@@ -482,7 +457,6 @@ async def test__api_delete__not_found(client: AsyncClient) -> None:
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_query__success(client: AsyncClient) -> None:
     """Query relationships for a content item returns enriched data."""
     bm = await _create_bookmark(client, title='My Bookmark')
@@ -506,7 +480,6 @@ async def test__api_query__success(client: AsyncClient) -> None:
     assert item['target_deleted'] is False
 
 
-@pytest.mark.asyncio
 async def test__api_query__from_either_side(client: AsyncClient) -> None:
     """Same relationship returned when querying from either side."""
     bm = await _create_bookmark(client)
@@ -521,7 +494,6 @@ async def test__api_query__from_either_side(client: AsyncClient) -> None:
     assert resp_bm.json()['items'][0]['id'] == resp_note.json()['items'][0]['id']
 
 
-@pytest.mark.asyncio
 async def test__api_query__without_content_info(client: AsyncClient) -> None:
     """Query with include_content_info=false returns slim response."""
     bm = await _create_bookmark(client)
@@ -542,7 +514,6 @@ async def test__api_query__without_content_info(client: AsyncClient) -> None:
     assert item['target_title'] is None
 
 
-@pytest.mark.asyncio
 async def test__api_query__empty_result(client: AsyncClient) -> None:
     """Query for content with no relationships returns empty list."""
     bm = await _create_bookmark(client)
@@ -555,7 +526,6 @@ async def test__api_query__empty_result(client: AsyncClient) -> None:
     assert data['has_more'] is False
 
 
-@pytest.mark.asyncio
 async def test__api_query__nonexistent_content_returns_empty(client: AsyncClient) -> None:
     """Query for non-existent content ID returns empty list (not 404)."""
     response = await client.get(f'/relationships/content/bookmark/{FAKE_UUID}')
@@ -563,7 +533,6 @@ async def test__api_query__nonexistent_content_returns_empty(client: AsyncClient
     assert response.json()['total'] == 0
 
 
-@pytest.mark.asyncio
 async def test__api_query__pagination(client: AsyncClient) -> None:
     """Pagination works with offset and limit."""
     bm = await _create_bookmark(client)
@@ -602,7 +571,6 @@ async def test__api_query__pagination(client: AsyncClient) -> None:
     assert data3['has_more'] is False
 
 
-@pytest.mark.asyncio
 async def test__api_query__ordering(client: AsyncClient) -> None:
     """Results ordered by created_at DESC (newest first)."""
     bm = await _create_bookmark(client)
@@ -620,7 +588,6 @@ async def test__api_query__ordering(client: AsyncClient) -> None:
     assert items[1]['id'] == rel1['id']
 
 
-@pytest.mark.asyncio
 async def test__api_query__content_info_deleted_target(client: AsyncClient) -> None:
     """Soft-deleted target shows deleted flag in content info."""
     bm = await _create_bookmark(client)
@@ -643,7 +610,6 @@ async def test__api_query__content_info_deleted_target(client: AsyncClient) -> N
         assert item['target_deleted'] is True
 
 
-@pytest.mark.asyncio
 async def test__api_query__content_info_archived_target(client: AsyncClient) -> None:
     """Archived target shows archived flag in content info."""
     bm = await _create_bookmark(client)
@@ -664,7 +630,6 @@ async def test__api_query__content_info_archived_target(client: AsyncClient) -> 
         assert item['target_archived'] is True
 
 
-@pytest.mark.asyncio
 async def test__api_query__future_archived_at_not_considered_archived(
     client: AsyncClient, db_session: AsyncSession,
 ) -> None:
@@ -699,7 +664,6 @@ async def test__api_query__future_archived_at_not_considered_archived(
         assert item['target_archived'] is False
 
 
-@pytest.mark.asyncio
 async def test__api_query__content_info_with_bookmark_url(client: AsyncClient) -> None:
     """Bookmark content info includes URL."""
     bm = await _create_bookmark(client, title='Has URL', url='https://example.com/test-url')
@@ -716,7 +680,6 @@ async def test__api_query__content_info_with_bookmark_url(client: AsyncClient) -
         assert 'example.com/test-url' in item['target_url']
 
 
-@pytest.mark.asyncio
 async def test__api_query__content_info_missing_entity(
     client: AsyncClient, db_session: AsyncSession,
 ) -> None:
@@ -756,7 +719,6 @@ async def test__api_query__content_info_missing_entity(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_create_relationship__records_history_on_source(
     client: AsyncClient,
 ) -> None:
@@ -781,7 +743,6 @@ async def test__api_create_relationship__records_history_on_source(
     assert update_entry['changed_fields'] == ['relationships']
 
 
-@pytest.mark.asyncio
 async def test__api_delete_relationship__records_history_on_source(
     client: AsyncClient,
 ) -> None:
@@ -804,7 +765,6 @@ async def test__api_delete_relationship__records_history_on_source(
     assert data['total'] >= 3
 
 
-@pytest.mark.asyncio
 async def test__api_update_relationship__records_history_on_source(
     client: AsyncClient,
 ) -> None:
@@ -840,7 +800,6 @@ async def test__api_update_relationship__records_history_on_source(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_create_bookmark_with_relationships(client: AsyncClient) -> None:
     """POST /bookmarks/ with relationships creates them and includes in response."""
     note = await _create_note(client)
@@ -857,7 +816,6 @@ async def test__api_create_bookmark_with_relationships(client: AsyncClient) -> N
     assert len(data['relationships']) == 1
 
 
-@pytest.mark.asyncio
 async def test__api_update_bookmark_with_relationships(client: AsyncClient) -> None:
     """PUT /bookmarks/{id} with relationships syncs them."""
     bm = await _create_bookmark(client)
@@ -881,7 +839,6 @@ async def test__api_update_bookmark_with_relationships(client: AsyncClient) -> N
     assert len(data['relationships']) == 0
 
 
-@pytest.mark.asyncio
 async def test__api_update_bookmark_relationships_none__no_change(client: AsyncClient) -> None:
     """PUT /bookmarks/{id} with relationships omitted (None) leaves them unchanged."""
     bm = await _create_bookmark(client)
@@ -903,7 +860,6 @@ async def test__api_update_bookmark_relationships_none__no_change(client: AsyncC
     assert len(data['relationships']) == 1  # Still there
 
 
-@pytest.mark.asyncio
 async def test__api_create_note_with_relationships(client: AsyncClient) -> None:
     """POST /notes/ with relationships creates them."""
     bm = await _create_bookmark(client)
@@ -919,7 +875,6 @@ async def test__api_create_note_with_relationships(client: AsyncClient) -> None:
     assert len(data['relationships']) == 1
 
 
-@pytest.mark.asyncio
 async def test__api_create_prompt_with_relationships(client: AsyncClient) -> None:
     """POST /prompts/ with relationships creates them."""
     note = await _create_note(client)
@@ -942,7 +897,6 @@ async def test__api_create_prompt_with_relationships(client: AsyncClient) -> Non
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_restore_version__restores_relationships(client: AsyncClient) -> None:
     """Restoring to a version restores the relationship set from that point."""
     note = await _create_note(client)
@@ -989,7 +943,6 @@ async def test__api_restore_version__restores_relationships(client: AsyncClient)
     # prompt link should be gone (wasn't in v1)
 
 
-@pytest.mark.asyncio
 async def test__api_restore_version__handles_deleted_targets(client: AsyncClient) -> None:
     """Restoring relationships when a target has been permanently deleted succeeds, skipping missing targets."""
     note1 = await _create_note(client, title="Keep Note")
@@ -1041,7 +994,6 @@ async def test__api_restore_version__handles_deleted_targets(client: AsyncClient
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_create_relationship__enforces_limit(
     client: AsyncClient,
 ) -> None:
@@ -1082,7 +1034,6 @@ async def test__api_create_relationship__enforces_limit(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_create_relationship__records_history_on_target(
     client: AsyncClient,
 ) -> None:
@@ -1106,7 +1057,6 @@ async def test__api_create_relationship__records_history_on_target(
     assert update_entry['changed_fields'] == ['relationships']
 
 
-@pytest.mark.asyncio
 async def test__api_delete_relationship__records_history_on_target(
     client: AsyncClient,
 ) -> None:
@@ -1129,7 +1079,6 @@ async def test__api_delete_relationship__records_history_on_target(
     assert len(update_entries) >= 2
 
 
-@pytest.mark.asyncio
 async def test__api_update_relationship__records_history_on_target(
     client: AsyncClient,
 ) -> None:
@@ -1164,7 +1113,6 @@ async def test__api_update_relationship__records_history_on_target(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_create_relationship__bumps_updated_at_on_both(
     client: AsyncClient,
 ) -> None:
@@ -1187,7 +1135,6 @@ async def test__api_create_relationship__bumps_updated_at_on_both(
     assert note_resp.json()['updated_at'] > note_before
 
 
-@pytest.mark.asyncio
 async def test__api_delete_relationship__bumps_updated_at_on_both(
     client: AsyncClient,
 ) -> None:
@@ -1213,7 +1160,6 @@ async def test__api_delete_relationship__bumps_updated_at_on_both(
     assert note_resp.json()['updated_at'] > note_after_create
 
 
-@pytest.mark.asyncio
 async def test__api_update_relationship__bumps_updated_at_on_both(
     client: AsyncClient,
 ) -> None:
@@ -1246,7 +1192,6 @@ async def test__api_update_relationship__bumps_updated_at_on_both(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_create_relationship__bumps_updated_at_on_prompt(
     client: AsyncClient,
 ) -> None:
@@ -1269,7 +1214,6 @@ async def test__api_create_relationship__bumps_updated_at_on_prompt(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_update_relationship__empty_body_does_not_bump_updated_at(
     client: AsyncClient,
 ) -> None:
@@ -1299,7 +1243,6 @@ async def test__api_update_relationship__empty_body_does_not_bump_updated_at(
     assert (await client.get(f'/history/note/{note["id"]}')).json()['total'] == note_history
 
 
-@pytest.mark.asyncio
 async def test__api_update_relationship__same_description_does_not_bump_updated_at(
     client: AsyncClient,
 ) -> None:
@@ -1338,7 +1281,6 @@ async def test__api_update_relationship__same_description_does_not_bump_updated_
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_create_relationship__invalidates_http_cache(
     client: AsyncClient,
 ) -> None:
@@ -1378,7 +1320,6 @@ async def test__api_create_relationship__invalidates_http_cache(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_update_note_with_relationships__bumps_target_updated_at(
     client: AsyncClient,
 ) -> None:
@@ -1402,7 +1343,6 @@ async def test__api_update_note_with_relationships__bumps_target_updated_at(
     assert note_b_after > note_b_before
 
 
-@pytest.mark.asyncio
 async def test__api_update_note_remove_relationship__bumps_target_updated_at(
     client: AsyncClient,
 ) -> None:
@@ -1431,7 +1371,6 @@ async def test__api_update_note_remove_relationship__bumps_target_updated_at(
     assert note_b_after_remove > note_b_after_add
 
 
-@pytest.mark.asyncio
 async def test__api_update_bookmark_with_relationships__bumps_target_updated_at(
     client: AsyncClient,
 ) -> None:
@@ -1459,7 +1398,6 @@ async def test__api_update_bookmark_with_relationships__bumps_target_updated_at(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_update_note_with_relationships__records_history_on_target(
     client: AsyncClient,
 ) -> None:
@@ -1484,7 +1422,6 @@ async def test__api_update_note_with_relationships__records_history_on_target(
     assert latest['changed_fields'] == ['relationships']
 
 
-@pytest.mark.asyncio
 async def test__api_update_note_remove_relationship__records_history_on_target(
     client: AsyncClient,
 ) -> None:
@@ -1515,7 +1452,6 @@ async def test__api_update_note_remove_relationship__records_history_on_target(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_update_note_with_same_relationships__does_not_bump_target(
     client: AsyncClient,
 ) -> None:
@@ -1552,7 +1488,6 @@ async def test__api_update_note_with_same_relationships__does_not_bump_target(
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_restore_version__bumps_target_updated_at_on_relationship_change(
     client: AsyncClient,
 ) -> None:
@@ -1580,7 +1515,6 @@ async def test__api_restore_version__bumps_target_updated_at_on_relationship_cha
     assert note_b_after_restore > note_b_after_add
 
 
-@pytest.mark.asyncio
 async def test__api_restore_version__records_history_on_target_for_relationship_change(
     client: AsyncClient,
 ) -> None:
@@ -1610,7 +1544,6 @@ async def test__api_restore_version__records_history_on_target_for_relationship_
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_update_note_with_relationships__invalidates_target_http_cache(
     client: AsyncClient,
 ) -> None:
@@ -1653,7 +1586,6 @@ async def test__api_update_note_with_relationships__invalidates_target_http_cach
 # =============================================================================
 
 
-@pytest.mark.asyncio
 async def test__api_permanent_delete__bumps_related_entity_updated_at(
     client: AsyncClient,
 ) -> None:
@@ -1680,7 +1612,6 @@ async def test__api_permanent_delete__bumps_related_entity_updated_at(
     assert note_b_after > note_b_before
 
 
-@pytest.mark.asyncio
 async def test__api_permanent_delete__does_not_record_history_on_related_entity(
     client: AsyncClient,
 ) -> None:
@@ -1703,7 +1634,6 @@ async def test__api_permanent_delete__does_not_record_history_on_related_entity(
     assert history_after == history_before
 
 
-@pytest.mark.asyncio
 async def test__api_permanent_delete__invalidates_related_entity_http_cache(
     client: AsyncClient,
 ) -> None:
@@ -1743,7 +1673,6 @@ async def test__api_permanent_delete__invalidates_related_entity_http_cache(
     assert response.status_code == 200
 
 
-@pytest.mark.asyncio
 async def test__api_permanent_delete__bumps_all_related_entities(
     client: AsyncClient,
 ) -> None:

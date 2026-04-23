@@ -152,7 +152,6 @@ class TestGetRequestSource:
 class TestRequestContextWithAuth0:
     """Tests for RequestContext being set correctly with Auth0 JWT."""
 
-    @pytest.mark.asyncio
     async def test__auth0_jwt__sets_auth_type_auth0(
         self,
         db_session: AsyncSession,
@@ -179,7 +178,6 @@ class TestRequestContextWithAuth0:
         assert context.auth_type == AuthType.AUTH0
         assert context.token_prefix is None
 
-    @pytest.mark.asyncio
     async def test__auth0_jwt__sets_source_from_header(
         self,
         db_session: AsyncSession,
@@ -210,7 +208,6 @@ class TestRequestContextWithAuth0:
 class TestRequestContextWithPAT:
     """Tests for RequestContext being set correctly with PAT."""
 
-    @pytest.mark.asyncio
     async def test__pat__sets_auth_type_pat(
         self,
         db_session: AsyncSession,
@@ -238,7 +235,6 @@ class TestRequestContextWithPAT:
         context = mock_request.state.request_context
         assert context.auth_type == AuthType.PAT
 
-    @pytest.mark.asyncio
     async def test__pat__sets_token_prefix(
         self,
         db_session: AsyncSession,
@@ -269,7 +265,6 @@ class TestRequestContextWithPAT:
         assert context.token_prefix == "bm_a3f8xyz12345"
         assert len(context.token_prefix) == 15
 
-    @pytest.mark.asyncio
     async def test__pat__short_token_uses_full_token_as_prefix(
         self,
         db_session: AsyncSession,
@@ -298,7 +293,6 @@ class TestRequestContextWithPAT:
         context = mock_request.state.request_context
         assert context.token_prefix == "bm_short"
 
-    @pytest.mark.asyncio
     async def test__pat__sets_source_from_header(
         self,
         db_session: AsyncSession,
@@ -332,7 +326,6 @@ class TestRequestContextWithPAT:
 class TestRequestContextWithDevMode:
     """Tests for RequestContext in DEV_MODE."""
 
-    @pytest.mark.asyncio
     async def test__dev_mode__sets_auth_type_dev(
         self,
         db_session: AsyncSession,
@@ -351,7 +344,6 @@ class TestRequestContextWithDevMode:
         assert context.auth_type == AuthType.DEV
         assert context.token_prefix is None
 
-    @pytest.mark.asyncio
     async def test__dev_mode__sets_source_from_header(
         self,
         db_session: AsyncSession,

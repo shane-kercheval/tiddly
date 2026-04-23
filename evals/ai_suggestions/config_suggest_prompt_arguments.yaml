@@ -1,0 +1,212 @@
+name: "suggest_prompt_arguments: Generate-All Quality"
+description: |
+  Tests prompt argument generate-all quality by calling
+  suggest_prompt_arguments() directly. Extracts placeholders from a
+  template and verifies the LLM produces one descriptive argument entry
+  per new placeholder.
+
+models:
+  - name: "gemini/gemini-flash-lite-latest"
+    temperature: 0.7
+  - name: "openai/gpt-5.4-nano"
+    temperature: 0.7
+  - name: "anthropic/claude-haiku-4-5"
+    temperature: 0.7
+
+eval:
+  judge_model: "openai/gpt-5.4-mini"
+  samples: 10
+  pass_threshold: 0.8
+  max_concurrency: 10
+
+test_cases:
+  - id: "generate-all-basic"
+    metadata:
+      description: "Realistic translation template — 2 unconditional placeholders with unambiguous semantics"
+    input:
+      prompt_content: |
+        Translate the following text from English to {{ target_language }}.
+        Preserve formatting and tone. Output only the translation, no commentary.
+
+        Text to translate:
+        {{ source_text }}
+      arguments: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.argument_names"
+          required: ["target_language", "source_text"]
+          case_sensitive: true
+        metadata:
+          name: "Expected arguments present"
+          description: "Both placeholders should be returned as arguments"
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 2
+          max_value: 2
+        metadata:
+          name: "Argument count"
+          description: "Exactly 2 arguments expected (target_language and source_text)"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.argument_names"
+          negate: true
+        metadata:
+          name: "Arguments non-empty"
+          description: "Should return at least one argument"
+
+  - id: "generate-all-conditional"
+    metadata:
+      description: "Realistic code-review template — unconditional placeholders + one inside {% if %}"
+    input:
+      prompt_content: |
+        Review the following {{ language }} code for bugs, style issues, and
+        potential improvements. Focus on correctness and readability.
+
+        Code:
+        ```
+        {{ code }}
+        ```
+
+        {% if style_guide %}Apply this style guide: {{ style_guide }}{% endif %}
+      arguments: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.argument_names"
+          required: ["language", "code", "style_guide"]
+          case_sensitive: true
+        metadata:
+          name: "Expected arguments present"
+          description: "All three placeholders should be returned"
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 3
+          max_value: 3
+        metadata:
+          name: "Argument count"
+          description: "Exactly 3 arguments expected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.argument_names"
+          negate: true
+        metadata:
+          name: "Arguments non-empty"
+          description: "Should return at least one argument"
+
+  - id: "generate-all-complex"
+    metadata:
+      description: "Complex template with 5 variables — mix of conditional and unconditional"
+    input:
+      prompt_content: |
+        You are a {{ role }} assistant. Help the user with {{ task }}.
+
+        Use {{ language }} for all code examples.
+
+        {% if style_guide %}Follow this style guide: {{ style_guide }}{% endif %}
+
+        {% if additional_instructions %}
+        Additional instructions: {{ additional_instructions }}
+        {% endif %}
+      arguments: []
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.argument_names"
+          required: ["role", "task", "language", "style_guide", "additional_instructions"]
+          case_sensitive: true
+        metadata:
+          name: "Expected arguments present"
+          description: "All 5 placeholders should be returned"
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 5
+          max_value: 5
+        metadata:
+          name: "Argument count"
+          description: "Exactly 5 arguments expected"
+      - type: "is_empty"
+        arguments:
+          value: "$.output.value.argument_names"
+          negate: true
+        metadata:
+          name: "Arguments non-empty"
+          description: "Should return at least one argument"
+
+  - id: "generate-all-with-existing"
+    metadata:
+      description: "Some placeholders already declared — only new ones should be suggested (dedup path)"
+    input:
+      prompt_content: |
+        Translate {{ source_text }} from {{ source_language }} to {{ target_language }}.
+        Use a {{ tone }} tone.
+      arguments:
+        - name: "source_text"
+          description: "The text to translate"
+        - name: "source_language"
+          description: "The language of the source text"
+    checks:
+      - type: "subset"
+        arguments:
+          collection: "$.output.value.argument_names"
+          required: ["target_language", "tone"]
+          case_sensitive: true
+        metadata:
+          name: "Expected arguments present"
+          description: "Only the two new placeholders should be returned"
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 2
+          max_value: 2
+        metadata:
+          name: "Argument count"
+          description: "Exactly 2 arguments expected (source_text and source_language are excluded)"
+      - type: "disjoint"
+        arguments:
+          collection: "$.output.value.argument_names"
+          forbidden: ["source_text", "source_language"]
+          case_sensitive: true
+        metadata:
+          name: "Existing placeholders excluded"
+          description: "Placeholders already declared in arguments must not appear in suggestions"
+
+# Global checks — applied to every test case
+checks:
+  # Argument descriptions are clear and helpful (LLM judge).
+  # Tightening the criteria here can flag legitimate suggestions as failures
+  # (judge-prompt drift) — change with care and re-baseline if you do.
+  - type: "llm_judge"
+    arguments:
+      prompt: |
+        You are evaluating argument suggestions for a prompt template.
+
+        The template:
+        ```
+        {{$.test_case.input.prompt_content}}
+        ```
+
+        Arguments already declared before this request (these should NOT appear in the suggestions):
+        {{$.output.value.existing_arguments_detail}}
+
+        The suggested arguments (one entry per NEW placeholder only):
+        {{$.output.value.arguments_detail}}
+
+        Evaluate the suggestions:
+        - Each returned argument should have a clear, helpful description that explains what it represents
+        - Descriptions should not be vague or generic (e.g., "the value" or "input data")
+        - Argument names should be valid (lowercase with underscores)
+
+        Do NOT penalize for placeholders that are absent from the suggestions
+        when they appear in the "already declared" list above — that is the
+        correct dedup behavior. Evaluate only the quality of the descriptions
+        returned; structural completeness is checked separately.
+
+        Return passed=true if all returned argument descriptions are clear and helpful. Include brief reasoning for any that fail.
+      response_model: "arguments"
+    metadata:
+      name: "Argument descriptions are clear"
+      description: "LLM judge verifies argument descriptions are specific and helpful"

@@ -45,13 +45,62 @@ make chrome-ext-install   # Install test dependencies (vitest + jsdom)
 make chrome-ext-tests     # Run tests
 ```
 
-## Packaging
+## Store Assets
 
-To produce a clean zip for distribution and uploading to Chrome Extensions Store (excludes tests, node_modules, etc.):
+Marketing images for the Chrome Web Store listing live in `store-assets/`:
+
+- `src/` — raw popup screenshots (drop new captures here)
+- `build.py` — Pillow-based composer
+- `out/` — generated assets at the exact dimensions Google requires
+
+Regenerate after tweaking copy, colors, or source screenshots:
 
 ```bash
-make chrome-ext-zip       # Creates dist/chrome-extension.zip
+cd chrome-extension/store-assets
+uv run --with pillow python build.py
 ```
+
+Outputs:
+
+| File | Size | Slot |
+|---|---|---|
+| `screenshot-save-1280x800.png` | 1280×800 | Screenshot (required) |
+| `screenshot-search-1280x800.png` | 1280×800 | Screenshot (required) |
+| `promo-small-440x280.png` | 440×280 | Small promo tile (required) |
+| `promo-marquee-1400x560.png` | 1400×560 | Marquee (optional, used if Google features the listing) |
+
+`store-assets/` is not included in `make chrome-ext-zip` — it stays out of the uploaded bundle.
+
+## Releasing a New Version
+
+Full workflow for publishing an update to the Chrome Web Store:
+
+1. **Finish all code changes and merge to `main`.** Run `make chrome-ext-verify` locally; all tests must pass.
+2. **Bump the version** in `manifest.json`. Chrome Web Store rejects re-uploads of an existing version. Use semver (patch for bug fixes, minor for user-visible changes, major for breaking/removed features).
+3. **Regenerate store assets** if the UI changed or copy needs updating (see *Store Assets* above).
+4. **Commit the version bump and any asset changes** and push.
+5. **Build the upload zip:**
+   ```bash
+   make chrome-ext-zip
+   # -> dist/chrome-extension.zip
+   ```
+6. **Upload to the Developer Dashboard:** https://chrome.google.com/webstore/devconsole
+   - Open the **Tiddly Bookmarks** item
+   - **Package** tab → **Upload new package** → select `dist/chrome-extension.zip`
+   - The dashboard parses `manifest.json` and rejects the upload if the version didn't actually increment
+7. **Update the store listing** on the same item's **Store listing** tab:
+   - Replace screenshots with `store-assets/out/screenshot-*.png`
+   - Replace the small promo tile with `store-assets/out/promo-small-440x280.png`
+   - (Optional) Update the marquee with `store-assets/out/promo-marquee-1400x560.png`
+   - Update the description if user-visible behavior changed
+8. **Submit for review.** Review time ranges from a few hours to a few days; longer if `permissions` / `host_permissions` in `manifest.json` changed. Adding new permissions or broadening host patterns triggers a deeper review.
+9. **Monitor the listing** for approval or rejection emails. On rejection, fix + re-upload under the same (already-bumped) version number — Google tracks per-submission, not per-version, for retries before publication.
+
+### Common gotchas
+
+- Screenshot dimensions must match exactly (1280×800, not 1279×800). The composer enforces this.
+- Keyword stuffing in the description is a common rejection reason — keep it conversational.
+- `"Test Connection"` buttons, debug toggles, or other development affordances visible in the UI can trigger rejection as "not ready for users." Double-check the Options page before zipping.
 
 ## Local Development
 

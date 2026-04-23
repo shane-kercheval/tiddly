@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { useLinkedNavigation } from './useLinkedNavigation'
 import type { LinkedItem } from '../utils/relationships'
@@ -105,5 +105,49 @@ describe('useLinkedNavigation', () => {
     expect(mockTrackBookmarkUsage).not.toHaveBeenCalled()
 
     windowOpen.mockRestore()
+  })
+
+  it('should navigate to bookmark detail page on shift+click instead of opening URL', () => {
+    const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const { result } = renderHook(() => useLinkedNavigation(), { wrapper: createWrapper() })
+
+    act(() => {
+      result.current(
+        makeLinkedItem({ type: 'bookmark', id: 'bm-789', url: 'https://example.com' }),
+        { shiftKey: true } as ReactMouseEvent,
+      )
+    })
+
+    expect(mockNavigate).toHaveBeenCalledWith('/app/bookmarks/bm-789')
+    expect(windowOpen).not.toHaveBeenCalled()
+    expect(mockTrackBookmarkUsage).not.toHaveBeenCalled()
+
+    windowOpen.mockRestore()
+  })
+
+  it('should ignore shift modifier for notes (still navigates normally)', () => {
+    const { result } = renderHook(() => useLinkedNavigation(), { wrapper: createWrapper() })
+
+    act(() => {
+      result.current(
+        makeLinkedItem({ type: 'note', id: 'note-123' }),
+        { shiftKey: true } as ReactMouseEvent,
+      )
+    })
+
+    expect(mockNavigate).toHaveBeenCalledWith('/app/notes/note-123')
+  })
+
+  it('should ignore shift modifier for prompts (still navigates normally)', () => {
+    const { result } = renderHook(() => useLinkedNavigation(), { wrapper: createWrapper() })
+
+    act(() => {
+      result.current(
+        makeLinkedItem({ type: 'prompt', id: 'prompt-456' }),
+        { shiftKey: true } as ReactMouseEvent,
+      )
+    })
+
+    expect(mockNavigate).toHaveBeenCalledWith('/app/prompts/prompt-456')
   })
 })

@@ -21846,7 +21846,7 @@
       "test_function": "test_edit_prompt_content",
       "test_module": "evals.prompt_mcp.test_edit_prompt_content",
       "samples": 10,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "max_concurrency": 20,
       "num_test_cases": 6
     },
@@ -21855,7 +21855,7 @@
       "failed_samples": 3,
       "total_samples": 10,
       "success_rate": 0.7,
-      "success_threshold": 0.6,
+      "pass_threshold": 0.6,
       "passed": true
     }
   }

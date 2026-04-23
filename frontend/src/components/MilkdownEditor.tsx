@@ -129,7 +129,7 @@ import {
   LinkIcon,
   BulletListIcon,
   OrderedListIcon,
-  TaskListIcon,
+  ChecklistIcon,
   BlockquoteIcon,
   HorizontalRuleIcon,
   JinjaVariableIcon,
@@ -198,13 +198,13 @@ interface EditorToolbarProps {
   onCodeBlockToggle: () => void
   onBulletListClick: () => void
   onOrderedListClick: () => void
-  onTaskListClick: () => void
+  onChecklistClick: () => void
   showJinjaTools?: boolean
   /** Content to copy (for always-visible copy button) */
   copyContent?: string
 }
 
-function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletListClick, onOrderedListClick, onTaskListClick, showJinjaTools = false, copyContent }: EditorToolbarProps): ReactNode {
+function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletListClick, onOrderedListClick, onChecklistClick, showJinjaTools = false, copyContent }: EditorToolbarProps): ReactNode {
   const runCommand = useCallback(
     (command: Parameters<typeof callCommand>[0]) => {
       const editor = getEditor()
@@ -280,8 +280,8 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
         <ToolbarButton onAction={onOrderedListClick} title="Numbered List (⌘⇧8)">
           <OrderedListIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={onTaskListClick} title="Task List (⌘⇧9)">
-          <TaskListIcon />
+        <ToolbarButton onAction={onChecklistClick} title="Checklist (⌘⇧9)">
+          <ChecklistIcon />
         </ToolbarButton>
 
         <ToolbarSeparator />
@@ -320,7 +320,7 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
 }
 
 /**
- * Width of the clickable area for task list checkboxes (in pixels).
+ * Width of the clickable area for checklist checkboxes (in pixels).
  * This matches the checkbox pseudo-element which is 16px wide (w-4) in index.css.
  * Only clicks directly on the checkbox should toggle it, not clicks in the gap.
  */
@@ -1026,7 +1026,11 @@ function MilkdownEditorInner({
 
   /**
    * Get the current list context for the selection.
-   * Returns { listType, listItemDepth, listDepth, isTask } or null if not in a list.
+   * Returns { listType, listItemDepth, listDepth, isChecklist } or null if not in a list.
+   *
+   * Note: list_item.attrs.checked is part of Milkdown's GFM schema — a non-null
+   * value (true/false) marks the item as a checklist entry; null means a plain
+   * bullet/numbered item.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const getListContext = useCallback((view: any) => {
@@ -1055,11 +1059,10 @@ function MilkdownEditorInner({
       }
     }
 
-    // Check if it's a task list item
     const listItem = $from.node(listItemDepth)
-    const isTask = listItem.attrs.checked !== null
+    const isChecklist = listItem.attrs.checked !== null
 
-    return { listType, listItemDepth, listDepth, isTask }
+    return { listType, listItemDepth, listDepth, isChecklist }
   }, [])
 
   // Handle toolbar bullet list button click - toggle behavior
@@ -1077,19 +1080,19 @@ function MilkdownEditorInner({
       return
     }
 
-    const { listType, listItemDepth, isTask } = ctx
+    const { listType, listItemDepth, isChecklist } = ctx
 
-    if (listType === 'bullet_list' && !isTask) {
-      // Already in bullet list (not task) - lift out
+    if (listType === 'bullet_list' && !isChecklist) {
+      // Already in plain bullet list (not a checklist) - lift out
       const listItemNodeType = view.state.schema.nodes.list_item
       liftListItem(listItemNodeType)(view.state, view.dispatch)
       view.focus()
       return
     }
 
-    // In ordered list or task list - convert to bullet list
-    // First, if it's a task, remove the checked attribute
-    if (isTask) {
+    // In ordered list or checklist - convert to bullet list.
+    // If it's a checklist, clear the GFM `checked` attribute first.
+    if (isChecklist) {
       const { $from } = view.state.selection
       const listItem = $from.node(listItemDepth)
       const listItemPos = $from.before(listItemDepth)
@@ -1127,7 +1130,7 @@ function MilkdownEditorInner({
       return
     }
 
-    const { listType, listItemDepth, isTask } = ctx
+    const { listType, listItemDepth, isChecklist } = ctx
 
     if (listType === 'ordered_list') {
       // Already in ordered list - lift out
@@ -1137,9 +1140,9 @@ function MilkdownEditorInner({
       return
     }
 
-    // In bullet list or task list - convert to ordered list
-    // First, if it's a task, remove the checked attribute
-    if (isTask) {
+    // In bullet list or checklist - convert to ordered list.
+    // If it's a checklist, clear the GFM `checked` attribute first.
+    if (isChecklist) {
       const { $from } = view.state.selection
       const listItem = $from.node(listItemDepth)
       const listItemPos = $from.before(listItemDepth)
@@ -1162,8 +1165,8 @@ function MilkdownEditorInner({
     view.focus()
   }, [get, getListContext])
 
-  // Handle toolbar task list button click
-  const handleTaskListClick = useCallback(() => {
+  // Handle toolbar checklist button click
+  const handleChecklistClick = useCallback(() => {
     const editor = get()
     if (!editor) return
 
@@ -1171,10 +1174,10 @@ function MilkdownEditorInner({
     const ctx = getListContext(view)
 
     if (!ctx) {
-      // Not in a list - first create a bullet list, then convert to task
+      // Not in a list - first create a bullet list, then convert to a checklist
       editor.action(callCommand(wrapInBulletListCommand.key))
-      // After creating bullet list, find and convert the list item to task
-      // Need to get fresh state after the command
+      // After creating bullet list, find and set the GFM `checked` attribute
+      // on the list item. Need to get fresh state after the command.
       setTimeout(() => {
         if (!isMountedRef.current) return
         try {
@@ -1201,18 +1204,18 @@ function MilkdownEditorInner({
       return
     }
 
-    const { isTask } = ctx
+    const { isChecklist } = ctx
 
-    if (isTask) {
-      // Already a task - lift out of list entirely (consistent with bullet/ordered list toggle)
+    if (isChecklist) {
+      // Already a checklist - lift out of list entirely (consistent with bullet/ordered list toggle)
       const listItemNodeType = view.state.schema.nodes.list_item
       liftListItem(listItemNodeType)(view.state, view.dispatch)
       view.focus()
       return
     }
 
-    // In a list but not a task - convert to task
-    // If in ordered list, first convert to bullet list
+    // In a list but not a checklist - convert to a checklist.
+    // If in ordered list, first convert to bullet list.
     if (ctx.listType === 'ordered_list') {
       const { $from } = view.state.selection
       const listPos = $from.before(ctx.listDepth)
@@ -1314,24 +1317,24 @@ function MilkdownEditorInner({
         return
       }
 
-      // Cmd+Shift+7 - Bullet list
+      // Cmd+Shift+7 - Bullet list (matches toolbar/menu order: 7=bullet, 8=numbered, 9=checklist)
       if (isMod && e.shiftKey && e.key === '7') {
         e.preventDefault()
         handleBulletListClick()
         return
       }
 
-      // Cmd+Shift+8 - Ordered list
+      // Cmd+Shift+8 - Numbered list
       if (isMod && e.shiftKey && e.key === '8') {
         e.preventDefault()
         handleOrderedListClick()
         return
       }
 
-      // Cmd+Shift+9 - Task list
+      // Cmd+Shift+9 - Checklist
       if (isMod && e.shiftKey && e.key === '9') {
         e.preventDefault()
-        handleTaskListClick()
+        handleChecklistClick()
         return
       }
 
@@ -1350,7 +1353,7 @@ function MilkdownEditorInner({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [get, runCommand, handleCodeBlockToggle, handleBulletListClick, handleOrderedListClick, handleTaskListClick, handleToolbarLinkClick]
+    [get, runCommand, handleCodeBlockToggle, handleBulletListClick, handleOrderedListClick, handleChecklistClick, handleToolbarLinkClick]
   )
 
   // Handle mouse down - checkbox toggle and focus on empty space
@@ -1362,11 +1365,14 @@ function MilkdownEditorInner({
       // Don't interfere with clicks on any content elements (let ProseMirror handle them)
       const isContentClick = target.closest('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, code, a, ul, ol, table, td, th, tr')
 
-      const taskListItem = target.closest('li[data-item-type="task"]') as HTMLElement | null
+      // Note: Milkdown's GFM plugin tags checklist items with
+      // `data-item-type="task"` — that attribute name is owned upstream and
+      // can't be renamed. We surface it as "Checklist" everywhere in our UI.
+      const checklistItem = target.closest('li[data-item-type="task"]') as HTMLElement | null
 
-      if (taskListItem) {
+      if (checklistItem) {
         // Check if click was on the checkbox area (left side of the item)
-        const rect = taskListItem.getBoundingClientRect()
+        const rect = checklistItem.getBoundingClientRect()
         const clickX = e.clientX - rect.left
 
         if (clickX < CHECKBOX_CLICK_AREA_WIDTH) {
@@ -1375,7 +1381,7 @@ function MilkdownEditorInner({
             const view = editor.ctx.get(editorViewCtx)
 
             // Find the position of this list item in the ProseMirror document
-            const pos = view.posAtDOM(taskListItem, 0)
+            const pos = view.posAtDOM(checklistItem, 0)
             if (pos === null || pos === undefined) return
 
             // Find the node at this position
@@ -1430,7 +1436,7 @@ function MilkdownEditorInner({
 
   return (
     <>
-      {!disabled && !readOnly && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onCodeBlockToggle={handleCodeBlockToggle} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onTaskListClick={handleTaskListClick} showJinjaTools={showJinjaTools} copyContent={copyContent} />}
+      {!disabled && !readOnly && <EditorToolbar getEditor={get} onLinkClick={handleToolbarLinkClick} onCodeBlockToggle={handleCodeBlockToggle} onBulletListClick={handleBulletListClick} onOrderedListClick={handleOrderedListClick} onChecklistClick={handleChecklistClick} showJinjaTools={showJinjaTools} copyContent={copyContent} />}
       <div
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
@@ -1457,7 +1463,7 @@ function MilkdownEditorInner({
  * Features:
  * - Rich editing with inline markdown rendering
  * - Keyboard shortcuts (Cmd+B, Cmd+I, Cmd+K)
- * - Task list checkbox toggling
+ * - Checklist checkbox toggling
  * - Placeholder text when empty
  * - Copy/paste preserves markdown
  *

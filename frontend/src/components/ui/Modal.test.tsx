@@ -87,6 +87,19 @@ describe('Modal', () => {
 
       expect(screen.queryByLabelText('Close')).not.toBeInTheDocument()
     })
+
+    it('should not call onClose when backdrop is clicked', () => {
+      const onClose = vi.fn()
+      render(
+        <Modal isOpen={true} onClose={onClose} title="Test Modal">
+          <p>Modal content</p>
+        </Modal>
+      )
+
+      fireEvent.click(screen.getByRole('dialog'))
+
+      expect(onClose).not.toHaveBeenCalled()
+    })
   })
 
   describe('Escape key propagation', () => {

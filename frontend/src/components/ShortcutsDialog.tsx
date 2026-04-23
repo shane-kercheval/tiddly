@@ -1,8 +1,8 @@
 /**
  * Dialog showing available keyboard shortcuts.
  */
-import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
+import { Modal } from './ui/Modal'
 
 interface ShortcutsDialogProps {
   /** Whether the dialog is open */
@@ -11,20 +11,17 @@ interface ShortcutsDialogProps {
   onClose: () => void
 }
 
-/** Keyboard shortcut definition */
 interface Shortcut {
   keys: string[]
   description: string
 }
 
-/** Shortcut group with title */
 interface ShortcutGroup {
   title: string
   subtitle?: string
   shortcuts: Shortcut[]
 }
 
-// Left column groups: Actions, Navigation, View
 const leftColumnGroups: ShortcutGroup[] = [
   {
     title: 'Actions',
@@ -39,9 +36,10 @@ const leftColumnGroups: ShortcutGroup[] = [
     title: 'Navigation',
     shortcuts: [
       { keys: ['/'], description: 'Search' },
-      { keys: ['f'], description: 'Focus page search' },
+      { keys: ['s'], description: 'Focus page search' },
       { keys: ['\u2318', '\u21E7', 'P'], description: 'Command palette' },
       { keys: ['\u2318', 'Click'], description: 'Open card in new tab' },
+      { keys: ['\u21E7', 'Click'], description: 'Open bookmark relationship in Tiddly (instead of URL)' },
       { keys: ['Esc'], description: 'Close modal / Unfocus search' },
     ],
   },
@@ -60,38 +58,29 @@ const leftColumnGroups: ShortcutGroup[] = [
   },
 ]
 
-// Right column: Markdown Editor formatting shortcuts
 // Order matches toolbar layout in CodeMirrorEditor
 const rightColumnGroups: ShortcutGroup[] = [
   {
     title: 'Markdown Editor',
     shortcuts: [
-      // Text formatting (matches toolbar order)
       { keys: ['\u2318', 'B'], description: 'Bold' },
       { keys: ['\u2318', 'I'], description: 'Italic' },
       { keys: ['\u2318', '\u21E7', 'X'], description: 'Strikethrough' },
       { keys: ['\u2318', '\u21E7', 'H'], description: 'Highlight' },
       { keys: ['\u2318', '\u21E7', '.'], description: 'Blockquote' },
-      // Code
       { keys: ['\u2318', 'E'], description: 'Inline code' },
       { keys: ['\u2318', '\u21E7', 'E'], description: 'Code block' },
-      // Lists (Notion convention: 7=numbered, 8=bullet, 9=task)
-      { keys: ['\u2318', '\u21E7', '8'], description: 'Bullet list' },
-      { keys: ['\u2318', '\u21E7', '7'], description: 'Numbered list' },
-      { keys: ['\u2318', '\u21E7', '9'], description: 'Task list' },
-      // Links and other
+      { keys: ['\u2318', '\u21E7', '7'], description: 'Bullet list' },
+      { keys: ['\u2318', '\u21E7', '8'], description: 'Numbered list' },
+      { keys: ['\u2318', '\u21E7', '9'], description: 'Checklist' },
       { keys: ['\u2318', 'K'], description: 'Insert link' },
       { keys: ['\u2318', '\u21E7', '-'], description: 'Horizontal rule' },
       { keys: ['\u2318', 'Click'], description: 'Open link in new tab' },
-      // Selection
       { keys: ['\u2318', 'D'], description: 'Select next occurrence' },
     ],
   },
 ]
 
-/**
- * Renders a keyboard key badge.
- */
 function KeyBadge({ children }: { children: ReactNode }): ReactNode {
   return (
     <kbd className="inline-flex min-w-[24px] items-center justify-center rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-xs font-medium text-gray-700 shadow-sm">
@@ -100,9 +89,6 @@ function KeyBadge({ children }: { children: ReactNode }): ReactNode {
   )
 }
 
-/**
- * Renders a group of shortcuts with a title.
- */
 function ShortcutGroupSection({ group }: { group: ShortcutGroup }): ReactNode {
   return (
     <div>
@@ -142,112 +128,26 @@ function ShortcutGroupSection({ group }: { group: ShortcutGroup }): ReactNode {
   )
 }
 
-/**
- * ShortcutsDialog displays available keyboard shortcuts.
- *
- * Features:
- * - Lists all available shortcuts
- * - Closes on Escape or backdrop click
- * - Shows platform-appropriate modifier keys
- */
 export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): ReactNode {
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const previousActiveElement = useRef<HTMLElement | null>(null)
-
-  // Handle escape key and body scroll
-  useEffect(() => {
-    if (!isOpen) return
-
-    previousActiveElement.current = document.activeElement as HTMLElement
-    document.body.style.overflow = 'hidden'
-
-    function handleKeyDown(e: KeyboardEvent): void {
-      if (e.key === 'Escape') {
-        e.stopImmediatePropagation()
-        onClose()
-      }
-    }
-
-    // Use capture phase so this handler runs before other document-level handlers
-    // This ensures Escape closes only the dialog, not components behind it
-    document.addEventListener('keydown', handleKeyDown, true)
-
-    return () => {
-      document.body.style.overflow = ''
-      document.removeEventListener('keydown', handleKeyDown, true)
-
-      if (previousActiveElement.current) {
-        previousActiveElement.current.focus()
-      }
-    }
-  }, [isOpen, onClose])
-
-  // Handle backdrop click
-  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>): void => {
-    if (e.target === e.currentTarget) {
-      onClose()
-    }
-  }
-
-  if (!isOpen) return null
-
   return (
-    <div
-      className="modal-backdrop bg-gray-900/30"
-      onClick={handleBackdropClick}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="shortcuts-title"
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Keyboard Shortcuts"
+      maxWidth="max-w-sm md:max-w-3xl"
     >
-      <div
-        ref={dialogRef}
-        className="modal-content max-w-sm md:max-w-3xl"
-        style={{ height: '85vh', maxHeight: '85vh' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-          <h2 id="shortcuts-title" className="text-base font-semibold text-gray-900">
-            Keyboard Shortcuts
-          </h2>
-          <button
-            onClick={onClose}
-            className="btn-icon"
-            aria-label="Close dialog"
-          >
-            <svg
-              className="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+        <div className="space-y-4">
+          {leftColumnGroups.map((group) => (
+            <ShortcutGroupSection key={group.title} group={group} />
+          ))}
         </div>
-
-        {/* Body - two columns on desktop, one on mobile */}
-        <div className="px-4 py-3 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-          {/* Left column: Actions, Navigation, View */}
-          <div className="space-y-4">
-            {leftColumnGroups.map((group) => (
-              <ShortcutGroupSection key={group.title} group={group} />
-            ))}
-          </div>
-          {/* Right column: Editor */}
-          <div className="space-y-4">
-            {rightColumnGroups.map((group) => (
-              <ShortcutGroupSection key={group.title} group={group} />
-            ))}
-          </div>
+        <div className="space-y-4">
+          {rightColumnGroups.map((group) => (
+            <ShortcutGroupSection key={group.title} group={group} />
+          ))}
         </div>
-
       </div>
-    </div>
+    </Modal>
   )
 }

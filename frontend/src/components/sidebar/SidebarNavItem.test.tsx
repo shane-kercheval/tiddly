@@ -308,6 +308,79 @@ describe('SidebarNavItem', () => {
     })
   })
 
+  describe('external links', () => {
+    it('should render as <a> with target="_blank" and rel="noopener noreferrer" when external', () => {
+      render(
+        <SidebarNavItem to="/docs" label="Docs" isCollapsed={false} external />,
+        { wrapper: createWrapper() }
+      )
+
+      const link = screen.getByRole('link')
+      expect(link).toHaveAttribute('href', '/docs')
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    it('should not apply active styling to external links even if href matches current route', () => {
+      render(
+        <SidebarNavItem to="/docs" label="Docs" isCollapsed={false} external />,
+        { wrapper: createWrapper(['/docs']) }
+      )
+
+      const link = screen.getByRole('link')
+      expect(link).not.toHaveClass('bg-gray-200')
+    })
+
+    it('should call onClick when clicking an external link', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const onClick = vi.fn()
+
+      render(
+        <SidebarNavItem
+          to="/docs"
+          label="Docs"
+          isCollapsed={false}
+          external
+          onClick={onClick}
+        />,
+        { wrapper: createWrapper() }
+      )
+
+      await user.click(screen.getByRole('link'))
+      expect(onClick).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('trailing icon', () => {
+    it('should render trailingIcon when expanded', () => {
+      render(
+        <SidebarNavItem
+          to="/docs"
+          label="Docs"
+          isCollapsed={false}
+          trailingIcon={<span data-testid="trailing">→</span>}
+        />,
+        { wrapper: createWrapper() }
+      )
+
+      expect(screen.getByTestId('trailing')).toBeInTheDocument()
+    })
+
+    it('should NOT render trailingIcon when collapsed', () => {
+      render(
+        <SidebarNavItem
+          to="/docs"
+          label="Docs"
+          isCollapsed={true}
+          trailingIcon={<span data-testid="trailing">→</span>}
+        />,
+        { wrapper: createWrapper() }
+      )
+
+      expect(screen.queryByTestId('trailing')).not.toBeInTheDocument()
+    })
+  })
+
   describe('active state styling', () => {
     it('should apply active styling when route matches', () => {
       render(

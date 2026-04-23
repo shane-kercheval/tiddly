@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -38,9 +39,10 @@ type mcpServerEntry struct {
 	Args    []string `json:"args"`
 }
 
-// buildClaudeDesktopConfig reads the existing config (or creates empty) and adds tiddly MCP servers.
-// Removes any existing entries pointing to tiddly URLs (regardless of key name) before adding
-// new entries under canonical names.
+// buildClaudeDesktopConfig reads the existing config (or creates empty) and
+// writes the CLI-managed entries under canonical names. Non-canonical entries
+// (including those pointing at Tiddly URLs under custom key names) are
+// preserved as-is.
 func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[string]any, error) {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
@@ -55,9 +57,6 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 	if !ok {
 		servers = make(map[string]any)
 	}
-
-	// Remove only the server types being configured (non-empty PAT means it's being configured)
-	removeJSONServersByTiddlyURL(servers, tiddlyURLMatcher(contentPAT, promptPAT))
 
 	if contentPAT != "" {
 		servers[serverNameContent] = mcpServerEntry{
@@ -77,37 +76,59 @@ func buildClaudeDesktopConfig(configPath, contentPAT, promptPAT string) (map[str
 }
 
 // configureClaudeDesktop writes MCP server entries into the Claude Desktop config.
-// Preserves all existing config and servers.
-func configureClaudeDesktop(configPath, contentPAT, promptPAT string) error {
+// Preserves all existing config and servers. Returns the timestamped backup
+// path (empty if no prior config existed).
+func configureClaudeDesktop(configPath, contentPAT, promptPAT string) (backupPath string, err error) {
 	config, err := buildClaudeDesktopConfig(configPath, contentPAT, promptPAT)
 	if err != nil {
-		return err
+		return "", err
 	}
 	return writeJSONConfig(configPath, config)
 }
 
-// removeClaudeDesktop removes tiddly MCP server entries from the config.
-// Identifies servers by URL in args, not by name, so custom-named entries are also removed.
-func removeClaudeDesktop(configPath string, serverFilter []string) error {
+// removeClaudeDesktop deletes CLI-managed entries (canonical key names only)
+// from the Claude Desktop config. Non-canonical entries are preserved.
+// A CLI-managed entry is deleted regardless of what URL/args it currently
+// carries; a user who repurposed the slot gets the recovery backup instead.
+func removeClaudeDesktop(configPath string, serverFilter []string) (*RemoveResult, error) {
+	result := &RemoveResult{}
+
 	config, err := readJSONConfig(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return result, nil
 		}
-		return err
+		return result, err
 	}
 
 	servers, ok := config["mcpServers"].(map[string]any)
 	if !ok {
-		return nil
+		return result, nil
 	}
 
-	if !removeJSONServersByTiddlyURL(servers, serverURLMatcher(serverFilter)) {
-		return nil
+	targetNames := canonicalNamesForServers(serverFilter)
+	var removed []string
+	for name := range servers {
+		if targetNames[name] {
+			removed = append(removed, name)
+		}
+	}
+	if len(removed) == 0 {
+		return result, nil
+	}
+	sort.Strings(removed)
+	for _, name := range removed {
+		delete(servers, name)
 	}
 
 	config["mcpServers"] = servers
-	return writeJSONConfig(configPath, config)
+	backupPath, werr := writeJSONConfig(configPath, config)
+	result.BackupPath = backupPath
+	if werr != nil {
+		return result, werr
+	}
+	result.RemovedEntries = removed
+	return result, nil
 }
 
 // statusClaudeDesktop returns MCP servers configured in Claude Desktop.
@@ -129,48 +150,16 @@ func statusClaudeDesktop(configPath string) (StatusResult, error) {
 		return result, nil
 	}
 
-	foundContent := false
-	foundPrompts := false
-
-	names := make([]string, 0, len(servers))
-	for name := range servers {
-		names = append(names, name)
-	}
-	canonicalNamesFirst(names)
-
-	for _, name := range names {
-		serverMap, _ := servers[name].(map[string]any)
+	for name, entry := range servers {
+		serverMap, _ := entry.(map[string]any)
 		if serverMap == nil {
 			continue
 		}
-
-		method := MatchByURL
-		if name == serverNameContent || name == serverNamePrompts {
-			method = MatchByName
-		}
-
 		urlStr := extractServerURL(serverMap)
-
-		matched := false
-		if !foundContent && isTiddlyContentURL(urlStr) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerContent, Name: name, MatchMethod: method, URL: urlStr,
-			})
-			foundContent = true
-			matched = true
-		}
-		if !foundPrompts && isTiddlyPromptURL(urlStr) {
-			result.Servers = append(result.Servers, ServerMatch{
-				ServerType: ServerPrompts, Name: name, MatchMethod: method, URL: urlStr,
-			})
-			foundPrompts = true
-			matched = true
-		}
-		if !matched && !isTiddlyURL(urlStr) {
-			result.OtherServers = append(result.OtherServers, OtherServer{
-				Name:      name,
-				Transport: detectTransport(serverMap),
-			})
+		if match, other := classifyServer(name, urlStr, detectTransport(serverMap)); match != nil {
+			result.Servers = append(result.Servers, *match)
+		} else {
+			result.OtherServers = append(result.OtherServers, *other)
 		}
 	}
 
@@ -203,26 +192,28 @@ func dryRunClaudeDesktop(configPath, contentPAT, promptPAT string) (before, afte
 	return before, after, nil
 }
 
-// extractClaudeDesktopPATs reads the Claude Desktop config and extracts the Bearer tokens
-// for the tiddly MCP servers. Identifies servers by URL in args, not by name.
-// Returns empty strings on any parse error (best-effort).
-func extractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) {
+// extractAllClaudeDesktopTiddlyPATs returns every Bearer token from a
+// tiddly-URL entry in the Claude Desktop config, in canonical-first order.
+// Entries without an extractable PAT (missing/malformed --header) are
+// filtered out.
+func extractAllClaudeDesktopTiddlyPATs(configPath string) []TiddlyPAT {
 	config, err := readJSONConfig(configPath)
 	if err != nil {
-		return "", ""
+		return nil
 	}
 
 	servers, _ := config["mcpServers"].(map[string]any)
 	if servers == nil {
-		return "", ""
+		return nil
 	}
 
 	names := make([]string, 0, len(servers))
 	for name := range servers {
 		names = append(names, name)
 	}
-	canonicalNamesFirst(names)
+	sortCanonicalFirst(names)
 
+	var out []TiddlyPAT
 	for _, name := range names {
 		serverMap, _ := servers[name].(map[string]any)
 		if serverMap == nil {
@@ -241,18 +232,29 @@ func extractClaudeDesktopPATs(configPath string) (contentPAT, promptPAT string) 
 				hasPrompts = true
 			}
 		}
+		if !hasContent && !hasPrompts {
+			continue
+		}
 
-		if (hasContent && contentPAT == "") || (hasPrompts && promptPAT == "") {
-			pat := extractPATFromDesktopArgs(args)
-			if hasContent && contentPAT == "" {
-				contentPAT = pat
-			}
-			if hasPrompts && promptPAT == "" {
-				promptPAT = pat
-			}
+		pat := extractPATFromDesktopArgs(args)
+		if pat == "" {
+			continue
+		}
+		// A single entry can only name one server-URL, but defensively handle
+		// both in case of a hand-crafted multi-arg entry.
+		if hasContent {
+			out = append(out, TiddlyPAT{ServerType: ServerContent, Name: name, PAT: pat})
+		}
+		if hasPrompts {
+			out = append(out, TiddlyPAT{ServerType: ServerPrompts, Name: name, PAT: pat})
 		}
 	}
-	return contentPAT, promptPAT
+	return out
+}
+
+// extractClaudeDesktopPATs returns PATs attached to canonical-named entries only.
+func extractClaudeDesktopPATs(configPath string) PATExtraction {
+	return canonicalEntryPATs(extractAllClaudeDesktopTiddlyPATs(configPath))
 }
 
 // extractPATFromDesktopArgs scans args for "--header" and extracts the Bearer token.
@@ -298,21 +300,31 @@ func readJSONConfig(path string) (map[string]any, error) {
 	return config, nil
 }
 
-func writeJSONConfig(path string, config map[string]any) error {
+// writeJSONConfig writes config to path atomically, creating a timestamped
+// backup of any existing file at path first. Returns the backup path (empty
+// if no prior file existed) so callers can surface it to the user.
+func writeJSONConfig(path string, config map[string]any) (backupPath string, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
+		return "", fmt.Errorf("creating config directory: %w", err)
 	}
 
-	if err := backupConfigFile(path); err != nil {
-		return err
+	backupPath, err = backupConfigFile(path)
+	if err != nil {
+		return "", err
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encoding config: %w", err)
+		return "", fmt.Errorf("encoding config: %w", err)
 	}
 	data = append(data, '\n')
 
-	return atomicWriteFile(path, data, 0600)
+	if err := atomicWriteFileFunc(path, data, 0600); err != nil {
+		// Return the backup path even on write failure so callers can
+		// surface where the recovery copy is. The backup was taken first
+		// specifically to cover this path.
+		return backupPath, err
+	}
+	return backupPath, nil
 }
 

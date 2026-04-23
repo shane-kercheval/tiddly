@@ -91,7 +91,7 @@ export function OrderedListIcon(): ReactNode {
   )
 }
 
-export function TaskListIcon(): ReactNode {
+export function ChecklistIcon(): ReactNode {
   return (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <rect x="3" y="5" width="14" height="14" rx="2" strokeWidth={2} />

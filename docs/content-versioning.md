@@ -251,6 +251,8 @@ A nightly cron job:
 2. Deletes history records older than each tier's `history_retention_days`
 3. Also permanently deletes soft-deleted entities older than 30 days (with their history)
 
+**Preservation rule:** The most recent versioned history record per entity is always retained, regardless of age. Audit records (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) are not exempted. This guarantees that diff and restore remain functional after long idle periods.
+
 ### Hard Delete Cascade
 
 When an entity is permanently deleted:
@@ -335,8 +337,8 @@ Optimistic concurrency control (ETags/If-Match) is a separate feature that may b
 ### Inactive Entities and Time-Based Cleanup
 
 If an entity hasn't been edited for longer than `history_retention_days`:
-- All history records may be deleted by time-based cleanup
+- All history records **except the most recent versioned record** may be deleted by time-based cleanup. The retained record serves as the anchor for diff and restore on the next edit.
+- Audit records (DELETE/UNDELETE/ARCHIVE/UNARCHIVE) are not exempted and remain fully subject to time-based pruning.
 - The entity itself remains (with current content)
-- History simply starts fresh if the entity is edited again
 
 ---

@@ -11,6 +11,10 @@ import userEvent from '@testing-library/user-event'
 import { BookmarkCard } from './BookmarkCard'
 import type { BookmarkListItem } from '../types'
 
+vi.mock('../hooks/useAIAvailability', () => ({
+  useAIAvailability: () => ({ available: false, remainingPerDay: 0, limitPerDay: 0, resetsAt: null, isLoading: false, error: null }),
+}))
+
 const mockBookmark: BookmarkListItem = {
   id: '1',
   url: 'https://example.com/article',
