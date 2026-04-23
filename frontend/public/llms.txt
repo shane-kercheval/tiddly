@@ -264,6 +264,7 @@ If you need scripted access to these, authenticate with an Auth0 session.
 - `Cmd+Shift+S`: Save and close.
 - `Cmd+Click` on a card: Open in new tab.
 - `Shift+Cmd+Click` on a bookmark: Open the URL without tracking usage.
+- `Shift+Click` on a bookmark relationship chip: Open the bookmark entity in Tiddly (default click opens the URL in a new tab).
 - `w`: Toggle full-width layout.
 
 ### Markdown Editor

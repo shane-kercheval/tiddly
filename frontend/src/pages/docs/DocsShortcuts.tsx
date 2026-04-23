@@ -56,6 +56,7 @@ export function DocsShortcuts(): ReactNode {
           <ShortcutRow keys={['s']} description="Focus page search" />
           <ShortcutRow keys={['\u2318', '\u21E7', 'P']} description="Command palette" />
           <ShortcutRow keys={['\u2318', 'Click']} description="Open card in new tab" />
+          <ShortcutRow keys={['\u21E7', 'Click']} description="Open bookmark relationship in Tiddly (instead of URL)" />
           <ShortcutRow keys={['Esc']} description="Close modal / unfocus search" />
         </tbody>
       </table>

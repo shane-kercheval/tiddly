@@ -14,7 +14,7 @@
  * Exposes startAdding() via ref for external triggers (same pattern as InlineEditableTags).
  */
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo, useCallback } from 'react'
-import type { ReactNode, KeyboardEvent, ChangeEvent, Ref } from 'react'
+import type { ReactNode, KeyboardEvent, ChangeEvent, MouseEvent as ReactMouseEvent, Ref } from 'react'
 import { useContentSearch } from '../hooks/useContentSearch'
 import { LinkIcon, PlusIcon } from './icons'
 import { Tooltip, DropdownPortal } from './ui'
@@ -34,7 +34,7 @@ interface LinkedContentChipsProps {
   onAdd: (item: ContentListItem) => void
   /** Called when user clicks remove on a chip */
   onRemove: (item: LinkedItem) => void
-  onNavigate?: (item: LinkedItem) => void
+  onNavigate?: (item: LinkedItem, event?: ReactMouseEvent) => void
   disabled?: boolean
   /** Whether to show the inline add button (default: true). Set false when using an external trigger. */
   showAddButton?: boolean
@@ -71,16 +71,17 @@ function getDisplayTitle(title: string | null, type: string, url?: string | null
 }
 
 /**
- * Resolve tooltip text for a linked chip.
+ * Resolve tooltip content for a linked chip.
  *
  * When navigable: actionable label ("Open in new tab: URL" for bookmarks, "Go to note: Title" for others).
+ * Bookmark tooltips include a Shift+click hint for navigating to the entity in Tiddly.
  * When not navigable (deleted or no onNavigate): show the full title/URL/name for context, or null.
  */
-function getTooltipText(
+function getTooltipContent(
   item: LinkedItem,
   typeLabel: string,
   isNavigable: boolean,
-): string | null {
+): ReactNode {
   const fullTitle = item.title
     || (item.type === 'bookmark' ? item.url : null)
     || (item.type === 'prompt' ? item.promptName : null)
@@ -88,7 +89,12 @@ function getTooltipText(
   if (!isNavigable) return fullTitle
 
   if (item.type === 'bookmark' && item.url) {
-    return `Open in new tab: ${item.url}`
+    return (
+      <>
+        Open in new tab: {item.url}
+        <div className="mt-1 text-gray-300">Shift+click to open in Tiddly</div>
+      </>
+    )
   }
   return fullTitle ? `Go to ${typeLabel.toLowerCase()}: ${fullTitle}` : null
 }
@@ -334,14 +340,18 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
         const key = item.relationshipId || `${item.type}:${item.id}`
 
         const isNavigable = !!onNavigate && !item.deleted
-        const tooltipText = getTooltipText(item, typeLabel, isNavigable)
+        const tooltipContent = getTooltipContent(item, typeLabel, isNavigable)
+        // aria-label describes the default action (no modifier). For bookmarks the default is to open the URL in a new tab; Shift+click (which navigates to the entity) is a power-user shortcut surfaced visually in the tooltip.
+        const ariaLabel = item.type === 'bookmark' && item.url
+          ? `Open in new tab: ${displayTitle}`
+          : `Go to ${typeLabel}: ${displayTitle}`
 
         const chipWithAction = onNavigate && !item.deleted ? (
           <button
             type="button"
-            onClick={() => onNavigate(item)}
+            onClick={(e) => onNavigate(item, e)}
             className="cursor-pointer"
-            aria-label={`Go to ${typeLabel}: ${displayTitle}`}
+            aria-label={ariaLabel}
           >
             {chipContent}
           </button>
@@ -351,8 +361,8 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
 
         return (
           <div key={key} className="group/link relative inline-flex items-baseline">
-            {tooltipText ? (
-              <Tooltip content={tooltipText} delay={500}>
+            {tooltipContent ? (
+              <Tooltip content={tooltipContent} delay={500}>
                 {chipWithAction}
               </Tooltip>
             ) : chipWithAction}

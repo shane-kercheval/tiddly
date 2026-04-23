@@ -5,7 +5,7 @@
  * items + callbacks. These tests verify display, callbacks, and inline search.
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createRef } from 'react'
@@ -85,6 +85,21 @@ function setupSearchMock(searchItems: ContentListItem[]): void {
 }
 
 const noop = vi.fn()
+
+// Tooltip component gates rendering on `matchMedia('(hover: hover)')` — jsdom returns false by
+// default which would skip tooltip rendering entirely. Mock true so tooltip-content tests can run.
+beforeEach(() => {
+  window.matchMedia = vi.fn((query: string) => ({
+    matches: query === '(hover: hover)',
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+    onchange: null,
+  })) as unknown as typeof window.matchMedia
+})
 
 describe('LinkedContentChips', () => {
   beforeEach(() => {
@@ -296,11 +311,36 @@ describe('LinkedContentChips', () => {
         { wrapper: createWrapper() },
       )
 
-      await userEvent.click(screen.getByLabelText('Go to Bookmark: My Bookmark'))
+      await userEvent.click(screen.getByLabelText('Open in new tab: My Bookmark'))
 
       expect(onNavigate).toHaveBeenCalledOnce()
       expect(onNavigate).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'bookmark', id: 'bm-1', title: 'My Bookmark' }),
+        expect.objectContaining({ shiftKey: false }),
+      )
+    })
+
+    it('should pass shiftKey in event when chip is shift+clicked', () => {
+      const items = [makeLinkedItem()]
+      const onNavigate = vi.fn()
+
+      render(
+        <LinkedContentChips
+          contentType="note"
+          contentId="note-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+          onNavigate={onNavigate}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      fireEvent.click(screen.getByLabelText('Open in new tab: My Bookmark'), { shiftKey: true })
+
+      expect(onNavigate).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'bookmark', id: 'bm-1' }),
+        expect.objectContaining({ shiftKey: true }),
       )
     })
 
@@ -320,7 +360,48 @@ describe('LinkedContentChips', () => {
         { wrapper: createWrapper() },
       )
 
-      expect(screen.queryByLabelText('Go to Bookmark: My Bookmark')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Open in new tab: My Bookmark')).not.toBeInTheDocument()
+    })
+
+    it('should show Shift+click hint in tooltip for bookmark chips', async () => {
+      const items = [makeLinkedItem()]
+
+      render(
+        <LinkedContentChips
+          contentType="note"
+          contentId="note-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+          onNavigate={vi.fn()}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      await userEvent.hover(screen.getByLabelText('Open in new tab: My Bookmark'))
+
+      expect(await screen.findByText(/Shift\+click to open in Tiddly/)).toBeInTheDocument()
+    })
+
+    it('should not show Shift+click hint in tooltip for note chips', async () => {
+      const items = [makeLinkedItem({ type: 'note', id: 'note-x', title: 'My Note', url: null })]
+
+      render(
+        <LinkedContentChips
+          contentType="bookmark"
+          contentId="bm-1"
+          items={items}
+          onAdd={noop}
+          onRemove={noop}
+          onNavigate={vi.fn()}
+        />,
+        { wrapper: createWrapper() },
+      )
+
+      await userEvent.hover(screen.getByLabelText('Go to Note: My Note'))
+
+      await screen.findByText(/Go to note: My Note/)
+      expect(screen.queryByText(/Shift\+click to open in Tiddly/)).not.toBeInTheDocument()
     })
   })
 
