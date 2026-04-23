@@ -707,8 +707,9 @@ async def vector_search(
     """
 ```
 
-- Query (with entity-level dedup): `SELECT DISTINCT ON (entity_type, entity_id) entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid [AND entity_type IN (:types) IF entity_types provided] ORDER BY entity_type, entity_id, distance LIMIT :limit`
-- Alternatively, dedup in application code after the query (simpler SQL, easier to tune the overfetch separately from the final limit).
+- Query nearest chunks ordered purely by distance, overfetch, then deduplicate by entity in application code. Do NOT use `DISTINCT ON (entity_type, entity_id)` with `ORDER BY entity_type, entity_id, distance` — that picks the best chunk per entity but does not preserve the global nearest-neighbor ranking across entities.
+- Recommended shape: `SELECT entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid [AND entity_type IN (:types) IF entity_types provided] ORDER BY distance LIMIT :overfetch_limit`
+- Then in application code: iterate the rows in distance order, keep the first row for each `(entity_type, entity_id)`, and stop when you have `limit` unique entities. This keeps entity-level dedup correct while preserving nearest-neighbor ranking and makes overfetch tuning independent from the final result size.
 - **Note:** The `WHERE user_id` clause is a **post-filter** applied after the HNSW approximate nearest-neighbor scan, not an index-selective condition. HNSW scans globally across all users' vectors, then Postgres filters. See scaling limitation note below.
 
 **Hybrid search with RRF:**
