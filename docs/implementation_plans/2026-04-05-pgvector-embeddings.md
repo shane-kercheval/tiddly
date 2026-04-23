@@ -35,7 +35,7 @@
 
 ### 1. Embedding Model
 
-OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/storage balance. 1536 dims × 4 bytes × 30M vectors (10K users × 300 items × 10 chunks) = ~180GB.
+OpenAI `text-embedding-3-small` via LiteLLM model ID `openai/text-embedding-3-small` (1536 dims, $0.02/1M tokens). Good quality/cost/storage balance. 1536 dims × 4 bytes × 30M vectors (10K users × 300 items × 10 chunks) = ~180GB.
 
 ### 2. Chunking Strategy
 
@@ -86,6 +86,7 @@ Semantic/vector search is Pro tier only. FTS remains available to all users.
 - `OPENAI_API_KEY` stored as Railway environment variable
 - Added to `core/config.py` Settings class
 - Graceful degradation: if not configured, vector search is unavailable, FTS still works
+- Embeddings use the existing LiteLLM + Redis cost-tracking infrastructure already used for AI features. Do NOT call the OpenAI SDK directly for embeddings or create a separate cost pipeline.
 
 ---
 
@@ -278,29 +279,39 @@ Implement the service that calls the embedding API to convert text chunks into v
 
 ```python
 class EmbeddingService:
-    """Calls embedding API to convert text → vectors."""
+    """Calls embedding API to convert text → vectors via LiteLLM."""
 
-    model: str  # e.g. "text-embedding-3-small" — initialized from settings.embedding_model.
+    model: str  # e.g. "openai/text-embedding-3-small" — initialized from settings.embedding_model.
                 # Used by embed_query() in M5 for cache key construction.
 
-    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+    async def embed_texts(self, texts: list[str]) -> tuple[list[list[float]], float | None]:
         """Embed multiple texts in a single API call.
-        Returns list of vectors in same order as input.
+        Returns (vectors, cost) where vectors preserve input order.
         Raises EmbeddingError on failure.
         """
 
-    async def embed_single(self, text: str) -> list[float]:
-        """Convenience wrapper for single text."""
+    async def embed_single(self, text: str) -> tuple[list[float], float | None]:
+        """Convenience wrapper for single text. Returns (vector, cost)."""
 ```
 
-**API client:** Use the OpenAI Python SDK (`openai` package) directly — it supports async and handles retries. Read the [OpenAI Embeddings API docs](https://platform.openai.com/docs/guides/embeddings) before implementing.
+**API client:** Use LiteLLM's async embeddings client (`litellm.aembedding`) — not the raw OpenAI Python SDK. This keeps embeddings on the same provider abstraction, key-routing conventions, and public cost-calculation path as the existing `LLMService`.
 
 **Configuration** (add to `core/config.py`):
 ```python
-embedding_model: str = "text-embedding-3-small"
+embedding_model: str = "openai/text-embedding-3-small"
 embedding_dimensions: int = 1536
 openai_api_key: str | None = None  # None = embeddings disabled
 ```
+
+**Service boundaries:** Keep `EmbeddingService` separate from `LLMService`. `LLMService` remains completion/chat-oriented; embeddings have different request/response shapes. The services should share LiteLLM conventions, provider key resolution style, and cost-tracking infrastructure without being forced into one class.
+
+**Cost tracking:** Embedding calls must reuse the existing Redis → `ai_usage` tracking pipeline from the LLM integration work. Do NOT add a second table, cron job, or Redis key family. For v1, track all semantic-search embedding cost under the existing-style top-level use case `search`. Do not split persisted analytics into index-vs-query subcategories yet; if that granularity becomes operationally useful later, add it as a follow-up change.
+
+`EmbeddingService` returns cost to the caller, mirroring `LLMService.complete()`. The caller is responsible for invoking `track_cost(...)` because it owns the `user_id`, use case, and latency measurement.
+
+**Cost calculation:** Follow the same overall pattern as the existing suggestion/completion path: make the provider call through LiteLLM, compute cost via LiteLLM's public cost API, return the cost to the caller, and let the caller record it via `track_cost(...)`. However, do NOT assume the exact completion helper usage transfers unchanged to embeddings. Before implementation, verify the exact LiteLLM helper behavior for `aembedding` against the pinned LiteLLM version, including model-name normalization for cost lookup. The embedding implementation must reuse shared model-normalization / pricing-helper logic with the completion path so they cannot drift. Add a test that proves the configured embedding model yields non-`None` cost when LiteLLM pricing metadata exists. If cost calculation fails because pricing metadata is missing or stale, log a warning and return `cost=None`. A successful embedding API call must never fail due to cost tracking.
+
+**Logging policy:** `track_cost(...)` should remain silent on successful tracking. Redis / `ai_usage` is the source of truth for successful usage accounting. Only anomalies should log: unknown cost, Redis unavailable, or Redis write failure. Do not add per-call info logs for successful embedding tracking.
 
 **Error handling:**
 - API timeouts → raise `EmbeddingError` (caller decides retry strategy)
@@ -315,13 +326,16 @@ openai_api_key: str | None = None  # None = embeddings disabled
 ### Testing Strategy
 - Successful single embedding returns correct dimensionality
 - Successful batch embedding returns correct count and dimensionality
+- Successful embedding returns cost when LiteLLM pricing metadata is available
+- Verified embedding cost helper returns non-`None` cost for the configured embedding model in the pinned LiteLLM version
+- Cost calculation failure returns `cost=None` and logs a warning without failing the embedding call
 - API timeout raises `EmbeddingError`
 - Rate limit (429) raises `EmbeddingError`
 - Invalid API key raises appropriate error
 - No API key configured raises `EmbeddingNotConfiguredError`
 - Empty text input handled gracefully
 - Embedding API returns wrong dimensionality → clear `EmbeddingError` with expected vs actual dims (not cryptic DB error from pgvector rejecting the vector)
-- Mock the OpenAI client for unit tests (don't call the real API in CI)
+- Mock LiteLLM for unit tests (don't call the real API in CI)
 
 ---
 
@@ -585,6 +599,8 @@ str_replace router endpoints (4) — these modify entity.content directly in the
   - `tasks/cleanup.py` `cleanup_soft_deleted_items()` — this permanently deletes expired soft-deleted entities via direct SQLAlchemy delete (bypassing BaseEntityService). Must also delete chunks + state before `await db.delete(item)`, matching the existing pattern of deleting history before the entity.
 - On soft-delete: leave chunks in place (entity might be restored)
 
+**Embedding cost tracking in the worker:** When the worker actually makes an embedding provider call (metadata chunk, new content paragraphs, or both), measure latency and call the existing `track_cost(...)` helper with `use_case="search"`, `key_source=platform`, the configured embedding model, and the owning `user_id`. Do NOT emit cost tracking when no provider call was made (for example, full hash match no-op or paragraph-hash reuse with zero new chunks).
+
 **Concurrent job serialization:** The worker acquires `SELECT ... FOR UPDATE` on the `content_embedding_state` row at step 2. This serializes concurrent workers for the same entity — the second worker blocks until the first commits. After acquiring the lock, the hash check determines whether work is needed. Combined with the unique constraint on `content_chunks(entity_type, entity_id, chunk_type, chunk_index)`, this provides defense-in-depth against duplicate chunks.
 
 **Railway deployment:**
@@ -638,6 +654,8 @@ This is critical infrastructure — the embedding pipeline touches every content
 - Retry with exponential backoff: first failure → delayed 1s, second → 2s, third → 4s, then dead letter
 - Max retries exceeded → dead letter queue, entity retains last-good embeddings
 - Malformed job data (bad JSON) → logged error, worker continues processing other jobs
+- Real embedding API call in worker records cost via existing Redis tracking pipeline under `search`
+- Full hash-match no-op and paragraph-reuse-only no-op do NOT record cost
 
 **4. Transaction safety tests (real Redis + real Postgres):**
 - Single transaction: chunk inserts + deletes + state update commit atomically — verify by checking DB state before and after
@@ -717,7 +735,12 @@ async def vector_search(
 The whole point of semantic search is **recall** — finding "login flow" when the user searches "auth." If we only rerank FTS results, we never surface items that FTS missed. RRF merge preserves recall while respecting filters.
 
 ```python
-async def embed_query(query: str, embedding_service, redis_client) -> list[float]:
+async def embed_query(
+    user_id: UUID,
+    query: str,
+    embedding_service,
+    redis_client,
+) -> list[float]:
     """Embed a search query with Redis caching. Cache lives here, not in EmbeddingService.
     M3's embed_single() remains a pure API call — cache is a search concern, not an embedding concern.
     Key: embed_cache:{model}:{sha256(normalized_query)}, TTL 1 hour."""
@@ -726,7 +749,17 @@ async def embed_query(query: str, embedding_service, redis_client) -> list[float
     cached = await redis_client.get(cache_key)
     if cached:
         return json.loads(cached)
-    vec = await embedding_service.embed_single(normalized)  # embed normalized text, not original
+    start = time.monotonic()
+    vec, cost = await embedding_service.embed_single(normalized)  # embed normalized text, not original
+    latency_ms = int((time.monotonic() - start) * 1000)
+    await track_cost(
+        user_id=user_id,
+        use_case="search",
+        model=embedding_service.model,
+        key_source=KeySource.PLATFORM,
+        cost=cost,
+        latency_ms=latency_ms,
+    )
     await redis_client.setex(cache_key, 3600, json.dumps(vec))
     return vec
 
@@ -747,7 +780,7 @@ async def hybrid_search(
         sort_by="relevance", sort_order="desc",
         offset=0, limit=100,  # overfetch for RRF merge
     )
-    embed_coro = embed_query(query, embedding_service, redis_client)
+    embed_coro = embed_query(user_id, query, embedding_service, redis_client)
     # Graceful degradation: if embedding fails, fall back to FTS-only
     results = await asyncio.gather(fts_coro, embed_coro, return_exceptions=True)
     # FTS failure is fatal — no fallback for the primary search path
@@ -865,6 +898,7 @@ async def load_entities_by_ids(
 2. **Partitioned tables**: Partition `content_chunks` by `user_id` with per-partition HNSW indexes. PostgreSQL 17 supports this natively. Required if user count grows significantly.
 
 **Query embedding cache:** Implemented in `embed_query()` (defined above in the pseudocode). Cache lives in the search layer, not in M3's EmbeddingService — caching is a search concern. M3's `embed_single()` remains a pure API call. See the `embed_query()` function for key format, normalization, and TTL details.
+On cache miss, query embeddings record cost via the existing Redis → `ai_usage` pipeline under `search`. On cache hit, no provider call is made and no cost is recorded. Cache-hit analytics are explicitly out of scope for v1; if cache-effectiveness telemetry becomes useful later, add it separately from cost accounting.
 
 ### Testing Strategy
 - Vector search returns nearest neighbors by cosine similarity
@@ -885,6 +919,8 @@ async def load_entities_by_ids(
 - Hybrid search falls back to FTS when embeddings not configured
 - Free tier user → FTS-only, no vector search or embedding API call
 - Query embedding cache: second identical query skips OpenAI call (cache hit)
+- Query embedding cache hit does NOT record cost
+- Query embedding cache miss records cost under `search`
 - Query embedding cache key includes model name (model change doesn't poison cache)
 - Items without embeddings still appear via FTS path
 - Entity type filtering works in vector search
@@ -942,9 +978,10 @@ async def backfill_embeddings(
     This keeps backfill simple and maintains a single code path for all
     embedding logic.
 
-    - Enqueues jobs to Redis
-    - Throttles enqueue rate to avoid overwhelming the worker/API
-    - Idempotent: safe to run multiple times (worker's hash check skips already-current entities)
+- Enqueues jobs to Redis
+- Throttles enqueue rate to avoid overwhelming the worker/API
+- Idempotent: safe to run multiple times (worker's hash check skips already-current entities)
+- Because backfill reuses the normal worker path, embedding cost for backfill is automatically tracked under `search` when real provider calls occur
     """
 ```
 
