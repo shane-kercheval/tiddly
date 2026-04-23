@@ -74,7 +74,7 @@ export function ContentCardDateDisplay({
   }
 
   return (
-    <Tooltip content={tooltipText} compact position="left">
+    <Tooltip content={tooltipText} compact position="left" delay={500}>
       <span className="text-xs text-gray-400">
         {shortDate}
       </span>
