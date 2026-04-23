@@ -7,13 +7,17 @@
  * Features:
  * - View mode shows current schedule as text
  * - Click to edit reveals preset dropdown
- * - Custom date option shows datetime-local input
+ * - Custom date option shows date input
  * - Looks integrated with other inline editable components
  */
 import { useState, useRef, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { calculateArchivePresetDate } from '../utils'
 import type { ArchivePreset } from '../utils'
+import { DropdownPortal } from './ui'
+import type { DropdownPortalHandle } from './ui/DropdownPortal'
+
+const ARCHIVE_DROPDOWN_WIDTH = 240
 
 interface InlineEditableArchiveScheduleProps {
   /** Current archived_at ISO string or empty */
@@ -29,25 +33,24 @@ interface InlineEditableArchiveScheduleProps {
 }
 
 /**
- * Convert ISO string to datetime-local format for input element.
+ * Convert ISO string to yyyy-mm-dd format for date input.
  */
-function toDatetimeLocalFormat(isoString: string): string {
+function toDateInputFormat(isoString: string): string {
   if (!isoString) return ''
   const date = new Date(isoString)
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}`
+  return `${year}-${month}-${day}`
 }
 
 /**
- * Convert datetime-local format to ISO string.
+ * Convert yyyy-mm-dd format to ISO string at 8:00 AM local time.
  */
-function fromDatetimeLocalFormat(localString: string): string {
-  if (!localString) return ''
-  return new Date(localString).toISOString()
+function fromDateInputFormat(dateString: string): string {
+  if (!dateString) return ''
+  const [year, month, day] = dateString.split('-').map(Number)
+  return new Date(year, month - 1, day, 8, 0, 0).toISOString()
 }
 
 /**
@@ -76,11 +79,17 @@ export function InlineEditableArchiveSchedule({
 }: InlineEditableArchiveScheduleProps): ReactNode {
   const [isEditing, setIsEditing] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dropdownPortalRef = useRef<DropdownPortalHandle>(null)
 
   // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent): void {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node
+      if (containerRef.current?.contains(target) || dropdownPortalRef.current?.contains(target)) {
+        return
+      }
+      if (containerRef.current) {
         setIsEditing(false)
       }
     }
@@ -112,8 +121,8 @@ export function InlineEditableArchiveSchedule({
     }
   }
 
-  const handleCustomDateChange = (localString: string): void => {
-    onChange(fromDatetimeLocalFormat(localString))
+  const handleCustomDateChange = (dateString: string): void => {
+    onChange(fromDateInputFormat(dateString))
   }
 
   const handleViewClick = (): void => {
@@ -128,6 +137,7 @@ export function InlineEditableArchiveSchedule({
   return (
     <div ref={containerRef} className="relative inline-block">
       <button
+        ref={triggerRef}
         type="button"
         onClick={handleViewClick}
         disabled={disabled}
@@ -145,48 +155,55 @@ export function InlineEditableArchiveSchedule({
       </button>
 
       {isEditing && (
-        <div className="absolute top-full left-0 z-50 mt-1 flex flex-col gap-2 p-2 bg-white border border-gray-200 rounded-lg shadow-sm min-w-[200px]">
-          <select
-            value={preset}
-            onChange={(e) => handlePresetChange(e.target.value as ArchivePreset)}
-            disabled={disabled}
-            className="text-xs px-2 py-1.5 bg-gray-50 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
-            autoFocus
-          >
-            <option value="none">None</option>
-            <option value="1-week">In 1 week</option>
-            <option value="1-month">In 1 month</option>
-            <option value="end-of-month">End of month</option>
-            <option value="3-months">In 3 months</option>
-            <option value="6-months">In 6 months</option>
-            <option value="1-year">In 1 year</option>
-            <option value="custom">Custom date...</option>
-          </select>
-
-          {preset === 'custom' && (
-            <input
-              type="datetime-local"
-              value={toDatetimeLocalFormat(value)}
-              onChange={(e) => handleCustomDateChange(e.target.value)}
+        <DropdownPortal
+          ref={dropdownPortalRef}
+          anchorRef={triggerRef}
+          open={isEditing}
+          dropdownWidth={ARCHIVE_DROPDOWN_WIDTH}
+        >
+          <div className="mt-1 flex w-[240px] flex-col gap-2 rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
+            <select
+              value={preset}
+              onChange={(e) => handlePresetChange(e.target.value as ArchivePreset)}
               disabled={disabled}
-              className="text-xs px-2 py-1.5 bg-gray-50 border border-gray-200 rounded outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400/20"
-            />
-          )}
+              className="select text-xs"
+              autoFocus
+            >
+              <option value="none">None</option>
+              <option value="1-week">In 1 week</option>
+              <option value="1-month">In 1 month</option>
+              <option value="end-of-month">End of month</option>
+              <option value="3-months">In 3 months</option>
+              <option value="6-months">In 6 months</option>
+              <option value="1-year">In 1 year</option>
+              <option value="custom">Custom date...</option>
+            </select>
 
-          {value && preset !== 'custom' && (
-            <p className="text-xs text-gray-500">
-              {formatScheduleDisplay(value)}
-            </p>
-          )}
+            {preset === 'custom' && (
+              <input
+                type="date"
+                value={toDateInputFormat(value)}
+                onChange={(e) => handleCustomDateChange(e.target.value)}
+                disabled={disabled}
+                className="input text-xs"
+              />
+            )}
 
-          <button
-            type="button"
-            onClick={() => setIsEditing(false)}
-            className="text-xs text-gray-500 hover:text-gray-700 self-end"
-          >
-            Done
-          </button>
-        </div>
+            {value && preset !== 'custom' && (
+              <p className="text-xs text-gray-500">
+                {formatScheduleDisplay(value)}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsEditing(false)}
+              className="text-xs text-gray-500 hover:text-gray-700 self-end"
+            >
+              Done
+            </button>
+          </div>
+        </DropdownPortal>
       )}
     </div>
   )

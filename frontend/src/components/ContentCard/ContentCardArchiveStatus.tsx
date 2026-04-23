@@ -49,7 +49,7 @@ export function ContentCardArchiveStatus({
     const tooltipText = `Archived: ${shortDate}`
     return (
       <span className="flex items-center gap-1 text-xs text-amber-500">
-        <Tooltip content={tooltipText} compact position="left">
+        <Tooltip content={tooltipText} compact position="left" delay={500}>
           <span className="flex items-baseline gap-1">
             <ArchiveIcon className="w-3 h-3 self-center" />
             <span>{shortDate}</span>
@@ -63,14 +63,14 @@ export function ContentCardArchiveStatus({
   const tooltipText = `Archiving: ${shortDate}`
   return (
     <span className="flex items-center gap-1 text-xs text-gray-400">
-      <Tooltip content={tooltipText} compact position="left">
+      <Tooltip content={tooltipText} compact position="left" delay={500}>
         <span className="flex items-baseline gap-1">
           <ArchiveIcon className="w-3 h-3 self-center" />
           <span>{shortDate}</span>
         </span>
       </Tooltip>
       {onCancel && (
-        <Tooltip content="Cancel" compact>
+        <Tooltip content="Cancel" compact delay={500}>
           <button
             onClick={(e) => { e.stopPropagation(); onCancel() }}
             className="text-gray-400 hover:text-red-500 transition-colors p-0.5 -m-0.5"

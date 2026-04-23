@@ -5,12 +5,11 @@
  * - Mobile: Vertical stacking with always-visible actions
  * - Desktop: Horizontal compact layout with hover-revealed actions
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { BookmarkListItem, TagCount } from '../types'
 import type { SortByOption } from '../constants/sortOptions'
 import { getDomain, getGoogleFaviconUrl } from '../utils'
-import { useDebouncedTooltip } from '../hooks/useDebouncedTooltip'
 import { Tooltip } from './ui'
 import {
   BookmarkIcon,
@@ -77,27 +76,11 @@ export function BookmarkCard({
   const faviconError = faviconErrorUrl === faviconUrl
   const [copySuccess, setCopySuccess] = useState(false)
 
-  // Shared tooltip for title + URL link area (500ms show delay, 50ms hide debounce)
-  const { visible: linkHovered, show: showLinkTooltip, hide: hideLinkTooltip } = useDebouncedTooltip()
-
   useEffect(() => {
     return () => {
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current)
     }
   }, [])
-
-  // Event delegation for tooltip on desktop: check if mouse is on/moving to a .link-area element.
-  // mouseout's relatedTarget is the NEXT element, so direct .link-area→.link-area transitions never hide.
-  const handleLinkMouseOver = useCallback((e: React.MouseEvent): void => {
-    if ((e.target as HTMLElement).closest('.link-area')) {
-      showLinkTooltip()
-    }
-  }, [showLinkTooltip])
-  const handleLinkMouseOut = useCallback((e: React.MouseEvent): void => {
-    const related = e.relatedTarget as HTMLElement | null
-    if (related?.closest('.link-area')) return
-    hideLinkTooltip()
-  }, [hideLinkTooltip])
 
   const handleCardClick = (): void => {
     if (onClick) {
@@ -137,32 +120,32 @@ export function BookmarkCard({
     >
       {/* Column 1: Favicon with crossfade to ExternalLinkIcon, BookmarkIcon fallback on load error.
           Crossfade triggers when any .link-area element (favicon, title, URL) is hovered. */}
-      <a
-        href={bookmark.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="link-area relative w-[18px] h-[18px] mt-[3px]"
-        onClick={handleUrlClick}
-        onMouseEnter={showLinkTooltip}
-        onMouseLeave={hideLinkTooltip}
-      >
-        {faviconError ? (
-          <BookmarkIcon className={`w-[18px] h-[18px] ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
-        ) : (
-          <>
-            <img
-              src={faviconUrl}
-              alt=""
-              className="absolute inset-0 w-[18px] h-[18px] opacity-100 md:group-has-[.link-area:hover]/link:opacity-0 transition-opacity duration-150"
-              loading="lazy"
-              onError={() => setFaviconErrorUrl(faviconUrl)}
-            />
-            <ExternalLinkIcon className="absolute inset-0 w-[18px] h-[18px] text-blue-500 opacity-0 md:group-has-[.link-area:hover]/link:opacity-100 transition-opacity duration-150" />
-          </>
-        )}
-        {/* Invisible bridge covering the grid gap to the right so hover doesn't drop between favicon and title */}
-        <span className="link-area hidden md:block absolute top-0 left-full w-2 h-full" />
-      </a>
+      <Tooltip content="Open URL in new tab" compact delay={500} position="bottom-start" className="relative mt-[3px] h-[18px] w-[18px]">
+        <a
+          href={bookmark.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="link-area relative block h-[18px] w-[18px]"
+          onClick={handleUrlClick}
+        >
+          {faviconError ? (
+            <BookmarkIcon className={`w-[18px] h-[18px] ${CONTENT_TYPE_ICON_COLORS.bookmark}`} />
+          ) : (
+            <>
+              <img
+                src={faviconUrl}
+                alt=""
+                className="absolute inset-0 w-[18px] h-[18px] opacity-100 md:group-has-[.link-area:hover]/link:opacity-0 transition-opacity duration-150"
+                loading="lazy"
+                onError={() => setFaviconErrorUrl(faviconUrl)}
+              />
+              <ExternalLinkIcon className="absolute inset-0 w-[18px] h-[18px] text-blue-500 opacity-0 md:group-has-[.link-area:hover]/link:opacity-100 transition-opacity duration-150" />
+            </>
+          )}
+          {/* Invisible bridge covering the grid gap to the right so hover doesn't drop between favicon and title */}
+          <span className="link-area hidden md:block absolute top-0 left-full w-2 h-full" />
+        </a>
+      </Tooltip>
 
       {/* Column 2: Content - responsive layout */}
       <div className="min-w-0 flex-1">
@@ -316,79 +299,79 @@ export function BookmarkCard({
         </div>
 
         {/* Desktop layout - horizontal with hover actions */}
-        <div className="hidden md:block relative" onMouseOver={handleLinkMouseOver} onMouseOut={handleLinkMouseOut}>
+        <div className="hidden md:block relative">
           {/* Row 1: Title + tags + date */}
-          <div className="flex items-baseline gap-2">
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
-              {hasTitle ? (
-                <a
-                  href={bookmark.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={handleUrlClick}
-                  className="link-area text-base font-medium text-gray-900 truncate group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
-                >
-                  {displayTitle}
-                </a>
-              ) : (
-                <Tooltip content="Open URL in new tab" compact delay={500}>
+          {/* Reserve a real metadata column so title/URL truncate before reaching tags/date. */}
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
+            {hasTitle ? (
+              <div className="min-w-0 overflow-hidden">
+                <Tooltip content="Open URL in new tab" compact delay={500} position="bottom-start" className="flex min-w-0 w-full max-w-full">
                   <a
                     href={bookmark.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={handleUrlClick}
-                    className="link-area text-base font-medium text-gray-900 truncate group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
+                    className="link-area flex w-full min-w-0 flex-col overflow-hidden"
+                  >
+                    <span className="block w-full truncate text-base font-medium text-gray-900 group-has-[.link-area:hover]/link:text-blue-600 transition-colors">
+                      {displayTitle}
+                    </span>
+                    <span className="block w-full truncate pt-0.5 text-[13px] text-gray-400 group-has-[.link-area:hover]/link:text-blue-500 transition-colors duration-150">
+                      {displayUrl}
+                    </span>
+                  </a>
+                </Tooltip>
+              </div>
+            ) : (
+              <div className="min-w-0 overflow-hidden">
+                <Tooltip content="Open URL in new tab" compact delay={500} position="bottom-start" className="flex min-w-0 w-full max-w-full">
+                  <a
+                    href={bookmark.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleUrlClick}
+                    className="link-area block w-full truncate text-base font-medium text-gray-900 group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
                   >
                     {displayTitle}
                   </a>
                 </Tooltip>
-              )}
-              <ContentCard.Tags
-                tags={bookmark.tags}
-                onTagClick={onTagClick}
-                onTagRemove={onTagRemove ? (tag) => onTagRemove(bookmark, tag) : undefined}
-              />
-            </div>
-
-            {/* Right: Scheduled archive + Date */}
-            {(onCancelScheduledArchive || showArchivedIndicator) && (
-              <ContentCard.ArchiveStatus
-                archivedAt={bookmark.archived_at}
-                onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(bookmark) : undefined}
-                showArchivedIndicator={showArchivedIndicator}
-              />
+              </div>
             )}
-            {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
-            {showDate && (
-              <span className="shrink-0 flex">
-                <ContentCard.DateDisplay
-                  sortBy={sortBy}
-                  createdAt={bookmark.created_at}
-                  updatedAt={bookmark.updated_at}
-                  lastUsedAt={bookmark.last_used_at}
-                  archivedAt={bookmark.archived_at}
-                  deletedAt={bookmark.deleted_at}
+
+            <div className="shrink-0 flex items-center gap-2">
+              <div className="relative top-px">
+                <ContentCard.Tags
+                  tags={bookmark.tags}
+                  onTagClick={onTagClick}
+                  onTagRemove={onTagRemove ? (tag) => onTagRemove(bookmark, tag) : undefined}
                 />
-              </span>
-            )}
-          </div>
-
-          {/* Row 2: URL */}
-          {hasTitle && (
-            <div className="link-area pt-0.5 overflow-hidden">
-              <Tooltip content="Open URL in new tab" compact show={linkHovered}>
-                <a
-                  href={bookmark.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={handleUrlClick}
-                  className="link-area text-[13px] text-gray-400 truncate block group-has-[.link-area:hover]/link:text-blue-500 transition-colors duration-150"
-                >
-                  {displayUrl}
-                </a>
-              </Tooltip>
+              </div>
+              {/* Right: Scheduled archive + Date */}
+              {(onCancelScheduledArchive || showArchivedIndicator) && (
+                <div className={bookmark.tags.length === 0 ? 'relative top-1' : ''}>
+                  <ContentCard.ArchiveStatus
+                    archivedAt={bookmark.archived_at}
+                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(bookmark) : undefined}
+                    showArchivedIndicator={showArchivedIndicator}
+                  />
+                </div>
+              )}
+              {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
+              {showDate && (
+                /* No-tag cards need a small visual nudge so date/status align with the title baseline. */
+                <span className={`shrink-0 flex ${bookmark.tags.length === 0 ? 'relative top-1' : ''}`}>
+                  <ContentCard.DateDisplay
+                    sortBy={sortBy}
+                    createdAt={bookmark.created_at}
+                    updatedAt={bookmark.updated_at}
+                    lastUsedAt={bookmark.last_used_at}
+                    archivedAt={bookmark.archived_at}
+                    deletedAt={bookmark.deleted_at}
+                  />
+                </span>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Row 3: Description/preview */}
           {(bookmark.description || bookmark.content_preview) && (

@@ -16,8 +16,8 @@ interface TooltipProps {
   children: ReactNode
   /** Use compact styling for short labels (e.g., action buttons) */
   compact?: boolean
-  /** Position relative to trigger: 'bottom' (centered below), 'left' (to the left), or 'right' (to the right) */
-  position?: 'bottom' | 'left' | 'right'
+  /** Position relative to trigger: 'bottom' (centered below), 'bottom-start' (below, aligned to left edge), 'left' (to the left), or 'right' (to the right) */
+  position?: 'bottom' | 'bottom-start' | 'left' | 'right'
   /** Delay in ms before showing tooltip (default: 0 for immediate) */
   delay?: number
   /** Additional classes for the trigger wrapper */
@@ -66,6 +66,11 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
             top: rect.top + rect.height / 2,
             left: rect.right + 4,
           })
+        } else if (position === 'bottom-start') {
+          setPos({
+            top: rect.bottom + 4,
+            left: rect.left + 12,
+          })
         } else {
           // Position below and centered (fixed positioning uses viewport coordinates)
           setPos({
@@ -109,6 +114,8 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
         setPos({ top: rect.top + rect.height / 2, left: rect.left - 4 })
       } else if (position === 'right') {
         setPos({ top: rect.top + rect.height / 2, left: rect.right + 4 })
+      } else if (position === 'bottom-start') {
+        setPos({ top: rect.bottom + 4, left: rect.left + 12 })
       } else {
         setPos({ top: rect.bottom + 4, left: rect.left + rect.width / 2 })
       }
@@ -157,6 +164,8 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
                 ? '-translate-x-full -translate-y-1/2'
                 : position === 'right'
                   ? '-translate-y-1/2'
+                  : position === 'bottom-start'
+                    ? ''
                   : '-translate-x-1/2'
             }`}
             style={{ top: pos.top, left: pos.left }}
@@ -170,7 +179,9 @@ export function Tooltip({ content, children, compact = false, position = 'bottom
               <div className="absolute top-1/2 -translate-y-1/2 right-full w-0 h-0 border-t-4 border-b-4 border-r-4 border-transparent border-r-gray-800" />
             ) : (
               /* Arrow pointing up */
-              <div className="absolute left-1/2 -translate-x-1/2 bottom-full w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-gray-800" />
+              <div className={`absolute bottom-full w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-gray-800 ${
+                position === 'bottom-start' ? 'left-3' : 'left-1/2 -translate-x-1/2'
+              }`} />
             )}
           </div>,
           document.body
