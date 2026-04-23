@@ -157,6 +157,31 @@ describe('BookmarkCard', () => {
     // Note: URL display now uses native anchor tags for proper link semantics
     // (middle-click, right-click menu, etc). Navigation is handled by the browser.
 
+    it('renders the desktop title and URL as a single link cluster when a title exists', () => {
+      const { container } = render(
+        <BookmarkCard
+          bookmark={mockBookmark}
+          onDelete={vi.fn()}
+        />
+      )
+
+      const desktopLayout = container.querySelector('.hidden.md\\:block.relative')
+      expect(desktopLayout).toBeInTheDocument()
+
+      const titleLink = Array.from(desktopLayout!.querySelectorAll('a')).find(
+        (link) => link.textContent?.includes('Example Article') && link.textContent?.includes('https://example.com/article')
+      )
+
+      expect(titleLink).toHaveClass('link-area', 'flex', 'flex-col', 'w-full', 'overflow-hidden')
+      expect(titleLink?.querySelector('span')).toHaveClass('block', 'truncate')
+      expect(titleLink?.querySelector('span')).toHaveClass('w-full')
+      expect(titleLink?.querySelector('span')).toHaveTextContent('Example Article')
+      expect(titleLink?.querySelectorAll('span')[1]).toHaveClass('block', 'truncate')
+      expect(titleLink?.querySelectorAll('span')[1]).toHaveClass('w-full')
+      expect(titleLink?.querySelectorAll('span')[1]).toHaveTextContent('https://example.com/article')
+      expect(desktopLayout!.querySelector('a[aria-hidden="true"]')).not.toBeInTheDocument()
+    })
+
     it('calls onLinkClick when URL line is clicked', async () => {
       const onLinkClick = vi.fn()
 

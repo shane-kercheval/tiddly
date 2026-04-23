@@ -318,77 +318,77 @@ export function BookmarkCard({
         {/* Desktop layout - horizontal with hover actions */}
         <div className="hidden md:block relative" onMouseOver={handleLinkMouseOver} onMouseOut={handleLinkMouseOut}>
           {/* Row 1: Title + tags + date */}
-          <div className="flex items-baseline gap-2">
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
-              {hasTitle ? (
-                <a
-                  href={bookmark.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={handleUrlClick}
-                  className="link-area text-base font-medium text-gray-900 truncate group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
-                >
-                  {displayTitle}
-                </a>
-              ) : (
-                <Tooltip content="Open URL in new tab" compact delay={500}>
+          {/* Reserve a real metadata column so title/URL truncate before reaching tags/date. */}
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
+            {hasTitle ? (
+              <div className="min-w-0 overflow-hidden">
+                <Tooltip content="Open URL in new tab" compact show={linkHovered} className="flex min-w-0 w-full max-w-full">
                   <a
                     href={bookmark.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={handleUrlClick}
-                    className="link-area text-base font-medium text-gray-900 truncate group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
+                    className="link-area flex w-full min-w-0 flex-col overflow-hidden"
+                  >
+                    <span className="block w-full truncate text-base font-medium text-gray-900 group-has-[.link-area:hover]/link:text-blue-600 transition-colors">
+                      {displayTitle}
+                    </span>
+                    <span className="block w-full truncate pt-0.5 text-[13px] text-gray-400 group-has-[.link-area:hover]/link:text-blue-500 transition-colors duration-150">
+                      {displayUrl}
+                    </span>
+                  </a>
+                </Tooltip>
+              </div>
+            ) : (
+              <div className="min-w-0 overflow-hidden">
+                <Tooltip content="Open URL in new tab" compact delay={500} className="flex min-w-0 w-full max-w-full">
+                  <a
+                    href={bookmark.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleUrlClick}
+                    className="link-area block w-full truncate text-base font-medium text-gray-900 group-has-[.link-area:hover]/link:text-blue-600 transition-colors"
                   >
                     {displayTitle}
                   </a>
                 </Tooltip>
-              )}
-              <ContentCard.Tags
-                tags={bookmark.tags}
-                onTagClick={onTagClick}
-                onTagRemove={onTagRemove ? (tag) => onTagRemove(bookmark, tag) : undefined}
-              />
-            </div>
-
-            {/* Right: Scheduled archive + Date */}
-            {(onCancelScheduledArchive || showArchivedIndicator) && (
-              <ContentCard.ArchiveStatus
-                archivedAt={bookmark.archived_at}
-                onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(bookmark) : undefined}
-                showArchivedIndicator={showArchivedIndicator}
-              />
+              </div>
             )}
-            {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
-            {showDate && (
-              <span className="shrink-0 flex">
-                <ContentCard.DateDisplay
-                  sortBy={sortBy}
-                  createdAt={bookmark.created_at}
-                  updatedAt={bookmark.updated_at}
-                  lastUsedAt={bookmark.last_used_at}
-                  archivedAt={bookmark.archived_at}
-                  deletedAt={bookmark.deleted_at}
+
+            <div className="shrink-0 flex items-center gap-2">
+              <div className="relative top-px">
+                <ContentCard.Tags
+                  tags={bookmark.tags}
+                  onTagClick={onTagClick}
+                  onTagRemove={onTagRemove ? (tag) => onTagRemove(bookmark, tag) : undefined}
                 />
-              </span>
-            )}
-          </div>
-
-          {/* Row 2: URL */}
-          {hasTitle && (
-            <div className="link-area pt-0.5 overflow-hidden">
-              <Tooltip content="Open URL in new tab" compact show={linkHovered}>
-                <a
-                  href={bookmark.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={handleUrlClick}
-                  className="link-area text-[13px] text-gray-400 truncate block group-has-[.link-area:hover]/link:text-blue-500 transition-colors duration-150"
-                >
-                  {displayUrl}
-                </a>
-              </Tooltip>
+              </div>
+              {/* Right: Scheduled archive + Date */}
+              {(onCancelScheduledArchive || showArchivedIndicator) && (
+                <div className={bookmark.tags.length === 0 ? 'relative top-1' : ''}>
+                  <ContentCard.ArchiveStatus
+                    archivedAt={bookmark.archived_at}
+                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(bookmark) : undefined}
+                    showArchivedIndicator={showArchivedIndicator}
+                  />
+                </div>
+              )}
+              {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
+              {showDate && (
+                /* No-tag cards need a small visual nudge so date/status align with the title baseline. */
+                <span className={`shrink-0 flex ${bookmark.tags.length === 0 ? 'relative top-1' : ''}`}>
+                  <ContentCard.DateDisplay
+                    sortBy={sortBy}
+                    createdAt={bookmark.created_at}
+                    updatedAt={bookmark.updated_at}
+                    lastUsedAt={bookmark.last_used_at}
+                    archivedAt={bookmark.archived_at}
+                    deletedAt={bookmark.deleted_at}
+                  />
+                </span>
+              )}
             </div>
-          )}
+          </div>
 
           {/* Row 3: Description/preview */}
           {(bookmark.description || bookmark.content_preview) && (
