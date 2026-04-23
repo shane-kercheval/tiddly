@@ -57,6 +57,7 @@ import {
   insertCodeBlock,
   insertHorizontalRule,
   insertText,
+  LINE_PREFIXES,
 } from '../utils/editorFormatting'
 import { buildEditorCommands, type MenuCallbacks, type EditorCommand } from './editor/editorCommands'
 import { EditorCommandMenu } from './editor/EditorCommandMenu'
@@ -68,14 +69,6 @@ const MARKERS = {
   strikethrough: { before: '~~', after: '~~' },
   highlight: { before: '==', after: '==' },
   inlineCode: { before: '`', after: '`' },
-} as const
-
-/** Line prefixes for block-style formatting. */
-const LINE_PREFIXES = {
-  blockquote: '> ',
-  bulletList: '- ',
-  numberedList: '1. ',
-  checklist: '- [ ] ',
 } as const
 
 interface CodeMirrorEditorProps {
