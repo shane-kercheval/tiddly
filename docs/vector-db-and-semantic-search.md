@@ -155,6 +155,8 @@ Important properties:
 - `user_id` is present for search scoping
 - `(entity_type, entity_id, chunk_type, chunk_index)` is unique
 - HNSW index supports approximate nearest-neighbor vector search
+- user deletion cascades automatically through the `user_id` foreign key
+- entity deletion cleanup is application-managed because `entity_type + entity_id` is a polymorphic reference, not a database-enforced foreign key
 
 ### HNSW and Cosine Distance
 
@@ -328,6 +330,15 @@ The final result set is built by merging:
 
 with Reciprocal Rank Fusion.
 
+Reciprocal Rank Fusion (RRF) is a simple rank-combination method:
+- each result gets a score based on its position in each ranked list
+- high rank in either list helps
+- high rank in both lists helps even more
+
+This works well here because the two search systems are complementary:
+- FTS contributes lexical precision
+- vector search contributes semantic recall
+
 This gives a practical balance:
 - lexical matches still rank well
 - semantic-only matches can surface
@@ -338,6 +349,8 @@ This gives a practical balance:
 ## Why Use Hybrid Search
 
 Pure vector search would lose a lot of keyword precision.
+
+For example, if a user searches for `useEffectEvent`, they likely want content containing that exact React API name. Pure vector search might instead return semantically related notes about React effects, event handlers, or stale closures even if the exact symbol never appears.
 
 Pure FTS misses semantically relevant results when exact words differ.
 
@@ -459,7 +472,7 @@ For v1:
 - existing embeddings are not deleted on downgrade
 - gating happens at query time
 
-This keeps rollout simple. Cleanup on downgrade can be added later when billing event infrastructure exists.
+This keeps rollout simple. Cleanup on downgrade and embedding existing content on upgrade can both be added later when billing event infrastructure exists.
 
 ---
 
