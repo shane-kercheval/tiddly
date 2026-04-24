@@ -2,7 +2,7 @@
 
 ## Context
 
-- **FTS (Phase 1) is complete** — `search_vector` tsvector columns, GIN indexes, `ts_rank` scoring, combined FTS + ILIKE. See `future-search.md`.
+- **FTS (Phase 1) is complete** — `search_vector` tsvector columns, GIN indexes, `ts_rank` scoring, combined FTS + ILIKE.
 - **pgvector is enabled** on production (0.8.2) and available in local dev.
 - **Goal:** Add semantic/meaning-based search so "auth" finds documents about "login flow" and "OAuth." Complements FTS keyword matching.
 - **Key decisions:**
@@ -45,16 +45,17 @@ OpenAI `text-embedding-3-small` via LiteLLM model ID `openai/text-embedding-3-sm
     Name: ...        (prompts only)
     Title: ...
     Description: ...
+    Tags: ...        (sorted, pipe-delimited)
     ```
     Hashed independently. Metadata edits only re-embed this one chunk — content chunks are unaffected.
-  - **`content` chunks** (one per paragraph): Raw paragraph text only, no title prefix. Each paragraph hashed independently for reuse. This is cascade-resistant (inserting a paragraph doesn't invalidate downstream hashes) and saves 95%+ of embedding API calls on typical edits. See ADIRE simulation results for empirical validation.
+  - **`content` chunks** (one per paragraph): Raw paragraph text only, no title prefix. For prompts, the content stream starts with a canonical prompt-arguments block, followed by a blank line and the raw prompt content, so each argument becomes its own paragraph-sized semantic unit. Each paragraph hashed independently for reuse. This is cascade-resistant (inserting a paragraph doesn't invalidate downstream hashes) and saves 95%+ of embedding API calls on typical edits. See ADIRE simulation results for empirical validation.
 - **`chunk_index` is scoped per `chunk_type`:** metadata is always index 0, content paragraphs are 0..N.
 - **Oversized paragraph handling:** Paragraphs over ~8K characters (2048 tokens approximated as `len(text) // 4`) are split at ~2K character boundaries (~512 tokens). All token references in chunking use the same `len(text) // 4` approximation — no real tokenizer. This handles pasted content / structureless blobs. Typical prose paragraphs are 150-250 tokens and are never split.
 - **Token counting:** Approximate (`len(text) // 4`), not tiktoken. Exact counts aren't needed — paragraph boundaries determine chunks, and the 2048-token threshold is a generous guard rail. tiktoken is CPU-bound and synchronous, unsuitable for the async worker.
 - **All entity types use the same chunking algorithm.** Notes, bookmarks, and prompts all produce a metadata chunk + content chunks. No special cases — short prompts naturally produce one content chunk.
 - **Re-embedding:** Two-level fast-path checks via `content_embedding_state`:
   - `metadata_hash` (SHA-256 of canonical metadata text) — if unchanged, skip metadata chunk
-  - `content_hash` (SHA-256 of full content field) — if unchanged, skip all content chunks
+  - `content_hash` (SHA-256 of canonical embeddable content text) — if unchanged, skip all content chunks
   - `model` — if embedding model changed since last embed, treat everything as stale regardless of hash matches
   - Both hashes match AND model matches → entire job is a no-op
   - If content changed: load existing chunk embeddings as `{chunk_hash: embedding}` dict, look up each new paragraph hash — reuse embedding if found, embed if not. Delete old chunks of the changed type(s), insert new chunks (with reused or fresh embeddings) in a single transaction. See M4 step 8 for the three paths (metadata-only, content-only, both).
@@ -140,8 +141,8 @@ content_embedding_state:
     user_id         UUID FK → users.id (for user-scoped operations: downgrade cleanup, Pro-only backfill, monitoring)
     entity_type     String (bookmark/note/prompt)
     entity_id       UUID (unique together with entity_type)
-    metadata_hash   Text (SHA-256 of canonical metadata text — for skip-if-unchanged on title/description/name edits)
-    content_hash    Text (SHA-256 of full content field — for skip-if-unchanged on content edits)
+    metadata_hash   Text (SHA-256 of canonical metadata text — for skip-if-unchanged on title/description/name/tag edits)
+    content_hash    Text (SHA-256 of canonical embeddable content text — for skip-if-unchanged on content/argument edits)
     model           Text (embedding model used, e.g. "text-embedding-3-small")
     status          String (embedded/failed) — only two states. Transitions atomically in same transaction as chunk writes.
     last_error      Text (nullable — error message on last failure)
@@ -158,7 +159,7 @@ This table keeps embedding lifecycle state out of the entity models. Three field
 - All three match → entire job is a no-op
 - If `model` doesn't match (embedding model upgraded), treat everything as stale regardless of hash matches
 
-**Hash behavior for NULL/empty fields:** Hashes are always computed, never stored as NULL (`NULL = NULL` is false in SQL, which would break the fast-path equality check). Empty/NULL content → `content_hash = SHA-256("")`. All metadata fields empty/NULL → skip metadata chunk entirely (don't embed empty string), but still store `metadata_hash = SHA-256("")` so the fast-path check works.
+**Hash behavior for NULL/empty fields:** Hashes are always computed, never stored as NULL (`NULL = NULL` is false in SQL, which would break the fast-path equality check). Empty/NULL canonical embeddable content → `content_hash = SHA-256("")`. All metadata fields empty/NULL → skip metadata chunk entirely (don't embed empty string), but still store `metadata_hash = SHA-256("")` so the fast-path check works.
 
 **Crash safety:** The worker executes chunk inserts, chunk deletes, and state updates in a single DB transaction. If the worker crashes before commit, the transaction rolls back and the DB is unchanged — hashes still mismatch, so the next job retries from scratch. If the worker crashes after commit, everything is consistent. There is no window where search sees a mix of old and new chunks.
 
@@ -195,6 +196,8 @@ Implement the logic that splits entity content into metadata and content chunks.
 
 **Chunking service** (`services/chunking_service.py`):
 
+The API and frontend continue to work with structured entity fields (`title`, `description`, `tags`, `content`, prompt `name`, prompt `arguments`, etc.). The chunking service is responsible for constructing the canonical embeddable text representation on the backend. Do NOT push embedding-specific formatting or concatenation rules into frontend clients or API callers.
+
 ```python
 @dataclass
 class Chunk:
@@ -210,6 +213,8 @@ def chunk_entity(
     description: str | None,
     content: str | None,
     name: str | None = None,  # prompts only
+    tags: list[str] | None = None,
+    arguments: list[dict[str, Any]] | None = None,  # prompts only
 ) -> list[Chunk]:
     """Split entity content into metadata + content chunks.
 
@@ -228,10 +233,25 @@ def chunk_entity(
 Name: {name}
 Title: {title}
 Description: {description}
+Tags: {sorted_tags_joined_with_pipe}
 ```
-Stability of this format matters for hash consistency — don't change field order or formatting.
+Stability of this format matters for hash consistency — don't change field order or formatting. Tags must be sorted before serialization so metadata hash is stable regardless of user/UI ordering.
 
-**Content paragraph normalization:** Strip leading/trailing whitespace per paragraph. No case folding. Hash the stripped UTF-8 bytes via SHA-256. This is the `chunk_hash` stored per chunk for reuse. The entity-level `content_hash` on `content_embedding_state` hashes the raw content field as-is (not the normalized paragraphs) — it's a fast-path "did anything change at all" check, not a per-paragraph identity.
+**Prompt content construction:** Prompts use a canonical embeddable content text:
+1. Render a prompt-arguments block first, sorted by argument name
+2. Separate arguments with `\n\n`
+3. Normalize each argument description by trimming whitespace and collapsing internal double newlines so one argument renders as one paragraph
+4. Append a blank line
+5. Append the raw prompt `content` field
+
+Canonical argument paragraph format:
+```
+Argument name: {argument_name}; description: {normalized_argument_description}
+```
+
+Argument ordering for embedding purposes is deterministic and independent of stored UI/display order.
+
+**Content paragraph normalization:** Strip leading/trailing whitespace per paragraph. No case folding. Hash the stripped UTF-8 bytes via SHA-256. This is the `chunk_hash` stored per chunk for reuse. The entity-level `content_hash` on `content_embedding_state` hashes the canonical embeddable content text as-is (not the normalized paragraphs) — it's a fast-path "did anything change at all" check, not a per-paragraph identity.
 
 **Chunking algorithm:**
 1. Build metadata chunk from entity fields (canonical format above). Hash the metadata text. If all metadata fields are empty/NULL → skip metadata chunk entirely (don't embed empty string), but still store `metadata_hash = SHA-256("")` in the state table.
@@ -241,8 +261,8 @@ Stability of this format matters for hash consistency — don't change field ord
 5. No title prefix on content chunks — title/description are in the metadata chunk.
 
 **Entity-specific handling:**
-- **Prompts:** Metadata chunk includes `name + title + description`. Content chunks from `content` field. Same algorithm as notes/bookmarks.
-- **Notes:** Metadata chunk includes `title + description`. Content chunks from `content` field.
+- **Prompts:** Metadata chunk includes `name + title + description + tags`. Content chunks come from the canonical prompt content described above: sorted argument paragraphs, blank line, then the raw `content` field.
+- **Notes:** Metadata chunk includes `title + description + tags`. Content chunks from `content` field.
 - **Bookmarks:** Same as notes. The bookmark `summary` field is deliberately excluded — it is not currently populated in the product. Can be added to the metadata chunk later if summary generation is implemented.
 
 ### Testing Strategy
@@ -251,9 +271,27 @@ Stability of this format matters for hash consistency — don't change field ord
 - Multi-paragraph content → one content chunk per paragraph (chunk_type="content", index=0..N)
 - Entity with no content → metadata chunk only
 - Entity with empty title/description → metadata chunk with only non-empty fields
+- Tags are serialized in sorted order in the metadata chunk for hash stability
+- Tags are included in the metadata chunk for bookmarks, notes, and prompts
+- Empty tag list produces no `Tags:` line
+- Changing only tag order does not change `metadata_hash`
+- Adding/removing a tag changes `metadata_hash` but does not change `content_hash`
 - Metadata chunk format is canonical (labeled fields, stable order)
 - Each content chunk has a unique chunk_hash based on paragraph text only (not title)
 - Metadata hash changes when title/description change but content hashes don't
+- Metadata hash changes when tags change but content hashes don't
+- Prompt argument reorder alone does not change hashes or force re-embedding
+- Prompt arguments are sorted by name for embedding purposes regardless of stored/UI order
+- Prompt arguments are rendered as one canonical paragraph per argument before the raw prompt content
+- Prompt arguments with leading/trailing whitespace are normalized deterministically in the embedding representation
+- Empty prompt argument description is handled gracefully and still renders as a single canonical argument paragraph
+- Prompt argument descriptions with internal double newlines are normalized so one argument does not split into multiple chunks
+- Prompt argument descriptions with repeated blank lines still yield one content paragraph per argument
+- Prompt argument descriptions with single newlines are handled deterministically and do not create unintended extra argument chunks
+- Prompt argument changes alter `content_hash` even when raw prompt `content` is unchanged
+- Prompt metadata changes (`name`, `title`, `description`, `tags`) do not change `content_hash`
+- Prompt body changes alter `content_hash` even when arguments are unchanged
+- Canonical prompt content is deterministic for equivalent argument sets regardless of input ordering
 - Oversized paragraph (>2048 tokens) splits at 512-token boundaries
 - Normal-sized paragraphs (even 500+ tokens) are NOT split — only the 2048 threshold triggers splitting
 - Prompts use same algorithm as notes — no special case, large prompts get chunked
@@ -282,7 +320,6 @@ class EmbeddingService:
     """Calls embedding API to convert text → vectors via LiteLLM."""
 
     model: str  # e.g. "openai/text-embedding-3-small" — initialized from settings.embedding_model.
-                # Used by embed_query() in M5 for cache key construction.
 
     async def embed_texts(self, texts: list[str]) -> tuple[list[list[float]], float | None]:
         """Embed multiple texts in a single API call.
@@ -321,7 +358,7 @@ openai_api_key: str | None = None  # None = embeddings disabled
 
 **Batch limits:** OpenAI supports up to 2048 inputs per call. For a single entity's chunks (typically 1-50), one API call suffices.
 
-**Note:** `embed_single()` is a pure API call with no caching. In M5, search queries are wrapped by `embed_query()` which adds a Redis cache layer. The EmbeddingService itself stays simple — caching is a search concern.
+**Note:** `embed_single()` is a pure API call. The EmbeddingService itself stays simple — it only calls the provider and returns vectors + cost.
 
 ### Testing Strategy
 - Successful single embedding returns correct dimensionality
@@ -403,7 +440,7 @@ async def process_job(job_data: dict):
        Uses SHA-256("") not NULL to satisfy the "never NULL" hash rule (see "Hash behavior for NULL/empty fields" in M1).
        status='embedded' is arbitrary (no 'processing' state exists).
     3. Compute metadata_hash (SHA-256 of canonical metadata text)
-    4. Compute content_hash (SHA-256 of full content field)
+    4. Compute content_hash (SHA-256 of canonical embeddable content text)
     5. Check state: if metadata_hash, content_hash, AND model all match → no-op, return early
     6. For metadata (if hash or model changed): build metadata chunk, embed it.
        If all metadata fields empty → no metadata chunk (but store metadata_hash=SHA-256("")).
@@ -571,9 +608,9 @@ Implementation: services register enqueue callbacks in `session.info["post_commi
 
 - Do NOT call on archive/unarchive/soft-delete — content hasn't changed
 - Only trigger when content-relevant fields change. Per-entity-type trigger fields:
-  - **Bookmark:** title, description, content (NOT url, NOT summary — summary excluded from chunking, url not embedded)
-  - **Note:** title, description, content
-  - **Prompt:** name, title, description, content
+  - **Bookmark:** title, description, tags, content (NOT url, NOT summary — summary excluded from chunking, url not embedded)
+  - **Note:** title, description, tags, content
+  - **Prompt:** name, title, description, tags, arguments, content
 
 Integration points (all 10 must be wired):
 
@@ -626,6 +663,13 @@ This is critical infrastructure — the embedding pipeline touches every content
 - Chunking service: paragraph splitting, hash computation, metadata format, oversized paragraph handling
 - Hash stability: same text → same hash regardless of context
 - Canonical metadata format: field ordering, empty field handling
+- Tag serialization: tags included for bookmarks/notes/prompts, sorted before serialization, empty list omits `Tags:` line
+- Tag-order stability: changing only tag order does not change metadata chunk text or `metadata_hash`
+- Prompt argument serialization: arguments sorted by name for embedding purposes regardless of stored/UI order
+- Prompt argument canonical paragraph format: one rendered paragraph per argument with deterministic formatting
+- Prompt argument normalization: leading/trailing whitespace trimmed and internal double newlines collapsed so one argument cannot split into multiple paragraphs
+- Prompt argument edge cases: empty descriptions, repeated blank lines, and single newlines handled deterministically
+- Prompt hash boundaries: metadata-only prompt edits change `metadata_hash` but not `content_hash`; argument-only edits change `content_hash` but not `metadata_hash`
 - Token count approximation: `len(text) // 4` produces reasonable estimates
 
 **2. Redis queue integration tests (real Redis via testcontainers, no Postgres):**
@@ -643,7 +687,12 @@ This is critical infrastructure — the embedding pipeline touches every content
 **3. Worker integration tests (real Redis + real Postgres via testcontainers, mock embedding API):**
 - Happy path: enqueue job → worker processes → metadata chunk + content chunks appear in DB with correct embeddings, hashes, indexes
 - Paragraph-level reuse: edit one paragraph → only that paragraph re-embedded, unchanged paragraphs keep old embeddings (verify by checking embedding vectors are identical)
-- Metadata-only edit (title change): only metadata chunk re-embedded, all content chunks preserved
+- Metadata-only edit (title/tag change): only metadata chunk re-embedded, all content chunks preserved
+- Prompt argument edit: content chunks are recomputed from canonical argument paragraphs + prompt content, metadata chunk preserved unless other metadata fields changed
+- Prompt argument reorder only: no API calls, no DB writes, no chunk changes
+- Prompt tag-only edit: metadata chunk re-embedded, prompt content chunks preserved
+- Prompt argument description containing internal double newlines still results in one chunk per argument after normalization
+- Prompt with multiple arguments: worker reuses unchanged argument-paragraph embeddings and re-embeds only changed argument paragraphs
 - Content-only edit: only changed content chunks re-embedded, metadata chunk preserved
 - Both hashes + model unchanged → no-op (no API calls, no DB writes, no chunks modified)
 - Model mismatch → full re-embed regardless of hash matches
@@ -739,16 +788,9 @@ async def embed_query(
     user_id: UUID,
     query: str,
     embedding_service,
-    redis_client,
 ) -> list[float]:
-    """Embed a search query with Redis caching. Cache lives here, not in EmbeddingService.
-    M3's embed_single() remains a pure API call — cache is a search concern, not an embedding concern.
-    Key: embed_cache:{model}:{sha256(normalized_query)}, TTL 1 hour."""
-    normalized = query.strip().lower()
-    cache_key = f"embed_cache:{embedding_service.model}:{sha256(normalized)}"
-    cached = await redis_client.get(cache_key)
-    if cached:
-        return json.loads(cached)
+    """Embed a search query for hybrid search."""
+    normalized = query.strip()
     start = time.monotonic()
     vec, cost = await embedding_service.embed_single(normalized)  # embed normalized text, not original
     latency_ms = int((time.monotonic() - start) * 1000)
@@ -760,7 +802,6 @@ async def embed_query(
         cost=cost,
         latency_ms=latency_ms,
     )
-    await redis_client.setex(cache_key, 3600, json.dumps(vec))
     return vec
 
 async def hybrid_search(
@@ -780,7 +821,7 @@ async def hybrid_search(
         sort_by="relevance", sort_order="desc",
         offset=0, limit=100,  # overfetch for RRF merge
     )
-    embed_coro = embed_query(user_id, query, embedding_service, redis_client)
+    embed_coro = embed_query(user_id, query, embedding_service)
     # Graceful degradation: if embedding fails, fall back to FTS-only
     results = await asyncio.gather(fts_coro, embed_coro, return_exceptions=True)
     # FTS failure is fatal — no fallback for the primary search path
@@ -897,8 +938,7 @@ async def load_entities_by_ids(
 1. **Overfetch + post-filter** (current approach): Set a higher HNSW limit (e.g., 500) to compensate for filtered-out rows. Also set `SET hnsw.ef_search = 200` at session level to increase the HNSW candidate pool. Works for moderate user counts.
 2. **Partitioned tables**: Partition `content_chunks` by `user_id` with per-partition HNSW indexes. PostgreSQL 17 supports this natively. Required if user count grows significantly.
 
-**Query embedding cache:** Implemented in `embed_query()` (defined above in the pseudocode). Cache lives in the search layer, not in M3's EmbeddingService — caching is a search concern. M3's `embed_single()` remains a pure API call. See the `embed_query()` function for key format, normalization, and TTL details.
-On cache miss, query embeddings record cost via the existing Redis → `ai_usage` pipeline under `search`. On cache hit, no provider call is made and no cost is recorded. Cache-hit analytics are explicitly out of scope for v1; if cache-effectiveness telemetry becomes useful later, add it separately from cost accounting.
+**Query embeddings:** `embed_query()` calls `EmbeddingService.embed_single()` directly for each hybrid-search query. Query embedding cache is intentionally omitted from v1. The added Redis memory/cardinality cost is not justified without evidence of meaningful exact-query reuse. If query embedding latency or provider cost becomes a problem later, caching can be revisited with real usage data.
 
 ### Testing Strategy
 - Vector search returns nearest neighbors by cosine similarity
@@ -918,10 +958,7 @@ On cache miss, query embeddings record cost via the existing Redis → `ai_usage
 - Hybrid search falls back to FTS when embedding API is unavailable
 - Hybrid search falls back to FTS when embeddings not configured
 - Free tier user → FTS-only, no vector search or embedding API call
-- Query embedding cache: second identical query skips OpenAI call (cache hit)
-- Query embedding cache hit does NOT record cost
-- Query embedding cache miss records cost under `search`
-- Query embedding cache key includes model name (model change doesn't poison cache)
+- Query embedding records cost under `search` for each real provider call
 - Items without embeddings still appear via FTS path
 - Entity type filtering works in vector search
 - Deduplication: multiple chunks from same entity → entity appears once with best score
@@ -1071,4 +1108,3 @@ Milestone 6 (backfill + monitoring)
 - [pgvector SQLAlchemy integration](https://github.com/pgvector/pgvector-python) — `Vector` column type, query patterns
 - [redis-py async docs](https://redis-py.readthedocs.io/en/stable/examples/asyncio_examples.html) — async Redis client, BLMOVE, sorted sets
 - [ADIRE simulation results](https://github.com/shane-kercheval/ADIRE/blob/main/docs/analysis-results.md) — empirical validation of paragraph-level reuse strategy
-- `docs/implementation_plans/future-search.md` — original search roadmap (Phases 2-3)

@@ -67,7 +67,9 @@ LLM-based evaluations for agentic tool behavior. Currently covers MCP servers; e
 
 ## Design Docs (`docs/`)
 
-`docs/implementation_plans/` contains dated plans for past and in-progress features. `docs/` also has high-level design documents (e.g., `ai-integration.md`, `content-versioning.md`, `connection-pool-tuning.md`). **Before designing a new feature or refactoring a system, check `docs/` for existing plans and design decisions.**
+`docs/implementation_plans/` contains dated plans for past and in-progress features. Treat these as implementation/execution instructions and historical records of design decisions, tradeoffs, and rollout steps. They are not living docs that must always be kept fully in sync after the work lands.
+
+Top-level files in `docs/` are the living high-level design/reference docs (e.g., `ai-integration.md`, `content-versioning.md`, `connection-pool-tuning.md`). **Before designing a new feature or refactoring a system, check `docs/` for existing plans and design decisions.**
 
 ## Security Tests (`backend/tests/security/`)
 
@@ -101,6 +103,14 @@ After any feature, API, pricing, or UI change, review whether these need updatin
 - `README.md` — feature list and setup instructions.
 - `.env.example` — when adding/removing/renaming environment variables.
 - `AGENTS.md` — when build commands, architecture, conventions, or project structure change.
+- Top-level `docs/*.md` files (but not `docs/implementation_plans/` or other subfolders) — when architecture, behavior, operational model, or developer-facing design guidance changes. Current top-level docs:
+  - `docs/ai-integration.md`
+  - `docs/architecture.md`
+  - `docs/connection-pool-tuning.md`
+  - `docs/content-versioning.md`
+  - `docs/custom-domain-setup.md`
+  - `docs/http-caching.md`
+  - `docs/vector-db-and-semantic-search.md`
 - `docs/architecture.md` — when services, crons, middleware, auth variants, tier definitions, Redis key schemas, CLI commands, or other architecture changes occur. Of note, see the following sections for commonly missed updates:
     - "Known drift risks" section for the areas most likely to need updating
     - "Things that are easy to miss" section for non-obvious invariants to add to when you learn one.
