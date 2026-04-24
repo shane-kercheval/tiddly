@@ -956,6 +956,11 @@ async def load_entities_by_ids(
 - Vector-only filter check uses existing search_all_content() with entity_ids whitelist — no parallel filter engine
 - Vector-only filter check always runs (even with default view — prevents archived/deleted content leaking through vector search)
 - Vector-only result that violates tag/view filter is excluded from merge
+- Vector-only archived result is excluded under the default active view
+- Vector-only soft-deleted result is excluded under the default active view
+- Vector-only result that violates `content_types` filter is excluded from merge
+- Vector-only result that violates saved `filter_expression` is excluded from merge
+- Mixed vector-only candidate set: filter-passing candidates are merged, filter-failing candidates are dropped
 - Hybrid search respects all existing filters: tags, tag_match, view, content_types, filter_expression
 - Total results capped at 100
 - Pagination on merged results works correctly (offset/limit applied after RRF merge)
@@ -970,6 +975,9 @@ async def load_entities_by_ids(
 - Deduplication: multiple chunks from same entity → entity appears once with best score
 - RRF tiebreaker: entities with equal RRF scores are ordered deterministically by (entity_type, entity_id) tuple
 - entity_ids whitelist correctly splits by entity type across UNION subqueries
+- entity_ids whitelist works for mixed bookmarks + notes + prompts in the same vector-only filter pass
+- Empty `vec_only` path skips the whitelist filter call and still returns correct merged results
+- All vector-only candidates filtered out → hybrid search falls back to FTS-only merged set without errors
 - load_entities_by_ids hydrates correct ContentListItem data for mixed entity types
 - Empty query → no vector search triggered (browse mode)
 - Search with all stop words → handled gracefully (existing stop-word guard)
