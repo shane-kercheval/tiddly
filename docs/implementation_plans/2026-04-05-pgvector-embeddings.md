@@ -789,10 +789,16 @@ async def embed_query(
     query: str,
     embedding_service,
 ) -> list[float]:
-    """Embed a search query for hybrid search."""
+    """Embed a search query for hybrid search.
+
+    Query preprocessing for embeddings is intentionally minimal in v1:
+    strip leading/trailing whitespace only. Do not lowercase, stem,
+    remove punctuation, or otherwise normalize the query text before
+    embedding unless future quality testing shows a clear benefit.
+    """
     normalized = query.strip()
     start = time.monotonic()
-    vec, cost = await embedding_service.embed_single(normalized)  # embed normalized text, not original
+    vec, cost = await embedding_service.embed_single(normalized)
     latency_ms = int((time.monotonic() - start) * 1000)
     await track_cost(
         user_id=user_id,

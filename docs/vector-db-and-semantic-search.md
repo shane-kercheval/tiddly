@@ -289,9 +289,7 @@ Otherwise, search remains FTS-only.
 
 ### Query embedding
 
-For hybrid search:
-- the query string is normalized
-- the query is embedded through the same embedding service used by indexing
+For hybrid search, the query is embedded through the same embedding service used by indexing
 
 ### Concurrent first stage
 
