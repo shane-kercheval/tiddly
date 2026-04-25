@@ -486,13 +486,21 @@ This keeps operations simpler:
 - one permissions model
 - one transactional system for chunk writes and state updates
 
-At the current scale, this is the pragmatic choice.
+### Tenant-scoped retrieval by design
 
-The main known limitation is that HNSW search is global and the `user_id` filter is effectively applied after candidate retrieval. That is acceptable for current scale but will become a scaling concern as corpus size grows.
+A naive pgvector deployment uses one global HNSW index over all users' chunks, applies `WHERE user_id = ?` as a post-filter, and silently loses recall as the tenant ratio shrinks. That is not the design here.
 
-Likely future mitigations:
-- higher overfetch / `ef_search` tuning
-- partitioning by user if necessary
+The semantic search system is built for per-tenant-scoped retrieval from day one. Three layers combine:
+
+1. **Hash-partitioned `content_chunks` by `user_id`** (128 partitions). A query with `WHERE user_id = :uid` is pruned by Postgres to a single partition — HNSW searches only that partition's local index, not a global one. Partition pruning is what keeps retrieval effectively tenant-local as the total corpus grows.
+
+2. **Iterative scan within the partition.** A single hash partition still contains chunks from several users (~dozens at moderate scale), so a residual post-filter on `user_id` happens inside the partition's HNSW. pgvector's iterative scan (`hnsw.iterative_scan = strict_order`, available in pgvector ≥ 0.8) handles this by continuing to walk the HNSW graph until enough rows pass the filter, instead of truncating after the initial candidate pool.
+
+3. **Overfetch and application-side dedup.** Vector search overfetches chunk candidates, deduplicates by entity in application code, and reconciles against view/tag/archive rules through the existing filter pipeline.
+
+This combination targets multi-thousand-tenant growth while avoiding the global-post-filter failure mode of naive pgvector deployments. Specific capacity ceilings are workload-dependent and should be validated with real benchmarks before committing to specific numbers. The escape hatch, if workload data eventually shows this design is insufficient, is a namespaced external vector store (Qdrant, Pinecone, etc.) — a product-level infrastructure decision, not a continuous scaling curve.
+
+The query SQL itself is the same as a non-partitioned schema (`SELECT ... WHERE user_id = :uid ORDER BY embedding <=> :q LIMIT :k`). The planner handles partition pruning transparently; the `SET LOCAL hnsw.iterative_scan` and `SET LOCAL hnsw.ef_search` session settings that accompany each vector query are part of the execution contract.
 
 ---
 
