@@ -284,6 +284,7 @@ Implement the logic that splits entity content into metadata and content chunks.
 - Zero or one `metadata` chunk per entity (title + description + name where applicable; omitted when all fields empty)
 - One `content` chunk per paragraph, with an independent hash for reuse tracking
 - Oversized paragraphs (>2048 tokens) are split at 512-token boundaries
+- A per-entity chunk cap (`MAX_CHUNKS_PER_ENTITY = 2000`) is enforced via fallback to fixed-size chunking when paragraph splitting exceeds the cap — bounds abuse without clipping legitimate dense markdown
 - All entity types use the same algorithm — no special cases
 
 ### Implementation Outline
@@ -352,7 +353,10 @@ Argument ordering for embedding purposes is deterministic and independent of sto
 2. Split `content` on `\n\n` → paragraphs. Normalize and hash each paragraph (see above).
 3. Each paragraph becomes its own `content` chunk (index 0..N).
 4. If a paragraph exceeds ~8K characters (2048 approximate tokens), split it at ~2K character boundaries (~512 approximate tokens). Each sub-chunk gets its own hash. All "token" thresholds use `len(text) // 4`.
-5. No title prefix on content chunks — title/description are in the metadata chunk.
+5. **Per-entity chunk cap.** If steps 2–4 would produce more than `MAX_CHUNKS_PER_ENTITY = 2000` content chunks, discard the paragraph-based chunking for this entity and fall back to **fixed-size chunking**: split the raw content into ~2K character segments at character boundaries (same size as the oversized-paragraph splitter). This deterministically caps a 100K-char note at ~50 chunks, regardless of paragraph density. The metadata chunk is unaffected. Log a structured warning when the fallback path is taken so operators can identify entities hitting the cap. Hashes are still per-segment, so paragraph-level reuse degrades to segment-level reuse for entities in this regime — acceptable because (a) hitting the cap means content is unusual and (b) the entity's chunks change as a unit anyway when it's edited.
+6. No title prefix on content chunks — title/description are in the metadata chunk.
+
+**Why the cap exists.** Without it, content like `a\n\nb\n\nc\n\n...` (alternating single characters and paragraph breaks) in a 100K-character note would produce ~33,000 single-character chunks for a single entity. That's an abuse vector for storage cost, embedding-API spend, and search latency — all disproportionate to the actual information content. The cap of 2000 is set to bound this without clipping legitimate use: even a content-dense 100K-character markdown note with many headings and short paragraph blocks rarely exceeds ~700–1000 chunks, so 2000 is roughly 2× legitimate ceiling and ~16× tighter than the abuse case. The fallback to fixed-size chunking is graceful — no content is dropped, just chunked differently.
 
 **Entity-specific handling:**
 - **Prompts:** Metadata chunk includes `name + title + description + tags`. Content chunks come from the canonical prompt content described above: sorted argument paragraphs, blank line, then the raw `content` field.
@@ -388,6 +392,10 @@ Argument ordering for embedding purposes is deterministic and independent of sto
 - Canonical prompt content is deterministic for equivalent argument sets regardless of input ordering
 - Oversized paragraph (>2048 tokens) splits at 512-token boundaries
 - Normal-sized paragraphs (even 500+ tokens) are NOT split — only the 2048 threshold triggers splitting
+- Per-entity chunk cap: content that would produce ≤ 2000 chunks via paragraph splitting → uses paragraph chunking (normal path)
+- Per-entity chunk cap: content that would produce > 2000 chunks via paragraph splitting (e.g., 100K chars of `a\n\nb\n\nc\n\n...`) → falls back to fixed-size 2K-char segment chunking, total chunks bounded at ~50 for a 100K-char input, structured warning is logged
+- Fallback path preserves the metadata chunk unchanged (cap applies only to content chunks)
+- Borderline content right at the 2000 boundary chunks deterministically (not flaky between paths)
 - Prompts use same algorithm as notes — no special case, large prompts get chunked
 - Null fields handled gracefully
 - Unicode content chunks correctly
