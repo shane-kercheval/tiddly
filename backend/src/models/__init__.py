@@ -1,4 +1,5 @@
 """SQLAlchemy models."""
+from models.ai_usage import AiUsage
 from models.api_token import ApiToken
 from models.base import ArchivableMixin, Base, TimestampMixin
 from models.bookmark import Bookmark
@@ -15,6 +16,7 @@ from models.user_settings import UserSettings
 
 __all__ = [
     "ActionType",
+    "AiUsage",
     "ApiToken",
     "ArchivableMixin",
     "Base",

@@ -1,5 +1,6 @@
 """Test fixtures for MCP server tests."""
 
+import os
 from typing import Any
 from unittest.mock import patch
 
@@ -11,10 +12,15 @@ from mcp_server import server
 
 @pytest.fixture
 def mock_api() -> respx.MockRouter:
-    """Context manager for mocking API responses."""
+    """Context manager for mocking API responses.
+
+    Reads VITE_API_URL from env (pinned by top-level conftest's
+    pytest_configure) so the mock base_url matches the URL the MCP server
+    code reads via the same env var. Single source of truth, no drift.
+    """
     # Reset the module-level HTTP client to ensure respx captures requests
     server._http_client = None
-    with respx.mock(base_url="http://localhost:8000") as respx_mock:
+    with respx.mock(base_url=os.environ["VITE_API_URL"]) as respx_mock:
         yield respx_mock
     # Clean up after test
     server._http_client = None

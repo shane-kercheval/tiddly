@@ -1,4 +1,5 @@
 """Pytest fixtures for testing."""
+import asyncio
 import os
 from collections.abc import AsyncGenerator, Generator
 from unittest.mock import patch
@@ -20,9 +21,24 @@ from core.auth_cache import AuthCache, set_auth_cache
 from core.config import Settings, get_settings
 from core.redis import RedisClient, set_redis_client
 from core.tier_limits import Tier, TierLimits, get_tier_limits
-from models.ai_usage import AiUsage  # noqa: F401 - registers model with Base.metadata
 from models.base import Base
 from services.llm_service import LLMService, set_llm_service
+
+def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
+    """Pin env vars that shadow local .env so tests are hermetic.
+
+    Runs once at session start, before any fixture or test, regardless of
+    which subset of tests is selected. Container-dependent env vars
+    (DATABASE_URL, REDIS_URL) stay in the database_url fixture because they
+    need the testcontainers running first.
+
+    The MCP server respx mocks (in mcp_server/conftest.py and
+    prompt_mcp_server/conftest.py) read VITE_API_URL from os.environ, so
+    pinning it here means the mock base_url and the URL the server code
+    actually requests cannot drift.
+    """
+    os.environ["VITE_DEV_MODE"] = "true"
+    os.environ["VITE_API_URL"] = "http://localhost:8000"
 
 
 @pytest.fixture(scope="session")
@@ -55,10 +71,7 @@ def database_url(postgres_container: PostgresContainer, redis_container: RedisCo
     """
     url = postgres_container.get_connection_url()
     os.environ["DATABASE_URL"] = url
-    # Set Redis URL from container
     os.environ["REDIS_URL"] = get_redis_url(redis_container)
-    # Ensure tests run in dev mode (bypasses auth) regardless of local .env
-    os.environ["VITE_DEV_MODE"] = "true"
     return url
 
 
@@ -153,21 +166,45 @@ _SEARCH_VECTOR_TRIGGER_STATEMENTS = [
 ]
 
 
+@pytest.fixture(scope="session")
+def _schema_setup(database_url: str) -> None:
+    """Run schema DDL once per test session.
+
+    Saves ~45s across the ~3000-test suite by hoisting Base.metadata.create_all
+    and the search-vector trigger DDL out of the per-test path. The Postgres
+    container is session-scoped and all DDL here is idempotent (CREATE OR
+    REPLACE / IF NOT EXISTS / DROP TRIGGER IF EXISTS + CREATE TRIGGER), so
+    running once per session is behaviorally equivalent to running per-test.
+
+    Sync wrapper using asyncio.run() avoids the pytest-asyncio loop-scope
+    coupling: this fixture's event loop is created and torn down inside
+    asyncio.run() before any test runs, so it never interacts with the
+    per-test loops used by async_engine / db_connection / db_session.
+    """
+    async def _setup() -> None:
+        engine = create_async_engine(database_url, echo=False)
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                # Trigger functions, triggers, and GIN indexes are defined in the
+                # Alembic migration but not in SQLAlchemy model metadata, so
+                # create_all doesn't include them.
+                for stmt in _SEARCH_VECTOR_TRIGGER_STATEMENTS:
+                    await conn.execute(text(stmt))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_setup())
+
+
 @pytest.fixture
-async def async_engine(database_url: str) -> AsyncGenerator[AsyncEngine]:
-    """Create an async engine for testing."""
+async def async_engine(
+    database_url: str,
+    _schema_setup: None,
+) -> AsyncGenerator[AsyncEngine]:
+    """Create an async engine for testing. DDL is handled by _schema_setup."""
     engine = create_async_engine(database_url, echo=False)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        # Create search_vector trigger functions, triggers, and GIN indexes.
-        # These are defined in the Alembic migration but not in SQLAlchemy model
-        # metadata, so create_all doesn't include them.
-        for stmt in _SEARCH_VECTOR_TRIGGER_STATEMENTS:
-            await conn.execute(text(stmt))
-
     yield engine
-
     await engine.dispose()
 
 
