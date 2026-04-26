@@ -70,6 +70,7 @@ import {
   BookmarkIcon,
   NoteIcon,
   PromptIcon,
+  AdjustmentsIcon,
 } from '../components/icons'
 import type { ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem, PromptListItem, ContentType } from '../types'
 import { getFirstGroupTags } from '../utils'
@@ -266,6 +267,11 @@ export function AllContent(): ReactNode {
   // For builtin views (All/Archived/Trash), currentFilterId is undefined so query fires immediately.
   const isFilterReady = currentFilterId === undefined || filtersHasFetched
 
+  // When the route points at a filter that no longer exists client-side, skip the
+  // content query — the backend will 404 on it, and ErrorState would hide the
+  // intentionally clearer "Filter not found" empty state.
+  const filterIsMissing = currentFilterId !== undefined && filtersHasFetched && currentFilter === undefined
+
   // Fetch content with TanStack Query
   const {
     data: queryData,
@@ -273,7 +279,7 @@ export function AllContent(): ReactNode {
     isFetching,
     error: queryError,
     refetch,
-  } = useContentQuery(currentParams, { enabled: isFilterReady })
+  } = useContentQuery(currentParams, { enabled: isFilterReady && !filterIsMissing })
 
   // View switches (All → Archived, sidebar filter changes) and search refinements
   // are intentionally handled differently during fetches:
@@ -772,6 +778,35 @@ export function AllContent(): ReactNode {
             icon={<TrashIcon />}
             title="Trash is empty"
             description="Items in trash are permanently deleted after 30 days."
+          />
+        )
+      }
+
+      if (filterIsMissing) {
+        return (
+          <EmptyState
+            icon={<AdjustmentsIcon />}
+            title="Filter not found"
+            description="This filter may have been deleted."
+            actions={[{
+              label: 'Back to All Content',
+              onClick: () => navigate('/app/content'),
+              variant: 'secondary',
+            }]}
+          />
+        )
+      }
+
+      if (
+        currentFilterId !== undefined
+        && currentFilter !== undefined
+        && !hasFilters
+      ) {
+        return (
+          <EmptyState
+            icon={<AdjustmentsIcon />}
+            title="No items match this filter"
+            description="This filter has no matches yet."
           />
         )
       }

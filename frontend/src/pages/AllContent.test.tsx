@@ -413,16 +413,74 @@ describe('AllContent', () => {
       })
     })
 
-    it('shows bookmark-only empty state in custom filter view', async () => {
+    it('shows generic filter empty state in custom filter view (no transient filters)', async () => {
       mockContentQueryData = createMockResponse([])
       renderAtRoute('/app/content/filters/1')
 
       await waitFor(() => {
-        expect(screen.getByText('No bookmarks yet')).toBeInTheDocument()
+        expect(screen.getByText('No items match this filter')).toBeInTheDocument()
       })
-      expect(screen.getByText('Create bookmarks to see them here.')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
+      expect(screen.getByText('This filter has no matches yet.')).toBeInTheDocument()
+      // No create CTAs — creating content doesn't necessarily make it match the filter.
+      expect(screen.queryByRole('button', { name: 'New Bookmark' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'New Note' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'New Prompt' })).not.toBeInTheDocument()
+    })
+
+    it('shows transient-filter empty state on saved-filter route with tag chips layered', async () => {
+      // M6 will replace this: saved-filter copy should compose with overlay copy,
+      // not be hidden by the transient branch. Pin current behavior so that flip is intentional.
+      mockContentQueryData = createMockResponse([])
+      mockSelectedTags = ['nonexistent']
+      renderAtRoute('/app/content/filters/1')
+
+      await waitFor(() => {
+        expect(screen.getByText('No content found')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Try adjusting your search or filter.')).toBeInTheDocument()
+    })
+
+    it('shows "Filter not found" for non-existent filter ID after filters load', async () => {
+      // Precondition: id 999 must not exist in the fixture for this test to exercise
+      // the filter-missing branch (rather than the no-matches branch).
+      expect(mockFilters.find((filter) => filter.id === '999')).toBeUndefined()
+      mockFiltersHasFetched = true
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content/filters/999')
+
+      await waitFor(() => {
+        expect(screen.getByText('Filter not found')).toBeInTheDocument()
+      })
+      expect(screen.getByText('This filter may have been deleted.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Back to All Content' })).toBeInTheDocument()
+    })
+
+    it('does not query the backend when the filter is known-invalid', async () => {
+      // The backend 404s on unknown filter_id. Skip the request so ErrorState
+      // doesn't preempt the "Filter not found" empty state.
+      expect(mockFilters.find((filter) => filter.id === '999')).toBeUndefined()
+      mockFiltersHasFetched = true
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content/filters/999')
+
+      await waitFor(() => {
+        expect(screen.getByText('Filter not found')).toBeInTheDocument()
+      })
+      expect(mockContentQueryEnabled).toBe(false)
+    })
+
+    it('Back to All Content button navigates to /app/content', async () => {
+      const user = userEvent.setup()
+      expect(mockFilters.find((filter) => filter.id === '999')).toBeUndefined()
+      mockFiltersHasFetched = true
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content/filters/999')
+
+      await waitFor(() => {
+        expect(screen.getByText('Filter not found')).toBeInTheDocument()
+      })
+      await user.click(screen.getByRole('button', { name: 'Back to All Content' }))
+      expect(mockNavigate).toHaveBeenCalledWith('/app/content')
     })
   })
 
@@ -1197,9 +1255,11 @@ describe('AllContent', () => {
       // Filter ID 999 doesn't exist in mockFilters
       renderAtRoute('/app/content/filters/999')
 
-      // Should not be stuck on spinner - hasFetched is true so query fires
+      // Should not be stuck on spinner - hasFetched is true so query fires.
+      // Empty state is now filter-aware: shows "Filter not found" rather than the
+      // misleading new-user "No content yet" prompt.
       await waitFor(() => {
-        expect(screen.getByText('No content yet')).toBeInTheDocument()
+        expect(screen.getByText('Filter not found')).toBeInTheDocument()
       })
     })
 
