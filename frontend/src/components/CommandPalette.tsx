@@ -16,7 +16,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore, DEFAULT_VIEW_FILTERS } from '../stores/uiPreferencesStore'
 import type { ViewFilter } from '../stores/uiPreferencesStore'
-import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from '../stores/contentTypeFilterStore'
+import { useContentTypeFilterStore } from '../stores/contentTypeFilterStore'
 import { useTagsStore } from '../stores/tagsStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useSidebarStore } from '../stores/sidebarStore'
@@ -54,6 +54,7 @@ import { getFilterRoute, getBuiltinRoute } from './sidebar/routes'
 import { getFilterIcon, getBuiltinIcon } from './sidebar/sidebarDndUtils'
 import {
   isNavigableBuiltin,
+  ALL_CONTENT_TYPES,
 } from '../types'
 import type {
   ContentListItem,

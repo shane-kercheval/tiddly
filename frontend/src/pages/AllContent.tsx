@@ -44,7 +44,7 @@ import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
 import { useTagsStore } from '../stores/tagsStore'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore } from '../stores/uiPreferencesStore'
-import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from '../stores/contentTypeFilterStore'
+import { useContentTypeFilterStore } from '../stores/contentTypeFilterStore'
 import { useFiltersStore } from '../stores/filtersStore'
 import { usePageTitle } from '../hooks/usePageTitle'
 import type { PageSize } from '../stores/uiPreferencesStore'
@@ -73,6 +73,7 @@ import {
   AdjustmentsIcon,
 } from '../components/icons'
 import type { ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem, PromptListItem, ContentType } from '../types'
+import { ALL_CONTENT_TYPES } from '../types'
 import { getFirstGroupTags } from '../utils'
 
 /**

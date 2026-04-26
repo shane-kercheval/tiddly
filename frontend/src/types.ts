@@ -251,6 +251,9 @@ export interface ContentSearchParams {
 /** Valid content types for filters */
 export type ContentType = 'bookmark' | 'note' | 'prompt'
 
+/** Canonical ordering of all content types. The single source of truth for taxonomy iteration. */
+export const ALL_CONTENT_TYPES: ContentType[] = ['bookmark', 'note', 'prompt']
+
 /** Valid view options for list/search endpoints */
 export type ViewOption = 'active' | 'archived' | 'deleted'
 

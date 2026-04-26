@@ -250,7 +250,6 @@ const mockToggleType = vi.fn()
 let mockSelectedContentTypes: ('bookmark' | 'note' | 'prompt')[] = ['bookmark', 'note', 'prompt']
 
 vi.mock('../stores/contentTypeFilterStore', () => ({
-  ALL_CONTENT_TYPES: ['bookmark', 'note', 'prompt'],
   useContentTypeFilterStore: () => ({
     getSelectedTypes: () => mockSelectedContentTypes,
     toggleType: mockToggleType,
