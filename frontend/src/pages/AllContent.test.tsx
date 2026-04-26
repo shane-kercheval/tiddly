@@ -414,16 +414,50 @@ describe('AllContent', () => {
 
     it('shows generic filter empty state in custom filter view (no transient filters)', async () => {
       mockContentQueryData = createMockResponse([])
+      // Filter 1 is bookmark-only.
       renderAtRoute('/app/content/filters/1')
 
       await waitFor(() => {
         expect(screen.getByText('No items match this filter')).toBeInTheDocument()
       })
       expect(screen.getByText('This filter has no matches yet.')).toBeInTheDocument()
-      // No create CTAs — creating content doesn't necessarily make it match the filter.
-      expect(screen.queryByRole('button', { name: 'New Bookmark' })).not.toBeInTheDocument()
+      // CTAs match the filter's content_types — bookmark filter shows only New Bookmark.
+      expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'New Note' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'New Prompt' })).not.toBeInTheDocument()
+    })
+
+    it('shows CTAs for every content type a multi-type filter accepts', async () => {
+      mockContentQueryData = createMockResponse([])
+      // Filter 3 is ['bookmark', 'note'].
+      renderAtRoute('/app/content/filters/3')
+
+      await waitFor(() => {
+        expect(screen.getByText('No items match this filter')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Note' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'New Prompt' })).not.toBeInTheDocument()
+    })
+
+    it('saved-filter CTA pre-fills tags from the filter so the new item matches', async () => {
+      const user = userEvent.setup()
+      mockContentQueryData = createMockResponse([])
+      // Filter 1 has filter_expression with first AND group ['filter-tag-1', 'filter-tag-2'].
+      renderAtRoute('/app/content/filters/1')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
+      })
+      await user.click(screen.getByRole('button', { name: 'New Bookmark' }))
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/app/bookmarks/new',
+        expect.objectContaining({
+          state: expect.objectContaining({
+            initialTags: ['filter-tag-1', 'filter-tag-2'],
+          }),
+        }),
+      )
     })
 
     it('shows transient-filter empty state on saved-filter route with tag chips layered', async () => {

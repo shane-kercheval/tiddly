@@ -803,11 +803,25 @@ export function AllContent(): ReactNode {
         && currentFilter !== undefined
         && !hasFilters
       ) {
+        // Pre-fill tags from the filter's first AND group so creating from this
+        // empty state produces an item that's visible here. Filter expressions
+        // are DNF (AND-of-tags ORed across groups, no exclusion), so satisfying
+        // group 1 always satisfies the whole filter via the OR — same behavior
+        // as the QuickAddMenu on filter routes.
+        const orderedContentTypes = [...availableContentTypes].sort((left, right) => (
+          ALL_CONTENT_TYPES.indexOf(left) - ALL_CONTENT_TYPES.indexOf(right)
+        ))
+        const filterEmptyActions = orderedContentTypes.map((type) => ({
+          label: contentTypeActions[type].buttonLabel,
+          onClick: contentTypeActions[type].onClick,
+          variant: 'secondary' as const,
+        }))
         return (
           <EmptyState
             icon={<AdjustmentsIcon />}
             title="No items match this filter"
             description="This filter has no matches yet."
+            actions={filterEmptyActions}
           />
         )
       }
