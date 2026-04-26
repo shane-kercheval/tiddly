@@ -278,9 +278,11 @@ After this milestone:
    - Search input (debounced, ~150-200ms — match existing patterns).
    - Category filter chips using `FilterChip` from `components/ui/`.
    - Audience filter (single-select, e.g., All / Beginner / Power) — small toggle group.
-   - Renders matching tips using `<TipCard variant="full" />` from M2. **Each card is wrapped in a container with `id={\`tip-${tip.id}\`}`** so deep-links can target it.
+   - Renders matching tips using `<TipCard variant="full" />` from M2. The full-variant container already carries `id={\`tip-${tip.id}\`}` (set in M2's `TipCard.tsx`); the docs page just hosts the cards in a list — do not re-wrap.
    - Empty result handling: show an `EmptyState` if filters/search match nothing.
-2. Add hash-scroll support. There is no existing hash-anchor scroll mechanism in `frontend/src` (verified — no `location.hash` or `scrollIntoView` against hash anywhere; `routePrefetch.ts:60` even strips `#` before matching). Without this, `/docs/tips#<tip-id>` deep-links from M8 (option 3) and M9 ambient callouts will silently land at the top of the page.
+2. Add hash-scroll support. There is no existing hash-anchor scroll mechanism in `frontend/src` (verified — no `location.hash` or `scrollIntoView` against hash anywhere; `routePrefetch.ts:60` even strips `#` before matching). Without this, `/docs/tips#tip-<tip-id>` deep-links from M8 (option 3) and M9 ambient callouts will silently land at the top of the page.
+
+   **Deep-link convention (locked in M2):** the DOM id is `tip-<tip-id>` to avoid collisions between tip slugs and unrelated page elements. Deep-link URLs must use the prefixed form `/docs/tips#tip-<tip-id>`. M8 / M9 link generators must match this — never emit `/docs/tips#<tip-id>` (no prefix).
    - Create `frontend/src/hooks/useHashScroll.ts` — small hook that watches `useLocation().hash` and, on change (and on mount), waits for the next tick (or for the rendering of the target element), looks up `document.getElementById(hash.slice(1))`, and calls `.scrollIntoView({ block: 'start' })`.
    - Account for lazy loading: the docs route lazy-loads via `Suspense`. The hook should only run after the tips array has rendered. Cleanest: `useEffect` that depends on both `location.hash` and `tips.length` (so it runs after the list mounts).
    - Use the hook inside `DocsTips.tsx`.
@@ -360,6 +362,8 @@ After this milestone:
 3. Each tip body is hand-quality markdown: terse, no marketing tone, accurate to actual product behavior, includes the relevant shortcut tokens / `relatedDocs` where applicable. Treat the M1 seed tips as the calibration target for tone and density.
 4. The agent does **not** generate media files. Tips that warrant media in the future get `media` set later, manually.
 5. Run the M1 schema-validation tests — every tip must pass.
+
+**Carry-over from M2 (must address before shipping a media tip):** the `image`/`video` variants of `TipMedia` accept no width/height, so loaded media will cause cumulative layout shift inside scroll-heavy contexts like `/docs/tips`. Before authoring the first media tip, extend `TipMedia` in `frontend/src/data/tips/types.ts` with explicit dimensions (or `aspectRatio`) and update `TipMedia.tsx` to reserve space. The schema currently has a code comment flagging this — keep the change atomic with the first media tip.
 
 ## Testing Strategy
 
@@ -486,6 +490,8 @@ After this milestone:
 1. Extend `frontend/src/components/ui/EmptyState.tsx` to accept optional `children?: ReactNode`, rendered below the actions. **Use composition (`children`), not a named `extra` prop** — idiomatic React, ages better.
 2. In `AllContent.tsx`'s new-user empty-state branch (currently lines 789-823), pick starter tips using **`pickStarterTipsForContentTypes(availableContentTypes, 3)`** from M1. The helper handles both single-type and multi-type cases with deterministic ordering (no ad-hoc selection logic in the empty-state branch). Render results as `<TipCard variant="compact" />` instances inside the `EmptyState`'s children.
 
+**Carry-over from M2 (visual review):** M2's `TipBody` uses `prose-sm` for both full and compact variants (the original `prose-xs` modifier doesn't exist in `@tailwindcss/typography`). When compact cards land inside the centered `EmptyState`, eyeball whether `prose-sm` reads too heavy next to the `text-sm` compact title. If so, the right fix is explicit `text-xs leading-relaxed` utilities + targeted spacing overrides — not reviving `prose-xs`.
+
 ## Open questions
 
 - **Selection determinism:** stable take-first by `starterPriority` (deterministic, no rotation in v1).
@@ -528,6 +534,8 @@ After this milestone:
    - Tips are appended **after** all other command groups so they rank below in the filtered list. Verify this is what the existing array order produces; if not, fix ordering.
 3. **Suppress tips when query length < 2.** Filter tip entries out of `filteredCommands` when the user hasn't typed a meaningful query. At 30-50 tips this isn't a noise problem yet, but the rule scales naturally if the corpus grows post-launch and avoids confusion on first palette open.
 4. Tip detail view: **open question, see below**.
+
+**Carry-over from M2 (extract shared `<Kbd>` primitive):** by M8 we'll have at least three concrete `<kbd>` callers — `DocsShortcuts.tsx` (private `Kbd`, `min-w-[24px]`), `CommandPalette.tsx` (inline `<kbd>`, `min-w-[20px]`), and `TipCard.tsx` (private `Kbd`, `min-w-[24px]`). When this milestone lands, extract a shared `frontend/src/components/ui/Kbd.tsx` informed by the actual usage shapes and migrate all three to it. Same pattern may apply to `<Badge>` if M8 introduces a tip badge in the palette. Don't promote earlier — three concrete callers produce a better abstraction than two.
 
 ## Open questions (must resolve before implementing)
 

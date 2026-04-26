@@ -24,6 +24,10 @@ export type TipCategory =
 
 export type TipAudience = 'beginner' | 'power' | 'all'
 
+// Note for the first author of a media tip: extend `image`/`video` variants
+// with explicit width/height (or aspectRatio) before shipping. Without
+// reserved dimensions, the loaded media will cause cumulative layout shift
+// inside scroll-heavy contexts like /docs/tips.
 export type TipMedia =
   | { kind: 'image'; src: string; alt: string }
   | { kind: 'video'; src: string; alt: string; poster?: string }
