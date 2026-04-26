@@ -65,17 +65,28 @@ Run the benchmark on a **temporary Railway Postgres instance** provisioned to ma
 
 1. Create a new Postgres service on Railway (separate "benchmark" project is cleanest). DO NOT touch the production database. The benchmark instance is throwaway.
 2. Provision at the same plan tier as production. **Before provisioning, confirm and record the current production tier (Railway plan name, vCPU count, RAM allocation, region) in the writeup's "Test environment" section** — the benchmark's relevance to the deploy decision depends entirely on this matching, and Railway tier definitions change over time. A Phase 1 run on the wrong tier produces authoritative-looking numbers that don't apply.
-3. Use the same Postgres + pgvector image as production: `pgvector/pgvector:pg17` with pgvector 0.8.2.
+3. **Use the exact production image and tag currently deployed** — the parent plan currently names it as `postgres-ssl:17.9` (Railway-managed image with pgvector 0.8.2 installed), NOT the upstream `pgvector/pgvector:pg17` Docker image. These differ in base libc, default shared-memory behavior, and OS-level page-cache interactions. Verify the production image at provisioning time (it can change) and use the same tag for both phases.
 4. Configure server settings to match production tuning, and **record the values in the writeup**:
    - `shared_buffers`: roughly 25–40% of allocated RAM (e.g., 2–4GB on 8GB).
    - `work_mem`: the default 4MB is fine for `LIMIT 100` sorts; pin it explicitly so it isn't a hidden variable.
-   - `max_connections`: must be at least 110 to support the N=100 Scenario 2 cell with `pool_size = 110`. Railway Postgres tiers commonly default to 100 — raise it via the platform config before running Scenario 2 at N=100, or the cell will fail with `FATAL: too many connections` rather than producing a measurement. If Railway's tier locks `max_connections` below 110, lower the Scenario 2 top concurrency to fit (and document the substitution).
-5. Enable `pg_stat_statements` if (and only if) the per-cell stat resets will use it: add to `shared_preload_libraries` (requires restart on Railway) and `CREATE EXTENSION pg_stat_statements;`. If Railway makes this awkward, drop the `pg_stat_statements_reset()` call from the per-cell reset and use only `pg_stat_reset()` — the writeup primarily reads end-of-cell aggregates from the harness, not from `pg_stat_statements`.
-6. **Pin `Vector(1536)` storage type explicitly.** pgvector's default has historically been `EXTENDED` (TOAST-eligible compression), but this has changed across versions and produces materially different IO regimes from `EXTERNAL` or `PLAIN`. Right after creating the table, run `SELECT attstorage FROM pg_attribute WHERE attrelid = 'content_chunks'::regclass AND attname = 'embedding';` and record the value in the writeup. If it differs from production's table, run `ALTER TABLE content_chunks ALTER COLUMN embedding SET STORAGE <production-value>` before COPY.
-7. **Run the benchmark client as a separate Railway service in the same region**, not from a local laptop. Intra-Railway DB connections avoid the ~30–80ms network latency that internet upload would add to every query and every COPY operation.
-8. **Capture Railway Postgres storage backing in the writeup** — local NVMe SSD vs network-attached block storage produce very different P99 tails on cold-cache reads, especially for Reasonable Max. Record what's available from Railway's dashboard / docs at provisioning time so future readers can interpret the numbers in context.
+   - `max_connections`: must be at least 110 to support the N=100 Scenario 2 cell with `pool_size = 110`. Railway Postgres tiers commonly default to 100 — raise it via the platform config before running Scenario 2 at N=100, or the cell will fail with `FATAL: too many connections` rather than producing a measurement. If Railway's tier locks `max_connections` below 110, lower the Scenario 2 top concurrency to fit (and document the substitution). Pre-flight check: `SHOW max_connections;` immediately after provisioning.
+5. **Verify shared-memory allocation is large enough for the configured `shared_buffers`.** Managed Postgres on container platforms commonly defaults container `/dev/shm` to ~64MB, which prevents Postgres from starting with multi-GB `shared_buffers`. If `shared_buffers >= 1GB`, raise the container SHM limit per Railway's config before the database starts. Symptom of failure: Postgres fails to start with `could not create shared memory segment` or silently runs with a much smaller effective `shared_buffers`. Pre-flight check: confirm with `SHOW shared_buffers;` matches the configured value after startup.
+6. **Verify available disk headroom before seeding.** Phase 1's dataset is ~43GB on disk before B-tree, WAL, autovacuum overhead, and filesystem reservation — call it ~50GB minimum required free space. Default Railway volumes are typically 50GB on Pro tiers; resize to ≥75GB before seeding or abort if free space falls below a 15GB safety margin. Pre-flight check: `SELECT pg_size_pretty(pg_database_size(current_database()));` plus `df -h` on the data volume if Railway exposes it.
+7. Enable `pg_stat_statements` if (and only if) the per-cell stat resets will use it: add to `shared_preload_libraries` (requires restart on Railway) and `CREATE EXTENSION pg_stat_statements;`. If Railway makes this awkward, drop the `pg_stat_statements_reset()` call from the per-cell reset and use only `pg_stat_reset()` — the writeup primarily reads end-of-cell aggregates from the harness, not from `pg_stat_statements`.
+8. **Pin `Vector(1536)` storage type explicitly.** pgvector's default has historically been `EXTENDED` (TOAST-eligible compression), but this has changed across versions and produces materially different IO regimes from `EXTERNAL` or `PLAIN`. Right after creating the table, run `SELECT attstorage FROM pg_attribute WHERE attrelid = 'content_chunks'::regclass AND attname = 'embedding';` and record the value in the writeup. If it differs from production's table, run `ALTER TABLE content_chunks ALTER COLUMN embedding SET STORAGE <production-value>` before COPY.
+9. **Run the benchmark client as a separate Railway service in the same region**, not from a local laptop. Intra-Railway DB connections avoid the ~30–80ms network latency that internet upload would add to every query and every COPY operation.
+10. **Capture Railway Postgres storage backing in the writeup** — local NVMe SSD vs network-attached block storage produce very different P99 tails on cold-cache reads, especially for Reasonable Max. Record what's available from Railway's dashboard / docs at provisioning time so future readers can interpret the numbers in context.
 
-**Benchmark client harness:** Python 3.13 + `asyncpg` directly (matches production stack, lower overhead than SQLAlchemy session for raw-query measurement). One shared `asyncpg.Pool` across asyncio tasks. Per-query wall-clock measured around `pool.fetch(...)`. Connection pool size larger than max test concurrency (e.g., `pool_size = 110` for the N=100 concurrency test) so the pool itself never queues. **Pre-generate the full query-vector pool** (e.g., 1000 unit-normalized 1536-d vectors per cell) into a list before warm-up — do NOT generate vectors inside the timed measurement loop. Inline numpy random + normalize + asyncpg-binary-serialize work is ~100–500µs of Python per query, which is large relative to small-bucket DB-side cosine cost (sub-millisecond at Light) and would systematically inflate small-bucket numbers and bias the IO-vs-CPU classification. `time.monotonic()` brackets only `pool.fetch(...)`, never vector generation.
+**Benchmark client harness:** Python 3.13 + `asyncpg` directly (matches production stack, lower overhead than SQLAlchemy session for raw-query measurement). One shared `asyncpg.Pool` across asyncio tasks. Per-query wall-clock measured around `pool.fetch(...)`. Connection pool size larger than max test concurrency (e.g., `pool_size = 110` for the N=100 concurrency test) so the pool itself never queues.
+
+**Pre-generated query-vector pool with modulo cycling.** Pre-generate ~1000 unit-normalized 1536-d vectors per cell into an in-memory list before warm-up. Tasks pick vectors via `vec = pool[i % len(pool)]` so a fast cell doesn't exhaust the pool — vectors are reused across queries within a cell. This is fine because the test measures *cosine cost over a query distribution*, not unique-query throughput; reuse doesn't affect DB-side work (every `<=>` compute is fresh regardless of input recurrence). Pool size of 1000 is enough variety to prevent the planner caching a literal value. Do NOT generate vectors inside the timed measurement loop — inline numpy + normalize work is ~100–500µs per query, large relative to small-bucket DB cost (sub-millisecond at Light), and would distort IO-vs-CPU classification. `time.monotonic()` brackets only `pool.fetch(...)`, never vector generation.
+
+**Transaction discipline.** Each `pool.fetch(...)` runs in an implicit autocommit transaction. Exact cosine has no `SET LOCAL` requirement (unlike the parent plan's M5 HNSW path) — do not carry that complexity over by analogy. The harness is a single SELECT per measured query.
+
+**Vector encoding for asyncpg.** asyncpg requires explicit codec setup to handle pgvector's `vector` type; the runner cannot assume `Vector(1536)` parameters and result columns "just work." Two paths:
+
+- **Queries:** Use the `pgvector` Python package's asyncpg integration. Per-connection setup: `from pgvector.asyncpg import register_vector; await register_vector(conn)`. Apply via `asyncpg.create_pool(setup=register_vector)` so every connection in the pool registers the codec on acquisition. After this, `pool.fetch(...)` accepts and returns `numpy.ndarray` for vector columns transparently.
+- **COPY (seeding):** Use **text format**, not binary. Send vectors as their string representation (`'[0.123,0.456,...,0.789]'::vector`) via `COPY content_chunks FROM stdin WITH (FORMAT text)`. Rationale: text format is ~2× slower than binary on COPY, but eliminates the work of constructing pgvector's binary wire layout (uint16 dim + uint16 unused + float32[] big-endian) by hand. At 5.6M rows this still completes within the 10–15 minute Phase 1 seeding budget. If seeding throughput proves materially worse than budget, revisit binary format with explicit reference to pgvector's protocol docs — but text first, since the runner gets a working pipeline immediately.
 
 **Worker service provisioning:** at minimum 4 vCPU / 4GB RAM so the benchmark client itself is not the bottleneck at N=100. If at N=100 the host CPU on the worker saturates first (visible via `top` on the worker), increase the worker's resources rather than reporting saturated numbers as DB-bound. The measurement should reflect DB+CPU on the Postgres side, not client-side queueing.
 
@@ -100,6 +111,8 @@ The benchmark runs in two phases. Each phase uses its own dedicated Railway Post
 
 **Run:** Step 0 EXPLAIN gate against Typical Power, then Scenario 1 (low-locality + warm cache, unfiltered + filtered = 4 cells) and Scenario 2 (4 concurrency levels) restricted to Typical Power queries only. Concurrency tests in Phase 0 are simpler than Phase 1's mixed-bucket distribution — all queries hit the Typical Power bucket since that's all that's seeded. ~15–20 minutes.
 
+**Note: Step 0 in Phase 0 is diagnostic-only, NOT load-bearing on planner choice.** With 10 distinct `user_id` values and no filler users, `n_distinct(user_id)` is artificially small and the planner sees per-user selectivity (`1/n_distinct`) that doesn't generalize. A Phase 0 Index Scan does not predict Phase 1 behavior — Phase 1's filler-diluted ~1085 distinct values is where Step 0 carries weight on planner choice. In Phase 0, Step 0 mainly serves to confirm the EXPLAIN harness works and that no obvious DDL/extension issue is blocking the index path.
+
 **Decision (HUMAN REVIEW REQUIRED — do NOT auto-tear-down):**
 
 After Phase 0 measurements complete, the runner produces a short summary (Step 0 EXPLAIN, Scenario 1 + 2 numbers for Typical Power, observed regime — IO vs CPU, CPU saturation point, etc.) and **stops before any tear-down or Phase 1 provisioning.** Tear-down is a human decision because (a) seeding takes real time and money to recreate, (b) Phase 0's data hot in `shared_buffers` may be useful for ad-hoc follow-up exploration that the original plan didn't anticipate, and (c) the runner should not autonomously discard a paid resource based on its own read of "looks fine."
@@ -110,7 +123,14 @@ Human review picks one of:
 
 - **Clearly fast.** Numbers comfortably inside the rough end-to-end budget at Typical Power. Phase 0 passing does NOT prove exact cosine is viable across the full distribution — acceptable performance at 20K chunks does not guarantee acceptable performance at 130K or 800K. **Action:** human authorizes tear-down of Phase 0, runner provisions fresh Phase 1 instance, proceeds to Phase 1. (Justification for tear-down: Phase 1 re-seeds Typical Power fresh anyway, so Phase 0 data is not reusable.)
 
-- **Borderline / want more data.** Numbers are interpretable but raise questions the original cells don't answer (e.g., a P95 outlier on warm cache, an unexpected CPU/IO ratio in EXPLAIN BUFFERS, a concurrency cell that didn't behave linearly). **Action: keep Phase 0 instance running.** Human directs additional cells, EXPLAIN variants, or parameter sweeps as needed (e.g., `work_mem` variations, repeat measurement under different cache states, examine specific outlier queries). Decide afterward whether to proceed to Phase 1, stop, or extend Phase 0 further.
+- **Borderline / want more data.** Numbers are interpretable but raise questions the original cells don't answer (e.g., a P95 outlier on warm cache, an unexpected CPU/IO ratio in EXPLAIN BUFFERS, a concurrency cell that didn't behave linearly). **Action: keep Phase 0 instance running.** Human directs additional cells; while waiting for human input the runner can productively work the following standardized probe list (a starting point, not a substitute for human judgment):
+    1. **Variance check.** Re-run the borderline cell with a freshly-pre-generated query-vector pool (different RNG draw within the pinned seed range) to see whether the number is stable or noisy.
+    2. **Plan introspection.** `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)` on a representative outlier query — look for unexpected sort spills, multi-pass heap visits, or row-count estimates far off from actuals.
+    3. **Sort-spill check.** Re-measure the outlier cell with `SET LOCAL work_mem = '32MB'` to see whether spill-to-disk explains a high tail. If P95 drops materially, the default `work_mem` is too small for the cell.
+    4. **Outlier inspection.** If `pg_stat_statements` is enabled, `SELECT query, calls, mean_exec_time, max_exec_time FROM pg_stat_statements ORDER BY max_exec_time DESC LIMIT 10;` to find specific slow queries.
+    5. **Autovacuum sanity.** `SELECT relname, last_autovacuum, last_autoanalyze FROM pg_stat_user_tables WHERE relname = 'content_chunks';` — confirm autovacuum hasn't run mid-cell (which would invalidate the measurement window).
+
+  Decide afterward whether to proceed to Phase 1, stop, or extend Phase 0 further.
 
 The Phase 0 gate is asymmetric on purpose: it catches obvious failures cheaply but does not approve exact cosine on weak evidence. The full benchmark on a fresh instance is still required for a real decision. **The runner must NOT autonomously tear down the Phase 0 instance based on its own read of the numbers — only on explicit human authorization.**
 
@@ -185,15 +205,15 @@ The order of operations during seeding affects both seeding time and measurement
 
 This sequence is required, not a tuning suggestion.
 
-### Recommended COPY tuning (subject to Railway constraints)
+### Recommended COPY tuning (session-scoped, no platform changes needed)
 
-To hit the seeding time budget on the Phase 1 dataset (~40GB in ~10–15 minutes):
+To hit the seeding time budget on the Phase 1 dataset (~40GB in ~10–15 minutes), apply these tuning knobs **per session on the COPY connection** (not as server config — no Railway platform changes required, no risk of platform locks):
 
-- Raise `maintenance_work_mem` to ~1GB before the B-tree build (faster index construction). Restore default after.
-- Set `synchronous_commit = off` during bulk COPY (safe for throwaway instance — durability doesn't matter here). Restore default after.
-- Use **binary COPY format** for the `embedding` column rather than text. Vectors are floating-point arrays — binary format is significantly smaller and faster for both producer and consumer.
+- `SET maintenance_work_mem = '1GB';` before the B-tree build (faster index construction). Both `maintenance_work_mem` and `synchronous_commit` are `USERSET` GUCs — settable per-session by any role. Resets at session end automatically.
+- `SET synchronous_commit = off;` on the COPY connection (safe for throwaway instance — durability doesn't matter here).
+- Use **text COPY format** for vectors per the "Vector encoding for asyncpg" subsection above — text is slower than pgvector binary but still fits the 10–15 minute budget at 5.6M rows, and avoids the runner having to implement pgvector's binary wire protocol by hand.
 
-If Railway restricts any of these (e.g., `synchronous_commit` may be locked at the platform level on some plans), document what was achievable and accept slower seeding. The locked sequence above is non-negotiable; these tuning knobs are recommended-when-permitted.
+The only platform-level config knob in this plan is `max_connections` (server-side, must be set at provisioning per §Test environment). Everything else is session-scoped and works on any Railway tier without escalation.
 
 ### Reproducibility
 
@@ -203,7 +223,7 @@ If Railway restricts any of these (e.g., `synchronous_commit` may be locked at t
     - `id` (uuidv7)
     - `user_id`
     - `entity_type` (random of bookmark/note/prompt)
-    - `entity_id` — **NOT a fresh random UUID per chunk.** Generate `entity_id` values such that the chunks-per-entity distribution in each bucket matches the bucket profile (~7 for Light, ~10 for Typical, ~20 for Typical Power, ~29 for Super Power, ~44 for Reasonable Max). Concretely: for a user with N total chunks and target average `k` chunks/entity, generate `ceil(N/k)` distinct `entity_id` UUIDs, then assign chunks round-robin (or with mild jitter) so the realized distribution centers near `k`. **Why this matters:** production exact-cosine queries overfetch chunks then dedupe to entities in application code (parent plan M5 — overfetch 200 → 100 entities). With one `entity_id` per chunk, every chunk is its own entity and dedup pressure vanishes — the benchmark would understate the production work pattern. The Step 0 / Scenario 1 / Scenario 2 queries themselves still measure DB-side cosine cost (which is largely independent of entity density), but the writeup must explicitly note that application-side dedup overhead (load-by-entity-IDs hydration in M5) is unmeasured here and adds non-zero CPU on the API side.
+    - `entity_id` — **NOT a fresh random UUID per chunk.** Generate `entity_id` values such that the chunks-per-entity distribution in each bucket matches the bucket profile (~7 for Light, ~10 for Typical, ~20 for Typical Power, ~29 for Super Power, ~44 for Reasonable Max). **Pin to deterministic round-robin** (do not introduce variance shape — the benchmark doesn't need it): for a user with `N` total chunks and target average `k` chunks/entity, generate `m = ceil(N/k)` distinct `entity_id` UUIDs from the pinned RNG, then assign each chunk via `entity_idx = chunk_idx // m` (so chunks 0..k-1 share entity 0, chunks k..2k-1 share entity 1, etc.). This gives every entity exactly `k` or `k+1` chunks; deterministic and reproducible. **Why this matters:** production exact-cosine queries overfetch chunks then dedupe to entities in application code (parent plan M5 — overfetch 200 → 100 entities). With one `entity_id` per chunk, every chunk is its own entity and dedup pressure vanishes — the benchmark would understate the production work pattern. The Step 0 / Scenario 1 / Scenario 2 queries themselves still measure DB-side cosine cost (which is largely independent of entity density), but the writeup must explicitly note that application-side dedup overhead (load-by-entity-IDs hydration in M5) is unmeasured here and adds non-zero CPU on the API side. Variance shape (Poisson, Pareto, etc.) is *not* needed because the dominant production query work is invariant under variance — what matters is that average density isn't 1.
     - `chunk_type` ("content" 90% / "metadata" 10%)
     - `chunk_index` (consistent with chunk_type — metadata is always 0, content is 0..N within an entity)
     - `chunk_text` — **NOT a short placeholder like `'x'`.** Real production chunks are ~200–2000 characters of text. Seed with random lorem-style text in the 800–1500 character range so heap row width approximates production. With `'x'` as the placeholder, main-heap pages hold ~10× more rows than production and EXPLAIN BUFFERS would under-report the per-query buffer count, which (combined with TOAST) misclassifies the IO regime. Note: chunk_text itself is small enough to live in the main heap regardless of size in this range; the embedding's TOAST behavior dominates IO either way, but chunk_text width affects heap-page packing density and therefore index-fetch and B-tree-traversal IO.
@@ -226,11 +246,12 @@ ORDER BY distance
 LIMIT 100;
 ```
 
-**This is a binary gate.** The plan **passes** if it reads via the `user_id` B-tree in any of the following forms (all are valid production plans):
+**This is a binary gate.** The plan **passes** if it reads via the `user_id` B-tree in either of the following forms (both are valid production plans):
 
 - `Index Scan using ix_content_chunks_user_id` (or equivalent name)
-- `Index Only Scan` on the same index (planner saw enough visibility-map info to skip the heap visit for filtering — `VACUUM ANALYZE` after seeding makes this possible)
 - `Bitmap Index Scan` followed by `Bitmap Heap Scan` — the planner's preferred shape on selective-but-not-tiny `user_id` filters at large heap sizes; this is fine, do not flag it as a failure
+
+(Index Only Scan is **not** a valid pass plan for this query: the SELECT requires `entity_type`, `entity_id`, and `embedding`, none of which are in the bare `(user_id)` index. An Index Only Scan would require an index with `INCLUDE (entity_type, entity_id)` covering columns, which is out of scope for this benchmark and not present in the landed migration.)
 
 The plan **fails** if the planner picks `Seq Scan` (full-table scan) for any bucket under default settings. Capture the EXPLAIN output, document it as a finding, and do not "rescue" the result with `enable_seqscan = off` or session-level planner hints — those are diagnostic tools, not production contracts. If exact cosine only looks viable under planner coercion, it is not viable in deployed code.
 
@@ -246,7 +267,14 @@ For each bucket, measure two cache regimes × two filter variants.
 
 - **Low-locality / cold-ish upper bound:** rotate users between queries so each query likely hits a different user's pages. At smaller bucket sizes (Light, Typical), the working set fits entirely in `shared_buffers` and "cold" is impossible without service restart — these numbers represent low-locality access, not true disk-cold. At larger buckets (Super Power, Reasonable Max), per-user data exceeds buffer capacity and rotation does approach cold. The asymmetry is documented in the writeup; numbers across buckets are interpreted with this in mind.
 - **Warm cache:** issue sequential queries against the same user. Realistic active-search-session pattern — represents typical UX during an interactive session.
-- **Force-cold sub-cell, Reasonable Max only:** restart the Postgres service to flush `shared_buffers` and OS page cache, issue 5 queries against a Reasonable Max user, capture P95 separately. This represents the "first search after a quiet weekend" experience that rotation-based low-locality understates at this bucket. Report this as its own cell in the writeup, not blended with low-locality numbers — the regimes are different and should be interpreted separately.
+- **Force-cold sub-cell, Reasonable Max only:** approximates the "first search after a quiet weekend" experience that rotation-based low-locality understates at this bucket. **Recipe:**
+    1. Trigger a Postgres restart via `railway service restart <postgres-service-name>` (or the dashboard restart button). There is no `pg_ctl` access on Railway's managed Postgres.
+    2. Poll `pg_isready -h <host>` until the database accepts connections (typically 30–60s after restart).
+    3. Recreate the `asyncpg.Pool` — the previous pool's connections are dead, including their codec registrations.
+    4. Issue **20 queries** against a Reasonable Max user immediately, with no warm-up phase. (N=5, the original draft, is too few to report as P95: P95 of 5 samples is essentially `max()` and CIs are wide. N=20 is still cheap because restart dominates the wall-clock cost.)
+    5. Report P50, P95, min, max for the cell.
+
+  **Reframed claim:** what this measures is **fresh Postgres process / cleared `shared_buffers`**, NOT a true bare-disk cold. A Railway restart resets the Postgres process and empties `shared_buffers`, but the OS page cache may still hold pages depending on whether Railway reused the underlying VM (no guarantee). Treat the sub-cell as an *upper bound for in-buffer-pool latency after a cold restart* — slower than warm but generally faster than true bare-disk cold. Report this as its own cell in the writeup, not blended with low-locality numbers — the regimes are different and should be interpreted separately.
 
 **Filter variants:**
 
@@ -265,7 +293,7 @@ The filtered variant has a 3–10× smaller candidate set after filtering by `en
 2. **Warm-up phase.** Issue 10 queries that are NOT included in the measurement sample. These exist solely to stabilize cache and connection state. For warm-cache cells, more warm-up queries may be appropriate at the larger buckets — issue enough that subsequent timing numbers are stable across the next 10 queries. For Reasonable Max specifically, expect to need 20–30 warm-up queries before warm-cache numbers stabilize.
 3. **Reset stats:** `SELECT pg_stat_reset();` (and `pg_stat_statements_reset();` if the extension is enabled) before measurement.
 4. **Measure 200 queries** (1000 for Reasonable Max where sample size matters most). Capture per-query application-level wall-clock time via `time.monotonic()` around `pool.fetch(...)` only — never around vector generation.
-5. **Report:** P50, P95, P99 latency for the cell, plus N samples.
+5. **Report:** P50, P95, P99 latency for the cell, plus N samples. **P99 confidence caveat:** at N=200 (the four smaller buckets), P99 is approximately the 2nd-largest of 200 samples — wide CIs, footnote it as "low confidence" in the writeup or drop P99 entirely for those cells. P99 at N=1000 (Reasonable Max) is reportable.
 
 Output: a table of (bucket, cache regime, filter variant) → P50/P95/P99 + N. Plus EXPLAIN BUFFERS per bucket (full output, including TOAST counters) so we can see the CPU vs IO breakdown.
 
@@ -289,8 +317,10 @@ For each concurrency level N:
    - **Aggregate P95** across all queries
    - **Per-bucket P95** (separately for queries that hit each bucket) **plus N samples per bucket** so reviewers can judge confidence intervals — a P95 over fewer than ~50 samples should be footnoted as low-confidence
    - Total queries completed (run-window count) and **derived QPS = total queries / run-window seconds**. Do not collapse these into one number labeled "QPS" — the run-window count is the primary measurement and QPS is derived from it.
-   - CPU saturation observed via host `top` / `htop` on both the Postgres server and the worker
-   - Confirm worker-side CPU has headroom (i.e., the bottleneck observed is on the Postgres server, not client-side queueing)
+   - **CPU saturation, instrumented (not eyeballed):**
+       - **Worker side:** start a background asyncio task on the worker that calls `psutil.cpu_percent(interval=1.0)` every 5s for the duration of the run, logging samples to a per-cell file. Report peak and P95 of those samples in the writeup. (`htop` is interactive and useless from a Railway container; do not rely on it.)
+       - **Postgres side:** capture activity proxies, since you don't have shell access on Railway-managed Postgres. Every 5s, query `SELECT count(*) FILTER (WHERE state = 'active') AS active, count(*) AS total FROM pg_stat_activity;` and `SELECT sum(blks_hit), sum(blks_read), sum(tup_fetched) FROM pg_stat_database;` from the worker against the benchmark DB. Compute deltas across the run; saturation is visible as `active` plateauing at the connection limit and `tup_fetched` growth flatlining.
+   - Confirm worker-side CPU has headroom (worker peak and P95 well below 100%) so the observed bottleneck is the Postgres server, not client-side queueing. If worker peaks ≥80%, increase worker resources and re-run rather than reporting saturated numbers as DB-bound.
 
 If per-bucket sample counts at the highest buckets remain low even at 180s (e.g., <50 in Reasonable Max), run a separate "biased-distribution" cell for that concurrency level: same N, same duration, but weight the user-pick toward the slow buckets (e.g., 50% Reasonable Max). Use the biased cell for per-bucket P95 confidence; use the realistic-distribution cell for aggregate-P95 / QPS / CPU. Document both clearly.
 
@@ -314,7 +344,16 @@ The numbers show a specific failure mode: a particular bucket size, a particular
 
 The "global HNSW + iterative scan" candidate above is *not* the naive post-filter design. pgvector's `hnsw.iterative_scan = strict_order` (added in pgvector 0.8) walks the HNSW graph past `ef_search` until enough rows pass the post-filter, instead of returning a truncated set — the recall failure mode the parent docs describe is structurally mitigated. However, iterative scan has its own cliff: `hnsw.max_scan_tuples` caps how far it will walk, and a partition-mate dominating the entire table (not just a partition) can hit that cap before retrieving enough of the querying user's chunks, silently degrading recall. At 800K-chunk Reasonable Max users in a multi-thousand-tenant table, this is plausible.
 
-**What this means for the follow-up benchmark:** if exact cosine fails and we go to global HNSW + iterative scan, the follow-up benchmark must explicitly measure recall — not just latency — on a corpus shaped to stress-test the partition-mate domination case (e.g., one Reasonable Max user surrounded by hundreds of small users in the same `n_distinct` neighborhood). A latency-only benchmark would replicate exactly the design-doc failure mode the parent docs warned against. The parent design doc should be updated alongside any decision to adopt this design, with the recall-vs-`max_scan_tuples` analysis recorded.
+**What this means for the follow-up benchmark:** if exact cosine fails and we go to global HNSW + iterative scan, the follow-up benchmark must explicitly measure recall — not just latency — on a corpus shaped to stress-test the partition-mate domination case. A latency-only benchmark would replicate exactly the design-doc failure mode the parent docs warned against. The parent design doc should be updated alongside any decision to adopt this design, with the recall-vs-`max_scan_tuples` analysis recorded.
+
+**Recall benchmark spec (front-loaded so the follow-up doesn't restart from zero):**
+
+- **Metric:** `recall@100` per query — `|hnsw_top100 ∩ exact_top100| / 100`. Report per-bucket mean across the per-cell query sample.
+- **Oracle:** the exact-cosine query produced by *this* benchmark's harness. Extend the harness with a `--mode=recall` flag that, for each `(user, query_vec)` pair, runs both the HNSW query and the exact-cosine query against the same DB session and computes set intersection. The exact query is the ground truth; no separate oracle implementation is needed.
+- **Corpus:** the **Phase 1 dataset is already correctly shaped** for partition-mate domination stress testing — one Reasonable Max user at ~14% of total rows + 1000 small filler users in the same `n_distinct` neighborhood. **Preserve the seed values** so the follow-up benchmark can re-seed deterministically, and **consider deferring teardown** of the Phase 1 instance if the team plans to chain the recall benchmark immediately. (If the chain isn't immediate, the recall benchmark re-seeds from the same seed for byte-identical data.)
+- **Stress configurations to sweep:** `hnsw.ef_search ∈ {40, 100, 200, 500}` × `hnsw.max_scan_tuples ∈ {20000, 100000, 500000}` × per-bucket queries. The cliff (where recall drops below an acceptable threshold) emerges from this sweep.
+
+This is a benchmark spec, not a benchmark plan — the follow-up plan still needs to write up methodology/decision-rule. But these three sentences (metric, oracle, corpus) are the load-bearing design choices that would otherwise restart from zero.
 
 The decision tree based on observed cliff shape can deviate from the default:
 
@@ -353,7 +392,7 @@ This applies if exact cosine fails AND the follow-up benchmark of "global HNSW +
 
 The currently-landed M1 migration (`577108e3d7b9_…`) is already non-partitioned with a global HNSW index and a B-tree on `user_id` — i.e., it is structurally the right shape for this design. Cleanup is small:
 
-- **Keep the HNSW index.** Already in the landed migration. Confirm pinned parameters (`m=16`, `ef_construction=64`) match what the follow-up benchmark validated.
+- **Drop and recreate the HNSW index with explicit parameters.** The landed migration creates the index without a `WITH (...)` clause (`CREATE INDEX ix_content_chunks_embedding ON content_chunks USING hnsw (embedding vector_cosine_ops);`), so it currently uses pgvector's defaults — `m=16`, `ef_construction=64` *as of the version installed*, but defaults can drift across pgvector versions and rebuilding HNSW at scale is expensive. The cleanup migration must `DROP INDEX ix_content_chunks_embedding;` then `CREATE INDEX ... USING hnsw (embedding vector_cosine_ops) WITH (m = N, ef_construction = N);` with N values pinned to whatever the follow-up benchmark validated. Keeping the existing index unmodified would be correct only by coincidence with the current pgvector version.
 - **Keep the B-tree on `user_id`.** Already in the landed migration. Required for the post-filter the iterative scan walks against.
 - **Add `SET LOCAL` session settings** to the M5 `vector_search()` function: `hnsw.iterative_scan = strict_order`, `hnsw.ef_search = 200`, and `hnsw.max_scan_tuples` set to whatever the follow-up benchmark validated (NOT the default 20000 if benchmark data points elsewhere). The transaction-contract guardrails from the parent plan's M5 (autocommit check, single-transaction enforcement) DO apply here — `SET LOCAL` has the same silent-failure modes regardless of whether HNSW is partitioned or global. Keep them.
 - **Drop partitioning machinery from the parent plan:** drop the M1 redo-note, the `env.py` autogenerate hook, the conftest partition DDL mirror, and the per-partition HNSW index loop. These exist solely for the partitioned design.
@@ -413,14 +452,62 @@ Forcing a single-line recommendation prevents "data dump with no decision." The 
 
 **EXPLAIN output capture.** Full EXPLAIN (ANALYZE, BUFFERS) outputs go to `docs/implementation_plans/benchmark-results/explain/{phase}/{bucket}/{cell}.txt` (committed alongside the writeup). Inline excerpts in the writeup, full files for archive and reproducibility.
 
-**Phase 0 handoff (always produced, before human-review tear-down decision):**
-- Railway provisioning details (Postgres tier name + version, vCPU/RAM, `shared_buffers`, `max_connections`, `work_mem`, `Vector` column `attstorage`, storage backing, region)
-- Phase 0 dataset shape and **measured** seeding throughput
-- Step 0 EXPLAIN excerpt for Typical Power (Index Scan / Bitmap Index Scan / Index Only Scan / Seq Scan — call out which) with full file in archive
-- Scenario 1 results for Typical Power (low-locality + warm × unfiltered + filtered) with N samples
-- Scenario 2 results for Typical Power across concurrency levels with N samples per cell and CPU saturation observations
-- Runner's preliminary read: catastrophic / clearly fast / borderline + open questions
-- Explicit recommendation to the reviewer (proceed to Phase 1 / stop / extend Phase 0 with specific cells)
+**Phase 0 handoff (always produced, before human-review tear-down decision).** Use the following copy-pasteable template so no field is skipped:
+
+```markdown
+# Phase 0 handoff — cosine viability benchmark
+
+## Provisioning
+- Production image (verified at provisioning): <e.g. postgres-ssl:17.9>
+- Railway plan tier: <name>, <vCPU>, <RAM GB>, <region>
+- `shared_buffers`: <value> (verified via `SHOW shared_buffers`)
+- Container `/dev/shm`: <value> (verified large enough for shared_buffers)
+- `max_connections`: <value> (>= 110 if Scenario 2 N=100 ran)
+- `work_mem`: <value>
+- `pg_stat_statements`: enabled / not enabled
+- `Vector` column `attstorage`: <e.g. EXTENDED> (matches production: yes/no)
+- Storage backing (per Railway dashboard): <local NVMe / network block / unknown>
+- Disk free space at provisioning: <GB>
+
+## Seeding
+- Dataset: 10 users × 20K chunks (~200K), no fillers
+- COPY format: text (per Vector encoding subsection)
+- Measured throughput: <rows/sec> over <wall-clock seconds>
+- VACUUM ANALYZE completion time: <seconds>
+
+## Step 0 — Typical Power
+- Plan picked: <Index Scan / Bitmap Index Scan + Bitmap Heap Scan / Seq Scan>
+- Index name (if used): <ix_content_chunks_user_id>
+- Full EXPLAIN file: `docs/implementation_plans/benchmark-results/explain/phase0/typical_power/step0.txt`
+- **Reminder:** Phase 0 Step 0 is diagnostic-only on planner choice (n_distinct=10).
+
+## Scenario 1 — Typical Power
+| Cache regime | Filter | P50 ms | P95 ms | P99 ms | N |
+|---|---|---|---|---|---|
+| low-locality | unfiltered | | | | 200 |
+| low-locality | filtered (entity_type=note) | | | | 200 |
+| warm cache | unfiltered | | | | 200 |
+| warm cache | filtered (entity_type=note) | | | | 200 |
+
+EXPLAIN BUFFERS (main heap + TOAST counters): `docs/implementation_plans/benchmark-results/explain/phase0/typical_power/scenario1_buffers.txt`
+
+## Scenario 2 — Typical Power, all queries hit this bucket
+| N concurrency | Aggregate P95 ms | Run-window queries | QPS | Worker peak CPU% | DB active conn peak |
+|---|---|---|---|---|---|
+| 1 | | | | | |
+| 10 | | | | | |
+| 50 | | | | | |
+| 100 | | | | | |
+
+## Runner's preliminary read
+<catastrophic / clearly fast / borderline>
+
+Open questions for human review:
+- <e.g. P95 outlier at warm-cache filtered, root cause unclear without further probing>
+
+## Recommendation to reviewer
+<one of: tear down + write up final / tear down + provision Phase 1 / keep instance and run additional cells X, Y, Z>
+```
 
 **Final writeup if Phase 0 was catastrophic (stopped early):**
 - The Phase 0 handoff content above
