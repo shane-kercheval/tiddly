@@ -16,6 +16,79 @@
   - Re-embedding on content change: two-level hash check (metadata_hash + content_hash) + paragraph-hash set lookup (reuse existing embeddings by hash, only embed new paragraphs)
   - Staleness check includes model — if embedding model changes, all content is re-embedded
 
+## Phase 0 benchmark findings (completed 2026-04-26)
+
+A synthetic benchmark validated that **exact cosine search is workable as the v1 vector-search implementation** for the realistic Pro-tier user-size distribution we expect to support. The harness lives at [`sandbox/cosine_viability/`](../../sandbox/cosine_viability/) and the run results are at:
+
+- [`sandbox/cosine_viability/phase0-handoff-typical-power.md`](../../sandbox/cosine_viability/phase0-handoff-typical-power.md) — Typical Power bucket (10 users × 20K chunks)
+- [`sandbox/cosine_viability/phase0-handoff-super-power.md`](../../sandbox/cosine_viability/phase0-handoff-super-power.md) — Super Power bucket (10 users × 130K chunks)
+
+**Headline numbers** (Postgres P95 latency, no end-to-end embedding/hydration):
+
+| Bucket | Single-query warm unfiltered P95 | Concurrent QPS ceiling | Concurrency wall (active users) |
+|---|---|---|---|
+| Typical Power (20K chunks/user) | 92 ms | ~130 QPS | soft ~100, hard ~200 |
+| Super Power (130K chunks/user) | 326 ms | ~18 QPS | soft ~30, hard ~50 |
+| Reasonable Max (800K chunks/user) | not measured | not measured | not measured |
+
+Reasonable Max was deliberately not measured. The decision was to **cap chunks per user (recency-based archival or similar) so users stay within the Super Power range**, rather than design for the full 800K-chunk tail. Future re-runs informed by production telemetry can revisit if needed.
+
+### Production Postgres configuration (required if shipping exact cosine on Railway)
+
+These are the settings the benchmark used and validated. Production deployment should adopt them — most are unchanged Railway defaults that are wrong for this workload, plus the SHM bump which is **non-optional** for parallel cosine queries on Super Power+ data.
+
+| Setting | Value | Notes |
+|---|---|---|
+| Replica tier | 32 vCPU / 32 GB Pro | Larger is better; smaller will saturate sooner. |
+| `shared_buffers` | **12 GB** | ~37% of RAM. Holds active working set hot for ~30 concurrent users. Default 128 MB is not viable for this workload. Requires Postgres restart to apply. |
+| `effective_cache_size` | **24 GB** | ~75% of RAM. Default 4 GB biases the planner toward thinking it has less RAM than it does. Reload-only. |
+| `work_mem` | **32 MB** | Default 4 MB risks LIMIT-100 sort spills. Reload-only. |
+| `effective_io_concurrency` | **200** | Default 1 assumes spinning disk; SSDs benefit from much higher concurrency hints. Reload-only. |
+| `max_parallel_workers_per_gather` | **2 (default)** | Each cosine query uses ~3 cores (1 leader + 2 workers). |
+| `max_connections` | **100 (default)** | Phase 0's largest concurrency cell was N=80 with pool size 90, well within default. |
+| `RAILWAY_SHM_SIZE_BYTES` | **17,179,869,184 (16 GiB)** | **Required.** Railway's default `/dev/shm = 64 MB` cannot support parallel queries on this dataset. The benchmark's first Super Power run **crashed** with `DiskFullError` until this was bumped. Set ≥ `shared_buffers` + headroom. |
+| `pg_stat_statements` | not enabled | Not required for the workload. |
+| `Vector(1536)` `attstorage` | `EXTERNAL` (pgvector 0.8.2 default) | Stored uncompressed in TOAST. The parent plan originally assumed `EXTENDED` (compressed) — confirmed it's `EXTERNAL` and that's fine. |
+
+**For local development**, `docker-compose.yml` and `backend/tests/conftest.py` already use `pgvector/pgvector:pg17`. No SHM bump is needed for local dev because parallel cosine queries on the small test datasets don't exhaust the default container `/dev/shm`.
+
+### Open question: should the vector DB be a separate Postgres instance from the main app DB?
+
+**Flagged for team discussion before production deploy.** The parent plan currently assumes vector data lives in the same Postgres as bookmarks/notes/prompts. The benchmark's tuning recommendations push that one Postgres into a "vector-workload-shaped" config (huge `shared_buffers`, parallel queries, big `/dev/shm`), which is a different shape from what's optimal for the OLTP app workload.
+
+Trade-offs:
+
+- **Same instance (current plan):** simpler infra, one DB to operate, can JOIN vector results with app data. But the tuning becomes a compromise between two workloads, and a heavy vector-search load could starve OLTP request paths.
+- **Separate instance (alternative):** independently tunable, vector workload spikes don't affect app, can scale storage and compute independently. But adds infra complexity, requires cross-DB result merging in application code, more cost.
+
+This is **not a decision the benchmark was scoped to make**. Bringing forward as an architectural call to make before M1's implementation work resumes.
+
+### Migration cleanup (small, well-scoped)
+
+The currently-landed M1 migration ([`backend/src/db/migrations/versions/577108e3d7b9_add_content_chunks_and_content_.py`](../../backend/src/db/migrations/versions/577108e3d7b9_add_content_chunks_and_content_.py)) is **structurally correct** for exact cosine — non-partitioned `content_chunks` table, B-tree on `user_id`, B-tree on `(entity_type, entity_id)`, `content_embedding_state` table. The only change needed is removing the unused HNSW index.
+
+Since the M1 migration is on the `pgvector-implementation` feature branch and **not deployed to main**, the right approach is to **edit the existing migration file in place** rather than adding a forward "drop the index" migration:
+
+1. **Local: `PYTHONPATH=backend/src uv run alembic downgrade -1`** — reverts M1, dropping the table.
+2. **Edit `577108e3d7b9_add_content_chunks_and_content_.py`:**
+   - In `upgrade()`: delete the `op.execute("CREATE INDEX ix_content_chunks_embedding ON content_chunks USING hnsw (embedding vector_cosine_ops);")` block.
+   - In `downgrade()`: delete the matching `op.drop_index('ix_content_chunks_embedding', ...)` line.
+3. **Local: `PYTHONPATH=backend/src uv run alembic upgrade head`** — re-applies the now-HNSW-free migration.
+4. **Update `backend/tests/conftest.py`** — remove the HNSW index creation block (~lines 170–174).
+5. **Update `backend/tests/test_content_chunks_schema.py`** — drop assertions about the HNSW index; add assertion that it does NOT exist.
+
+Anyone else who has applied this migration to a local DB needs the same downgrade → edit-acknowledge → upgrade dance.
+
+**Note on Alembic heads:** at the time of this benchmark, the repo had two Alembic heads (`38f5a24e651f` from main and `577108e3d7b9` from this branch). When this branch eventually merges into main, an Alembic merge migration will reconcile them. That's separate from the HNSW cleanup above.
+
+### M1 / M5 plan adjustments
+
+With exact cosine confirmed as the design:
+
+- **M1 "Redo note" (below) is obsolete.** It was written when the team was considering pivoting to partitioned HNSW. Disregard everything in that note. The currently-landed M1 migration shape is correct; the only change is the HNSW-index removal documented above.
+- **M5 "Vector-search session settings" subsection (`SET LOCAL hnsw.iterative_scan = strict_order`, `hnsw.ef_search`, `hnsw.max_scan_tuples`, autocommit checks, transaction-contract guards):** these apply only to HNSW iterative scan. With exact cosine, `vector_search()` is a plain SELECT — no `SET LOCAL` requirements. Drop those instructions when implementing M5.
+- **No partitioning machinery needed.** Drop the conftest partition DDL mirror, the `env.py` autogenerate hook, the per-partition HNSW index loop. None of this is in the landed migration today; we just don't add it.
+
 ## pgvector Setup
 
 **Production:**
@@ -100,19 +173,13 @@ Set up the database schema for storing chunked content and their embeddings. Aft
 - Alembic migration enables pgvector extension and creates both tables
 - No embeddings are generated yet — this is schema only
 
-### Redo note — earlier migration must be replaced
+### Redo note — OBSOLETE (kept for history)
 
-An earlier version of this milestone was merged that created `content_chunks` as a **non-partitioned** table (single global HNSW index, simple PK on `id`, unique constraint on `(entity_type, entity_id, chunk_type, chunk_index)`). The design has since changed to hash-partitioned by `user_id` (see "Scaling design" in M5 for why).
+> **Disregard this section.** It was written when the team was considering a pivot to partitioned-HNSW. The Phase 0 benchmark (see [§Phase 0 benchmark findings](#phase-0-benchmark-findings-completed-2026-04-26)) confirmed that **exact cosine on a single non-partitioned table is the right v1 design**. The currently-landed M1 migration shape is correct; only the unused HNSW index needs to be removed (per the migration cleanup steps in the findings section).
+>
+> The original Redo note's instructions (downgrade, delete the M1 file, recreate as partitioned-HNSW with 128 partitions, per-partition HNSW indexes, autogenerate hooks, conftest partition DDL mirror) **do not apply**. Do not execute any of them.
 
-Because nothing has been deployed and no production data exists, do not attempt a live online migration — just replace the earlier migration entirely:
-
-1. **Downgrade locally:** `PYTHONPATH=backend/src uv run alembic downgrade -1` to revert the earlier M1 migration on your local dev DB.
-2. **Delete the earlier migration file** from `backend/alembic/versions/` (and its matching SQLAlchemy model changes if any were shipped, so this milestone re-creates them from the updated schema).
-3. **Create a fresh migration** with `make migration message="content_chunks partitioned by user_id"` and implement the partitioned schema described below. The new migration must include: `CREATE EXTENSION IF NOT EXISTS vector;`, the partitioned `content_chunks` parent table (created via `op.execute(...)` raw SQL — NOT `op.create_table(...)`, since SQLAlchemy does not render `PARTITION BY`), 128 hash partition child tables, 128 explicit per-partition `CREATE INDEX ... USING hnsw` statements with pinned HNSW parameters, the composite PK, the extended unique constraint, and the `content_embedding_state` table. **NEVER create a migration manually** — always use `make migration` to ensure the revision history is correct.
-4. **Verify:** `PYTHONPATH=backend/src uv run alembic upgrade head` runs cleanly on an empty DB, then `make backend-verify` passes.
-5. **No Railway changes are required.** pgvector 0.8.2 is already installed on PostgreSQL 17.9 (see "pgvector Setup" at the top of this plan), hash partitioning is a core Postgres 17 feature, and HNSW on partitioned tables is supported by the installed pgvector version. No image updates, env var changes, or service changes. When the full set of milestones is ready to deploy, the standard `alembic upgrade head` step in the existing deploy flow applies the new migration — there are no extra Railway steps beyond what is already documented for M4 deployment.
-
-Partitioning is part of the **initial** schema, not a later add-on. Do not merge an interim non-partitioned version.
+The remainder of M1's Implementation Outline below was also drafted for the partitioned-HNSW design. Where it describes hash-partitioning, composite PKs, partition child tables, per-partition HNSW indexes, the `env.py` autogenerate hook, the conftest partition DDL mirror, and SQLAlchemy `UUIDv7Mixin` workarounds — **none of that applies under the exact-cosine v1 design**. The landed migration is already in the correct shape. Use the M1 outline below for context on what was considered, not as a build instruction.
 
 ### Implementation Outline
 

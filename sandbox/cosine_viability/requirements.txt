@@ -1,0 +1,4 @@
+asyncpg>=0.31.0
+pgvector>=0.4.2
+numpy>=2.4.4
+psutil>=7.2.2

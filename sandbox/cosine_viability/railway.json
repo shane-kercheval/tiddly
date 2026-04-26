@@ -1,0 +1,7 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "deploy": {
+    "startCommand": "python -m cosine_viability.main --postgres-url \"$DATABASE_URL\" --phase 0 --bucket \"${BUCKET:-typical_power}\" --output-dir /tmp/benchmark-results --image-label \"$IMAGE_LABEL\" --tier-label \"$TIER_LABEL\" --region-label \"$REGION_LABEL\" --storage-backing \"$STORAGE_BACKING\" && sleep 3 && echo '===HANDOFF_MARKDOWN_BEGIN===' && cat /tmp/benchmark-results/phase0-handoff-*.md && echo '===HANDOFF_MARKDOWN_END===' && echo '===EXPLAIN_STEP0_BEGIN===' && cat /tmp/benchmark-results/explain/phase0/*/step0.txt && echo '===EXPLAIN_STEP0_END==='",
+    "restartPolicyType": "NEVER"
+  }
+}
