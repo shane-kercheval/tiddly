@@ -95,7 +95,6 @@ export interface NoteListItem {
   last_used_at: string
   deleted_at: string | null
   archived_at: string | null
-  version: number
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
 }
 
@@ -214,8 +213,6 @@ export interface ContentListItem {
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
   // Bookmark-specific (null for notes/prompts)
   url: string | null
-  // Note-specific (null for bookmarks/prompts)
-  version: number | null
   // Prompt-specific (null for bookmarks/notes)
   name: string | null
   arguments: PromptArgument[] | null

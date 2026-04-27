@@ -60,7 +60,7 @@ export function BookmarkCard({
   tagSuggestions,
   onLinkClick,
   onCancelScheduledArchive,
-  showArchivedIndicator,
+  showArchivedIndicator = false,
 }: BookmarkCardProps): ReactNode {
   const hasActions = !!(onDelete || onArchive || onUnarchive || onRestore || onEdit || onTagAdd || onCancelScheduledArchive)
   const hasTitle = !!bookmark.title
@@ -338,39 +338,20 @@ export function BookmarkCard({
               </div>
             )}
 
-            <div className="shrink-0 flex items-center gap-2">
-              <div className="relative top-px">
-                <ContentCard.Tags
-                  tags={bookmark.tags}
-                  onTagClick={onTagClick}
-                  onTagRemove={onTagRemove ? (tag) => onTagRemove(bookmark, tag) : undefined}
-                />
-              </div>
-              {/* Right: Scheduled archive + Date */}
-              {(onCancelScheduledArchive || showArchivedIndicator) && (
-                <div className={bookmark.tags.length === 0 ? 'relative top-1' : ''}>
-                  <ContentCard.ArchiveStatus
-                    archivedAt={bookmark.archived_at}
-                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(bookmark) : undefined}
-                    showArchivedIndicator={showArchivedIndicator}
-                  />
-                </div>
-              )}
-              {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
-              {showDate && (
-                /* No-tag cards need a small visual nudge so date/status align with the title baseline. */
-                <span className={`shrink-0 flex ${bookmark.tags.length === 0 ? 'relative top-1' : ''}`}>
-                  <ContentCard.DateDisplay
-                    sortBy={sortBy}
-                    createdAt={bookmark.created_at}
-                    updatedAt={bookmark.updated_at}
-                    lastUsedAt={bookmark.last_used_at}
-                    archivedAt={bookmark.archived_at}
-                    deletedAt={bookmark.deleted_at}
-                  />
-                </span>
-              )}
-            </div>
+            <ContentCard.Metadata
+              tags={bookmark.tags}
+              archivedAt={bookmark.archived_at}
+              createdAt={bookmark.created_at}
+              updatedAt={bookmark.updated_at}
+              lastUsedAt={bookmark.last_used_at}
+              deletedAt={bookmark.deleted_at}
+              sortBy={sortBy}
+              showDate={showDate}
+              showArchivedIndicator={showArchivedIndicator}
+              onTagClick={onTagClick}
+              onTagRemove={onTagRemove ? (tag) => onTagRemove(bookmark, tag) : undefined}
+              onCancelScheduledArchive={onCancelScheduledArchive ? () => onCancelScheduledArchive(bookmark) : undefined}
+            />
           </div>
 
           {/* Row 3: Description/preview */}

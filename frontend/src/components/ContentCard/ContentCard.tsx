@@ -21,6 +21,7 @@ import { ContentCardTags } from './ContentCardTags'
 import { ContentCardDateDisplay } from './ContentCardDateDisplay'
 import { ContentCardActions } from './ContentCardActions'
 import { ContentCardArchiveStatus } from './ContentCardArchiveStatus'
+import { ContentCardMetadata } from './ContentCardMetadata'
 import { AddTagAction, ArchiveAction, RestoreAction, DeleteAction } from './actions'
 
 interface ContentCardProps {
@@ -76,6 +77,7 @@ export const ContentCard = Object.assign(ContentCardBase, {
   DateDisplay: ContentCardDateDisplay,
   Actions: ContentCardActions,
   ArchiveStatus: ContentCardArchiveStatus,
+  Metadata: ContentCardMetadata,
   AddTagAction,
   ArchiveAction,
   RestoreAction,

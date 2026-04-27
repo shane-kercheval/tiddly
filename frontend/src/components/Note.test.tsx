@@ -85,7 +85,6 @@ const mockNote: NoteType = {
   description: 'Test description',
   content: '# Hello World\n\nThis is a test note.',
   tags: ['test', 'example'],
-  version: 2,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-01-02T00:00:00Z',
   last_used_at: '2024-01-02T00:00:00Z',

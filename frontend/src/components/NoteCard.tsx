@@ -51,7 +51,7 @@ export function NoteCard({
   onTagAdd,
   tagSuggestions,
   onCancelScheduledArchive,
-  showArchivedIndicator,
+  showArchivedIndicator = false,
 }: NoteCardProps): ReactNode {
   const hasActions = !!(onDelete || onArchive || onUnarchive || onRestore || onTagAdd || onCancelScheduledArchive)
   const previewText = note.description || note.content_preview || ''
@@ -88,9 +88,6 @@ export function NoteCard({
             >
               {note.title}
             </button>
-            {note.version > 1 && (
-              <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
-            )}
           </div>
 
           {/* Description */}
@@ -181,47 +178,33 @@ export function NoteCard({
 
         {/* Desktop layout - horizontal with hover actions */}
         <div className="hidden md:block relative">
-          {/* Row 1: Title + tags + date */}
-          <div className="flex items-baseline gap-2">
-            {/* Left: Title and tags */}
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
+          {/* Row 1: Title + metadata (tags, archive, date) */}
+          {/* Reserve a real metadata column so the title truncates before reaching tags/date. */}
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
+            {/* Left: Title */}
+            <div className="min-w-0 overflow-hidden">
               <button
                 onClick={handleTitleClick}
-                className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
+                className="text-base font-medium text-gray-900 text-left cursor-pointer truncate w-full"
               >
                 {note.title}
               </button>
-              {note.version > 1 && (
-                <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
-              )}
-              <ContentCard.Tags
-                tags={note.tags}
-                onTagClick={onTagClick}
-                onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
-              />
             </div>
 
-            {/* Right: Scheduled archive + Date */}
-            {(onCancelScheduledArchive || showArchivedIndicator) && (
-              <ContentCard.ArchiveStatus
-                archivedAt={note.archived_at}
-                onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(note) : undefined}
-                showArchivedIndicator={showArchivedIndicator}
-              />
-            )}
-            {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
-            {showDate && (
-              <span className="shrink-0 flex">
-                <ContentCard.DateDisplay
-                  sortBy={sortBy}
-                  createdAt={note.created_at}
-                  updatedAt={note.updated_at}
-                  lastUsedAt={note.last_used_at}
-                  archivedAt={note.archived_at}
-                  deletedAt={note.deleted_at}
-                />
-              </span>
-            )}
+            <ContentCard.Metadata
+              tags={note.tags}
+              archivedAt={note.archived_at}
+              createdAt={note.created_at}
+              updatedAt={note.updated_at}
+              lastUsedAt={note.last_used_at}
+              deletedAt={note.deleted_at}
+              sortBy={sortBy}
+              showDate={showDate}
+              showArchivedIndicator={showArchivedIndicator}
+              onTagClick={onTagClick}
+              onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
+              onCancelScheduledArchive={onCancelScheduledArchive ? () => onCancelScheduledArchive(note) : undefined}
+            />
           </div>
 
           {/* Row 2: Description */}
