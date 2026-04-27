@@ -66,7 +66,6 @@ function makeContentItem(overrides: Partial<ContentListItem> = {}): ContentListI
     archived_at: null,
     content_preview: null,
     url: null,
-    version: 1,
     name: null,
     arguments: null,
     ...overrides,

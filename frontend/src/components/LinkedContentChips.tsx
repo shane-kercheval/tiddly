@@ -268,7 +268,6 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
       last_used_at: '',
       deleted_at: null,
       archived_at: null,
-      version: null,
       arguments: null,
     }
     onAdd(item)

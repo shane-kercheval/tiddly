@@ -88,9 +88,6 @@ export function NoteCard({
             >
               {note.title}
             </button>
-            {note.version > 1 && (
-              <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
-            )}
           </div>
 
           {/* Description */}
@@ -191,9 +188,6 @@ export function NoteCard({
               >
                 {note.title}
               </button>
-              {note.version > 1 && (
-                <span className="text-xs text-gray-400 shrink-0">v{note.version}</span>
-              )}
               <ContentCard.Tags
                 tags={note.tags}
                 onTagClick={onTagClick}

@@ -25,7 +25,6 @@ const mockNote: NoteListItem = {
   last_used_at: '2024-01-03T12:00:00Z',
   deleted_at: null,
   archived_at: null,
-  version: 1,
   content_preview: null,
 }
 
@@ -67,21 +66,6 @@ describe('NoteCard', () => {
       // Date is shown, label is in tooltip
       const dates = screen.getAllByText('Jan 1, 2024')
       expect(dates.length).toBeGreaterThan(0)
-    })
-
-    it('should show version number when version > 1', () => {
-      const noteWithVersion = { ...mockNote, version: 5 }
-      render(<NoteCard note={noteWithVersion} onDelete={vi.fn()} />)
-
-      // Version appears in both layouts
-      const versions = screen.getAllByText('v5')
-      expect(versions.length).toBeGreaterThan(0)
-    })
-
-    it('should not show version number when version is 1', () => {
-      render(<NoteCard note={mockNote} onDelete={vi.fn()} />)
-
-      expect(screen.queryByText('v1')).not.toBeInTheDocument()
     })
 
     it('should not render description section when empty', () => {
