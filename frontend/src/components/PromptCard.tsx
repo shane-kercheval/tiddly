@@ -51,7 +51,7 @@ export function PromptCard({
   onTagAdd,
   tagSuggestions,
   onCancelScheduledArchive,
-  showArchivedIndicator,
+  showArchivedIndicator = false,
 }: PromptCardProps): ReactNode {
   const hasActions = !!(onDelete || onArchive || onUnarchive || onRestore || onTagAdd || onCancelScheduledArchive)
   // Display title if present, otherwise use name
@@ -200,38 +200,20 @@ export function PromptCard({
               </button>
             </div>
 
-            {/* Right: Tags + Scheduled archive + Date — mirrors BookmarkCard's metadata column. */}
-            <div className="shrink-0 flex items-center gap-2">
-              <div className="relative top-px">
-                <ContentCard.Tags
-                  tags={prompt.tags}
-                  onTagClick={onTagClick}
-                  onTagRemove={onTagRemove ? (tag) => onTagRemove(prompt, tag) : undefined}
-                />
-              </div>
-              {(onCancelScheduledArchive || showArchivedIndicator) && (
-                <div className={prompt.tags.length === 0 ? 'relative top-1' : ''}>
-                  <ContentCard.ArchiveStatus
-                    archivedAt={prompt.archived_at}
-                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(prompt) : undefined}
-                    showArchivedIndicator={showArchivedIndicator}
-                  />
-                </div>
-              )}
-              {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
-              {showDate && (
-                <span className={`shrink-0 flex ${prompt.tags.length === 0 ? 'relative top-1' : ''}`}>
-                  <ContentCard.DateDisplay
-                    sortBy={sortBy}
-                    createdAt={prompt.created_at}
-                    updatedAt={prompt.updated_at}
-                    lastUsedAt={prompt.last_used_at}
-                    archivedAt={prompt.archived_at}
-                    deletedAt={prompt.deleted_at}
-                  />
-                </span>
-              )}
-            </div>
+            <ContentCard.Metadata
+              tags={prompt.tags}
+              archivedAt={prompt.archived_at}
+              createdAt={prompt.created_at}
+              updatedAt={prompt.updated_at}
+              lastUsedAt={prompt.last_used_at}
+              deletedAt={prompt.deleted_at}
+              sortBy={sortBy}
+              showDate={showDate}
+              showArchivedIndicator={showArchivedIndicator}
+              onTagClick={onTagClick}
+              onTagRemove={onTagRemove ? (tag) => onTagRemove(prompt, tag) : undefined}
+              onCancelScheduledArchive={onCancelScheduledArchive ? () => onCancelScheduledArchive(prompt) : undefined}
+            />
           </div>
 
           {/* Row 2: Name (if different from title) */}

@@ -51,7 +51,7 @@ export function NoteCard({
   onTagAdd,
   tagSuggestions,
   onCancelScheduledArchive,
-  showArchivedIndicator,
+  showArchivedIndicator = false,
 }: NoteCardProps): ReactNode {
   const hasActions = !!(onDelete || onArchive || onUnarchive || onRestore || onTagAdd || onCancelScheduledArchive)
   const previewText = note.description || note.content_preview || ''
@@ -191,38 +191,20 @@ export function NoteCard({
               </button>
             </div>
 
-            {/* Right: Tags + Scheduled archive + Date — mirrors BookmarkCard's metadata column. */}
-            <div className="shrink-0 flex items-center gap-2">
-              <div className="relative top-px">
-                <ContentCard.Tags
-                  tags={note.tags}
-                  onTagClick={onTagClick}
-                  onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
-                />
-              </div>
-              {(onCancelScheduledArchive || showArchivedIndicator) && (
-                <div className={note.tags.length === 0 ? 'relative top-1' : ''}>
-                  <ContentCard.ArchiveStatus
-                    archivedAt={note.archived_at}
-                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(note) : undefined}
-                    showArchivedIndicator={showArchivedIndicator}
-                  />
-                </div>
-              )}
-              {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
-              {showDate && (
-                <span className={`shrink-0 flex ${note.tags.length === 0 ? 'relative top-1' : ''}`}>
-                  <ContentCard.DateDisplay
-                    sortBy={sortBy}
-                    createdAt={note.created_at}
-                    updatedAt={note.updated_at}
-                    lastUsedAt={note.last_used_at}
-                    archivedAt={note.archived_at}
-                    deletedAt={note.deleted_at}
-                  />
-                </span>
-              )}
-            </div>
+            <ContentCard.Metadata
+              tags={note.tags}
+              archivedAt={note.archived_at}
+              createdAt={note.created_at}
+              updatedAt={note.updated_at}
+              lastUsedAt={note.last_used_at}
+              deletedAt={note.deleted_at}
+              sortBy={sortBy}
+              showDate={showDate}
+              showArchivedIndicator={showArchivedIndicator}
+              onTagClick={onTagClick}
+              onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
+              onCancelScheduledArchive={onCancelScheduledArchive ? () => onCancelScheduledArchive(note) : undefined}
+            />
           </div>
 
           {/* Row 2: Description */}
