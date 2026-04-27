@@ -607,7 +607,6 @@ export function AllContent(): ReactNode {
     last_used_at: item.last_used_at,
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
-    version: item.version || 1,
     content_preview: item.content_preview,
   })
 
