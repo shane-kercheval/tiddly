@@ -178,44 +178,51 @@ export function NoteCard({
 
         {/* Desktop layout - horizontal with hover actions */}
         <div className="hidden md:block relative">
-          {/* Row 1: Title + tags + date */}
-          <div className="flex items-baseline gap-2">
-            {/* Left: Title and tags */}
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
+          {/* Row 1: Title + metadata (tags, archive, date) */}
+          {/* Reserve a real metadata column so the title truncates before reaching tags/date. */}
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
+            {/* Left: Title */}
+            <div className="min-w-0 overflow-hidden">
               <button
                 onClick={handleTitleClick}
-                className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
+                className="text-base font-medium text-gray-900 text-left cursor-pointer truncate w-full"
               >
                 {note.title}
               </button>
-              <ContentCard.Tags
-                tags={note.tags}
-                onTagClick={onTagClick}
-                onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
-              />
             </div>
 
-            {/* Right: Scheduled archive + Date */}
-            {(onCancelScheduledArchive || showArchivedIndicator) && (
-              <ContentCard.ArchiveStatus
-                archivedAt={note.archived_at}
-                onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(note) : undefined}
-                showArchivedIndicator={showArchivedIndicator}
-              />
-            )}
-            {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
-            {showDate && (
-              <span className="shrink-0 flex">
-                <ContentCard.DateDisplay
-                  sortBy={sortBy}
-                  createdAt={note.created_at}
-                  updatedAt={note.updated_at}
-                  lastUsedAt={note.last_used_at}
-                  archivedAt={note.archived_at}
-                  deletedAt={note.deleted_at}
+            {/* Right: Tags + Scheduled archive + Date — mirrors BookmarkCard's metadata column. */}
+            <div className="shrink-0 flex items-center gap-2">
+              <div className="relative top-px">
+                <ContentCard.Tags
+                  tags={note.tags}
+                  onTagClick={onTagClick}
+                  onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
                 />
-              </span>
-            )}
+              </div>
+              {(onCancelScheduledArchive || showArchivedIndicator) && (
+                <div className={note.tags.length === 0 ? 'relative top-1' : ''}>
+                  <ContentCard.ArchiveStatus
+                    archivedAt={note.archived_at}
+                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(note) : undefined}
+                    showArchivedIndicator={showArchivedIndicator}
+                  />
+                </div>
+              )}
+              {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
+              {showDate && (
+                <span className={`shrink-0 flex ${note.tags.length === 0 ? 'relative top-1' : ''}`}>
+                  <ContentCard.DateDisplay
+                    sortBy={sortBy}
+                    createdAt={note.created_at}
+                    updatedAt={note.updated_at}
+                    lastUsedAt={note.last_used_at}
+                    archivedAt={note.archived_at}
+                    deletedAt={note.deleted_at}
+                  />
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Row 2: Description */}

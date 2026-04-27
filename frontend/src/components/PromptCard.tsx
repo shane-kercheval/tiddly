@@ -187,44 +187,51 @@ export function PromptCard({
 
         {/* Desktop layout - horizontal with hover actions */}
         <div className="hidden md:block relative">
-          {/* Row 1: Title + tags + date */}
-          <div className="flex items-baseline gap-2">
-            {/* Left: Title and tags */}
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0 flex-1">
+          {/* Row 1: Title + metadata (tags, archive, date) */}
+          {/* Reserve a real metadata column so the title truncates before reaching tags/date. */}
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2">
+            {/* Left: Title */}
+            <div className="min-w-0 overflow-hidden">
               <button
                 onClick={handleTitleClick}
-                className="text-base font-medium text-gray-900 text-left cursor-pointer truncate"
+                className="text-base font-medium text-gray-900 text-left cursor-pointer truncate w-full"
               >
                 {displayName}
               </button>
-              <ContentCard.Tags
-                tags={prompt.tags}
-                onTagClick={onTagClick}
-                onTagRemove={onTagRemove ? (tag) => onTagRemove(prompt, tag) : undefined}
-              />
             </div>
 
-            {/* Right: Scheduled archive + Date */}
-            {(onCancelScheduledArchive || showArchivedIndicator) && (
-              <ContentCard.ArchiveStatus
-                archivedAt={prompt.archived_at}
-                onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(prompt) : undefined}
-                showArchivedIndicator={showArchivedIndicator}
-              />
-            )}
-            {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
-            {showDate && (
-              <span className="shrink-0 flex">
-                <ContentCard.DateDisplay
-                  sortBy={sortBy}
-                  createdAt={prompt.created_at}
-                  updatedAt={prompt.updated_at}
-                  lastUsedAt={prompt.last_used_at}
-                  archivedAt={prompt.archived_at}
-                  deletedAt={prompt.deleted_at}
+            {/* Right: Tags + Scheduled archive + Date — mirrors BookmarkCard's metadata column. */}
+            <div className="shrink-0 flex items-center gap-2">
+              <div className="relative top-px">
+                <ContentCard.Tags
+                  tags={prompt.tags}
+                  onTagClick={onTagClick}
+                  onTagRemove={onTagRemove ? (tag) => onTagRemove(prompt, tag) : undefined}
                 />
-              </span>
-            )}
+              </div>
+              {(onCancelScheduledArchive || showArchivedIndicator) && (
+                <div className={prompt.tags.length === 0 ? 'relative top-1' : ''}>
+                  <ContentCard.ArchiveStatus
+                    archivedAt={prompt.archived_at}
+                    onCancel={onCancelScheduledArchive ? () => onCancelScheduledArchive(prompt) : undefined}
+                    showArchivedIndicator={showArchivedIndicator}
+                  />
+                </div>
+              )}
+              {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}
+              {showDate && (
+                <span className={`shrink-0 flex ${prompt.tags.length === 0 ? 'relative top-1' : ''}`}>
+                  <ContentCard.DateDisplay
+                    sortBy={sortBy}
+                    createdAt={prompt.created_at}
+                    updatedAt={prompt.updated_at}
+                    lastUsedAt={prompt.last_used_at}
+                    archivedAt={prompt.archived_at}
+                    deletedAt={prompt.deleted_at}
+                  />
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Row 2: Name (if different from title) */}
