@@ -89,6 +89,116 @@ With exact cosine confirmed as the design:
 - **M5 "Vector-search session settings" subsection (`SET LOCAL hnsw.iterative_scan = strict_order`, `hnsw.ef_search`, `hnsw.max_scan_tuples`, autocommit checks, transaction-contract guards):** these apply only to HNSW iterative scan. With exact cosine, `vector_search()` is a plain SELECT — no `SET LOCAL` requirements. Drop those instructions when implementing M5.
 - **No partitioning machinery needed.** Drop the conftest partition DDL mirror, the `env.py` autogenerate hook, the per-partition HNSW index loop. None of this is in the landed migration today; we just don't add it.
 
+## Chunk-count distribution from real user data (sampled 2026-04-26)
+
+Empirical chunk-count distribution from one real Tiddly account, applying the M2 chunking algorithm verbatim. Source: 112 active items (70 bookmarks + 19 notes + 23 prompts). Raw data and analysis scripts are at [`sandbox/cosine_viability/`](../../sandbox/cosine_viability/) — actually the snapshot itself was kept in `/tmp/tiddly-content-snapshot/` (throwaway), but the algorithm and methodology are reproducible from the chunking spec in M2.
+
+### Headline numbers
+
+- **Total active items:** 112
+- **Total chunks across all items:** 2,306
+- **Mean chunks/entity (all items):** 20.59
+- **Median chunks/entity (all items):** 8
+
+The mean (20.59) lands almost exactly on the M5 cosine-sims plan's "Typical Power" assumption of 20 chunks/entity. The median (8) is closer to the "Typical" assumption of 10. Distribution is heavily right-skewed — a small number of long-form items pull the mean above the median.
+
+### Distribution by type, including zero-content separation
+
+The `content` field on bookmarks is sometimes empty (URLs added without scraping, or scrapes that returned nothing). Those items still produce a metadata chunk = 1 total chunk. Reporting both the all-items distribution and the non-zero-content distribution:
+
+| Type | n | zero-content | has-content | Mean (all) | Median (all) | P95 (all) | Max | Mean (≥1 content) | Median (≥1 content) | P95 (≥1 content) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Bookmark | 70 | **12** | 58 | 16.63 | 6 | 65 | 169 | 19.86 | 7.5 | 82 |
+| Note | 19 | 0 | 19 | 39.84 | 11 | 224 | 224 | 39.84 | 11 | 224 |
+| Prompt | 23 | 0 | 23 | 16.74 | 16 | 32 | 47 | 16.74 | 16 | 32 |
+| **Overall** | **112** | **12** | **100** | **20.59** | **8** | **82** | **224** | **22.94** | **9.5** | **82** |
+
+**12 of 70 bookmarks (17%)** have zero content chunks — i.e., URLs saved without scraped content. They contribute only their metadata chunk (1 chunk each) to the total.
+
+### Comparison to the M5 cosine-sims plan's bucket assumptions
+
+| Bucket | Plan assumed chunks/entity | Where this user lands |
+|---|---|---|
+| Light | 7 | — |
+| Typical | 10 | this user's median (8) |
+| Typical Power | 20 | **this user's mean (20.59) lands here almost exactly** |
+| Super Power | 29 | — |
+| Reasonable Max | 44 | — |
+
+This user's total-chunk count (2,306) maps to the plan's **Typical** bucket (~3K chunks ÷ ~300 entities ≈ 10 chunks/entity). They're a smallish-volume user with average-power per-entity content density.
+
+### Chunk distribution by content length, by type
+
+Showing how chunks-per-entity scales with content size, broken down by content-length bucket. Buckets chosen to match the empirical content-length distribution and the M2 algorithm's 8K-char oversized-paragraph threshold (`OVERSIZED_PARAGRAPH_CHARS = 8,192`).
+
+**Bookmarks (n=70):**
+
+| Content length (chars) | n | Mean chunks | Median | P95 | Max |
+|---|---|---|---|---|---|
+| 0 (empty) | 12 | 1.00 | 1 | 1 | 1 |
+| 1–999 | 13 | 2.00 | 2 | 2 | 2 |
+| 1,000–4,999 | 8 | 7.00 | 2 | 42 | 42 |
+| 5,000–9,999 | 12 | 29.17 | 12 | 121 | 121 |
+| 10,000–24,999 | 14 | 11.50 | 10 | 42 | 42 |
+| 25,000–99,999 | 8 | 45.12 | 24 | 169 | 169 |
+| 100,000+ | 3 | 66.00 | 62 | 82 | 82 |
+
+**Notes (n=19):**
+
+| Content length (chars) | n | Mean chunks | Median | P95 | Max |
+|---|---|---|---|---|---|
+| 1–999 | 6 | 3.17 | 2 | 7 | 7 |
+| 1,000–4,999 | 8 | 14.38 | 12 | 33 | 33 |
+| 5,000–9,999 | 2 | 78.00 | 78 | 82 | 82 |
+| 10,000–24,999 | 1 | 39.00 | 39 | 39 | 39 |
+| 25,000–99,999 | 2 | 214.00 | 214 | 224 | 224 |
+
+**Prompts (n=23):**
+
+| Content length (chars) | n | Mean chunks | Median | P95 | Max |
+|---|---|---|---|---|---|
+| 1–999 | 5 | 4.60 | 5 | 6 | 6 |
+| 1,000–4,999 | 16 | 17.69 | 18 | 32 | 32 |
+| 5,000–9,999 | 2 | 39.50 | 40 | 47 | 47 |
+
+**Reading the table:**
+
+- The relationship between content length and chunks-per-entity is **not monotonic** within a type, because paragraph structure (i.e., how many `\n\n` separators are in the content) dominates over raw content length under the M2 algorithm. Examples:
+  - The 5,000–9,999-char bookmark bucket has a higher mean chunks (29.17) than the 10,000–24,999-char bucket (11.50). This is because the smaller bucket contains some well-paragraphed items (e.g., "Agent responsibly - Vercel" at 9,605 chars / 120 paragraphs / 121 chunks) while the larger bucket is dominated by single-paragraph scraped articles whose chunk count is determined purely by the oversized-paragraph splitter (`ceil(chars / 2,048)`).
+  - The wide gap between mean and median in the 5K–9K bookmark bucket (29.17 vs 12) reflects this paragraph-structure variance.
+- Notes have a much steeper chunks/length relationship than bookmarks because notes are user-authored markdown with proper paragraph structure — most paragraphs become 1 chunk each, no oversized-splitter fallback. A 25K-char note can produce 200+ chunks; a 25K-char bookmark typically produces 11.
+- Prompts cluster tightly because their length range is narrow (94% are under 5K chars) and they tend to be well-structured Jinja templates.
+
+### Top entities by chunk count
+
+| Type | Title | Chunks | Content chars | Paragraphs |
+|---|---|---|---|---|
+| note | Tiddly Business Foundations Guide | 224 | 41,219 | 223 |
+| note | Evaluations Strategy & Playbook | 204 | 26,984 | 203 |
+| bookmark | llm-wiki | 169 | 33,753 | 168 |
+| bookmark | Agent responsibly - Vercel | 121 | 9,605 | 120 |
+| bookmark | Measuring Agents in Production | 82 | 164,762 | 1 |
+| note | Evaluations Quickstart | 82 | 7,014 | 81 |
+| note | Playwright Setup & CLI | 74 | 7,938 | 73 |
+| bookmark | Introducing Perplexity Computer | 65 | 5,239 | 64 |
+| bookmark | Who Judges the Judge? | 62 | 123,494 | 1 |
+| bookmark | REFRAG: Rethinking RAG based Decoding | 54 | 106,031 | 3 |
+
+The top of the distribution is dominated by long-form notes (well-structured documents with hundreds of paragraphs) and a small number of large scraped bookmarks where the M2 oversized-paragraph splitter produced many sub-chunks.
+
+### Bookmark scraping observation (worth flagging, not a fix)
+
+**47 of 70 bookmarks (67%) have exactly 1 paragraph** — i.e., the entire scraped article body comes through as one block of text with no `\n\n` paragraph separators. This is a property of how the scraping pipeline (Chrome extension + backend scraper) produces text: HTML structural elements (`<p>`, `<li>`, `<h*>`) are not converted into double-newlines.
+
+Behavior under the M2 algorithm:
+
+- **Bookmarks with one paragraph below 8K chars (~2,048 tokens):** produce 1 content chunk (the whole article body in a single embedding). Most short articles fall here.
+- **Bookmarks with one paragraph above 8K chars:** the oversized-paragraph splitter fires and breaks them into 2,048-char (~512-token) sub-chunks. Verified empirically — e.g., the "Measuring Agents in Production" bookmark (164,762 chars, 1 paragraph) produces 81 sub-chunks. The math: `ceil(164,762 / 2,048) = 81`. The "Who Judges the Judge?" bookmark (123,494 chars, 1 paragraph) produces 60 sub-chunks. The algorithm is working as specified.
+
+What this means for chunk-count budgeting in M5: **the algorithm's behavior on scraped bookmarks is well-understood and predictable**, and the chunk-count assumptions in the cosine-sims plan are not invalidated by this data. The single-paragraph-with-arbitrary-mid-sentence-splits pattern does carry a separate semantic-search-quality concern (chunks below 8K stay as one big embedding; chunks above 8K are split at arbitrary character boundaries that may not align with sentence/topic breaks), but that is a quality issue distinct from the chunk-count question this benchmark validated.
+
+Flagging both observations here for visibility; the algorithm-improvement question (e.g., paragraph-aware HTML-to-text in scraping, or a smaller oversized threshold for bookmarks) is out of scope for this plan and can be discussed separately.
+
 ## pgvector Setup
 
 **Production:**
