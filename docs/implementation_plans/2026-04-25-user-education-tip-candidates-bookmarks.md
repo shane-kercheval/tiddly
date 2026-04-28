@@ -89,6 +89,27 @@ From All Content, any saved-filter, Archived, or Trash view, press `⌘+V` (or `
 - Reference: `frontend/src/hooks/useKeyboardShortcuts.ts:138`
 - Existing seed tip: `bookmark-paste-url` in `frontend/src/data/tips/tips.ts`. Wording from the agent here adds the explicit "any saved-filter, Archived, or Trash view" enumeration that the existing tip already covers in summary form. No rewrite needed unless the seed tip is being touched anyway.
 
+## Draft additions during review
+
+Tips that surfaced from review discussion rather than from the agent's pass. Marked draft — needs refinement before authoring (M5).
+
+### D1 — Have Claude write a search-optimized summary back into your bookmark — priority 20 (draft) — cross-category: mcp, ai
+
+**Working title**: Have Claude write a search-optimized summary back into your bookmark.
+
+**Description (draft)**: A bookmark's "Page Content" exists to feed full-text search — you don't typically read it. From Claude Desktop (or any MCP-connected agent), ask the agent to fetch the bookmark's URL, write a dense summary focused on keywords you'd search for later, and save it back via the MCP `update_item` tool. Replaces the raw scrape with something denser and more findable.
+
+**Sample prompt to give the agent (draft)**: *"Look up bookmark `<id>` in Tiddly, fetch the page at its URL, write a 150-word summary that highlights the key terms and concepts I'd want to find later, then save the summary as the bookmark's content via update_item."*
+
+- Tags: workflow | power-user
+- minTier: tbd (the action is via MCP, not Tiddly's AI features — likely free/all-tiers but verify)
+
+**Refinement notes**:
+- Possibly merge with #16 (`Page Content is editable`) — pasting your own text and asking AI to write it are two execution paths for the same goal.
+- Sample prompt needs polish; verify the actual MCP tool / argument shape (`update_item` vs `edit_content` vs whichever applies to bookmarks specifically).
+- Decide canonical home at consolidation: `bookmarks` (where the value is felt) or `mcp` (where the action happens).
+- May overlap with whatever the `mcp` agent surfaced; check before authoring.
+
 ## Cross-category tracking
 
 These items belonged conceptually to other categories — verify they're surfaced when reviewing the matching category. Cite as `bookmarks:N` when picking them up there.
@@ -99,3 +120,4 @@ These items belonged conceptually to other categories — verify they're surface
 - `bookmarks:S4` → `shortcuts` / generic editor — `Escape` to close, double-tap to discard
 - `bookmarks:13` ↔ `extension` — Chrome extension save flow (currently kept in bookmarks too; pick canonical at consolidation)
 - `bookmarks:S7` ↔ `relationships` (if a relationships category is added) — link content for context bundles
+- `bookmarks:D1` ↔ `mcp`, `ai` — AI-summarize-and-save-back workflow. Primary home `bookmarks` (value felt there); flip if `mcp` agent has a stronger surfacing.

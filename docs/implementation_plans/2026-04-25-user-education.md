@@ -42,6 +42,52 @@ When a feature is renamed, removed, or substantially changed, the changing PR is
 - Custom Motion-component tip animations (schema supports them; registry stays empty)
 - First-run onboarding tour
 
+## Follow-ups discovered during M4 review
+
+These are architectural / system-level changes that surfaced while reviewing the per-category candidate files. They aren't blocking M5 (authoring can proceed and we'll flag tips that need them), but they should be addressed before the corresponding tips actually ship to users. Each item links back to the candidate file where it was discovered.
+
+### 1. Tier flag on the `Tip` schema
+
+**Discovered in:** `docs/implementation_plans/2026-04-25-user-education-tip-candidates-ai.md` — every keeper in the `ai` category is a Pro-tier feature, but the schema has no way to express that. A free-tier user landing on `/docs/tips` will see all the AI tips with no signal they need to upgrade.
+
+**Why this matters:** Tips and Tricks doubles as a soft conversion surface for free-tier users when a tip is for a higher-tier feature — but only if the page can express tier-gating clearly and offer an upgrade path inline. Without it, AI tips read as universally available, which is misleading.
+
+**Proposed work:**
+
+- **Schema (M1 retro):** add `minTier?: 'standard' | 'pro'` to the `Tip` interface. `undefined` = available on all tiers (free implicit baseline). `'pro'` = available only on Pro and above. Aligns with the existing `Tier` constants (`FREE` / `STANDARD` / `PRO`).
+- **TipCard (M2 retro):** when `minTier` is set, render a tier badge ("Pro") in the badge row. For users known to be on a tier below `minTier`, append a small inline "Upgrade to Pro" CTA pointing at `/pricing`.
+- **Authoring (M5):** every authored tip gets `minTier` evaluated. Tips for tier-gated features declare it; otherwise omit.
+
+**Open questions:**
+
+- Should `minTier: 'free'` be a meaningful value (i.e., a "Free" badge)? Likely overkill — leave `undefined` as the implicit "all tiers" signal.
+- Should the upgrade CTA show only when the user's current tier is below `minTier`, or always? Knowing the user's tier requires the auth context on `/docs/tips`, which is a public page today.
+
+### 2. MCP-consumability of tips
+
+**Discovered in:** `docs/implementation_plans/2026-04-25-user-education-tip-candidates-bookmarks.md` (item D1 — "have Claude write a search-optimized summary back into your bookmark") and adjacent thinking on the bookmarks/MCP overlap.
+
+**Why this matters:** Some tips describe workflows the *agent* would execute on the user's behalf, not the user's own keyboard/UI actions. Surfacing those via MCP would turn the tips corpus into a small library of "things Claude can do for you with this product." But: most tips (keyboard shortcuts, UI affordances) are human-only and would be noise to an agent.
+
+**Two design dimensions to decide:**
+
+1. **Schema flag for which surfaces a tip applies to.** Options:
+   - `mcpVisible?: boolean` — simplest; declarative; defaults `undefined` = not visible to MCP.
+   - Extend the `audience` enum with `'agent'` — conflates audience semantics with consumer surface; not great.
+   - `surfaces?: ('docs' | 'palette' | 'empty-state' | 'mcp')[]` — most flexible, lets a single tip explicitly opt into multiple surfaces. Probably the right long-term shape but more upfront work.
+
+2. **MCP exposure mechanism.** Options:
+   - **New dedicated tool** `list_tips(category?, query?)` returning agent-relevant tips. Clean separate concern. Adds one tool to the MCP surface.
+   - **Bundle into existing `get_context`** — no new tool, but bloats the context return and forces every session to pay for tips even when not relevant.
+   - **Dedicated MCP "guidance" namespace** — future-looking; overkill for v1.
+
+**Lean:** `mcpVisible?: boolean` + a new `list_tips` MCP tool. Cheaper to migrate to a richer `surfaces` shape later if needed.
+
+**Open questions:**
+
+- Should the agent-facing tip body be the same Markdown as the human-facing one, or do agent tips warrant a separate `agentBody` for instruction-style phrasing?
+- Are MCP tips returned by category, by relevance to the agent's current task, or all-at-once? `list_tips(category?)` punts on this; the agent decides what to ask for.
+
 ## Validated assumptions
 
 The following were verified by reading code before drafting this plan. The agent should re-verify any specific detail before depending on it:

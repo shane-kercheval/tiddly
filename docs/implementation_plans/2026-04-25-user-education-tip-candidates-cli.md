@@ -1,105 +1,128 @@
-# Tip candidates — cli
+# Tip candidates — cli (reviewed)
 
-## Strong candidates (strongest first)
+Status: reviewed against the brief criteria. `drop` = exclude. `dup` = already covered by an existing seed tip or another category. Priority is a best-guess rank (lower = higher rank); will be re-calibrated at consolidation. `#` numbers match the original agent file's order; `S#` = item from the agent's Speculative section; `D#` = draft additions surfaced during review.
 
-### Install the Tiddly CLI with one curl command
-- Description: Run `curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh` to install the `tiddly` binary. Auto-detects OS/arch, verifies the SHA256 checksum, and drops the binary into `/usr/local/bin` (or `~/.local/bin` if not writable). Override the destination with `INSTALL_DIR=/custom/path`.
-- Reference: cli/README.md:170; cli/install.sh
+## Decisions
+
+| # | Tip | Priority | Notes |
+|---|---|---|---|
+| 1 | Install with one curl command | drop | Already in Settings → AI Integration instructions. Replaced with D1/D2 high-level workflow tips that emphasize "this is possible and easy" rather than the specific command. |
+| 2 | `tiddly status` for one-shot health check | 25 | Real proactive command; not part of standard install/setup. |
+| 3 | Auto-configure MCP (`tiddly mcp configure`) | 15 | Command-level companion to D1 — the actual command behind the high-level integration workflow. **Cross-category** with `mcp`. |
+| 4 | Preview MCP config changes with `--dry-run` | 35 | Companion to #3; only useful once the user has run it. |
+| 5 | Headless login `--token` | drop | Supported but not standard setup. |
+| 6 | Export everything to JSON for backup or migration | 20 | Real proactive workflow (backup-anxiety tip; also useful for ad-hoc scripting). |
+| 7 | Sync prompts as agent skills (`tiddly skills configure`) | 15 | Command-level companion to D2. Especially important for Codex users since Codex doesn't support MCP-style prompt invocation; skills are the workaround. **Cross-category** with `prompts`, `mcp`. |
+| 8 | Per-directory MCP/skills with `--scope directory` | 25 | Real workflow for separating work/personal accounts or per-project AI configurations. |
+| 9 | Use `--servers content` or `--servers prompts` to install one | 35 | Modifier flag for #3. |
+| 10 | Revoke MCP tokens with `--delete-tokens` | drop | Too much detail; already in instructions. |
+| 11 | Generate scoped PATs from the CLI with expirations | 25 | Real workflow for CI/scripting. **Cross-category** with `account` (PATs). |
+| 12 | Enable shell tab completion | drop | Generic CLI hygiene, not Tiddly-specific. |
+| 13 | Override API URL or token per-command | drop | Edge case for testing/staging. |
+| 14 | Self-update with `tiddly update` | drop | Auto-check notifier already runs; the command itself is reactive, not proactive. |
+| S1 | Pipe `tiddly export` to `jq` | drop | Generic jq usage; teaches jq more than Tiddly. |
+| S2 | `tiddly skills list --tags ""` | drop | Niche; only relevant during initial skills curation. |
+| S3 | Force file-based credential storage `--keyring=file` | drop | Hidden flag, intentionally. |
+| S4 | Point at staging Auth0 with env vars | drop | Aimed at Tiddly developers. |
+| S5 | `--path` to audit a different project | drop | Narrow audience. |
+| **D1** (draft) | Connect your AI tool to your Tiddly bookmarks and notes | **8** | Workflow tip replacing #1. **Cross-category** with `mcp`, `bookmarks`, `notes`. Primary home `cli` for now; flip to `mcp` at consolidation if that reads better. |
+| **D2** (draft) | Use your Tiddly prompts inside Claude or Codex | **5** | Workflow tip; user flagged "use prompts" as one of the most important workflows. **Cross-category** with `mcp`, `prompts`. |
+
+## Final keepers (preserved details from the agent file, plus drafts)
+
+### D2 — Use your Tiddly prompts inside Claude or Codex — priority 5 (draft) — cross-category: mcp, prompts
+
+The same **Settings → AI Integration** page that connects your bookmarks/notes also lets you call your prompt library from inside your AI assistant. The mechanism varies by tool:
+
+- **Claude Code & Claude Desktop**: prompts arrive via MCP. Type `/<prompt-name>` in Claude Code to invoke a saved prompt; Claude Desktop surfaces them in the prompt selector.
+- **Codex**: doesn't support MCP-style prompt invocation the same way, so prompts get exported as **Agent Skills** via `tiddly skills configure`. Trigger them by name from inside Codex.
+
+Your prompt library becomes a callable function library inside whichever AI assistant you use.
+
+- Tags: workflow | new-user
+- minTier: tbd (verify whether MCP/skills config is gated)
+
+**Refinement notes**:
+- Verify the exact invocation patterns per tool (the Codex story is the load-bearing one).
+- Possibly merge with #7 at consolidation, or keep separate (high-level workflow + command-level command).
+- Decide canonical home: `cli`, `mcp`, or `prompts`.
+
+### D1 — Connect your AI tool to your Tiddly bookmarks and notes — priority 8 (draft) — cross-category: mcp, bookmarks, notes
+
+Open **Settings → AI Integration**, pick your AI tool (Claude Desktop, Claude Code, Codex), and run the command shown. Your AI assistant can then read, search, and edit your bookmarks and notes directly — no copy-paste, no exporting. Ask Claude things like *"find that article I saved about transformers"* or *"fix the typo in my last meeting note"* and it goes straight at your library.
+
+The workflow: **Settings → AI Integration → choose tool → run the displayed `tiddly mcp configure` command → use your AI tool normally.**
+
+- Tags: workflow | new-user
+- minTier: tbd
+
+**Refinement notes**:
+- Possibly merge with #3 at consolidation, or keep separate (D1 = "this is possible and easy"; #3 = "here's the literal command").
+- Sample tasks ("find that article", "fix the typo") are illustrative; refine to the most representative use cases.
+- Decide canonical home: `cli`, `mcp`, `bookmarks`/`notes`.
+
+### #3 — Auto-configure MCP for every detected AI tool in one command — priority 15 — cross-category: mcp
+
+Run `tiddly mcp configure` with no arguments. The CLI auto-detects Claude Desktop, Claude Code, and Codex, creates a dedicated PAT per tool/server, and writes both `tiddly_notes_bookmarks` and `tiddly_prompts` entries. Existing non-CLI-managed entries (e.g. `work_prompts`) are preserved untouched.
+
+- Reference: `cli/cmd/mcp.go:50`
 - Tags: feature | new-user
 
-### Run `tiddly status` for a one-shot health check
-- Description: `tiddly status` prints CLI version, login status, API latency, content counts (bookmarks/notes/prompts fetched in parallel), MCP server config across user and directory scopes, and installed skills — all read-only, no files modified. Use `--path /path/to/project` to inspect a different directory's project-scoped config.
-- Reference: cli/cmd/status.go:25
+### #7 — Sync your prompts as agent skills with `tiddly skills configure` — priority 15 — cross-category: prompts, mcp
+
+Tag prompts with `skill` in Tiddly, then run `tiddly skills configure` to auto-detect Claude Code/Codex/Claude Desktop and write each prompt as a `SKILL.md` file. The agent can then auto-invoke them based on context, or you can call them with `/skill-name` (Claude Code) or `$skill-name` (Codex).
+
+Especially important for Codex, which doesn't support MCP-style prompt invocation — skills are the canonical way to trigger your saved prompts there.
+
+- Reference: `cli/cmd/skills.go:34`
+- Tags: workflow | power-user
+
+### #6 — Export everything to JSON for backup or migration — priority 20
+
+`tiddly export --output backup.json` streams every bookmark, note, and prompt to a single JSON file with low memory use. Use `--types bookmark,note` to scope, or `--include-archived` to grab archived items too. Exports go to stdout by default — pipe straight into `jq` or another tool.
+
+- Reference: `cli/cmd/export.go:13`
+- Tags: workflow | power-user
+
+### #2 — Run `tiddly status` for a one-shot health check — priority 25
+
+`tiddly status` prints CLI version, login status, API latency, content counts (bookmarks/notes/prompts fetched in parallel), MCP server config across user and directory scopes, and installed skills — all read-only, no files modified. Use `--path /path/to/project` to inspect a different directory's project-scoped config.
+
+- Reference: `cli/cmd/status.go:25`
 - Tags: feature | new-user
 
-### Auto-configure MCP for every detected AI tool in one command
-- Description: Run `tiddly mcp configure` with no arguments. The CLI auto-detects Claude Desktop, Claude Code, and Codex, creates a dedicated PAT per tool/server, and writes both `tiddly_notes_bookmarks` and `tiddly_prompts` entries. Existing non-CLI-managed entries (e.g. `work_prompts`) are preserved untouched.
-- Reference: cli/cmd/mcp.go:50; frontend/src/pages/docs/DocsCLIMCP.tsx:20
-- Tags: feature | new-user
+### #8 — Per-directory MCP/skills configuration with `--scope directory` — priority 25
 
-### Preview MCP config changes with `--dry-run`
-- Description: Add `--dry-run` to `tiddly mcp configure` to see the exact diff (entries added, tokens that would be created) without writing any files or hitting the token API. Pair with `--force` to preview an overwrite of a mismatched CLI-managed entry.
-- Reference: cli/cmd/mcp.go:206
+Run `tiddly mcp configure --scope directory` (or the same flag on `skills configure`) inside a project to restrict Tiddly access to that project only. Claude Code writes to `~/.claude.json` under the project key; Codex writes `.codex/config.toml` in the cwd; skills land in `.claude/skills/` or `.agents/skills/`. Useful for keeping work and personal accounts separate.
+
+- Reference: `cli/cmd/mcp.go:207`
 - Tags: feature | power-user
 
-### Authenticate headless environments with `tiddly login --token`
-- Description: Skip the OAuth browser flow in CI/CD or SSH sessions by passing a Personal Access Token: `tiddly login --token bm_xxx`. The CLI validates the `bm_` prefix, verifies against the API, and stores the PAT in the system keyring (or a 0600 file fallback). Generate PATs at tiddly.me/app/settings/tokens.
-- Reference: cli/cmd/login.go:45
+### #11 — Generate scoped PATs from the CLI with expirations — priority 25 — cross-category: account
+
+`tiddly tokens create "CI Pipeline" --expires 90` creates a 90-day PAT and prints it once — copy it immediately. List with `tiddly tokens list`, delete with `tiddly tokens delete <id>`. Token management requires browser-based OAuth login; PAT auth can't manage tokens.
+
+- Reference: `cli/cmd/tokens.go:94`
 - Tags: feature | power-user
 
-### Export everything to JSON for backup or migration
-- Description: `tiddly export --output backup.json` streams every bookmark, note, and prompt to a single JSON file with low memory use. Use `--types bookmark,note` to scope, or `--include-archived` to grab archived items too. Exports go to stdout by default — pipe straight into `jq` or another tool.
-- Reference: cli/cmd/export.go:13
-- Tags: workflow | power-user
+### #4 — Preview MCP config changes with `--dry-run` — priority 35
 
-### Sync your prompts as agent skills with `tiddly skills configure`
-- Description: Tag prompts with `skill` in Tiddly, then run `tiddly skills configure` to auto-detect Claude Code/Codex/Claude Desktop and write each prompt as a `SKILL.md` file. The agent can then auto-invoke them based on context, or you can call them with `/skill-name` (Claude Code) or `$skill-name` (Codex).
-- Reference: cli/cmd/skills.go:34; frontend/src/pages/docs/DocsCLISkills.tsx:28
-- Tags: workflow | power-user
+Add `--dry-run` to `tiddly mcp configure` to see the exact diff (entries added, tokens that would be created) without writing any files or hitting the token API. Pair with `--force` to preview an overwrite of a mismatched CLI-managed entry.
 
-### Per-directory MCP/skills configuration with `--scope directory`
-- Description: Run `tiddly mcp configure --scope directory` (or the same flag on `skills configure`) inside a project to restrict Tiddly access to that project only. Claude Code writes to `~/.claude.json` under the project key; Codex writes `.codex/config.toml` in the cwd; skills land in `.claude/skills/` or `.agents/skills/`. Useful for keeping work and personal accounts separate.
-- Reference: cli/cmd/mcp.go:207; cli/cmd/skills.go:162
+- Reference: `cli/cmd/mcp.go:206`
 - Tags: feature | power-user
 
-### Use `--servers content` or `--servers prompts` to install just one server
-- Description: By default `tiddly mcp configure` installs both servers. Pass `--servers content` for bookmarks/notes only or `--servers prompts` for prompts only. Same flag on `tiddly mcp remove --servers content --delete-tokens` cleans up just one server's PAT.
-- Reference: cli/cmd/mcp.go:209
+### #9 — Use `--servers content` or `--servers prompts` to install just one — priority 35
+
+By default `tiddly mcp configure` installs both servers. Pass `--servers content` for bookmarks/notes only or `--servers prompts` for prompts only. Same flag on `tiddly mcp remove --servers content --delete-tokens` cleans up just one server's PAT.
+
+- Reference: `cli/cmd/mcp.go:209`
 - Tags: feature | power-user
 
-### Revoke MCP tokens cleanly with `tiddly mcp remove --delete-tokens`
-- Description: `tiddly mcp remove claude-code --delete-tokens` deletes the CLI-managed entries from the config and revokes the matching PATs server-side in one step. The CLI warns if a PAT is also referenced by a preserved entry (so you don't unintentionally break a multi-account setup) and notes any orphaned `cli-mcp-*` tokens left behind.
-- Reference: cli/cmd/mcp.go:280
-- Tags: feature | power-user
+## Cross-category tracking
 
-### Generate scoped PATs from the CLI with expirations
-- Description: `tiddly tokens create "CI Pipeline" --expires 90` creates a 90-day PAT and prints it once — copy it immediately. List with `tiddly tokens list`, delete with `tiddly tokens delete <id>`. Token management requires browser-based OAuth login; PAT auth can't manage tokens.
-- Reference: cli/cmd/tokens.go:94
-- Tags: feature | power-user
-
-### Enable shell tab completion
-- Description: Add `source <(tiddly completion zsh)` to your `~/.zshrc` (or the `bash`/`fish` equivalents) for tab-completion of subcommands, flags, and tool names like `claude-code`, `codex`. Cuts down on typos in long commands like `tiddly mcp configure --servers content`.
-- Reference: cli/cmd/completion.go:9
-- Tags: feature | power-user
-
-### Override the API URL or token per-command
-- Description: Every command accepts `--token bm_...` and `--api-url https://...` for one-off overrides without changing your stored credentials. Token resolution order: `--token` flag > `TIDDLY_TOKEN` env > stored PAT > stored OAuth (auto-refreshed). Useful for testing against staging or running as a different user temporarily.
-- Reference: cli/cmd/root.go:130; cli/internal/auth/token_manager.go:36
-- Tags: feature | power-user
-
-### Self-update with `tiddly update`
-- Description: Run `tiddly update` to fetch the latest GitHub release, verify its SHA256 checksum, and atomically replace the running binary. The CLI also runs a non-blocking background update check (≤ once per 24h) and notifies on stderr when a new version exists. Disable with `tiddly config set update_check false` or `TIDDLY_NO_UPDATE_CHECK=1`.
-- Reference: cli/cmd/update.go:14; cli/README.md:184
-- Tags: feature | power-user
-
-## Speculative
-
-### Pipe `tiddly export` to `jq` for ad-hoc queries
-- Description: Because `tiddly export` streams JSON to stdout (with progress suppressed), you can do things like `tiddly export --types bookmark | jq '.bookmarks[] | select(.tags | contains(["read-later"]))'` to script over your library without writing intermediate files.
-- Reference: cli/cmd/export.go:62
-- Tags: workflow | power-user
-- Hesitation: jq usage is generic — tip risks teaching jq instead of Tiddly.
-
-### Use `tiddly skills list --tags ""` to see every prompt as a candidate skill
-- Description: The default `--tags skill` filter only shows prompts you've intentionally marked. Pass `--tags ""` to list every prompt — handy when deciding which existing prompts deserve the `skill` tag for export.
-- Reference: cli/cmd/skills.go:169
-- Tags: feature | power-user
-- Hesitation: Niche; mostly relevant during initial skills curation.
-
-### Force file-based credential storage in headless boxes
-- Description: On VMs, containers, and SSH sessions where the system keyring isn't unlocked, the CLI logs a "keyring unavailable" warning and falls back to `~/.config/tiddly/credentials` at mode 0600. Pass `--keyring=file` to opt into file storage explicitly and silence the warning.
-- Reference: cli/cmd/root.go:79; cli/cmd/login.go:150
-- Tags: feature | power-user
-- Hesitation: The flag is hidden (`MarkHidden("keyring")`) — surfacing it as a tip might be intentional anti-discoverability.
-
-### Point the CLI at staging Auth0 with `TIDDLY_AUTH0_*` env vars
-- Description: Override the OAuth tenant per-invocation: `TIDDLY_AUTH0_DOMAIN=... TIDDLY_AUTH0_CLIENT_ID=... TIDDLY_AUTH0_AUDIENCE=... tiddly login` lets you test against a dev tenant without rebuilding.
-- Reference: cli/README.md:271
-- Tags: feature | power-user
-- Hesitation: Aimed at Tiddly developers, not end users.
-
-### Use `--path` on `status` and `mcp status` to audit a different project
-- Description: Both `tiddly status --path ~/code/work-project` and `tiddly mcp status --path ...` inspect directory-scoped MCP configs without `cd`-ing first. Useful for auditing several projects from one terminal.
-- Reference: cli/cmd/status.go:122; cli/cmd/mcp.go:275
-- Tags: feature | power-user
-- Hesitation: Narrow audience; most users only audit their cwd.
+- `cli:3` ↔ `mcp` — auto-configure MCP. Likely surfaced from a different angle by the `mcp` agent; pick canonical at consolidation.
+- `cli:7` ↔ `prompts` (the `skill` tag is a prompts feature) and ↔ `mcp` (the install destination).
+- `cli:11` ↔ `account` — PATs.
+- `cli:D1` ↔ `mcp`, `bookmarks`, `notes` — high-level integration workflow for content.
+- `cli:D2` ↔ `mcp`, `prompts` — high-level integration workflow for prompts. Top-tier priority per user direction.
