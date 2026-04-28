@@ -251,6 +251,8 @@ If you need scripted access to these, authenticate with an Auth0 session.
 
 ## Keyboard Shortcuts and Tips
 
+A browsable Tips page lives at https://tiddly.me/docs/tips, ranked by editorial priority with filtering by topic and audience and a keyword search. Individual tips can be deep-linked via `https://tiddly.me/docs/tips#tip-<tip-id>`.
+
 ### Navigation
 - `Cmd+Shift+P` (or `Ctrl+Shift+P`): Open command palette for quick search and navigation.
 - `/`: Focus the search bar.

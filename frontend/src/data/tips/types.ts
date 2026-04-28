@@ -45,8 +45,22 @@ export interface Tip {
   title: string
   /** Markdown body — enforced ≤ 500 chars by validation. */
   body: string
-  category: TipCategory
+  /**
+   * Categories the tip belongs to. Non-empty. A tip can claim multiple
+   * categories — e.g. slash commands apply to both `notes` and `prompts`;
+   * paste-URL is both a `bookmarks` tip and a `shortcuts` tip. The /docs/tips
+   * page renders the tip under each section it claims (deliberate duplication
+   * for browsability); empty-state pickers dedupe by id so the same tip never
+   * shows up twice in one list.
+   */
+  categories: TipCategory[]
   audience: TipAudience
+  /**
+   * Global display priority for /docs/tips and similar ranked surfaces.
+   * Lower = higher rank. Tips without a priority sort to the bottom (id asc).
+   * Independent of `starterPriority`, which governs empty-state picking only.
+   */
+  priority?: number
   /**
    * Route prefixes (not glob patterns) where this tip is contextually relevant.
    * A tip with `areas: ['/app/content']` covers `/app/content` and any descendant
@@ -63,7 +77,9 @@ export interface Tip {
   starter?: boolean
   /**
    * Sort priority among starter tips (lower = higher priority).
-   * Required when starter=true; must be unique within each category.
+   * Required when starter=true; must be unique within EACH category the tip
+   * claims (a multi-category starter must not collide with another starter at
+   * the same priority in any of its declared categories).
    */
   starterPriority?: number
 }

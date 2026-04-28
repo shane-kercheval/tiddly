@@ -4,7 +4,10 @@ import { MemoryRouter } from 'react-router-dom'
 import { TipCard } from './TipCard'
 import type { Tip } from '../../data/tips/types'
 
-function renderCard(tip: Tip, variant: 'full' | 'compact'): ReturnType<typeof render> {
+function renderCard(
+  tip: Tip,
+  variant: 'full' | 'compact',
+): ReturnType<typeof render> {
   return render(
     <MemoryRouter>
       <TipCard tip={tip} variant={variant} />
@@ -16,7 +19,7 @@ const baseTip: Tip = {
   id: 'fixture',
   title: 'Save a bookmark by pasting its URL',
   body: 'Copy a URL anywhere on the web, then press `⌘+V`.',
-  category: 'bookmarks',
+  categories: ['bookmarks'],
   audience: 'beginner',
 }
 
@@ -24,14 +27,13 @@ describe('TipCard — full variant', () => {
   it('renders the title and body', () => {
     renderCard(baseTip, 'full')
     expect(screen.getByText(baseTip.title)).toBeInTheDocument()
-    // Body content is rendered (markdown emits paragraph + inline code; substring
-    // match across the prose wrapper is enough for behavior coverage).
     expect(screen.getByText(/Copy a URL anywhere/)).toBeInTheDocument()
   })
 
-  it('renders the category badge', () => {
-    renderCard(baseTip, 'full')
+  it('renders one category badge per declared category', () => {
+    renderCard({ ...baseTip, categories: ['bookmarks', 'shortcuts'] }, 'full')
     expect(screen.getByText('bookmarks')).toBeInTheDocument()
+    expect(screen.getByText('shortcuts')).toBeInTheDocument()
   })
 
   it('renders the audience badge for beginner', () => {
@@ -96,7 +98,7 @@ describe('TipCard — full variant', () => {
           id: 'minimal',
           title: 'Minimal tip',
           body: 'Body text.',
-          category: 'editor',
+          categories: ['editor'],
           audience: 'all',
         },
         'full',
@@ -107,6 +109,11 @@ describe('TipCard — full variant', () => {
   it('exposes a stable hash anchor id matching the tip id', () => {
     const { container } = renderCard(baseTip, 'full')
     expect(container.querySelector('#tip-fixture')).not.toBeNull()
+  })
+
+  it('reserves space for the sticky header via scroll-mt-20 on the container', () => {
+    const { container } = renderCard(baseTip, 'full')
+    expect(container.firstChild).toHaveClass('scroll-mt-20')
   })
 })
 

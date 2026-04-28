@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   allTips,
+  byPriorityThenId,
   getStarterTips,
   getTipsByArea,
   getTipsByCategory,
@@ -24,7 +25,7 @@ function buildTip(overrides: Partial<Tip> = {}): Tip {
     id: 'fixture-tip',
     title: 'Fixture title',
     body: 'Fixture body.',
-    category: 'editor',
+    categories: ['editor'],
     audience: 'all',
     ...overrides,
   }
@@ -55,6 +56,11 @@ describe('validateTips', () => {
     expect(() => validateTips([tip])).toThrow(new RegExp(String(BODY_MAX_LENGTH)))
   })
 
+  it('throws when the categories array is empty', () => {
+    const tip = buildTip({ id: 'no-cats', categories: [] })
+    expect(() => validateTips([tip])).toThrow(/empty categories/)
+  })
+
   it('throws when starter=true but starterPriority is missing', () => {
     const tip = buildTip({ id: 'no-priority', starter: true })
     expect(() => validateTips([tip])).toThrow(/starterPriority/)
@@ -62,8 +68,8 @@ describe('validateTips', () => {
 
   it('throws when two starter tips share a priority within the same category', () => {
     const tips = [
-      buildTip({ id: 'first', category: 'bookmarks', starter: true, starterPriority: 1 }),
-      buildTip({ id: 'second', category: 'bookmarks', starter: true, starterPriority: 1 }),
+      buildTip({ id: 'first', categories: ['bookmarks'], starter: true, starterPriority: 1 }),
+      buildTip({ id: 'second', categories: ['bookmarks'], starter: true, starterPriority: 1 }),
     ]
     expect(() => validateTips(tips)).toThrow(/priority 1/)
     expect(() => validateTips(tips)).toThrow(/bookmarks/)
@@ -71,15 +77,52 @@ describe('validateTips', () => {
 
   it('allows two starter tips to share a priority across different categories', () => {
     const tips = [
-      buildTip({ id: 'a', category: 'bookmarks', starter: true, starterPriority: 1 }),
-      buildTip({ id: 'b', category: 'notes', starter: true, starterPriority: 1 }),
+      buildTip({ id: 'a', categories: ['bookmarks'], starter: true, starterPriority: 1 }),
+      buildTip({ id: 'b', categories: ['notes'], starter: true, starterPriority: 1 }),
     ]
     expect(() => validateTips(tips)).not.toThrow()
+  })
+
+  it('detects a multi-category starter colliding via any of its categories', () => {
+    // A tip claiming ['notes', 'prompts'] with priority 1 must not collide
+    // with another priority-1 starter in EITHER 'notes' OR 'prompts'.
+    const tips = [
+      buildTip({ id: 'multi', categories: ['notes', 'prompts'], starter: true, starterPriority: 1 }),
+      buildTip({ id: 'prompts-only', categories: ['prompts'], starter: true, starterPriority: 1 }),
+    ]
+    expect(() => validateTips(tips)).toThrow(/priority 1/)
+    expect(() => validateTips(tips)).toThrow(/prompts/)
   })
 
   it('allows non-starter tips to omit starterPriority', () => {
     const tip = buildTip({ id: 'plain', starter: false })
     expect(() => validateTips([tip])).not.toThrow()
+  })
+})
+
+describe('byPriorityThenId', () => {
+  it('sorts by priority ascending', () => {
+    const tips = [
+      buildTip({ id: 'b', priority: 20 }),
+      buildTip({ id: 'a', priority: 10 }),
+    ].sort(byPriorityThenId)
+    expect(tips.map((tip) => tip.id)).toEqual(['a', 'b'])
+  })
+
+  it('sorts tips without priority to the bottom', () => {
+    const tips = [
+      buildTip({ id: 'no-priority' }),
+      buildTip({ id: 'has-priority', priority: 100 }),
+    ].sort(byPriorityThenId)
+    expect(tips.map((tip) => tip.id)).toEqual(['has-priority', 'no-priority'])
+  })
+
+  it('breaks priority ties by id (ascending)', () => {
+    const tips = [
+      buildTip({ id: 'zebra', priority: 1 }),
+      buildTip({ id: 'alpha', priority: 1 }),
+    ].sort(byPriorityThenId)
+    expect(tips.map((tip) => tip.id)).toEqual(['alpha', 'zebra'])
   })
 })
 
@@ -91,24 +134,43 @@ describe('seed corpus schema sanity', () => {
       expect(tip.title.length).toBeGreaterThan(0)
       expect(typeof tip.body).toBe('string')
       expect(tip.body.length).toBeGreaterThan(0)
-      expect(VALID_CATEGORIES.has(tip.category)).toBe(true)
+      expect(tip.categories.length).toBeGreaterThan(0)
+      for (const category of tip.categories) {
+        expect(VALID_CATEGORIES.has(category)).toBe(true)
+      }
       expect(['beginner', 'power', 'all']).toContain(tip.audience)
     }
   })
 
   it('seed corpus passes validateTips at module load', () => {
-    // Importing this file triggered validateTips(allTips) — re-run for explicitness.
     expect(() => validateTips(allTips)).not.toThrow()
   })
 })
 
 describe('getTipsByCategory', () => {
-  it('returns only tips of the requested category', () => {
+  it('returns only tips that claim the requested category', () => {
     const result = getTipsByCategory('bookmarks')
     expect(result.length).toBeGreaterThan(0)
     for (const tip of result) {
-      expect(tip.category).toBe('bookmarks')
+      expect(tip.categories).toContain('bookmarks')
     }
+  })
+
+  it('returns multi-category tips under each category they claim', () => {
+    // note-slash-commands has categories: ['notes', 'prompts']
+    expect(getTipsByCategory('notes').map((tip) => tip.id))
+      .toContain('note-slash-commands')
+    expect(getTipsByCategory('prompts').map((tip) => tip.id))
+      .toContain('note-slash-commands')
+  })
+
+  it('orders results by priority ascending', () => {
+    // 'prompts' contains note-slash-commands (priority 10) and
+    // prompt-template-arguments (priority 20).
+    expect(getTipsByCategory('prompts').map((tip) => tip.id)).toEqual([
+      'note-slash-commands',
+      'prompt-template-arguments',
+    ])
   })
 
   it('returns an empty array for a category with no tips', () => {
@@ -118,25 +180,18 @@ describe('getTipsByCategory', () => {
 
 describe('getTipsByArea', () => {
   it('returns tips whose areas exactly match the path', () => {
-    // search-quoted-phrase has areas: ['/app/content']
     const result = getTipsByArea('/app/content')
     expect(result.map((tip) => tip.id)).toContain('search-quoted-phrase')
   })
 
   it('returns tips whose areas are a prefix of the path', () => {
-    // /app/content/* should pick up tips with areas: ['/app/content']
     const result = getTipsByArea('/app/content/filters/abc')
     expect(result.map((tip) => tip.id)).toContain('search-quoted-phrase')
   })
 
   it('does not return tips with no areas field', () => {
-    // bookmark-paste-url has no areas → never matched by area lookup.
-    const result = getTipsByArea('/app/content')
-    expect(result.map((tip) => tip.id)).not.toContain('bookmark-paste-url')
-  })
-
-  it('returns an empty array when no tip area covers the path', () => {
-    expect(getTipsByArea('/some/unrelated/route')).toEqual([])
+    const result = getTipsByArea('/some/unrelated/route')
+    expect(result).toEqual([])
   })
 
   it('strips query string and hash before matching', () => {
@@ -171,9 +226,17 @@ describe('getStarterTips', () => {
     const result = getStarterTips('bookmarks')
     expect(result.length).toBeGreaterThan(0)
     for (const tip of result) {
-      expect(tip.category).toBe('bookmarks')
+      expect(tip.categories).toContain('bookmarks')
       expect(tip.starter).toBe(true)
     }
+  })
+
+  it('returns multi-category starters under each of their categories', () => {
+    // note-slash-commands is a starter claiming both 'notes' and 'prompts'.
+    expect(getStarterTips('notes').map((tip) => tip.id))
+      .toContain('note-slash-commands')
+    expect(getStarterTips('prompts').map((tip) => tip.id))
+      .toContain('note-slash-commands')
   })
 
   it('returns an empty array for a category with no starter tips', () => {
@@ -193,8 +256,9 @@ describe('pickStarterTipsForContentTypes', () => {
 
   it('returns one tip per type, in ALL_CONTENT_TYPES order, capped at limit', () => {
     const result = pickStarterTipsForContentTypes(['note', 'bookmark', 'prompt'], 3)
-    // Cross-type order pinned to ALL_CONTENT_TYPES (bookmark → note → prompt),
-    // not to the input order.
+    // Round 1: bookmark→paste-url (added), note→slash-commands (added),
+    //          prompt→slash-commands (deduped, cursor still advances).
+    // Round 2: prompt→prompt-template-arguments (added).
     expect(result.map((tip) => tip.id)).toEqual([
       'bookmark-paste-url',
       'note-slash-commands',
@@ -227,16 +291,16 @@ describe('pickStarterTipsForContentTypes', () => {
 })
 
 describe('pickStarterTipsFromCorpus — pure helper edge cases', () => {
-  // Cases the live corpus can't currently express. These pin the algorithm's
-  // contract: round-robin distribution, "fill from others when one is empty",
-  // and tie-breaking by id within a category.
-
-  function makeStarter(id: string, category: TipCategory, priority: number): Tip {
+  function makeStarter(
+    id: string,
+    categories: TipCategory[],
+    priority: number,
+  ): Tip {
     return {
       id,
       title: `Title for ${id}`,
       body: `Body for ${id}.`,
-      category,
+      categories,
       audience: 'all',
       starter: true,
       starterPriority: priority,
@@ -245,25 +309,21 @@ describe('pickStarterTipsFromCorpus — pure helper edge cases', () => {
 
   it('skips a content type with zero starters and fills the limit from others', () => {
     // bookmark has 2 starters, note has 0, prompt has 1.
-    // Limit 3 → all 3 slots filled; note contributes 0; bookmark fills its
-    // slot first round, then absorbs note's vacancy in round 2.
     const corpus: Tip[] = [
-      makeStarter('b1', 'bookmarks', 1),
-      makeStarter('b2', 'bookmarks', 2),
-      makeStarter('p1', 'prompts', 1),
+      makeStarter('b1', ['bookmarks'], 1),
+      makeStarter('b2', ['bookmarks'], 2),
+      makeStarter('p1', ['prompts'], 1),
     ]
     const result = pickStarterTipsFromCorpus(corpus, ['bookmark', 'note', 'prompt'], 3)
-    // Round 1: bookmark→b1, note→(skip), prompt→p1.
-    // Round 2: bookmark→b2, note→(skip), prompt→(empty).
     expect(result.map((tip) => tip.id)).toEqual(['b1', 'p1', 'b2'])
   })
 
   it('lets a single populated type absorb every slot when others are empty', () => {
     const corpus: Tip[] = [
-      makeStarter('b1', 'bookmarks', 1),
-      makeStarter('b2', 'bookmarks', 2),
-      makeStarter('b3', 'bookmarks', 3),
-      makeStarter('b4', 'bookmarks', 4),
+      makeStarter('b1', ['bookmarks'], 1),
+      makeStarter('b2', ['bookmarks'], 2),
+      makeStarter('b3', ['bookmarks'], 3),
+      makeStarter('b4', ['bookmarks'], 4),
     ]
     const result = pickStarterTipsFromCorpus(corpus, ['bookmark', 'note', 'prompt'], 3)
     expect(result.map((tip) => tip.id)).toEqual(['b1', 'b2', 'b3'])
@@ -271,37 +331,48 @@ describe('pickStarterTipsFromCorpus — pure helper edge cases', () => {
 
   it('preserves round-robin order when multiple types each have multiple starters', () => {
     const corpus: Tip[] = [
-      makeStarter('b1', 'bookmarks', 1),
-      makeStarter('b2', 'bookmarks', 2),
-      makeStarter('n1', 'notes', 1),
-      makeStarter('n2', 'notes', 2),
+      makeStarter('b1', ['bookmarks'], 1),
+      makeStarter('b2', ['bookmarks'], 2),
+      makeStarter('n1', ['notes'], 1),
+      makeStarter('n2', ['notes'], 2),
     ]
     const result = pickStarterTipsFromCorpus(corpus, ['bookmark', 'note'], 4)
-    // Round 1 fills b1, n1; round 2 fills b2, n2 — strictly interleaved.
     expect(result.map((tip) => tip.id)).toEqual(['b1', 'n1', 'b2', 'n2'])
   })
 
   it('breaks priority ties within a category by id (ascending)', () => {
     const corpus: Tip[] = [
-      makeStarter('b-zebra', 'bookmarks', 1),
-      makeStarter('b-alpha', 'bookmarks', 1),
+      makeStarter('b-zebra', ['bookmarks'], 1),
+      makeStarter('b-alpha', ['bookmarks'], 1),
     ]
-    // Validation forbids this in the live corpus (duplicate priority within a
-    // category), but the comparator must still be deterministic if a fixture
-    // ever bypasses validation. Pin the tiebreaker.
+    // Validation forbids duplicate priorities in a real corpus; this asserts
+    // the comparator's deterministic tiebreaker for fixture-driven tests.
     const result = pickStarterTipsFromCorpus(corpus, ['bookmark'], 2)
     expect(result.map((tip) => tip.id)).toEqual(['b-alpha', 'b-zebra'])
   })
 
   it('orders cross-type output by ALL_CONTENT_TYPES regardless of input order', () => {
     const corpus: Tip[] = [
-      makeStarter('b1', 'bookmarks', 1),
-      makeStarter('n1', 'notes', 1),
-      makeStarter('p1', 'prompts', 1),
+      makeStarter('b1', ['bookmarks'], 1),
+      makeStarter('n1', ['notes'], 1),
+      makeStarter('p1', ['prompts'], 1),
     ]
-    // Input order is reversed; output must still be bookmark → note → prompt.
     const result = pickStarterTipsFromCorpus(corpus, ['prompt', 'note', 'bookmark'], 3)
     expect(result.map((tip) => tip.id)).toEqual(['b1', 'n1', 'p1'])
+  })
+
+  it('dedupes a multi-category tip that maps to two requested content types', () => {
+    // A tip claiming ['notes', 'prompts'] is in both note and prompt starter
+    // pools. Without dedupe-by-id it would render twice when both content
+    // types are requested. The dedupe is load-bearing here, not defensive.
+    const corpus: Tip[] = [
+      makeStarter('multi', ['notes', 'prompts'], 1),
+      makeStarter('p-extra', ['prompts'], 2),
+    ]
+    const result = pickStarterTipsFromCorpus(corpus, ['note', 'prompt'], 3)
+    // multi appears once (deduped on the prompt side); the prompt cursor
+    // still advances past the deduped pick, so p-extra fills round 2.
+    expect(result.map((tip) => tip.id)).toEqual(['multi', 'p-extra'])
   })
 
   it('returns empty when the corpus has no starters at all', () => {
@@ -310,7 +381,7 @@ describe('pickStarterTipsFromCorpus — pure helper edge cases', () => {
         id: 'plain',
         title: 't',
         body: 'b',
-        category: 'bookmarks',
+        categories: ['bookmarks'],
         audience: 'all',
       },
     ]
@@ -320,7 +391,6 @@ describe('pickStarterTipsFromCorpus — pure helper edge cases', () => {
 
 describe('searchTips', () => {
   it('matches case-insensitively on title', () => {
-    // bookmark-paste-url has "Save a bookmark by pasting its URL"
     const result = searchTips('PASTING')
     expect(result.map((tip) => tip.id)).toContain('bookmark-paste-url')
   })

@@ -152,8 +152,21 @@ export interface Tip {
   id: string                    // stable kebab-case slug, unique across all tips
   title: string                 // ≤ 80 chars (enforced by validation)
   body: string                  // markdown, ≤ 500 chars (enforced by validation)
-  category: TipCategory
+  /**
+   * Categories the tip claims. Non-empty. A tip can belong to multiple
+   * categories (e.g. slash commands → ['notes', 'prompts']; paste-URL →
+   * ['bookmarks', 'shortcuts']). /docs/tips renders the tip under each section
+   * it claims (deliberate duplication for browsability); empty-state pickers
+   * dedupe by id.
+   */
+  categories: TipCategory[]
   audience: TipAudience
+  /**
+   * Global display priority for /docs/tips and similar ranked surfaces (lower
+   * = higher rank). Tips without a priority sort to the bottom (id asc).
+   * Independent of `starterPriority`, which only governs empty-state picking.
+   */
+  priority?: number
   /** Route patterns where this tip is contextually relevant */
   areas?: string[]
   /** Keyboard shortcut tokens, if applicable */
@@ -164,7 +177,7 @@ export interface Tip {
   media?: TipMedia
   /** True for the curated new-user starter set; used in empty states */
   starter?: boolean
-  /** Sort priority among starter tips (lower = higher priority). Required when starter=true. */
+  /** Sort priority among starter tips (lower = higher priority). Required when starter=true. Must be unique within EACH category the tip claims. */
   starterPriority?: number
 }
 ```
@@ -172,15 +185,20 @@ export interface Tip {
 2. Create `frontend/src/data/tips/tips.ts` exporting `allTips: Tip[]` (the single source of truth in v1).
 3. Create `frontend/src/data/tips/index.ts` exporting:
    - `allTips` re-export
-   - `getTipsByCategory(cat: TipCategory): Tip[]`
-   - `getTipsByArea(routePath: string): Tip[]` — uses `findMatchingRoute` from `frontend/src/routePrefetch.ts:58` (or a shared `matchPathPrefix` helper if needed) so semantics stay in lockstep with the prefetch system.
-   - `getStarterTips(category?: TipCategory): Tip[]` — returns tips with `starter: true`, sorted by `starterPriority` ascending; with a category arg, scopes to that category.
-   - `pickStarterTipsForContentTypes(types: ContentType[], limit: number = 3): Tip[]` — bridges the `ContentType` taxonomy (`'bookmark' | 'note' | 'prompt'`) used in `AllContent.tsx` to the `TipCategory` taxonomy. Mapping: `bookmark → 'bookmarks'`, `note → 'notes'`, `prompt → 'prompts'`. Iterate `types` in `ALL_CONTENT_TYPES` order (the constant from `frontend/src/stores/contentTypeFilterStore.ts`) so cross-category order is deterministic. Round-robin by ascending `starterPriority` per type, dedupe by `id`, cap at `limit`.
+   - `getTipsByCategory(cat: TipCategory): Tip[]` — returns tips that claim `cat` in their `categories` array, sorted by `byPriorityThenId` (priority asc, id tiebreaker).
+   - `getTipsByArea(routePath: string): Tip[]` — uses a shared `matchPathPrefix` helper (extracted from `frontend/src/routePrefetch.ts`'s `findMatchingRoute`) so the exact-or-longest-prefix algorithm is shared with the prefetch system. The route tables stay separate (the prefetch table lists lazy-loaded chunks; tip `areas` describe contextual relevance).
+   - `getStarterTips(category?: TipCategory): Tip[]` — returns tips with `starter: true`, sorted by `starterPriority` ascending; with a category arg, scopes to starters claiming that category in their `categories` array.
+   - `pickStarterTipsForContentTypes(types: ContentType[], limit: number = 3): Tip[]` — bridges the `ContentType` taxonomy (`'bookmark' | 'note' | 'prompt'`) used in `AllContent.tsx` to the `TipCategory` taxonomy. Mapping: `bookmark → 'bookmarks'`, `note → 'notes'`, `prompt → 'prompts'`. Iterate `types` in `ALL_CONTENT_TYPES` order (the constant from `frontend/src/types.ts`) so cross-category order is deterministic. Round-robin by ascending `starterPriority` per type, **dedupe by `id`** (load-bearing for multi-category tips — see note below), cap at `limit`.
+   - `pickStarterTipsFromCorpus(tips, types, limit)` — pure variant exported for fixture-driven tests.
    - `searchTips(query: string): Tip[]` — substring match on title + body, case-insensitive.
-   - **Validate at module load**:
+   - `byPriorityThenId(left, right): number` — comparator exported for callers (DocsTips section sort) so tips order consistently across surfaces.
+   - **Validate at module load** (via exported `validateTips(tips)` for testability):
      - No two tips share an `id` (throw with the duplicate id).
      - Every tip has `title.length ≤ 80` and `body.length ≤ 500`.
-     - Every tip with `starter: true` has `starterPriority` set; starter priorities are unique within each category.
+     - `categories` is non-empty.
+     - Every tip with `starter: true` has `starterPriority` set; starter priorities are unique within EACH category the tip claims (a multi-category starter must not collide with another starter at the same priority in any of its declared categories).
+
+   **Why dedupe-by-id is load-bearing in `pickStarterTipsForContentTypes`:** with multi-category tips, the same tip can match more than one slice. A tip with `categories: ['notes', 'prompts']` lands in both the `note` and the `prompt` starter pool, so when the user requests both content types the round-robin would otherwise add it twice. The cursor advances even when a candidate is deduped so the algorithm doesn't loop.
 4. Populate `tips.ts` with 3-5 hand-written seed tips drawn from the ticket bullets (e.g., `cmd+click` for new tab, `cmd+click` for multi-cursor, `cmd+d` for multi-edit). These are **gold-standard examples** for future authoring agents.
 
 ## Open questions (resolved during plan revision — listed for traceability)
@@ -190,18 +208,20 @@ export interface Tip {
 
 ## Testing Strategy
 
-- `getTipsByCategory` returns only tips of that category.
-- `getTipsByArea('/app/content/filters/abc')` returns tips whose `areas` cover this path via `findMatchingRoute`. Cover: exact match, prefix match (`/app/content/*` covers `/app/content/filters/abc`), no match, no `areas` field, path with query/hash suffix.
-- `getStarterTips()` returns tips with `starter: true`, **sorted by `starterPriority` ascending**. With a category arg, scopes to that category.
+- `getTipsByCategory` returns tips that claim the requested category in their `categories` array. Multi-category tips appear under each category they claim. Results are sorted by `priority` ascending (id tiebreaker).
+- `getTipsByArea('/app/content/filters/abc')` returns tips whose `areas` cover this path via `matchPathPrefix`. Cover: exact match, prefix match, no match, no `areas` field, path with query/hash suffix.
+- `getStarterTips()` returns tips with `starter: true`, **sorted by `starterPriority` ascending**. With a category arg, scopes to starters claiming that category. Multi-category starters appear under each of their declared categories.
+- `byPriorityThenId` comparator: priority ascending; tips without priority sort to the bottom; ties broken by id.
 - `pickStarterTipsForContentTypes`:
   - Single type → returns starter tips of that mapped category, ordered by `starterPriority`, capped at `limit`.
   - Multi-type → 1 per type, cross-type order pinned to `ALL_CONTENT_TYPES`; ties on `starterPriority` within a type broken by tip `id` ascending. **Test pins exact ids and exact order** so reorderings of `tips.ts` don't silently change UI.
-  - Dedupe: a tip listed under one category is not double-counted if it would also be picked for another.
+  - **Dedupe by id** when a multi-category tip matches more than one requested content type (e.g., a tip with `categories: ['notes', 'prompts']` requested for both `note` and `prompt` content types appears once).
   - Empty starter set for a type → that type contributes zero tips, others fill the limit.
 - `searchTips` is case-insensitive, matches title and body, returns `[]` for empty query.
-- Duplicate-id validation: a tip array with two same-id tips causes module-load validation to throw with a useful message.
+- Duplicate-id validation: a tip array with two same-id tips causes validation to throw with a useful message.
 - Length-ceiling validation: tip with title > 80 or body > 500 chars throws with a useful message.
-- Starter-priority validation: tip with `starter: true` but no `starterPriority` throws; two starter tips in the same category with the same priority throws.
+- Empty-categories validation: tip with `categories: []` throws.
+- Starter-priority validation: tip with `starter: true` but no `starterPriority` throws; two starter tips colliding on priority within ANY claimed category throws (multi-category starters get checked against each declared category).
 - Schema sanity: every seed tip in `tips.ts` has required fields and valid enum values.
 
 ---
@@ -265,37 +285,44 @@ After this milestone:
 
 ## Goal & Outcome
 
-Add a dedicated, browsable, filterable, searchable tips page under the docs section.
+Add a dedicated, browsable, filterable, searchable Tips page under the docs section, rendered as a flat list ranked by global `priority`.
 
 After this milestone:
-- Visiting `/docs/tips` shows the full tip corpus (currently only the M1 seed tips, until M5 is complete).
-- Users can search (substring match on title + body), filter by category, and filter by audience.
-- The page appears in the docs sidebar.
+- Visiting `/docs/tips` shows the full tip corpus (currently only the M1 seed tips, until M5 is complete) ordered by `priority` ascending (lower = higher rank; id tiebreaker).
+- Users can search (substring match on title + body), filter by category (multi-select), and filter by audience (single-select with inclusive matching for `'all'` tips).
+- The page appears in the docs sidebar as "Tips" (top-level, between API and FAQ).
 
 ## Implementation Outline
 
 1. Create `frontend/src/pages/docs/DocsTips.tsx`:
    - Search input (debounced, ~150-200ms — match existing patterns).
-   - Category filter chips using `FilterChip` from `components/ui/`.
-   - Audience filter (single-select, e.g., All / Beginner / Power) — small toggle group.
-   - Renders matching tips using `<TipCard variant="full" />` from M2. The full-variant container already carries `id={\`tip-${tip.id}\`}` (set in M2's `TipCard.tsx`); the docs page just hosts the cards in a list — do not re-wrap.
+   - Category filter chips using `FilterChip` from `components/ui/`. **Multi-select**: empty selection = no filter; a tip matches if ANY of its `categories` ∈ selected set. Chip ordering: content-type categories first (`bookmarks`, `notes`, `prompts`) in `ALL_CONTENT_TYPES` order, then other present categories alphabetical.
+   - Audience filter (single-select: `All` / `Beginner` / `Power user`). **Inclusive matching**: `Beginner` shows `audience: 'beginner'` AND `audience: 'all'` tips because `'all'` semantically means "applies to everyone." Same symmetry for `Power user`.
+   - Flat list of surviving tips ordered by `byPriorityThenId` (priority asc, id tiebreaker; tips without a priority sort to the bottom). Each tip renders exactly once regardless of how many categories it claims.
+   - Renders matching tips using `<TipCard variant="full" />` from M2. The full-variant container carries `id={\`tip-${tip.id}\`}` (set in M2's `TipCard.tsx`) for deep-linking.
    - Empty result handling: show an `EmptyState` if filters/search match nothing.
 2. Add hash-scroll support. There is no existing hash-anchor scroll mechanism in `frontend/src` (verified — no `location.hash` or `scrollIntoView` against hash anywhere; `routePrefetch.ts:60` even strips `#` before matching). Without this, `/docs/tips#tip-<tip-id>` deep-links from M8 (option 3) and M9 ambient callouts will silently land at the top of the page.
 
    **Deep-link convention (locked in M2):** the DOM id is `tip-<tip-id>` to avoid collisions between tip slugs and unrelated page elements. Deep-link URLs must use the prefixed form `/docs/tips#tip-<tip-id>`. M8 / M9 link generators must match this — never emit `/docs/tips#<tip-id>` (no prefix).
-   - Create `frontend/src/hooks/useHashScroll.ts` — small hook that watches `useLocation().hash` and, on change (and on mount), waits for the next tick (or for the rendering of the target element), looks up `document.getElementById(hash.slice(1))`, and calls `.scrollIntoView({ block: 'start' })`.
-   - Account for lazy loading: the docs route lazy-loads via `Suspense`. The hook should only run after the tips array has rendered. Cleanest: `useEffect` that depends on both `location.hash` and `tips.length` (so it runs after the list mounts).
-   - Use the hook inside `DocsTips.tsx`.
+
+   **Sticky-header offset:** `TipCard` (M2) sets `scroll-mt-20` on the full-variant container so `scrollIntoView({ block: 'start' })` lands the title clear of the public header rather than behind it.
+   - Create `frontend/src/hooks/useHashScroll.ts` — small hook that watches `useLocation().hash` and, on change (and on mount), looks up `document.getElementById(hash.slice(1))` and calls `.scrollIntoView({ block: 'start' })`. Silent no-op when no element matches.
+   - Use `[location.hash]` only as the effect dep. Tips are imported synchronously and `useEffect` runs after DOM commit, so the target is in place by the time the lookup fires. Adding `tips.length` as a second dep would re-fire on filter/search changes and steal scroll position.
 3. Register route in `frontend/src/App.tsx`:
    - Lazy import: `const DocsTips = lazy(() => import('./pages/docs/DocsTips').then(m => ({ default: m.DocsTips })))`
-   - Add route entry: `{ path: '/docs/tips', element: <DocsTips /> }`. Place after FAQ/Known Issues alphabetically or where it fits the sidebar order.
-4. Register sidebar entry in `frontend/src/components/DocsLayout.tsx` (entry around lines 19-50; pattern: `{ label: 'Tips & Tricks', path: '/docs/tips' }`).
-5. Update `frontend/public/llms.txt` to include the new docs page.
+   - Add route entry: `{ path: '/docs/tips', element: <DocsTips /> }` between `/docs/api` and `/docs/faq`.
+4. Register sidebar entry in `frontend/src/components/DocsLayout.tsx`: `{ label: 'Tips', path: '/docs/tips' }` as a top-level entry between API and FAQ.
+5. Add `/docs/tips` to `frontend/src/routePrefetch.ts` so PrefetchLink/hover prefetches the chunk. (Also unblocks future `relatedDocs` paths pointing at `/docs/tips#tip-…` to resolve via M5's `findMatchingRoute` corpus check.)
+6. Update `frontend/public/llms.txt` with a brief blurb describing the page and the deep-link form.
 
 ## Open questions
 
-- Should category filter be a single-select or multi-select? Recommend multi-select (matches the existing `FilterChip` ergonomics on the content list).
-- Where in the docs sidebar should "Tips & Tricks" sit? Recommend right after "Keyboard Shortcuts" under Features, or as its own top-level entry near FAQ. Defer to user.
+(All resolved during M3 implementation — listed here for traceability.)
+
+- **Sidebar placement:** top-level "Tips" between API and FAQ. Top-level co-locates with discovery-aid pages (FAQ, Known Issues) rather than feature reference docs.
+- **Category filter:** multi-select (matches existing `FilterChip` ergonomics).
+- **Audience filter inclusive matching:** confirmed — `'all'` tips show under any narrow audience filter.
+- **Sectioned vs flat layout:** flat, ranked globally by `priority`. Sections were considered but felt visually heavy at the v1 corpus size; a flat priority-ranked list lets the highest-value tips lead the page regardless of category. Multi-category tips render once.
 
 ## Testing Strategy
 

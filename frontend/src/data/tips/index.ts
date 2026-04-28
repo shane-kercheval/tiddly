@@ -32,7 +32,9 @@ const CONTENT_TYPE_TO_CATEGORY: Record<ContentType, TipCategory> = {
  */
 export function validateTips(tips: readonly Tip[]): void {
   const seenIds = new Set<string>()
-  // category → priority → first id seen at that priority.
+  // category → priority → first id seen at that priority. Each tip's
+  // starterPriority must be unique within EVERY category it claims, so
+  // multi-category starters get checked once per declared category.
   const starterPriorityByCategory = new Map<TipCategory, Map<number, string>>()
 
   for (const tip of tips) {
@@ -53,25 +55,31 @@ export function validateTips(tips: readonly Tip[]): void {
       )
     }
 
+    if (tip.categories.length === 0) {
+      throw new Error(`Tip "${tip.id}" has an empty categories array.`)
+    }
+
     if (tip.starter === true) {
       if (tip.starterPriority === undefined) {
         throw new Error(
           `Tip "${tip.id}" is marked starter but has no starterPriority.`,
         )
       }
-      let prioritiesForCategory = starterPriorityByCategory.get(tip.category)
-      if (prioritiesForCategory === undefined) {
-        prioritiesForCategory = new Map()
-        starterPriorityByCategory.set(tip.category, prioritiesForCategory)
+      for (const category of tip.categories) {
+        let prioritiesForCategory = starterPriorityByCategory.get(category)
+        if (prioritiesForCategory === undefined) {
+          prioritiesForCategory = new Map()
+          starterPriorityByCategory.set(category, prioritiesForCategory)
+        }
+        const collidingId = prioritiesForCategory.get(tip.starterPriority)
+        if (collidingId !== undefined) {
+          throw new Error(
+            `Starter priority ${tip.starterPriority} is duplicated within category "${category}" `
+            + `(tips "${collidingId}" and "${tip.id}").`,
+          )
+        }
+        prioritiesForCategory.set(tip.starterPriority, tip.id)
       }
-      const collidingId = prioritiesForCategory.get(tip.starterPriority)
-      if (collidingId !== undefined) {
-        throw new Error(
-          `Starter priority ${tip.starterPriority} is duplicated within category "${tip.category}" `
-          + `(tips "${collidingId}" and "${tip.id}").`,
-        )
-      }
-      prioritiesForCategory.set(tip.starterPriority, tip.id)
     }
   }
 }
@@ -79,9 +87,15 @@ export function validateTips(tips: readonly Tip[]): void {
 // Run at module load — surfaces invalid corpus state on import, not at runtime.
 validateTips(allTips)
 
-/** Return tips in the given category, in their corpus order. */
+/**
+ * Return tips that claim the given category, sorted by display priority
+ * (lower = higher rank), tied by id ascending. Tips without a `priority` sort
+ * to the bottom.
+ */
 export function getTipsByCategory(category: TipCategory): Tip[] {
-  return allTips.filter((tip) => tip.category === category)
+  return allTips
+    .filter((tip) => tip.categories.includes(category))
+    .sort(byPriorityThenId)
 }
 
 /**
@@ -96,11 +110,13 @@ export function getTipsByArea(routePath: string): Tip[] {
 
 /**
  * Return starter tips, sorted by `starterPriority` ascending. With a category
- * argument, scoped to that category.
+ * argument, scoped to starters claiming that category.
  */
 export function getStarterTips(category?: TipCategory): Tip[] {
   const starters = allTips.filter(
-    (tip) => tip.starter === true && (category === undefined || tip.category === category),
+    (tip) =>
+      tip.starter === true
+      && (category === undefined || tip.categories.includes(category)),
   )
   return [...starters].sort(byStarterPriorityThenId)
 }
@@ -112,7 +128,7 @@ export function getStarterTips(category?: TipCategory): Tip[] {
  * Mapping: bookmark→bookmarks, note→notes, prompt→prompts. Iteration order
  * across types is pinned to `ALL_CONTENT_TYPES` so cross-category UI order is
  * stable. Round-robin draws one starter tip per type per round, breaking
- * priority ties by tip id (ascending), and capping at `limit`.
+ * priority ties by tip id (ascending), deduping by id, and capping at `limit`.
  *
  * When a requested type has fewer starters than its share of the limit, the
  * remaining slots are filled from other types' remaining starters (rather than
@@ -143,20 +159,24 @@ export function pickStarterTipsFromCorpus(
   const requested = new Set(types)
   const orderedTypes = ALL_CONTENT_TYPES.filter((type) => requested.has(type))
 
-  // Sorted starter tips per category (priority asc, then id asc).
+  // Sorted starter tips per category (priority asc, then id asc). With
+  // multi-category tips, the same tip can appear in more than one list — e.g.
+  // a tip with categories ['notes', 'prompts'] appears in both note and prompt
+  // starters. The id-dedupe in the round-robin loop below collapses repeats.
   const startersByType = new Map<ContentType, Tip[]>()
   for (const type of orderedTypes) {
     const category = CONTENT_TYPE_TO_CATEGORY[type]
     const starters = tips
-      .filter((tip) => tip.starter === true && tip.category === category)
+      .filter((tip) => tip.starter === true && tip.categories.includes(category))
       .sort(byStarterPriorityThenId)
     startersByType.set(type, starters)
   }
 
   // Round-robin: each round, take the next remaining starter from each type.
-  // When a type's cursor passes its end, that type contributes nothing this round
-  // and onwards — the loop continues until limit is reached or no type advances.
+  // The cursor advances even when a candidate is deduped so a multi-category
+  // tip doesn't keep blocking the same slot across rounds.
   const picked: Tip[] = []
+  const seenIds = new Set<string>()
   const cursors = new Map<ContentType, number>(orderedTypes.map((type) => [type, 0]))
 
   let progressed = true
@@ -167,9 +187,12 @@ export function pickStarterTipsFromCorpus(
       const starters = startersByType.get(type)!
       const cursor = cursors.get(type)!
       if (cursor >= starters.length) continue
-      picked.push(starters[cursor])
+      const candidate = starters[cursor]
       cursors.set(type, cursor + 1)
       progressed = true
+      if (seenIds.has(candidate.id)) continue
+      picked.push(candidate)
+      seenIds.add(candidate.id)
     }
   }
 
@@ -188,6 +211,17 @@ export function searchTips(query: string): Tip[] {
     (tip) =>
       tip.title.toLowerCase().includes(needle) || tip.body.toLowerCase().includes(needle),
   )
+}
+
+/**
+ * Compare tips by display priority (lower rank first), tied by id ascending.
+ * Tips without `priority` sort after those with one. Safe for any tip array.
+ */
+export function byPriorityThenId(left: Tip, right: Tip): number {
+  const leftPriority = left.priority ?? Number.POSITIVE_INFINITY
+  const rightPriority = right.priority ?? Number.POSITIVE_INFINITY
+  if (leftPriority !== rightPriority) return leftPriority - rightPriority
+  return left.id.localeCompare(right.id)
 }
 
 // Callers must pre-filter to `starter === true`. validateTips guarantees those

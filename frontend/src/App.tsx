@@ -50,6 +50,7 @@ const DocsShortcuts = lazy(() => import('./pages/docs/DocsShortcuts').then(m => 
 const DocsAIFeatures = lazy(() => import('./pages/docs/DocsAIFeatures').then(m => ({ default: m.DocsAIFeatures })))
 const DocsFAQ = lazy(() => import('./pages/docs/DocsFAQ').then(m => ({ default: m.DocsFAQ })))
 const DocsKnownIssues = lazy(() => import('./pages/docs/DocsKnownIssues').then(m => ({ default: m.DocsKnownIssues })))
+const DocsTips = lazy(() => import('./pages/docs/DocsTips').then(m => ({ default: m.DocsTips })))
 
 // Lazy-loaded public pages
 const FeaturesPage = lazy(() => import('./pages/FeaturesPage').then(m => ({ default: m.FeaturesPage })))
@@ -109,6 +110,7 @@ const router = createBrowserRouter([
           { path: '/docs/extensions/chrome', element: <DocsExtensionsChrome /> },
           { path: '/docs/extensions/safari', element: <DocsExtensionsSafari /> },
           { path: '/docs/api', element: <DocsAPI /> },
+          { path: '/docs/tips', element: <DocsTips /> },
           { path: '/docs/faq', element: <DocsFAQ /> },
           { path: '/docs/known-issues', element: <DocsKnownIssues /> },
         ],
