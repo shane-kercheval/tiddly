@@ -86,6 +86,29 @@ The actually-useful universe of MCP-visible tips is therefore much smaller than 
 - A lighter approach: when an authored tip is genuinely a cross-tool agent-workflow (like `bookmarks:D1`), append a one-paragraph version of it to `backend/src/mcp_server/instructions.md` directly. No schema changes, no new tools — just hand-curate the agent-facing instruction set.
 - Revisit if the tips corpus grows past v1 and accumulates a meaningful number of agent-cross-tool workflows.
 
+### 3. Verify tips that claim API/Jinja behavior via unit tests
+
+**Discovered in:** `docs/implementation_plans/2026-04-25-user-education-tip-candidates-prompts.md` — multiple tips claim Jinja2 features working through the API → template-renderer pipeline (`| default()` filter, `{% for %}` over list-typed arguments, `{# #}` comments, `{%- if %}` whitespace control).
+
+**Why this matters:** vanilla Jinja2 has rich features, but Tiddly's prompt rendering goes through the API → backend template renderer → optional MCP path. A tip that describes vanilla-Jinja behavior may not actually work end-to-end if:
+
+- The argument schema doesn't express the type the tip implies (e.g. lists vs strings).
+- The renderer is configured with restricted filters/extensions.
+- The API serializes argument values in a way that strips structure before the renderer sees them.
+
+We risk authoring tips that "work in our heads" but break for users.
+
+**Action (M5 prerequisite):** before authoring any tip that depends on a specific Jinja feature working through the API, write a unit test that exercises the full pipeline. Suggested location: `backend/tests/services/test_template_renderer.py` for renderer-level claims, `backend/tests/api/test_prompts.py` for API-end claims, and an MCP-path test if the tip implies MCP-side behavior.
+
+**Tips currently flagged as needing verification:**
+
+- `prompts:2` — `{%- if %}` whitespace stripping
+- `prompts:6` — Jinja filters (`| default`, `| upper`, `| join`) through the API render path
+- `prompts:10` — `{# #}` comments stripped on render
+- `prompts:13` — `{% for %}` loop over a list-typed argument (highest-risk: argument schema may not currently express list types)
+
+**General principle to fold into M5:** the authoring agent should not write a tip claiming API-or-template behavior unless a unit test exists that confirms the behavior. If verification reveals the claim doesn't hold, the tip is dropped or reframed.
+
 ## Validated assumptions
 
 The following were verified by reading code before drafting this plan. The agent should re-verify any specific detail before depending on it:
