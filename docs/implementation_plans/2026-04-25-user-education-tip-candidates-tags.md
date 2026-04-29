@@ -1,99 +1,60 @@
-# Tip candidates — tags
+# Tip candidates — tags (reviewed)
 
-## Strong candidates (strongest first)
+Status: reviewed against the brief criteria. `drop` = exclude. `dup` = already covered by an existing seed tip or another category. Priority is a best-guess rank (lower = higher rank); will be re-calibrated at consolidation. `#` numbers match the original agent file's order; `S#` = item from the agent's Speculative section.
 
-### Click any tag on a card to filter by it
-- Description: Tags rendered on bookmark, note, and prompt cards are clickable — clicking adds the tag to the current view's tag filter (with autocomplete suggestions still available for stacking more). Faster than opening the filter input.
-- Reference: frontend/src/components/Tag.tsx:42, frontend/src/components/BookmarkCard.tsx:36, frontend/src/components/ContentCard/ContentCardTags.tsx:28
-- Tags: feature | new-user
+## Decisions
 
-### Tags are shared across bookmarks, notes, and prompts
-- Description: There is one global tag namespace. A tag named `python` on a bookmark is the same tag as `python` on a note or prompt — autocomplete and filters reflect the union.
-- Reference: frontend/src/pages/docs/DocsTagsFilters.tsx:18, frontend/src/stores/tagsStore.ts:36
-- Tags: feature | new-user
+| # | Tip | Priority | Notes |
+|---|---|---|---|
+| 1 | Click any tag on a card to filter by it | 20 | Real proactive workflow — high-discoverability win for new users. |
+| 2 | Tags are shared across bookmarks, notes, and prompts | drop | Foundational mental model; obvious from Settings page and docs. Same family as `filters:3` (dropped). |
+| 3 | Renaming a tag rewrites it everywhere | 15 | Strong power-user feature — bulk rename / consolidate. Hidden in Settings. |
+| 4 | Toggle tag filters between Match all / Match any | drop | Toggle visible in UI when ≥2 tags selected. Same as `search:10` dropped. |
+| 5 | Tag filters are remembered per view | drop | Auto-behavior; users don't act on it. |
+| 6 | Comma adds a tag without leaving the input | 30 | Real proactive efficiency tip — many users press Enter then click +tag. |
+| 7 | Tab-to-complete in tag filter input | drop | Bordering on universal autocomplete convention. |
+| 8 | Tags inherit from saved filter you're viewing | drop | Auto-behavior; consistent with `bookmarks:6`, `notes:15`, `filters:4` dropped. |
+| 9 | Pro: AI suggests tags as you edit | dup | `ai:1` (priority 30). |
+| 10 | Tag autocomplete shows usage counts | drop | Auto-display; same as `filters:11` dropped. |
+| 11 | Tag format enforced: lowercase, numbers, hyphens | drop | Validation; auto-normalized as you type. |
+| 12 | Settings → Tags surfaces inactive tags for cleanup | drop | Already explained on the Settings page; same as `docs-sweep:29` dropped. |
+| 13 | A tag used in a saved filter blocks delete | drop | Auto / defensive; same as `filters:12` dropped. |
+| 14 | Sort tags by usage in Settings to find favorites | 30 | Real proactive workflow — promote frequently-used tags to saved filters. |
+| S1 | Backspace removes the last tag | drop | Standard chip-input idiom. |
+| S2 | Tag filter selections persist via URL | drop | Agent's own verification overhead. |
+| S3 | Filter by tag from command palette | drop | Niche; palette-internal. |
+| S4 | Suggested tags exclude what's already on the item | drop | Basic UI affordance. |
 
-### Renaming a tag rewrites it everywhere
-- Description: From Settings > Tags, renaming a tag updates it across every bookmark, note, prompt, saved filter, and active filter view in one operation. Use this to consolidate `js` and `javascript` instead of editing items one by one.
-- Reference: frontend/src/pages/settings/SettingsTags.tsx:269, frontend/src/stores/tagFilterStore.ts:103
+## Final keepers (preserved details from the agent file)
+
+### #3 — Renaming a tag rewrites it everywhere — priority 15
+
+From Settings → Tags, renaming a tag updates it across every bookmark, note, prompt, saved filter, and active filter view in one operation. Use this to consolidate `js` and `javascript` instead of editing items one by one.
+
+- Reference: `frontend/src/pages/settings/SettingsTags.tsx:269`
 - Tags: workflow | power-user
 
-### Toggle tag filters between Match all and Match any
-- Description: When two or more tags are filtered, a Match all / Match any selector appears next to the chips. Match all narrows (must have every tag); Match any broadens (has at least one). Per-view — different views remember different modes.
-- Reference: frontend/src/components/ui/SelectedTagsDisplay.tsx:54, frontend/src/stores/tagFilterStore.ts:80
+### #1 — Click any tag on a card to filter by it — priority 20
+
+Tags rendered on bookmark, note, and prompt cards are clickable — clicking adds the tag to the current view's tag filter (with autocomplete suggestions still available for stacking more). Faster than opening the filter input.
+
+- Reference: `frontend/src/components/Tag.tsx:42`
 - Tags: feature | new-user
 
-### Tag filters are remembered per view
-- Description: All Content, Archived, each saved filter, and even the command palette each keep their own tag selection and match mode. Switching between views doesn't clobber the tags you had selected somewhere else.
-- Reference: frontend/src/stores/tagFilterStore.ts:13, frontend/src/pages/AllContent.tsx:151
+### #6 — Comma adds a tag without leaving the input — priority 30
+
+When inline-editing tags on a note, bookmark, or prompt, press `,` (or Enter) to commit the current tag and keep the input open for the next one. Backspace on an empty input removes the previous tag.
+
+- Reference: `frontend/src/components/InlineEditableTags.tsx:203`
 - Tags: feature | power-user
 
-### Comma adds a tag without leaving the input
-- Description: When inline-editing tags on a note, bookmark, or prompt, press `,` (or Enter) to commit the current tag and keep the input open for the next one. Backspace on an empty input removes the previous tag.
-- Reference: frontend/src/components/InlineEditableTags.tsx:203, frontend/src/components/InlineEditableTags.tsx:229
-- Tags: feature | power-user
+### #14 — Sort tags by usage in Settings to find favorites — priority 30
 
-### Tab-to-complete in the tag filter input
-- Description: In the tag filter input, pressing Tab while suggestions are open commits the top suggestion and keeps the input focused so you can immediately add another. Enter on a single-match list also auto-selects.
-- Reference: frontend/src/components/TagFilterInput.tsx:91, frontend/src/components/TagFilterInput.tsx:87
-- Tags: feature | power-user
+The Settings → Tags sort dropdown supports Count desc/asc in addition to Name. Sort by Count desc to see your most-used tags first — useful for deciding which tags to promote to saved filters.
 
-### Tags inherit from the saved filter you're viewing
-- Description: Creating a new bookmark, note, or prompt while viewing a saved filter pre-fills the new item's tags from the filter's first AND-group. Saving inside `python AND tutorial` starts you with both tags applied.
-- Reference: frontend/src/utils.ts:350, frontend/src/components/Note.tsx:177, frontend/src/components/Prompt.tsx:226
+- Reference: `frontend/src/pages/settings/SettingsTags.tsx:370`
 - Tags: workflow | power-user
 
-### Pro: AI suggests tags as you edit
-- Description: On Pro, the tag dropdown shows two columns: AI Suggestions on the left (relevant to the current item's content) and Your Tags on the right. Arrow keys walk both columns; Enter adds the highlighted tag.
-- Reference: frontend/src/components/InlineEditableTags.tsx:310, frontend/src/components/AddTagButton.tsx:288
-- Tags: feature | new-user
+## Cross-category tracking
 
-### Tag autocomplete shows usage counts
-- Description: The number next to each tag suggestion is how many items already use it. Useful for picking the canonical spelling — prefer the one with 47 items over the typo with 1.
-- Reference: frontend/src/components/TagFilterInput.tsx:148, frontend/src/components/AddTagButton.tsx:361
-- Tags: feature | power-user
-
-### Tag format is enforced: lowercase, numbers, hyphens
-- Description: Tags are auto-normalized to lowercase and underscores become hyphens (`Machine_Learning` -> `machine-learning`). Anything else is rejected with an inline error. Plan tag names accordingly.
-- Reference: frontend/src/utils.ts:281, frontend/src/utils.ts:302
-- Tags: feature | new-user
-
-### Settings > Tags surfaces inactive tags for cleanup
-- Description: The Tags settings page splits Active Tags from Inactive Tags. Inactive tags appear when their only items are archived or trashed — a quick way to spot orphans and decide whether to delete or restore content.
-- Reference: frontend/src/pages/settings/SettingsTags.tsx:444, frontend/src/pages/settings/SettingsTags.tsx:38
-- Tags: feature | power-user
-
-### A tag used in a saved filter blocks delete
-- Description: Deleting a tag fails if any saved filter references it; the toast lists the blocking filters. Edit those filters first (or rename the tag), then re-try the delete.
-- Reference: frontend/src/pages/settings/SettingsTags.tsx:312
-- Tags: feature | power-user
-
-### Sort tags by usage in Settings to find favorites
-- Description: The Settings > Tags sort dropdown supports Count desc/asc in addition to Name. Sort by Count desc to see your most-used tags first — useful for deciding which tags to promote to saved filters.
-- Reference: frontend/src/pages/settings/SettingsTags.tsx:370, frontend/src/utils.ts:320
-- Tags: workflow | power-user
-
-## Speculative
-
-### Backspace removes the last tag
-- Description: With the inline tag input focused and empty, pressing Backspace removes the last tag on the item. Faster than reaching for the X button.
-- Reference: frontend/src/components/InlineEditableTags.tsx:229
-- Tags: feature | power-user
-- Hesitation: Standard chip-input idiom — many users already expect it.
-
-### Tag filter selections persist across page reloads via URL
-- Description: Selected tags and match mode round-trip through query parameters, so a tag-filtered view is shareable and bookmarkable.
-- Reference: frontend/src/pages/AllContent.tsx:253, frontend/src/hooks/useContentUrlParams.ts
-- Tags: workflow | power-user
-- Hesitation: Couldn't fully confirm whether tag state lives in URL params vs. just store; needs verification before publishing.
-
-### Filter by tag from the command palette
-- Description: The command palette has its own tag filter — narrow palette results by tag without leaving the keyboard, independent of any open page's filters.
-- Reference: frontend/src/components/CommandPalette.tsx:436, frontend/src/components/CommandPalette.tsx:97
-- Tags: workflow | power-user
-- Hesitation: Overlaps with broader command-palette tips; may belong in a palette category instead.
-
-### Suggested tags exclude what's already on the item
-- Description: The autocomplete dropdown automatically hides tags already applied to the current item, so you never see noisy duplicates while typing.
-- Reference: frontend/src/components/AddTagButton.tsx:88, frontend/src/hooks/useTagAutocomplete.ts:98
-- Tags: feature | new-user
-- Hesitation: Borderline "basic UI affordance" — users may not need this called out.
+- `tags:9` ↔ `ai:1` — AI suggests tags as you edit. `ai:1` is canonical.
