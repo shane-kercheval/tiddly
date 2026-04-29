@@ -65,28 +65,26 @@ These are architectural / system-level changes that surfaced while reviewing the
 
 ### 2. MCP-consumability of tips
 
-**Discovered in:** `docs/implementation_plans/2026-04-25-user-education-tip-candidates-bookmarks.md` (item D1 — "have Claude write a search-optimized summary back into your bookmark") and adjacent thinking on the bookmarks/MCP overlap.
+**Discovered in:** `docs/implementation_plans/2026-04-25-user-education-tip-candidates-bookmarks.md` (item D1 — "have Claude write a search-optimized summary back into your bookmark"). Substantially narrowed during the `mcp` category review.
 
-**Why this matters:** Some tips describe workflows the *agent* would execute on the user's behalf, not the user's own keyboard/UI actions. Surfacing those via MCP would turn the tips corpus into a small library of "things Claude can do for you with this product." But: most tips (keyboard shortcuts, UI affordances) are human-only and would be noise to an agent.
+**Why this matters:** Some tips describe workflows the *agent* would execute on the user's behalf, not the user's own keyboard/UI actions. Initial framing was that surfacing those via MCP would turn the tips corpus into a small library of "things Claude can do for you with this product."
 
-**Two design dimensions to decide:**
+**Narrowed conclusion (after `mcp` category review):** The candidate agent-instruction tips that surfaced from the `mcp` category review (use `get_context` first, prefer `edit_content`, optimistic-locking semantics, tag replacement vs append, etc.) are *already* in the MCP server's `instructions.md` and per-tool descriptions in `tools.yaml`. The agent receives all of this at session start. So:
 
-1. **Schema flag for which surfaces a tip applies to.** Options:
-   - `mcpVisible?: boolean` — simplest; declarative; defaults `undefined` = not visible to MCP.
-   - Extend the `audience` enum with `'agent'` — conflates audience semantics with consumer surface; not great.
-   - `surfaces?: ('docs' | 'palette' | 'empty-state' | 'mcp')[]` — most flexible, lets a single tip explicitly opt into multiple surfaces. Probably the right long-term shape but more upfront work.
+- Adding those tips to `/docs/tips` is wasted effort — users don't read agent-instruction prose.
+- Surfacing them via a `list_tips` MCP tool would duplicate what the agent already has, while bloating its context budget and degrading performance.
 
-2. **MCP exposure mechanism.** Options:
-   - **New dedicated tool** `list_tips(category?, query?)` returning agent-relevant tips. Clean separate concern. Adds one tool to the MCP surface.
-   - **Bundle into existing `get_context`** — no new tool, but bloats the context return and forces every session to pay for tips even when not relevant.
-   - **Dedicated MCP "guidance" namespace** — future-looking; overkill for v1.
+The actually-useful universe of MCP-visible tips is therefore much smaller than expected — limited to:
 
-**Lean:** `mcpVisible?: boolean` + a new `list_tips` MCP tool. Cheaper to migrate to a richer `surfaces` shape later if needed.
+1. **Tips that aren't in the MCP server's existing instructions/descriptions.** Anything the agent already knows is dead weight to publish again.
+2. **Cross-tool workflows that span multiple features and that no individual tool description captures.** E.g., the bookmarks `D1` tip ("ask Claude to fetch the URL, summarize, save back via update_item") combines `get_item` + URL fetch + `update_item` — no single tool description describes the full flow.
+3. **Tiddly-content-model nuances** (e.g., interactions between archived state and search visibility) that aren't tied to one tool.
 
-**Open questions:**
+**Decision implication:**
 
-- Should the agent-facing tip body be the same Markdown as the human-facing one, or do agent tips warrant a separate `agentBody` for instruction-style phrasing?
-- Are MCP tips returned by category, by relevance to the agent's current task, or all-at-once? `list_tips(category?)` punts on this; the agent decides what to ask for.
+- A dedicated `mcpVisible?: boolean` field + new `list_tips` MCP tool is **probably overkill for v1.** The candidate set is small, and the schema/tool work is non-trivial.
+- A lighter approach: when an authored tip is genuinely a cross-tool agent-workflow (like `bookmarks:D1`), append a one-paragraph version of it to `backend/src/mcp_server/instructions.md` directly. No schema changes, no new tools — just hand-curate the agent-facing instruction set.
+- Revisit if the tips corpus grows past v1 and accumulates a meaningful number of agent-cross-tool workflows.
 
 ## Validated assumptions
 
