@@ -89,6 +89,24 @@ With exact cosine confirmed as the design:
 - **M5 "Vector-search session settings" subsection (`SET LOCAL hnsw.iterative_scan = strict_order`, `hnsw.ef_search`, `hnsw.max_scan_tuples`, autocommit checks, transaction-contract guards):** these apply only to HNSW iterative scan. With exact cosine, `vector_search()` is a plain SELECT — no `SET LOCAL` requirements. Drop those instructions when implementing M5.
 - **No partitioning machinery needed.** Drop the conftest partition DDL mirror, the `env.py` autogenerate hook, the per-partition HNSW index loop. None of this is in the landed migration today; we just don't add it.
 
+### Open questions / unresolved items
+
+Items raised during planning and benchmarking that **aren't decided yet** and aren't blocking M2/M3/M4 implementation, but should be answered before the embedding pipeline ships to production. Listed for future agents to dig into:
+
+1. **Production cost forecast.** What will the production vector-DB Postgres + always-on embedding worker actually cost per month at year-1 and year-2 user scale? Railway bills per-second on actual usage rather than max replica capacity, so the answer depends on real workload patterns (idle vs. burst hours, peak concurrency, etc.) — not just the replica tier sizing. **The right way to settle this is to provision the tuned vector-DB Postgres in the production Railway project for a week or two, watch the actual bill, and extrapolate.** Paper estimates are unreliable. Flag because production budget owners will want this number before approving the deploy.
+
+2. **AI chat search fan-out as a concurrency multiplier.** The Phase 0 concurrency wall analysis modeled ~30 active users at peak (year-1 expected). If/when AI chat ships and uses the search endpoint internally for context-gathering, each AI conversation can issue 3–5 search queries per user message — multiplying effective concurrency. The current plan does not model this. Question for whoever's designing AI chat: how many search queries per AI message, and what's the expected concurrent-AI-conversation peak? That number, multiplied, is the load the search system actually has to handle. May materially affect whether the benchmarked Postgres tier has enough headroom.
+
+3. **Chunks-per-user cap mechanism (recency archival or similar) — concrete UX questions.** The decision was made to cap chunks per user (target: keep users within Super Power range, ~150K chunks) so that exact cosine search remains workable for the heaviest users without measuring Reasonable Max. But "cap users" is a feature that has to be built. Open questions:
+   - At what threshold does the cap engage? Is it a hard cap, a soft cap with warnings, or background archival when approaching the limit?
+   - What's the user-facing UX when an item ages out of search? Do they get notified? Can they pin items?
+   - Manual archival or automatic background job? What's the trigger — chunk count, age, last-used-at?
+   - When does this feature get built relative to the embedding pipeline shipping? If after, the first heavy users could push past the workable range before the cap is in place.
+
+4. **Production Postgres tier verification.** The benchmark validated 32 vCPU / 32 GB Pro replica. The actual production Postgres for `bookmarks` may currently be provisioned at a smaller tier (the team has not verified, and the benchmark wasn't authorized to inspect production directly). If smaller, an upgrade is needed before the embedding pipeline can ship — with cost implications, downtime considerations, and potential need to re-validate the benchmarked tuning at the actual production size.
+
+5. **Bookmark scraping HTML structure.** Documented above as an observation — 47/70 (67%) of scraped bookmarks come through as one paragraph because the scraping pipeline doesn't preserve `<p>`/`<li>`/`<h*>` as `\n\n` separators. Flagged as a quality concern (not a chunk-count concern) for semantic search. Open question: should this be fixed in the scraping pipeline before semantic search ships, or after? If after, early users get worse search recall on bookmarks.
+
 ## Chunk-count distribution from real user data (sampled 2026-04-26)
 
 Empirical chunk-count distribution from one real Tiddly account, applying the M2 chunking algorithm verbatim. Source: 112 active items (70 bookmarks + 19 notes + 23 prompts). Raw data and analysis scripts are at [`sandbox/cosine_viability/`](../../sandbox/cosine_viability/) — actually the snapshot itself was kept in `/tmp/tiddly-content-snapshot/` (throwaway), but the algorithm and methodology are reproducible from the chunking spec in M2.
