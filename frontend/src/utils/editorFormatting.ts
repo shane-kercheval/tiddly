@@ -148,14 +148,22 @@ export function insertCodeBlock(view: EditorView): boolean {
 }
 
 /**
- * Matches any known block-level line prefix at the start of a line.
- * Alternation is ordered from most-specific to most-generic so that e.g.
- * `- [ ] ` is matched as a checklist and not as a bullet followed by `[ ] `.
+ * Matches optional indentation followed by an optional block-level line
+ * prefix at the start of a line. Two capture groups, both optional:
  *
- * Supported prefixes: ATX headings (h1–h6), blockquote, checklist (checked
- * or unchecked), bullet, numbered list.
+ * - Group 1 (`[ \t]*`): leading whitespace, so callers can preserve indent
+ *   across swaps and toggle-offs (KAN-128: indented sub-bullets like
+ *   `  - foo` must swap cleanly without duplicate prefixes).
+ * - Group 2: the prefix — ATX heading (h1–h6), blockquote, checklist
+ *   (checked or unchecked), bullet, or numbered list. Alternation is
+ *   ordered most-specific to most-generic so `- [ ] ` is read as a
+ *   checklist, not as a bullet followed by `[ ] `.
+ *
+ * Both groups can be empty, so the regex always succeeds; group 2 may
+ * still be undefined (no prefix on the line). Callers default both via
+ * `?? ''`.
  */
-const BLOCK_PREFIX_RE = /^(?:#{1,6} |> |- \[[ xX]\] |- |\d+\. )/
+const BLOCK_PREFIX_RE = /^([ \t]*)(#{1,6} |> |- \[[ xX]\] |- |\d+\. )?/
 
 /**
  * Collapse prefix variants to a single "kind" for toggle comparison.
@@ -180,11 +188,19 @@ function normalizeBlockPrefixKind(prefix: string): string {
 /**
  * Toggle a block-level line prefix on each line of the current selection.
  *
+ * Indent-aware: leading whitespace (spaces or tabs) is preserved across
+ * every operation. Prefix detection runs against the line content after
+ * the indent, so `  - foo` is recognized as a bullet and toggles cleanly
+ * to `  - [ ] foo` / `  foo` rather than getting a duplicate prefix
+ * prepended at column 0 (KAN-128).
+ *
  * Behavior per line:
- * - No existing block prefix: prepend the target prefix.
- * - Existing prefix of the same kind as the target: remove it (toggle off).
- *   "Kind" treats `- [ ] ` and `- [x] ` as equal, and all `\d+\. ` as equal.
- * - Existing prefix of a different kind: replace it with the target (swap).
+ * - No existing block prefix: insert the target prefix after the indent.
+ * - Existing prefix of the same kind as the target: remove it (toggle off);
+ *   indent is kept. "Kind" treats `- [ ] ` and `- [x] ` as equal, and all
+ *   `\d+\. ` as equal.
+ * - Existing prefix of a different kind: replace it with the target (swap);
+ *   indent is kept.
  */
 export function toggleLinePrefix(view: EditorView, prefix: BlockLinePrefix): boolean {
   const { state } = view
@@ -194,29 +210,34 @@ export function toggleLinePrefix(view: EditorView, prefix: BlockLinePrefix): boo
 
   const targetKind = normalizeBlockPrefixKind(prefix)
   const changes: { from: number; to: number; insert: string }[] = []
-  let newSelectionStart = from
-  let newSelectionEnd = to
 
   for (let lineNum = startLine.number; lineNum <= endLine.number; lineNum++) {
     const line = state.doc.line(lineNum)
     const match = line.text.match(BLOCK_PREFIX_RE)
-    const existing = match ? match[0] : ''
+    const indent = match?.[1] ?? ''
+    const existing = match?.[2] ?? ''
     const existingKind = normalizeBlockPrefixKind(existing)
     const replacement = existing !== '' && existingKind === targetKind ? '' : prefix
-    const delta = replacement.length - existing.length
+    const prefixStart = line.from + indent.length
 
-    changes.push({ from: line.from, to: line.from + existing.length, insert: replacement })
-
-    if (lineNum === startLine.number) newSelectionStart += delta
-    newSelectionEnd += delta
+    changes.push({ from: prefixStart, to: prefixStart + existing.length, insert: replacement })
   }
 
+  // Map the prior selection through the changes with assoc=1 ("track
+  // right"). Two policies fall out of this:
+  //   - Toggle-off (pure delete): a cursor at the start of the removed
+  //     prefix stays on the same line at the start of the new content;
+  //     it does NOT jump backward onto the previous line. (For pure
+  //     deletes both assocs collapse to `from`, so this would also work
+  //     with assoc=-1.)
+  //   - Toggle-on (insertion at the line/indent boundary): a cursor sitting
+  //     exactly at the insertion point follows the inserted prefix, so
+  //     subsequent typing lands in the content position rather than
+  //     before the marker.
+  const changeSet = state.changes(changes)
   view.dispatch({
-    changes,
-    selection: {
-      anchor: Math.max(0, newSelectionStart),
-      head: Math.max(0, newSelectionEnd),
-    },
+    changes: changeSet,
+    selection: state.selection.map(changeSet, 1),
   })
   return true
 }
