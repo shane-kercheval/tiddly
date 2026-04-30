@@ -188,7 +188,7 @@ url = "https://prompts-mcp.tiddly.me/mcp"
 http_headers = { "Authorization" = "Bearer YOUR_PAT" }
 ```
 
-Note: Codex does not support MCP Prompts natively (the `/prompt-name` invocation available in Claude Code). However, the prompt server still provides MCP tools for searching and retrieving prompts, so you can ask Codex to fetch and apply a prompt by name. For Codex-native prompt invocation, export your prompts as Codex Skills (see tiddly.me/docs/ai/codex).
+Note: Codex does not support MCP Prompts natively (the `/prompt-name` slash invocation available in Claude Code). Bookmarks and notes still work normally — Codex uses the MCP tools to search, read, and edit them just like Claude Code does. But to invoke a saved prompt directly, export it as a Codex Skill: at https://tiddly.me/app/settings/ai-integration, pick Codex and run the displayed `tiddly skills configure` command. It writes every prompt tagged `skill` as a SKILL.md file (default: `~/.agents/skills/`). Codex surfaces those skills as `$skill-name` invocations or auto-selects them based on task context — same template behavior, different invocation surface.
 
 **ChatGPT** — Not yet supported. ChatGPT requires OAuth authentication, which is coming soon.
 

@@ -16,17 +16,47 @@ Tips are sorted by priority ascending. Where two tips share a priority, ordered 
 
 ## Tips
 
-### 1. `use-prompts-in-ai-tool` — priority 5
+### 1. `use-prompts-in-claude-code` — priority 5
 
-**Call your saved prompts from inside Claude or Codex**
+**Call your Tiddly prompts as slash commands in Claude Code**
 
-Once you've connected your AI tool (Settings → AI Integration), every prompt in your library is callable from inside it. In Claude Code or Claude Desktop, type `/<prompt-name>` and the arguments tab-complete. Codex doesn't support MCP prompt invocation, so Tiddly exports prompts as Agent Skills via `tiddly skills configure` — trigger them by name there too. Your prompt library becomes a function library you can call from any AI assistant.
+Once Tiddly's prompt MCP server is connected (Settings → AI Integration), every saved prompt is invocable in Claude Code as a slash command. Type `/` to browse — Claude Code lists every prompt from connected MCP servers alongside its built-in commands. Pick one and pass arguments space-separated, e.g. `/pr-review 456`. Build prompts once in Tiddly, run them from any project.
 
-- Categories: prompts, cli, mcp
-- Audience: all
+- Categories: prompts, mcp
+- Audience: power
 - relatedDocs: [Prompts → /docs/features/prompts](/docs/features/prompts), [CLI MCP setup → /docs/cli/mcp](/docs/cli/mcp)
 
-### 2. `connect-ai-tool-to-content` — priority 8
+### 2. `use-prompts-in-claude-desktop` — priority 5
+
+**Attach a Tiddly prompt to a Claude Desktop conversation**
+
+Once `tiddly_prompts` is connected, click the `+` button below the message input in Claude Desktop, choose "Add from tiddly_prompts," pick a saved prompt, fill in its arguments, and click "Add prompt." The rendered prompt joins your message as an attachment Claude can read and act on. Useful for one-off runs without leaving the chat — note that Claude Desktop treats prompts as attachments rather than executable commands, which is a Claude Desktop choice, not a Tiddly limitation.
+
+- Categories: prompts, mcp
+- Audience: power
+- relatedDocs: [Prompts → /docs/features/prompts](/docs/features/prompts), [CLI MCP setup → /docs/cli/mcp](/docs/cli/mcp)
+
+### 3. `use-prompts-in-codex` — priority 5
+
+**Use Tiddly prompts in Codex via Skills**
+
+Codex doesn't support invoking MCP prompts directly. Workaround: export them as Agent Skills. Tag prompts with `skill` in Tiddly, then open Settings → AI Integration, pick Codex, and run the displayed `tiddly skills configure` command. Codex surfaces the exported skills as `$skill-name` invocations or auto-selects them based on task context. Same template behavior as MCP prompts, different invocation surface.
+
+- Categories: prompts, cli, mcp
+- Audience: power
+- relatedDocs: [CLI Skills → /docs/cli/skills](/docs/cli/skills), [CLI MCP setup → /docs/cli/mcp](/docs/cli/mcp)
+
+### 4. `agent-authors-prompts` — priority 5
+
+**Have your AI agent draft and refine prompts for you**
+
+Once `tiddly_prompts` is connected, your AI agent can search, read, create, and edit prompts through MCP tools. Ask it to draft new prompts from scratch (*"write me a code-review prompt that takes a diff argument"*), iterate on existing wording (*"rewrite this prompt to be more concise"*), or rename arguments across many prompts at once. Often faster than hand-authoring for non-trivial templates — and edits land in version history with the source `MCP`, fully diffable and restorable.
+
+- Categories: prompts, ai, mcp
+- Audience: power
+- relatedDocs: [Prompts → /docs/features/prompts](/docs/features/prompts), [CLI MCP setup → /docs/cli/mcp](/docs/cli/mcp)
+
+### 5. `connect-ai-tool-to-content` — priority 8
 
 **Let Claude read and edit your bookmarks and notes directly**
 
@@ -36,7 +66,7 @@ Open Settings → AI Integration, pick your AI tool (Claude Desktop, Claude Code
 - Audience: all
 - relatedDocs: [CLI MCP setup → /docs/cli/mcp](/docs/cli/mcp)
 
-### 3. `editor-command-palette` — priority 10
+### 6. `editor-command-palette` — priority 10
 
 **Open the editor command menu with `⌘+/`**
 
@@ -47,7 +77,7 @@ Press `⌘+/` anywhere in a note or prompt to open a filterable menu of every fo
 - shortcut: ['⌘', '/']
 - areas: ['/app/notes', '/app/prompts']
 
-### 4. `note-slash-commands` — priority 10 (seed, refine)
+### 7. `note-slash-commands` — priority 10 (seed, refine)
 
 **Use slash commands in the note and prompt editors**
 
@@ -59,7 +89,7 @@ Type `/` after whitespace (start of line or mid-line) to open a menu of block-le
 - areas: ['/app/notes', '/app/prompts']
 - **Refinement note**: existing seed tip extended to mention mid-line activation and the prompt-specific Jinja entries.
 
-### 5. `auto-configure-mcp` — priority 15
+### 8. `auto-configure-mcp` — priority 15
 
 **Set up MCP for every AI tool with one command**
 
@@ -69,7 +99,7 @@ Run `tiddly mcp configure` with no arguments. The CLI auto-detects Claude Deskto
 - Audience: beginner
 - relatedDocs: [CLI MCP setup → /docs/cli/mcp](/docs/cli/mcp)
 
-### 6. `click-checkbox-raw-editor` — priority 15
+### 9. `click-checkbox-raw-editor` — priority 15
 
 **Toggle checkboxes in the raw markdown editor by clicking them**
 
@@ -79,7 +109,7 @@ In the raw markdown editor, you don't have to switch to reading mode to tick off
 - Audience: beginner
 - areas: ['/app/notes']
 
-### 7. `combine-and-or-filters` — priority 15
+### 10. `combine-and-or-filters` — priority 15
 
 **Combine AND and OR in a single filter expression**
 
@@ -89,7 +119,7 @@ Within a filter group, tags are ANDed (all must match). Between groups, ORed (an
 - Audience: power
 - relatedDocs: [Tags & filters → /docs/features/tags-filters](/docs/features/tags-filters)
 
-### 8. `generate-prompt-arguments` — priority 15
+### 11. `generate-prompt-arguments` — priority 15
 
 **Generate prompt arguments from your `{{ placeholders }}`**
 
@@ -100,7 +130,7 @@ After drafting a prompt template with `{{ placeholders }}`, click the sparkle ic
 - minTier: pro (verify)
 - areas: ['/app/prompts']
 
-### 9. `palette-shortcut` — priority 15
+### 12. `palette-shortcut` — priority 15
 
 **Open the command palette with `⌘+Shift+P`**
 
@@ -111,7 +141,7 @@ Press `⌘+Shift+P` to open the command palette — works even while typing in a
 - shortcut: ['⌘', 'Shift', 'P']
 - starter: true, starterPriority: 2
 
-### 10. `paste-page-content` — priority 15
+### 13. `paste-page-content` — priority 15
 
 **Paste your own text into a bookmark's Page Content to make it searchable**
 
@@ -121,7 +151,7 @@ A bookmark's "Page Content" exists to feed full-text search — you don't typica
 - Audience: power
 - areas: ['/app/bookmarks']
 
-### 11. `preview-prompt-as-sandbox` — priority 15
+### 14. `preview-prompt-as-sandbox` — priority 15
 
 **Use the Preview dialog to test prompts and copy filled outputs**
 
@@ -131,7 +161,7 @@ On any saved prompt, click `Preview` to fill in argument values and render the t
 - Audience: beginner
 - areas: ['/app/prompts']
 
-### 12. `rename-tag-everywhere` — priority 15
+### 15. `rename-tag-everywhere` — priority 15
 
 **Rename a tag from Settings to update it everywhere at once**
 
@@ -141,7 +171,7 @@ From Settings → Tags, renaming a tag rewrites it across every bookmark, note, 
 - Audience: power
 - relatedDocs: [Tags & filters → /docs/features/tags-filters](/docs/features/tags-filters)
 
-### 13. `save-tag-combo-as-filter` — priority 15
+### 16. `save-tag-combo-as-filter` — priority 15
 
 **Save a tag combination as a reusable sidebar filter**
 
@@ -151,7 +181,7 @@ Click `+ Filter` at the bottom of the sidebar to turn any tag combination into a
 - Audience: beginner
 - relatedDocs: [Tags & filters → /docs/features/tags-filters](/docs/features/tags-filters)
 
-### 14. `schedule-auto-archive` — priority 15
+### 17. `schedule-auto-archive` — priority 15
 
 **Schedule a bookmark or note to auto-archive on a future date**
 
@@ -161,7 +191,7 @@ Click the "Auto-archive: None" pill in a bookmark or note's metadata row to sche
 - Audience: power
 - areas: ['/app/bookmarks', '/app/notes']
 
-### 15. `sync-prompts-as-skills` — priority 15
+### 18. `sync-prompts-as-skills` — priority 15
 
 **Tag a prompt `skill` to export it to Claude Code, Claude Desktop, or Codex**
 
@@ -171,7 +201,7 @@ Tag prompts with `skill`, then run `tiddly skills configure` to auto-detect Clau
 - Audience: power
 - relatedDocs: [CLI Skills → /docs/cli/skills](/docs/cli/skills)
 
-### 16. `audit-ai-edits-via-history` — priority 18
+### 19. `audit-ai-edits-via-history` — priority 18
 
 **Audit and undo AI edits with version history**
 
@@ -181,7 +211,7 @@ When AI assistants edit your notes or prompts via MCP, every change is logged in
 - Audience: power
 - shortcut: ['⌘', 'Shift', '\\']
 
-### 17. `ai-sees-prompt-metadata` — priority 20
+### 20. `ai-sees-prompt-metadata` — priority 20
 
 **Write prompt names, descriptions, and arguments like docstrings**
 
@@ -190,7 +220,7 @@ When an AI assistant fetches a prompt via MCP, it reads everything: prompt name,
 - Categories: prompts, mcp
 - Audience: power
 
-### 18. `bring-your-own-api-key` — priority 20
+### 21. `bring-your-own-api-key` — priority 20
 
 **Use your own API key for higher AI limits and model choice**
 
@@ -201,7 +231,7 @@ In Settings → AI Configuration, paste a Google, OpenAI, or Anthropic key per u
 - minTier: pro (verify)
 - relatedDocs: [AI features → /docs/features/ai](/docs/features/ai)
 
-### 19. `claude-summarize-bookmark-content` — priority 20
+### 22. `claude-summarize-bookmark-content` — priority 20
 
 **Have Claude rewrite a bookmark's content for better search**
 
@@ -212,7 +242,7 @@ A bookmark's "Page Content" exists to feed full-text search — you don't usuall
 - minTier: tbd
 - areas: ['/app/bookmarks']
 
-### 20. `editor-find-and-replace` — priority 20
+### 23. `editor-find-and-replace` — priority 20
 
 **Find and replace inside a note or prompt with `⌘+F`**
 
@@ -222,7 +252,7 @@ A bookmark's "Page Content" exists to feed full-text search — you don't usuall
 - Audience: beginner
 - shortcut: ['⌘', 'F']
 
-### 21. `export-to-json` — priority 20
+### 24. `export-to-json` — priority 20
 
 **Export your library to JSON for backup or scripting**
 
@@ -232,7 +262,7 @@ A bookmark's "Page Content" exists to feed full-text search — you don't usuall
 - Audience: power
 - relatedDocs: [CLI reference → /docs/cli/reference](/docs/cli/reference)
 
-### 22. `global-search-shortcut` — priority 20
+### 25. `global-search-shortcut` — priority 20
 
 **Press `/` to focus the global search bar**
 
@@ -243,7 +273,7 @@ From anywhere outside an input, press `/` to focus the global search. Inside the
 - shortcut: ['/']
 - starter: true, starterPriority: 3
 
-### 23. `group-filters-into-collections` — priority 20
+### 26. `group-filters-into-collections` — priority 20
 
 **Organize sidebar filters into Collections**
 
@@ -253,7 +283,7 @@ Click `+ Collection` to make a sidebar group, then drag filters into it. Use one
 - Audience: beginner
 - relatedDocs: [Tags & filters → /docs/features/tags-filters](/docs/features/tags-filters)
 
-### 24. `jinja-rename-via-cmd-d` — priority 20
+### 27. `jinja-rename-via-cmd-d` — priority 20
 
 **Rename a Jinja variable across a prompt template with `⌘+D`**
 
@@ -264,7 +294,7 @@ In a prompt editor, type `/var` Enter to drop a `{{ }}` placeholder. Name it onc
 - shortcut: ['⌘', 'D']
 - areas: ['/app/prompts']
 
-### 25. `link-content-for-context` — priority 20
+### 28. `link-content-for-context` — priority 20
 
 **Link bookmarks, notes, and prompts together to build context bundles**
 
@@ -273,7 +303,7 @@ From any item, the "Link content" button attaches related notes, prompts, or boo
 - Categories: bookmarks, notes, prompts
 - Audience: power
 
-### 26. `prompt-template-arguments` — priority 20 (seed)
+### 29. `prompt-template-arguments` — priority 20 (seed)
 
 **Define prompt arguments with double-brace placeholders**
 
@@ -285,7 +315,7 @@ Prompts are Jinja2 templates. Wrap a placeholder in double braces — e.g. `{{ t
 - areas: ['/app/prompts']
 - relatedDocs: [Prompts → /docs/features/prompts](/docs/features/prompts)
 
-### 27. `quick-create-linked-content` — priority 20
+### 30. `quick-create-linked-content` — priority 20
 
 **Create a linked bookmark, note, or prompt without losing your place**
 
@@ -294,7 +324,7 @@ In the link picker on any item (the link icon in the metadata row), pick "Create
 - Categories: notes, bookmarks, prompts
 - Audience: power
 
-### 28. `reading-mode-toggle` — priority 20
+### 31. `reading-mode-toggle` — priority 20
 
 **Toggle between editor and reading mode with `⌘+⇧+M`**
 
@@ -304,7 +334,7 @@ Press `⌘+⇧+M` to switch a note or prompt between raw markdown editing and a 
 - Audience: beginner
 - shortcut: ['⌘', 'Shift', 'M']
 
-### 29. `required-vs-optional-args` — priority 20
+### 32. `required-vs-optional-args` — priority 20
 
 **Pick required vs optional carefully — it changes how agents fill the prompt**
 
@@ -314,7 +344,7 @@ A required argument must be supplied at render time (rendering errors otherwise)
 - Audience: beginner
 - areas: ['/app/prompts']
 
-### 30. `search-from-extension` — priority 20
+### 33. `search-from-extension` — priority 20
 
 **Search your library from the Chrome extension**
 
@@ -323,7 +353,7 @@ The extension popup has a Search tab next to Save — type to query across title
 - Categories: extension
 - Audience: power
 
-### 31. `shortcuts-dialog` — priority 20
+### 34. `shortcuts-dialog` — priority 20
 
 **Press `⌘+⇧+/` to pop up the shortcuts cheat sheet**
 
@@ -333,7 +363,7 @@ Forget a shortcut? Press `⌘+⇧+/` from anywhere — even mid-typing — to op
 - Audience: beginner
 - shortcut: ['⌘', 'Shift', '/']
 
-### 32. `sparkle-generate-metadata` — priority 20
+### 35. `sparkle-generate-metadata` — priority 20
 
 **Generate titles and descriptions with the sparkle icon**
 
@@ -343,7 +373,7 @@ Each title and description field has a sparkle icon. Click the title sparkle to 
 - Audience: beginner
 - minTier: pro (verify)
 
-### 33. `tag-click-to-filter` — priority 20
+### 36. `tag-click-to-filter` — priority 20
 
 **Click any tag chip on a card to filter by it**
 
@@ -352,7 +382,7 @@ Tags rendered on bookmark, note, and prompt cards are clickable. Click one to ad
 - Categories: tags
 - Audience: beginner
 
-### 34. `whitespace-control-jinja` — priority 20 (verify)
+### 37. `whitespace-control-jinja` — priority 20 (verify)
 
 **Use `{%- if %}` instead of `{% if %}` to keep optional sections clean**
 
@@ -363,7 +393,7 @@ Add a `-` inside a Jinja tag (`{%- if optional_arg %}…{%- endif %}`) to strip 
 - areas: ['/app/prompts']
 - **verify**: unit-test that the API → renderer pipeline strips whitespace as expected.
 
-### 35. `skill-description-as-trigger` — priority 20
+### 38. `skill-description-as-trigger` — priority 20
 
 **Write skill descriptions as invocation triggers, not labels**
 
@@ -372,7 +402,7 @@ When a prompt is exported as a skill, the description goes into the SKILL.md fro
 - Categories: prompts, cli
 - Audience: power
 
-### 36. `ai-suggest-related-items` — priority 25
+### 39. `ai-suggest-related-items` — priority 25
 
 **Find related bookmarks, notes, and prompts via the linked content input**
 
@@ -382,7 +412,7 @@ Open the linked content input on any item to get AI-suggested cross-type relatio
 - Audience: beginner
 - minTier: pro (verify)
 
-### 37. `cmd-click-link-raw-editor` — priority 25
+### 40. `cmd-click-link-raw-editor` — priority 25
 
 **Open a markdown link from the raw editor with `⌘+click`**
 
@@ -391,7 +421,7 @@ In the raw markdown editor, hold `⌘` and click a `[text](url)` link to open th
 - Categories: editor, notes, prompts
 - Audience: beginner
 
-### 38. `cmd-click-new-tab` — priority 25
+### 41. `cmd-click-new-tab` — priority 25
 
 **Open a card in a new tab with `⌘+click`**
 
@@ -401,7 +431,7 @@ Hold `⌘` (or `Ctrl` on Windows/Linux) and click any bookmark, note, or prompt 
 - Audience: power
 - shortcut: ['⌘', 'Click']
 
-### 39. `collapse-sidebar` — priority 25
+### 42. `collapse-sidebar` — priority 25
 
 **Collapse the sidebar with `⌘+\`**
 
@@ -411,7 +441,7 @@ Press `⌘+\` (or `Ctrl+\`) to collapse or expand the main sidebar — useful wh
 - Audience: power
 - shortcut: ['⌘', '\\']
 
-### 40. `extension-default-tags` — priority 25
+### 43. `extension-default-tags` — priority 25
 
 **Pre-tag every save by setting default tags in the extension**
 
@@ -420,7 +450,7 @@ Open the extension settings and pick default tags (e.g., `reading-list`). They'r
 - Categories: extension
 - Audience: beginner
 
-### 41. `for-loop-list-arg` — priority 25 (verify)
+### 44. `for-loop-list-arg` — priority 25 (verify)
 
 **Loop over a list-typed argument with `{% for %}`**
 
@@ -431,7 +461,7 @@ Pass a list and render it with `{% for item in items %}- {{ item }}\n{% endfor %
 - areas: ['/app/prompts']
 - **verify (load-bearing)**: argument schema may not currently express list types end-to-end. Drop or reframe if not supported.
 
-### 42. `jinja-filters` — priority 25 (verify)
+### 45. `jinja-filters` — priority 25 (verify)
 
 **Transform argument values with Jinja2 filters**
 
@@ -442,7 +472,7 @@ Use the pipe syntax in a template to transform values inline: `{{ note | default
 - areas: ['/app/prompts']
 - **verify**: unit-test that the API render path supports `default`, `upper`, `join`.
 
-### 43. `link-shortcut-wraps-selection` — priority 25
+### 46. `link-shortcut-wraps-selection` — priority 25
 
 **Wrap a selection as a link with `⌘+K`**
 
@@ -452,7 +482,7 @@ Highlight some text, press `⌘+K`, and Tiddly turns it into `[selected](url)` w
 - Audience: beginner
 - shortcut: ['⌘', 'K']
 
-### 44. `multi-cursor-above-below` — priority 25
+### 47. `multi-cursor-above-below` — priority 25
 
 **Drop multi-cursors above or below with `⌘+⌥+↑/↓`**
 
@@ -462,7 +492,7 @@ Hold `⌘+⌥` and press the up or down arrow to add a second (or third) cursor 
 - Audience: power
 - shortcut: ['⌘', '⌥', '↑/↓']
 
-### 45. `or-groups-merge-synonym-tags` — priority 25
+### 48. `or-groups-merge-synonym-tags` — priority 25
 
 **Merge synonym tags into one filter without renaming**
 
@@ -472,7 +502,7 @@ If you have both `js` and `javascript` (or `ml` and `machine-learning`), make a 
 - Audience: power
 - relatedDocs: [Tags & filters → /docs/features/tags-filters](/docs/features/tags-filters)
 
-### 46. `pat-generation-from-cli` — priority 25
+### 49. `pat-generation-from-cli` — priority 25
 
 **Generate Personal Access Tokens from the CLI**
 
@@ -482,7 +512,7 @@ If you have both `js` and `javascript` (or `ml` and `machine-learning`), make a 
 - Audience: power
 - relatedDocs: [CLI reference → /docs/cli/reference](/docs/cli/reference)
 
-### 47. `per-directory-mcp-scope` — priority 25
+### 50. `per-directory-mcp-scope` — priority 25
 
 **Configure MCP per project with `--scope directory`**
 
@@ -492,7 +522,7 @@ Run `tiddly mcp configure --scope directory` (or the same flag on `skills config
 - Audience: power
 - relatedDocs: [CLI MCP setup → /docs/cli/mcp](/docs/cli/mcp)
 
-### 48. `pin-default-sort-per-filter` — priority 25
+### 51. `pin-default-sort-per-filter` — priority 25
 
 **Pin a default sort on each saved filter**
 
@@ -501,7 +531,7 @@ Each saved filter remembers its own sort field and direction. Set "Reading List"
 - Categories: filters
 - Audience: power
 
-### 49. `refine-prompt-arg-per-row` — priority 25
+### 52. `refine-prompt-arg-per-row` — priority 25
 
 **Refine one prompt argument at a time with the per-row sparkle**
 
@@ -512,7 +542,7 @@ Each argument row has its own sparkle. Fill in just the name and click it to sug
 - minTier: pro (verify)
 - areas: ['/app/prompts']
 
-### 50. `restore-older-version` — priority 25
+### 53. `restore-older-version` — priority 25
 
 **Restore a previous version from the History sidebar**
 
@@ -523,7 +553,7 @@ Open History on any note or prompt to see every saved revision with diffs. Click
 - shortcut: ['⌘', 'Shift', '\\']
 - relatedDocs: [Versioning → /docs/features/versioning](/docs/features/versioning)
 
-### 51. `save-with-extension` — priority 25
+### 54. `save-with-extension` — priority 25
 
 **Save the current page with the Tiddly Chrome extension**
 
@@ -533,7 +563,7 @@ Install the Tiddly Bookmarks extension to save the page you're on with one click
 - Audience: beginner
 - relatedDocs: [Chrome extension → /docs/extensions/chrome](/docs/extensions/chrome)
 
-### 52. `save-with-ext-organize-in-app`  — priority 25
+### 55. `save-with-ext-organize-in-app`  — priority 25
 
 **Capture in the extension, curate in the web app**
 
@@ -542,7 +572,7 @@ Use the extension while browsing — title, description, and content auto-fill f
 - Categories: extension, bookmarks
 - Audience: beginner
 
-### 53. `select-lines-make-checklist` — priority 25
+### 56. `select-lines-make-checklist` — priority 25
 
 **Turn a block of lines into a checklist with `⌘+⇧+9`**
 
@@ -552,7 +582,7 @@ Select a block of lines and press `⌘+⇧+9` — every line gets a `- [ ]` pref
 - Audience: beginner
 - shortcut: ['⌘', 'Shift', '9']
 
-### 54. `shift-cmd-click-silent-open` — priority 25
+### 57. `shift-cmd-click-silent-open` — priority 25
 
 **Open a bookmark URL silently with `Shift+⌘+click`**
 
@@ -561,7 +591,7 @@ Hold `Shift+⌘` (or `Shift+Ctrl`) when clicking a bookmark's title, favicon, or
 - Categories: bookmarks
 - Audience: power
 
-### 55. `strict-undefined-typos` — priority 25
+### 58. `strict-undefined-typos` — priority 25
 
 **Typos in prompts surface immediately, not silently**
 
@@ -571,7 +601,7 @@ Referencing a variable that isn't declared as an argument raises an error at ren
 - Audience: power
 - areas: ['/app/prompts']
 
-### 56. `swap-list-or-heading-level` — priority 25
+### 59. `swap-list-or-heading-level` — priority 25
 
 **Swap a list type or heading level in one keystroke**
 
@@ -581,7 +611,7 @@ To convert a numbered list to bullets, select the lines and press `⌘+⇧+7`. T
 - Audience: power
 - shortcut: ['⌘', 'Shift', '7']
 
-### 57. `tiddly-status` — priority 25
+### 60. `tiddly-status` — priority 25
 
 **Run `tiddly status` to see everything in one shot**
 
@@ -591,7 +621,7 @@ To convert a numbered list to bullets, select the lines and press `⌘+⇧+7`. T
 - Audience: beginner
 - relatedDocs: [CLI reference → /docs/cli/reference](/docs/cli/reference)
 
-### 58. `toc-jump-around` — priority 25
+### 61. `toc-jump-around` — priority 25
 
 **Open the Table of Contents with `⌥+T` to jump around long notes**
 
@@ -601,7 +631,7 @@ Press `⌥+T` to open the ToC sidebar. It lists every heading in the note — cl
 - Audience: power
 - shortcut: ['⌥', 'T']
 
-### 59. `bookmark-paste-url` — priority 30 (seed)
+### 62. `bookmark-paste-url` — priority 30 (seed)
 
 **Save a bookmark by pasting its URL**
 
@@ -613,7 +643,7 @@ Copy a URL anywhere, then press `⌘+V` from the All Content view (or any saved-
 - shortcut: ['⌘', 'V']
 - areas: ['/app/content']
 
-### 60. `click-suggested-tag-chips` — priority 30
+### 63. `click-suggested-tag-chips` — priority 30
 
 **Click AI-suggested tag chips to add them**
 
@@ -623,7 +653,7 @@ When you open the tag input on a bookmark, note, or prompt, AI-suggested tags ap
 - Audience: beginner
 - minTier: pro (verify)
 
-### 61. `comma-add-tag` — priority 30
+### 64. `comma-add-tag` — priority 30
 
 **Add multiple tags fast with comma**
 
@@ -632,7 +662,7 @@ When inline-editing tags on a note, bookmark, or prompt, press `,` (or Enter) to
 - Categories: tags
 - Audience: power
 
-### 62. `drag-sidebar` — priority 30
+### 65. `drag-sidebar` — priority 30
 
 **Reorder the sidebar — including built-in views — by dragging**
 
@@ -641,7 +671,7 @@ The entire sidebar is draggable, including All Content, Archived, Trash, and the
 - Categories: filters, account
 - Audience: power
 
-### 63. `full-width-layout` — priority 30
+### 66. `full-width-layout` — priority 30
 
 **Toggle full-width layout with `w`**
 
@@ -651,7 +681,7 @@ Press `w` (no modifiers, outside inputs) to flip between centered and full-width
 - Audience: power
 - shortcut: ['w']
 
-### 64. `jinja-comment` — priority 30 (verify)
+### 67. `jinja-comment` — priority 30 (verify)
 
 **Leave non-rendering notes in a prompt with `{# ... #}`**
 
@@ -662,7 +692,7 @@ Press `w` (no modifiers, outside inputs) to flip between centered and full-width
 - areas: ['/app/prompts']
 - **verify**: unit-test that `{# #}` is stripped on render through the API.
 
-### 65. `pick-model-per-use-case` — priority 30
+### 68. `pick-model-per-use-case` — priority 30
 
 **Map each AI use case to a different model**
 
@@ -672,7 +702,7 @@ BYOK lets you map each use case (Suggestions today; Transform, Auto-Complete, Ch
 - Audience: power
 - minTier: pro (verify)
 
-### 66. `pin-extension-keyboard-shortcut` — priority 30
+### 69. `pin-extension-keyboard-shortcut` — priority 30
 
 **Pin the Tiddly extension and bind it to a keyboard shortcut**
 
@@ -681,7 +711,7 @@ After installing, pin Tiddly Bookmarks to the toolbar, then open `chrome://exten
 - Categories: extension
 - Audience: power
 
-### 67. `save-and-close` — priority 30
+### 70. `save-and-close` — priority 30
 
 **Save and close in one shortcut: `⌘+⇧+S`**
 
@@ -691,7 +721,7 @@ After installing, pin Tiddly Bookmarks to the toolbar, then open `chrome://exten
 - Audience: power
 - shortcut: ['⌘', 'Shift', 'S']
 
-### 68. `sort-tags-by-usage` — priority 30
+### 71. `sort-tags-by-usage` — priority 30
 
 **Sort tags by usage count to surface your favorites**
 
@@ -700,7 +730,7 @@ The Settings → Tags sort dropdown supports Count desc/asc in addition to Name.
 - Categories: tags
 - Audience: power
 
-### 69. `view-toggles` — priority 30
+### 72. `view-toggles` — priority 30
 
 **Toggle word wrap, line numbers, monospace, and ToC from the keyboard**
 
@@ -709,7 +739,7 @@ The Settings → Tags sort dropdown supports Count desc/asc in addition to Name.
 - Categories: editor
 - Audience: power
 
-### 70. `cancel-scheduled-archive` — priority 35
+### 73. `cancel-scheduled-archive` — priority 35
 
 **Cancel a scheduled archive directly from the card**
 
@@ -718,7 +748,7 @@ When a bookmark has a future auto-archive date set, an indicator appears on the 
 - Categories: bookmarks
 - Audience: power
 
-### 71. `jump-to-line` — priority 35
+### 74. `jump-to-line` — priority 35
 
 **Jump to a specific line in the editor with `⌘+⌥+G`**
 
@@ -728,7 +758,7 @@ Press `⌘+⌥+G` to open a small "go to line" prompt. Pair with line numbers (`
 - Audience: power
 - shortcut: ['⌘', '⌥', 'G']
 
-### 72. `mcp-configure-dry-run` — priority 35
+### 75. `mcp-configure-dry-run` — priority 35
 
 **Preview MCP config changes with `--dry-run`**
 
@@ -737,7 +767,7 @@ Add `--dry-run` to `tiddly mcp configure` to see the exact diff (entries added, 
 - Categories: cli, mcp
 - Audience: power
 
-### 73. `servers-scope-flag` — priority 35
+### 76. `servers-scope-flag` — priority 35
 
 **Install only one MCP server with `--servers`**
 
@@ -746,7 +776,7 @@ By default `tiddly mcp configure` installs both servers. Pass `--servers content
 - Categories: cli, mcp
 - Audience: power
 
-### 74. `shift-click-linked-chip` — priority 35
+### 77. `shift-click-linked-chip` — priority 35
 
 **Open a linked bookmark inside Tiddly with `Shift+click`**
 
@@ -755,7 +785,7 @@ When a bookmark is linked from another note, prompt, or bookmark, clicking the c
 - Categories: bookmarks
 - Audience: power
 
-### 75. `test-byok-key` — priority 35
+### 78. `test-byok-key` — priority 35
 
 **Test your BYOK API key before relying on it**
 
@@ -765,7 +795,7 @@ After pasting an API key in Settings → AI Configuration, hit Test. The backend
 - Audience: power
 - minTier: pro (verify)
 
-### 76. `search-quoted-phrase` — priority 40 (seed, refine)
+### 79. `search-quoted-phrase` — priority 40 (seed, refine)
 
 **Match exact phrases or use search operators**
 
@@ -778,7 +808,7 @@ Wrap a phrase in quotes — e.g. `"machine learning"` — to match it exactly. U
 - relatedDocs: [Search → /docs/features/search](/docs/features/search)
 - **Refinement note**: existing seed extended to cover all three operators (quoted phrase + `-term` exclusion + `OR` widening). Could also be re-prioritized lower (e.g., 20) once it covers the broader story.
 
-### 77. `shortcut-select-next-occurrence` — priority 50 (seed, refine)
+### 80. `shortcut-select-next-occurrence` — priority 50 (seed, refine)
 
 **Select the next occurrence in the editor with `⌘+D`**
 

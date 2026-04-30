@@ -48,12 +48,23 @@ tiddly mcp configure claude-code codex              # multiple tools`} />
 
       <InfoCallout variant="info" title="Codex and Prompts">
         <p>
-          Codex does not support MCP Prompts natively (the{' '}
-          <code className="bg-blue-100 px-1 rounded">/prompt-name</code> invocation available in
-          Claude Code). However, the prompt server still provides MCP <em>tools</em> for searching
-          and retrieving prompts, so you can ask Codex to fetch and apply a prompt by name. For
-          Codex-native prompt invocation, export your prompts as{' '}
-          <Link to="/docs/cli/skills" className="underline hover:text-gray-900">Codex Skills</Link>.
+          Codex doesn&apos;t support MCP Prompts natively (the{' '}
+          <code className="bg-blue-100 px-1 rounded">/prompt-name</code> slash invocation available
+          in Claude Code). Bookmarks and notes still work normally — Codex uses the MCP <em>tools</em>{' '}
+          to search, read, and edit them just like Claude Code does. But to invoke a saved prompt
+          directly, export it as a Codex Skill: open{' '}
+          <Link to="/app/settings/ai-integration" className="underline hover:text-gray-900">
+            Settings → AI Integration
+          </Link>
+          , pick Codex, and run the displayed{' '}
+          <code className="bg-blue-100 px-1 rounded">tiddly skills configure</code> command. It
+          writes every prompt tagged <code className="bg-blue-100 px-1 rounded">skill</code> as a{' '}
+          <code className="bg-blue-100 px-1 rounded">SKILL.md</code> file (default:{' '}
+          <code className="bg-blue-100 px-1 rounded">~/.agents/skills/</code>). Codex then surfaces
+          those skills as <code className="bg-blue-100 px-1 rounded">$skill-name</code> invocations
+          — or auto-selects them based on task context. Same template behavior, different
+          invocation surface. See{' '}
+          <Link to="/docs/cli/skills" className="underline hover:text-gray-900">Skills</Link>.
         </p>
       </InfoCallout>
 
