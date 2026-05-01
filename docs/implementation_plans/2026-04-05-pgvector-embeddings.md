@@ -52,16 +52,18 @@ These are the settings the benchmark used and validated. Production deployment s
 
 **For local development**, `docker-compose.yml` and `backend/tests/conftest.py` already use `pgvector/pgvector:pg17`. No SHM bump is needed for local dev because parallel cosine queries on the small test datasets don't exhaust the default container `/dev/shm`.
 
-### Open question: should the vector DB be a separate Postgres instance from the main app DB?
+### Open question: validate single-instance Postgres assumption before implementation resumes
 
-**Flagged for team discussion before production deploy.** The parent plan currently assumes vector data lives in the same Postgres as bookmarks/notes/prompts. The benchmark's tuning recommendations push that one Postgres into a "vector-workload-shaped" config (huge `shared_buffers`, parallel queries, big `/dev/shm`), which is a different shape from what's optimal for the OLTP app workload.
+**The plan now assumes** vector data lives in the main app Postgres alongside bookmarks/notes/prompts (see Decisions §7). This unblocks the M1/M5 rewrite. The decision should still be **explicitly validated with the team** before implementation work resumes, so it is a real commitment rather than a default that drifted into the plan.
 
-Trade-offs:
+Discussion frame:
 
-- **Same instance (current plan):** simpler infra, one DB to operate, can JOIN vector results with app data. But the tuning becomes a compromise between two workloads, and a heavy vector-search load could starve OLTP request paths.
-- **Separate instance (alternative):** independently tunable, vector workload spikes don't affect app, can scale storage and compute independently. But adds infra complexity, requires cross-DB result merging in application code, more cost.
+- **Same instance (assumed v1):** simpler infra, one DB to operate, JOINs across vector results and app data are possible. Phase 0 validated this on a 32 vCPU / 32 GB Pro replica with the documented tuning. The M5 architecture isolates vector access to `vector_search()`, so a future split is a connection-pool change in that one function plus a one-time data migration of `content_chunks` — not an architectural rewrite.
+- **Separate instance:** independently tunable, vector workload spikes can't affect app, can scale storage and compute independently. Cost: a second Postgres line item, second migration story, second secrets surface, operationally heavier. No production telemetry justifies it today.
 
-This is **not a decision the benchmark was scoped to make**. Bringing forward as an architectural call to make before M1's implementation work resumes.
+What changes in the plan if the team decides to split: (1) M1 migration creates `content_chunks` and `content_embedding_state` in the vector DB rather than the app DB; (2) `vector_search()` uses a separate connection pool; (3) Railway adds a second Postgres service; (4) the worker connects to both DBs (writes vector data to the vector DB; lifecycle state can stay with either). Everything else — chunking, embedding service, RRF merge, hybrid search filter callback, M6 backfill — is unchanged.
+
+**Trigger for revisiting post-launch:** sustained OLTP p95 latency degradation during vector-search peaks, AI chat fan-out outpacing vertical scaling of the shared instance, or a noisy-tenant incident showing isolation gaps.
 
 ### Migration cleanup (small, well-scoped)
 
@@ -80,14 +82,6 @@ Since the M1 migration is on the `pgvector-implementation` feature branch and **
 Anyone else who has applied this migration to a local DB needs the same downgrade → edit-acknowledge → upgrade dance.
 
 **Note on Alembic heads:** at the time of this benchmark, the repo had two Alembic heads (`38f5a24e651f` from main and `577108e3d7b9` from this branch). When this branch eventually merges into main, an Alembic merge migration will reconcile them. That's separate from the HNSW cleanup above.
-
-### M1 / M5 plan adjustments
-
-With exact cosine confirmed as the design:
-
-- **M1 "Redo note" (below) is obsolete.** It was written when the team was considering pivoting to partitioned HNSW. Disregard everything in that note. The currently-landed M1 migration shape is correct; the only change is the HNSW-index removal documented above.
-- **M5 "Vector-search session settings" subsection (`SET LOCAL hnsw.iterative_scan = strict_order`, `hnsw.ef_search`, `hnsw.max_scan_tuples`, autocommit checks, transaction-contract guards):** these apply only to HNSW iterative scan. With exact cosine, `vector_search()` is a plain SELECT — no `SET LOCAL` requirements. Drop those instructions when implementing M5.
-- **No partitioning machinery needed.** Drop the conftest partition DDL mirror, the `env.py` autogenerate hook, the per-partition HNSW index loop. None of this is in the landed migration today; we just don't add it.
 
 ### Open questions / unresolved items
 
@@ -290,36 +284,36 @@ Semantic/vector search is Pro tier only. FTS remains available to all users.
 - Graceful degradation: if not configured, vector search is unavailable, FTS still works
 - Embeddings use the existing LiteLLM + Redis cost-tracking infrastructure already used for AI features. Do NOT call the OpenAI SDK directly for embeddings or create a separate cost pipeline.
 
+### 7. Vector Data Placement
+
+**Vector data (`content_chunks`, `content_embedding_state`) lives in the main app Postgres for v1.** Validated by the Phase 0 benchmark on a 32 vCPU / 32 GB Pro replica with the documented tuning. The M5 architecture isolates vector access to `vector_search()`, so a future split would be a connection-pool change in that one function plus a one-time data migration of `content_chunks` — not an architectural rewrite. Default expectation is that vertical scaling of the shared instance carries v1 well past year-1 user targets.
+
+The split decision is gated on production telemetry: sustained OLTP p95 degradation under vector load, vector-workload growth that outpaces vertical scaling of the shared instance, or a noisy-tenant incident showing isolation gaps. None of these are observable today. See the Phase 0 findings open question for the validation step that should happen before implementation resumes.
+
 ---
 
 ## Milestone 1: Content Chunks Table + Embedding Storage
 
 ### Goal & Outcome
 Set up the database schema for storing chunked content and their embeddings. After this milestone:
-- `content_chunks` table exists as a hash-partitioned table (128 partitions by `user_id`) with per-partition HNSW indexes (created explicitly in the migration; see Implementation Outline)
-- `content_embedding_state` table tracks per-entity embedding lifecycle (not partitioned — it is not on the vector-search hot path)
-- Alembic migration enables pgvector extension and creates both tables
-- No embeddings are generated yet — this is schema only
-
-### Redo note — OBSOLETE (kept for history)
-
-> **Disregard this section.** It was written when the team was considering a pivot to partitioned-HNSW. The Phase 0 benchmark (see [§Phase 0 benchmark findings](#phase-0-benchmark-findings-completed-2026-04-26)) confirmed that **exact cosine on a single non-partitioned table is the right v1 design**. The currently-landed M1 migration shape is correct; only the unused HNSW index needs to be removed (per the migration cleanup steps in the findings section).
->
-> The original Redo note's instructions (downgrade, delete the M1 file, recreate as partitioned-HNSW with 128 partitions, per-partition HNSW indexes, autogenerate hooks, conftest partition DDL mirror) **do not apply**. Do not execute any of them.
-
-The remainder of M1's Implementation Outline below was also drafted for the partitioned-HNSW design. Where it describes hash-partitioning, composite PKs, partition child tables, per-partition HNSW indexes, the `env.py` autogenerate hook, the conftest partition DDL mirror, and SQLAlchemy `UUIDv7Mixin` workarounds — **none of that applies under the exact-cosine v1 design**. The landed migration is already in the correct shape. Use the M1 outline below for context on what was considered, not as a build instruction.
+- `content_chunks` table exists as a non-partitioned table with B-tree indexes on `user_id` and `(entity_type, entity_id)`. **No HNSW index** — Phase 0 validated exact cosine as the v1 strategy.
+- `content_embedding_state` table tracks per-entity embedding lifecycle.
+- Alembic migration enables pgvector extension and creates both tables.
+- No embeddings are generated yet — this is schema only.
 
 ### Implementation Outline
 
+The currently landed migration ([`backend/src/db/migrations/versions/577108e3d7b9_add_content_chunks_and_content_.py`](../../backend/src/db/migrations/versions/577108e3d7b9_add_content_chunks_and_content_.py)) is structurally correct for this milestone. The only change needed is removing the unused HNSW index — see "Migration cleanup" in the Phase 0 findings for the in-place edit steps. The outline below describes the resulting end state.
+
 **Alembic migration:**
-- `op.execute("CREATE EXTENSION IF NOT EXISTS vector;")` — canonical location for extension enablement
-- Create `content_chunks` as a **hash-partitioned table** by `user_id` with 128 partitions:
+- `op.execute("CREATE EXTENSION IF NOT EXISTS vector;")` — canonical location for extension enablement.
+- Create `content_chunks` as a non-partitioned table:
 
 ```python
-# Schema (not the exact migration code — illustrative)
-content_chunks (PARTITION BY HASH (user_id) — 128 partitions):
-    id              UUID (UUIDv7) — part of composite PK
-    user_id         UUID FK → users.id (partition key, part of composite PK)
+# Schema (illustrative, matches the landed migration shape after HNSW-index removal)
+content_chunks:
+    id              UUID PK (UUIDv7)
+    user_id         UUID FK → users.id (ON DELETE CASCADE)
     entity_type     String (bookmark/note/prompt)
     entity_id       UUID (FK not enforced — entities may be deleted)
     chunk_type      String (metadata/content)
@@ -328,78 +322,33 @@ content_chunks (PARTITION BY HASH (user_id) — 128 partitions):
     token_count     Integer (for debugging/monitoring)
     chunk_hash      Text (SHA-256 of normalized chunk text — for paragraph-level reuse)
     model           Text (embedding model that generated the vector, e.g. "text-embedding-3-small")
-    embedding       Vector(1536) (not nullable — chunks are only inserted with embeddings ready)
-
-Primary key: (id, user_id) — composite. Postgres requires the partition key to be part of
-the PK on a partitioned table. `id` is still globally unique via UUIDv7, but SQLAlchemy's
-mapper identity now uses the `(id, user_id)` tuple. See "SQLAlchemy models" below for the
-model-level consequences — ContentChunk cannot use the standard UUIDv7Mixin as-is.
+    embedding       Vector(1536) (NOT NULL — chunks are only inserted with embeddings ready)
 ```
 
-- Why hash-partitioning by `user_id`: the scaling design for semantic search is **per-tenant-scoped retrieval**. Hash-partitioning narrows HNSW search to the partition containing the querying user's chunks (partition pruning via `WHERE user_id = :uid`), instead of scanning a global index across all users. With 128 partitions, an average partition holds roughly `total_users / 128` users' worth of chunks — at 10k users, ~78 users per partition. Combined with iterative scan (M5), this keeps recall strong as the corpus grows. See "Scaling design" in M5 for the full picture.
-- Partition count (128) is chosen as a balanced default: small enough that per-query planner overhead stays negligible, large enough to give meaningful tenant-ratio reduction well past thousands of Pro users. Changing the count later requires data movement, so pick with room to grow.
-- **Indexing rule:** HNSW indexes are created explicitly per-partition (loop over all 128 partitions). Non-HNSW indexes (B-tree, unique constraints) are created **at the parent level** and auto-materialize to child partitions via standard Postgres partitioned-index behavior — this works reliably for non-HNSW types. Only HNSW needs explicit per-partition creation because pgvector's propagation support has been version-uneven.
-- Create one HNSW index **per partition child table**, explicitly, inside the migration, with pinned parameters for reproducibility:
+- **No HNSW index.** Phase 0 validated exact cosine (parallel seq scan + cosine sort) for the v1 user-size distribution. The landed migration includes a stray HNSW index that is removed via the in-place edit described in the Phase 0 findings' "Migration cleanup" subsection.
+- Unique constraint on `(entity_type, entity_id, chunk_type, chunk_index)` — defense-in-depth against duplicate chunks from concurrent workers. An entity belongs to exactly one user, so `user_id` is not part of this constraint.
+- B-tree index on `user_id` — load-bearing; every vector search filters by `user_id` before the cosine sort.
+- B-tree index on `(entity_type, entity_id)` — for chunk lookup/deletion when an entity is hard-deleted.
+- No partial index on `embedding` — the column is NOT NULL.
+
+**Create `content_embedding_state` table** (lifecycle metadata, one row per entity):
 
 ```python
-# In the Alembic migration:
-for i in range(128):
-    op.execute(
-        f"CREATE INDEX ix_content_chunks_p{i:03d}_embedding "
-        f"ON content_chunks_p{i:03d} USING hnsw (embedding vector_cosine_ops) "
-        f"WITH (m = 16, ef_construction = 64);"
-    )
-```
-
-  The partition child tables themselves are also created inside this migration (128 `CREATE TABLE ... PARTITION OF content_chunks FOR VALUES WITH (modulus 128, remainder :i)` statements, issued in a similar loop). Index names include the partition index so they're unique in `pg_class`. `m=16` and `ef_construction=64` are the pgvector 0.8.2 defaults today; pinning them explicitly makes HNSW behavior deterministic across environments and insulates us from future pgvector default changes. Rebuilding HNSW indexes at scale to fix a default drift is expensive, so pinning now is cheap future-proofing.
-- No partial index needed — `embedding` is NOT NULL (chunks are only inserted with embeddings ready). Use raw SQL via `op.execute()` in the Alembic migration.
-- Unique constraint on `(user_id, entity_type, entity_id, chunk_type, chunk_index)` — defense-in-depth against duplicate chunks from concurrent workers. Declare on the parent; auto-materializes per partition. `user_id` is included because the partition key must be part of any unique constraint on a partitioned table; this does not change the semantic uniqueness (an entity belongs to exactly one user).
-- B-tree index on `(entity_type, entity_id)` for chunk lookup/deletion — declare on the parent; auto-materializes per partition.
-- B-tree index on `user_id` for scoped queries — declare on the parent; auto-materializes per partition.
-
-**Alembic autogenerate hook (required — permanent, non-negotiable):**
-
-After this migration lands, the DB will contain 128 partition child tables (`content_chunks_p000` … `content_chunks_p127`) and their HNSW indexes that do not exist in `Base.metadata` (SQLAlchemy only knows about the parent). Every future `alembic revision --autogenerate` run would see these as "extra DB objects" and generate destructive `op.drop_table(...)` / `op.drop_index(...)` statements for all 128 children. That drop would land silently inside an otherwise unrelated migration (e.g., "add column to bookmarks") and wipe the vector-search substrate on deploy.
-
-The fix must be applied in `backend/src/db/migrations/env.py` in the same M1 PR that adds partitioning:
-
-```python
-import re
-
-def _include_object(object, name, type_, reflected, compare_to):
-    # Hash-partition children of content_chunks are created via raw SQL in the M1 migration;
-    # they do not exist in Base.metadata. Filter them out of autogenerate so routine schema
-    # changes to other tables do not produce destructive DROP statements for these objects.
-    if type_ == "table" and re.match(r"^content_chunks_p\d{3}$", name):
-        return False
-    if type_ == "index" and re.match(r"^ix_content_chunks_p\d{3}_", name):
-        return False
-    return True
-
-# Pass include_object=_include_object to context.configure(...) in do_run_migrations().
-```
-
-If another table is ever partitioned in the future, extend these patterns to cover its children as well. This behavior should also be documented in `AGENTS.md` (see the Files-to-Keep-in-Sync section for the required addition).
-
-- Create `content_embedding_state` table:
-
-```python
-# Per-entity embedding lifecycle tracking (one row per entity)
 content_embedding_state:
     id              UUID PK (UUIDv7)
-    user_id         UUID FK → users.id (for user-scoped operations: downgrade cleanup, Pro-only backfill, monitoring)
+    user_id         UUID FK → users.id (ON DELETE CASCADE)
     entity_type     String (bookmark/note/prompt)
-    entity_id       UUID (unique together with entity_type)
+    entity_id       UUID
     metadata_hash   Text (SHA-256 of canonical metadata text — for skip-if-unchanged on title/description/name/tag edits)
     content_hash    Text (SHA-256 of canonical embeddable content text — for skip-if-unchanged on content/argument edits)
     model           Text (embedding model used, e.g. "text-embedding-3-small")
-    status          String (embedded/failed) — only two states. Transitions atomically in same transaction as chunk writes.
+    status          String (embedded/failed) — only two states. CHECK constraint enforces. Transitions atomically in same transaction as chunk writes.
     last_error      Text (nullable — error message on last failure)
 ```
 
-- Unique constraint on `(user_id, entity_type, entity_id)`. Semantically identical to `(entity_type, entity_id)` — an entity belongs to exactly one user — but including `user_id` keeps the door open to partitioning this table by `user_id` in the future without a constraint migration. This table is not partitioned in v1 (not on the vector-search hot path); the extra column is defense-in-depth.
-- Index on `user_id` for downgrade cleanup and Pro-only queries
-- Index on `status` for finding failed entities (M6 backfill/monitoring)
+- Unique constraint on `(entity_type, entity_id)`.
+- Index on `user_id` for downgrade cleanup and Pro-only queries.
+- Index on `status` for finding failed entities (M6 backfill/monitoring).
 
 This table keeps embedding lifecycle state out of the entity models. Three fields enable the fast-path skip check:
 - `metadata_hash` matches → skip metadata chunk re-embedding
@@ -413,12 +362,8 @@ This table keeps embedding lifecycle state out of the entity models. Three field
 **Crash safety:** The worker executes chunk inserts, chunk deletes, and state updates in a single DB transaction. If the worker crashes before commit, the transaction rolls back and the DB is unchanged — hashes still mismatch, so the next job retries from scratch. If the worker crashes after commit, everything is consistent. There is no window where search sees a mix of old and new chunks.
 
 **SQLAlchemy models:**
-- `models/content_chunk.py`: **Does NOT use `UUIDv7Mixin`.** The partitioned-table composite PK changes mapper identity in SQLAlchemy, which is not a drop-in substitution for the mixin. Declare both `id` and `user_id` as `primary_key=True` directly on the model, with `id` typed as `PG_UUID(as_uuid=True)` and `default=uuid7`. Mapper identity is now the tuple `(id, user_id)` — `session.get(ContentChunk, (id, user_id))` is the correct lookup form, and the identity map keys on the tuple. Any code path that would look up a chunk by `id` alone must be introduced deliberately (does not exist today and should not be added preemptively). No `TimestampMixin` — chunks are immutable, deleted and re-inserted, never updated; timestamps can be added later if needed. `embedding` column uses pgvector's `Vector(1536)` type via `mapped_column`. Relationship to User (for query scoping).
-- **Write-path guardrails for composite PK + partitioned table:**
-  - Use `session.add()` + `flush()` or `session.execute(insert(...))` for chunk writes. Every row must have `user_id` populated before flush so Postgres can route to the correct partition.
-  - Avoid `session.bulk_save_objects(...)` for `ContentChunk` — it bypasses the identity map and relationship handling, which combined with composite PK + partition routing is a footgun. If bulk performance ever matters, use `session.execute(insert(ContentChunk), [...dicts...])` (Core-style bulk insert) with explicit `user_id` on each row.
-  - `session.merge(chunk)` on a detached instance requires both `id` and `user_id` populated — it cannot synthesize mapper identity from `id` alone.
-- `models/content_embedding_state.py`: Uses `UUIDv7Mixin` (this table is not partitioned, so the mixin's id-only PK is fine here). No `TimestampMixin` — no planned query uses timestamps; UUIDv7 encodes creation time if needed. One row per entity.
+- `models/content_chunk.py`: Uses the standard `UUIDv7Mixin` (single-column `id` PK). No `TimestampMixin` — chunks are immutable, deleted and re-inserted, never updated; timestamps can be added later if needed. `embedding` column uses pgvector's `Vector(1536)` type via `mapped_column`. Relationship to `User` for query scoping.
+- `models/content_embedding_state.py`: Uses `UUIDv7Mixin`. No `TimestampMixin` — no planned query uses timestamps; UUIDv7 encodes creation time if needed. One row per entity.
 - Both models must be added as relationships on the `User` model with `cascade="all, delete-orphan"` AND `passive_deletes=True` — the default pattern elsewhere in the codebase omits `passive_deletes`, which loads all child rows into the session before deleting them. For `content_chunks` at Pro-user scale (thousands of chunks per user) that becomes minutes of ORM work on user deletion. With `passive_deletes=True`, SQLAlchemy trusts the DB-level `ON DELETE CASCADE` and skips the child-row load. Example:
   ```python
   content_chunks: Mapped[list["ContentChunk"]] = relationship(
@@ -431,43 +376,26 @@ This table keeps embedding lifecycle state out of the entity models. Three field
 
 **Dependency:** Add `pgvector` Python package to `pyproject.toml` (provides `pgvector.sqlalchemy` for the `Vector` type).
 
-**Test infrastructure changes** (`backend/tests/conftest.py` and `pyproject.toml`):
+**Test infrastructure changes** (`backend/tests/conftest.py`):
 
-Partitioning `content_chunks` requires four coordinated changes to the test fixtures. All must land together or the test suite breaks.
+1. **Postgres image already swapped to pgvector.** `backend/tests/conftest.py` already uses `PostgresContainer("pgvector/pgvector:pg17", ...)`. No further change needed.
+2. **Remove the HNSW index creation block from `conftest.py`** (currently at ~lines 170–174: `CREATE INDEX IF NOT EXISTS ix_content_chunks_embedding ON content_chunks USING hnsw ...`). Phase 0 confirmed exact cosine is the v1 design; the index is unused.
 
-1. **Flip `asyncio_default_fixture_loop_scope` from `"function"` to `"session"` in `pyproject.toml`.** The current value is `"function"` (`pyproject.toml:72`). Changing `async_engine` to session scope while the fixture loop scope is function-scoped raises `RuntimeError: Event loop is closed` / "Future attached to a different loop" on second-test access. This is a project-wide change affecting every async fixture — verify the existing test suite still passes after the flip (it should; session-scoped loop is a strict superset of function-scoped for test behavior since per-test isolation comes from transactions, not loop lifecycle). If the global flip turns up real problems, fall back to per-fixture `@pytest_asyncio.fixture(loop_scope="session")` on `async_engine` only, but global is cleaner.
-
-2. **Change the `async_engine` fixture to `scope="session"`.** Today it is function-scoped (no explicit scope), so every test re-runs schema setup. Because the Postgres container is already session-scoped, the DB persists across tests and the schema DDL is idempotent, so function-scope gains nothing and costs per-test catalog-scan overhead. Session-scope makes schema setup a one-time cost per test session. Test isolation is unaffected — it's already enforced by `db_connection`'s transaction-per-test wrap/rollback and `db_session`'s savepoint.
-
-3. **Exclude `content_chunks` from `Base.metadata.create_all`.** `ContentChunk` is a mapped model, so `Base.metadata` knows about a table named `content_chunks`. If `create_all` runs without excluding it, SQLAlchemy creates a plain non-partitioned `content_chunks` table first, and the subsequent raw-SQL `CREATE TABLE content_chunks ... PARTITION BY HASH(user_id)` fails with "relation already exists." Use:
-   ```python
-   tables = [t for t in Base.metadata.sorted_tables if t.name != "content_chunks"]
-   await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, tables=tables))
-   # Then issue the raw-SQL partitioned DDL below.
-   ```
-
-4. **Mirror the partition DDL in conftest.py as raw SQL** (same pattern as the existing `_SEARCH_VECTOR_TRIGGER_STATEMENTS` block):
-   - Create the partitioned `content_chunks` parent table with the composite `(id, user_id)` PK and unique `(user_id, entity_type, entity_id, chunk_type, chunk_index)` constraint, plus parent-level B-tree indexes on `user_id` and `(entity_type, entity_id)`.
-   - Loop `range(128)` to `CREATE TABLE IF NOT EXISTS content_chunks_p{i:03d} PARTITION OF content_chunks FOR VALUES WITH (modulus 128, remainder {i});`.
-   - Loop `range(128)` to `CREATE INDEX IF NOT EXISTS ix_content_chunks_p{i:03d}_embedding ON content_chunks_p{i:03d} USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);`.
-   - Do NOT loop B-tree indexes per-partition; parent-level declaration handles those automatically.
-   - Remove the existing parent-table HNSW index creation (`CREATE INDEX IF NOT EXISTS ix_content_chunks_embedding ON content_chunks USING hnsw ...` at `conftest.py:171–174`) — superseded by per-partition creation.
-
-   Use `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` throughout so the statements are idempotent (belt-and-suspenders with session scope).
-
-Expected effect on test runtime: partitioning adds an estimated one-time ~4–6s cost at session startup (128 empty HNSW indexes build fast), with per-test overhead decreasing vs. today because session-scoping reclaims the existing per-test schema-recheck cost. **This is an estimate — measure during implementation.**
+`Base.metadata.create_all` handles `content_chunks` and `content_embedding_state` directly — no raw-DDL mirror, no partition machinery, no autogenerate hook required. The async-fixture / loop-scope changes that were originally bundled with this milestone (because partitioning forced them) are not required for M1 and should be considered independently if at all.
 
 ### Testing Strategy
 - Migration runs cleanly on fresh database (testcontainers with pgvector image)
 - Migration runs cleanly on database where extension is already enabled (production scenario)
 - `Vector` column accepts and returns float arrays of correct dimensionality
-- `content_chunks` is a partitioned table with 128 hash partitions on `user_id` (query `pg_partitioned_table` / `pg_inherits`)
-- Each partition child table has its own HNSW index (query `pg_indexes` — count should equal 128, one per partition)
-- Verify `content_chunks` table constraints: composite `(id, user_id)` PK, unique on `(user_id, entity_type, entity_id, chunk_type, chunk_index)`, user_id FK, non-null fields
-- Verify chunk insertion and retrieval round-trip with embedding data (rows route to the correct partition based on `hash(user_id)`)
-- **Vector search query plan verification:** For a query of the shape `SELECT ... FROM content_chunks WHERE user_id = :uid ORDER BY embedding <=> :q LIMIT :k`, capture `EXPLAIN` output and assert **both** of the following positively: (1) partition pruning selects exactly one child partition (no multi-partition `Append`), and (2) that partition's HNSW index is used (no `Seq Scan`). Fail the test loudly with the full plan text if either condition is missing — this is the load-bearing behavior of the entire retrieval design and a silent fallback to `Seq Scan` or multi-partition scan would invalidate performance guarantees.
-- `content_embedding_state` unique constraint on `(user_id, entity_type, entity_id)` enforced
+- `content_chunks` is non-partitioned (verify `pg_partitioned_table` returns no row for it)
+- `content_chunks` has no HNSW index (query `pg_indexes` — only the PK, the unique constraint, and B-tree indexes on `user_id` and `(entity_type, entity_id)` should be present; no `USING hnsw` index)
+- Verify `content_chunks` constraints: PK on `id`, unique on `(entity_type, entity_id, chunk_type, chunk_index)`, `user_id` FK with `ON DELETE CASCADE`, `embedding` NOT NULL
+- Verify chunk insertion and retrieval round-trip with embedding data
+- **Vector search query plan verification:** For `SELECT ... FROM content_chunks WHERE user_id = :uid ORDER BY embedding <=> :q LIMIT :k`, capture `EXPLAIN (ANALYZE, BUFFERS)` output and assert: (1) the plan does NOT use any HNSW index (no `Index Scan using ix_content_chunks_embedding` or any other `hnsw` index node), and (2) the `user_id` filter is applied before the cosine sort (either via `Index Scan using ix_content_chunks_user_id` feeding into the sort, or as a pushed-down filter on a parallel seq scan). The cosine `Sort` node with `embedding <=> $1` as the key is expected. Fail loudly with the full plan if any HNSW path appears — that would indicate a stray index has been re-introduced.
+- `content_embedding_state` unique constraint on `(entity_type, entity_id)` enforced
+- `content_embedding_state.status` CHECK constraint rejects values outside `{embedded, failed}`
 - State row creation and update round-trip
+- User deletion cascades: deleting a user removes all `content_chunks` and `content_embedding_state` rows for that user via DB-level `ON DELETE CASCADE`
 
 ---
 
@@ -1066,7 +994,7 @@ async def vector_search(
     entity_types: list[str] | None = None,
     limit: int = 100,
 ) -> list[tuple[str, UUID, float]]:
-    """Find nearest chunks by cosine similarity.
+    """Find nearest chunks by cosine similarity (exact scan).
     Returns (entity_type, entity_id, distance) tuples, deduplicated by entity.
     """
 ```
@@ -1074,17 +1002,8 @@ async def vector_search(
 - Query nearest chunks ordered purely by distance, overfetch, then deduplicate by entity in application code. Do NOT use `DISTINCT ON (entity_type, entity_id)` with `ORDER BY entity_type, entity_id, distance` — that picks the best chunk per entity but does not preserve the global nearest-neighbor ranking across entities.
 - Recommended shape: `SELECT entity_type, entity_id, embedding <=> :query_vec AS distance FROM content_chunks WHERE user_id = :uid [AND entity_type IN (:types) IF entity_types provided] ORDER BY distance LIMIT :overfetch_limit`
 - Then in application code: iterate the rows in distance order, keep the first row for each `(entity_type, entity_id)`, and stop when you have `limit` unique entities. This keeps entity-level dedup correct while preserving nearest-neighbor ranking and makes overfetch tuning independent from the final result size.
-- **How tenant scoping works at the index level:** `content_chunks` is hash-partitioned by `user_id` (see M1), so the `WHERE user_id = :uid` clause triggers **partition pruning** — Postgres identifies the single partition containing this user's chunks (via `hash(user_id)`) and searches only that partition's local HNSW index. The query SQL itself is unchanged from a non-partitioned table; the planner handles pruning transparently. Within the selected partition, other users' chunks still exist (~dozens of users share a partition), so a residual post-filter on `user_id` still happens. That residual gap is closed by iterative scan (see below).
-- **Vector-search session settings** (required — part of the execution contract, not an optional tuning knob):
-  - `SET LOCAL hnsw.iterative_scan = strict_order;` — pgvector ≥ 0.8 keeps walking the HNSW graph past `ef_search` until enough rows pass the `user_id` post-filter within the selected partition, instead of returning a truncated set. `strict_order` is the v1 default; `relaxed_order` is an alternative worth benchmarking later (it can be noticeably faster at the cost of occasional out-of-distance-order results within the vector candidate list — and because RRF merges with FTS downstream, that tradeoff may be net-positive). Do not switch without benchmark data.
-  - `SET LOCAL hnsw.ef_search = 200;` — larger candidate pool for better recall.
-  - `SET LOCAL hnsw.max_scan_tuples = 20000;` — hard cap on how many rows iterative scan will walk before truncating. 20,000 is the pgvector default and is fine for v1. The failure mode to watch for: if a partition-mate ever dominates a partition's chunk count (e.g., one user with many more chunks than the partition's other users), iterative scan can hit this cap before retrieving enough of the querying user's chunks, silently degrading recall. Raise this value and benchmark latency if real observability ever shows it mattering.
-  - **These `SET LOCAL` statements must live inside `vector_search()` in `services/vector_search_service.py`** — executed on the same session/transaction as the `SELECT`, every time. Do not rely on callers to set them. Any future vector-search entry point (re-ranking, admin tools, eval harnesses, etc.) must go through `vector_search()` rather than issuing its own raw SQL, so the settings are applied consistently and cannot drift across call sites. `SET LOCAL` scopes the change to the current transaction, so no cleanup is required and no other statements are affected.
-  - **Transaction contract** (required — `SET LOCAL` has silent-failure modes that must be explicitly prevented):
-    - The `SET LOCAL` statements and the `SELECT` MUST execute within the same open transaction on the same AsyncSession. No `session.commit()` or `session.rollback()` between them — a commit resets `SET LOCAL` silently.
-    - If the session is in autocommit isolation (`isolation_level="AUTOCOMMIT"`), `SET LOCAL` applies only to the `SET LOCAL` statement itself and has zero effect on the following `SELECT` — no error is raised, recall silently degrades. `vector_search()` must explicitly check for this at entry and raise rather than running with broken settings. Concretely: call `session.connection()` and assert the connection's isolation level is not autocommit, or catch/raise a clear error if it is.
-    - If `vector_search()` is called without an active transaction, it must open one itself (`async with session.begin():`) rather than relying on auto-begin behavior, so the `SET LOCAL` + `SELECT` boundary is explicit and unambiguous.
-    - The M5 testing strategy must include: (1) happy-path assertion that each `SET LOCAL` value is observable via `SHOW` inside the same transaction; (2) autocommit-session scenario raises rather than silently degrading; (3) production call-site shape (session obtained via `get_async_session()` dependency) applies the settings correctly — not just a stand-alone unit test.
+- **How tenant scoping works:** the B-tree index on `user_id` (see M1) selects only the querying user's chunks before the cosine sort runs. With Phase 0's tuning (parallel workers enabled, ~3 cores per query), Postgres distributes the cosine distance computation across parallel workers, then sorts and limits. No HNSW index, no iterative scan, no partition pruning — exact scan over the user-scoped subset is fast enough for the validated user-size distribution. See M5 "Scaling design" for the full picture.
+- **No session-level `SET` statements.** Exact cosine has no transaction-scoped tunables to apply; `vector_search()` is a plain `SELECT` and runs correctly in any session/transaction shape (including autocommit). Keep `vector_search()` as the single entry point for all vector queries (re-ranking, admin tools, eval harnesses, etc.) so future changes — for example, switching to ANN — can re-introduce settings centrally without auditing call sites.
 
 **Hybrid search with RRF:**
 
@@ -1158,9 +1077,11 @@ async def hybrid_search(
 
     # 4. Filter-check ALL vector-only results against view/tag/filter constraints.
     # ALWAYS run this — even with default view settings, the "active" view excludes
-    # archived and soft-deleted entities. The vector search query has no archive/delete
-    # filter (HNSW can't do this efficiently), so unfiltered vector-only results could
-    # leak archived/deleted content.
+    # archived and soft-deleted entities. The vector search query intentionally does
+    # not apply archive/delete/tag/view filters at the SQL level (those filters require
+    # joining against the entity tables, which would defeat the use of the cosine sort
+    # over content_chunks alone), so unfiltered vector-only results could leak
+    # archived/deleted content if not reconciled here.
     # Reuse existing search pipeline with entity_ids whitelist — no parallel filter engine.
     # New parameter: entity_ids: list[tuple[str, UUID]] | None = None
     # Inside search_all_content(): group by entity_type, add WHERE Bookmark.id IN [bookmark_ids]
@@ -1206,7 +1127,7 @@ async def hybrid_search(
 - FTS and query embedding run concurrently (`asyncio.gather`) to hide FTS latency behind the embedding API call.
 - FTS runs through the existing `search_all_content()` pipeline with all filters applied — tag, view, content type, filter expression. No filter logic is duplicated.
 - Vector search overfetches 200 candidates (scoped to user_id + entity_types) for filter headroom.
-- Vector-only results (semantic matches that FTS missed) are **always** filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. This is required even with default view settings because the vector search query has no archive/delete filter (HNSW can't filter efficiently), so unfiltered vector-only results could leak archived/deleted content. **Implementation note:** new parameter `entity_ids: list[tuple[str, UUID]] | None = None`. Inside `search_all_content()`: group by entity_type, add `WHERE Bookmark.id IN [bookmark_ids]` to the bookmark subquery, `WHERE Note.id IN [note_ids]` to notes, etc.
+- Vector-only results (semantic matches that FTS missed) are **always** filter-checked by calling back into `search_all_content()` with a new `entity_ids` whitelist parameter — reuses existing filter logic, no parallel filter engine. This is required even with default view settings because the vector search query intentionally does not apply archive/delete/tag/view filters at the SQL level (those filters live on the entity tables, not on `content_chunks`), so unfiltered vector-only results could leak archived/deleted content. **Implementation note:** new parameter `entity_ids: list[tuple[str, UUID]] | None = None`. Inside `search_all_content()`: group by entity_type, add `WHERE Bookmark.id IN [bookmark_ids]` to the bookmark subquery, `WHERE Note.id IN [note_ids]` to notes, etc.
 - RRF merge breaks ties deterministically by `(entity_type, entity_id)` tuple for stable offset-based pagination.
 - RRF merge and pagination happen **before** hydrating full entity data. Only the final page is hydrated via `load_entities_by_ids()`.
 
@@ -1247,26 +1168,22 @@ async def load_entities_by_ids(
 - If a specific entity has no embeddings → it can still appear via FTS
 - If no entities have embeddings yet (fresh deploy, backfill pending) → FTS-only
 
-**Scaling design:** Semantic search is built for per-tenant-scoped retrieval from day one, not global HNSW with a post-filter. Three layers combine:
+**Scaling design:** Phase 0 validated exact cosine on a single non-partitioned `content_chunks` table for the realistic Pro-tier user-size distribution. Two layers carry the load:
 
-1. **Hash-partitioned `content_chunks`** (128 partitions by `user_id`, see M1). A query with `WHERE user_id = :uid` is pruned to a single partition. Partition pruning is what keeps retrieval fast and recall strong as the total corpus grows — HNSW searches only the partition, not the whole table.
-2. **Iterative scan within the partition** (`hnsw.iterative_scan = strict_order`). Within a selected partition, the querying user still shares space with other users whose hash falls in the same bucket (~78 users per partition at 10k total users). Iterative scan handles that residual post-filter gap by walking the HNSW graph until enough rows pass the `user_id` filter.
-3. **Overfetch + application-side entity dedup** (200 chunks → 100 entities). Candidate headroom for filter reconciliation (view/tag/archive rules) in the hybrid search path.
+1. **`user_id` B-tree filter + parallel cosine.** A query with `WHERE user_id = :uid ORDER BY embedding <=> :q LIMIT n` runs as a parallel scan over the user's chunks (selected via the `user_id` B-tree index), each worker computing cosine distances, then a sort + limit. Phase 0 measured ~92 ms warm P95 at Typical Power (20K chunks/user) and ~326 ms at Super Power (130K chunks/user) on the proposed 32 vCPU / 32 GB tier with the documented Postgres tuning.
+2. **Overfetch + application-side entity dedup** (200 chunks → 100 entities). Candidate headroom for filter reconciliation (view/tag/archive rules) in the hybrid search path.
 
-This design targets multi-thousand-tenant growth while avoiding the global-post-filter failure mode of naive pgvector deployments. Specific latency/recall ceilings are workload-dependent — they vary with per-user chunk counts, filter selectivity, concurrent query load, and partition count — and should be validated with real benchmarks before the team commits to specific capacity numbers. The natural escape hatch, if workload data eventually shows this design is insufficient, is a namespaced external vector store (Qdrant, Pinecone, etc.) — that's a product-level infrastructure decision, not a continuous scaling curve.
+The load-bearing scaling lever is the **chunks-per-user cap** (see Phase 0 open question 3): keeping users within the Super Power range is what makes exact cosine workable indefinitely. The benchmark deliberately did not measure Reasonable Max (~800K chunks/user); the cap is what prevents anyone reaching that range. Specific latency and concurrency ceilings vary with per-user chunk counts, filter selectivity, and concurrent load — Phase 0's headline numbers (~130 QPS at Typical Power, ~18 QPS at Super Power) are the v1 reference, and AI-chat fan-out (Phase 0 open question 2) is the most likely future load multiplier the team needs to size against before that ceiling matters.
 
-**Exact-scan-for-small-users is explicitly NOT part of v1.** An alternative design (count the user's chunks first; force a seq-scan cosine computation if below some threshold, otherwise HNSW) is implementable in ~30 lines but adds a second query path and a threshold without benchmarks to ground it. Partitioned HNSW + iterative scan should already handle small users well (their partition-local HNSW is fast regardless of user size). Revisit only if real observability shows specific small users getting bad recall or latency — at that point, benchmark data informs the threshold choice.
+The escape hatch, if production observability eventually shows this design is insufficient, is layered (cheapest to most invasive): (a) vertically scale the shared Postgres replica; (b) split vector data into a dedicated Postgres instance — the M5 architecture already isolates vector access to `vector_search()`, so the change is a connection-pool change in that one function plus a one-time data migration of `content_chunks` (see Decisions §7); (c) move to a namespaced external vector store (Qdrant, Pinecone). None of these are v1 work.
 
 **Query embeddings:** `embed_query()` calls `EmbeddingService.embed_single()` directly for each hybrid-search query. Query embedding cache is intentionally omitted from v1. The added Redis memory/cardinality cost is not justified without evidence of meaningful exact-query reuse. If query embedding latency or provider cost becomes a problem later, caching can be revisited with real usage data.
 
 ### Testing Strategy
 - Vector search returns nearest neighbors by cosine similarity
 - Vector search is scoped to user_id (multi-tenant isolation)
-- `vector_search()` applies `SET LOCAL hnsw.iterative_scan = strict_order`, `SET LOCAL hnsw.ef_search = 200`, and `SET LOCAL hnsw.max_scan_tuples = 20000` on every call (verify by `SHOW`-ing each setting inside the same transaction)
-- Settings apply under production call-site shape: with a session obtained from `get_async_session()` (not a stand-alone test session), `vector_search()` still applies and observes the `SET LOCAL` values before the `SELECT` runs
-- Autocommit isolation: calling `vector_search()` with a session configured for `isolation_level="AUTOCOMMIT"` raises a clear error rather than silently running with ineffective `SET LOCAL`
-- No-active-transaction path: `vector_search()` opens its own transaction when called without one, rather than relying on auto-begin
-- Settings do not leak: a subsequent query in a fresh transaction sees the session defaults, not the `SET LOCAL` values
+- `vector_search()` issues no session-level `SET` statements — exact cosine has no transaction-scoped tunables (verify the query log for the `vector_search()` call contains only the `SELECT`, no `SET LOCAL` or `SET` lines)
+- `vector_search()` works in any session shape: inside an open transaction, in autocommit isolation, and as the first statement on a fresh session — no preflight or transaction-contract assertions required
 - FTS and query embedding run concurrently (asyncio.gather)
 - RRF scoring: item in both FTS and vector results scores higher than item in only one
 - RRF scoring: item in only FTS still appears in results
