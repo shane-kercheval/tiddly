@@ -20,11 +20,19 @@ This plan addresses four changes:
 
 ### Shortcut choice
 
-We are leaning toward **`Cmd+Shift+S` (Mac) / `Ctrl+Shift+S` (Windows/Linux)**. Both are unbound by Chrome itself on all three platforms.
+We are using **`Alt+Shift+S` (all platforms)** — `Option+Shift+S` on Mac, `Alt+Shift+S` on Windows/Linux/ChromeOS.
+
+This was chosen after rejecting two earlier candidates:
+
+1. **`Cmd+Shift+S` / `Ctrl+Shift+S`** (initial proposal) — although both are unbound by Chrome itself, the tiddly.me web app already binds `Cmd/Ctrl+Shift+S` to "save and close" inside every editor (`Bookmark.tsx:496`, `Note.tsx:437`, `Prompt.tsx:516`, documented in `ShortcutsDialog.tsx:32` and `llms.txt:264`). Chrome's `_execute_action` shortcut intercepts keystrokes before the page sees them, so any user with both the extension installed and tiddly.me open would lose the in-app save-and-close shortcut on every editor — the popup would open instead.
+2. **`Cmd+Option+S` / `Ctrl+Alt+S`** — although Chrome's manifest parser accepts these strings, Chrome's shortcut UI rejects `Command+Alt+letter` on Mac as "invalid combination". The manifest loaded but Chrome silently dropped the binding on install, leaving "Not set" for real users with no way to even manually rebind to the same combo. (The Win/Linux side also had an `AltGr` collision concern on European keyboard layouts.)
+
+`Alt+Shift+S` is in Chrome's allowed combo list on Mac (`Alt+Shift+letter`) and Windows/Linux, doesn't collide with any tiddly.me binding (the in-app handlers all gate on `metaKey || ctrlKey`, never `altKey`), avoids the AltGr issue entirely, and preserves the "S for Save" mnemonic.
 
 Caveats the agent should be aware of:
 
 - Chrome's `suggested_key` is best-effort only. If another extension installed earlier already claimed the same combo, Chrome silently leaves ours unbound and the user must rebind manually at `chrome://extensions/shortcuts`.
+- **`suggested_key` is unreliable for unpacked / sideloaded extensions.** Chrome only consistently auto-applies it for Chrome Web Store installs. During development (`Load unpacked`), the shortcut will show as "Not set" even on a clean Remove + Reload — this is expected and does not indicate a manifest bug. Verify the manifest is wired correctly by manually binding via the pencil icon at `chrome://extensions/shortcuts`; if Chrome accepts the manual bind without an "invalid combination" error and the popup opens, the manifest is correct.
 - Suggested keys are limited to 4 per extension (we only need 1).
 - The shortcut only fires when Chrome has window focus (default scope: "In Chrome"). This is the desired behavior — global scope is not needed.
 
@@ -83,11 +91,11 @@ Adding the `commands` block does not change `permissions` or `host_permissions`,
 
 ### Goal & Outcome
 
-Declare a suggested default shortcut so new installs get `Cmd+Shift+S` (Mac) / `Ctrl+Shift+S` (Windows/Linux) auto-bound to opening the popup. No JS handler is required because we use the reserved `_execute_action` command.
+Declare a suggested default shortcut so new installs get `Alt+Shift+S` (Option+Shift+S on Mac) auto-bound to opening the popup. No JS handler is required because we use the reserved `_execute_action` command.
 
 After this milestone:
 
-- A fresh install of the extension on a machine with no conflicting extension shortcut binds the chosen combo automatically to "Activate the extension."
+- A fresh Chrome Web Store install of the extension on a machine with no conflicting extension shortcut binds `Alt+Shift+S` (Option+Shift+S on Mac) automatically to "Activate the extension." Unpacked / `Load unpacked` installs require manual binding at `chrome://extensions/shortcuts` — this is a Chrome limitation, not a manifest bug.
 - Existing installs are unaffected (Chrome does not retroactively apply suggested keys to already-installed extensions; users can still bind manually).
 - The public docs page (`DocsExtensionsChrome.tsx`) documents the shortcut and the rebind path as a top-level section. The repo `README.md` has a brief one-paragraph note covering the same for engineers/agents.
 
@@ -100,8 +108,7 @@ After this milestone:
    "commands": {
      "_execute_action": {
        "suggested_key": {
-         "default": "Ctrl+Shift+S",
-         "mac": "Command+Shift+S"
+         "default": "Alt+Shift+S"
        },
        "description": "Open Tiddly Bookmarks"
      }
@@ -109,19 +116,18 @@ After this milestone:
    ```
 
    Notes for the agent:
-   - The `default` key applies to Windows and Linux (and ChromeOS).
-   - Use the literal string `Command` (not `Cmd`) on Mac — Chrome's manifest parser is strict.
+   - `default` covers Windows, Linux, ChromeOS, **and Mac** (Mac's Option key is the same as `Alt` in the manifest format). No `mac` override needed because the same chord is used across platforms.
    - No `background.js` change needed; `_execute_action` opens the popup automatically.
 3. Bump `manifest.json` `version` to `0.4.0`.
 4. Update `frontend/src/pages/docs/DocsExtensionsChrome.tsx`. There is already a single "Keyboard shortcut" bullet in the "Tips" section at the bottom that just points to `chrome://extensions/shortcuts`. Promote it to a proper top-level section (between "Search Tab" and "Tips" feels natural), and structure it so the silent-collision rebind path is the **first** thing the user sees, not a footnote:
-   - State the default: `Cmd+Shift+S` (Mac) / `Ctrl+Shift+S` (Windows/Linux) opens the popup.
+   - State the default: `Option+Shift+S` (Mac) / `Alt+Shift+S` (Windows/Linux) opens the popup.
    - Lead with the warning: if another extension already owns the combo, Chrome silently leaves Tiddly's shortcut unbound — there is no error message. Users who hit this must visit `chrome://extensions/shortcuts` and bind it manually (or pick a different combo). Include explicit step-by-step rebind instructions (open `chrome://extensions/shortcuts`, find "Tiddly Bookmarks", click the pencil icon next to "Activate the extension", press the desired combo, click OK).
    - Note that pressing Enter while the popup is open will save (Save tab) or jump straight to typing in search (Search tab) thanks to the auto-focus from M3/M4 — this ties the milestones together as one user-visible feature.
    - Remove the now-redundant single bullet from the Tips section.
 
    **Tangential cleanup while editing this file:** Line ~97 currently says "up to 25,000 characters" but the actual client cap is `SCRAPE_CAP = 200000` and the server further caps via `max_bookmark_content_length`. Replace with the looser, accurate wording: **"up to your plan's content limit"**. Single-line fix; do it in the same edit since the file is already open.
 
-5. Update `chrome-extension/README.md`: add a brief paragraph (under "Features" or as its own short section, not a full subsection) saying: "Default keyboard shortcut: `Cmd+Shift+S` (Mac) / `Ctrl+Shift+S` (Windows/Linux). If silently unbound (combo already claimed by another extension), rebind at `chrome://extensions/shortcuts`. See the public docs for full instructions." Keep it terse — the user-facing docs are the canonical source.
+5. Update `chrome-extension/README.md`: add a brief paragraph (under "Features" or as its own short section, not a full subsection) saying: "Default keyboard shortcut: `Option+Shift+S` (Mac) / `Alt+Shift+S` (Windows/Linux). If silently unbound (combo already claimed by another extension, or sideloaded via `Load unpacked`), rebind at `chrome://extensions/shortcuts`. See the public docs for full instructions." Keep it terse — the user-facing docs are the canonical source.
 
 6. Check `frontend/public/llms.txt`: if it lists Chrome-extension features, append the keyboard shortcut so LLM-driven site indexing surfaces it.
 
@@ -133,7 +139,7 @@ After this milestone:
 
 Assertions:
 
-- Load `manifest.json`, assert `commands._execute_action.suggested_key.default === "Ctrl+Shift+S"` and `.mac === "Command+Shift+S"`.
+- Load `manifest.json`, assert `commands._execute_action.suggested_key.default === "Alt+Shift+S"`.
 - Assert `commands._execute_action.description` is a non-empty string.
 - Assert `manifest_version === 3` (sanity).
 

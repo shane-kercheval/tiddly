@@ -43,6 +43,24 @@ interface ChangelogMonth {
 
 const CHANGELOG: ChangelogMonth[] = [
   {
+    month: 'May 2026',
+    theme: 'Chrome Extension Polish',
+    categories: [
+      {
+        label: 'New',
+        emoji: '🚀',
+        entries: [
+          {
+            title: 'Default keyboard shortcut',
+            description:
+              'Open the Chrome extension with Option+Shift+S (Mac) or Alt+Shift+S (Windows/Linux). Rebind anytime at chrome://extensions/shortcuts.',
+            tag: 'extension',
+          },
+        ],
+      },
+    ],
+  },
+  {
     month: 'April 2026',
     theme: 'AI-Powered Suggestions',
     categories: [
