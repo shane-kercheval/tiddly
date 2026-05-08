@@ -1,6 +1,8 @@
 // Tripwire test — guards against accidental deletion or rename of the
 // commands block in unrelated edits. Does NOT prove the binding works in
 // real Chrome; that requires manual verification at chrome://extensions/shortcuts.
+// If you're intentionally changing the suggested shortcut, update the literal
+// in the suggested_key assertion below to match manifest.json.
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
