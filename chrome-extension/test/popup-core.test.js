@@ -4,12 +4,19 @@ import {
   isRestrictedPage, isValidLimits, counterText,
   pickDefaultTab, setPopupMode, activateTab, setTabEnabled,
   updateLimitFeedback, updateSaveButtonState, applyLimits,
+  truncateByCodePoints,
   setupDOM, resetState,
   saveDraft, clearDraft, getPageData,
   initSaveForm, handleSave, handleSaveError,
   showSaveStatus,
   initSearchView, loadBookmarks,
 } from '../popup-core.js';
+
+// NOTE on test coverage scope:
+// The injected scraper inside getPageData (popup-core.js around line 350) runs in
+// the page context via chrome.scripting.executeScript and is not reachable from this
+// harness — tests mock getPageData directly. The injected function inlines the same
+// code-point truncation logic as truncateByCodePoints; if you change one, change both.
 
 // --- Test fixtures ---
 
@@ -238,6 +245,46 @@ describe('counterText', () => {
 });
 
 // --- DOM-dependent tests ---
+
+describe('truncateByCodePoints', () => {
+  it('returns empty string for null/undefined/empty input', () => {
+    expect(truncateByCodePoints(null, 10)).toBe('');
+    expect(truncateByCodePoints(undefined, 10)).toBe('');
+    expect(truncateByCodePoints('', 10)).toBe('');
+  });
+
+  it('passes under-limit input through unchanged', () => {
+    expect(truncateByCodePoints('hello', 10)).toBe('hello');
+  });
+
+  it('passes input at exactly the limit through unchanged', () => {
+    expect(truncateByCodePoints('a'.repeat(10), 10)).toBe('a'.repeat(10));
+  });
+
+  it('truncates limit + 1 input to exactly the limit', () => {
+    expect(truncateByCodePoints('a'.repeat(11), 10)).toBe('a'.repeat(10));
+  });
+
+  it('preserves a surrogate pair at the boundary (does not split emoji)', () => {
+    // 9 'a' + 🚀 = 10 code points but 11 UTF-16 units. Naive .substring(0, 10) would
+    // drop the emoji's low surrogate. truncateByCodePoints sees length === max and
+    // returns the string unchanged.
+    const input = 'a'.repeat(9) + '🚀';
+    const result = truncateByCodePoints(input, 10);
+    expect(result).toBe(input);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(result)).toBe(false);
+  });
+
+  it('drops the trailing emoji rather than splitting its surrogate pair', () => {
+    // 10 'a' + 🚀 = 11 code points, max = 10. The slice keeps the first 10 code points
+    // (10 'a'); the emoji is dropped whole. A naive .substring(0, 10) would also keep
+    // 10 UTF-16 units, but in a different scenario could split — this test guards that
+    // we slice on code-point indices, not UTF-16 indices.
+    const result = truncateByCodePoints('a'.repeat(10) + '🚀', 10);
+    expect(result).toBe('a'.repeat(10));
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(result)).toBe(false);
+  });
+});
 
 describe('updateLimitFeedback', () => {
   let input, feedback;
@@ -491,7 +538,10 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
   // (= max_title_length). A naive `.substring(0, max_title_length)` would slice off
   // the emoji's low surrogate, leaving an unpaired high surrogate that Postgres rejects
   // with a 422. This test catches regressions back to UTF-16-based truncation.
-  it('does not split surrogate pairs when the boundary lands on emoji', async () => {
+  // Also asserts Save stays enabled and the counter shows "reached" (not "exceeded") —
+  // the validator must agree with the truncation unit (code points, not UTF-16 units),
+  // otherwise truncation succeeds but the validator falsely flags the value as exceeded.
+  it('does not split surrogate pairs when the boundary lands on emoji and keeps Save enabled', async () => {
     const tab = makeTab();
     mockPageData({ title: 'a'.repeat(VALID_LIMITS.max_title_length - 1) + '🚀' });
     mockMessages({
@@ -503,6 +553,9 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
 
     const value = document.getElementById('title').value;
     expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value)).toBe(false);
+    expect(document.getElementById('save-btn').disabled).toBe(false);
+    const titleFeedback = document.getElementById('title-limit');
+    expect(titleFeedback.children[0].textContent).toBe('Character limit reached');
   });
 
   it('still disables Save when the user types over the limit after init', async () => {
@@ -876,7 +929,67 @@ describe('handleSave', () => {
     await handleSave(new Event('submit', { cancelable: true }));
 
     const sentBookmark = chrome.runtime.sendMessage.mock.calls[0][0].bookmark;
-    expect(sentBookmark.content.length).toBeLessThanOrEqual(5);
+    expect(Array.from(sentBookmark.content).length).toBeLessThanOrEqual(5);
+  });
+
+  // Page-body text from sites like Reddit/X.com routinely contains emoji. Two layers
+  // of truncation apply (applyLimits during init, then the save handler at submit);
+  // both must use code-point-aware truncation so neither produces an unpaired surrogate
+  // that Postgres rejects with a 422.
+  it('does not produce unpaired surrogates in sent content when emoji lands on the boundary', async () => {
+    const tab = makeTab();
+    // 9 'a' + 🚀 = 10 code points, 11 UTF-16 units. Limit is 10 code points, so the
+    // emoji must be preserved whole.
+    mockPageData({ content: 'a'.repeat(9) + '🚀' });
+    mockMessages({
+      GET_LIMITS: { success: true, data: { ...VALID_LIMITS, max_bookmark_content_length: 10 } },
+      GET_TAGS: validTagsResponse(),
+    });
+    await initSaveForm(tab);
+    chrome.runtime.sendMessage.mockReset();
+    chrome.runtime.sendMessage.mockResolvedValue({ success: true });
+
+    await handleSave(new Event('submit', { cancelable: true }));
+
+    const sentContent = chrome.runtime.sendMessage.mock.calls[0][0].bookmark.content;
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(sentContent)).toBe(false);
+    expect(Array.from(sentContent).length).toBeLessThanOrEqual(10);
+  });
+
+  it('drops trailing emoji from content when boundary lands inside it rather than splitting the surrogate pair', async () => {
+    const tab = makeTab();
+    // 10 'a' + 🚀 = 11 code points, limit 10 → keep first 10 'a', drop the emoji.
+    mockPageData({ content: 'a'.repeat(10) + '🚀' });
+    mockMessages({
+      GET_LIMITS: { success: true, data: { ...VALID_LIMITS, max_bookmark_content_length: 10 } },
+      GET_TAGS: validTagsResponse(),
+    });
+    await initSaveForm(tab);
+    chrome.runtime.sendMessage.mockReset();
+    chrome.runtime.sendMessage.mockResolvedValue({ success: true });
+
+    await handleSave(new Event('submit', { cancelable: true }));
+
+    const sentContent = chrome.runtime.sendMessage.mock.calls[0][0].bookmark.content;
+    expect(sentContent).toBe('a'.repeat(10));
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(sentContent)).toBe(false);
+  });
+
+  it('passes under-limit content through unchanged', async () => {
+    const tab = makeTab();
+    const content = 'short body 🚀';
+    mockPageData({ content });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+    await initSaveForm(tab);
+    chrome.runtime.sendMessage.mockReset();
+    chrome.runtime.sendMessage.mockResolvedValue({ success: true });
+
+    await handleSave(new Event('submit', { cancelable: true }));
+
+    expect(chrome.runtime.sendMessage.mock.calls[0][0].bookmark.content).toBe(content);
   });
 
   it('shows error if limits is null', async () => {

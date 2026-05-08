@@ -7,6 +7,9 @@ export const DRAFT_IMMUTABLE_KEY = 'draftImmutable';
 
 // Truncates by Unicode code point rather than UTF-16 code unit, so emoji
 // at the boundary aren't split into unpaired surrogates (which Postgres rejects).
+// Grapheme clusters (flag emoji, ZWJ family sequences) may render with a missing
+// component if truncated mid-cluster — accepted trade-off; escalate to Intl.Segmenter
+// only if real users complain.
 export function truncateByCodePoints(str, max) {
   const s = str || '';
   const codePoints = Array.from(s);
@@ -247,7 +250,11 @@ export function setTabEnabled(name, enabled, reason) {
 }
 
 export function updateLimitFeedback(input, feedbackEl, maxLength) {
-  const len = input.value.length;
+  // Count by Unicode code points, not UTF-16 code units, so the validator agrees
+  // with truncateByCodePoints. A title like 99 'a' + '🚀' is 100 code points but
+  // 101 UTF-16 units; counting UTF-16 would falsely flag at-limit emoji titles
+  // as exceeded and disable Save.
+  const len = Array.from(input.value).length;
   const ratio = len / maxLength;
   const count = counterText(len, maxLength);
 
@@ -314,9 +321,7 @@ export function showSaveStatus(message, type, link) {
 
 export function applyLimits(limitsObj) {
   limits = limitsObj;
-  if (pageContent.length > limitsObj.max_bookmark_content_length) {
-    pageContent = pageContent.substring(0, limitsObj.max_bookmark_content_length);
-  }
+  pageContent = truncateByCodePoints(pageContent, limitsObj.max_bookmark_content_length);
 }
 
 // --- Draft management ---
@@ -342,13 +347,21 @@ export async function getPageData(tab) {
   try {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: (maxLen) => ({
-        title: document.title,
-        description: document.querySelector('meta[name="description"]')?.content
-          || document.querySelector('meta[property="og:description"]')?.content
-          || '',
-        content: document.body.innerText.substring(0, maxLen)
-      }),
+      // The injected function runs in the page context and cannot capture closures
+      // from this module, so the code-point truncation logic from truncateByCodePoints
+      // is inlined here. Keep it in sync if the helper changes.
+      func: (maxLen) => {
+        const text = document.body.innerText || '';
+        const codePoints = Array.from(text);
+        const content = codePoints.length <= maxLen ? text : codePoints.slice(0, maxLen).join('');
+        return {
+          title: document.title,
+          description: document.querySelector('meta[name="description"]')?.content
+            || document.querySelector('meta[property="og:description"]')?.content
+            || '',
+          content
+        };
+      },
       args: [SCRAPE_CAP]
     });
     return result.result;
@@ -582,7 +595,7 @@ export async function handleSave(e) {
     url: urlInput.value,
     title: titleInput.value,
     description: descriptionInput.value,
-    content: pageContent.substring(0, limits.max_bookmark_content_length),
+    content: truncateByCodePoints(pageContent, limits.max_bookmark_content_length),
     tags
   };
 
