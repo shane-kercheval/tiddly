@@ -70,6 +70,16 @@ describe('popup controller — setup state', () => {
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
   });
+
+  // M3 sub-task: keyboard-only first-run flow — Enter on the setup view should
+  // open the options page without requiring the user to mouse to the CTA.
+  it('no token: focuses the Open Settings button so Enter opens options', async () => {
+    setStorage({});
+    setTab(null);
+    await runPopup();
+
+    expect(document.activeElement).toBe(document.getElementById('open-options'));
+  });
 });
 
 describe('popup controller — default tab selection', () => {
@@ -107,6 +117,22 @@ describe('popup controller — default tab selection', () => {
     expect(document.getElementById('tab-save').hasAttribute('aria-disabled')).toBe(false);
     expect(document.getElementById('tab-search').hasAttribute('aria-disabled')).toBe(false);
     expect(document.getElementById('save-view').hidden).toBe(false);
+  });
+
+  // M3: regular URL → Save default → focus lands on the Save button. Controller-level
+  // counterpart of the popup-core.test.js focus tests; this one exercises the full
+  // popup.js boot path including token check and default-tab routing.
+  it('regular URL: focuses the Save button after default-tab routing settles', async () => {
+    setStorage({ token: 'bm_abc' });
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    mockPageScrape();
+    mockMessages({
+      GET_LIMITS: { success: true, data: VALID_LIMITS },
+      GET_TAGS: { success: true, data: { tags: [] } },
+    });
+    await runPopup();
+
+    expect(document.activeElement).toBe(document.getElementById('save-btn'));
   });
 });
 

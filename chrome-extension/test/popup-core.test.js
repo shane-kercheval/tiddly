@@ -674,6 +674,22 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
 
     expect(document.getElementById('url').value).toBe('https://example.com/page#hash');
   });
+
+  // M3: focus lands on the Save button after the form reveals so the user can press
+  // Enter to save without reaching for the mouse. The manual Chrome smoke test gate
+  // is the real proof — jsdom does not simulate Chrome's popup-paint focus race.
+  it('focuses the Save button after the form reveals', async () => {
+    const tab = makeTab();
+    mockPageData();
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.activeElement).toBe(document.getElementById('save-btn'));
+  });
 });
 
 describe('initSaveForm — cache hit', () => {
@@ -742,6 +758,61 @@ describe('initSaveForm — cache hit', () => {
 
     expect(titleInput.maxLength).toBe(maxBefore);
     expect(document.getElementById('save-form').hidden).toBe(false);
+  });
+
+  // M3: focus lands on the Save button on the cache-hit path too. Both paths share
+  // the same form-reveal site, but a separate test guards against future refactors
+  // that diverge them.
+  it('focuses the Save button after restoring from cache', async () => {
+    const tab = makeTab();
+    chrome.storage.local.set({
+      [DRAFT_KEY]: { url: 'https://example.com', title: 'Edited Title', description: 'Edited desc', tags: ['tag1'] },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'cached content', allTags: ['tag1', 'tag2'], limits: VALID_LIMITS },
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.activeElement).toBe(document.getElementById('save-btn'));
+  });
+
+  // M3 + M2 interaction: cached over-limit drafts (M2's accepted trade-off — both
+  // legacy 0.3.0 untrimmed scrapes and intentional user-typed over-limit content)
+  // disable the Save button, so focusing it would land on a no-op control. Route
+  // focus to the offending field so editing it down re-enables Save naturally.
+  it('focuses the offending field when restoring an over-limit cached title', async () => {
+    const tab = makeTab();
+    chrome.storage.local.set({
+      [DRAFT_KEY]: {
+        url: 'https://example.com',
+        title: 'a'.repeat(VALID_LIMITS.max_title_length + 50),
+        description: 'D',
+        tags: [],
+      },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('save-btn').disabled).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('title'));
+  });
+
+  it('focuses the description when only the description is over-limit in cache', async () => {
+    const tab = makeTab();
+    chrome.storage.local.set({
+      [DRAFT_KEY]: {
+        url: 'https://example.com',
+        title: 'T',
+        description: 'b'.repeat(VALID_LIMITS.max_description_length + 50),
+        tags: [],
+      },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('save-btn').disabled).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('description'));
   });
 });
 

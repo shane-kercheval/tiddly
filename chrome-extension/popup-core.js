@@ -468,6 +468,20 @@ export async function initSaveForm(tab) {
 
   updateSaveButtonState();
 
+  // Keyboard-first contract: focus where the user needs to act. Save is the usual
+  // target, but cache-hit can restore over-limit drafts that disable Save (M2's
+  // accepted trade-off); in that state, route the user to the offending field
+  // so editing it down re-enables Save and Tab+Enter completes the save.
+  if (saveBtn.disabled) {
+    const firstExceeded =
+      titleInput.classList.contains('input-exceeded') ? titleInput
+      : descriptionInput.classList.contains('input-exceeded') ? descriptionInput
+      : null;
+    (firstExceeded || saveBtn).focus();
+  } else {
+    saveBtn.focus();
+  }
+
   tagsInput.addEventListener('input', () => {
     renderTagChips();
   });

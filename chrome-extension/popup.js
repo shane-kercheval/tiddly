@@ -89,9 +89,11 @@ async function init() {
 
   if (!token) {
     setPopupMode('setup');
-    document.getElementById('open-options').addEventListener('click', () => {
+    const openOptionsBtn = document.getElementById('open-options');
+    openOptionsBtn.addEventListener('click', () => {
       chrome.runtime.openOptionsPage();
     });
+    openOptionsBtn.focus();
     return;
   }
 

@@ -258,7 +258,8 @@ Tests are split by layer. **`popup-core.test.js`** for unit-level assertions ins
 
 - **No-token setup CTA focus**: with no `token` in storage, after `runPopup()` settles, `document.activeElement === document.getElementById('open-options')`.
 - **Regular URL → Save default + focused**: with a token and a regular `https://` tab URL, after `runPopup()` settles, `document.activeElement === document.getElementById('save-btn')`.
-- **Restricted URL → Search default + focused**: with a token and a `chrome://newtab/` (or other restricted) tab URL, after `runPopup()` settles, the Save tab has `aria-disabled="true"` and `document.activeElement === document.getElementById('search-input')`. This is the auto-route flow that motivates M4.
+
+The restricted-URL → Search-default-focused controller test was moved to M4 since it asserts on M4's `searchInput.focus()` behavior — keeping it in M3 would have required either skipping the test or bleeding M4 implementation into M3.
 
 Note: tab-switch re-focus behavior is automatically protected by the existing `saveInitialized` / `searchInitialized` guards in `popup.js:43-55` — `initSaveForm` and `initSearchView` each run at most once per popup open, so no test for "tab switch back to X doesn't re-steal focus" is needed. This is **deliberate**, not an oversight: once the user has touched the mouse to switch tabs mid-session, focus management belongs to them, not us.
 
@@ -294,8 +295,9 @@ Tests are split by layer (same convention as M3).
 
 - **Happy path**: After `initSearchView` resolves, `document.activeElement === searchInput`.
 
-**In `popup.test.js`** (controller-level — covered by the M3 "Restricted URL → Search default + focused" test, which already proves the auto-route path lands focus on `searchInput`):
+**In `popup.test.js`** (controller-level):
 
+- **Restricted URL → Search default + focused**: with a token and a `chrome://newtab/` (or other restricted) tab URL, after `runPopup()` settles, the Save tab has `aria-disabled="true"` and `document.activeElement === document.getElementById('search-input')`. This is the auto-route flow that motivates M4. Originally listed under M3 in earlier plan revisions, moved here so the test exercises M4's `searchInput.focus()` instead of being skipped during M3.
 - **Tab-switch does not re-focus**: open the popup on a regular URL (Save is the default), then simulate clicking the Search tab → focus lands on `searchInput` (first init), then simulate clicking the Save tab → focus does not get re-stolen, then simulate clicking Search again → on the second activation of Search, `initSearchView` does not run again and focus is **not** moved back to `searchInput` (it stays wherever the click landed). This proves the `searchInitialized` guard correctly prevents re-stealing.
 
 ---
