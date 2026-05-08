@@ -5,6 +5,14 @@ export const INITIAL_CHIPS_COUNT = 8;
 export const DRAFT_KEY = 'draft';
 export const DRAFT_IMMUTABLE_KEY = 'draftImmutable';
 
+// Truncates by Unicode code point rather than UTF-16 code unit, so emoji
+// at the boundary aren't split into unpaired surrogates (which Postgres rejects).
+export function truncateByCodePoints(str, max) {
+  const s = str || '';
+  const codePoints = Array.from(s);
+  return codePoints.length <= max ? s : codePoints.slice(0, max).join('');
+}
+
 // --- DOM refs (set via setupDOM) ---
 
 let setupView, saveView, searchView;
@@ -405,8 +413,8 @@ export async function initSaveForm(tab) {
     pageContent = pageData.content || '';
     applyLimits(limitsResult.data);
 
-    titleInput.value = pageData.title || '';
-    descriptionInput.value = pageData.description || '';
+    titleInput.value = truncateByCodePoints(pageData.title, limitsResult.data.max_title_length);
+    descriptionInput.value = truncateByCodePoints(pageData.description, limitsResult.data.max_description_length);
 
     let tagsSuccess = false;
     if (tagsResult?.success && Array.isArray(tagsResult.data?.tags)) {

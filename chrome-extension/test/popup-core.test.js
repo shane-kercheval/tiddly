@@ -372,11 +372,9 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
     expect(document.getElementById('loading-indicator').hidden).toBe(true);
   });
 
-  it('does not truncate scraped title/description and disables save when exceeded', async () => {
+  it('truncates over-limit scraped title to max_title_length code points', async () => {
     const tab = makeTab();
-    const longTitle = 'a'.repeat(200);
-    const longDesc = 'b'.repeat(2000);
-    mockPageData({ title: longTitle, description: longDesc });
+    mockPageData({ title: 'a'.repeat(VALID_LIMITS.max_title_length + 50) });
     mockMessages({
       GET_LIMITS: validLimitsResponse(),
       GET_TAGS: validTagsResponse(),
@@ -384,12 +382,144 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
 
     await initSaveForm(tab);
 
-    expect(document.getElementById('title').value.length).toBe(200);
-    expect(document.getElementById('description').value.length).toBe(2000);
+    expect(Array.from(document.getElementById('title').value).length).toBe(VALID_LIMITS.max_title_length);
+  });
+
+  it('truncates over-limit scraped description to max_description_length code points', async () => {
+    const tab = makeTab();
+    mockPageData({ description: 'b'.repeat(VALID_LIMITS.max_description_length + 50) });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(Array.from(document.getElementById('description').value).length).toBe(VALID_LIMITS.max_description_length);
+  });
+
+  // Regression guard for the M3 keyboard-only flow: if Save ever ends up disabled
+  // after truncating scraped values, auto-focus on Save would land on a disabled button
+  // and Enter would do nothing.
+  it('keeps Save enabled after truncating over-limit scraped values', async () => {
+    const tab = makeTab();
+    mockPageData({
+      title: 'a'.repeat(VALID_LIMITS.max_title_length + 50),
+      description: 'b'.repeat(VALID_LIMITS.max_description_length + 50),
+    });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('save-btn').disabled).toBe(false);
+  });
+
+  it('passes under-limit scraped values through unchanged (no spurious slicing)', async () => {
+    const tab = makeTab();
+    const title = 'Short title';
+    const description = 'A short description.';
+    mockPageData({ title, description });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('title').value).toBe(title);
+    expect(document.getElementById('description').value).toBe(description);
+  });
+
+  it('does not truncate a scraped title at exactly max_title_length', async () => {
+    const tab = makeTab();
+    const title = 'a'.repeat(VALID_LIMITS.max_title_length);
+    mockPageData({ title });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('title').value).toBe(title);
+  });
+
+  it('does not truncate a scraped description at exactly max_description_length', async () => {
+    const tab = makeTab();
+    const description = 'b'.repeat(VALID_LIMITS.max_description_length);
+    mockPageData({ description });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('description').value).toBe(description);
+  });
+
+  it('truncates a scraped title at exactly limit + 1 to exactly the limit', async () => {
+    const tab = makeTab();
+    mockPageData({ title: 'a'.repeat(VALID_LIMITS.max_title_length + 1) });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(Array.from(document.getElementById('title').value).length).toBe(VALID_LIMITS.max_title_length);
+  });
+
+  it('truncates a scraped description at exactly limit + 1 to exactly the limit', async () => {
+    const tab = makeTab();
+    mockPageData({ description: 'b'.repeat(VALID_LIMITS.max_description_length + 1) });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(Array.from(document.getElementById('description').value).length).toBe(VALID_LIMITS.max_description_length);
+  });
+
+  // Surrogate-pair safety: 99 'a' + 🚀 has UTF-16 length 101 but 100 code points
+  // (= max_title_length). A naive `.substring(0, max_title_length)` would slice off
+  // the emoji's low surrogate, leaving an unpaired high surrogate that Postgres rejects
+  // with a 422. This test catches regressions back to UTF-16-based truncation.
+  it('does not split surrogate pairs when the boundary lands on emoji', async () => {
+    const tab = makeTab();
+    mockPageData({ title: 'a'.repeat(VALID_LIMITS.max_title_length - 1) + '🚀' });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    const value = document.getElementById('title').value;
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value)).toBe(false);
+  });
+
+  it('still disables Save when the user types over the limit after init', async () => {
+    const tab = makeTab();
+    mockPageData({ title: 'Short' });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    const titleInput = document.getElementById('title');
+    titleInput.value = 'x'.repeat(VALID_LIMITS.max_title_length + 1);
+    titleInput.dispatchEvent(new Event('input'));
+
     expect(document.getElementById('save-btn').disabled).toBe(true);
-    const titleFeedback = document.getElementById('title-limit');
-    expect(titleFeedback.style.visibility).toBe('visible');
-    expect(titleFeedback.textContent).toContain('Character limit exceeded');
   });
 
   it('writes immutable cache when both limits and tags succeed', async () => {
@@ -463,6 +593,22 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
     expect(titleFeedback.children[1].textContent).toBe('100 / 100');
   });
 
+  it('shows description limit feedback if pre-populated description is at the limit', async () => {
+    const tab = makeTab();
+    mockPageData({ description: 'b'.repeat(1000) });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    const descFeedback = document.getElementById('description-limit');
+    expect(descFeedback.style.visibility).toBe('visible');
+    expect(descFeedback.children[0].textContent).toBe('Character limit reached');
+    expect(descFeedback.children[1].textContent).toBe('1,000 / 1,000');
+  });
+
   it('URL comes from tab.url, not from content script', async () => {
     const tab = makeTab('https://example.com/page#hash');
     mockPageData();
@@ -509,6 +655,24 @@ describe('initSaveForm — cache hit', () => {
 
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
+  });
+
+  // Guards two real-world scenarios after M2:
+  //   1. Intentional user-typed over-limit drafts (existing "warn at >100%, disable Save" UX preserved).
+  //   2. Legacy cached drafts produced by pre-M2 (0.3.0) versions that wrote untrimmed
+  //      scraped values into DRAFT_KEY. Truncating on cache restore would silently alter
+  //      user state. Both will exist in real-world installs after 0.4.0 ships.
+  it('does not truncate over-limit values restored from cache', async () => {
+    const tab = makeTab();
+    const overLimitTitle = 'a'.repeat(VALID_LIMITS.max_title_length + 50);
+    chrome.storage.local.set({
+      [DRAFT_KEY]: { url: 'https://example.com', title: overLimitTitle, description: 'D', tags: [] },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('title').value.length).toBe(VALID_LIMITS.max_title_length + 50);
   });
 
   it('applies cached limits without setting maxLength', async () => {
