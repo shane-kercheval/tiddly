@@ -372,7 +372,7 @@ export async function getPageData(tab) {
 
 // --- Save form ---
 
-export async function initSaveForm(tab) {
+export async function initSaveForm(tab, { focus = true } = {}) {
   const storage = await chrome.storage.local.get([
     'defaultTags', 'lastUsedTags', DRAFT_KEY, DRAFT_IMMUTABLE_KEY
   ]);
@@ -472,14 +472,19 @@ export async function initSaveForm(tab) {
   // target, but cache-hit can restore over-limit drafts that disable Save (M2's
   // accepted trade-off); in that state, route the user to the offending field
   // so editing it down re-enables Save and Tab+Enter completes the save.
-  if (saveBtn.disabled) {
-    const firstExceeded =
-      titleInput.classList.contains('input-exceeded') ? titleInput
-      : descriptionInput.classList.contains('input-exceeded') ? descriptionInput
-      : null;
-    (firstExceeded || saveBtn).focus();
-  } else {
-    saveBtn.focus();
+  // The `focus` option is opt-out so callers like the arrow-key tablist handler
+  // can preserve the WAI-ARIA roving-tabindex pattern (focus stays on the tab
+  // button, user explicitly Tabs out of the tablist to enter the panel).
+  if (focus) {
+    if (saveBtn.disabled) {
+      const firstExceeded =
+        titleInput.classList.contains('input-exceeded') ? titleInput
+        : descriptionInput.classList.contains('input-exceeded') ? descriptionInput
+        : null;
+      (firstExceeded || saveBtn).focus();
+    } else {
+      saveBtn.focus();
+    }
   }
 
   tagsInput.addEventListener('input', () => {
@@ -773,7 +778,7 @@ function refreshActiveTags() {
   }
 }
 
-export async function initSearchView() {
+export async function initSearchView({ focus = true } = {}) {
   // Fetch tags for the filter dropdown
   chrome.runtime.sendMessage({ type: 'GET_TAGS' }).then(result => {
     if (result?.success && Array.isArray(result.data?.tags)) {
@@ -811,6 +816,11 @@ export async function initSearchView() {
   loadMoreBtn.addEventListener('click', () => {
     loadBookmarks(searchInput.value.trim(), searchOffset, true);
   });
+
+  // Opt-out so the arrow-key tablist handler can preserve focus on the tab button.
+  if (focus) {
+    searchInput.focus();
+  }
 }
 
 export async function loadBookmarks(query, offset, append) {

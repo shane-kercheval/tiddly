@@ -103,6 +103,22 @@ describe('popup controller — default tab selection', () => {
     expect(document.getElementById('save-view').hidden).toBe(true);
   });
 
+  // M4: restricted URL → Search auto-route → focus lands on the search input.
+  // Originally listed under M3 testing in earlier plan revisions; moved here so the
+  // assertion exercises M4's searchInput.focus() instead of being skipped during M3.
+  it('restricted URL: focuses the search input after auto-routing to Search', async () => {
+    setStorage({ token: 'bm_abc' });
+    setTab({ id: 1, url: 'chrome://newtab/', title: 'New Tab' });
+    mockMessages({
+      GET_TAGS: { success: true, data: { tags: [] } },
+      SEARCH_BOOKMARKS: { success: true, data: { items: [], has_more: false } },
+    });
+    await runPopup();
+
+    expect(document.getElementById('tab-save').getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(document.getElementById('search-input'));
+  });
+
   it('regular URL: Save is default, both tabs enabled', async () => {
     setStorage({ token: 'bm_abc' });
     setTab({ id: 1, url: 'https://example.com', title: 'Example' });
@@ -190,6 +206,93 @@ describe('popup controller — lazy init idempotency', () => {
     await new Promise(r => setTimeout(r, 0));
 
     expect(limitsCalls()).toBe(1);
+  });
+
+  // M4 + accessibility fix: arrow-key navigation between tabs must preserve focus
+  // on the tab button (WAI-ARIA roving-tabindex pattern), not steal it into the
+  // panel input/button. Without the stealFocus: false plumb-through, initSearchView
+  // / initSaveForm would focus the panel, breaking subsequent Left/Right arrow
+  // navigation because the handler at popup.js:71 returns early when
+  // document.activeElement is no longer one of the tab buttons.
+  it('ArrowRight from tab-save preserves focus on tab-search rather than stealing into the search input', async () => {
+    setStorage({ token: 'bm_abc' });
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    mockPageScrape();
+    mockMessages({
+      GET_LIMITS: { success: true, data: VALID_LIMITS },
+      GET_TAGS: { success: true, data: { tags: [] } },
+      SEARCH_BOOKMARKS: { success: true, data: { items: [], has_more: false } },
+    });
+    await runPopup();
+
+    const tabSave = document.getElementById('tab-save');
+    tabSave.focus();
+    expect(document.activeElement).toBe(tabSave);
+
+    document.querySelector('[role="tablist"]').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })
+    );
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(document.activeElement).toBe(document.getElementById('tab-search'));
+  });
+
+  it('ArrowLeft from tab-search preserves focus on tab-save rather than stealing into Save', async () => {
+    setStorage({ token: 'bm_abc' });
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    mockPageScrape();
+    mockMessages({
+      GET_LIMITS: { success: true, data: VALID_LIMITS },
+      GET_TAGS: { success: true, data: { tags: [] } },
+      SEARCH_BOOKMARKS: { success: true, data: { items: [], has_more: false } },
+    });
+    await runPopup();
+
+    // Switch to Search via mouse click first so searchInitialized = true.
+    document.getElementById('tab-search').click();
+    await new Promise(r => setTimeout(r, 0));
+
+    const tabSearch = document.getElementById('tab-search');
+    tabSearch.focus();
+    expect(document.activeElement).toBe(tabSearch);
+
+    document.querySelector('[role="tablist"]').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })
+    );
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(document.activeElement).toBe(document.getElementById('tab-save'));
+  });
+
+  // M4: tab switching back to Search after first init must not re-focus the search
+  // input. Once the user has touched the mouse to switch tabs mid-session, focus
+  // belongs to them. The searchInitialized guard in popup.js prevents initSearchView
+  // from running again, which is what stops the focus call from re-firing.
+  it('tab-switch back to Search does not re-focus the search input after first init', async () => {
+    setStorage({ token: 'bm_abc' });
+    setTab({ id: 1, url: 'https://example.com', title: 'Example' });
+    mockPageScrape();
+    mockMessages({
+      GET_LIMITS: { success: true, data: VALID_LIMITS },
+      GET_TAGS: { success: true, data: { tags: [] } },
+      SEARCH_BOOKMARKS: { success: true, data: { items: [], has_more: false } },
+    });
+    await runPopup();
+
+    // Save is the default; first Search click triggers initSearchView and focuses input.
+    document.getElementById('tab-search').click();
+    await new Promise(r => setTimeout(r, 0));
+    expect(document.activeElement).toBe(document.getElementById('search-input'));
+
+    // Spy on subsequent focus calls to prove the guard prevents re-firing.
+    const focusSpy = vi.spyOn(document.getElementById('search-input'), 'focus');
+
+    document.getElementById('tab-save').click();
+    await new Promise(r => setTimeout(r, 0));
+    document.getElementById('tab-search').click();
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(focusSpy).not.toHaveBeenCalled();
   });
 
   it('clicking the disabled Save tab does not run initSaveForm', async () => {

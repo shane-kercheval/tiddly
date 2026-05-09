@@ -44,14 +44,14 @@ let saveInitialized = false;
 let searchInitialized = false;
 let currentTab = null;
 
-async function activateAndInit(name) {
+async function activateAndInit(name, { stealFocus = true } = {}) {
   activateTab(name);
   if (name === 'save' && !saveInitialized) {
     saveInitialized = true;
-    await initSaveForm(currentTab);
+    await initSaveForm(currentTab, { focus: stealFocus });
   } else if (name === 'search' && !searchInitialized) {
     searchInitialized = true;
-    await initSearchView();
+    await initSearchView({ focus: stealFocus });
   }
 }
 
@@ -76,7 +76,9 @@ function wireTabClicks() {
       const candidate = document.getElementById(`tab-${order[idx]}`);
       if (candidate.getAttribute('aria-disabled') !== 'true') {
         candidate.focus();
-        activateAndInit(order[idx]);
+        // Preserve WAI-ARIA roving-tabindex: focus stays on the tab button so the
+        // user can keep arrow-navigating; they explicitly Tab out to enter the panel.
+        activateAndInit(order[idx], { stealFocus: false });
         e.preventDefault();
         return;
       }

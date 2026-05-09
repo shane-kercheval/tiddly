@@ -814,6 +814,24 @@ describe('initSaveForm — cache hit', () => {
     expect(document.getElementById('save-btn').disabled).toBe(true);
     expect(document.activeElement).toBe(document.getElementById('description'));
   });
+
+  // Opt-out: arrow-key tablist navigation passes { focus: false } through the
+  // controller to preserve focus on the tab button (WAI-ARIA roving-tabindex).
+  it('does not focus the Save button when called with { focus: false }', async () => {
+    const tab = makeTab();
+    chrome.storage.local.set({
+      [DRAFT_KEY]: { url: 'https://example.com', title: 'T', description: 'D', tags: [] },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+
+    // Park focus somewhere predictable before init.
+    const searchInput = document.getElementById('search-input');
+    searchInput.focus();
+
+    await initSaveForm(tab, { focus: false });
+
+    expect(document.activeElement).not.toBe(document.getElementById('save-btn'));
+  });
 });
 
 describe('initSaveForm — cache miss', () => {
@@ -1359,6 +1377,41 @@ describe('initSearchView', () => {
 
     expect(searchView.hidden).toBe(true);
     expect(saveView.hidden).toBe(true);
+  });
+
+  // M4: focus lands on the search input so the user can type immediately. The manual
+  // Chrome smoke test gate is the real proof — jsdom does not simulate Chrome's
+  // popup-paint focus race.
+  // The focus call is the last synchronous statement of initSearchView; if a future
+  // refactor inserts an `await` before it (e.g., to focus only after results render),
+  // this assertion may need to flush more microtasks before checking activeElement.
+  it('focuses the search input after initialization', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+
+    expect(document.activeElement).toBe(document.getElementById('search-input'));
+  });
+
+  // Opt-out: arrow-key tablist navigation passes { focus: false } through the
+  // controller to preserve focus on the tab button (WAI-ARIA roving-tabindex).
+  it('does not focus the search input when called with { focus: false }', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    // Park focus somewhere predictable before init runs so we can prove init didn't
+    // move it.
+    const titleInput = document.getElementById('title');
+    titleInput.focus();
+
+    await initSearchView({ focus: false });
+
+    expect(document.activeElement).not.toBe(document.getElementById('search-input'));
   });
 });
 
