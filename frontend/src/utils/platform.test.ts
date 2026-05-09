@@ -59,6 +59,12 @@ describe('localizeKey', () => {
     expect(localizeKey('⌘')).toBe('Ctrl')
     expect(localizeKey('⌥')).toBe('Alt')
     expect(localizeKey('⇧')).toBe('Shift')
+    expect(localizeKey('⌃')).toBe('Ctrl')
+  })
+
+  it('passes Mac Control glyph through on Mac', () => {
+    mockPlatform('MacIntel')
+    expect(localizeKey('⌃')).toBe('⌃')
   })
 
   it('passes non-modifier tokens through unchanged', () => {

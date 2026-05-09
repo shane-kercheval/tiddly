@@ -9,17 +9,26 @@
 const MAC_GLYPH_CMD = '⌘'
 const MAC_GLYPH_OPT = '⌥'
 const MAC_GLYPH_SHIFT = '⇧'
+const MAC_GLYPH_CTRL = '⌃'
 
-// Authoring convention for shortcut arrays consumed by these helpers:
-// always lead with ⌘, then ⌥, then ⇧, then the non-modifier key. This
-// matches each platform's native modifier order on render — Mac displays
-// ⌘⇧B, Windows displays Ctrl+Shift+B (the canonical Windows order). We
-// canonicalize at the data layer rather than re-sorting inside formatShortcut
-// so the helper stays a pure transform of its input.
+// Authoring convention for shortcut arrays consumed by these helpers: lead
+// with ⌘, then ⌥, then ⇧, then the non-modifier key. We pick this order for
+// authoring consistency across the app, not strict platform conformance —
+// Apple's HIG actually puts Command last (⇧⌘B), but Cmd-first matches what
+// most cross-platform apps display and reads naturally on both platforms.
+// Mac renders ⌘⇧B; Windows renders Ctrl+Shift+B (the canonical Windows
+// order). We canonicalize at the data layer rather than re-sorting inside
+// formatShortcut so the helper stays a pure transform of its input.
+//
+// ⌃ (Mac Control) maps to Ctrl on Windows for symmetry. No current shortcut
+// uses ⌃, but mapping it forward-protects future authors. Note that a
+// hypothetical Mac shortcut combining ⌃ and ⌘ has no clean Windows form
+// (both collapse to Ctrl) — don't author such combinations.
 const MAC_TO_WINDOWS: Record<string, string> = {
   [MAC_GLYPH_CMD]: 'Ctrl',
   [MAC_GLYPH_OPT]: 'Alt',
   [MAC_GLYPH_SHIFT]: 'Shift',
+  [MAC_GLYPH_CTRL]: 'Ctrl',
 }
 
 export function isMac(): boolean {
