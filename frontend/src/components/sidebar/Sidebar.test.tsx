@@ -204,17 +204,30 @@ describe('Sidebar', () => {
       expect(mockOnOpenPalette).toHaveBeenCalledOnce()
     })
 
-    it('displays keyboard shortcut badge', () => {
+    it('displays keyboard shortcut badge on Mac', () => {
+      const platformSpy = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
       const mockOnOpenPalette = vi.fn()
 
       render(<Sidebar onOpenPalette={mockOnOpenPalette} />, {
         wrapper: createWrapper(['/app/content']),
       })
 
-      // The shortcut should be visible in the desktop sidebar (inside <kbd> elements).
-      // jsdom's navigator.platform is "" so formatShortcut renders the non-Mac form.
+      const shortcuts = screen.getAllByText('⌘⇧P')
+      expect(shortcuts.length).toBeGreaterThan(0)
+      platformSpy.mockRestore()
+    })
+
+    it('displays keyboard shortcut badge on Windows', () => {
+      const platformSpy = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32')
+      const mockOnOpenPalette = vi.fn()
+
+      render(<Sidebar onOpenPalette={mockOnOpenPalette} />, {
+        wrapper: createWrapper(['/app/content']),
+      })
+
       const shortcuts = screen.getAllByText('Ctrl+Shift+P')
       expect(shortcuts.length).toBeGreaterThan(0)
+      platformSpy.mockRestore()
     })
   })
 

@@ -20,6 +20,21 @@ describe('isMac', () => {
     expect(isMac()).toBe(true)
   })
 
+  it('returns true for iPhone', () => {
+    mockPlatform('iPhone')
+    expect(isMac()).toBe(true)
+  })
+
+  it('returns true for iPad', () => {
+    mockPlatform('iPad')
+    expect(isMac()).toBe(true)
+  })
+
+  it('returns true for iPod', () => {
+    mockPlatform('iPod')
+    expect(isMac()).toBe(true)
+  })
+
   it('returns false for Win32', () => {
     mockPlatform('Win32')
     expect(isMac()).toBe(false)

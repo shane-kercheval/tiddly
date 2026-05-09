@@ -74,7 +74,7 @@ export function DocsShortcuts(): ReactNode {
           <ShortcutRow keys={['\u2318', 'V']} description="Paste URL to add bookmark" />
           <ShortcutRow keys={['\u2318', 'S']} description="Save" />
           <ShortcutRow keys={['\u2318', '\u21E7', 'S']} description="Save and close" />
-          <ShortcutRow keys={['\u21E7', '\u2318', 'Click']} description="Open link without tracking" />
+          <ShortcutRow keys={['\u2318', '\u21E7', 'Click']} description="Open link without tracking" />
         </tbody>
       </table>
 

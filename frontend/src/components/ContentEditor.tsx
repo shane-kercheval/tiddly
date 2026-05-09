@@ -2,17 +2,12 @@
  * Content editor wrapper component.
  *
  * ARCHITECTURE NOTE (Jan 2026):
- * Previously supported a Markdown/Text mode toggle where:
- * - Markdown mode used MilkdownEditor (rich editing with inline rendering)
- * - Text mode used CodeMirrorEditor (raw markdown with syntax highlighting)
- *
- * MilkdownEditor caused various issues (AST normalization, cursor behavior,
- * formatting edge cases) so we've simplified to always use CodeMirrorEditor
- * with custom visual markdown styling. MilkdownEditor is now only used as a
- * read-only preview (via "Reading" toggle in toolbar).
- *
- * The commented-out mode toggle code is preserved for potential future
- * revisiting once Milkdown matures or if we find better solutions.
+ * Previously supported a Markdown/Text mode toggle: Markdown mode used
+ * MilkdownEditor (rich editing with inline rendering), Text mode used
+ * CodeMirrorEditor (raw markdown with syntax highlighting). Milkdown caused
+ * AST/cursor/formatting edge-case issues, so we simplified to always use
+ * CodeMirrorEditor with custom visual markdown styling. MilkdownEditor is
+ * now only used as a read-only preview (via "Reading" toggle in toolbar).
  *
  * Current features:
  * - CodeMirror-based editing with visual markdown styling
@@ -22,20 +17,8 @@
  */
 import { useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
-// MilkdownEditor now used inside CodeMirrorEditor for reading mode
-// import { MilkdownEditor } from './MilkdownEditor'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
 import { useCharacterLimit } from '../hooks/useCharacterLimit'
-// wasEditorFocused no longer needed - mode toggle commented out
-// import { wasEditorFocused } from '../utils/editorUtils'
-
-/** Editor mode: 'markdown' for rich editing, 'text' for raw markdown */
-export type EditorMode = 'markdown' | 'text'
-
-// Mode preference functions commented out - mode toggle disabled
-// const EDITOR_MODE_KEY = 'editor_mode_preference'
-// function loadModePreference(): EditorMode { ... }
-// function saveModePreference(mode: EditorMode): void { ... }
 
 /** localStorage key for wrap text preference */
 const WRAP_TEXT_KEY = 'editor_wrap_text'
@@ -204,23 +187,6 @@ export function ContentEditor({
 }: ContentEditorProps): ReactNode {
   const limit = useCharacterLimit(value.length, maxLength, { alwaysShow: true })
 
-  // Mode state commented out - now always using CodeMirror
-  // const [mode, setMode] = useState<EditorMode>(loadModePreference)
-  // const [modeKey, setModeKey] = useState(0)
-  // const [shouldAutoFocus, setShouldAutoFocus] = useState(false)
-  // const handleModeChange = useCallback((newMode: EditorMode): void => {
-  //   setMode(newMode)
-  //   saveModePreference(newMode)
-  //   setModeKey((prev) => prev + 1)
-  //   setShouldAutoFocus(true)
-  // }, [])
-  // useEffect(() => {
-  //   if (shouldAutoFocus) {
-  //     const timer = setTimeout(() => setShouldAutoFocus(false), 50)
-  //     return () => clearTimeout(timer)
-  //   }
-  // }, [shouldAutoFocus])
-
   // Wrap text preference
   const [wrapText, setWrapText] = useState(loadWrapTextPreference)
 
@@ -272,73 +238,11 @@ export function ContentEditor({
 
   return (
     <div className="group/editor">
-      {/* Header with label and mode toggle - hidden until focused */}
-      <div className="flex items-center justify-between mb-1">
-        {label ? <label className="label">{label}</label> : <div />}
-        <div
-          className="flex items-center gap-2 opacity-0 group-focus-within/editor:opacity-100 transition-opacity"
-          onClick={(e) => {
-            // Focus editor when clicking anywhere on the controls (reveals them when hidden)
-            const editorGroup = (e.currentTarget as HTMLElement).closest('.group\\/editor')
-            // Try ProseMirror (Milkdown) first, then CodeMirror
-            const editorElement = editorGroup?.querySelector('.ProseMirror, .cm-content') as HTMLElement
-            editorElement?.focus()
-          }}
-        >
-          {/* Mode toggle commented out - now using CodeMirror with Reading mode toggle in toolbar */}
-          {/* {mode === 'text' && (
-            <label
-              className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer mr-2"
-              title="Toggle word wrap (⌥Z)"
-            >
-              <input
-                type="checkbox"
-                tabIndex={-1}
-                checked={wrapText}
-                onChange={(e) => handleWrapTextChange(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-gray-300 text-gray-600 focus:ring-gray-500/20"
-              />
-              Wrap
-            </label>
-          )}
-          <div className="inline-flex rounded-md bg-gray-100 p-0.5" title="Toggle mode (⌘⇧M)">
-            <button
-              type="button"
-              tabIndex={-1}
-              onMouseDown={(e) => {
-                if (wasEditorFocused(e.currentTarget)) {
-                  e.preventDefault()
-                  handleModeChange('markdown')
-                }
-              }}
-              className={`text-xs px-2 py-0.5 rounded transition-all ${
-                mode === 'markdown'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Markdown
-            </button>
-            <button
-              type="button"
-              tabIndex={-1}
-              onMouseDown={(e) => {
-                if (wasEditorFocused(e.currentTarget)) {
-                  e.preventDefault()
-                  handleModeChange('text')
-                }
-              }}
-              className={`text-xs px-2 py-0.5 rounded transition-all ${
-                mode === 'text'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Text
-            </button>
-          </div> */}
+      {label && (
+        <div className="flex items-center justify-between mb-1">
+          <label className="label">{label}</label>
         </div>
-      </div>
+      )}
 
       {/* Top divider - hidden when focused since ring takes over */}
       <div className="h-0.5 bg-gray-100 mx-2 group-focus-within/editor:opacity-0 transition-opacity" />

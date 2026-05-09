@@ -18,7 +18,8 @@ const MAC_TO_WINDOWS: Record<string, string> = {
 
 export function isMac(): boolean {
   if (typeof navigator === 'undefined') return false
-  return navigator.platform.toUpperCase().includes('MAC')
+  // iPhone/iPad/iPod with hardware keyboards use Cmd as the modifier, like Mac.
+  return /MAC|IPHONE|IPAD|IPOD/.test(navigator.platform.toUpperCase())
 }
 
 /**
