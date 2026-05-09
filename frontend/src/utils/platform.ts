@@ -10,6 +10,12 @@ const MAC_GLYPH_CMD = '⌘'
 const MAC_GLYPH_OPT = '⌥'
 const MAC_GLYPH_SHIFT = '⇧'
 
+// Authoring convention for shortcut arrays consumed by these helpers:
+// always lead with ⌘, then ⌥, then ⇧, then the non-modifier key. This
+// matches each platform's native modifier order on render — Mac displays
+// ⌘⇧B, Windows displays Ctrl+Shift+B (the canonical Windows order). We
+// canonicalize at the data layer rather than re-sorting inside formatShortcut
+// so the helper stays a pure transform of its input.
 const MAC_TO_WINDOWS: Record<string, string> = {
   [MAC_GLYPH_CMD]: 'Ctrl',
   [MAC_GLYPH_OPT]: 'Alt',

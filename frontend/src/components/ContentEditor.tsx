@@ -238,11 +238,9 @@ export function ContentEditor({
 
   return (
     <div className="group/editor">
-      {label && (
-        <div className="flex items-center justify-between mb-1">
-          <label className="label">{label}</label>
-        </div>
-      )}
+      <div className="mb-1">
+        {label && <label className="label">{label}</label>}
+      </div>
 
       {/* Top divider - hidden when focused since ring takes over */}
       <div className="h-0.5 bg-gray-100 mx-2 group-focus-within/editor:opacity-0 transition-opacity" />
