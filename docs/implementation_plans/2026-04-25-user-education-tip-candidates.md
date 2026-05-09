@@ -702,14 +702,16 @@ BYOK lets you map each use case (Suggestions today; Transform, Auto-Complete, Ch
 - Audience: power
 - minTier: pro (verify)
 
-### 69. `pin-extension-keyboard-shortcut` — priority 30
+### 69. `extension-keyboard-save` — priority 22
 
-**Pin the Tiddly extension and bind it to a keyboard shortcut**
+**Save the current page without leaving the keyboard**
 
-After installing, pin Tiddly Bookmarks to the toolbar, then open `chrome://extensions/shortcuts` and bind a key (e.g., `Ctrl+Shift+S`) to launch the popup without reaching for the mouse.
+Press `Alt+Shift+S` (Mac: `Option+Shift+S`) to open the Tiddly popup, then hit Enter to save — focus lands on the Save button automatically. On restricted pages like `chrome://newtab/` the popup opens to Search with the input focused, so you can find a bookmark without touching the mouse either. Rebind the shortcut at `chrome://extensions/shortcuts` if it conflicts with another extension.
 
-- Categories: extension
-- Audience: power
+- Categories: extension, shortcuts
+- Audience: all
+- shortcut: ['Alt', 'Shift', 'S']
+- relatedDocs: [Chrome extension → /docs/extensions/chrome](/docs/extensions/chrome)
 
 ### 70. `save-and-close` — priority 30
 
