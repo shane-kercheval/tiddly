@@ -2,6 +2,7 @@
  * Dialog showing available keyboard shortcuts.
  */
 import type { ReactNode } from 'react'
+import { localizeKeys } from '../utils/platform'
 import { Modal } from './ui/Modal'
 
 interface ShortcutsDialogProps {
@@ -105,24 +106,27 @@ function ShortcutGroupSection({ group }: { group: ShortcutGroup }): ReactNode {
         <div className="flex-1 border-t border-gray-100" />
       </div>
       <ul className="space-y-1.5">
-        {group.shortcuts.map((shortcut, index) => (
-          <li
-            key={index}
-            className="flex items-center justify-between py-1"
-          >
-            <span className="text-sm text-gray-700">{shortcut.description}</span>
-            <div className="flex items-center gap-1">
-              {shortcut.keys.map((key, keyIndex) => (
-                <span key={keyIndex} className="flex items-center gap-1">
-                  {keyIndex > 0 && (
-                    <span className="text-xs text-gray-400">+</span>
-                  )}
-                  <KeyBadge>{key}</KeyBadge>
-                </span>
-              ))}
-            </div>
-          </li>
-        ))}
+        {group.shortcuts.map((shortcut, index) => {
+          const keys = localizeKeys(shortcut.keys)
+          return (
+            <li
+              key={index}
+              className="flex items-center justify-between py-1"
+            >
+              <span className="text-sm text-gray-700">{shortcut.description}</span>
+              <div className="flex items-center gap-1">
+                {keys.map((key, keyIndex) => (
+                  <span key={keyIndex} className="flex items-center gap-1">
+                    {keyIndex > 0 && (
+                      <span className="text-xs text-gray-400">+</span>
+                    )}
+                    <KeyBadge>{key}</KeyBadge>
+                  </span>
+                ))}
+              </div>
+            </li>
+          )
+        })}
       </ul>
     </div>
   )

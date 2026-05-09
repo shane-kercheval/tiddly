@@ -13,6 +13,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import type { EditorCommand } from './editorCommands'
+import { localizeKeys } from '../../utils/platform'
 
 interface EditorCommandMenuProps {
   onClose: () => void
@@ -237,7 +238,7 @@ export function EditorCommandMenu({
                     <span className="truncate flex-1">{cmd.label}</span>
                     {cmd.shortcut && (
                       <span className="hidden sm:flex items-center gap-0.5 shrink-0 ml-1">
-                        {cmd.shortcut.map((key, i) => (
+                        {localizeKeys(cmd.shortcut).map((key, i) => (
                           <kbd
                             key={i}
                             className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-[3px] text-[10px] font-medium rounded-[3px] border ${

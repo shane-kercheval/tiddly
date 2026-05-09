@@ -141,6 +141,7 @@ import { cleanMdastTree } from '../utils/cleanMarkdown'
 import { createLinkExitOnSpacePlugin } from '../utils/linkExitOnSpacePlugin'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
 import { findCodeBlockNode, findLinkBoundaries, normalizeUrl } from '../utils/milkdownHelpers'
+import { formatShortcut } from '../utils/platform'
 import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
@@ -248,49 +249,49 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
       {/* Left: formatting buttons that fade in */}
       <div className="flex items-center gap-0.5 opacity-0 pointer-events-none group-focus-within/editor:opacity-100 group-focus-within/editor:pointer-events-auto transition-opacity">
         {/* Text formatting */}
-        <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
+        <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title={`Bold (${formatShortcut(['⌘', 'B'])})`}>
           <BoldIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
+        <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title={`Italic (${formatShortcut(['⌘', 'I'])})`}>
           <ItalicIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough (⌘⇧X)">
+        <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title={`Strikethrough (${formatShortcut(['⌘', '⇧', 'X'])})`}>
           <StrikethroughIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code (⌘E)">
+        <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title={`Inline Code (${formatShortcut(['⌘', 'E'])})`}>
           <InlineCodeIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={onCodeBlockToggle} title="Code Block (⌘⇧C)">
+        <ToolbarButton onAction={onCodeBlockToggle} title={`Code Block (${formatShortcut(['⌘', '⇧', 'C'])})`}>
           <CodeBlockIcon />
         </ToolbarButton>
 
         <ToolbarSeparator />
 
         {/* Link */}
-        <ToolbarButton onAction={onLinkClick} title="Insert Link (⌘K)">
+        <ToolbarButton onAction={onLinkClick} title={`Insert Link (${formatShortcut(['⌘', 'K'])})`}>
           <LinkIcon />
         </ToolbarButton>
 
         <ToolbarSeparator />
 
         {/* Lists */}
-        <ToolbarButton onAction={onBulletListClick} title="Bullet List (⌘⇧7)">
+        <ToolbarButton onAction={onBulletListClick} title={`Bullet List (${formatShortcut(['⌘', '⇧', '7'])})`}>
           <BulletListIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={onOrderedListClick} title="Numbered List (⌘⇧8)">
+        <ToolbarButton onAction={onOrderedListClick} title={`Numbered List (${formatShortcut(['⌘', '⇧', '8'])})`}>
           <OrderedListIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={onChecklistClick} title="Checklist (⌘⇧9)">
+        <ToolbarButton onAction={onChecklistClick} title={`Checklist (${formatShortcut(['⌘', '⇧', '9'])})`}>
           <ChecklistIcon />
         </ToolbarButton>
 
         <ToolbarSeparator />
 
         {/* Block elements */}
-        <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote (⌘⇧.)">
+        <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title={`Blockquote (${formatShortcut(['⌘', '⇧', '.'])})`}>
           <BlockquoteIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title="Horizontal Rule (⌘⇧-)">
+        <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title={`Horizontal Rule (${formatShortcut(['⌘', '⇧', '-'])})`}>
           <HorizontalRuleIcon />
         </ToolbarButton>
 

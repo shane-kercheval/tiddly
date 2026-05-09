@@ -10,6 +10,7 @@ import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { useLimits } from '../../hooks/useLimits'
 import { Link } from 'react-router-dom'
 import { isDevMode } from '../../config'
+import { formatShortcut } from '../../utils/platform'
 
 /** Item counts at or above this are displayed as "Unlimited". */
 const UNLIMITED_THRESHOLD = 10_000
@@ -39,7 +40,7 @@ export function SettingsGeneral(): ReactNode {
       {/* Keyboard Shortcuts Note */}
       <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50 p-4">
         <p className="text-sm text-gray-600">
-          Press <kbd className="rounded border border-gray-300 bg-white px-1.5 py-0.5 font-mono text-xs">⌘+/</kbd> anywhere to view all keyboard shortcuts.
+          Press <kbd className="rounded border border-gray-300 bg-white px-1.5 py-0.5 font-mono text-xs">{formatShortcut(['⌘', '/'])}</kbd> anywhere to view all keyboard shortcuts.
         </p>
       </div>
 

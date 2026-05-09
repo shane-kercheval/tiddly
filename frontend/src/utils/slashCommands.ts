@@ -14,6 +14,7 @@ import type {
 import { ViewPlugin } from '@codemirror/view'
 import type { EditorView, ViewUpdate } from '@codemirror/view'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from '../components/editor/jinjaTemplates'
+import { localizeKeys } from './platform'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -247,7 +248,7 @@ const slashCommandAddToOptions: AddToOptionsSpec[] = [
       const wrapper = document.createElement('span')
       wrapper.className = 'cm-slash-shortcut'
       if (keys) {
-        for (const key of keys) {
+        for (const key of localizeKeys(keys)) {
           const kbd = document.createElement('kbd')
           kbd.textContent = key
           wrapper.appendChild(kbd)
@@ -312,10 +313,9 @@ const scrollFadePlugin = ViewPlugin.fromClass(
         if (!tooltip.querySelector('.cm-slash-footer')) {
           this.footerEl = document.createElement('div')
           this.footerEl.className = 'cm-slash-footer'
-          const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
-          const modKey = isMac ? '⌘' : 'Ctrl'
+          const [modKey, shiftKey] = localizeKeys(['⌘', '⇧'])
           this.footerEl.innerHTML =
-            `<kbd>${modKey}</kbd><kbd>⇧</kbd><kbd>/</kbd>` +
+            `<kbd>${modKey}</kbd><kbd>${shiftKey}</kbd><kbd>/</kbd>` +
             '<span>for all commands</span>'
           tooltip.appendChild(this.footerEl)
         }

@@ -50,6 +50,7 @@ import {
 } from './icons'
 import { useListKeyboardNavigation } from '../hooks/useListKeyboardNavigation'
 import { isEffectivelyArchived } from '../utils'
+import { localizeKeys } from '../utils/platform'
 import { getFilterRoute, getBuiltinRoute } from './sidebar/routes'
 import { getFilterIcon, getBuiltinIcon } from './sidebar/sidebarDndUtils'
 import {
@@ -635,7 +636,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                     <span className="truncate flex-1">{cmd.label}</span>
                     {cmd.shortcut && (
                       <span className="hidden sm:flex items-center gap-0.5 shrink-0 ml-2">
-                        {cmd.shortcut.map((key, i) => (
+                        {localizeKeys(cmd.shortcut).map((key, i) => (
                           <kbd key={i} className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-medium text-gray-400 bg-gray-100 rounded border border-gray-200">
                             {key}
                           </kbd>

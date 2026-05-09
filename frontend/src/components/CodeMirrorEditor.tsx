@@ -50,6 +50,7 @@ import { CloseIcon, HistoryIcon } from './icons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { createSlashCommandSource, slashCommandAddToOptions, scrollFadePlugin } from '../utils/slashCommands'
 import { wasEditorFocused } from '../utils/editorUtils'
+import { formatShortcut } from '../utils/platform'
 import {
   toggleWrapMarkers,
   toggleLinePrefix,
@@ -594,52 +595,52 @@ export function CodeMirrorEditor({
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
         <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:pointer-events-none md:group-focus-within/editor:opacity-100 md:group-focus-within/editor:pointer-events-auto transition-opacity ${disabled || readOnly ? 'pointer-events-none' : ''}`}>
           {/* Text formatting */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title="Bold (⌘B)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title={`Bold (${formatShortcut(['⌘', 'B'])})`}>
             <BoldIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title="Italic (⌘I)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title={`Italic (${formatShortcut(['⌘', 'I'])})`}>
             <ItalicIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title="Strikethrough (⌘⇧X)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title={`Strikethrough (${formatShortcut(['⌘', '⇧', 'X'])})`}>
             <StrikethroughIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title="Highlight (⌘⇧H)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title={`Highlight (${formatShortcut(['⌘', '⇧', 'H'])})`}>
             <HighlightIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title="Blockquote (⌘⇧.)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title={`Blockquote (${formatShortcut(['⌘', '⇧', '.'])})`}>
             <BlockquoteIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Code */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title="Inline Code (⌘E)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title={`Inline Code (${formatShortcut(['⌘', 'E'])})`}>
             <InlineCodeIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block (⌘⇧E)">
+          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title={`Code Block (${formatShortcut(['⌘', '⇧', 'E'])})`}>
             <CodeBlockIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Lists */}
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title="Bullet List (⌘⇧7)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title={`Bullet List (${formatShortcut(['⌘', '⇧', '7'])})`}>
             <BulletListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title="Numbered List (⌘⇧8)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title={`Numbered List (${formatShortcut(['⌘', '⇧', '8'])})`}>
             <OrderedListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.checklist))} title="Checklist (⌘⇧9)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.checklist))} title={`Checklist (${formatShortcut(['⌘', '⇧', '9'])})`}>
             <ChecklistIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Links and dividers */}
-          <ToolbarButton onClick={() => runAction(insertLink)} title="Insert Link (⌘K)">
+          <ToolbarButton onClick={() => runAction(insertLink)} title={`Insert Link (${formatShortcut(['⌘', 'K'])})`}>
             <LinkIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title="Horizontal Rule (⌘⇧-)">
+          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title={`Horizontal Rule (${formatShortcut(['⌘', '⇧', '-'])})`}>
             <HorizontalRuleIcon />
           </ToolbarButton>
 
@@ -667,7 +668,7 @@ export function CodeMirrorEditor({
           <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
           {/* Wrap toggle - always visible, only shown when not in reading mode */}
           {onWrapTextChange && !effectiveReadingMode && (
-            <Tooltip content={<>Toggle word wrap<br /><span className="opacity-75">⌥Z</span></>} compact>
+            <Tooltip content={<>Toggle word wrap<br /><span className="opacity-75">{formatShortcut(['⌥', 'Z'])}</span></>} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -691,7 +692,7 @@ export function CodeMirrorEditor({
 
           {/* Line numbers toggle - always visible, only shown when not in reading mode */}
           {onLineNumbersChange && !effectiveReadingMode && (
-            <Tooltip content={<>Toggle line numbers<br /><span className="opacity-75">⌥L</span></>} compact>
+            <Tooltip content={<>Toggle line numbers<br /><span className="opacity-75">{formatShortcut(['⌥', 'L'])}</span></>} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -715,7 +716,7 @@ export function CodeMirrorEditor({
 
           {/* Mono font toggle - only shown when not in reading mode */}
           {onMonoFontChange && !effectiveReadingMode && (
-            <Tooltip content={<>Toggle monospace font<br /><span className="opacity-75">⌥M</span></>} compact>
+            <Tooltip content={<>Toggle monospace font<br /><span className="opacity-75">{formatShortcut(['⌥', 'M'])}</span></>} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -739,7 +740,7 @@ export function CodeMirrorEditor({
 
           {/* Table of Contents toggle - only shown when enabled and not in reading mode */}
           {showTocToggle && !effectiveReadingMode && (
-            <Tooltip content={<>Table of contents<br /><span className="opacity-75">⌥T</span></>} compact>
+            <Tooltip content={<>Table of contents<br /><span className="opacity-75">{formatShortcut(['⌥', 'T'])}</span></>} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -762,7 +763,7 @@ export function CodeMirrorEditor({
           )}
 
           {/* Reading mode toggle - always visible */}
-          <Tooltip content={<>Toggle reading mode<br /><span className="opacity-75">⌘⇧M</span></>} compact>
+          <Tooltip content={<>Toggle reading mode<br /><span className="opacity-75">{formatShortcut(['⌘', '⇧', 'M'])}</span></>} compact>
             <button
               type="button"
               tabIndex={-1}

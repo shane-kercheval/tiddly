@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
-import { InfoCallout } from './components/InfoCallout'
+import { localizeKeys } from '../../utils/platform'
 
 function Kbd({ children }: { children: ReactNode }): ReactNode {
   return (
@@ -11,12 +11,13 @@ function Kbd({ children }: { children: ReactNode }): ReactNode {
 }
 
 function ShortcutRow({ keys, description }: { keys: string[]; description: string }): ReactNode {
+  const localized = localizeKeys(keys)
   return (
     <tr className="border-b border-gray-100">
       <td className="py-2 pr-4 text-sm text-gray-600">{description}</td>
       <td className="py-2 text-right whitespace-nowrap">
         <span className="inline-flex items-center gap-1">
-          {keys.map((key, i) => (
+          {localized.map((key, i) => (
             <span key={i} className="inline-flex items-center gap-1">
               {i > 0 && <span className="text-xs text-gray-400">+</span>}
               <Kbd>{key}</Kbd>
@@ -28,6 +29,20 @@ function ShortcutRow({ keys, description }: { keys: string[]; description: strin
   )
 }
 
+function InlineShortcut({ keys }: { keys: string[] }): ReactNode {
+  const localized = localizeKeys(keys)
+  return (
+    <span className="inline-flex items-center gap-1">
+      {localized.map((key, i) => (
+        <span key={i} className="inline-flex items-center gap-1">
+          {i > 0 && <span className="text-xs text-gray-400">+</span>}
+          <Kbd>{key}</Kbd>
+        </span>
+      ))}
+    </span>
+  )
+}
+
 export function DocsShortcuts(): ReactNode {
   usePageTitle('Docs - Keyboard Shortcuts')
 
@@ -36,17 +51,8 @@ export function DocsShortcuts(): ReactNode {
       <h1 className="text-2xl font-bold text-gray-900 mb-4">Keyboard Shortcuts</h1>
       <p className="text-sm text-gray-600 mb-4">
         Navigate and manage content quickly without reaching for the mouse. Open the shortcuts
-        dialog anytime with{' '}
-        <span className="inline-flex items-center gap-1">
-          <Kbd>{'\u2318'}</Kbd><span className="text-xs text-gray-400">+</span>
-          <Kbd>{'\u21E7'}</Kbd><span className="text-xs text-gray-400">+</span>
-          <Kbd>/</Kbd>
-        </span>.
+        dialog anytime with <InlineShortcut keys={['\u2318', '\u21E7', '/']} />.
       </p>
-      <InfoCallout variant="tip">
-        On Windows/Linux, replace <Kbd>{'\u2318'}</Kbd> with <Kbd>Ctrl</Kbd> and{' '}
-        <Kbd>{'\u2325'}</Kbd> with <Kbd>Alt</Kbd>.
-      </InfoCallout>
 
       {/* Navigation */}
       <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Navigation</h2>

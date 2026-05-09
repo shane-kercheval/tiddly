@@ -211,8 +211,9 @@ describe('Sidebar', () => {
         wrapper: createWrapper(['/app/content']),
       })
 
-      // The shortcut should be visible in the desktop sidebar (inside <kbd> elements)
-      const shortcuts = screen.getAllByText('⌘⇧P')
+      // The shortcut should be visible in the desktop sidebar (inside <kbd> elements).
+      // jsdom's navigator.platform is "" so formatShortcut renders the non-Mac form.
+      const shortcuts = screen.getAllByText('Ctrl+Shift+P')
       expect(shortcuts.length).toBeGreaterThan(0)
     })
   })
