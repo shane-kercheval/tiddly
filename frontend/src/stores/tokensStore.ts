@@ -52,7 +52,8 @@ export const useTokensStore = create<TokensStore>((set, get) => ({
       expires_at: newToken.expires_at,
       created_at: newToken.created_at,
     }
-    set({ tokens: [...get().tokens, tokenForList] })
+    // Prepend matches backend ORDER BY in services/token_service.py:get_tokens.
+    set({ tokens: [tokenForList, ...get().tokens] })
     return newToken
   },
 
