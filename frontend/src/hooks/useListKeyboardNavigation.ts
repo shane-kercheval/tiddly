@@ -102,14 +102,19 @@ export function useListKeyboardNavigation({
     setSelectedIndex(clampedIndex)
   }
 
-  // Scroll selected item into view
+  // Scroll selected item into view (keyboard nav only).
+  // Skip when selection came from the mouse: the user can already see what
+  // they hovered, and scrolling a partially-clipped item moves the list under
+  // a stationary cursor, which fires mouseenter on the next item and creates
+  // a runaway hover→select→scroll loop (e.g., parking the cursor on the macOS dock).
   useEffect(() => {
     if (clampedIndex < 0) return
+    if (mouseMoved) return
     const list = listRef.current
     if (!list) return
     const items = list.querySelectorAll(itemSelector)
     items[clampedIndex]?.scrollIntoView({ block: 'nearest' })
-  }, [clampedIndex, itemSelector])
+  }, [clampedIndex, itemSelector, mouseMoved])
 
   const resetSelection = useCallback(() => {
     setSelectedIndex(effectiveResetIndex)

@@ -94,7 +94,7 @@ export function DocsExtensionsChrome(): ReactNode {
             <li><strong>URL</strong> — current page URL</li>
             <li><strong>Title</strong> — from the page title or Open Graph tags</li>
             <li><strong>Description</strong> — from meta description or Open Graph tags</li>
-            <li><strong>Page content</strong> — body text captured for full-text search (up to 25,000 characters)</li>
+            <li><strong>Page content</strong> — body text captured for full-text search (up to your plan&apos;s content limit)</li>
             <li><strong>Tags</strong> — pre-selected from your default tags and recently used tags</li>
           </ul>
         </div>
@@ -128,6 +128,33 @@ export function DocsExtensionsChrome(): ReactNode {
         </ul>
       </div>
 
+      {/* Keyboard shortcut */}
+      <div className="mt-10 border-t border-gray-200 pt-10">
+        <h2 className="text-lg font-bold text-gray-900 mb-3">Keyboard shortcut</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          The extension suggests a default shortcut to open the popup:
+        </p>
+        <ul className="space-y-1.5 text-sm text-gray-600 mb-4">
+          <li><strong>Mac:</strong> <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">Option+Shift+S</code></li>
+          <li><strong>Windows / Linux / ChromeOS:</strong> <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">Alt+Shift+S</code></li>
+        </ul>
+
+        <InfoCallout variant="warning">
+          Chrome only auto-binds this on a fresh install if no other extension already claims the same combination.
+          If another extension got there first, Chrome silently leaves Tiddly&apos;s shortcut unbound — there is no error message.
+          If the shortcut doesn&apos;t open the popup, follow the rebind steps below.
+        </InfoCallout>
+
+        <h3 className="text-sm font-semibold text-gray-900 mt-4 mb-2">Rebind or change the shortcut</h3>
+        <ol className="list-decimal list-inside space-y-1.5 text-sm text-gray-600">
+          <li>Open <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">chrome://extensions/shortcuts</code> in a new tab.</li>
+          <li>Find <strong>Tiddly Bookmarks</strong> in the list.</li>
+          <li>Click the pencil icon next to <strong>Activate the extension</strong>.</li>
+          <li>Press the key combination you want.</li>
+          <li>Click <strong>OK</strong>.</li>
+        </ol>
+      </div>
+
       {/* Tips */}
       <div className="mt-10 border-t border-gray-200 pt-10">
         <h2 className="text-lg font-bold text-gray-900 mb-3">Tips</h2>
@@ -135,11 +162,6 @@ export function DocsExtensionsChrome(): ReactNode {
           <li>
             <strong>Default tags</strong> — set frequently used tags in the extension settings so they&apos;re
             pre-selected on every save (e.g., <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">reading-list</code>).
-          </li>
-          <li>
-            <strong>Keyboard shortcut</strong> — assign a keyboard shortcut in{' '}
-            <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm">chrome://extensions/shortcuts</code>{' '}
-            for even faster saving.
           </li>
         </ul>
       </div>

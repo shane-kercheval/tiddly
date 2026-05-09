@@ -4,12 +4,19 @@ import {
   isRestrictedPage, isValidLimits, counterText,
   pickDefaultTab, setPopupMode, activateTab, setTabEnabled,
   updateLimitFeedback, updateSaveButtonState, applyLimits,
+  truncateByCodePoints,
   setupDOM, resetState,
   saveDraft, clearDraft, getPageData,
   initSaveForm, handleSave, handleSaveError,
   showSaveStatus,
   initSearchView, loadBookmarks,
 } from '../popup-core.js';
+
+// NOTE on test coverage scope:
+// The injected scraper inside getPageData (popup-core.js around line 350) runs in
+// the page context via chrome.scripting.executeScript and is not reachable from this
+// harness — tests mock getPageData directly. The injected function inlines the same
+// code-point truncation logic as truncateByCodePoints; if you change one, change both.
 
 // --- Test fixtures ---
 
@@ -239,6 +246,46 @@ describe('counterText', () => {
 
 // --- DOM-dependent tests ---
 
+describe('truncateByCodePoints', () => {
+  it('returns empty string for null/undefined/empty input', () => {
+    expect(truncateByCodePoints(null, 10)).toBe('');
+    expect(truncateByCodePoints(undefined, 10)).toBe('');
+    expect(truncateByCodePoints('', 10)).toBe('');
+  });
+
+  it('passes under-limit input through unchanged', () => {
+    expect(truncateByCodePoints('hello', 10)).toBe('hello');
+  });
+
+  it('passes input at exactly the limit through unchanged', () => {
+    expect(truncateByCodePoints('a'.repeat(10), 10)).toBe('a'.repeat(10));
+  });
+
+  it('truncates limit + 1 input to exactly the limit', () => {
+    expect(truncateByCodePoints('a'.repeat(11), 10)).toBe('a'.repeat(10));
+  });
+
+  it('preserves a surrogate pair at the boundary (does not split emoji)', () => {
+    // 9 'a' + 🚀 = 10 code points but 11 UTF-16 units. Naive .substring(0, 10) would
+    // drop the emoji's low surrogate. truncateByCodePoints sees length === max and
+    // returns the string unchanged.
+    const input = 'a'.repeat(9) + '🚀';
+    const result = truncateByCodePoints(input, 10);
+    expect(result).toBe(input);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(result)).toBe(false);
+  });
+
+  it('drops the trailing emoji rather than splitting its surrogate pair', () => {
+    // 10 'a' + 🚀 = 11 code points, max = 10. The slice keeps the first 10 code points
+    // (10 'a'); the emoji is dropped whole. A naive .substring(0, 10) would also keep
+    // 10 UTF-16 units, but in a different scenario could split — this test guards that
+    // we slice on code-point indices, not UTF-16 indices.
+    const result = truncateByCodePoints('a'.repeat(10) + '🚀', 10);
+    expect(result).toBe('a'.repeat(10));
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(result)).toBe(false);
+  });
+});
+
 describe('updateLimitFeedback', () => {
   let input, feedback;
 
@@ -372,11 +419,9 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
     expect(document.getElementById('loading-indicator').hidden).toBe(true);
   });
 
-  it('does not truncate scraped title/description and disables save when exceeded', async () => {
+  it('truncates over-limit scraped title to max_title_length code points', async () => {
     const tab = makeTab();
-    const longTitle = 'a'.repeat(200);
-    const longDesc = 'b'.repeat(2000);
-    mockPageData({ title: longTitle, description: longDesc });
+    mockPageData({ title: 'a'.repeat(VALID_LIMITS.max_title_length + 50) });
     mockMessages({
       GET_LIMITS: validLimitsResponse(),
       GET_TAGS: validTagsResponse(),
@@ -384,12 +429,150 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
 
     await initSaveForm(tab);
 
-    expect(document.getElementById('title').value.length).toBe(200);
-    expect(document.getElementById('description').value.length).toBe(2000);
-    expect(document.getElementById('save-btn').disabled).toBe(true);
+    expect(Array.from(document.getElementById('title').value).length).toBe(VALID_LIMITS.max_title_length);
+  });
+
+  it('truncates over-limit scraped description to max_description_length code points', async () => {
+    const tab = makeTab();
+    mockPageData({ description: 'b'.repeat(VALID_LIMITS.max_description_length + 50) });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(Array.from(document.getElementById('description').value).length).toBe(VALID_LIMITS.max_description_length);
+  });
+
+  // Regression guard for the M3 keyboard-only flow: if Save ever ends up disabled
+  // after truncating scraped values, auto-focus on Save would land on a disabled button
+  // and Enter would do nothing.
+  it('keeps Save enabled after truncating over-limit scraped values', async () => {
+    const tab = makeTab();
+    mockPageData({
+      title: 'a'.repeat(VALID_LIMITS.max_title_length + 50),
+      description: 'b'.repeat(VALID_LIMITS.max_description_length + 50),
+    });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('save-btn').disabled).toBe(false);
+  });
+
+  it('passes under-limit scraped values through unchanged (no spurious slicing)', async () => {
+    const tab = makeTab();
+    const title = 'Short title';
+    const description = 'A short description.';
+    mockPageData({ title, description });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('title').value).toBe(title);
+    expect(document.getElementById('description').value).toBe(description);
+  });
+
+  it('does not truncate a scraped title at exactly max_title_length', async () => {
+    const tab = makeTab();
+    const title = 'a'.repeat(VALID_LIMITS.max_title_length);
+    mockPageData({ title });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('title').value).toBe(title);
+  });
+
+  it('does not truncate a scraped description at exactly max_description_length', async () => {
+    const tab = makeTab();
+    const description = 'b'.repeat(VALID_LIMITS.max_description_length);
+    mockPageData({ description });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('description').value).toBe(description);
+  });
+
+  it('truncates a scraped title at exactly limit + 1 to exactly the limit', async () => {
+    const tab = makeTab();
+    mockPageData({ title: 'a'.repeat(VALID_LIMITS.max_title_length + 1) });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(Array.from(document.getElementById('title').value).length).toBe(VALID_LIMITS.max_title_length);
+  });
+
+  it('truncates a scraped description at exactly limit + 1 to exactly the limit', async () => {
+    const tab = makeTab();
+    mockPageData({ description: 'b'.repeat(VALID_LIMITS.max_description_length + 1) });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(Array.from(document.getElementById('description').value).length).toBe(VALID_LIMITS.max_description_length);
+  });
+
+  // Surrogate-pair safety: 99 'a' + 🚀 has UTF-16 length 101 but 100 code points
+  // (= max_title_length). A naive `.substring(0, max_title_length)` would slice off
+  // the emoji's low surrogate, leaving an unpaired high surrogate that Postgres rejects
+  // with a 422. This test catches regressions back to UTF-16-based truncation.
+  // Also asserts Save stays enabled and the counter shows "reached" (not "exceeded") —
+  // the validator must agree with the truncation unit (code points, not UTF-16 units),
+  // otherwise truncation succeeds but the validator falsely flags the value as exceeded.
+  it('does not split surrogate pairs when the boundary lands on emoji and keeps Save enabled', async () => {
+    const tab = makeTab();
+    mockPageData({ title: 'a'.repeat(VALID_LIMITS.max_title_length - 1) + '🚀' });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    const value = document.getElementById('title').value;
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value)).toBe(false);
+    expect(document.getElementById('save-btn').disabled).toBe(false);
     const titleFeedback = document.getElementById('title-limit');
-    expect(titleFeedback.style.visibility).toBe('visible');
-    expect(titleFeedback.textContent).toContain('Character limit exceeded');
+    expect(titleFeedback.children[0].textContent).toBe('Character limit reached');
+  });
+
+  it('still disables Save when the user types over the limit after init', async () => {
+    const tab = makeTab();
+    mockPageData({ title: 'Short' });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    const titleInput = document.getElementById('title');
+    titleInput.value = 'x'.repeat(VALID_LIMITS.max_title_length + 1);
+    titleInput.dispatchEvent(new Event('input'));
+
+    expect(document.getElementById('save-btn').disabled).toBe(true);
   });
 
   it('writes immutable cache when both limits and tags succeed', async () => {
@@ -463,6 +646,22 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
     expect(titleFeedback.children[1].textContent).toBe('100 / 100');
   });
 
+  it('shows description limit feedback if pre-populated description is at the limit', async () => {
+    const tab = makeTab();
+    mockPageData({ description: 'b'.repeat(1000) });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    const descFeedback = document.getElementById('description-limit');
+    expect(descFeedback.style.visibility).toBe('visible');
+    expect(descFeedback.children[0].textContent).toBe('Character limit reached');
+    expect(descFeedback.children[1].textContent).toBe('1,000 / 1,000');
+  });
+
   it('URL comes from tab.url, not from content script', async () => {
     const tab = makeTab('https://example.com/page#hash');
     mockPageData();
@@ -474,6 +673,22 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
     await initSaveForm(tab);
 
     expect(document.getElementById('url').value).toBe('https://example.com/page#hash');
+  });
+
+  // M3: focus lands on the Save button after the form reveals so the user can press
+  // Enter to save without reaching for the mouse. The manual Chrome smoke test gate
+  // is the real proof — jsdom does not simulate Chrome's popup-paint focus race.
+  it('focuses the Save button after the form reveals', async () => {
+    const tab = makeTab();
+    mockPageData();
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.activeElement).toBe(document.getElementById('save-btn'));
   });
 });
 
@@ -511,6 +726,24 @@ describe('initSaveForm — cache hit', () => {
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
   });
 
+  // Guards two real-world scenarios after M2:
+  //   1. Intentional user-typed over-limit drafts (existing "warn at >100%, disable Save" UX preserved).
+  //   2. Legacy cached drafts produced by pre-M2 (0.3.0) versions that wrote untrimmed
+  //      scraped values into DRAFT_KEY. Truncating on cache restore would silently alter
+  //      user state. Both will exist in real-world installs after 0.4.0 ships.
+  it('does not truncate over-limit values restored from cache', async () => {
+    const tab = makeTab();
+    const overLimitTitle = 'a'.repeat(VALID_LIMITS.max_title_length + 50);
+    chrome.storage.local.set({
+      [DRAFT_KEY]: { url: 'https://example.com', title: overLimitTitle, description: 'D', tags: [] },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('title').value.length).toBe(VALID_LIMITS.max_title_length + 50);
+  });
+
   it('applies cached limits without setting maxLength', async () => {
     const tab = makeTab();
     chrome.storage.local.set({
@@ -525,6 +758,79 @@ describe('initSaveForm — cache hit', () => {
 
     expect(titleInput.maxLength).toBe(maxBefore);
     expect(document.getElementById('save-form').hidden).toBe(false);
+  });
+
+  // M3: focus lands on the Save button on the cache-hit path too. Both paths share
+  // the same form-reveal site, but a separate test guards against future refactors
+  // that diverge them.
+  it('focuses the Save button after restoring from cache', async () => {
+    const tab = makeTab();
+    chrome.storage.local.set({
+      [DRAFT_KEY]: { url: 'https://example.com', title: 'Edited Title', description: 'Edited desc', tags: ['tag1'] },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'cached content', allTags: ['tag1', 'tag2'], limits: VALID_LIMITS },
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.activeElement).toBe(document.getElementById('save-btn'));
+  });
+
+  // M3 + M2 interaction: cached over-limit drafts (M2's accepted trade-off — both
+  // legacy 0.3.0 untrimmed scrapes and intentional user-typed over-limit content)
+  // disable the Save button, so focusing it would land on a no-op control. Route
+  // focus to the offending field so editing it down re-enables Save naturally.
+  it('focuses the offending field when restoring an over-limit cached title', async () => {
+    const tab = makeTab();
+    chrome.storage.local.set({
+      [DRAFT_KEY]: {
+        url: 'https://example.com',
+        title: 'a'.repeat(VALID_LIMITS.max_title_length + 50),
+        description: 'D',
+        tags: [],
+      },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('save-btn').disabled).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('title'));
+  });
+
+  it('focuses the description when only the description is over-limit in cache', async () => {
+    const tab = makeTab();
+    chrome.storage.local.set({
+      [DRAFT_KEY]: {
+        url: 'https://example.com',
+        title: 'T',
+        description: 'b'.repeat(VALID_LIMITS.max_description_length + 50),
+        tags: [],
+      },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+
+    await initSaveForm(tab);
+
+    expect(document.getElementById('save-btn').disabled).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('description'));
+  });
+
+  // Opt-out: arrow-key tablist navigation passes { focus: false } through the
+  // controller to preserve focus on the tab button (WAI-ARIA roving-tabindex).
+  it('does not focus the Save button when called with { focus: false }', async () => {
+    const tab = makeTab();
+    chrome.storage.local.set({
+      [DRAFT_KEY]: { url: 'https://example.com', title: 'T', description: 'D', tags: [] },
+      [DRAFT_IMMUTABLE_KEY]: { url: 'https://example.com', pageContent: 'c', allTags: ['a'], limits: VALID_LIMITS },
+    });
+
+    // Park focus somewhere predictable before init.
+    const searchInput = document.getElementById('search-input');
+    searchInput.focus();
+
+    await initSaveForm(tab, { focus: false });
+
+    expect(document.activeElement).not.toBe(document.getElementById('save-btn'));
   });
 });
 
@@ -712,7 +1018,67 @@ describe('handleSave', () => {
     await handleSave(new Event('submit', { cancelable: true }));
 
     const sentBookmark = chrome.runtime.sendMessage.mock.calls[0][0].bookmark;
-    expect(sentBookmark.content.length).toBeLessThanOrEqual(5);
+    expect(Array.from(sentBookmark.content).length).toBeLessThanOrEqual(5);
+  });
+
+  // Page-body text from sites like Reddit/X.com routinely contains emoji. Two layers
+  // of truncation apply (applyLimits during init, then the save handler at submit);
+  // both must use code-point-aware truncation so neither produces an unpaired surrogate
+  // that Postgres rejects with a 422.
+  it('does not produce unpaired surrogates in sent content when emoji lands on the boundary', async () => {
+    const tab = makeTab();
+    // 9 'a' + 🚀 = 10 code points, 11 UTF-16 units. Limit is 10 code points, so the
+    // emoji must be preserved whole.
+    mockPageData({ content: 'a'.repeat(9) + '🚀' });
+    mockMessages({
+      GET_LIMITS: { success: true, data: { ...VALID_LIMITS, max_bookmark_content_length: 10 } },
+      GET_TAGS: validTagsResponse(),
+    });
+    await initSaveForm(tab);
+    chrome.runtime.sendMessage.mockReset();
+    chrome.runtime.sendMessage.mockResolvedValue({ success: true });
+
+    await handleSave(new Event('submit', { cancelable: true }));
+
+    const sentContent = chrome.runtime.sendMessage.mock.calls[0][0].bookmark.content;
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(sentContent)).toBe(false);
+    expect(Array.from(sentContent).length).toBeLessThanOrEqual(10);
+  });
+
+  it('drops trailing emoji from content when boundary lands inside it rather than splitting the surrogate pair', async () => {
+    const tab = makeTab();
+    // 10 'a' + 🚀 = 11 code points, limit 10 → keep first 10 'a', drop the emoji.
+    mockPageData({ content: 'a'.repeat(10) + '🚀' });
+    mockMessages({
+      GET_LIMITS: { success: true, data: { ...VALID_LIMITS, max_bookmark_content_length: 10 } },
+      GET_TAGS: validTagsResponse(),
+    });
+    await initSaveForm(tab);
+    chrome.runtime.sendMessage.mockReset();
+    chrome.runtime.sendMessage.mockResolvedValue({ success: true });
+
+    await handleSave(new Event('submit', { cancelable: true }));
+
+    const sentContent = chrome.runtime.sendMessage.mock.calls[0][0].bookmark.content;
+    expect(sentContent).toBe('a'.repeat(10));
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(sentContent)).toBe(false);
+  });
+
+  it('passes under-limit content through unchanged', async () => {
+    const tab = makeTab();
+    const content = 'short body 🚀';
+    mockPageData({ content });
+    mockMessages({
+      GET_LIMITS: validLimitsResponse(),
+      GET_TAGS: validTagsResponse(),
+    });
+    await initSaveForm(tab);
+    chrome.runtime.sendMessage.mockReset();
+    chrome.runtime.sendMessage.mockResolvedValue({ success: true });
+
+    await handleSave(new Event('submit', { cancelable: true }));
+
+    expect(chrome.runtime.sendMessage.mock.calls[0][0].bookmark.content).toBe(content);
   });
 
   it('shows error if limits is null', async () => {
@@ -1011,6 +1377,41 @@ describe('initSearchView', () => {
 
     expect(searchView.hidden).toBe(true);
     expect(saveView.hidden).toBe(true);
+  });
+
+  // M4: focus lands on the search input so the user can type immediately. The manual
+  // Chrome smoke test gate is the real proof — jsdom does not simulate Chrome's
+  // popup-paint focus race.
+  // The focus call is the last synchronous statement of initSearchView; if a future
+  // refactor inserts an `await` before it (e.g., to focus only after results render),
+  // this assertion may need to flush more microtasks before checking activeElement.
+  it('focuses the search input after initialization', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    await initSearchView();
+
+    expect(document.activeElement).toBe(document.getElementById('search-input'));
+  });
+
+  // Opt-out: arrow-key tablist navigation passes { focus: false } through the
+  // controller to preserve focus on the tab button (WAI-ARIA roving-tabindex).
+  it('does not focus the search input when called with { focus: false }', async () => {
+    mockMessages({
+      GET_TAGS: validTagsResponse(),
+      SEARCH_BOOKMARKS: searchResponse(),
+    });
+
+    // Park focus somewhere predictable before init runs so we can prove init didn't
+    // move it.
+    const titleInput = document.getElementById('title');
+    titleInput.focus();
+
+    await initSearchView({ focus: false });
+
+    expect(document.activeElement).not.toBe(document.getElementById('search-input'));
   });
 });
 

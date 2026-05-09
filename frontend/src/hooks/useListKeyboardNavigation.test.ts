@@ -323,6 +323,63 @@ describe('useListKeyboardNavigation', () => {
     expect(item.scrollIntoView).not.toHaveBeenCalled()
   })
 
+  it('scrollIntoView is NOT called when selection comes from mouse hover', () => {
+    // Regression: hover-triggered selection used to call scrollIntoView, which
+    // could scroll a partially-clipped item under a stationary cursor and fire
+    // mouseenter on the next item, creating a runaway scroll loop.
+    const container = document.createElement('div')
+    const item0 = document.createElement('div')
+    item0.setAttribute('data-nav-item', 'true')
+    const item1 = document.createElement('div')
+    item1.setAttribute('data-nav-item', 'true')
+    container.appendChild(item0)
+    container.appendChild(item1)
+
+    const { result } = renderNav({ initialIndex: -1 })
+    result.current.listRef.current = container
+
+    // Enter mouse mode and hover item 1
+    act(() => {
+      result.current.getListProps().onMouseMove()
+    })
+    act(() => {
+      result.current.getItemProps(1).onMouseEnter()
+    })
+
+    expect(result.current.selectedIndex).toBe(1)
+    expect(item1.scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('scrollIntoView is called for keyboard nav even after a prior mouse hover', () => {
+    // Arrow keys flip mouseMoved back to false, so keyboard-driven selection
+    // must still scroll into view.
+    const container = document.createElement('div')
+    const item0 = document.createElement('div')
+    item0.setAttribute('data-nav-item', 'true')
+    const item1 = document.createElement('div')
+    item1.setAttribute('data-nav-item', 'true')
+    container.appendChild(item0)
+    container.appendChild(item1)
+
+    const { result } = renderNav({ initialIndex: -1 })
+    result.current.listRef.current = container
+
+    // Hover item 0 (mouse mode) — no scroll
+    act(() => {
+      result.current.getListProps().onMouseMove()
+    })
+    act(() => {
+      result.current.getItemProps(0).onMouseEnter()
+    })
+    expect(item0.scrollIntoView).not.toHaveBeenCalled()
+
+    // ArrowDown — keyboard mode, should scroll
+    act(() => {
+      result.current.getInputProps().onKeyDown(keyEvent('ArrowDown'))
+    })
+    expect(item1.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+  })
+
   // --- preventDefault ---
 
   it('Arrow keys are preventDefault-ed', () => {
