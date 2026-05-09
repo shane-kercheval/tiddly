@@ -36,6 +36,15 @@ Save bookmarks to [tiddly.me](https://tiddly.me) with one click. Search your boo
 
 **Saving a bookmark:** Click the extension icon on any webpage. Review the pre-filled form (URL, title, description, tags) and click **Save Bookmark**.
 
+### Keyboard shortcut
+
+The extension suggests a default shortcut to open the popup:
+
+- **Mac:** `Option+Shift+S`
+- **Windows / Linux / ChromeOS:** `Alt+Shift+S`
+
+Chrome only auto-binds this on a fresh install, and silently leaves the shortcut unset if another extension already claimed the same combination (no error message). If the shortcut doesn't open the popup, open `chrome://extensions/shortcuts` and bind (or rebind) **Tiddly Bookmarks → Activate the extension** to a combination of your choice.
+
 **Searching bookmarks:** Click the extension icon on a new tab or restricted page. Type to search, or browse your recent bookmarks.
 
 ## Testing
