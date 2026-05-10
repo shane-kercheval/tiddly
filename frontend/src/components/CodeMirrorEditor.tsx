@@ -50,10 +50,12 @@ import { CloseIcon, HistoryIcon } from './icons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { createSlashCommandSource, slashCommandAddToOptions, scrollFadePlugin } from '../utils/slashCommands'
 import { wasEditorFocused } from '../utils/editorUtils'
-import { formatShortcut } from '../utils/platform'
 import { toCodeMirrorKeymap } from '../shortcuts/adapters/codemirror'
 import { dispatchRegistryShortcut } from '../shortcuts/dispatch'
-import type { ShortcutId } from '../shortcuts/registry'
+import { getShortcut, type ShortcutId } from '../shortcuts/registry'
+import { CAPTURE_PHASE_IDS } from '../shortcuts/capturePhase'
+import { findMatchingShortcut } from '../shortcuts/matcher'
+import { assertNoDuplicateMatchShapes } from '../shortcuts/useGlobalShortcuts'
 import { tooltipFor } from '../shortcuts/format'
 import {
   toggleWrapMarkers,
@@ -298,66 +300,122 @@ export function CodeMirrorEditor({
   // This prevents user from being stuck in reading mode when disabled
   const effectiveReadingMode = readingMode && !disabled
 
-  // Keyboard shortcuts for editor
-  // Uses capture phase to intercept before macOS converts to special character (Ω for Alt+Z)
+  // Capture-phase keyboard shortcuts. Uses capture phase to intercept before
+  // macOS converts Option+letter to special characters (Ω for Alt+Z, etc.).
+  //
+  // Listener walks CAPTURE_PHASE_IDS via findMatchingShortcut. The match alone
+  // doesn't consume the event — each handler decides whether it acted (didHandle)
+  // and only THEN do we preventDefault + stopPropagation. This preserves
+  // matcher/handler symmetry: when a runtime precondition fails (reading mode,
+  // missing optional callback), the event bubbles unchanged, same as before
+  // the registry migration.
+  //
+  // Handlers read state through a ref so the listener installs once on mount
+  // and reads fresh state on each event, avoiding install/teardown churn.
+  const buildCaptureState = (): {
+    toggleReadingMode: () => void
+    effectiveReadingMode: boolean
+    wrapText: boolean
+    onWrapTextChange: ((wrap: boolean) => void) | undefined
+    showLineNumbers: boolean
+    onLineNumbersChange: ((show: boolean) => void) | undefined
+    monoFont: boolean
+    onMonoFontChange: ((mono: boolean) => void) | undefined
+    showTocToggle: boolean
+    togglePanel: (panel: 'history' | 'toc') => void
+    disabled: boolean
+    readOnly: boolean
+    openCommandMenuRef: typeof openCommandMenuRef
+  } => ({
+    toggleReadingMode,
+    effectiveReadingMode,
+    wrapText,
+    onWrapTextChange,
+    showLineNumbers,
+    onLineNumbersChange,
+    monoFont,
+    onMonoFontChange,
+    showTocToggle,
+    togglePanel,
+    disabled,
+    readOnly,
+    openCommandMenuRef,
+  })
+  const captureHandlersRef = useRef(buildCaptureState())
   useEffect(() => {
+    captureHandlersRef.current = buildCaptureState()
+  })
+
+  useEffect(() => {
+    const shortcuts = CAPTURE_PHASE_IDS.map(getShortcut)
+
+    if (import.meta.env.DEV) {
+      assertNoDuplicateMatchShapes(shortcuts)
+    }
+
     const handleKeyDown = (e: KeyboardEvent): void => {
-      const isMod = e.metaKey || e.ctrlKey
+      const matched = findMatchingShortcut(e, shortcuts)
+      if (!matched) return
 
-      // Cmd+Shift+M - toggle reading mode
-      if (isMod && e.shiftKey && e.code === 'KeyM') {
-        e.preventDefault()
-        e.stopPropagation()
-        toggleReadingMode()
-        return
+      const s = captureHandlersRef.current
+
+      // Exhaustive switch — TS catches a missing case when CAPTURE_PHASE_IDS grows.
+      // `matched.id` is structurally one of CAPTURE_PHASE_IDS because
+      // findMatchingShortcut iterates `CAPTURE_PHASE_IDS.map(getShortcut)`.
+      const id = matched.id as typeof CAPTURE_PHASE_IDS[number]
+      let didHandle = false
+      switch (id) {
+        case 'editor.toggleReadingMode':
+          s.toggleReadingMode()
+          didHandle = true
+          break
+        case 'editor.toggleWordWrap':
+          if (!s.effectiveReadingMode && s.onWrapTextChange) {
+            s.onWrapTextChange(!s.wrapText)
+            didHandle = true
+          }
+          break
+        case 'editor.toggleLineNumbers':
+          if (!s.effectiveReadingMode && s.onLineNumbersChange) {
+            s.onLineNumbersChange(!s.showLineNumbers)
+            didHandle = true
+          }
+          break
+        case 'editor.toggleMonoFont':
+          if (!s.effectiveReadingMode && s.onMonoFontChange) {
+            s.onMonoFontChange(!s.monoFont)
+            didHandle = true
+          }
+          break
+        case 'editor.toggleToc':
+          if (s.showTocToggle && !s.effectiveReadingMode) {
+            s.togglePanel('toc')
+            didHandle = true
+          }
+          break
+        case 'editor.commandMenu':
+          if (!s.effectiveReadingMode && !s.disabled && !s.readOnly) {
+            s.openCommandMenuRef.current()
+            didHandle = true
+          }
+          break
+        default: {
+          // Compile-time exhaustiveness check. Adding an id to CAPTURE_PHASE_IDS
+          // without a switch case fails to compile here.
+          const _exhaustive: never = id
+          throw new Error(`Unhandled capture-phase id: ${String(_exhaustive)}`)
+        }
       }
 
-      // Option+Z (Alt+Z) - toggle word wrap (only when not in reading mode)
-      // Uses e.code which is independent of keyboard layout
-      if (e.altKey && e.code === 'KeyZ' && !effectiveReadingMode && onWrapTextChange) {
+      if (didHandle) {
         e.preventDefault()
         e.stopPropagation()
-        onWrapTextChange(!wrapText)
-        return
-      }
-
-      // Option+L (Alt+L) - toggle line numbers (only when not in reading mode)
-      if (e.altKey && e.code === 'KeyL' && !effectiveReadingMode && onLineNumbersChange) {
-        e.preventDefault()
-        e.stopPropagation()
-        onLineNumbersChange(!showLineNumbers)
-        return
-      }
-
-      // Option+M (Alt+M) - toggle monospace font (only when not in reading mode)
-      if (e.altKey && e.code === 'KeyM' && !effectiveReadingMode && onMonoFontChange) {
-        e.preventDefault()
-        e.stopPropagation()
-        onMonoFontChange(!monoFont)
-        return
-      }
-
-      // Option+T (Alt+T) - toggle table of contents sidebar (only when not in reading mode)
-      if (e.altKey && e.code === 'KeyT' && showTocToggle && !effectiveReadingMode) {
-        e.preventDefault()
-        e.stopPropagation()
-        togglePanel('toc')
-        return
-      }
-
-      // Cmd+/ - open command menu (works whether editor has focus or not)
-      // Uses capture phase so it runs before CM's keymap handler.
-      // Uses ref to avoid dependency ordering issues (openCommandMenu defined later).
-      if (isMod && !e.shiftKey && e.code === 'Slash' && !effectiveReadingMode && !disabled && !readOnly) {
-        e.preventDefault()
-        e.stopPropagation()
-        openCommandMenuRef.current()
       }
     }
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange, monoFont, onMonoFontChange, disabled, readOnly, showTocToggle, togglePanel])
+  }, [])
 
   // Get the EditorView from ref
   const getView = useCallback((): EditorView | undefined => {
@@ -672,7 +730,7 @@ export function CodeMirrorEditor({
           <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
           {/* Wrap toggle - always visible, only shown when not in reading mode */}
           {onWrapTextChange && !effectiveReadingMode && (
-            <Tooltip content={<>Toggle word wrap<br /><span className="opacity-75">{formatShortcut(['⌥', 'Z'])}</span></>} compact>
+            <Tooltip content={tooltipFor('editor.toggleWordWrap')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -696,7 +754,7 @@ export function CodeMirrorEditor({
 
           {/* Line numbers toggle - always visible, only shown when not in reading mode */}
           {onLineNumbersChange && !effectiveReadingMode && (
-            <Tooltip content={<>Toggle line numbers<br /><span className="opacity-75">{formatShortcut(['⌥', 'L'])}</span></>} compact>
+            <Tooltip content={tooltipFor('editor.toggleLineNumbers')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -720,7 +778,7 @@ export function CodeMirrorEditor({
 
           {/* Mono font toggle - only shown when not in reading mode */}
           {onMonoFontChange && !effectiveReadingMode && (
-            <Tooltip content={<>Toggle monospace font<br /><span className="opacity-75">{formatShortcut(['⌥', 'M'])}</span></>} compact>
+            <Tooltip content={tooltipFor('editor.toggleMonoFont')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -744,7 +802,7 @@ export function CodeMirrorEditor({
 
           {/* Table of Contents toggle - only shown when enabled and not in reading mode */}
           {showTocToggle && !effectiveReadingMode && (
-            <Tooltip content={<>Table of contents<br /><span className="opacity-75">{formatShortcut(['⌥', 'T'])}</span></>} compact>
+            <Tooltip content={tooltipFor('editor.toggleToc')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -767,7 +825,7 @@ export function CodeMirrorEditor({
           )}
 
           {/* Reading mode toggle - always visible */}
-          <Tooltip content={<>Toggle reading mode<br /><span className="opacity-75">{formatShortcut(['⌘', '⇧', 'M'])}</span></>} compact>
+          <Tooltip content={tooltipFor('editor.toggleReadingMode')} compact>
             <button
               type="button"
               tabIndex={-1}

@@ -1,5 +1,6 @@
 /**
- * End-to-end behavior tests for CodeMirrorEditor's registry-driven keymap.
+ * End-to-end behavior tests for CodeMirrorEditor's registry-driven keymap
+ * and capture-phase listener.
  *
  * Verifies the wire-up between the registry, the CodeMirror adapter, and the
  * editor: a keypress reaches the right handler and the editor's content
@@ -12,6 +13,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render } from '@testing-library/react'
+import { EditorView, keymap as keymapFacet } from '@codemirror/view'
 import { CodeMirrorEditor } from './CodeMirrorEditor'
 
 afterEach(() => {
@@ -84,20 +86,120 @@ describe('CodeMirrorEditor — registry-driven keymap fires', () => {
     expect(updatedValues.some((v) => v.startsWith('> '))).toBe(true)
   })
 
-  // Note on the Mod+Shift+/ passthrough integration test:
-  // We deliberately test this chain at two levels rather than as an
-  // end-to-end integration test inside CodeMirrorEditor:
-  //   - `shortcuts/dispatch.test.ts` verifies dispatchRegistryShortcut emits
-  //     the correct synthetic event (with mocked guards for the throw paths).
-  //   - `shortcuts/adapters/codemirror.test.ts` verifies the adapter installs
-  //     the Mod-Shift-/ binding into a real EditorView and it fires.
-  //
-  // A 30-min spike investigation found that round-tripping Mod+Shift+/ through
-  // a React-mounted CodeMirrorEditor + basicSetup environment in jsdom doesn't
-  // reach the keymap binding (it does reach Mod-b — that test passes). The
-  // bare-EditorView adapter test fires the same binding without issue, so the
-  // gap is environmental (jsdom + basicSetup + how synthetic Shift+punctuation
-  // events normalize), not a wire-up bug. Production behavior is unchanged
-  // from the prior implementation, which used the same 'Mod-Shift-/' binding
-  // string.
 })
+
+describe('CodeMirrorEditor — capture-phase listener (registry-driven)', () => {
+  it('Alt+Z fires editor.toggleWordWrap (code-based matching)', () => {
+    // Capture-phase entry uses match.code: 'KeyZ' so it matches the physical
+    // key regardless of macOS Option-letter conversion (event.key='Ω').
+    const onWrapTextChange = vi.fn()
+    render(<CodeMirrorEditor value="hello" onChange={vi.fn()} wrapText={false} onWrapTextChange={onWrapTextChange} />)
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'KeyZ', altKey: true, bubbles: true, cancelable: true }),
+    )
+
+    expect(onWrapTextChange).toHaveBeenCalledWith(true)
+  })
+
+  it('Alt+Z still matches when event.key is the special character (Ω)', () => {
+    // Real macOS browsers report event.key='Ω' for Option+Z but event.code='KeyZ'.
+    // The capture-phase code-based matcher must match on `code`, not `key`.
+    const onWrapTextChange = vi.fn()
+    render(<CodeMirrorEditor value="hello" onChange={vi.fn()} wrapText={false} onWrapTextChange={onWrapTextChange} />)
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'KeyZ', key: 'Ω', altKey: true, bubbles: true, cancelable: true }),
+    )
+
+    expect(onWrapTextChange).toHaveBeenCalledWith(true)
+  })
+
+  it('Alt+L fires editor.toggleLineNumbers handler', () => {
+    const onLineNumbersChange = vi.fn()
+    render(<CodeMirrorEditor value="hello" onChange={vi.fn()} showLineNumbers={false} onLineNumbersChange={onLineNumbersChange} />)
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'KeyL', altKey: true, bubbles: true, cancelable: true }),
+    )
+
+    expect(onLineNumbersChange).toHaveBeenCalledWith(true)
+  })
+
+  it('does NOT consume the event when the precondition fails (matcher/handler symmetry)', () => {
+    // editor.toggleWordWrap handler short-circuits when onWrapTextChange is
+    // undefined. With didHandle=false, the event must bubble — preserving
+    // pre-registry behavior. A regression here (always-consume on match)
+    // would silently swallow Alt+letter combos on pages where the optional
+    // callback isn't passed, blocking native targets and other listeners.
+    render(<CodeMirrorEditor value="hello" onChange={vi.fn()} wrapText={false} />)
+
+    const event = new KeyboardEvent('keydown', {
+      code: 'KeyZ',
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    document.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('DOES consume the event when the handler acts', () => {
+    // Symmetric to the above: when the handler executes, the event is consumed.
+    const onWrapTextChange = vi.fn()
+    render(<CodeMirrorEditor value="hello" onChange={vi.fn()} wrapText={false} onWrapTextChange={onWrapTextChange} />)
+
+    const event = new KeyboardEvent('keydown', {
+      code: 'KeyZ',
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    document.dispatchEvent(event)
+
+    expect(onWrapTextChange).toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(true)
+  })
+})
+
+describe('CodeMirrorEditor — upstream keymap presence (Cmd+D)', () => {
+  it('searchKeymap is registered (Mod-d binding present in keymap facet)', () => {
+    // The `editor.selectNextOccurrence` registry entry has match omitted —
+    // we don't bind it ourselves; @codemirror/search's searchKeymap does.
+    // This test asserts the upstream binding is actually wired up. If a
+    // future refactor removes the search() call from the extensions list,
+    // Mod-d stops working and our registry row becomes a lie — this test
+    // catches that.
+    const { container } = render(<CodeMirrorEditor value="hello" onChange={vi.fn()} />)
+    const contentDOM = container.querySelector('.cm-content') as HTMLElement
+    const view = EditorView.findFromDOM(contentDOM)
+    expect(view).toBeTruthy()
+
+    const allKeymaps = view!.state.facet(keymapFacet).flat()
+    const hasModD = allKeymaps.some((b) => b.key === 'Mod-d')
+    expect(hasModD).toBe(true)
+  })
+})
+
+// Note on the Mod+Shift+/ passthrough integration test:
+// We deliberately test this chain at two levels rather than as an
+// end-to-end integration test inside CodeMirrorEditor:
+//   - `shortcuts/dispatch.test.ts` verifies dispatchRegistryShortcut emits
+//     the correct synthetic event (with mocked guards for the throw paths).
+//   - `shortcuts/adapters/codemirror.test.ts` verifies the adapter installs
+//     the Mod-Shift-/ binding into a real EditorView and it fires.
+//
+// Two spike investigations (M2 + M3) confirmed: round-tripping Mod+Shift+/
+// through a React-mounted CodeMirrorEditor + basicSetup environment in jsdom
+// doesn't reach the keymap binding. Tried: dispatchEvent with key='/',
+// key='?' (the real US Shift+/ output), `userEvent.keyboard()` with proper
+// modifier syntax. None reached the passthrough handler. Diagnostic confirms
+// contentDOM is focused and the event lands on it. Mod+B in the same setup
+// fires correctly — the gap is shift-modifier-on-punctuation-specific.
+//
+// The bare-EditorView adapter test fires the same Mod-Shift-/ binding
+// without issue, so this is an environmental limit (jsdom + basicSetup +
+// shift-modifier key normalization), not a wire-up bug. Production behavior
+// is unchanged from the prior implementation, which used the same
+// 'Mod-Shift-/' binding string and works.

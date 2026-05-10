@@ -393,10 +393,19 @@ For each CodeMirror keymap entry and capture-phase entry:
    - **`code` for intentional layout-stable physical-key matching** (an explicit, narrow exception): Cmd+/ (command menu) keeps `code: 'Slash'`, Cmd+Shift+M (reading mode) keeps `code: 'KeyM'`. Reasoning: on a German keyboard, `event.key === '/'` requires Shift+7 (conflicts with Cmd+Shift+7 / bullet-list); using `code` lands on the same physical key regardless of layout. **Do not "clean these up" to `key`-based matching in a future pass — the `code` choice is deliberate.**
    - **`key` for everything else**: CM keymap entries (Bold, Italic, etc.).
 2. Add to `CM_KEYMAP_IDS` tuple OR the capture-phase tuple (based on which listener handles it).
-   - **Capture-phase tuple ownership:** The capture-phase tuple is the single source for `CAPTURE_PHASE_IDS` consumed by `dispatchRegistryShortcut`. Both modules import from `frontend/src/shortcuts/capturePhase.ts` (M2 sets up the empty constant; M3 populates it as entries land). Don't fork the list.
-3. Update toolbar tooltip / Tooltip component to read from registry.
+   - **Capture-phase tuple ownership:** `CAPTURE_PHASE_IDS` in `frontend/src/shortcuts/capturePhase.ts` is the single source. Both `dispatch.ts` and CodeMirrorEditor's capture-phase listener import the same constant. Don't fork the list.
+3. Update toolbar tooltip / Tooltip component to read from registry via `tooltipFor(id)`.
 4. Delete inline literal from `CodeMirrorEditor.tsx` and from `ShortcutsDialog`/`DocsShortcuts`.
-5. If `frontend/src/components/editor/editorCommands.ts` has an entry for this shortcut, strip its `shortcut:` field.
+
+**Capture-phase listener semantics:** the listener uses `findMatchingShortcut` against the capture-phase tuple. On match, each handler determines whether it acts (`didHandle: boolean`); the event is consumed (`preventDefault` + `stopPropagation`) only when the handler actually ran. This preserves matcher/handler symmetry — the matcher determines *what* would fire; the handler determines *whether* it actually fires; the event is consumed only on the conjunction. Identical behavior to the original if-cascade, which only called `preventDefault` inside each branch's success path.
+
+**Switch must be exhaustive.** Use a typed cast and a `never`-typed default to enforce at compile time that every id in `CAPTURE_PHASE_IDS` has a switch case. Adding an id without a case fails to build, not silently no-ops.
+
+**Duplicate-match invariant.** Call `assertNoDuplicateMatchShapes(shortcuts)` on listener install (dev mode only), same as `useGlobalShortcuts`. Keeps invariant parity across consumers.
+
+**editorCommands.ts is NOT touched in M3.** The plan's earlier wording said to strip `shortcut:` literals per-entry as the corresponding registry entry is added. With the M5 simplification (flat `EditorCommand` shape; `keys = isShortcutId(cmd.id) ? getShortcut(cmd.id).keys : undefined` at render time), the strip step depends on renaming editorCommands ids to match registry ids — which is a single coherent change owned by M5. Splitting it across M3 + M5 would create an interim regression in command-menu shortcut display. M5 does the rename + strip + rewire as one unit.
+
+**Navigation section migrated in M3.** Originally planned for M5, but the section had four registry entries (`app.focusSearch`, `app.focusPageSearch`, `app.commandPalette`, `app.escape`) with their display tokens duplicated in `ShortcutsDialog.tsx` and `DocsShortcuts.tsx` — an active label inconsistency (registry: Title Case; inline: sentence case) after the M3 label canonicalization. Migrated in M3 alongside View. Two new display-only entries (`card.openInNewTab`, `relationship.openInTiddly`) capture the existing mouse-modifier rows. Only the Actions section remains inline going into M5.
 
 **Mystery binding resolution:** the bulk of this happens in M0; M3 just acts on the M0 conclusions. For any entry M0 classified as `upstream-owned`, add a registry entry with `match` omitted, a comment pointing to the upstream source, and a smoke test (next section). For entries M0 found to have no binding anywhere, delete the dialog/docs row.
 
@@ -404,10 +413,10 @@ For each CodeMirror keymap entry and capture-phase entry:
 
 ### Testing
 
-- For each migrated shortcut, the M2 derivation pattern.
+- For each migrated shortcut, the M2 derivation pattern (registry label + formatShortcut feeds tooltips and dialog rows).
 - Existing `CodeMirrorEditor.test.tsx` tests pass; update any that asserted hardcoded `title=` strings.
-- One spot-check end-to-end test per consumer surface: fire one keymap shortcut (e.g., `Cmd+B`), fire one capture-phase shortcut (e.g., `Alt+Z`), both fire correctly. The Alt+Z test specifically exercises the `code`-based matching.
-- Mystery binding **plugin-presence** smoke test: if `Cmd+D` is `match`-omitted upstream-owned, assert `searchKeymap` is registered in the CodeMirror extensions (e.g., the `search()` call from `@codemirror/search` is present in the extensions array). Don't fire `Cmd+D` and assert selection behavior — that tests upstream library internals.
+- One spot-check end-to-end test per consumer surface: fire one keymap shortcut (e.g., `Cmd+B` — already in M2) plus one capture-phase shortcut (e.g., `Alt+Z`) and assert behavior. The Alt+Z test specifically exercises the `code`-based matching path.
+- **Cmd+D plugin-presence smoke test**: introspect the CodeMirror keymap facet and assert a `Mod-d` binding is registered. Concretely: render `CodeMirrorEditor`, get the `EditorView` via `EditorView.findFromDOM(contentDOM)`, read `view.state.facet(keymap).flat()`, assert at least one entry has `key === 'Mod-d'`. Catches the realistic regression (`search({...})` removed from extensions) without firing `Cmd+D` or asserting upstream selection behavior.
 
 ### Stop & Review
 
@@ -447,6 +456,7 @@ This is faster, less brittle, and tests the only realistic upstream-regression p
 
 - Migrated entries: derivation pattern for tooltips.
 - One **plugin-presence** smoke test per upstream-bound entry (Cmd+B, Cmd+I) — asserts the commonmark `keymap` plugin is in the editor's plugin list, not the rendered DOM output.
+- **`editor.openLinkInNewTab` plugin-presence test** — verify Milkdown's `createLinkClickPlugin` is registered (or assert the link-click ProseMirror plugin is in the plugin list). The registry entry was added in M3 with no test owner; M4 closes that gap with the same plugin-presence pattern used for Cmd+B/Cmd+I and Cmd+D.
 - Existing `MilkdownEditor.test.tsx` tests pass.
 
 ### Stop & Review
@@ -462,7 +472,8 @@ By end of M4: registry is source of truth for all editor and global shortcuts in
 After M5:
 - `CommandPalette.tsx`, `EditorCommandMenu.tsx`, `slashCommands.ts`, `Sidebar.tsx`, `SettingsGeneral.tsx` all read shortcut **keys** from the registry.
 - `frontend/src/components/editor/editorCommands.ts` is fully stripped of inline shortcut literals (any stragglers from M3/M4 cleanup).
-- All inline shortcut literals across the frontend are gone outside `platform.ts` and the registry, **except the four page-scoped save entries** (`Cmd+S`, `Cmd+Shift+S`) in `ShortcutsDialog.tsx` Actions section. Those stay inline pending the page-scope-design follow-up — adding registry entries for them would create the appearance of registry sourcing without the guarantee (we own the binding; a `match`-omitted entry would silently drift). Honest about the seam.
+- All inline shortcut literals across the frontend are gone outside `platform.ts` and the registry, **except the Actions section in `ShortcutsDialog.tsx` and `DocsShortcuts.tsx`**. The four page-scoped save entries (`Cmd+S`, `Cmd+Shift+S` in Note/Bookmark/Prompt) stay inline pending the page-scope-design follow-up — adding registry entries for them would create the appearance of registry sourcing without the guarantee (we own the binding; a `match`-omitted entry would silently drift). Honest about the seam.
+- Note: Navigation migrated in M3, so M5's display-surface scope is smaller than originally planned (Actions only).
 
 ### Architectural framing — what the registry owns vs. what surfaces decide
 

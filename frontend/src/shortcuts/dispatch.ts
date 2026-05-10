@@ -30,7 +30,8 @@ export function dispatchRegistryShortcut(id: ShortcutId): void {
       `dispatchRegistryShortcut: '${id}' has no match (display-only entry); cannot dispatch.`,
     )
   }
-  if (CAPTURE_PHASE_IDS.includes(id)) {
+  // Cast widens the narrow tuple element-type for an arbitrary-id containment check.
+  if ((CAPTURE_PHASE_IDS as readonly string[]).includes(id)) {
     throw new Error(
       `dispatchRegistryShortcut: '${id}' is a capture-phase id; ` +
       `synthetic dispatch would double-fire. Use only for bubble-phase ids.`,

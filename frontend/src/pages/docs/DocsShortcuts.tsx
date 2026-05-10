@@ -46,6 +46,8 @@ function InlineShortcut({ keys }: { keys: string[] }): ReactNode {
 
 export function DocsShortcuts(): ReactNode {
   usePageTitle('Docs - Keyboard Shortcuts')
+  const navigationShortcuts = getShortcutsBySection('Navigation')
+  const viewShortcuts = getShortcutsBySection('View')
   const markdownEditorShortcuts = getShortcutsBySection('Markdown Editor')
 
   return (
@@ -57,21 +59,17 @@ export function DocsShortcuts(): ReactNode {
       </p>
 
       {/*
-        Navigation / Actions / View tables below use inline literals.
-        Migrated to registry sourcing in later milestones (M3-M5).
-        Until then, registry changes to entries that also appear here
-        won't reflect in the docs page — keep in sync manually.
+        Actions table below uses inline literals. Migrated to registry
+        sourcing in M5. Until then, registry changes to entries that also
+        appear here won't reflect in the docs page — keep in sync manually.
       */}
-      {/* Navigation */}
+      {/* Navigation — sourced from registry */}
       <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Navigation</h2>
       <table className="w-full">
         <tbody>
-          <ShortcutRow keys={['/']} description="Focus search bar" />
-          <ShortcutRow keys={['s']} description="Focus page search" />
-          <ShortcutRow keys={['⌘', '⇧', 'P']} description="Command palette" />
-          <ShortcutRow keys={['⌘', 'Click']} description="Open card in new tab" />
-          <ShortcutRow keys={['⇧', 'Click']} description="Open bookmark relationship in Tiddly (instead of URL)" />
-          <ShortcutRow keys={['Esc']} description="Close modal / unfocus search" />
+          {navigationShortcuts.map((shortcut) => (
+            <ShortcutRow key={shortcut.id} keys={shortcut.keys} description={shortcut.label} />
+          ))}
         </tbody>
       </table>
 
@@ -86,19 +84,13 @@ export function DocsShortcuts(): ReactNode {
         </tbody>
       </table>
 
-      {/* View */}
+      {/* View — sourced from registry */}
       <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">View</h2>
       <table className="w-full">
         <tbody>
-          <ShortcutRow keys={['w']} description="Toggle full-width layout" />
-          <ShortcutRow keys={['⌘', '\\']} description="Toggle sidebar" />
-          <ShortcutRow keys={['⌘', '⇧', '\\']} description="Toggle history sidebar" />
-          <ShortcutRow keys={['⌘', '⇧', '/']} description="Show shortcuts dialog" />
-          <ShortcutRow keys={['⌘', '⇧', 'M']} description="Toggle reading mode" />
-          <ShortcutRow keys={['⌥', 'Z']} description="Toggle word wrap" />
-          <ShortcutRow keys={['⌥', 'L']} description="Toggle line numbers" />
-          <ShortcutRow keys={['⌥', 'M']} description="Toggle monospace font" />
-          <ShortcutRow keys={['⌥', 'T']} description="Toggle table of contents" />
+          {viewShortcuts.map((shortcut) => (
+            <ShortcutRow key={shortcut.id} keys={shortcut.keys} description={shortcut.label} />
+          ))}
         </tbody>
       </table>
 

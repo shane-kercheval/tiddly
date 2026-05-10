@@ -52,14 +52,14 @@ export const SHORTCUTS = [
   },
   {
     id: 'app.focusPageSearch',
-    label: 'Focus page search',
+    label: 'Focus Page Search',
     section: 'Navigation',
     keys: ['s'],
     match: { key: 's' },
   },
   {
     id: 'app.commandPalette',
-    label: 'Command palette',
+    label: 'Command Palette',
     section: 'Navigation',
     keys: ['⌘', '⇧', 'P'],
     match: { mod: true, shift: true, key: 'p' },
@@ -67,7 +67,7 @@ export const SHORTCUTS = [
   },
   {
     id: 'app.escape',
-    label: 'Close modal / Unfocus search',
+    label: 'Close Modal / Unfocus Search',
     section: 'Navigation',
     keys: ['Esc'],
     match: { key: 'Escape' },
@@ -76,18 +76,35 @@ export const SHORTCUTS = [
     // contenteditable, native form semantics, and modal-close handlers see it.
     preventDefault: false,
   },
+  // Display-only non-keyboard entries. Bound in card/relationship click handlers.
+  // Distinct ids from `editor.openLinkInNewTab` (Markdown Editor section) per
+  // the "Distinct ids for same display tokens in different contexts" rule.
+  {
+    id: 'card.openInNewTab',
+    label: 'Open Card in New Tab',
+    section: 'Navigation',
+    keys: ['⌘', 'Click'],
+    // Bound at frontend/src/components/ContentCard/ContentCard.tsx:50.
+  },
+  {
+    id: 'relationship.openInTiddly',
+    label: 'Open Bookmark Relationship in Tiddly (instead of URL)',
+    section: 'Navigation',
+    keys: ['⇧', 'Click'],
+    // Bound at frontend/src/hooks/useLinkedNavigation.ts:21.
+  },
 
   // --- View -----------------------------------------------------------------
   {
     id: 'app.toggleWidth',
-    label: 'Toggle full-width layout',
+    label: 'Toggle Full-Width Layout',
     section: 'View',
     keys: ['w'],
     match: { key: 'w' },
   },
   {
     id: 'app.toggleSidebar',
-    label: 'Toggle sidebar',
+    label: 'Toggle Sidebar',
     section: 'View',
     keys: ['⌘', '\\'],
     match: { mod: true, key: '\\' },
@@ -95,7 +112,7 @@ export const SHORTCUTS = [
   },
   {
     id: 'app.toggleHistorySidebar',
-    label: 'Toggle history sidebar',
+    label: 'Toggle History Sidebar',
     section: 'View',
     keys: ['⌘', '⇧', '\\'],
     match: { mod: true, shift: true, key: '\\' },
@@ -103,11 +120,51 @@ export const SHORTCUTS = [
   },
   {
     id: 'app.showShortcuts',
-    label: 'Show shortcuts',
+    label: 'Show Shortcuts',
     section: 'View',
     keys: ['⌘', '⇧', '/'],
     match: { mod: true, shift: true, key: '/' },
     allowInInputs: true,
+  },
+  // Editor-View entries — capture-phase, code-based.
+  // `match.code` is used here for two reasons:
+  //   - Alt+Z/L/M/T: Mac Option-letter conversion (Option+Z reports event.key='Ω' etc.).
+  //   - Cmd+Shift+M: layout-stable physical-key matching across keyboard layouts.
+  // Both are documented at the schema rule in the plan; do NOT migrate to `key`.
+  {
+    id: 'editor.toggleReadingMode',
+    label: 'Toggle Reading Mode',
+    section: 'View',
+    keys: ['⌘', '⇧', 'M'],
+    match: { mod: true, shift: true, code: 'KeyM' },
+  },
+  {
+    id: 'editor.toggleWordWrap',
+    label: 'Toggle Word Wrap',
+    section: 'View',
+    keys: ['⌥', 'Z'],
+    match: { alt: true, code: 'KeyZ' },
+  },
+  {
+    id: 'editor.toggleLineNumbers',
+    label: 'Toggle Line Numbers',
+    section: 'View',
+    keys: ['⌥', 'L'],
+    match: { alt: true, code: 'KeyL' },
+  },
+  {
+    id: 'editor.toggleMonoFont',
+    label: 'Toggle Monospace Font',
+    section: 'View',
+    keys: ['⌥', 'M'],
+    match: { alt: true, code: 'KeyM' },
+  },
+  {
+    id: 'editor.toggleToc',
+    label: 'Toggle Table of Contents',
+    section: 'View',
+    keys: ['⌥', 'T'],
+    match: { alt: true, code: 'KeyT' },
   },
 
   // --- Markdown Editor -----------------------------------------------------
@@ -198,6 +255,32 @@ export const SHORTCUTS = [
     section: 'Markdown Editor',
     keys: ['⌘', '⇧', '-'],
     match: { mod: true, shift: true, key: '-' },
+  },
+  // Capture-phase entry. `match.code: 'Slash'` for layout-stable matching
+  // (German layout: event.key='/' requires Shift+7, conflicts with bullet-list).
+  {
+    id: 'editor.commandMenu',
+    label: 'Command Menu',
+    section: 'Markdown Editor',
+    keys: ['⌘', '/'],
+    match: { mod: true, code: 'Slash' },
+  },
+  // Display-only — non-keyboard (mouse modifier in MilkdownEditor link click plugin).
+  // No `match`. Distinct from `card.openInNewTab` (Navigation section, future).
+  {
+    id: 'editor.openLinkInNewTab',
+    label: 'Open Link in New Tab',
+    section: 'Markdown Editor',
+    keys: ['⌘', 'Click'],
+  },
+  // Display-only — upstream-owned by @codemirror/search's searchKeymap.
+  // The search() extension at CodeMirrorEditor auto-registers Mod-d → selectNextOccurrence.
+  // Plugin-presence smoke test in CodeMirrorEditor.test.tsx asserts the binding exists.
+  {
+    id: 'editor.selectNextOccurrence',
+    label: 'Select Next Occurrence',
+    section: 'Markdown Editor',
+    keys: ['⌘', 'D'],
   },
 ] as const satisfies readonly Shortcut[]
 

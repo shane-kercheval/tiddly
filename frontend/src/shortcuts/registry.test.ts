@@ -31,6 +31,8 @@ describe('registry selectors', () => {
       'app.focusPageSearch',
       'app.commandPalette',
       'app.escape',
+      'card.openInNewTab',
+      'relationship.openInTiddly',
     ])
   })
 
@@ -122,15 +124,6 @@ describe('schema invariants', () => {
       const hasKey = shortcut.match.key !== undefined
       const hasCode = shortcut.match.code !== undefined
       expect(hasKey !== hasCode).toBe(true) // XOR
-    }
-  })
-
-  it('display-only entries (no match) are flagged for review by section', () => {
-    // M1 seeds globals only, all of which must have match. Display-only
-    // entries (upstream-bound, non-keyboard) arrive in later milestones and
-    // are governed by the file-header rules.
-    for (const shortcut of getAllShortcuts()) {
-      expect(shortcut.match).toBeDefined()
     }
   })
 

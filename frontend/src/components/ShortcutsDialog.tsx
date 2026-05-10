@@ -1,9 +1,10 @@
 /**
  * Dialog showing available keyboard shortcuts.
  *
- * Right column ("Markdown Editor" section) reads from the shortcut registry.
- * Left column (Actions, Navigation, View) still uses inline arrays — those
- * sections migrate in M3/M4.
+ * Navigation, View, and Markdown Editor sections read from the shortcut
+ * registry. Only the Actions section still uses an inline array — that
+ * migrates in M5 (the four page-scoped `Cmd+S`/`Cmd+Shift+S` entries stay
+ * inline indefinitely per the M5 carve-out).
  */
 import type { ReactNode } from 'react'
 import { localizeKeys } from '../utils/platform'
@@ -27,46 +28,20 @@ interface InlineGroup {
   shortcuts: InlineShortcut[]
 }
 
-// Inline arrays for left-column sections. Migrated to registry sourcing in
-// later milestones (Actions/Navigation/View → M3-M5; the four page-scoped
-// `Cmd+S`/`Cmd+Shift+S` entries stay inline indefinitely per the plan's M5
-// carve-out). Until then, a registry change to an entry that ALSO appears here
-// won't reflect in the dialog — keep these in sync manually.
-const leftColumnGroups: InlineGroup[] = [
-  {
-    title: 'Actions',
-    shortcuts: [
-      { keys: ['⌘', 'V'], description: 'Paste URL to add bookmark' },
-      { keys: ['⌘', '⇧', 'Click'], description: 'Open link without tracking' },
-      { keys: ['⌘', 'S'], description: 'Save' },
-      { keys: ['⌘', '⇧', 'S'], description: 'Save and close' },
-    ],
-  },
-  {
-    title: 'Navigation',
-    shortcuts: [
-      { keys: ['/'], description: 'Search' },
-      { keys: ['s'], description: 'Focus page search' },
-      { keys: ['⌘', '⇧', 'P'], description: 'Command palette' },
-      { keys: ['⌘', 'Click'], description: 'Open card in new tab' },
-      { keys: ['⇧', 'Click'], description: 'Open bookmark relationship in Tiddly (instead of URL)' },
-      { keys: ['Esc'], description: 'Close modal / Unfocus search' },
-    ],
-  },
-  {
-    title: 'View',
-    shortcuts: [
-      { keys: ['w'], description: 'Toggle full-width layout' },
-      { keys: ['⌘', '\\'], description: 'Toggle sidebar' },
-      { keys: ['⌘', '⇧', '\\'], description: 'Toggle history sidebar' },
-      { keys: ['⌘', '⇧', '/'], description: 'Show shortcuts' },
-      { keys: ['⌘', '⇧', 'M'], description: 'Toggle reading mode' },
-      { keys: ['⌥', 'Z'], description: 'Toggle word wrap' },
-      { keys: ['⌥', 'L'], description: 'Toggle line numbers' },
-      { keys: ['⌥', 'M'], description: 'Toggle monospace font' },
-    ],
-  },
-]
+// Inline array for Actions section. Migrated to registry sourcing in M5.
+// The four page-scoped `Cmd+S`/`Cmd+Shift+S` entries stay inline indefinitely
+// per the plan's M5 carve-out (binding has a context dimension the registry
+// doesn't model). Until M5 lands, a registry change to an entry that ALSO
+// appears here won't reflect in the dialog — keep these in sync manually.
+const inlineActionsGroup: InlineGroup = {
+  title: 'Actions',
+  shortcuts: [
+    { keys: ['⌘', 'V'], description: 'Paste URL to add bookmark' },
+    { keys: ['⌘', '⇧', 'Click'], description: 'Open link without tracking' },
+    { keys: ['⌘', 'S'], description: 'Save' },
+    { keys: ['⌘', '⇧', 'S'], description: 'Save and close' },
+  ],
+}
 
 function KeyBadge({ children }: { children: ReactNode }): ReactNode {
   return (
@@ -135,6 +110,8 @@ function RegistryGroupSection({ title, shortcuts }: { title: string; shortcuts: 
 }
 
 export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): ReactNode {
+  const navigationShortcuts = getShortcutsBySection('Navigation')
+  const viewShortcuts = getShortcutsBySection('View')
   const markdownEditorShortcuts = getShortcutsBySection('Markdown Editor')
 
   return (
@@ -146,9 +123,9 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
     >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
         <div className="space-y-4">
-          {leftColumnGroups.map((group) => (
-            <InlineGroupSection key={group.title} group={group} />
-          ))}
+          <InlineGroupSection group={inlineActionsGroup} />
+          <RegistryGroupSection title="Navigation" shortcuts={navigationShortcuts} />
+          <RegistryGroupSection title="View" shortcuts={viewShortcuts} />
         </div>
         <div className="space-y-4">
           <RegistryGroupSection title="Markdown Editor" shortcuts={markdownEditorShortcuts} />

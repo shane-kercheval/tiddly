@@ -48,9 +48,66 @@ describe('ShortcutsDialog', () => {
   it('displays inline-section shortcut labels', () => {
     render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
 
+    // Paste URL is in the inline Actions section. Search is inline Navigation.
     expect(screen.getByText('Paste URL to add bookmark')).toBeInTheDocument()
     expect(screen.getByText('Search')).toBeInTheDocument()
-    expect(screen.getByText('Toggle full-width layout')).toBeInTheDocument()
+  })
+
+  it('displays View section labels (sourced from registry)', () => {
+    render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
+
+    expect(screen.getByText('Toggle Full-Width Layout')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Word Wrap')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Reading Mode')).toBeInTheDocument()
+  })
+})
+
+describe('ShortcutsDialog — Navigation section sourced from registry', () => {
+  it('renders every Navigation entry from the registry, in order', () => {
+    render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
+
+    const expected = getShortcutsBySection('Navigation')
+    expect(expected.length).toBeGreaterThan(0)
+
+    for (const entry of expected) {
+      expect(screen.getByText(entry.label)).toBeInTheDocument()
+    }
+  })
+
+  it('uses Title Case labels for keyboard Navigation entries (no more sentence case)', () => {
+    render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
+    expect(screen.getByText('Focus Page Search')).toBeInTheDocument()
+    expect(screen.getByText('Command Palette')).toBeInTheDocument()
+    expect(screen.getByText('Close Modal / Unfocus Search')).toBeInTheDocument()
+  })
+
+  it('includes the non-keyboard display-only entries (⌘Click, ⇧Click)', () => {
+    render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
+    expect(screen.getByText('Open Card in New Tab')).toBeInTheDocument()
+    expect(screen.getByText('Open Bookmark Relationship in Tiddly (instead of URL)')).toBeInTheDocument()
+  })
+})
+
+describe('ShortcutsDialog — View section sourced from registry', () => {
+  it('renders every View entry from the registry, in declaration order', () => {
+    render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
+
+    const expected = getShortcutsBySection('View')
+    expect(expected.length).toBeGreaterThan(0)
+
+    for (const entry of expected) {
+      expect(screen.getByText(entry.label)).toBeInTheDocument()
+    }
+  })
+
+  it('includes the M3 capture-phase additions (toggleToc, toggleWordWrap, etc.)', () => {
+    render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
+
+    expect(screen.getByText('Toggle Word Wrap')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Line Numbers')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Monospace Font')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Table of Contents')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Reading Mode')).toBeInTheDocument()
   })
 })
 

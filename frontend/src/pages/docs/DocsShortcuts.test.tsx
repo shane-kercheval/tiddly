@@ -54,6 +54,26 @@ describe('DocsShortcuts', () => {
     expect(screen.getByText('Horizontal Rule')).toBeInTheDocument()
   })
 
+  it('View table sources every row from the registry (M3 migration)', () => {
+    renderPage()
+
+    const expected = getShortcutsBySection('View')
+    expect(expected.length).toBeGreaterThan(0)
+
+    for (const entry of expected) {
+      expect(screen.getByText(entry.label)).toBeInTheDocument()
+    }
+  })
+
+  it('includes the new capture-phase entries in the View table', () => {
+    renderPage()
+    expect(screen.getByText('Toggle Word Wrap')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Line Numbers')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Monospace Font')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Table of Contents')).toBeInTheDocument()
+    expect(screen.getByText('Toggle Reading Mode')).toBeInTheDocument()
+  })
+
   it('localizes Cmd-glyph keys to Ctrl on Windows', () => {
     mockPlatform('Win32')
     renderPage()
@@ -69,5 +89,20 @@ describe('DocsShortcuts', () => {
 
     const boldRow = screen.getByText('Bold').closest('tr')!
     expect(within(boldRow).getByText('⌘')).toBeInTheDocument()
+  })
+
+  it('Navigation table sources every row from the registry (M3 migration)', () => {
+    renderPage()
+    const expected = getShortcutsBySection('Navigation')
+    expect(expected.length).toBeGreaterThan(0)
+    for (const entry of expected) {
+      expect(screen.getByText(entry.label)).toBeInTheDocument()
+    }
+  })
+
+  it('includes the non-keyboard Navigation entries (Cmd+Click, Shift+Click)', () => {
+    renderPage()
+    expect(screen.getByText('Open Card in New Tab')).toBeInTheDocument()
+    expect(screen.getByText('Open Bookmark Relationship in Tiddly (instead of URL)')).toBeInTheDocument()
   })
 })
