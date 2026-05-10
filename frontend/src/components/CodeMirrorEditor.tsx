@@ -51,6 +51,10 @@ import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/ji
 import { createSlashCommandSource, slashCommandAddToOptions, scrollFadePlugin } from '../utils/slashCommands'
 import { wasEditorFocused } from '../utils/editorUtils'
 import { formatShortcut } from '../utils/platform'
+import { toCodeMirrorKeymap } from '../shortcuts/adapters/codemirror'
+import { dispatchRegistryShortcut } from '../shortcuts/dispatch'
+import type { ShortcutId } from '../shortcuts/registry'
+import { tooltipFor } from '../shortcuts/format'
 import {
   toggleWrapMarkers,
   toggleLinePrefix,
@@ -122,60 +126,60 @@ interface CodeMirrorEditorProps {
 }
 
 /**
- * Dispatch a keyboard event to the document for global handlers to catch.
- * Used to pass shortcuts through from CodeMirror to global handlers.
+ * Registry ids the CodeMirror keymap owns. Order is the source of truth for
+ * the emitted KeyBinding[] (CM tries each in turn; first to return true wins).
  *
- * This enables shortcuts like Cmd+Shift+/ (help modal) and Cmd+\ (sidebar toggle)
- * to work when the CodeMirror editor has focus. The events bubble up to
- * document-level listeners in the parent components.
+ * Includes 'app.showShortcuts' for the passthrough binding — CM consumes
+ * Cmd+Shift+/ to prevent CM's default `toggleComment`, then dispatches a
+ * synthetic event that the global hook picks up via the matcher.
  */
-function dispatchGlobalShortcut(key: string, metaKey: boolean, shiftKey = false): void {
-  const event = new KeyboardEvent('keydown', {
-    key,
-    metaKey,
-    ctrlKey: !metaKey, // Use ctrlKey on non-Mac
-    shiftKey,
-    bubbles: true,
-  })
-  document.dispatchEvent(event)
-}
+const CM_KEYMAP_IDS = [
+  'editor.bold',
+  'editor.italic',
+  'editor.strikethrough',
+  'editor.highlight',
+  'editor.blockquote',
+  'editor.inlineCode',
+  'editor.codeBlock.cm',
+  'editor.bulletList',
+  'editor.numberedList',
+  'editor.checklist',
+  'editor.insertLink',
+  'editor.horizontalRule',
+  'app.showShortcuts',
+] as const satisfies readonly ShortcutId[]
 
-/**
- * Create CodeMirror keybindings for markdown formatting.
- */
+type CmHandlers = Record<typeof CM_KEYMAP_IDS[number], (view: EditorView) => boolean>
+
 /** Wrap a command so it no-ops when the editor is readOnly. */
 function ifWritable(cmd: (view: EditorView) => boolean): (view: EditorView) => boolean {
   return (view) => view.state.readOnly ? false : cmd(view)
 }
 
 function createMarkdownKeyBindings(): KeyBinding[] {
-  return [
-    // Text formatting
-    { key: 'Mod-b', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.bold.before, MARKERS.bold.after)) },
-    { key: 'Mod-i', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.italic.before, MARKERS.italic.after)) },
-    { key: 'Mod-Shift-x', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.strikethrough.before, MARKERS.strikethrough.after)) },
-    { key: 'Mod-Shift-h', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.highlight.before, MARKERS.highlight.after)) },
-    { key: 'Mod-Shift-.', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.blockquote)) },
-    // Code
-    { key: 'Mod-e', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after)) },
-    { key: 'Mod-Shift-e', run: ifWritable((view) => insertCodeBlock(view)) },
-    // Lists (matches toolbar/menu order: 7=bullet, 8=numbered, 9=checklist)
-    { key: 'Mod-Shift-7', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList)) },
-    { key: 'Mod-Shift-8', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList)) },
-    { key: 'Mod-Shift-9', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.checklist)) },
-    // Links and other
-    { key: 'Mod-k', run: ifWritable((view) => insertLink(view)) },
-    { key: 'Mod-Shift--', run: ifWritable((view) => insertHorizontalRule(view)) },
-    // Pass through to global handlers (consume event, then dispatch globally)
-    {
-      key: 'Mod-Shift-/',
-      run: () => {
-        dispatchGlobalShortcut('/', true, true)
-        return true // Consume to prevent CodeMirror's comment toggle
-      },
+  const handlers: CmHandlers = {
+    'editor.bold': ifWritable((view) => toggleWrapMarkers(view, MARKERS.bold.before, MARKERS.bold.after)),
+    'editor.italic': ifWritable((view) => toggleWrapMarkers(view, MARKERS.italic.before, MARKERS.italic.after)),
+    'editor.strikethrough': ifWritable((view) => toggleWrapMarkers(view, MARKERS.strikethrough.before, MARKERS.strikethrough.after)),
+    'editor.highlight': ifWritable((view) => toggleWrapMarkers(view, MARKERS.highlight.before, MARKERS.highlight.after)),
+    'editor.blockquote': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.blockquote)),
+    'editor.inlineCode': ifWritable((view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after)),
+    'editor.codeBlock.cm': ifWritable((view) => insertCodeBlock(view)),
+    'editor.bulletList': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList)),
+    'editor.numberedList': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList)),
+    'editor.checklist': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.checklist)),
+    'editor.insertLink': ifWritable((view) => insertLink(view)),
+    'editor.horizontalRule': ifWritable((view) => insertHorizontalRule(view)),
+    // Passthrough: consume locally so CM's default keymap doesn't fire, then
+    // dispatch a synthetic event the global hook picks up.
+    'app.showShortcuts': () => {
+      dispatchRegistryShortcut('app.showShortcuts')
+      return true
     },
-  ]
+  }
+  return toCodeMirrorKeymap(CM_KEYMAP_IDS, handlers)
 }
+
 
 /**
  * Toolbar button for CodeMirror editor.
@@ -595,52 +599,52 @@ export function CodeMirrorEditor({
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
         <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:pointer-events-none md:group-focus-within/editor:opacity-100 md:group-focus-within/editor:pointer-events-auto transition-opacity ${disabled || readOnly ? 'pointer-events-none' : ''}`}>
           {/* Text formatting */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title={`Bold (${formatShortcut(['⌘', 'B'])})`}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title={tooltipFor('editor.bold')}>
             <BoldIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title={`Italic (${formatShortcut(['⌘', 'I'])})`}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title={tooltipFor('editor.italic')}>
             <ItalicIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title={`Strikethrough (${formatShortcut(['⌘', '⇧', 'X'])})`}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title={tooltipFor('editor.strikethrough')}>
             <StrikethroughIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title={`Highlight (${formatShortcut(['⌘', '⇧', 'H'])})`}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title={tooltipFor('editor.highlight')}>
             <HighlightIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title={`Blockquote (${formatShortcut(['⌘', '⇧', '.'])})`}>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title={tooltipFor('editor.blockquote')}>
             <BlockquoteIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Code */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title={`Inline Code (${formatShortcut(['⌘', 'E'])})`}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title={tooltipFor('editor.inlineCode')}>
             <InlineCodeIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title={`Code Block (${formatShortcut(['⌘', '⇧', 'E'])})`}>
+          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title={tooltipFor('editor.codeBlock.cm')}>
             <CodeBlockIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Lists */}
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title={`Bullet List (${formatShortcut(['⌘', '⇧', '7'])})`}>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title={tooltipFor('editor.bulletList')}>
             <BulletListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title={`Numbered List (${formatShortcut(['⌘', '⇧', '8'])})`}>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title={tooltipFor('editor.numberedList')}>
             <OrderedListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.checklist))} title={`Checklist (${formatShortcut(['⌘', '⇧', '9'])})`}>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.checklist))} title={tooltipFor('editor.checklist')}>
             <ChecklistIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Links and dividers */}
-          <ToolbarButton onClick={() => runAction(insertLink)} title={`Insert Link (${formatShortcut(['⌘', 'K'])})`}>
+          <ToolbarButton onClick={() => runAction(insertLink)} title={tooltipFor('editor.insertLink')}>
             <LinkIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title={`Horizontal Rule (${formatShortcut(['⌘', '⇧', '-'])})`}>
+          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title={tooltipFor('editor.horizontalRule')}>
             <HorizontalRuleIcon />
           </ToolbarButton>
 

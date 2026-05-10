@@ -142,33 +142,20 @@ describe('schema invariants', () => {
   })
 })
 
-// Delete this block in M2 once the registry grows past the seed set —
-// schema invariants + coherence tests cover what matters going forward.
-describe('M1 seed sanity', () => {
-  it('seeds the eight globals expected by the plan', () => {
-    const ids = SHORTCUTS.map((s) => s.id).sort()
-    expect(ids).toEqual(
-      [
-        'app.commandPalette',
-        'app.escape',
-        'app.focusPageSearch',
-        'app.focusSearch',
-        'app.showShortcuts',
-        'app.toggleHistorySidebar',
-        'app.toggleSidebar',
-        'app.toggleWidth',
-      ].sort(),
-    )
-  })
-
+describe('global-shortcut policy invariants', () => {
   it('Escape uses preventDefault: false to preserve native target behavior', () => {
+    // Today's code intentionally lets Escape reach native targets
+    // (contenteditable, modal close, form semantics).
     const escape = getShortcut('app.escape')
     expect(escape.preventDefault).toBe(false)
   })
 
-  it('shortcuts that fire even when typing have allowInInputs: true', () => {
+  it('the right ids fire even when typing in inputs', () => {
     // These match today's behavior in useKeyboardShortcuts.ts: Cmd+Shift+/,
     // Cmd+Shift+P, Cmd+\, Cmd+Shift+\, Escape all fire while inputs are focused.
+    // Editor formatting shortcuts deliberately don't allowInInputs because they
+    // only ever fire from inside the editor, where the editor's own keymap
+    // takes over (input-focus check is irrelevant).
     const expected = new Set([
       'app.showShortcuts',
       'app.commandPalette',

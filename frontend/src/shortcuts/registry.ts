@@ -109,6 +109,96 @@ export const SHORTCUTS = [
     match: { mod: true, shift: true, key: '/' },
     allowInInputs: true,
   },
+
+  // --- Markdown Editor -----------------------------------------------------
+  // Title Case labels are the single canonical text — used both in the
+  // toolbar tooltip and in the dialog/docs row.
+  {
+    id: 'editor.bold',
+    label: 'Bold',
+    section: 'Markdown Editor',
+    keys: ['⌘', 'B'],
+    match: { mod: true, key: 'b' },
+  },
+  {
+    id: 'editor.italic',
+    label: 'Italic',
+    section: 'Markdown Editor',
+    keys: ['⌘', 'I'],
+    match: { mod: true, key: 'i' },
+  },
+  {
+    id: 'editor.strikethrough',
+    label: 'Strikethrough',
+    section: 'Markdown Editor',
+    keys: ['⌘', '⇧', 'X'],
+    match: { mod: true, shift: true, key: 'x' },
+  },
+  {
+    id: 'editor.highlight',
+    label: 'Highlight',
+    section: 'Markdown Editor',
+    keys: ['⌘', '⇧', 'H'],
+    match: { mod: true, shift: true, key: 'h' },
+  },
+  {
+    id: 'editor.blockquote',
+    label: 'Blockquote',
+    section: 'Markdown Editor',
+    keys: ['⌘', '⇧', '.'],
+    match: { mod: true, shift: true, key: '.' },
+  },
+  {
+    id: 'editor.inlineCode',
+    label: 'Inline Code',
+    section: 'Markdown Editor',
+    keys: ['⌘', 'E'],
+    match: { mod: true, key: 'e' },
+  },
+  {
+    // CM variant of code block (⌘⇧E). Milkdown's ⌘⇧C lands as
+    // editor.codeBlock.milkdown in M4 — disagree pattern (two ids).
+    id: 'editor.codeBlock.cm',
+    label: 'Code Block',
+    section: 'Markdown Editor',
+    keys: ['⌘', '⇧', 'E'],
+    match: { mod: true, shift: true, key: 'e' },
+  },
+  {
+    id: 'editor.bulletList',
+    label: 'Bullet List',
+    section: 'Markdown Editor',
+    keys: ['⌘', '⇧', '7'],
+    match: { mod: true, shift: true, key: '7' },
+  },
+  {
+    id: 'editor.numberedList',
+    label: 'Numbered List',
+    section: 'Markdown Editor',
+    keys: ['⌘', '⇧', '8'],
+    match: { mod: true, shift: true, key: '8' },
+  },
+  {
+    id: 'editor.checklist',
+    label: 'Checklist',
+    section: 'Markdown Editor',
+    keys: ['⌘', '⇧', '9'],
+    match: { mod: true, shift: true, key: '9' },
+  },
+  {
+    id: 'editor.insertLink',
+    label: 'Insert Link',
+    section: 'Markdown Editor',
+    keys: ['⌘', 'K'],
+    match: { mod: true, key: 'k' },
+  },
+  {
+    id: 'editor.horizontalRule',
+    label: 'Horizontal Rule',
+    section: 'Markdown Editor',
+    keys: ['⌘', '⇧', '-'],
+    match: { mod: true, shift: true, key: '-' },
+  },
 ] as const satisfies readonly Shortcut[]
 
 /** Compile-time-narrow id union — typos in selectors fail to compile. */

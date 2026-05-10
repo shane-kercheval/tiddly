@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { localizeKeys } from '../../utils/platform'
+import { getShortcutsBySection } from '../../shortcuts/registry'
 
 function Kbd({ children }: { children: ReactNode }): ReactNode {
   return (
@@ -10,8 +11,8 @@ function Kbd({ children }: { children: ReactNode }): ReactNode {
   )
 }
 
-function ShortcutRow({ keys, description }: { keys: string[]; description: string }): ReactNode {
-  const localized = localizeKeys(keys)
+function ShortcutRow({ keys, description }: { keys: readonly string[]; description: string }): ReactNode {
+  const localized = localizeKeys([...keys])
   return (
     <tr className="border-b border-gray-100">
       <td className="py-2 pr-4 text-sm text-gray-600">{description}</td>
@@ -45,24 +46,31 @@ function InlineShortcut({ keys }: { keys: string[] }): ReactNode {
 
 export function DocsShortcuts(): ReactNode {
   usePageTitle('Docs - Keyboard Shortcuts')
+  const markdownEditorShortcuts = getShortcutsBySection('Markdown Editor')
 
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-4">Keyboard Shortcuts</h1>
       <p className="text-sm text-gray-600 mb-4">
         Navigate and manage content quickly without reaching for the mouse. Open the shortcuts
-        dialog anytime with <InlineShortcut keys={['\u2318', '\u21E7', '/']} />.
+        dialog anytime with <InlineShortcut keys={['⌘', '⇧', '/']} />.
       </p>
 
+      {/*
+        Navigation / Actions / View tables below use inline literals.
+        Migrated to registry sourcing in later milestones (M3-M5).
+        Until then, registry changes to entries that also appear here
+        won't reflect in the docs page — keep in sync manually.
+      */}
       {/* Navigation */}
       <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Navigation</h2>
       <table className="w-full">
         <tbody>
           <ShortcutRow keys={['/']} description="Focus search bar" />
           <ShortcutRow keys={['s']} description="Focus page search" />
-          <ShortcutRow keys={['\u2318', '\u21E7', 'P']} description="Command palette" />
-          <ShortcutRow keys={['\u2318', 'Click']} description="Open card in new tab" />
-          <ShortcutRow keys={['\u21E7', 'Click']} description="Open bookmark relationship in Tiddly (instead of URL)" />
+          <ShortcutRow keys={['⌘', '⇧', 'P']} description="Command palette" />
+          <ShortcutRow keys={['⌘', 'Click']} description="Open card in new tab" />
+          <ShortcutRow keys={['⇧', 'Click']} description="Open bookmark relationship in Tiddly (instead of URL)" />
           <ShortcutRow keys={['Esc']} description="Close modal / unfocus search" />
         </tbody>
       </table>
@@ -71,10 +79,10 @@ export function DocsShortcuts(): ReactNode {
       <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Actions</h2>
       <table className="w-full">
         <tbody>
-          <ShortcutRow keys={['\u2318', 'V']} description="Paste URL to add bookmark" />
-          <ShortcutRow keys={['\u2318', 'S']} description="Save" />
-          <ShortcutRow keys={['\u2318', '\u21E7', 'S']} description="Save and close" />
-          <ShortcutRow keys={['\u2318', '\u21E7', 'Click']} description="Open link without tracking" />
+          <ShortcutRow keys={['⌘', 'V']} description="Paste URL to add bookmark" />
+          <ShortcutRow keys={['⌘', 'S']} description="Save" />
+          <ShortcutRow keys={['⌘', '⇧', 'S']} description="Save and close" />
+          <ShortcutRow keys={['⌘', '⇧', 'Click']} description="Open link without tracking" />
         </tbody>
       </table>
 
@@ -83,38 +91,27 @@ export function DocsShortcuts(): ReactNode {
       <table className="w-full">
         <tbody>
           <ShortcutRow keys={['w']} description="Toggle full-width layout" />
-          <ShortcutRow keys={['\u2318', '\\']} description="Toggle sidebar" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '\\']} description="Toggle history sidebar" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '/']} description="Show shortcuts dialog" />
-          <ShortcutRow keys={['\u2318', '\u21E7', 'M']} description="Toggle reading mode" />
-          <ShortcutRow keys={['\u2325', 'Z']} description="Toggle word wrap" />
-          <ShortcutRow keys={['\u2325', 'L']} description="Toggle line numbers" />
-          <ShortcutRow keys={['\u2325', 'M']} description="Toggle monospace font" />
-          <ShortcutRow keys={['\u2325', 'T']} description="Toggle table of contents" />
+          <ShortcutRow keys={['⌘', '\\']} description="Toggle sidebar" />
+          <ShortcutRow keys={['⌘', '⇧', '\\']} description="Toggle history sidebar" />
+          <ShortcutRow keys={['⌘', '⇧', '/']} description="Show shortcuts dialog" />
+          <ShortcutRow keys={['⌘', '⇧', 'M']} description="Toggle reading mode" />
+          <ShortcutRow keys={['⌥', 'Z']} description="Toggle word wrap" />
+          <ShortcutRow keys={['⌥', 'L']} description="Toggle line numbers" />
+          <ShortcutRow keys={['⌥', 'M']} description="Toggle monospace font" />
+          <ShortcutRow keys={['⌥', 'T']} description="Toggle table of contents" />
         </tbody>
       </table>
 
-      {/* Markdown Editor */}
+      {/* Markdown Editor — sourced from registry */}
       <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Markdown Editor</h2>
       <p className="text-sm text-gray-600 mb-3">
         These shortcuts work when the editor is focused (notes and prompts):
       </p>
       <table className="w-full">
         <tbody>
-          <ShortcutRow keys={['\u2318', 'B']} description="Bold" />
-          <ShortcutRow keys={['\u2318', 'I']} description="Italic" />
-          <ShortcutRow keys={['\u2318', '\u21E7', 'X']} description="Strikethrough" />
-          <ShortcutRow keys={['\u2318', '\u21E7', 'H']} description="Highlight" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '.']} description="Blockquote" />
-          <ShortcutRow keys={['\u2318', 'E']} description="Inline code" />
-          <ShortcutRow keys={['\u2318', '\u21E7', 'E']} description="Code block" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '7']} description="Bullet list" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '8']} description="Numbered list" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '9']} description="Checklist" />
-          <ShortcutRow keys={['\u2318', 'K']} description="Insert link" />
-          <ShortcutRow keys={['\u2318', '\u21E7', '-']} description="Horizontal rule" />
-          <ShortcutRow keys={['\u2318', 'D']} description="Select next occurrence" />
-          <ShortcutRow keys={['\u2318', '/']} description="Command menu" />
+          {markdownEditorShortcuts.map((shortcut) => (
+            <ShortcutRow key={shortcut.id} keys={shortcut.keys} description={shortcut.label} />
+          ))}
         </tbody>
       </table>
 

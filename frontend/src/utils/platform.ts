@@ -48,7 +48,7 @@ export function localizeKey(key: string): string {
 }
 
 /** Apply localizeKey across a list of tokens (for the shortcuts dialog). */
-export function localizeKeys(keys: string[]): string[] {
+export function localizeKeys(keys: readonly string[]): string[] {
   return keys.map(localizeKey)
 }
 
@@ -57,7 +57,7 @@ export function localizeKeys(keys: string[]): string[] {
  * Mac: tokens joined with no separator (e.g. "⌘⇧B").
  * Windows/Linux: tokens joined with "+" (e.g. "Ctrl+Shift+B").
  */
-export function formatShortcut(keys: string[]): string {
+export function formatShortcut(keys: readonly string[]): string {
   if (isMac()) return keys.join('')
   return keys.map(localizeKey).join('+')
 }

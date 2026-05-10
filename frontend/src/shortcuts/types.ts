@@ -82,11 +82,6 @@ export interface Shortcut {
    */
   allowInInputs?: boolean
   /**
-   * Optional muted suffix shown in the dialog/docs row (e.g.
-   * "Markdown editor only"). Used for asymmetric bindings.
-   */
-  notes?: string
-  /**
    * Whether `useGlobalShortcuts` calls `event.preventDefault()` when the
    * matcher fires. Default `true` — prevents bare-key shortcuts ('/', 's',
    * 'w') from typing into the page. Set `false` for entries like Escape

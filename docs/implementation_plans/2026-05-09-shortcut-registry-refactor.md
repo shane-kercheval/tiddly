@@ -18,9 +18,12 @@ A single source of truth for keyboard shortcut definitions, consumed by both the
 - **Registry is pure data.** `run` callbacks bind at the consumer site, not in the entry. The same id (e.g., `editor.bold`) has different implementations across editors.
 - **Display tokens (`keys`) and event matchers (`match`) are separate fields.** Different concerns.
 - **`match` is always explicit per entry.** No derivation helper. Cost: one extra line per entry. Benefit: each binding is locally readable and a typo is a unit-test failure.
-- **`match` supports both `key` and `code`** (exactly one required per entry):
+- **`match` supports both `key` and `code`** (exactly one required per entry, enforced by a discriminated union):
   - `key` matches `event.key` — used for almost everything (Cmd+B, Cmd+Shift+/, etc.). Same form CodeMirror's keymap uses natively, so the adapter and matcher agree.
-  - `code` matches `event.code` — used only where macOS converts the keystroke to a different `event.key` before the browser sees it. This is exactly the Alt+letter case (Option+Z reports `event.key === 'Ω'` on Mac), already documented at `CodeMirrorEditor.tsx:298`. The capture-phase listener consumes `code`-entries; the CM keymap adapter consumes `key`-entries.
+  - `code` matches `event.code` — physical key, layout-independent. Used in two cases:
+    1. **macOS Option-letter conversion** — Option+Z reports `event.key === 'Ω'` on Mac, so we must match the physical key. Concrete ids: `editor.toggleWordWrap` (Alt+Z), `editor.toggleLineNumbers` (Alt+L), `editor.toggleMonoFont` (Alt+M), `editor.toggleToc` (Alt+T).
+    2. **Intentional layout-independent physical-key matching** — shortcuts that should land on the same physical key regardless of keyboard layout, even where Mac translation isn't a factor. On a German keyboard, `event.key === '/'` requires Shift+7 (which conflicts with Cmd+Shift+7 / bullet-list); using `event.code === 'Slash'` lands on whatever physical key sits where US `/` is. Concrete ids: `editor.commandMenu` (Cmd+/, `code: 'Slash'`), `editor.toggleReadingMode` (Cmd+Shift+M, `code: 'KeyM'`).
+  - The capture-phase listener consumes `code`-entries; the CM keymap adapter consumes `key`-entries (and throws on `code`-entries).
 - **Strict modifier semantics in the matcher.** `mod`, `shift`, `alt` are optional booleans. **Undefined means "must NOT be pressed"** — not "don't care." This matches today's hand-rolled handlers (Cmd+\ won't fire when Shift is held because Cmd+Shift+\ is a different shortcut). Permissive matching plus first-wins iteration would silently make registry order load-bearing — that's the spooky-action-at-a-distance the registry is supposed to prevent.
 - **Duplicate-match within one consumer tuple is a programming error.** `findMatchingShortcut` returns the first match; if a tuple has two entries whose `match` shapes are byte-equal, registry/tuple order silently determines behavior. M1's `useGlobalShortcuts` includes a dev-mode invariant on mount that walks the registered handler tuple and asserts no two entries share an identical `match` shape; throws on violation. (True semantic overlap with non-identical shapes — e.g., `{ mod: true, key: 'b' }` vs `{ mod: true, shift: false, key: 'b' }` — is harder to detect cheaply and is left as an open invariant; if it ever surfaces, we tighten.)
 - **Allowed display-only entries (`match` omitted) — strict rules.** A `match`-omitted entry MUST be one of these two categories:
@@ -32,8 +35,7 @@ A single source of truth for keyboard shortcut definitions, consumed by both the
 - **One registry id per binding, not per concept. Three authoring patterns:**
   1. **Agree** — both editors register the same id. Cmd+B (`⌘B` in both CM and Milkdown) is one shared `editor.bold` id.
   2. **Disagree** — Code Block is `⌘⇧E` in CodeMirror but `⌘⇧C` in Milkdown. Author **two ids** (`editor.codeBlock.cm` and `editor.codeBlock.milkdown`) with different `keys`/`match`. Each editor's tuple references only its own id. Dialog/docs render both as separate rows with editor-context labels ("Code block (Markdown editor)" / "Code block (Reading mode editor)").
-  3. **Asymmetric** — bound in one editor, not in the other. Highlight (`⌘⇧H`) is bound in CodeMirror but Milkdown silently drops it. Author **one id** that only the binding editor registers; set the entry's `notes` field to a short clarifier (e.g., `notes: 'Markdown editor only'`) which the dialog renders as a muted suffix.
-  4. **CM-only-by-design** (concept doesn't apply to Milkdown — wrap, line numbers, reading mode): one id, no `notes`. Don't author as asymmetric since it's not "missing" in Milkdown — the concept literally doesn't exist there.
+  3. **CM-only-by-design** (concept doesn't apply to Milkdown — wrap, line numbers, reading mode): one id; only CodeMirror's tuple registers it. Highlight (`⌘⇧H`) follows the same pattern: one `editor.highlight` id with `match` set; only CodeMirror's tuple registers it; Milkdown's tuple doesn't. The dialog row is unlabeled — users don't see two editor implementations and shouldn't be told via a parenthetical that a binding "only works" in one of them. If a user presses ⌘⇧H in Milkdown and nothing happens, that's no worse than today.
 
   Do NOT try to encode multi-binding-per-id in the schema. If the UX team later decides editors should agree on a divergent binding, that's a separate UX change.
 - **Registry's `section` is for the shortcuts dialog and docs page only.** `ShortcutsDialog` groups by `Markdown Editor` / `Actions` / `Navigation` / `View`; `editorCommands.ts` groups by `Actions` / `Format` / `Insert` / `Jinja2` for the command menu. These are different per-surface taxonomies for different purposes. The command menu keeps its own `section` field as part of `editorCommands.ts` sidecar metadata; `getCommandView(id)` joins registry's `keys` with editorCommands' `label`, `section`, and `icon`.
@@ -107,13 +109,6 @@ export interface Shortcut {
    * interactions — see file header rules). Anything else MUST include match.
    */
   match?: ShortcutMatch
-  /**
-   * Optional muted suffix shown in the dialog/docs row (e.g.,
-   * "Markdown editor only"). Used for asymmetric bindings — see the
-   * "One registry id per binding" decision for the agree/disagree/asymmetric
-   * authoring patterns.
-   */
-  notes?: string
   /**
    * Whether `useGlobalShortcuts` calls `event.preventDefault()` when the
    * matcher fires. Default `true` — prevents bare-key shortcuts ('/' 's' 'w')
@@ -202,11 +197,10 @@ For every shortcut row in `ShortcutsDialog.tsx` and `DocsShortcuts.tsx`, record 
 - **page-scoped (out of scope)** — Cmd+S, Cmd+Shift+S, Escape in Note/Bookmark/Prompt. Stays inline in the dialog (see M5 carve-out).
 
 **Axis 3 — Engines (for editor-only entries):**
-- **CM-only** — only meaningful in CodeMirror (e.g., wrap, line numbers, reading mode).
+- **CM-only** — only meaningful in CodeMirror (e.g., wrap, line numbers, reading mode), OR bound in CM and silently dropped in Milkdown (Highlight). One registry id; only CodeMirror's tuple registers it. The dialog row is unlabeled — no asymmetric-suffix in the UI.
 - **Milkdown-only** — only meaningful in Milkdown.
 - **both (agree)** — same id, same binding in both editors.
 - **both (disagree)** — different bindings (Code Block: ⌘⇧E in CM, ⌘⇧C in Milkdown). Two registry ids will be needed.
-- **asymmetric** — bound in one editor, dropped in the other (Highlight: bound in CM, missing in Milkdown). One registry id with `notes`.
 
 Also include a **`mounts:`** column listing every place each row is registered (helps catch multi-mount overload like `Escape`). For non-keyboard rows (Cmd+Click, paste URL), `mounts:` lists the component-level handler that owns the interaction (e.g., the `onClick` handler in the card component) rather than a hook mount.
 
@@ -348,16 +342,7 @@ After M2: registry is the source of truth for these entries across binding, Shor
 3. `ShortcutsDialog`'s right column reads `getShortcutsBySection('Markdown Editor')`. Other sections (Actions, Navigation, View — left column) keep their inline arrays for now; the dialog renders both sources side by side, no merge logic.
 4. `DocsShortcuts`'s Markdown Editor table reads the same.
 5. Delete the migrated entries from inline arrays.
-6. **`notes` rendering** for asymmetric entries: when `entry.notes` is set, append a muted suffix after the description in the same cell. Markup:
-   ```tsx
-   // In ShortcutsDialog row:
-   <span className="text-sm text-gray-700">
-     {entry.label}
-     {entry.notes && <span className="ml-2 text-xs text-gray-400">({entry.notes})</span>}
-   </span>
-   // Same shape in DocsShortcuts ShortcutRow's description <td>.
-   ```
-   Pass `notes?: string` through `ShortcutRow` / `ShortcutGroupSection` props. Key badges column is unchanged.
+6. **Label canonicalization.** Toolbar tooltips today use Title Case ("Inline Code", "Code Block", "Bullet List"); the dialog uses sentence case. Pick **Title Case** as the single canonical label per registry entry — toolbar tooltips stay as-is, dialog rows update to match. No per-surface override field; one label per entry, used everywhere.
 
 **Step 2c — Inventory mystery bindings.**
 - For any dialog/docs entry without an obvious binding (notably `⌘D` "Select next occurrence"), don't migrate yet — add to a list resolved in M3.
@@ -365,7 +350,7 @@ After M2: registry is the source of truth for these entries across binding, Shor
 ### Testing
 
 - Globals: port `useKeyboardShortcuts.test.ts` cases to `useGlobalShortcuts`. **Add a test asserting `Cmd+Shift+/` dispatched from inside CodeMirror invokes the global handler** (verifies `dispatchRegistryShortcut` works correctly).
-- Markdown Editor entries: derivation pattern — assertion text computed from the registry entry, not hardcoded:
+- Markdown Editor entries: derivation pattern — assertion text computed from the registry entry, not hardcoded. The registry's label *is* the toolbar tooltip text:
   ```ts
   const entry = getShortcut('editor.bold')
   expect(toolbarButton).toHaveAttribute('title', `${entry.label} (${formatShortcut(entry.keys)})`)
@@ -403,10 +388,12 @@ After M3:
 ### Implementation
 
 For each CodeMirror keymap entry and capture-phase entry:
-1. Add registry entry. Choose `match.key` or `match.code` strictly by the rule "use `code` ONLY where macOS Option-key conversion forces it." Concretely:
-   - **`code` (Alt+Z/L/M/T)** — these are the only legitimate `code` cases. Option+letter on Mac produces special characters (Ω, ¬, µ, †), so `event.key` is unreliable.
-   - **`key` (everything else)**: Cmd+Shift+M (reading mode) — currently `e.code === 'KeyM'` defensively, but no Mac translation applies; switch to `match: { mod: true, shift: true, key: 'm' }`. Cmd+/ (command menu) — currently `e.code === 'Slash'` for consistency with siblings, but no Mac translation applies; switch to `match: { mod: true, key: '/' }`. CM keymap entries (Bold, Italic, etc.) — `match.key` per the schema rule.
-2. Add to `CM_KEYMAP_IDS` tuple OR capture-phase tuple (based on which listener handles it).
+1. Add registry entry. Choose `match.key` or `match.code` per the schema rule (see "Key design decisions"):
+   - **`code` for Mac Option-letter conversion**: Alt+Z/L/M/T → `code: 'KeyZ' | 'KeyL' | 'KeyM' | 'KeyT'`.
+   - **`code` for intentional layout-stable physical-key matching** (an explicit, narrow exception): Cmd+/ (command menu) keeps `code: 'Slash'`, Cmd+Shift+M (reading mode) keeps `code: 'KeyM'`. Reasoning: on a German keyboard, `event.key === '/'` requires Shift+7 (conflicts with Cmd+Shift+7 / bullet-list); using `code` lands on the same physical key regardless of layout. **Do not "clean these up" to `key`-based matching in a future pass — the `code` choice is deliberate.**
+   - **`key` for everything else**: CM keymap entries (Bold, Italic, etc.).
+2. Add to `CM_KEYMAP_IDS` tuple OR the capture-phase tuple (based on which listener handles it).
+   - **Capture-phase tuple ownership:** The capture-phase tuple is the single source for `CAPTURE_PHASE_IDS` consumed by `dispatchRegistryShortcut`. Both modules import from `frontend/src/shortcuts/capturePhase.ts` (M2 sets up the empty constant; M3 populates it as entries land). Don't fork the list.
 3. Update toolbar tooltip / Tooltip component to read from registry.
 4. Delete inline literal from `CodeMirrorEditor.tsx` and from `ShortcutsDialog`/`DocsShortcuts`.
 5. If `frontend/src/components/editor/editorCommands.ts` has an entry for this shortcut, strip its `shortcut:` field.
@@ -420,7 +407,7 @@ For each CodeMirror keymap entry and capture-phase entry:
 - For each migrated shortcut, the M2 derivation pattern.
 - Existing `CodeMirrorEditor.test.tsx` tests pass; update any that asserted hardcoded `title=` strings.
 - One spot-check end-to-end test per consumer surface: fire one keymap shortcut (e.g., `Cmd+B`), fire one capture-phase shortcut (e.g., `Alt+Z`), both fire correctly. The Alt+Z test specifically exercises the `code`-based matching.
-- Mystery binding smoke test: if `Cmd+D` is `match`-omitted upstream-owned, render `CodeMirrorEditor`, fire `Cmd+D` over a word, assert `selectNextOccurrence` ran (verifies upstream is still alive).
+- Mystery binding **plugin-presence** smoke test: if `Cmd+D` is `match`-omitted upstream-owned, assert `searchKeymap` is registered in the CodeMirror extensions (e.g., the `search()` call from `@codemirror/search` is present in the extensions array). Don't fire `Cmd+D` and assert selection behavior — that tests upstream library internals.
 
 ### Stop & Review
 
@@ -445,14 +432,21 @@ Inventory `MilkdownEditor.tsx`'s keydown listener (~7 entries). For each:
 - If the shortcut is already in the registry from M3 (e.g., Cmd+K Insert link is also in CodeMirror), add Milkdown's tuple binding pointing to the same registry id.
 - If unique to Milkdown, add a new registry entry.
 
-Cmd+B and Cmd+I get registry entries with `match` omitted (allowed: upstream-owned category, with comment pointing to Milkdown's commonmark plugin). Smoke test: render a `MilkdownEditor` with seeded text, fire `Mod+B` on a selection, assert the rendered output gains `<strong>`. If jsdom can't run Milkdown's schema transforms in test mode, fall back to introspecting the keymap plugin registration — agent decides at M4 based on what existing Milkdown tests can do.
+Cmd+B and Cmd+I get registry entries with `match` omitted (allowed: upstream-owned category, with comment pointing to Milkdown's commonmark plugin).
+
+**Smoke tests assert plugin presence, not rendered behavior.** Render-and-fire tests for upstream-bound shortcuts couple us to upstream library internals (ProseMirror schema transforms, Milkdown's `<strong>` rendering format) which we don't own. The realistic regression we care about is "library upgrade silently dropped the binding." That's caught by asserting the relevant plugin/extension is present in the editor's plugin list.
+
+- For Cmd+B / Cmd+I (Milkdown commonmark): assert Milkdown's commonmark `keymap` plugin is in the editor's plugin list when mounted. If Milkdown ever drops or renames its commonmark `keymap`, the assertion fails.
+- For Cmd+D (CodeMirror `searchKeymap`): assert `searchKeymap` is in the CodeMirror extension list (or that the `search()` extension is configured). Same failure mode.
+
+This is faster, less brittle, and tests the only realistic upstream-regression path.
 
 **Listener install location is decided by a brief spike at the start of M4, not mid-implementation.** Slash menu and link tooltip popovers are exactly where editor-focus-vs-event-target races occur. Spike: examine how the existing keydown listener (`MilkdownEditor.tsx:1287+`) handles popover focus today, and confirm whether installing on the container element vs `document` (gated on focus) produces the same coverage. Record the decision in the plan before any migration code lands.
 
 ### Testing
 
 - Migrated entries: derivation pattern for tooltips.
-- One smoke test per upstream-bound entry (Cmd+B, Cmd+I).
+- One **plugin-presence** smoke test per upstream-bound entry (Cmd+B, Cmd+I) — asserts the commonmark `keymap` plugin is in the editor's plugin list, not the rendered DOM output.
 - Existing `MilkdownEditor.test.tsx` tests pass.
 
 ### Stop & Review
@@ -466,42 +460,38 @@ By end of M4: registry is source of truth for all editor and global shortcuts in
 ### Goal
 
 After M5:
-- `CommandPalette.tsx`, `EditorCommandMenu.tsx`, `slashCommands.ts`, `Sidebar.tsx`, `SettingsGeneral.tsx` all read shortcut tokens from the registry.
-- `frontend/src/components/editor/editorCommands.ts` is fully stripped of inline shortcut literals (any stragglers from M3/M4 cleanup). It becomes a sidecar table keyed by `id`, owning only icon + action + non-shortcut metadata. A small `getCommandView(id)` join helper produces the joined object UI consumers expect.
+- `CommandPalette.tsx`, `EditorCommandMenu.tsx`, `slashCommands.ts`, `Sidebar.tsx`, `SettingsGeneral.tsx` all read shortcut **keys** from the registry.
+- `frontend/src/components/editor/editorCommands.ts` is fully stripped of inline shortcut literals (any stragglers from M3/M4 cleanup).
 - All inline shortcut literals across the frontend are gone outside `platform.ts` and the registry, **except the four page-scoped save entries** (`Cmd+S`, `Cmd+Shift+S`) in `ShortcutsDialog.tsx` Actions section. Those stay inline pending the page-scope-design follow-up — adding registry entries for them would create the appearance of registry sourcing without the guarantee (we own the binding; a `match`-omitted entry would silently drift). Honest about the seam.
+
+### Architectural framing — what the registry owns vs. what surfaces decide
+
+The registry owns: **`id`, `keys`, and the canonical `label`** rendered in the dialog/docs and in toolbar tooltips (Title Case, e.g. `'Insert Link'`).
+
+Per-surface UI surfaces (command menu, slash menu, sidebar prompt, settings hint) are free to render their own label text. Some are intentionally different from the registry label — verified examples: `'Link'` (menu) vs `'Insert Link'` (dialog), `'Version History'` (menu) vs `'Toggle history sidebar'` (dialog), `'Bulleted list'` (menu) vs `'Bullet list'` (dialog). These are not drift bugs; menus prefer concise nouns and dialogs prefer verb-prefixed descriptions. The registry doesn't try to reconcile them.
+
+The only invariants are: (1) `id` is a `ShortcutId` if the command has a registry shortcut, and (2) `keys` come from `getShortcut(id).keys` (never inline). Labels are surface-local.
 
 ### Implementation
 
-- **`editorCommands.ts`** — two changes:
-  - **Rename** entries that have a corresponding registry shortcut to use the registry id (`'bold'` → `'editor.bold'`, `'inline-code'` → `'editor.inlineCode'`, etc.). Single source of identity for the join; no translation map. Update lookup sites in `EditorCommandMenu.tsx` and `CommandPalette.tsx` accordingly. Entries without a registry shortcut (Heading 1/2/3, Discard, Jinja templates) keep their original local ids.
-  - **`label` becomes an optional per-surface override.** Some command-menu labels are intentionally different from dialog/docs phrasing — verified examples: `'Link'` (menu) vs `'Insert link'` (dialog), `'Version History'` (menu) vs `'Toggle history sidebar'` (dialog), `'Bulleted list'` (menu) vs `'Bullet list'` (dialog), `'Table of Contents'` (menu) vs `'Toggle table of contents'` (docs), `'Toggle Reading Mode'` (menu) vs `'Toggle reading mode'` (dialog). The command menu uses concise nouns; the dialog uses verb-prefixed descriptions. These are not drift bugs; they're intentional.
-    
-    **Rule:** an editorCommands entry whose id is a `ShortcutId` MAY include `label?: string` to override the menu's display. When present, the menu uses it; when absent, it falls back to `getShortcut(id).label`. Entries without a registry shortcut still require `label`.
-    
-    **Editorial pass during migration:** for each entry being renamed, decide whether the menu label should match the registry label (drop the override) or differ (keep `label`). Document the choice with a brief inline comment. Test (replaces the previously-planned "label is undefined for ShortcutId entries"): for each entry with both `id: ShortcutId` AND `label` set, assert `label !== getShortcut(id).label` — accidental same-string duplication is the drift this catches.
-  
-  Storage and view shapes:
+- **`editorCommands.ts`** — flat shape, no projection layer:
   ```ts
-  // Storage (in editorCommands.ts)
-  type EditorCommandSpec =
-    | { id: ShortcutId; label?: string; section: string; icon: ReactNode; action: () => void }
-    | { id: string; label: string; section: string; icon: ReactNode; action: () => void }
-
-  // Normalized view (what UI consumers receive)
-  type EditorCommandView = {
-    id: string
-    label: string             // resolved: override if present, else getShortcut(id).label
+  type EditorCommand = {
+    id: string                    // ShortcutId for entries with a registry shortcut; local id otherwise
+    label: string                 // whatever the menu wants; may differ from registry label
     section: string
     icon: ReactNode
-    keys?: readonly string[]  // from registry if id is a ShortcutId
     action: () => void
   }
-
-  function isShortcutId(id: string): id is ShortcutId
-  function getCommandView(spec: EditorCommandSpec): EditorCommandView
   ```
-  Document the projection pattern in the registry's file header.
-- **`CommandPalette.tsx`** and **`EditorCommandMenu.tsx`** — consume `EditorCommandView`; call `getCommandView(spec)` (or a `buildEditorCommandViews(specs)` batch helper, agent's call) instead of reading raw command objects with embedded shortcut literals.
+  - **Rename** entries that have a corresponding registry shortcut to use the registry id (`'bold'` → `'editor.bold'`, `'inline-code'` → `'editor.inlineCode'`, etc.). Update lookup sites in `EditorCommandMenu.tsx` and `CommandPalette.tsx` accordingly. Entries without a registry shortcut (Heading 1/2/3, Discard, Jinja templates) keep their original local ids.
+  - **Strip the inline `shortcut: ['⌘', 'B']` field.** At render time:
+    ```ts
+    const keys = isShortcutId(cmd.id) ? getShortcut(cmd.id).keys : undefined
+    ```
+    `isShortcutId` is a simple type guard against `SHORTCUTS_BY_ID`. No `EditorCommandSpec` discriminated union, no `EditorCommandView` projection helper, no `getCommandView` join — just look up keys when rendering.
+  - **No identity test on labels.** Menu labels and registry labels may match or differ; that's a UX choice, not a drift class. The framing above documents this so future contributors don't try to reconcile them.
+- **`CommandPalette.tsx`** and **`EditorCommandMenu.tsx`** — read `cmd.label` directly; look up `keys` via the helper above when displaying the keyboard hint.
 - **`slashCommands.ts`** — `SHORTCUT_MAP` is keyed by completion type (`'bullet'`, `'number'`, etc.), not by registry id. Add a small `COMPLETION_TYPE_TO_SHORTCUT_ID: Record<string, ShortcutId>` adapter map, replace `SHORTCUT_MAP` lookups with `getShortcut(map[completion.type]).keys`.
 - **`Sidebar.tsx`** — `formatShortcut(getShortcut('app.commandPalette').keys)` instead of hardcoded literal.
 - **`SettingsGeneral.tsx`** — same pattern.

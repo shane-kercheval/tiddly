@@ -14,7 +14,8 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useFiltersStore } from '../stores/filtersStore'
 import { useTagsStore } from '../stores/tagsStore'
 import { useRightSidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/rightSidebarStore'
-import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { useGlobalShortcuts } from '../shortcuts/useGlobalShortcuts'
+import type { ShortcutId } from '../shortcuts/registry'
 import { useLimits } from '../hooks/useLimits'
 
 /**
@@ -33,6 +34,16 @@ import { useLimits } from '../hooks/useLimits'
  */
 /** Tailwind md breakpoint */
 const MD_BREAKPOINT = 768
+
+const APP_GLOBAL_IDS = [
+  'app.showShortcuts',
+  'app.commandPalette',
+  'app.toggleSidebar',
+  'app.toggleHistorySidebar',
+  'app.toggleWidth',
+  'app.focusSearch',
+  'app.escape',
+] as const satisfies readonly ShortcutId[]
 
 export function Layout(): ReactNode {
   const needsConsent = useConsentStore((state) => state.needsConsent)
@@ -100,17 +111,28 @@ export function Layout(): ReactNode {
 
   const togglePanel = useRightSidebarStore((state) => state.togglePanel)
 
-  // Global keyboard shortcuts (work on all pages)
-  useKeyboardShortcuts({
-    onShowShortcuts: () => setShowShortcuts(true),
-    onToggleSidebar: toggleSidebar,
-    onToggleWidth: toggleFullWidthLayout,
-    onFocusSearch: () => openPalette('search'),
-    onCommandPalette: () => openPalette('commands'),
-    onToggleHistorySidebar: isDetailPage
-      ? () => togglePanel('history')
-      : undefined,
-    onEscape: () => {
+  // Global keyboard shortcuts (work on all pages).
+  //
+  // Handlers below close over render-time state (`showShortcuts`,
+  // `isDetailPage`). useGlobalShortcuts reads handlers through a ref, so
+  // each event runs the LATEST closure — not the mount-time one. This means
+  // a state change re-renders Layout, the ref updates, and the next keypress
+  // sees the new value. Don't memoize handlers thinking it's required.
+  //
+  // Conditional handlers (toggleHistorySidebar) stay in the tuple
+  // unconditionally and short-circuit when the precondition fails — the tuple
+  // is a stable contract between consumer and registry.
+  useGlobalShortcuts(APP_GLOBAL_IDS, {
+    'app.showShortcuts': () => setShowShortcuts(true),
+    'app.toggleSidebar': toggleSidebar,
+    'app.toggleWidth': toggleFullWidthLayout,
+    'app.focusSearch': () => openPalette('search'),
+    'app.commandPalette': () => openPalette('commands'),
+    'app.toggleHistorySidebar': () => {
+      if (!isDetailPage) return
+      togglePanel('history')
+    },
+    'app.escape': () => {
       if (showShortcuts) setShowShortcuts(false)
     },
   })
