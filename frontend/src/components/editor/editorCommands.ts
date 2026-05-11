@@ -34,6 +34,7 @@ import type { ReactNode } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { useRightSidebarStore } from '../../stores/rightSidebarStore'
 import type { ShortcutId } from '../../shortcuts/registry'
+import { PAGE_SCOPED_SAVE_AND_CLOSE_KEYS } from '../../shortcuts/pageScoped'
 import {
   toggleWrapMarkers,
   toggleLinePrefix,
@@ -159,7 +160,7 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
       label: 'Save and close',
       section: 'Actions',
       icon: icons.save(),
-      shortcutKeys: ['⌘', '⇧', 'S'],
+      shortcutKeys: PAGE_SCOPED_SAVE_AND_CLOSE_KEYS,
       action: () => { onSaveAndClose() },
     })
   }
@@ -307,7 +308,7 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
     action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.checklist) },
   })
   commands.push({
-    id: 'editor.codeBlock.cm',
+    id: 'editor.codeBlock',
     label: 'Code block',
     section: 'Insert',
     icon: icons.codeBlock(),

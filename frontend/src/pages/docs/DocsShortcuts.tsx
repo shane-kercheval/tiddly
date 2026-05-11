@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { localizeKeys } from '../../utils/platform'
 import { getShortcut, getShortcutsBySection } from '../../shortcuts/registry'
+import { PAGE_SCOPED_SAVE_KEYS, PAGE_SCOPED_SAVE_AND_CLOSE_KEYS } from '../../shortcuts/pageScoped'
 
 function Kbd({ children }: { children: ReactNode }): ReactNode {
   return (
@@ -79,8 +80,8 @@ export function DocsShortcuts(): ReactNode {
           {actionsShortcuts.map((shortcut) => (
             <ShortcutRow key={shortcut.id} keys={shortcut.keys} description={shortcut.label} />
           ))}
-          <ShortcutRow keys={['⌘', 'S']} description="Save" />
-          <ShortcutRow keys={['⌘', '⇧', 'S']} description="Save and close" />
+          <ShortcutRow keys={PAGE_SCOPED_SAVE_KEYS} description="Save" />
+          <ShortcutRow keys={PAGE_SCOPED_SAVE_AND_CLOSE_KEYS} description="Save and close" />
         </tbody>
       </table>
 

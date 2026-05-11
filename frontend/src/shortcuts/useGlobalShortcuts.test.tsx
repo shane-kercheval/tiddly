@@ -221,8 +221,8 @@ describe('useGlobalShortcuts', () => {
       // to canonicalize identically. Hits the invariant via the exported
       // helper with synthetic fixtures (no registry mock needed).
       const fixtures: Shortcut[] = [
-        { id: 'fixture.foo', label: 'Foo', section: 'X', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
-        { id: 'fixture.bar', label: 'Bar', section: 'X', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
+        { id: 'fixture.foo', label: 'Foo', section: 'Markdown Editor', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
+        { id: 'fixture.bar', label: 'Bar', section: 'Markdown Editor', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
       ]
       expect(() => assertNoDuplicateMatchShapes(fixtures)).toThrow(
         /duplicate match shape.*fixture\.foo.*fixture\.bar/,
@@ -231,24 +231,24 @@ describe('useGlobalShortcuts', () => {
 
     it('error message includes the canonical match shape for debugging', () => {
       const fixtures: Shortcut[] = [
-        { id: 'fixture.a', label: 'A', section: 'X', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
-        { id: 'fixture.b', label: 'B', section: 'X', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
+        { id: 'fixture.a', label: 'A', section: 'Markdown Editor', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
+        { id: 'fixture.b', label: 'B', section: 'Markdown Editor', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
       ]
       expect(() => assertNoDuplicateMatchShapes(fixtures)).toThrow(/"key":"b"/)
     })
 
     it('passes when match shapes differ even slightly (shift flag)', () => {
       const fixtures: Shortcut[] = [
-        { id: 'fixture.a', label: 'A', section: 'X', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
-        { id: 'fixture.b', label: 'B', section: 'X', keys: ['⌘', '⇧', 'B'], match: { mod: true, shift: true, key: 'b' } },
+        { id: 'fixture.a', label: 'A', section: 'Markdown Editor', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
+        { id: 'fixture.b', label: 'B', section: 'Markdown Editor', keys: ['⌘', '⇧', 'B'], match: { mod: true, shift: true, key: 'b' } },
       ]
       expect(() => assertNoDuplicateMatchShapes(fixtures)).not.toThrow()
     })
 
     it('skips display-only entries (no match)', () => {
       const fixtures: Shortcut[] = [
-        { id: 'fixture.a', label: 'A', section: 'X', keys: ['⌘', 'Click'] },
-        { id: 'fixture.b', label: 'B', section: 'X', keys: ['⇧', 'Click'] },
+        { id: 'fixture.a', label: 'A', section: 'Markdown Editor', keys: ['⌘', 'Click'] },
+        { id: 'fixture.b', label: 'B', section: 'Markdown Editor', keys: ['⇧', 'Click'] },
       ]
       expect(() => assertNoDuplicateMatchShapes(fixtures)).not.toThrow()
     })

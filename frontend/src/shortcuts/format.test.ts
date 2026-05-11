@@ -22,7 +22,7 @@ describe('tooltipFor', () => {
 
   it('handles multi-modifier shortcuts', () => {
     mockPlatform('MacIntel')
-    expect(tooltipFor('editor.codeBlock.cm')).toBe('Code Block (⌘⇧E)')
+    expect(tooltipFor('editor.codeBlock')).toBe('Code Block (⌘⇧E)')
   })
 
   it('handles non-letter punctuation keys', () => {

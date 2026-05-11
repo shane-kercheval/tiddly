@@ -228,7 +228,7 @@ const COMPLETION_TYPE_TO_SHORTCUT_ID: Record<string, ShortcutId> = {
   number: 'editor.numberedList',
   checklist: 'editor.checklist',
   quote: 'editor.blockquote',
-  code: 'editor.codeBlock.cm',
+  code: 'editor.codeBlock',
   link: 'editor.insertLink',
   hr: 'editor.horizontalRule',
 }

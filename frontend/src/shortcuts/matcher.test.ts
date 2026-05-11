@@ -72,21 +72,21 @@ describe('findMatchingShortcut', () => {
     {
       id: 'a',
       label: 'A',
-      section: 'Test',
+      section: 'Markdown Editor',
       keys: ['⌘', 'A'],
       match: { mod: true, key: 'a' },
     },
     {
       id: 'b',
       label: 'B',
-      section: 'Test',
+      section: 'Markdown Editor',
       keys: ['⌘', 'B'],
       match: { mod: true, key: 'b' },
     },
     {
       id: 'display-only',
       label: 'No match',
-      section: 'Test',
+      section: 'Markdown Editor',
       keys: ['⌘', 'Click'],
       // no match — display only
     },
@@ -114,8 +114,8 @@ describe('findMatchingShortcut', () => {
     // prevented at hook-mount time by useGlobalShortcuts.assertNoDuplicateMatchShapes;
     // the matcher itself remains a pure first-wins walk.
     const colliding: Shortcut[] = [
-      { id: 'first', label: 'First', section: 'Test', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
-      { id: 'second', label: 'Second', section: 'Test', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
+      { id: 'first', label: 'First', section: 'Markdown Editor', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
+      { id: 'second', label: 'Second', section: 'Markdown Editor', keys: ['⌘', 'B'], match: { mod: true, key: 'b' } },
     ]
     const matched = findMatchingShortcut(ev({ key: 'b', metaKey: true }), colliding)
     expect(matched?.id).toBe('first')

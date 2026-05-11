@@ -35,7 +35,10 @@
  * in `registry.test.ts` enforces alignment between display and matcher.
  */
 
-import type { Shortcut } from './types'
+import type { Section, Shortcut } from './types'
+
+// Re-export Section so consumers can keep importing it from the registry barrel.
+export type { Section } from './types'
 
 /**
  * The eight global shortcuts seeded in M1. Editor-section entries land in
@@ -238,13 +241,7 @@ export const SHORTCUTS = [
     match: { mod: true, key: 'e' },
   },
   {
-    // CodeMirror's code block binding. There WAS a disagree-pattern partner
-    // (editor.codeBlock.milkdown at ⌘⇧C) — removed in M4 after audit revealed
-    // Milkdown is read-only in production. The CM entry is the only live one.
-    // The `.cm` suffix is retained as a historical signal rather than renamed,
-    // to keep the entry stable across the M2→M4 history. If Milkdown ever
-    // gains an editable mode again, reintroduce the disagree pattern then.
-    id: 'editor.codeBlock.cm',
+    id: 'editor.codeBlock',
     label: 'Code Block',
     section: 'Markdown Editor',
     keys: ['⌘', '⇧', 'E'],
@@ -315,23 +312,6 @@ export const SHORTCUTS = [
 
 /** Compile-time-narrow id union — typos in selectors fail to compile. */
 export type ShortcutId = typeof SHORTCUTS[number]['id']
-
-/** Compile-time-narrow section union for selector signatures. */
-export type Section = typeof SHORTCUTS[number]['section']
-
-/**
- * Dialog column / section ordering. Single source of truth for layout.
- *
- * Sections are broadly typed (`string`) rather than `Section` so this
- * constant can list sections that are not yet present in `SHORTCUTS`
- * (e.g., 'Actions' and 'Markdown Editor' arrive in later milestones).
- * The forward direction — every section in `SHORTCUTS` must appear here —
- * is enforced by `registry.test.ts:section coverage`.
- */
-export const SECTION_LAYOUT = [
-  { column: 'left', sections: ['Actions', 'Navigation', 'View'] },
-  { column: 'right', sections: ['Markdown Editor'] },
-] as const satisfies readonly { column: 'left' | 'right'; sections: readonly string[] }[]
 
 /**
  * Build the id → entry map at module load. Throw on duplicate id rather than

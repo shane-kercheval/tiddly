@@ -10,6 +10,7 @@
 import type { ReactNode } from 'react'
 import { localizeKeys } from '../utils/platform'
 import { getShortcutsBySection } from '../shortcuts/registry'
+import { PAGE_SCOPED_SAVE_KEYS, PAGE_SCOPED_SAVE_AND_CLOSE_KEYS } from '../shortcuts/pageScoped'
 import type { Shortcut } from '../shortcuts/types'
 import { Modal } from './ui/Modal'
 
@@ -19,17 +20,16 @@ interface ShortcutsDialogProps {
 }
 
 interface InlineShortcut {
-  keys: string[]
+  keys: readonly string[]
   description: string
 }
 
-// Inline save entries appended to the Actions section. These two entries
-// are page-scoped (binding lives in Note/Bookmark/Prompt page handlers,
-// which the registry doesn't model). A `match`-omitted registry entry would
-// silently drift — keep these inline + documented as the explicit carve-out.
+// Display rows for the page-scoped save shortcuts. The keys come from the
+// shared `pageScoped.ts` module so DocsShortcuts and editorCommands' save-and-
+// close entry render the same combos without duplicating literals.
 const inlineActionsSaves: InlineShortcut[] = [
-  { keys: ['⌘', 'S'], description: 'Save' },
-  { keys: ['⌘', '⇧', 'S'], description: 'Save and close' },
+  { keys: PAGE_SCOPED_SAVE_KEYS, description: 'Save' },
+  { keys: PAGE_SCOPED_SAVE_AND_CLOSE_KEYS, description: 'Save and close' },
 ]
 
 function KeyBadge({ children }: { children: ReactNode }): ReactNode {

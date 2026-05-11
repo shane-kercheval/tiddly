@@ -233,7 +233,7 @@ describe('buildEditorCommands', () => {
     expect(insertIds).toContain('editor.bulletList')
     expect(insertIds).toContain('editor.numberedList')
     expect(insertIds).toContain('editor.checklist')
-    expect(insertIds).toContain('editor.codeBlock.cm')
+    expect(insertIds).toContain('editor.codeBlock')
     expect(insertIds).toContain('editor.blockquote')
     expect(insertIds).toContain('editor.insertLink')
     expect(insertIds).toContain('editor.horizontalRule')

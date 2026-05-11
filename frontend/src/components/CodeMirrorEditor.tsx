@@ -142,7 +142,7 @@ const CM_KEYMAP_IDS = [
   'editor.highlight',
   'editor.blockquote',
   'editor.inlineCode',
-  'editor.codeBlock.cm',
+  'editor.codeBlock',
   'editor.bulletList',
   'editor.numberedList',
   'editor.checklist',
@@ -166,7 +166,7 @@ function createMarkdownKeyBindings(): KeyBinding[] {
     'editor.highlight': ifWritable((view) => toggleWrapMarkers(view, MARKERS.highlight.before, MARKERS.highlight.after)),
     'editor.blockquote': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.blockquote)),
     'editor.inlineCode': ifWritable((view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after)),
-    'editor.codeBlock.cm': ifWritable((view) => insertCodeBlock(view)),
+    'editor.codeBlock': ifWritable((view) => insertCodeBlock(view)),
     'editor.bulletList': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList)),
     'editor.numberedList': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList)),
     'editor.checklist': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.checklist)),
@@ -679,7 +679,7 @@ export function CodeMirrorEditor({
           <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title={tooltipFor('editor.inlineCode')}>
             <InlineCodeIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title={tooltipFor('editor.codeBlock.cm')}>
+          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title={tooltipFor('editor.codeBlock')}>
             <CodeBlockIcon />
           </ToolbarButton>
 

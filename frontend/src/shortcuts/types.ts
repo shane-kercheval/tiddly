@@ -5,8 +5,10 @@
  * *event matchers* (what fires the binding) so both surfaces share one source
  * of truth.
  *
- * `Section` and `ShortcutId` unions are derived from the registry array in
- * `registry.ts`; they're not declared here to avoid a circular dependency.
+ * `ShortcutId` is derived from the SHORTCUTS array in `registry.ts` (so adding
+ * a new entry expands the union automatically). `Section` is declared here as
+ * an explicit literal union — narrow enough that authoring a registry entry
+ * with `section: 'Navagation'` (typo) fails to compile.
  *
  * SEPARATION OF CONCERNS
  * ----------------------
@@ -15,6 +17,9 @@
  * and is read by the hook after a match fires. Keeping them apart means the
  * matcher's role stays narrow.
  */
+
+/** Sections rendered as group headers in the shortcuts dialog and docs page. */
+export type Section = 'Actions' | 'Navigation' | 'View' | 'Markdown Editor'
 
 /**
  * Modifier flags for a `ShortcutMatch`. Strict semantics: an undefined flag
@@ -62,12 +67,8 @@ export interface Shortcut {
   id: string
   /** Human-readable label shown in the dialog/docs. */
   label: string
-  /**
-   * Section name. Broad `string` here to avoid a circular type dependency;
-   * the narrow `Section` union is derived from `SHORTCUTS` in `registry.ts`
-   * and used on selector signatures so query-side typos fail to compile.
-   */
-  section: string
+  /** Section header for grouping in the shortcuts dialog and docs page. */
+  section: Section
   /**
    * Display tokens — Cmd-first authoring convention (⌘, ⌥, ⇧, then the
    * non-modifier). Use raw glyphs ('⌘', '⇧'), not `\u`-escapes.

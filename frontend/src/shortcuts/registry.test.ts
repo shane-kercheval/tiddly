@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   SHORTCUTS,
-  SECTION_LAYOUT,
   getShortcut,
   getShortcutsBySection,
   getAllShortcuts,
@@ -115,18 +114,6 @@ describe('keys ↔ match coherence', () => {
       }
     })
   }
-})
-
-describe('section coverage', () => {
-  it('every section in SHORTCUTS appears in SECTION_LAYOUT', () => {
-    const layoutSections = new Set<string>(
-      SECTION_LAYOUT.flatMap((col) => [...col.sections]),
-    )
-    const registrySections = new Set<string>(SHORTCUTS.map((s) => s.section))
-    for (const section of registrySections) {
-      expect(layoutSections.has(section)).toBe(true)
-    }
-  })
 })
 
 describe('schema invariants', () => {
