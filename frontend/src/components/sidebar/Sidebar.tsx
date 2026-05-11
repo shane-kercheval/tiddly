@@ -30,6 +30,7 @@ import { useCollectionOperations } from '../../hooks/useCollectionOperations'
 import { useFilterOperations } from '../../hooks/useFilterOperations'
 import { getFirstGroupTags } from '../../utils'
 import { formatShortcut } from '../../utils/platform'
+import { getShortcut } from '../../shortcuts/registry'
 import { SidebarNavItem } from './SidebarNavItem'
 import { SidebarUserSection } from './SidebarUserSection'
 import { SortableNavItem } from './SortableSidebarItem'
@@ -522,7 +523,7 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
         onDelete={item.type === 'filter' ? () => handleDeleteFilter(item.id) : undefined}
         isDragging={activeId === getItemId(item)}
         onAction={isCommandPalette ? onOpenPalette : undefined}
-        shortcut={isCommandPalette ? formatShortcut(['⌘', '⇧', 'P']) : undefined}
+        shortcut={isCommandPalette ? formatShortcut(getShortcut('app.commandPalette').keys) : undefined}
       />
     )
   }

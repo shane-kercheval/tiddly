@@ -3,10 +3,37 @@
  *
  * Each command maps to an existing formatting function or app-level callback.
  * Commands are grouped into sections: Actions, Format, Insert.
+ *
+ * REGISTRY INTEGRATION
+ * --------------------
+ * Entries whose `id` is a `ShortcutId` (e.g., `editor.bold`) get their
+ * keyboard hint at render time via `isShortcutId(cmd.id) ? getShortcut(cmd.id).keys : undefined`.
+ * Entries with local ids (`heading-1`, `save-and-close`, etc.) don't have a
+ * registry shortcut — they render without a keyboard hint.
+ *
+ * LABELS ARE SURFACE-LOCAL
+ * ------------------------
+ * Command-menu labels may intentionally differ from registry labels:
+ *   - "Link" here vs "Insert Link" in the registry/dialog
+ *   - "Version History" vs "Toggle History Sidebar"
+ *   - "Bulleted list" vs "Bullet List"
+ *   - "Table of Contents" vs "Toggle Table of Contents"
+ * The command menu uses concise nouns; the dialog uses verb-prefixed
+ * descriptions. These are intentional, not drift.
+ *
+ * SAVE-AND-CLOSE NOTE
+ * -------------------
+ * `save-and-close` binds Cmd+Shift+S at the page-scoped handler in
+ * Note/Bookmark/Prompt — the registry doesn't model page-scope, so no
+ * `ShortcutId` exists for this entry. The narrow `shortcutKeys` carve-out
+ * field on `EditorCommand` surfaces the hint in the command menu without
+ * reopening the broader drift class: only entries with a non-`ShortcutId`
+ * id may use it, enforced at runtime by `editorCommands.test.ts`.
  */
 import type { ReactNode } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { useRightSidebarStore } from '../../stores/rightSidebarStore'
+import type { ShortcutId } from '../../shortcuts/registry'
 import {
   toggleWrapMarkers,
   toggleLinePrefix,
@@ -18,13 +45,56 @@ import {
 } from '../../utils/editorFormatting'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './jinjaTemplates'
 
+/**
+ * Ids for commands that don't have a corresponding registry shortcut.
+ *
+ * Single source of truth: the `as const` literal array gives us both the
+ * runtime set (for invariant tests) and the type union (`LocalCommandId`)
+ * for compile-time enforcement on `EditorCommand.id`.
+ *
+ * Adding a new local-id command below requires adding the id here too —
+ * TypeScript will flag the mismatch at the entry's literal.
+ */
+export const LOCAL_COMMAND_IDS = [
+  'save-and-close',
+  'discard',
+  'heading-1',
+  'heading-2',
+  'heading-3',
+  'jinja-variable',
+  'jinja-if-block',
+  'jinja-if-block-trim',
+] as const
+
+export type LocalCommandId = typeof LOCAL_COMMAND_IDS[number]
+
 /** A single command in the editor command menu. */
 export interface EditorCommand {
-  id: string
+  /**
+   * Either a registry `ShortcutId` (e.g., `editor.bold`) — consumers derive
+   * the keyboard hint via `isShortcutId(cmd.id) ? getShortcut(cmd.id).keys`,
+   * or a `LocalCommandId` for entries without a registry shortcut. Loose
+   * `string` would let typos like `'editor.boldd'` silently drop the hint —
+   * the union catches those at compile time.
+   */
+  id: ShortcutId | LocalCommandId
   label: string
   section: string
   icon: ReactNode
-  shortcut?: string[]
+  /**
+   * Carve-out for page-scoped shortcuts that can't have a registry entry
+   * (the registry doesn't model page-scope binding context).
+   *
+   * **STRICT RULE**: only entries whose `id` is NOT a `ShortcutId` may set
+   * this field. Registry-backed entries MUST derive keys via `getShortcut`,
+   * not via this field. The `editorCommands.test.ts` invariant test enforces
+   * the rule at runtime.
+   *
+   * Today's only user: `save-and-close` (⌘⇧S, page-scoped in Note/Bookmark/
+   * Prompt). Without this field, the command menu wouldn't show ⌘⇧S — a
+   * discovery regression on one of the highest-value shortcuts in the app.
+   */
+  shortcutKeys?: readonly string[]
   disabled?: boolean
   action: (view: EditorView) => void
 }
@@ -83,11 +153,13 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
   if (callbacks.onSaveAndClose) {
     const onSaveAndClose = callbacks.onSaveAndClose
     commands.push({
+      // Local id — page-scoped Cmd+Shift+S has no registry entry. The
+      // `shortcutKeys` carve-out surfaces the hint in the command menu.
       id: 'save-and-close',
       label: 'Save and close',
       section: 'Actions',
       icon: icons.save(),
-      shortcut: ['\u2318', '\u21e7', 'S'],
+      shortcutKeys: ['⌘', '⇧', 'S'],
       action: () => { onSaveAndClose() },
     })
   }
@@ -104,30 +176,27 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
   }
   if (showTocToggle) {
     commands.push({
-      id: 'toggle-toc',
+      id: 'editor.toggleToc',
       label: 'Table of Contents',
       section: 'Actions',
       icon: icons.tableOfContents(),
-      shortcut: ['⌥', 'T'],
       action: () => { useRightSidebarStore.getState().togglePanel('toc') },
     })
   }
   commands.push({
-    id: 'toggle-history',
+    id: 'app.toggleHistorySidebar',
     label: 'Version History',
     section: 'Actions',
     icon: icons.versionHistory(),
-    shortcut: ['⌘', '⇧', '\\'],
     action: () => { useRightSidebarStore.getState().togglePanel('history') },
   })
   if (callbacks.onToggleReadingMode) {
     const onToggleReadingMode = callbacks.onToggleReadingMode
     commands.push({
-      id: 'toggle-reading-mode',
+      id: 'editor.toggleReadingMode',
       label: 'Toggle Reading Mode',
       section: 'Actions',
       icon: icons.readingMode(),
-      shortcut: ['⌘', '⇧', 'M'],
       action: () => { onToggleReadingMode() },
     })
   }
@@ -159,43 +228,38 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
 
   // --- Format section ---
   commands.push({
-    id: 'bold',
+    id: 'editor.bold',
     label: 'Bold',
     section: 'Format',
     icon: icons.bold(),
-    shortcut: ['\u2318', 'B'],
     action: (view) => { toggleWrapMarkers(view, '**', '**') },
   })
   commands.push({
-    id: 'italic',
+    id: 'editor.italic',
     label: 'Italic',
     section: 'Format',
     icon: icons.italic(),
-    shortcut: ['\u2318', 'I'],
     action: (view) => { toggleWrapMarkers(view, '*', '*') },
   })
   commands.push({
-    id: 'strikethrough',
+    id: 'editor.strikethrough',
     label: 'Strikethrough',
     section: 'Format',
     icon: icons.strikethrough(),
-    shortcut: ['\u2318', '\u21e7', 'X'],
     action: (view) => { toggleWrapMarkers(view, '~~', '~~') },
   })
   commands.push({
-    id: 'inline-code',
+    id: 'editor.inlineCode',
     label: 'Inline code',
     section: 'Format',
     icon: icons.inlineCode(),
-    shortcut: ['\u2318', 'E'],
     action: (view) => { toggleWrapMarkers(view, '`', '`') },
   })
   commands.push({
-    id: 'highlight',
+    id: 'editor.highlight',
     label: 'Highlight',
     section: 'Format',
     icon: icons.highlight(),
-    shortcut: ['\u2318', '\u21e7', 'H'],
     action: (view) => { toggleWrapMarkers(view, '==', '==') },
   })
 
@@ -222,59 +286,52 @@ export function buildEditorCommands({ showJinja, callbacks, icons, isDirty = fal
     action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.h3) },
   })
   commands.push({
-    id: 'bullet-list',
+    id: 'editor.bulletList',
     label: 'Bulleted list',
     section: 'Insert',
     icon: icons.bulletList(),
-    shortcut: ['\u2318', '\u21e7', '7'],
     action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.bulletList) },
   })
   commands.push({
-    id: 'numbered-list',
+    id: 'editor.numberedList',
     label: 'Numbered list',
     section: 'Insert',
     icon: icons.orderedList(),
-    shortcut: ['\u2318', '\u21e7', '8'],
     action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.numberedList) },
   })
   commands.push({
-    id: 'checklist',
+    id: 'editor.checklist',
     label: 'Checklist',
     section: 'Insert',
     icon: icons.checklist(),
-    shortcut: ['\u2318', '\u21e7', '9'],
     action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.checklist) },
   })
   commands.push({
-    id: 'code-block',
+    id: 'editor.codeBlock.cm',
     label: 'Code block',
     section: 'Insert',
     icon: icons.codeBlock(),
-    shortcut: ['\u2318', '\u21e7', 'E'],
     action: (view) => { insertCodeBlock(view) },
   })
   commands.push({
-    id: 'blockquote',
+    id: 'editor.blockquote',
     label: 'Blockquote',
     section: 'Insert',
     icon: icons.blockquote(),
-    shortcut: ['\u2318', '\u21e7', '.'],
     action: (view) => { toggleLinePrefix(view, LINE_PREFIXES.blockquote) },
   })
   commands.push({
-    id: 'link',
+    id: 'editor.insertLink',
     label: 'Link',
     section: 'Insert',
     icon: icons.link(),
-    shortcut: ['\u2318', 'K'],
     action: (view) => { insertLink(view) },
   })
   commands.push({
-    id: 'horizontal-rule',
+    id: 'editor.horizontalRule',
     label: 'Horizontal rule',
     section: 'Insert',
     icon: icons.horizontalRule(),
-    shortcut: ['\u2318', '\u21e7', '-'],
     action: (view) => { insertHorizontalRule(view) },
   })
 

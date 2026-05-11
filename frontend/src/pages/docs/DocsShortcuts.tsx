@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { localizeKeys } from '../../utils/platform'
-import { getShortcutsBySection } from '../../shortcuts/registry'
+import { getShortcut, getShortcutsBySection } from '../../shortcuts/registry'
 
 function Kbd({ children }: { children: ReactNode }): ReactNode {
   return (
@@ -30,7 +30,7 @@ function ShortcutRow({ keys, description }: { keys: readonly string[]; descripti
   )
 }
 
-function InlineShortcut({ keys }: { keys: string[] }): ReactNode {
+function InlineShortcut({ keys }: { keys: readonly string[] }): ReactNode {
   const localized = localizeKeys(keys)
   return (
     <span className="inline-flex items-center gap-1">
@@ -46,6 +46,7 @@ function InlineShortcut({ keys }: { keys: string[] }): ReactNode {
 
 export function DocsShortcuts(): ReactNode {
   usePageTitle('Docs - Keyboard Shortcuts')
+  const actionsShortcuts = getShortcutsBySection('Actions')
   const navigationShortcuts = getShortcutsBySection('Navigation')
   const viewShortcuts = getShortcutsBySection('View')
   const markdownEditorShortcuts = getShortcutsBySection('Markdown Editor')
@@ -55,14 +56,9 @@ export function DocsShortcuts(): ReactNode {
       <h1 className="text-2xl font-bold text-gray-900 mb-4">Keyboard Shortcuts</h1>
       <p className="text-sm text-gray-600 mb-4">
         Navigate and manage content quickly without reaching for the mouse. Open the shortcuts
-        dialog anytime with <InlineShortcut keys={['⌘', '⇧', '/']} />.
+        dialog anytime with <InlineShortcut keys={getShortcut('app.showShortcuts').keys} />.
       </p>
 
-      {/*
-        Actions table below uses inline literals. Migrated to registry
-        sourcing in M5. Until then, registry changes to entries that also
-        appear here won't reflect in the docs page — keep in sync manually.
-      */}
       {/* Navigation — sourced from registry */}
       <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Navigation</h2>
       <table className="w-full">
@@ -73,14 +69,18 @@ export function DocsShortcuts(): ReactNode {
         </tbody>
       </table>
 
-      {/* Actions */}
+      {/* Actions — registry rows + inline page-scoped save rows in a single
+          table. The two save rows (⌘S / ⌘⇧S in Note/Bookmark/Prompt) are
+          page-scoped and stay inline per the M5 carve-out (registry doesn't
+          model page-scope binding context). */}
       <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Actions</h2>
       <table className="w-full">
         <tbody>
-          <ShortcutRow keys={['⌘', 'V']} description="Paste URL to add bookmark" />
+          {actionsShortcuts.map((shortcut) => (
+            <ShortcutRow key={shortcut.id} keys={shortcut.keys} description={shortcut.label} />
+          ))}
           <ShortcutRow keys={['⌘', 'S']} description="Save" />
           <ShortcutRow keys={['⌘', '⇧', 'S']} description="Save and close" />
-          <ShortcutRow keys={['⌘', '⇧', 'Click']} description="Open link without tracking" />
         </tbody>
       </table>
 

@@ -5,6 +5,7 @@ import {
   getShortcut,
   getShortcutsBySection,
   getAllShortcuts,
+  isShortcutId,
   type ShortcutId,
 } from './registry'
 
@@ -40,6 +41,19 @@ describe('registry selectors', () => {
     const all = getAllShortcuts()
     expect(all.length).toBe(SHORTCUTS.length)
     expect(all[0].id).toBe(SHORTCUTS[0].id)
+  })
+
+  describe('isShortcutId', () => {
+    it('returns true for known ids', () => {
+      expect(isShortcutId('app.showShortcuts')).toBe(true)
+      expect(isShortcutId('editor.bold')).toBe(true)
+    })
+
+    it('returns false for unknown ids (narrows string → ShortcutId)', () => {
+      expect(isShortcutId('not.a.real.id')).toBe(false)
+      expect(isShortcutId('heading-1')).toBe(false) // editorCommands local id
+      expect(isShortcutId('save-and-close')).toBe(false) // editorCommands local id
+    })
   })
 })
 

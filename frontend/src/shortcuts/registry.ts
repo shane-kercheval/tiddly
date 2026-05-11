@@ -42,6 +42,31 @@ import type { Shortcut } from './types'
  * later milestones. Order within a section controls dialog row order.
  */
 export const SHORTCUTS = [
+  // --- Actions -------------------------------------------------------------
+  // Display-only entries for paste-event and non-keyboard interactions. The
+  // four page-scoped `Cmd+S` / `Cmd+Shift+S` save shortcuts in Note/Bookmark/
+  // Prompt stay inline in ShortcutsDialog/DocsShortcuts per the M5 carve-out
+  // (page-scope context isn't modeled in the registry; a `match`-omitted
+  // entry for those page-scoped bindings would silently drift).
+  {
+    id: 'bookmark.pasteUrl',
+    label: 'Paste URL to add bookmark',
+    section: 'Actions',
+    keys: ['⌘', 'V'],
+    // Paste-event listener at frontend/src/pages/AllContent.tsx via
+    // usePasteUrlHandler. Not a keydown shortcut.
+  },
+  {
+    id: 'bookmark.openLinkSilent',
+    label: 'Open link without tracking',
+    section: 'Actions',
+    keys: ['⌘', '⇧', 'Click'],
+    // Non-keyboard mouse modifier at frontend/src/components/BookmarkCard.tsx:95-101.
+    // Skips the usage-tracking call on URL link clicks. The `bookmark.*`
+    // namespace (vs `card.*`) reflects that this behavior is specifically
+    // for bookmark URLs — Notes and Prompts don't have a tracked-URL concept.
+  },
+
   // --- Navigation -----------------------------------------------------------
   {
     id: 'app.focusSearch',
@@ -323,6 +348,17 @@ const SHORTCUTS_BY_ID: Map<string, Shortcut> = (() => {
   }
   return map
 })()
+
+/**
+ * Type guard for narrowing `string` to `ShortcutId`. Used by surfaces that
+ * mix registry-backed entries with non-registry entries (e.g., editorCommands
+ * has both `editor.bold` registry ids and local ids like `heading-1` /
+ * `save-and-close` that don't have a registry equivalent). At render time:
+ *   const keys = isShortcutId(cmd.id) ? getShortcut(cmd.id).keys : undefined
+ */
+export function isShortcutId(id: string): id is ShortcutId {
+  return SHORTCUTS_BY_ID.has(id)
+}
 
 /**
  * Look up a shortcut by id. Throws on unknown ids — the `ShortcutId` union

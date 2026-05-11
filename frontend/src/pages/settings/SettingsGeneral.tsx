@@ -11,6 +11,7 @@ import { useLimits } from '../../hooks/useLimits'
 import { Link } from 'react-router-dom'
 import { isDevMode } from '../../config'
 import { formatShortcut } from '../../utils/platform'
+import { getShortcut } from '../../shortcuts/registry'
 
 /** Item counts at or above this are displayed as "Unlimited". */
 const UNLIMITED_THRESHOLD = 10_000
@@ -40,7 +41,7 @@ export function SettingsGeneral(): ReactNode {
       {/* Keyboard Shortcuts Note */}
       <div className="mb-8 rounded-lg border border-gray-200 bg-gray-50 p-4">
         <p className="text-sm text-gray-600">
-          Press <kbd className="rounded border border-gray-300 bg-white px-1.5 py-0.5 font-mono text-xs">{formatShortcut(['⌘', '⇧', '/'])}</kbd> anywhere to view all keyboard shortcuts.
+          Press <kbd className="rounded border border-gray-300 bg-white px-1.5 py-0.5 font-mono text-xs">{formatShortcut(getShortcut('app.showShortcuts').keys)}</kbd> anywhere to view all keyboard shortcuts.
         </p>
       </div>
 
@@ -61,7 +62,7 @@ export function SettingsGeneral(): ReactNode {
                 Expand content to fill the available width instead of using a constrained column.
               </p>
               <p className="mt-1 text-xs text-gray-400">
-                Keyboard shortcut: <kbd className="rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-xs">w</kbd>
+                Keyboard shortcut: <kbd className="rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-xs">{formatShortcut(getShortcut('app.toggleWidth').keys)}</kbd>
               </p>
             </div>
             <button

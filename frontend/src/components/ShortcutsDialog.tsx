@@ -1,10 +1,11 @@
 /**
  * Dialog showing available keyboard shortcuts.
  *
- * Navigation, View, and Markdown Editor sections read from the shortcut
- * registry. Only the Actions section still uses an inline array — that
- * migrates in M5 (the four page-scoped `Cmd+S`/`Cmd+Shift+S` entries stay
- * inline indefinitely per the M5 carve-out).
+ * All sections read from the shortcut registry, with one carve-out: the
+ * four page-scoped `Cmd+S` / `Cmd+Shift+S` save shortcuts in Note/Bookmark/
+ * Prompt (rendered as inline rows appended to the Actions section). Those
+ * stay inline indefinitely because the registry doesn't model page-scope
+ * binding context — a `match`-omitted entry would silently drift.
  */
 import type { ReactNode } from 'react'
 import { localizeKeys } from '../utils/platform'
@@ -22,26 +23,14 @@ interface InlineShortcut {
   description: string
 }
 
-interface InlineGroup {
-  title: string
-  subtitle?: string
-  shortcuts: InlineShortcut[]
-}
-
-// Inline array for Actions section. Migrated to registry sourcing in M5.
-// The four page-scoped `Cmd+S`/`Cmd+Shift+S` entries stay inline indefinitely
-// per the plan's M5 carve-out (binding has a context dimension the registry
-// doesn't model). Until M5 lands, a registry change to an entry that ALSO
-// appears here won't reflect in the dialog — keep these in sync manually.
-const inlineActionsGroup: InlineGroup = {
-  title: 'Actions',
-  shortcuts: [
-    { keys: ['⌘', 'V'], description: 'Paste URL to add bookmark' },
-    { keys: ['⌘', '⇧', 'Click'], description: 'Open link without tracking' },
-    { keys: ['⌘', 'S'], description: 'Save' },
-    { keys: ['⌘', '⇧', 'S'], description: 'Save and close' },
-  ],
-}
+// Inline save entries appended to the Actions section. These two entries
+// are page-scoped (binding lives in Note/Bookmark/Prompt page handlers,
+// which the registry doesn't model). A `match`-omitted registry entry would
+// silently drift — keep these inline + documented as the explicit carve-out.
+const inlineActionsSaves: InlineShortcut[] = [
+  { keys: ['⌘', 'S'], description: 'Save' },
+  { keys: ['⌘', '⇧', 'S'], description: 'Save and close' },
+]
 
 function KeyBadge({ children }: { children: ReactNode }): ReactNode {
   return (
@@ -83,19 +72,6 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
   )
 }
 
-function InlineGroupSection({ group }: { group: InlineGroup }): ReactNode {
-  return (
-    <div>
-      <SectionHeader title={group.title} subtitle={group.subtitle} />
-      <ul className="space-y-1.5">
-        {group.shortcuts.map((shortcut, index) => (
-          <ShortcutRow key={index} keys={shortcut.keys} description={shortcut.description} />
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 function RegistryGroupSection({ title, shortcuts }: { title: string; shortcuts: readonly Shortcut[] }): ReactNode {
   return (
     <div>
@@ -109,7 +85,36 @@ function RegistryGroupSection({ title, shortcuts }: { title: string; shortcuts: 
   )
 }
 
+/**
+ * Actions section renders registry rows AND inline page-scoped save rows as
+ * one continuous `<ul>` so the user doesn't see a visual seam between
+ * sources. The inline rows are the explicit carve-out (`Cmd+S` /
+ * `Cmd+Shift+S` page-scoped saves).
+ */
+function ActionsSection({
+  registryShortcuts,
+  inlineRows,
+}: {
+  registryShortcuts: readonly Shortcut[]
+  inlineRows: InlineShortcut[]
+}): ReactNode {
+  return (
+    <div>
+      <SectionHeader title="Actions" />
+      <ul className="space-y-1.5">
+        {registryShortcuts.map((shortcut) => (
+          <ShortcutRow key={shortcut.id} keys={shortcut.keys} description={shortcut.label} />
+        ))}
+        {inlineRows.map((row, index) => (
+          <ShortcutRow key={`inline-${index}`} keys={row.keys} description={row.description} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): ReactNode {
+  const actionsShortcuts = getShortcutsBySection('Actions')
   const navigationShortcuts = getShortcutsBySection('Navigation')
   const viewShortcuts = getShortcutsBySection('View')
   const markdownEditorShortcuts = getShortcutsBySection('Markdown Editor')
@@ -123,7 +128,7 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
     >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
         <div className="space-y-4">
-          <InlineGroupSection group={inlineActionsGroup} />
+          <ActionsSection registryShortcuts={actionsShortcuts} inlineRows={inlineActionsSaves} />
           <RegistryGroupSection title="Navigation" shortcuts={navigationShortcuts} />
           <RegistryGroupSection title="View" shortcuts={viewShortcuts} />
         </div>
