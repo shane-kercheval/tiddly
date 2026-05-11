@@ -32,10 +32,11 @@ A single source of truth for keyboard shortcut definitions, consumed by both the
   
   Anything else with `match` omitted is a code smell. If we own the binding, the registry entry MUST include `match`. A registry entry without `match` for an owned binding is documentation pretending to be source-of-truth — exactly the drift the registry is meant to prevent. (See the ⌘S/⌘⇧S note in M5 for an explicit carve-out.)
 - **Routing is per-consumer.** Each consumer (the global document listener, the CodeMirror keymap, CodeMirror's capture-phase listener, Milkdown's hand-rolled keydown listener) maintains its own `as const` tuple of registry ids it owns. The registry tells consumers what each shortcut *is*; consumers decide *where* it fires.
-- **One registry id per binding, not per concept. Three authoring patterns:**
-  1. **Agree** — both editors register the same id. Cmd+B (`⌘B` in both CM and Milkdown) is one shared `editor.bold` id.
-  2. **Disagree** — Code Block is `⌘⇧E` in CodeMirror but `⌘⇧C` in Milkdown. Author **two ids** (`editor.codeBlock.cm` and `editor.codeBlock.milkdown`) with different `keys`/`match`. Each editor's tuple references only its own id. Dialog/docs render both as separate rows with editor-context labels ("Code block (Markdown editor)" / "Code block (Reading mode editor)").
-  3. **CM-only-by-design** (concept doesn't apply to Milkdown — wrap, line numbers, reading mode): one id; only CodeMirror's tuple registers it. Highlight (`⌘⇧H`) follows the same pattern: one `editor.highlight` id with `match` set; only CodeMirror's tuple registers it; Milkdown's tuple doesn't. The dialog row is unlabeled — users don't see two editor implementations and shouldn't be told via a parenthetical that a binding "only works" in one of them. If a user presses ⌘⇧H in Milkdown and nothing happens, that's no worse than today.
+- **One registry id per binding, not per concept. Two authoring patterns:**
+  1. **Agree** — both editors fire the same action for the same id. Registration may differ: both editors may register it in their consumer tuples, OR one editor registers and the other relies on an upstream library binding. `editor.bold` is an Agree case where CodeMirror registers with `match` set; Milkdown's commonmark `keymap` plugin handles ⌘B upstream (in production Milkdown is read-only, so the Milkdown side is effectively inert — see M4's audit note below).
+  2. **CM-only-by-design** (concept doesn't apply to Milkdown, or Milkdown silently drops it): one id; only CodeMirror's tuple registers it. `editor.toggleWordWrap`, `editor.toggleLineNumbers`, `editor.toggleMonoFont`, `editor.toggleToc`, `editor.toggleReadingMode`, `editor.highlight` all follow this pattern. The dialog row is unlabeled — users don't see two editor implementations and shouldn't be told via a parenthetical that a binding "only works" in one of them.
+
+  The originally-planned **Disagree** pattern (two ids for different bindings, e.g., `editor.codeBlock.cm` + `editor.codeBlock.milkdown`) was removed when M4's audit found Milkdown's editable mode is unused in production. Any future "same concept, different keys per editor" case should reopen this question — but not by adding a `.milkdown` suffix-id to document a binding that doesn't fire.
 
   Do NOT try to encode multi-binding-per-id in the schema. If the UX team later decides editors should agree on a divergent binding, that's a separate UX change.
 - **Registry's `section` is for the shortcuts dialog and docs page only.** `ShortcutsDialog` groups by `Markdown Editor` / `Actions` / `Navigation` / `View`; `editorCommands.ts` groups by `Actions` / `Format` / `Insert` / `Jinja2` for the command menu. These are different per-surface taxonomies for different purposes. The command menu keeps its own `section` field as part of `editorCommands.ts` sidecar metadata; `getCommandView(id)` joins registry's `keys` with editorCommands' `label`, `section`, and `icon`.
@@ -424,44 +425,57 @@ Confirm no editor-behavior regressions; mystery bindings accounted for; `editorC
 
 ---
 
-## Milestone 4 — Milkdown shortcuts; smoke tests for upstream-bound bindings
+## Milestone 4 — Milkdown audit (originally: shortcut migration)
+
+**Audit result: most of M4's originally-planned scope was deleted.** `MilkdownEditor` is used in production only as a read-only preview inside `CodeMirrorEditor.tsx` (passed `readOnly={true}, onChange={() => {}}`). The architectural note in `ContentEditor.tsx:1-17` confirms this is intentional — editable Milkdown was retired due to AST/cursor issues. The hand-rolled keydown handler that M4 planned to migrate is vestigial from the pre-retirement state: handlers fire, but ProseMirror's `editable: false` discards mutations and `onChange` is dropped by the read-only preview parent.
+
+The M4 first-cut migrated this dead-code handler to a registry-driven matcher, adding `editor.codeBlock.milkdown` with the disagree pattern. After the audit surfaced the read-only finding, all of that was deleted — registry shouldn't document shortcuts that don't fire.
 
 ### Goal
 
 After M4:
-- Every Milkdown shortcut authored in the hand-rolled keydown listener (Cmd+K, Cmd+Shift+X, Cmd+E, Cmd+Shift+C, Cmd+Shift+7/8/9, etc.) lives in the registry. The listener uses the matcher against its own consumer tuple.
-- Milkdown built-in shortcuts (Cmd+B, Cmd+I — owned by Milkdown's commonmark plugin, not by our code) are registry entries with `match` omitted (upstream-owned category). They appear in the dialog/docs; no `run` callback wired.
-- One smoke test per upstream-bound entry asserts the binding still works.
-- Milkdown toolbar tooltips read from registry.
+- The vestigial keydown handler in `MilkdownEditor.tsx` (and its wrapper `onKeyDown` attribute) is deleted. M4's first-cut migration is reverted along with the pre-M4 dead code it migrated.
+- `editor.codeBlock.milkdown` registry entry is removed. The Code Block tooltip on the (also-dead) Milkdown toolbar reverts to a hardcoded literal — the toolbar is hidden by `{!disabled && !readOnly && ...}` in production, so this is dead-code maintenance only.
+- `editor.bold` / `editor.italic` stay in the registry — CodeMirror's binding is live. Milkdown's side of the Agree pattern is inert because the editor isn't editable in production. **Do not "fix" this by adding entries to a Milkdown tuple that no longer exists.**
+- `createLinkClickPlugin` ⌘Click on links remains the only live Milkdown editing-adjacent binding. The plugin-presence test verifies the function's return shape (a ProseMirror plugin with `handleDOMEvents.click` set). Mount-based plugin introspection was investigated and ruled out (see "Test approach" below).
 - ProseMirror structural keymap (Tab/Shift+Tab/Backspace) is untouched — editor behavior, not user-visible shortcut.
+
+**Follow-up not in M4 scope:** the Milkdown toolbar component, `LinkDialog`, and action handlers (`handleBulletListClick`, `handleCodeBlockToggle`, etc.) are all dead in production (toolbar hidden when readOnly). Deleting them is a meaningful cleanup but warrants its own PR — M4 stays focused on the registry-related concerns.
 
 ### Implementation
 
-Inventory `MilkdownEditor.tsx`'s keydown listener (~7 entries). For each:
-- If the shortcut is already in the registry from M3 (e.g., Cmd+K Insert link is also in CodeMirror), add Milkdown's tuple binding pointing to the same registry id.
-- If unique to Milkdown, add a new registry entry.
+1. **Revert the M4 keymap migration** in `MilkdownEditor.tsx`: delete `MILKDOWN_KEYMAP_IDS`, `MilkdownHandlers`, `milkdownHandlers`, the `assertNoDuplicateMatchShapes` call, and the `findMatchingShortcut`-based handler body.
+2. **Delete the wrapper's keydown handler** entirely. Remove `onKeyDown={handleKeyDown}` from the wrapper div and delete the `handleKeyDown` declaration. The handler was dead code pre-M4 too (Milkdown is read-only in production), so this completes the cleanup rather than just reverting the migration.
+3. **Delete `editor.codeBlock.milkdown`** from the registry, along with the disagree-pattern comments above `editor.codeBlock.cm`.
+4. **Revert the one tooltip** that referenced the deleted entry: the Milkdown toolbar's Code Block button reverts to a hardcoded `formatShortcut(['⌘', '⇧', 'C'])` literal. Restore the `formatShortcut` import. All other toolbar tooltips keep `tooltipFor()` — they point to live registry entries used by CodeMirror.
+5. **Keep `customCommonmark` exported** — it's load-bearing for read-only markdown parsing.
+6. **Keep `createLinkClickPlugin` exported** — Cmd+Click on links is genuinely live in read-only Milkdown.
+7. **Keep the `createLinkClickPlugin` shape test, add a markdown-pipeline mount test** — see "Test approach" below.
 
-Cmd+B and Cmd+I get registry entries with `match` omitted (allowed: upstream-owned category, with comment pointing to Milkdown's commonmark plugin).
+### Test approach
 
-**Smoke tests assert plugin presence, not rendered behavior.** Render-and-fire tests for upstream-bound shortcuts couple us to upstream library internals (ProseMirror schema transforms, Milkdown's `<strong>` rendering format) which we don't own. The realistic regression we care about is "library upgrade silently dropped the binding." That's caught by asserting the relevant plugin/extension is present in the editor's plugin list.
+**Mount-based plugin introspection was investigated and ruled out** (~20 min time-box). Two environmental limits in jsdom block the natural approach:
 
-- For Cmd+B / Cmd+I (Milkdown commonmark): assert Milkdown's commonmark `keymap` plugin is in the editor's plugin list when mounted. If Milkdown ever drops or renames its commonmark `keymap`, the assertion fails.
-- For Cmd+D (CodeMirror `searchKeymap`): assert `searchKeymap` is in the CodeMirror extension list (or that the `search()` extension is configured). Same failure mode.
+- No public `EditorView.findFromDOM` for ProseMirror — there's no clean way to access the mounted editor's view from outside `MilkdownEditor` without exposing internal state via refs (API change).
+- `posAtCoords` requires layout. jsdom doesn't compute layout, so synthesized Cmd+Click events on rendered `<a>` elements return `null` from `posAtCoords` and the link-click handler bails before calling `window.open`. Click-behavior tests aren't viable.
 
-This is faster, less brittle, and tests the only realistic upstream-regression path.
+The shipped tests instead:
 
-**Listener install location is decided by a brief spike at the start of M4, not mid-implementation.** Slash menu and link tooltip popovers are exactly where editor-focus-vs-event-target races occur. Spike: examine how the existing keydown listener (`MilkdownEditor.tsx:1287+`) handles popover focus today, and confirm whether installing on the container element vs `document` (gated on focus) produces the same coverage. Record the decision in the plan before any migration code lands.
+- **`createLinkClickPlugin` shape test** (kept, renamed with honest framing): calls the function, asserts the returned plugin has `spec.props.handleDOMEvents.click`. Catches "function removed or return shape changed."
+- **Markdown-pipeline mount test** (added): renders `<MilkdownEditor value="text [link](url) more" readOnly={true} />`, awaits `.ProseMirror`, asserts the rendered `<a>` has the right href and text. Implicitly verifies `customCommonmark` is wired into the editor builder — if someone removes `.use(customCommonmark)` or breaks the markdown parsing pipeline, this test fails.
 
-### Testing
+Wiring of `linkClickPluginSlice` itself isn't directly testable in jsdom; visual review + git history is the safety net for that specific regression.
 
-- Migrated entries: derivation pattern for tooltips.
-- One **plugin-presence** smoke test per upstream-bound entry (Cmd+B, Cmd+I) — asserts the commonmark `keymap` plugin is in the editor's plugin list, not the rendered DOM output.
-- **`editor.openLinkInNewTab` plugin-presence test** — verify Milkdown's `createLinkClickPlugin` is registered (or assert the link-click ProseMirror plugin is in the plugin list). The registry entry was added in M3 with no test owner; M4 closes that gap with the same plugin-presence pattern used for Cmd+B/Cmd+I and Cmd+D.
-- Existing `MilkdownEditor.test.tsx` tests pass.
+### Tests removed in this milestone
+
+- Cmd+Shift+7 wire-up test (the wired-up handler is deleted).
+- Cmd+B negative test (the wrapper handler it interacted with is deleted).
+- `customCommonmark.includes(commonmarkKeymap)` test (documented an inactive binding; the markdown-pipeline mount test now covers the live concern — "the editor renders markdown" — without naming specific plugin internals).
+- "Code Block" rendered twice in dialog/docs tests revert to single-match.
 
 ### Stop & Review
 
-By end of M4: registry is source of truth for all editor and global shortcuts in this PR's scope. Display surfaces 3-6 still have inline literals — M5.
+By end of M4: registry has no fictional shortcuts. Display surface for Actions still has inline literals — M5.
 
 ---
 

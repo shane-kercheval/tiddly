@@ -213,8 +213,12 @@ export const SHORTCUTS = [
     match: { mod: true, key: 'e' },
   },
   {
-    // CM variant of code block (⌘⇧E). Milkdown's ⌘⇧C lands as
-    // editor.codeBlock.milkdown in M4 — disagree pattern (two ids).
+    // CodeMirror's code block binding. There WAS a disagree-pattern partner
+    // (editor.codeBlock.milkdown at ⌘⇧C) — removed in M4 after audit revealed
+    // Milkdown is read-only in production. The CM entry is the only live one.
+    // The `.cm` suffix is retained as a historical signal rather than renamed,
+    // to keep the entry stable across the M2→M4 history. If Milkdown ever
+    // gains an editable mode again, reintroduce the disagree pattern then.
     id: 'editor.codeBlock.cm',
     label: 'Code Block',
     section: 'Markdown Editor',
