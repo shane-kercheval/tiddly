@@ -206,8 +206,8 @@ Per str-replace endpoint, add a concurrency integration test:
 
 - **Concurrent non-overlapping str-replace test:** Spawn N (e.g., 5) concurrent str-replace tasks against the same entity with distinct, non-overlapping `old_str` patterns that all exist in the original content. Await all. Assert all N return success **and** the final content reflects all N edits.
 - **Concurrent overlapping str-replace test:** Two concurrent str-replace calls where one removes the substring the other is trying to match. Assert the second returns the existing `no_match` 400 (the correct conflict signal for content-addressable operations), not a silent overwrite.
-- **History coherence test:** After concurrent edits, verify the history rows form a coherent chain — each row's `previous_content` matches the prior row's `new_content`.
-- **Savepoint × row-lock primitive test (one assertion is enough):** Direct primitive test using `concurrent_session_factory`. Session A acquires `FOR UPDATE` on a seeded row, opens `db.begin_nested()`, raises inside the nested block to force a savepoint rollback, catches the error. Then session B issues `FOR UPDATE` on the same row and is asserted to block (`asyncio.wait_for(..., timeout=1)` → `TimeoutError`). No `history_service` involvement — this test proves the Postgres semantic ("row locks survive savepoint rollback") directly, with no coupling to history-recording internals or end-to-end flakiness.
+- **History version-allocation test:** After concurrent edits, verify `history_service.record_action` produces exactly N UPDATE rows with unique, dense version numbers (no duplicates, no gaps). This proves the history-layer savepoint-retry loop survives contention. **Not a content-chain coherence test** — the load-bearing proof that the row lock fixed the lost-update bug on entity content is the non-overlapping test above (final content reflects all N edits). A real chain-coherence test belongs in `test_history_service.py` exercising the history service directly; out of scope for KAN-148.
+- **Savepoint × row-lock primitive test (one assertion is enough):** Direct primitive test using `concurrent_session_factory`. Session A acquires `FOR UPDATE` on a seeded row, opens `db.begin_nested()`, raises inside the nested block to force a savepoint rollback, catches the error. From a *second* session, issue `SELECT ... FOR UPDATE NOWAIT` on the same row — assert it raises `DBAPIError` for `LockNotAvailableError`, proving A still holds the lock after the savepoint rollback. NOWAIT is unambiguous (it answers exactly "is the row locked right now?") and avoids the conflated implicit write lock that an "A mutates + B reads sentinel" pattern would introduce — A's `UPDATE` would itself acquire a write lock and block B regardless of whether the `FOR UPDATE` survived.
 
 Use real Postgres (not mocks). Follow existing async test fixtures.
 
@@ -237,6 +237,15 @@ Catch any documentation drift caused by M2/M3 and prepare the PR description.
    - Per-milestone summary of what shipped.
    - Verification matrix: every endpoint touched, its concurrency test.
    - **Schema change callout:** `expected_updated_at` removed from `StrReplaceRequest` and `PromptStrReplaceRequest`. M1 confirmed zero current callers, but flag it explicitly in the PR description so reviewers and downstream integrators don't miss it.
+   - **Manual verification** — short checklist for the reviewer to run by hand before merging. The automated tests already cover the lock semantics, so this section is just smoke checks for things that are hard to test automatically:
+     - **MCP str-replace tools (the real production callers):**
+       - `edit_content` (Content MCP) against a bookmark and a note — verify the operation succeeds and content updated as expected.
+       - `edit_prompt_content` (Prompt MCP) — verify success.
+       - Attempt a `no_match` (target a substring that does not exist) — verify the structured 400 error still surfaces cleanly to the MCP client.
+     - **Regular PATCH endpoints — no collateral damage from the schema/handler changes:**
+       - Edit a bookmark, note, and prompt via the web UI; save; reload; confirm changes persisted.
+       - Confirm `expected_updated_at` still triggers 409 on the *regular* PATCH (this PR removed it only from str-replace): open the same entity in two browser tabs, edit and save in one, then save in the other — second save should show the conflict UI.
+     - **API self-check:** send a str-replace request that includes `expected_updated_at` in the body. The field is **silently ignored** — the Pydantic v2 request models in `schemas/errors.py` don't set `extra="forbid"`, and the v2 default is `extra="ignore"`. So existing MCP/CLI payloads that still include the field won't error; the PR description's schema-change callout is what tells integrators to drop it.
    - Note on KAN-149's closure decision (link to the ticket comment) — for the reviewer's context.
    - Any follow-up tickets filed from M1's broader audit (none expected per M1's findings).
 

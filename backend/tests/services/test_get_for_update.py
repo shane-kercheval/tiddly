@@ -29,6 +29,8 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from models.bookmark import Bookmark
@@ -261,6 +263,58 @@ async def test_get_for_update_blocks_until_rollback(
     result = await asyncio.wait_for(b_task, timeout=UNBLOCK_TIMEOUT)
     assert result is not None
     assert result.content == "original"
+
+
+async def test_row_lock_survives_savepoint_rollback(
+    concurrent_session_factory: async_sessionmaker,
+    concurrent_test_user: User,
+    seeded_bookmark: Bookmark,
+) -> None:
+    """
+    A row lock held by the outer transaction is NOT released when a nested
+    savepoint inside that transaction rolls back.
+
+    `history_service.record_action` opens `db.begin_nested()` (a savepoint)
+    for unique-constraint retries on the history version. If a savepoint
+    rollback released the FOR UPDATE lock acquired earlier in the request
+    transaction, concurrent str-replace calls could overlap. Postgres docs
+    say row locks survive savepoint rollback; this test proves the property
+    holds in our codebase against our SQLAlchemy version.
+
+    Proven by direct lock-state probe using `SELECT ... FOR UPDATE NOWAIT`:
+    if A still holds the lock, B's NOWAIT raises immediately (asyncpg's
+    `LockNotAvailableError`, wrapped by SQLAlchemy as `DBAPIError`). An
+    "A mutates + B reads sentinel" pattern would not work here — A's UPDATE
+    would acquire its own implicit write lock, blocking B regardless of
+    whether the FOR UPDATE survived. NOWAIT is unambiguous: it answers
+    exactly "is the row locked right now?"
+    """
+    async with concurrent_session_factory() as session_a:
+        locked = await bookmark_service.get_for_update(
+            session_a, concurrent_test_user.id, seeded_bookmark.id,
+        )
+        assert locked is not None
+
+        # Savepoint roundtrip with no work inside: begin_nested issues
+        # SAVEPOINT; raising forces ROLLBACK TO SAVEPOINT on context exit.
+        with pytest.raises(RuntimeError, match="savepoint-abort"):
+            async with session_a.begin_nested():
+                raise RuntimeError("savepoint-abort")
+
+        # Probe from a separate session: NOWAIT fails immediately if A still
+        # holds the row lock.
+        async with concurrent_session_factory() as session_b:
+            # Match asyncpg's LockNotAvailableError message specifically, so
+            # the test would fail informatively if any other lock-related
+            # error class (e.g., deadlock) ever surfaced through this path.
+            with pytest.raises(DBAPIError, match="could not obtain lock"):
+                await session_b.execute(
+                    select(Bookmark)
+                    .where(Bookmark.id == seeded_bookmark.id)
+                    .with_for_update(nowait=True),
+                )
+
+        await session_a.rollback()
 
 
 async def test_plain_get_does_not_block_on_for_update_lock(

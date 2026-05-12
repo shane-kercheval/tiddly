@@ -531,14 +531,10 @@ async def str_replace_prompt_by_name(
     strategy, atomic content + arguments updates, and error responses.
     """
     context = get_request_context(request)
-    # Check for conflicts before modifying
-    await check_optimistic_lock_by_name(
-        db, prompt_service, current_user.id, name,
-        data.expected_updated_at, PromptResponse,
-    )
 
-    # Look up by name (active prompts only)
-    prompt = await prompt_service.get_by_name(db, current_user.id, name)
+    # Row lock prevents lost updates from concurrent str-replace calls. Held
+    # until the request transaction commits at end-of-request.
+    prompt = await prompt_service.get_by_name_for_update(db, current_user.id, name)
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 
@@ -950,14 +946,12 @@ async def str_replace_prompt(
     - 400 with template validation error if result is invalid Jinja2
     """
     context = get_request_context(request)
-    # Check for conflicts before modifying
-    await check_optimistic_lock(
-        db, prompt_service, current_user.id, prompt_id,
-        data.expected_updated_at, PromptResponse,
-    )
 
-    # Fetch the prompt (include archived, exclude deleted)
-    prompt = await prompt_service.get(db, current_user.id, prompt_id, include_archived=True)
+    # Row lock prevents lost updates from concurrent str-replace calls. Held
+    # until the request transaction commits at end-of-request.
+    prompt = await prompt_service.get_for_update(
+        db, current_user.id, prompt_id, include_archived=True,
+    )
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 

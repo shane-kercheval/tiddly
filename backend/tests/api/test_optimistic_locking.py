@@ -297,76 +297,15 @@ async def test__update__expected_updated_at__timezone_handling(
 
 
 # =============================================================================
-# Str-Replace Tests - Parametrized
-# =============================================================================
-
-
-@pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
-async def test__str_replace__with_expected_updated_at__success(
-    client: AsyncClient,
-    entity_setup: dict[str, Any],
-) -> None:
-    """Str-replace succeeds when timestamps match exactly."""
-    response = await client.patch(
-        f"{entity_setup['endpoint']}/str-replace",
-        json={
-            "old_str": entity_setup["str_replace_old"],
-            "new_str": entity_setup["str_replace_new"],
-            "expected_updated_at": entity_setup["entity"]["updated_at"],
-        },
-    )
-    assert response.status_code == 200
-
-
-@pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
-async def test__str_replace__with_expected_updated_at__conflict_returns_409(
-    client: AsyncClient,
-    entity_setup: dict[str, Any],
-) -> None:
-    """Str-replace returns 409 when entity was modified after expected time."""
-    stale_timestamp = entity_setup["entity"]["updated_at"]
-
-    # Modify the entity
-    await asyncio.sleep(0.01)
-    await client.patch(entity_setup["endpoint"], json={"title": "Modified"})
-
-    # Try str-replace with stale timestamp
-    response = await client.patch(
-        f"{entity_setup['endpoint']}/str-replace",
-        json={
-            "old_str": entity_setup["str_replace_old"],
-            "new_str": entity_setup["str_replace_new"],
-            "expected_updated_at": stale_timestamp,
-        },
-    )
-    assert response.status_code == 409
-    detail = response.json()["detail"]
-    assert detail["error"] == "conflict"
-    assert detail["message"] == "This item was modified since you loaded it"
-    assert "server_state" in detail
-    assert detail["server_state"]["title"] == "Modified"
-    assert detail["server_state"]["id"] == entity_setup["id"]
-
-
-@pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
-async def test__str_replace__without_expected_updated_at__allows_update(
-    client: AsyncClient,
-    entity_setup: dict[str, Any],
-) -> None:
-    """Str-replace without expected_updated_at succeeds (backwards compatible)."""
-    response = await client.patch(
-        f"{entity_setup['endpoint']}/str-replace",
-        json={
-            "old_str": entity_setup["str_replace_old"],
-            "new_str": entity_setup["str_replace_new"],
-        },
-    )
-    assert response.status_code == 200
-
-
-# =============================================================================
 # Prompt By-Name Endpoint Tests
 # =============================================================================
+#
+# The str-replace endpoints (id-based and by-name) no longer accept
+# `expected_updated_at`. They use server-side row locking (`SELECT ... FOR
+# UPDATE`) which is the natural fit for content-addressable operations; see
+# `docs/architecture.md` (Concurrency control for content edits). The regular
+# PATCH endpoints (which carry declarative payloads) still honor
+# `expected_updated_at` — those tests are covered above.
 
 
 @pytest.fixture
@@ -433,53 +372,6 @@ async def test__update_prompt_by_name__with_expected_updated_at__conflict_return
     assert detail["message"] == "This item was modified since you loaded it"
     assert "server_state" in detail
     assert detail["server_state"]["title"] == "First Update"
-    assert detail["server_state"]["name"] == setup["entity"]["name"]
-
-
-async def test__str_replace_prompt_by_name__with_expected_updated_at__success(
-    client: AsyncClient,
-    prompt_for_name_tests: dict[str, Any],
-) -> None:
-    """Str-replace by name succeeds when timestamps match exactly."""
-    setup = prompt_for_name_tests
-    response = await client.patch(
-        f"{setup['name_endpoint']}/str-replace",
-        json={
-            "old_str": "Hello",
-            "new_str": "Hi",
-            "expected_updated_at": setup["entity"]["updated_at"],
-        },
-    )
-    assert response.status_code == 200
-
-
-async def test__str_replace_prompt_by_name__with_expected_updated_at__conflict_returns_409(
-    client: AsyncClient,
-    prompt_for_name_tests: dict[str, Any],
-) -> None:
-    """Str-replace by name returns 409 when prompt was modified after expected time."""
-    setup = prompt_for_name_tests
-    stale_timestamp = setup["entity"]["updated_at"]
-
-    # Modify the prompt
-    await asyncio.sleep(0.01)
-    await client.patch(setup["name_endpoint"], json={"title": "Modified"})
-
-    # Try str-replace with stale timestamp
-    response = await client.patch(
-        f"{setup['name_endpoint']}/str-replace",
-        json={
-            "old_str": "Hello",
-            "new_str": "Hi",
-            "expected_updated_at": stale_timestamp,
-        },
-    )
-    assert response.status_code == 409
-    detail = response.json()["detail"]
-    assert detail["error"] == "conflict"
-    assert detail["message"] == "This item was modified since you loaded it"
-    assert "server_state" in detail
-    assert detail["server_state"]["title"] == "Modified"
     assert detail["server_state"]["name"] == setup["entity"]["name"]
 
 

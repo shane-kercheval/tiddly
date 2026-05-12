@@ -2,6 +2,7 @@
 import asyncio
 import os
 from collections.abc import AsyncGenerator, Generator
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -351,6 +352,109 @@ async def concurrent_test_user(
                 {"uid": user.id},
             )
             await session.commit()
+
+
+@pytest.fixture
+async def concurrent_client(
+    concurrent_session_factory: async_sessionmaker,
+    concurrent_test_user: object,
+    redis_client: RedisClient,  # noqa: ARG001
+) -> AsyncGenerator[AsyncClient]:
+    """
+    HTTP client where each request opens its own DB session from the concurrent engine.
+
+    Unlike the standard `client` fixture (single shared session, rollback
+    isolation), this fixture wires `get_async_session` to
+    `concurrent_session_factory` so that concurrent HTTP requests actually
+    contend at the database level — necessary for testing row-locking.
+
+    Authenticates via PAT against `concurrent_test_user` (not dev-mode). The
+    user cascades on teardown, removing the PAT, consent, and all created
+    content.
+    """
+    # Imports stay inline: `api.main` runs `get_settings()` at import time,
+    # which validates `DATABASE_URL`. That env var is only set at runtime by
+    # the `database_url` fixture, so a module-level import would fail at
+    # collection time. Same constraint applies to anything that transitively
+    # touches Settings or db.session.
+    from api.main import app  # noqa: PLC0415
+    from core.policy_versions import (  # noqa: PLC0415
+        PRIVACY_POLICY_VERSION,
+        TERMS_OF_SERVICE_VERSION,
+    )
+    from core.tier_limits import Tier, get_tier_limits  # noqa: PLC0415
+    from db.session import get_async_session, get_session_factory  # noqa: PLC0415
+    from models.user_consent import UserConsent  # noqa: PLC0415
+    from schemas.token import TokenCreate  # noqa: PLC0415
+    from services.token_service import create_token  # noqa: PLC0415
+
+    # Seed consent and PAT in their own committed transaction so subsequent
+    # per-request sessions can see them. DEV-tier limits here cover only the
+    # PAT-count quota check at creation time; the user's runtime tier (which
+    # governs rate limiting) stays "pro" as set in `concurrent_test_user`.
+    # N=5 concurrent writes is well under PRO's 200/min write rate limit.
+    async with concurrent_session_factory() as session:
+        session.add(UserConsent(
+            user_id=concurrent_test_user.id,
+            consented_at=datetime.now(UTC),
+            privacy_policy_version=PRIVACY_POLICY_VERSION,
+            terms_of_service_version=TERMS_OF_SERVICE_VERSION,
+        ))
+        _, plaintext_token = await create_token(
+            session,
+            concurrent_test_user.id,
+            TokenCreate(name="concurrency-test"),
+            get_tier_limits(Tier.DEV),
+        )
+        await session.commit()
+
+    # `get_settings` is `@lru_cache`'d. Without `cache_clear()`, the override
+    # below won't take effect because the cached Settings (populated by an
+    # earlier fixture) is still served. After this fixture's teardown, the
+    # next `get_settings()` call repopulates from env vars (pinned by
+    # `pytest_configure` to dev-mode=True) — so other tests are unaffected.
+    get_settings.cache_clear()
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        """Mirror production `get_async_session`: open, commit, close per request."""
+        async with concurrent_session_factory() as request_session:
+            try:
+                yield request_session
+                await request_session.commit()
+            except Exception:
+                await request_session.rollback()
+                raise
+
+    # `dev_mode=False` is the load-bearing setting: it forces the PAT auth
+    # path (the production shape for MCP callers) instead of the dev-user
+    # bypass. The other fields are just minimum-required Settings fields.
+    def override_get_settings() -> Settings:
+        return Settings(
+            database_url="postgresql://test",
+            dev_mode=False,
+            auth0_custom_claim_namespace="https://test.example.com",
+        )
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_session_factory] = lambda: concurrent_session_factory
+    app.dependency_overrides[get_settings] = override_get_settings
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {plaintext_token}"},
+        ) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
+        # Defensive teardown-clear: this fixture churns Settings more aggressively
+        # than the standard `client` fixture (it overrides dev_mode and direct
+        # `get_settings()` calls during the test could repopulate the cache with
+        # post-override env state). Clear so the next test starts fresh. The
+        # standard `client` fixture does NOT do this — it only churns dev-mode
+        # parity, so its setup-side clear is sufficient.
+        get_settings.cache_clear()
 
 
 @pytest.fixture

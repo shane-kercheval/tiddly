@@ -419,14 +419,12 @@ async def str_replace_note(
       (includes match locations with context to help construct unique match)
     """
     context = get_request_context(request)
-    # Check for conflicts before modifying
-    await check_optimistic_lock(
-        db, note_service, current_user.id, note_id,
-        data.expected_updated_at, NoteResponse,
-    )
 
-    # Fetch the note (include archived, exclude deleted)
-    note = await note_service.get(db, current_user.id, note_id, include_archived=True)
+    # Row lock prevents lost updates from concurrent str-replace calls. Held
+    # until the request transaction commits at end-of-request.
+    note = await note_service.get_for_update(
+        db, current_user.id, note_id, include_archived=True,
+    )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
 
