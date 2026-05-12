@@ -1,84 +1,35 @@
 /**
  * Dialog showing available keyboard shortcuts.
+ *
+ * All sections read from the shortcut registry, with one carve-out: the
+ * four page-scoped `Cmd+S` / `Cmd+Shift+S` save shortcuts in Note/Bookmark/
+ * Prompt (rendered as inline rows appended to the Actions section). Those
+ * stay inline indefinitely because the registry doesn't model page-scope
+ * binding context — a `match`-omitted entry would silently drift.
  */
 import type { ReactNode } from 'react'
+import { localizeKeys } from '../utils/platform'
+import { getShortcutsBySection } from '../shortcuts/registry'
+import { PAGE_SCOPED_SAVE_KEYS, PAGE_SCOPED_SAVE_AND_CLOSE_KEYS } from '../shortcuts/pageScoped'
+import type { Shortcut } from '../shortcuts/types'
 import { Modal } from './ui/Modal'
 
 interface ShortcutsDialogProps {
-  /** Whether the dialog is open */
   isOpen: boolean
-  /** Called when the dialog should close */
   onClose: () => void
 }
 
-interface Shortcut {
-  keys: string[]
+interface InlineShortcut {
+  keys: readonly string[]
   description: string
 }
 
-interface ShortcutGroup {
-  title: string
-  subtitle?: string
-  shortcuts: Shortcut[]
-}
-
-const leftColumnGroups: ShortcutGroup[] = [
-  {
-    title: 'Actions',
-    shortcuts: [
-      { keys: ['\u2318', 'V'], description: 'Paste URL to add bookmark' },
-      { keys: ['\u21E7', '\u2318', 'Click'], description: 'Open link without tracking' },
-      { keys: ['\u2318', 'S'], description: 'Save' },
-      { keys: ['\u2318', '\u21E7', 'S'], description: 'Save and close' },
-    ],
-  },
-  {
-    title: 'Navigation',
-    shortcuts: [
-      { keys: ['/'], description: 'Search' },
-      { keys: ['s'], description: 'Focus page search' },
-      { keys: ['\u2318', '\u21E7', 'P'], description: 'Command palette' },
-      { keys: ['\u2318', 'Click'], description: 'Open card in new tab' },
-      { keys: ['\u21E7', 'Click'], description: 'Open bookmark relationship in Tiddly (instead of URL)' },
-      { keys: ['Esc'], description: 'Close modal / Unfocus search' },
-    ],
-  },
-  {
-    title: 'View',
-    shortcuts: [
-      { keys: ['w'], description: 'Toggle full-width layout' },
-      { keys: ['\u2318', '\\'], description: 'Toggle sidebar' },
-      { keys: ['\u2318', '\u21E7', '\\'], description: 'Toggle history sidebar' },
-      { keys: ['\u2318', '\u21E7', '/'], description: 'Show shortcuts' },
-      { keys: ['\u2318', '\u21E7', 'M'], description: 'Toggle reading mode' },
-      { keys: ['\u2325', 'Z'], description: 'Toggle word wrap' },
-      { keys: ['\u2325', 'L'], description: 'Toggle line numbers' },
-      { keys: ['\u2325', 'M'], description: 'Toggle monospace font' },
-    ],
-  },
-]
-
-// Order matches toolbar layout in CodeMirrorEditor
-const rightColumnGroups: ShortcutGroup[] = [
-  {
-    title: 'Markdown Editor',
-    shortcuts: [
-      { keys: ['\u2318', 'B'], description: 'Bold' },
-      { keys: ['\u2318', 'I'], description: 'Italic' },
-      { keys: ['\u2318', '\u21E7', 'X'], description: 'Strikethrough' },
-      { keys: ['\u2318', '\u21E7', 'H'], description: 'Highlight' },
-      { keys: ['\u2318', '\u21E7', '.'], description: 'Blockquote' },
-      { keys: ['\u2318', 'E'], description: 'Inline code' },
-      { keys: ['\u2318', '\u21E7', 'E'], description: 'Code block' },
-      { keys: ['\u2318', '\u21E7', '7'], description: 'Bullet list' },
-      { keys: ['\u2318', '\u21E7', '8'], description: 'Numbered list' },
-      { keys: ['\u2318', '\u21E7', '9'], description: 'Checklist' },
-      { keys: ['\u2318', 'K'], description: 'Insert link' },
-      { keys: ['\u2318', '\u21E7', '-'], description: 'Horizontal rule' },
-      { keys: ['\u2318', 'Click'], description: 'Open link in new tab' },
-      { keys: ['\u2318', 'D'], description: 'Select next occurrence' },
-    ],
-  },
+// Display rows for the page-scoped save shortcuts. The keys come from the
+// shared `pageScoped.ts` module so DocsShortcuts and editorCommands' save-and-
+// close entry render the same combos without duplicating literals.
+const inlineActionsSaves: InlineShortcut[] = [
+  { keys: PAGE_SCOPED_SAVE_KEYS, description: 'Save' },
+  { keys: PAGE_SCOPED_SAVE_AND_CLOSE_KEYS, description: 'Save and close' },
 ]
 
 function KeyBadge({ children }: { children: ReactNode }): ReactNode {
@@ -89,39 +40,73 @@ function KeyBadge({ children }: { children: ReactNode }): ReactNode {
   )
 }
 
-function ShortcutGroupSection({ group }: { group: ShortcutGroup }): ReactNode {
+function ShortcutRow({ keys, description }: { keys: readonly string[]; description: string }): ReactNode {
+  const localized = localizeKeys([...keys])
+  return (
+    <li className="flex items-center justify-between py-1">
+      <span className="text-sm text-gray-700">{description}</span>
+      <div className="flex items-center gap-1">
+        {localized.map((key, keyIndex) => (
+          <span key={keyIndex} className="flex items-center gap-1">
+            {keyIndex > 0 && <span className="text-xs text-gray-400">+</span>}
+            <KeyBadge>{key}</KeyBadge>
+          </span>
+        ))}
+      </div>
+    </li>
+  )
+}
+
+function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }): ReactNode {
+  return (
+    <div className="flex items-center gap-3 mb-2">
+      <div className="flex-1 border-t border-gray-100" />
+      <div className="shrink-0 text-center">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+          {title}
+        </h3>
+        {subtitle && <p className="text-xs text-gray-400 normal-case">{subtitle}</p>}
+      </div>
+      <div className="flex-1 border-t border-gray-100" />
+    </div>
+  )
+}
+
+function RegistryGroupSection({ title, shortcuts }: { title: string; shortcuts: readonly Shortcut[] }): ReactNode {
   return (
     <div>
-      <div className="flex items-center gap-3 mb-2">
-        <div className="flex-1 border-t border-gray-100" />
-        <div className="shrink-0 text-center">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-            {group.title}
-          </h3>
-          {group.subtitle && (
-            <p className="text-xs text-gray-400 normal-case">{group.subtitle}</p>
-          )}
-        </div>
-        <div className="flex-1 border-t border-gray-100" />
-      </div>
+      <SectionHeader title={title} />
       <ul className="space-y-1.5">
-        {group.shortcuts.map((shortcut, index) => (
-          <li
-            key={index}
-            className="flex items-center justify-between py-1"
-          >
-            <span className="text-sm text-gray-700">{shortcut.description}</span>
-            <div className="flex items-center gap-1">
-              {shortcut.keys.map((key, keyIndex) => (
-                <span key={keyIndex} className="flex items-center gap-1">
-                  {keyIndex > 0 && (
-                    <span className="text-xs text-gray-400">+</span>
-                  )}
-                  <KeyBadge>{key}</KeyBadge>
-                </span>
-              ))}
-            </div>
-          </li>
+        {shortcuts.map((shortcut) => (
+          <ShortcutRow key={shortcut.id} keys={shortcut.keys} description={shortcut.label} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/**
+ * Actions section renders registry rows AND inline page-scoped save rows as
+ * one continuous `<ul>` so the user doesn't see a visual seam between
+ * sources. The inline rows are the explicit carve-out (`Cmd+S` /
+ * `Cmd+Shift+S` page-scoped saves).
+ */
+function ActionsSection({
+  registryShortcuts,
+  inlineRows,
+}: {
+  registryShortcuts: readonly Shortcut[]
+  inlineRows: InlineShortcut[]
+}): ReactNode {
+  return (
+    <div>
+      <SectionHeader title="Actions" />
+      <ul className="space-y-1.5">
+        {registryShortcuts.map((shortcut) => (
+          <ShortcutRow key={shortcut.id} keys={shortcut.keys} description={shortcut.label} />
+        ))}
+        {inlineRows.map((row, index) => (
+          <ShortcutRow key={`inline-${index}`} keys={row.keys} description={row.description} />
         ))}
       </ul>
     </div>
@@ -129,6 +114,11 @@ function ShortcutGroupSection({ group }: { group: ShortcutGroup }): ReactNode {
 }
 
 export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): ReactNode {
+  const actionsShortcuts = getShortcutsBySection('Actions')
+  const navigationShortcuts = getShortcutsBySection('Navigation')
+  const viewShortcuts = getShortcutsBySection('View')
+  const markdownEditorShortcuts = getShortcutsBySection('Markdown Editor')
+
   return (
     <Modal
       isOpen={isOpen}
@@ -138,14 +128,12 @@ export function ShortcutsDialog({ isOpen, onClose }: ShortcutsDialogProps): Reac
     >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
         <div className="space-y-4">
-          {leftColumnGroups.map((group) => (
-            <ShortcutGroupSection key={group.title} group={group} />
-          ))}
+          <ActionsSection registryShortcuts={actionsShortcuts} inlineRows={inlineActionsSaves} />
+          <RegistryGroupSection title="Navigation" shortcuts={navigationShortcuts} />
+          <RegistryGroupSection title="View" shortcuts={viewShortcuts} />
         </div>
         <div className="space-y-4">
-          {rightColumnGroups.map((group) => (
-            <ShortcutGroupSection key={group.title} group={group} />
-          ))}
+          <RegistryGroupSection title="Markdown Editor" shortcuts={markdownEditorShortcuts} />
         </div>
       </div>
     </Modal>

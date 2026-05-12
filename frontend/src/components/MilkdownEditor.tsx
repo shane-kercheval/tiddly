@@ -43,8 +43,12 @@ import {
 import { toggleStrikethroughCommand } from '@milkdown/kit/preset/gfm'
 import { callCommand, $remark } from '@milkdown/kit/utils'
 
-// Custom commonmark without remarkPreserveEmptyLinePlugin
-const customCommonmark = [
+// Custom commonmark without remarkPreserveEmptyLinePlugin.
+// Exported so plugin-presence tests can introspect the editor's plugin list
+// after mount. Load-bearing for read-only markdown parsing (the only mode
+// Milkdown is used in production).
+// eslint-disable-next-line react-refresh/only-export-components
+export const customCommonmark = [
   schema,
   inputRules,
   markInputRules,
@@ -141,6 +145,8 @@ import { cleanMdastTree } from '../utils/cleanMarkdown'
 import { createLinkExitOnSpacePlugin } from '../utils/linkExitOnSpacePlugin'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
 import { findCodeBlockNode, findLinkBoundaries, normalizeUrl } from '../utils/milkdownHelpers'
+import { formatShortcut } from '../utils/platform'
+import { shortcutTooltipContent } from './editor/shortcutTooltip'
 import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
@@ -162,7 +168,8 @@ import type { Editor as EditorType } from '@milkdown/kit/core'
  */
 interface ToolbarButtonProps {
   onAction: () => void
-  title: string
+  /** Tooltip content. ReactNode so multi-line label-on-top, shortcut-below renders. */
+  title: ReactNode
   children: ReactNode
 }
 
@@ -248,49 +255,53 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
       {/* Left: formatting buttons that fade in */}
       <div className="flex items-center gap-0.5 opacity-0 pointer-events-none group-focus-within/editor:opacity-100 group-focus-within/editor:pointer-events-auto transition-opacity">
         {/* Text formatting */}
-        <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title="Bold (⌘B)">
+        <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title={shortcutTooltipContent('editor.bold')}>
           <BoldIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title="Italic (⌘I)">
+        <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title={shortcutTooltipContent('editor.italic')}>
           <ItalicIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title="Strikethrough (⌘⇧X)">
+        <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title={shortcutTooltipContent('editor.strikethrough')}>
           <StrikethroughIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title="Inline Code (⌘E)">
+        <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title={shortcutTooltipContent('editor.inlineCode')}>
           <InlineCodeIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={onCodeBlockToggle} title="Code Block (⌘⇧C)">
+        {/* Hardcoded shortcut here — Milkdown's editable mode is retired
+            (see ContentEditor.tsx). The toolbar is hidden in production
+            via the !readOnly guard above. No registry entry exists for
+            this Cmd+Shift+C binding since it doesn't fire in production. */}
+        <ToolbarButton onAction={onCodeBlockToggle} title={`Code Block (${formatShortcut(['⌘', '⇧', 'C'])})`}>
           <CodeBlockIcon />
         </ToolbarButton>
 
         <ToolbarSeparator />
 
         {/* Link */}
-        <ToolbarButton onAction={onLinkClick} title="Insert Link (⌘K)">
+        <ToolbarButton onAction={onLinkClick} title={shortcutTooltipContent('editor.insertLink')}>
           <LinkIcon />
         </ToolbarButton>
 
         <ToolbarSeparator />
 
         {/* Lists */}
-        <ToolbarButton onAction={onBulletListClick} title="Bullet List (⌘⇧7)">
+        <ToolbarButton onAction={onBulletListClick} title={shortcutTooltipContent('editor.bulletList')}>
           <BulletListIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={onOrderedListClick} title="Numbered List (⌘⇧8)">
+        <ToolbarButton onAction={onOrderedListClick} title={shortcutTooltipContent('editor.numberedList')}>
           <OrderedListIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={onChecklistClick} title="Checklist (⌘⇧9)">
+        <ToolbarButton onAction={onChecklistClick} title={shortcutTooltipContent('editor.checklist')}>
           <ChecklistIcon />
         </ToolbarButton>
 
         <ToolbarSeparator />
 
         {/* Block elements */}
-        <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title="Blockquote (⌘⇧.)">
+        <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title={shortcutTooltipContent('editor.blockquote')}>
           <BlockquoteIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title="Horizontal Rule (⌘⇧-)">
+        <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title={shortcutTooltipContent('editor.horizontalRule')}>
           <HorizontalRuleIcon />
         </ToolbarButton>
 
@@ -588,8 +599,14 @@ function getListItemDepthAtStart(state: EditorState): number {
 /**
  * Create a ProseMirror plugin that makes links clickable via Cmd+Click (Mac) or Ctrl+Click (Windows/Linux).
  * Opens links in a new tab with noopener,noreferrer for security.
+ *
+ * Exported so the `editor.openLinkInNewTab` plugin-presence test can assert
+ * the function still returns a plugin with the expected click handler shape.
+ * If a refactor removes this function or breaks its return shape, the
+ * registry entry becomes a documentation lie — the test catches that.
  */
-function createLinkClickPlugin(): Plugin {
+// eslint-disable-next-line react-refresh/only-export-components
+export function createLinkClickPlugin(): Plugin {
   return new Plugin({
     props: {
       handleDOMEvents: {
@@ -1271,90 +1288,14 @@ function MilkdownEditorInner({
     view.focus()
   }, [get])
 
-  // Run a Milkdown command helper for keyboard shortcuts
-  const runCommand = useCallback(
-    (command: Parameters<typeof callCommand>[0]) => {
-      const editor = get()
-      if (editor) {
-        editor.action(callCommand(command))
-        const view = editor.ctx.get(editorViewCtx)
-        view.focus()
-      }
-    },
-    [get]
-  )
-
-  // Handle keyboard shortcuts (Tab/Shift+Tab handled by listKeymapPluginSlice at ProseMirror level)
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      const isMod = e.metaKey || e.ctrlKey
-
-      // Cmd+K - Insert/edit link
-      if (isMod && e.key === 'k') {
-        e.preventDefault()
-        handleToolbarLinkClick()
-        return
-      }
-
-      // Cmd+Shift+X - Strikethrough
-      if (isMod && e.shiftKey && e.key === 'x') {
-        e.preventDefault()
-        runCommand(toggleStrikethroughCommand.key)
-        return
-      }
-
-      // Cmd+E - Inline code
-      if (isMod && !e.shiftKey && e.key === 'e') {
-        e.preventDefault()
-        runCommand(toggleInlineCodeCommand.key)
-        return
-      }
-
-      // Cmd+Shift+C - Code block (toggle)
-      if (isMod && e.shiftKey && e.key === 'c') {
-        e.preventDefault()
-        handleCodeBlockToggle()
-        return
-      }
-
-      // Cmd+Shift+7 - Bullet list (matches toolbar/menu order: 7=bullet, 8=numbered, 9=checklist)
-      if (isMod && e.shiftKey && e.key === '7') {
-        e.preventDefault()
-        handleBulletListClick()
-        return
-      }
-
-      // Cmd+Shift+8 - Numbered list
-      if (isMod && e.shiftKey && e.key === '8') {
-        e.preventDefault()
-        handleOrderedListClick()
-        return
-      }
-
-      // Cmd+Shift+9 - Checklist
-      if (isMod && e.shiftKey && e.key === '9') {
-        e.preventDefault()
-        handleChecklistClick()
-        return
-      }
-
-      // Cmd+Shift+. - Blockquote
-      if (isMod && e.shiftKey && e.key === '.') {
-        e.preventDefault()
-        runCommand(wrapInBlockquoteCommand.key)
-        return
-      }
-
-      // Cmd+Shift+- - Horizontal rule
-      if (isMod && e.shiftKey && e.key === '-') {
-        e.preventDefault()
-        runCommand(insertHrCommand.key)
-        return
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [get, runCommand, handleCodeBlockToggle, handleBulletListClick, handleOrderedListClick, handleChecklistClick, handleToolbarLinkClick]
-  )
+  // No keydown handler at the wrapper level. MilkdownEditor is read-only in
+  // production (see ContentEditor.tsx:1-17 — editable Milkdown was retired
+  // due to AST/cursor issues; the only consumer is CodeMirrorEditor's
+  // reading-mode preview at line 857). The hand-rolled keydown handler that
+  // used to live here was vestigial. ⌘B / ⌘I are upstream-bound by Milkdown's
+  // commonmark `keymap` plugin (in `customCommonmark`) but visually no-op in
+  // read-only mode. The only live editing-adjacent binding is ⌘Click on a
+  // link, which goes through `createLinkClickPlugin` below.
 
   // Handle mouse down - checkbox toggle and focus on empty space
   // Using mousedown instead of click to prevent focus flash (blur/refocus cycle)
@@ -1441,7 +1382,6 @@ function MilkdownEditorInner({
         className={`milkdown-wrapper ${disabled ? 'opacity-50 pointer-events-none' : ''} ${noPadding ? 'no-padding' : ''}`}
         style={{ minHeight }}
         onMouseDown={handleMouseDown}
-        onKeyDown={handleKeyDown}
       >
         <Milkdown />
       </div>

@@ -1304,3 +1304,52 @@ describe('MilkdownEditor link improvements', () => {
     })
   })
 })
+
+/**
+ * M4 — Read-only Milkdown verification.
+ *
+ * After the M4 audit, MilkdownEditor's editing infrastructure (keydown
+ * handler, toolbar) is recognized as dead code — the editor is only used as
+ * a read-only preview in production (see ContentEditor.tsx:1-17). The only
+ * live editing-adjacent binding is ⌘Click on a link via `createLinkClickPlugin`.
+ *
+ * - Plugin shape test for createLinkClickPlugin catches "function removed
+ *   or return shape changed." Mount-based plugin introspection isn't viable
+ *   in jsdom (no findFromDOM API, no layout for posAtCoords), so we test the
+ *   export shape and let `editor.openLinkInNewTab` rely on visual review +
+ *   git history as the safety net for the wiring (someone removes
+ *   `.use(linkClickPluginSlice)` from the editor builder).
+ * - Markdown-pipeline mount test asserts the read-only preview renders a
+ *   link from markdown source. If customCommonmark or the editor builder
+ *   breaks, this fails. Implicit coverage of the markdown-rendering pipeline.
+ */
+import { render, waitFor } from '@testing-library/react'
+import { MilkdownEditor, createLinkClickPlugin } from './MilkdownEditor'
+
+describe('MilkdownEditor — read-only preview wiring', () => {
+  it('renders a link from markdown source (markdown pipeline + customCommonmark wiring)', async () => {
+    const { container } = render(
+      <MilkdownEditor value="text [example](https://example.com) more" onChange={() => {}} readOnly={true} />,
+    )
+
+    // Wait for ProseMirror to mount + initial markdown parse.
+    await waitFor(() => expect(container.querySelector('.ProseMirror')).toBeTruthy())
+
+    const anchor = container.querySelector('a')
+    expect(anchor).toBeTruthy()
+    expect(anchor?.getAttribute('href')).toBe('https://example.com')
+    expect(anchor?.textContent).toBe('example')
+  })
+
+  it('createLinkClickPlugin returns a ProseMirror plugin with a click handler (editor.openLinkInNewTab)', () => {
+    // editor.openLinkInNewTab is bound at runtime by createLinkClickPlugin
+    // → linkClickPluginSlice → .use() chain in the editor builder. Testing
+    // only the function shape (jsdom can't introspect the mounted editor's
+    // plugins without a stable API and can't simulate clicks with positional
+    // data — posAtCoords needs layout). If `createLinkClickPlugin` is removed
+    // or its return shape changes, this test fails.
+    const plugin = createLinkClickPlugin()
+    expect(plugin).toBeDefined()
+    expect(plugin.spec.props?.handleDOMEvents?.click).toBeDefined()
+  })
+})

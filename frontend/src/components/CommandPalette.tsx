@@ -50,6 +50,8 @@ import {
 } from './icons'
 import { useListKeyboardNavigation } from '../hooks/useListKeyboardNavigation'
 import { isEffectivelyArchived } from '../utils'
+import { localizeKeys } from '../utils/platform'
+import { getShortcut, isShortcutId } from '../shortcuts/registry'
 import { getFilterRoute, getBuiltinRoute } from './sidebar/routes'
 import { getFilterIcon, getBuiltinIcon } from './sidebar/sidebarDndUtils'
 import {
@@ -81,12 +83,15 @@ interface CommandPaletteProps {
 // --- Command definitions ---
 
 interface CommandItem {
+  /**
+   * Use a `ShortcutId` (e.g., `app.focusSearch`) when the command has a
+   * registry shortcut — keys are derived at render time. Otherwise use a
+   * local id (no keyboard hint shown).
+   */
   id: string
   label: string
   icon: ReactNode
   action: () => void
-  /** Keyboard shortcut hint displayed on the right side */
-  shortcut?: string[]
 }
 
 /** Sort options available in search (relevance + base options) */
@@ -307,23 +312,21 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   const commands = useMemo((): CommandItem[] => {
     const cmds: CommandItem[] = []
 
-    // 1. Search
+    // 1. Search \u2014 opens the palette in search view (same outcome as `/` global shortcut).
     cmds.push({
-      id: 'search',
+      id: 'app.focusSearch',
       label: 'Search',
       icon: <SearchIcon className="h-4 w-4" />,
       action: () => setView('search'),
-      shortcut: ['/'],
     })
 
-    // 2. Keyboard shortcuts
+    // 2. Keyboard shortcuts \u2014 opens the shortcuts dialog (same as \u2318\u21E7/ global).
     if (onShowShortcuts) {
       cmds.push({
-        id: 'shortcuts',
+        id: 'app.showShortcuts',
         label: 'Keyboard Shortcuts',
         icon: <HelpIcon className="h-4 w-4" />,
         action: () => { onClose(); onShowShortcuts() },
-        shortcut: ['\u2318', '\u21E7', '/'],
       })
     }
 
@@ -633,9 +636,9 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
                   >
                     <span className={`shrink-0 ${index === commandSelectedIndex ? 'text-gray-600' : 'text-gray-400'}`}>{cmd.icon}</span>
                     <span className="truncate flex-1">{cmd.label}</span>
-                    {cmd.shortcut && (
+                    {isShortcutId(cmd.id) && (
                       <span className="hidden sm:flex items-center gap-0.5 shrink-0 ml-2">
-                        {cmd.shortcut.map((key, i) => (
+                        {localizeKeys(getShortcut(cmd.id).keys).map((key, i) => (
                           <kbd key={i} className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-medium text-gray-400 bg-gray-100 rounded border border-gray-200">
                             {key}
                           </kbd>
