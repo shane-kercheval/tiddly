@@ -85,6 +85,21 @@ class BaseEntityService[T: TaggableEntity](ABC):
         await db.refresh(entity)
         await db.refresh(entity, attribute_names=["tag_objects"])
 
+    @staticmethod
+    def _attach_content_length(entity: Any) -> None:
+        """
+        Compute and attach `content_length` from the in-memory `content` field.
+
+        Used by read paths that already load full content (`get`,
+        `get_for_update`, and the prompt-by-name variants). Cheaper than a SQL
+        `length()` call when we have the bytes in Python already, and handles
+        empty strings correctly (len("") == 0, not None).
+        """
+        if entity is None:
+            return
+        content = getattr(entity, "content", None)
+        entity.content_length = len(content) if content is not None else None
+
     # --- Abstract Methods (entity-specific) ---
 
     @abstractmethod
@@ -288,16 +303,56 @@ class BaseEntityService[T: TaggableEntity](ABC):
 
         result = await db.execute(query)
         entity = result.scalar_one_or_none()
+        self._attach_content_length(entity)
+        return entity
 
-        if entity is not None:
-            # Compute content_length in Python since content is already loaded.
-            # This is more efficient than adding a SQL computed column when we're
-            # already fetching full content. Python len() and PostgreSQL length()
-            # both count characters for UTF-8 text, so results are consistent.
-            # Use `is not None` to correctly handle empty strings (len("") = 0, not None).
-            content = getattr(entity, "content", None)
-            entity.content_length = len(content) if content is not None else None
+    async def get_for_update(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity_id: UUID,
+        *,
+        include_archived: bool = False,
+    ) -> T | None:
+        """
+        Fetch an entity and acquire a `SELECT ... FOR UPDATE` row lock.
 
+        MUST be called inside a transaction. The lock is held until the
+        transaction commits or rolls back. Use only when the same request
+        will issue an UPDATE on the returned entity (e.g., the str-replace
+        endpoints). For read-only access use `get(...)` instead.
+
+        Soft-deleted entities are always excluded (str-replace never operates
+        on them). Tags are intentionally NOT eager-loaded: a `selectinload`
+        would issue a second SELECT outside the FOR UPDATE, which means the
+        tag set could be inconsistent with the locked content row. str-replace
+        handlers refresh `tag_objects` explicitly after the update if they
+        need to serialize them.
+
+        Args:
+            db: Database session (must be inside an open transaction).
+            user_id: User ID to scope the entity.
+            entity_id: ID of the entity to retrieve.
+            include_archived: If True, include archived entities. Default False.
+
+        Returns:
+            The entity if found and matches filters, None otherwise.
+        """
+        query = (
+            select(self.model)
+            .where(
+                self.model.id == entity_id,
+                self.model.user_id == user_id,
+                self.model.deleted_at.is_(None),
+            )
+            .with_for_update()
+        )
+        if not include_archived:
+            query = query.where(~self.model.is_archived)
+
+        result = await db.execute(query)
+        entity = result.scalar_one_or_none()
+        self._attach_content_length(entity)
         return entity
 
     async def get_metadata(

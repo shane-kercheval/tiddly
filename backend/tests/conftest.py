@@ -25,7 +25,8 @@ from models.base import Base
 from services.llm_service import LLMService, set_llm_service
 
 def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
-    """Pin env vars that shadow local .env so tests are hermetic.
+    """
+    Pin env vars that shadow local .env so tests are hermetic.
 
     Runs once at session start, before any fixture or test, regardless of
     which subset of tests is selected. Container-dependent env vars
@@ -168,7 +169,8 @@ _SEARCH_VECTOR_TRIGGER_STATEMENTS = [
 
 @pytest.fixture(scope="session")
 def _schema_setup(database_url: str) -> None:
-    """Run schema DDL once per test session.
+    """
+    Run schema DDL once per test session.
 
     Saves ~45s across the ~3000-test suite by hoisting Base.metadata.create_all
     and the search-vector trigger DDL out of the per-test path. The Postgres
@@ -252,6 +254,103 @@ def db_session_factory(db_connection: AsyncConnection) -> async_sessionmaker:
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
+
+
+# ---------------------------------------------------------------------------
+# Concurrent-session fixtures (real cross-transaction lock contention)
+# ---------------------------------------------------------------------------
+# These fixtures provide independent database connections suitable for
+# exercising real Postgres row-lock behavior (`SELECT ... FOR UPDATE`).
+#
+# Why they are separate from `db_session` / `db_session_factory`:
+#   - The standard fixtures bind every session to a single AsyncConnection
+#     wrapped in an outer transaction that is rolled back after each test
+#     (`join_transaction_mode="create_savepoint"`). All "concurrent" sessions
+#     therefore share one transaction and cannot contend for row locks.
+#   - To test FOR UPDATE we need independent backends/transactions, which
+#     requires a separate engine with no outer-transaction wrapper.
+#
+# Tests using `concurrent_session_factory` must clean up their data. Use
+# `concurrent_test_user` to get a fresh User scoped to the test; data created
+# under that user_id is removed automatically (ON DELETE CASCADE handles
+# bookmarks/notes/prompts/history).
+
+
+@pytest.fixture
+async def concurrent_engine(
+    database_url: str,
+    _schema_setup: None,
+) -> AsyncGenerator[AsyncEngine]:
+    """
+    Independent async engine for tests that need real lock contention.
+
+    Function-scoped because pytest-asyncio creates a fresh event loop per
+    test; asyncpg connections in the pool are bound to the loop they were
+    created in and cannot be reused across loops.
+    """
+    engine = create_async_engine(
+        database_url,
+        echo=False,
+        pool_size=4,
+        max_overflow=2,
+        pool_pre_ping=True,
+    )
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture
+def concurrent_session_factory(
+    concurrent_engine: AsyncEngine,
+) -> async_sessionmaker:
+    """
+    Session factory backed by the independent engine.
+
+    Each session opens its own transaction. Sessions/transactions are fully
+    independent and commits are real (not rolled back at end of test).
+    Use with `concurrent_test_user` for automatic data cleanup.
+    """
+    return async_sessionmaker(
+        concurrent_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+
+@pytest.fixture
+async def concurrent_test_user(
+    concurrent_session_factory: async_sessionmaker,
+) -> AsyncGenerator[object]:
+    """
+    Create a fresh User on the concurrent engine; cascade-delete on teardown.
+
+    Yields the User row (with a fresh `id`). Any bookmarks/notes/prompts/
+    content_history created under this user_id are removed by FK cascade
+    when the user is deleted.
+    """
+    # Local import to avoid loading models at collection time / module import.
+    from models.user import User  # noqa: PLC0415
+
+    async with concurrent_session_factory() as session:
+        user = User(
+            auth0_id=f"concurrent-test-{os.urandom(8).hex()}",
+            email=f"concurrent-{os.urandom(4).hex()}@test.local",
+            # "pro" so concurrency tests aren't constrained by FREE-tier quotas.
+            tier="pro",
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+
+    try:
+        yield user
+    finally:
+        async with concurrent_session_factory() as session:
+            await session.execute(
+                text("DELETE FROM users WHERE id = :uid"),
+                {"uid": user.id},
+            )
+            await session.commit()
 
 
 @pytest.fixture
