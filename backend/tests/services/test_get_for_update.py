@@ -13,20 +13,26 @@ Two concerns are tested:
      a single connection wrapped in one outer transaction — cross-session lock
      contention is impossible in that shape.
 
-Blocking is proven by the strongest assertion available: spawn B as a task, A
-modifies + commits a sentinel value, await B, assert B observes the sentinel.
-That single chain proves (a) B was blocked while A held the lock (otherwise B
-would have read the pre-A state), (b) the lock was released on A's commit,
-and (c) B reads correct post-commit state. We deliberately avoid
-`asyncio.wait_for(..., timeout=...)` + `TimeoutError` to assert blocking —
-that pattern proves "the driver cancelled the query," not "the row was locked."
+Two complementary techniques carry the lock proofs:
+
+  - `_assert_row_is_locked` issues a `SELECT ... FOR UPDATE NOWAIT` from a
+    third session. NOWAIT raises immediately if the row is locked, which
+    deterministically confirms that lock state at the probe point — no
+    timing dependence.
+  - After releasing A's lock, await B's task and assert the post-state it
+    observes (A's committed sentinel, or the pre-A "original" after rollback).
+    This rules out scheduler races where B might have read pre-A state.
+
+We deliberately avoid `asyncio.wait_for(..., timeout=...)` + `TimeoutError`
+as a blocking proof — that pattern only shows "the driver cancelled the
+query," not "the row was locked."
 
 We do not re-test Postgres's responsibilities (deadlock detection, lock
 fairness) — only the wrapper's contract.
 """
 import asyncio
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -62,6 +68,28 @@ QUICK_RETURN_TIMEOUT = 0.5
 # ---------------------------------------------------------------------------
 # Helpers / per-test seeding
 # ---------------------------------------------------------------------------
+
+
+async def _assert_row_is_locked(
+    factory: async_sessionmaker,
+    model: type,
+    entity_id: UUID,
+) -> None:
+    """
+    Deterministic probe: assert the given row is currently locked.
+
+    `SELECT ... FOR UPDATE NOWAIT` raises `LockNotAvailableError` immediately
+    if any other transaction holds the lock. Combined with a post-state
+    assertion in the calling test, this turns timing-dependent "blocking"
+    proofs into a deterministic lock-state check.
+    """
+    async with factory() as probe_session:
+        with pytest.raises(DBAPIError, match="could not obtain lock"):
+            await probe_session.execute(
+                select(model)
+                .where(model.id == entity_id)
+                .with_for_update(nowait=True),
+            )
 
 
 @pytest.fixture
@@ -202,11 +230,17 @@ async def test_get_for_update_blocks_until_commit(
     """
     While A holds the row lock, B's FOR UPDATE blocks until A commits.
 
-    The assertion `B saw "committed-by-a"` proves three things at once:
-      (a) B was blocked while A held the lock — otherwise it would have read
-          the pre-A value "original";
-      (b) the lock was released on A's commit;
-      (c) B read the correct post-commit state.
+    Two assertions carry the proof:
+      1. Before spawning B, a `FOR UPDATE NOWAIT` probe from a third session
+         deterministically confirms A holds the lock right now.
+      2. After A commits, B unblocks and reads "committed-by-a" — proving B
+         did not race ahead of A (which would have read "original" under
+         READ COMMITTED) and that B reads the correct post-commit state.
+
+    The `await asyncio.sleep(TASK_START_DELAY)` is a heuristic giving B time
+    to start its query before A commits. The NOWAIT probe above is what makes
+    this deterministic; the sleep is belt-and-suspenders for the post-state
+    check.
     """
     async def acquire_in_b() -> Bookmark | None:
         async with concurrent_session_factory() as session_b:
@@ -221,6 +255,8 @@ async def test_get_for_update_blocks_until_commit(
         assert locked is not None
         locked.content = "committed-by-a"
         await session_a.flush()
+
+        await _assert_row_is_locked(concurrent_session_factory, Bookmark, seeded_bookmark.id)
 
         b_task = asyncio.create_task(acquire_in_b())
         await asyncio.sleep(TASK_START_DELAY)
@@ -239,8 +275,13 @@ async def test_get_for_update_blocks_until_rollback(
     """
     While A holds the row lock, B's FOR UPDATE blocks until A rolls back.
 
-    The assertion `B saw "original"` proves both that the lock was released
-    on rollback AND that A's uncommitted change is invisible to B.
+    Under READ COMMITTED, an uncommitted UPDATE in A is invisible to other
+    sessions regardless of the FOR UPDATE lock — so the post-state assertion
+    `B saw "original"` alone does not distinguish locked from unlocked
+    behavior. The NOWAIT probe is what makes this test a real proof: it
+    deterministically confirms A holds the lock before B is spawned. After
+    A rolls back, B unblocks and reads "original", confirming both that the
+    lock was released on rollback and that A's uncommitted change is gone.
     """
     async def acquire_in_b() -> Bookmark | None:
         async with concurrent_session_factory() as session_b:
@@ -255,6 +296,8 @@ async def test_get_for_update_blocks_until_rollback(
         assert locked is not None
         locked.content = "uncommitted-change"
         await session_a.flush()
+
+        await _assert_row_is_locked(concurrent_session_factory, Bookmark, seeded_bookmark.id)
 
         b_task = asyncio.create_task(acquire_in_b())
         await asyncio.sleep(TASK_START_DELAY)
@@ -301,18 +344,11 @@ async def test_row_lock_survives_savepoint_rollback(
             async with session_a.begin_nested():
                 raise RuntimeError("savepoint-abort")
 
-        # Probe from a separate session: NOWAIT fails immediately if A still
-        # holds the row lock.
-        async with concurrent_session_factory() as session_b:
-            # Match asyncpg's LockNotAvailableError message specifically, so
-            # the test would fail informatively if any other lock-related
-            # error class (e.g., deadlock) ever surfaced through this path.
-            with pytest.raises(DBAPIError, match="could not obtain lock"):
-                await session_b.execute(
-                    select(Bookmark)
-                    .where(Bookmark.id == seeded_bookmark.id)
-                    .with_for_update(nowait=True),
-                )
+        # Probe from a separate session: if A still holds the lock,
+        # NOWAIT raises immediately. This is the load-bearing assertion of
+        # this test — it answers "is the FOR UPDATE lock still held after
+        # the savepoint rollback?" deterministically.
+        await _assert_row_is_locked(concurrent_session_factory, Bookmark, seeded_bookmark.id)
 
         await session_a.rollback()
 
@@ -402,6 +438,8 @@ async def test_get_by_name_for_update_blocks_until_commit(
         assert locked.id == seeded_prompt.id
         locked.content = "committed-by-a"
         await session_a.flush()
+
+        await _assert_row_is_locked(concurrent_session_factory, Prompt, seeded_prompt.id)
 
         b_task = asyncio.create_task(acquire_in_b())
         await asyncio.sleep(TASK_START_DELAY)

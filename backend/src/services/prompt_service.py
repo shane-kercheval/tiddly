@@ -560,7 +560,8 @@ class PromptService(BaseEntityService[Prompt]):
         MUST be called inside a transaction. The lock is held until the
         transaction commits or rolls back. Tags are intentionally NOT
         eager-loaded — see `BaseEntityService.get_for_update` for the
-        rationale (consistency vs. the locked row).
+        rationale (fetch-time tag_objects are unused by str-replace; handlers
+        refresh them post-flush when they need to serialize).
 
         Args:
             db: Database session (must be inside an open transaction).

@@ -323,11 +323,11 @@ class BaseEntityService[T: TaggableEntity](ABC):
         endpoints). For read-only access use `get(...)` instead.
 
         Soft-deleted entities are always excluded (str-replace never operates
-        on them). Tags are intentionally NOT eager-loaded: a `selectinload`
-        would issue a second SELECT outside the FOR UPDATE, which means the
-        tag set could be inconsistent with the locked content row. str-replace
-        handlers refresh `tag_objects` explicitly after the update if they
-        need to serialize them.
+        on them). Tags are intentionally NOT eager-loaded: str-replace does
+        not need `tag_objects` at fetch time. Handlers that serialize the
+        entity (or record metadata snapshots) call
+        `db.refresh(entity, attribute_names=["tag_objects"])` after the
+        write flush.
 
         Args:
             db: Database session (must be inside an open transaction).

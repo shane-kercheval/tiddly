@@ -523,9 +523,11 @@ async def str_replace_prompt_by_name(
     This endpoint is primarily used by the MCP server for prompt edits.
     To edit archived prompts, restore them first via the API or web UI.
 
-    Note: There is a tiny race window where a prompt could be archived between
-    lookup and edit. This is accepted behavior given the extremely small window
-    and minimal impact (edit succeeds on now-archived prompt).
+    A concurrent archive of this prompt is resolved by the FOR UPDATE lock —
+    `get_by_name_for_update` re-evaluates the active-only predicate at lock
+    acquisition under READ COMMITTED, so an archive committing during the
+    request results in a deterministic 404 rather than an edit slipping
+    through onto a now-archived prompt.
 
     See PATCH /prompts/{id}/str-replace for full documentation on matching
     strategy, atomic content + arguments updates, and error responses.

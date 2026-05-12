@@ -3,7 +3,11 @@ import asyncio
 import os
 from collections.abc import AsyncGenerator, Generator
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from unittest.mock import patch
+
+if TYPE_CHECKING:
+    from models.user import User
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -321,7 +325,7 @@ def concurrent_session_factory(
 @pytest.fixture
 async def concurrent_test_user(
     concurrent_session_factory: async_sessionmaker,
-) -> AsyncGenerator[object]:
+) -> "AsyncGenerator[User]":
     """
     Create a fresh User on the concurrent engine; cascade-delete on teardown.
 
@@ -336,8 +340,8 @@ async def concurrent_test_user(
         user = User(
             auth0_id=f"concurrent-test-{os.urandom(8).hex()}",
             email=f"concurrent-{os.urandom(4).hex()}@test.local",
-            # "pro" so concurrency tests aren't constrained by FREE-tier quotas.
-            tier="pro",
+            # PRO tier so concurrency tests aren't constrained by FREE-tier quotas.
+            tier=Tier.PRO.value,
         )
         session.add(user)
         await session.commit()
@@ -357,7 +361,7 @@ async def concurrent_test_user(
 @pytest.fixture
 async def concurrent_client(
     concurrent_session_factory: async_sessionmaker,
-    concurrent_test_user: object,
+    concurrent_test_user: "User",
     redis_client: RedisClient,  # noqa: ARG001
 ) -> AsyncGenerator[AsyncClient]:
     """
@@ -382,7 +386,6 @@ async def concurrent_client(
         PRIVACY_POLICY_VERSION,
         TERMS_OF_SERVICE_VERSION,
     )
-    from core.tier_limits import Tier, get_tier_limits  # noqa: PLC0415
     from db.session import get_async_session, get_session_factory  # noqa: PLC0415
     from models.user_consent import UserConsent  # noqa: PLC0415
     from schemas.token import TokenCreate  # noqa: PLC0415
@@ -391,7 +394,7 @@ async def concurrent_client(
     # Seed consent and PAT in their own committed transaction so subsequent
     # per-request sessions can see them. DEV-tier limits here cover only the
     # PAT-count quota check at creation time; the user's runtime tier (which
-    # governs rate limiting) stays "pro" as set in `concurrent_test_user`.
+    # governs rate limiting) stays PRO as set in `concurrent_test_user`.
     # N=5 concurrent writes is well under PRO's 200/min write rate limit.
     async with concurrent_session_factory() as session:
         session.add(UserConsent(
