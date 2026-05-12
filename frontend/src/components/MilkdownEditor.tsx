@@ -146,7 +146,7 @@ import { createLinkExitOnSpacePlugin } from '../utils/linkExitOnSpacePlugin'
 import { shouldHandleEmptySpaceClick, wasEditorFocused } from '../utils/editorUtils'
 import { findCodeBlockNode, findLinkBoundaries, normalizeUrl } from '../utils/milkdownHelpers'
 import { formatShortcut } from '../utils/platform'
-import { tooltipFor } from '../shortcuts/format'
+import { shortcutTooltipContent } from './editor/shortcutTooltip'
 import type { Editor as EditorType } from '@milkdown/kit/core'
 
 /**
@@ -168,7 +168,8 @@ import type { Editor as EditorType } from '@milkdown/kit/core'
  */
 interface ToolbarButtonProps {
   onAction: () => void
-  title: string
+  /** Tooltip content. ReactNode so multi-line label-on-top, shortcut-below renders. */
+  title: ReactNode
   children: ReactNode
 }
 
@@ -254,16 +255,16 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
       {/* Left: formatting buttons that fade in */}
       <div className="flex items-center gap-0.5 opacity-0 pointer-events-none group-focus-within/editor:opacity-100 group-focus-within/editor:pointer-events-auto transition-opacity">
         {/* Text formatting */}
-        <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title={tooltipFor('editor.bold')}>
+        <ToolbarButton onAction={() => runCommand(toggleStrongCommand.key)} title={shortcutTooltipContent('editor.bold')}>
           <BoldIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title={tooltipFor('editor.italic')}>
+        <ToolbarButton onAction={() => runCommand(toggleEmphasisCommand.key)} title={shortcutTooltipContent('editor.italic')}>
           <ItalicIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title={tooltipFor('editor.strikethrough')}>
+        <ToolbarButton onAction={() => runCommand(toggleStrikethroughCommand.key)} title={shortcutTooltipContent('editor.strikethrough')}>
           <StrikethroughIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title={tooltipFor('editor.inlineCode')}>
+        <ToolbarButton onAction={() => runCommand(toggleInlineCodeCommand.key)} title={shortcutTooltipContent('editor.inlineCode')}>
           <InlineCodeIcon />
         </ToolbarButton>
         {/* Hardcoded shortcut here — Milkdown's editable mode is retired
@@ -277,30 +278,30 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
         <ToolbarSeparator />
 
         {/* Link */}
-        <ToolbarButton onAction={onLinkClick} title={tooltipFor('editor.insertLink')}>
+        <ToolbarButton onAction={onLinkClick} title={shortcutTooltipContent('editor.insertLink')}>
           <LinkIcon />
         </ToolbarButton>
 
         <ToolbarSeparator />
 
         {/* Lists */}
-        <ToolbarButton onAction={onBulletListClick} title={tooltipFor('editor.bulletList')}>
+        <ToolbarButton onAction={onBulletListClick} title={shortcutTooltipContent('editor.bulletList')}>
           <BulletListIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={onOrderedListClick} title={tooltipFor('editor.numberedList')}>
+        <ToolbarButton onAction={onOrderedListClick} title={shortcutTooltipContent('editor.numberedList')}>
           <OrderedListIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={onChecklistClick} title={tooltipFor('editor.checklist')}>
+        <ToolbarButton onAction={onChecklistClick} title={shortcutTooltipContent('editor.checklist')}>
           <ChecklistIcon />
         </ToolbarButton>
 
         <ToolbarSeparator />
 
         {/* Block elements */}
-        <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title={tooltipFor('editor.blockquote')}>
+        <ToolbarButton onAction={() => runCommand(wrapInBlockquoteCommand.key)} title={shortcutTooltipContent('editor.blockquote')}>
           <BlockquoteIcon />
         </ToolbarButton>
-        <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title={tooltipFor('editor.horizontalRule')}>
+        <ToolbarButton onAction={() => runCommand(insertHrCommand.key)} title={shortcutTooltipContent('editor.horizontalRule')}>
           <HorizontalRuleIcon />
         </ToolbarButton>
 

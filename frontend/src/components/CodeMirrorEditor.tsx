@@ -56,7 +56,7 @@ import { getShortcut, type ShortcutId } from '../shortcuts/registry'
 import { CAPTURE_PHASE_IDS } from '../shortcuts/capturePhase'
 import { findMatchingShortcut } from '../shortcuts/matcher'
 import { assertNoDuplicateMatchShapes } from '../shortcuts/useGlobalShortcuts'
-import { tooltipFor } from '../shortcuts/format'
+import { shortcutTooltipContent } from './editor/shortcutTooltip'
 import {
   toggleWrapMarkers,
   toggleLinePrefix,
@@ -192,7 +192,8 @@ function createMarkdownKeyBindings(): KeyBinding[] {
  */
 interface ToolbarButtonProps {
   onClick: () => void
-  title: string
+  /** Tooltip content. ReactNode so multi-line label-on-top, shortcut-below renders. */
+  title: ReactNode
   children: ReactNode
 }
 
@@ -657,52 +658,52 @@ export function CodeMirrorEditor({
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
         <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:pointer-events-none md:group-focus-within/editor:opacity-100 md:group-focus-within/editor:pointer-events-auto transition-opacity ${disabled || readOnly ? 'pointer-events-none' : ''}`}>
           {/* Text formatting */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title={tooltipFor('editor.bold')}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title={shortcutTooltipContent('editor.bold')}>
             <BoldIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title={tooltipFor('editor.italic')}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title={shortcutTooltipContent('editor.italic')}>
             <ItalicIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title={tooltipFor('editor.strikethrough')}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title={shortcutTooltipContent('editor.strikethrough')}>
             <StrikethroughIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title={tooltipFor('editor.highlight')}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title={shortcutTooltipContent('editor.highlight')}>
             <HighlightIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title={tooltipFor('editor.blockquote')}>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title={shortcutTooltipContent('editor.blockquote')}>
             <BlockquoteIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Code */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title={tooltipFor('editor.inlineCode')}>
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title={shortcutTooltipContent('editor.inlineCode')}>
             <InlineCodeIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title={tooltipFor('editor.codeBlock')}>
+          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title={shortcutTooltipContent('editor.codeBlock')}>
             <CodeBlockIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Lists */}
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title={tooltipFor('editor.bulletList')}>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title={shortcutTooltipContent('editor.bulletList')}>
             <BulletListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title={tooltipFor('editor.numberedList')}>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title={shortcutTooltipContent('editor.numberedList')}>
             <OrderedListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.checklist))} title={tooltipFor('editor.checklist')}>
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.checklist))} title={shortcutTooltipContent('editor.checklist')}>
             <ChecklistIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Links and dividers */}
-          <ToolbarButton onClick={() => runAction(insertLink)} title={tooltipFor('editor.insertLink')}>
+          <ToolbarButton onClick={() => runAction(insertLink)} title={shortcutTooltipContent('editor.insertLink')}>
             <LinkIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title={tooltipFor('editor.horizontalRule')}>
+          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title={shortcutTooltipContent('editor.horizontalRule')}>
             <HorizontalRuleIcon />
           </ToolbarButton>
 
@@ -730,7 +731,7 @@ export function CodeMirrorEditor({
           <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
           {/* Wrap toggle - always visible, only shown when not in reading mode */}
           {onWrapTextChange && !effectiveReadingMode && (
-            <Tooltip content={tooltipFor('editor.toggleWordWrap')} compact>
+            <Tooltip content={shortcutTooltipContent('editor.toggleWordWrap')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -754,7 +755,7 @@ export function CodeMirrorEditor({
 
           {/* Line numbers toggle - always visible, only shown when not in reading mode */}
           {onLineNumbersChange && !effectiveReadingMode && (
-            <Tooltip content={tooltipFor('editor.toggleLineNumbers')} compact>
+            <Tooltip content={shortcutTooltipContent('editor.toggleLineNumbers')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -778,7 +779,7 @@ export function CodeMirrorEditor({
 
           {/* Mono font toggle - only shown when not in reading mode */}
           {onMonoFontChange && !effectiveReadingMode && (
-            <Tooltip content={tooltipFor('editor.toggleMonoFont')} compact>
+            <Tooltip content={shortcutTooltipContent('editor.toggleMonoFont')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -802,7 +803,7 @@ export function CodeMirrorEditor({
 
           {/* Table of Contents toggle - only shown when enabled and not in reading mode */}
           {showTocToggle && !effectiveReadingMode && (
-            <Tooltip content={tooltipFor('editor.toggleToc')} compact>
+            <Tooltip content={shortcutTooltipContent('editor.toggleToc')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -825,7 +826,7 @@ export function CodeMirrorEditor({
           )}
 
           {/* Reading mode toggle - always visible */}
-          <Tooltip content={tooltipFor('editor.toggleReadingMode')} compact>
+          <Tooltip content={shortcutTooltipContent('editor.toggleReadingMode')} compact>
             <button
               type="button"
               tabIndex={-1}
