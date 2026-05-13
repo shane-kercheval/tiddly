@@ -352,3 +352,11 @@ async def test_concurrent_edits_assign_unique_dense_history_versions(
     assert max(versions) - min(versions) + 1 == N_CONCURRENT, (
         f"Gap in version sequence: {sorted(versions)}."
     )
+
+    # Each str-replace UPDATE row should record what changed. str-replace only
+    # touches content (the prompt atomic-arguments path is exercised
+    # separately in test_prompts.py).
+    assert all(r.changed_fields == ["content"] for r in updates), (
+        f"Expected changed_fields=['content'] on every str-replace UPDATE row. "
+        f"Got: {[r.changed_fields for r in updates]}"
+    )

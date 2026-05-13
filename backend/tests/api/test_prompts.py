@@ -2986,6 +2986,131 @@ async def test__str_replace_by_name__with_arguments_update(client: AsyncClient) 
     ]
 
 
+async def test__str_replace_by_name__changed_fields_records_content_only(
+    client: AsyncClient,
+) -> None:
+    """Pure content edit (no arguments in payload) records changed_fields=['content']."""
+    create = await client.post("/prompts/", json={
+        "name": "kan148-changed-fields-content-only",
+        "content": "hello world",
+    })
+    prompt_id = create.json()["id"]
+
+    patch = await client.patch(
+        "/prompts/name/kan148-changed-fields-content-only/str-replace",
+        json={"old_str": "hello", "new_str": "hi"},
+    )
+    assert patch.status_code == 200
+
+    hist = await client.get(f"/history/prompt/{prompt_id}")
+    updates = [r for r in hist.json()["items"] if r["action"] == "update"]
+    assert len(updates) == 1
+    assert updates[0]["changed_fields"] == ["content"]
+
+
+async def test__str_replace_by_name__changed_fields_records_content_and_arguments(
+    client: AsyncClient,
+) -> None:
+    """Atomic content + arguments edit records changed_fields=['content', 'arguments']."""
+    create = await client.post("/prompts/", json={
+        "name": "kan148-changed-fields-both",
+        "content": "hello world",
+        "arguments": [],
+    })
+    prompt_id = create.json()["id"]
+
+    patch = await client.patch(
+        "/prompts/name/kan148-changed-fields-both/str-replace",
+        json={
+            "old_str": "world",
+            "new_str": "{{ name }}",
+            "arguments": [{"name": "name", "description": "user", "required": True}],
+        },
+    )
+    assert patch.status_code == 200
+
+    hist = await client.get(f"/history/prompt/{prompt_id}")
+    updates = [r for r in hist.json()["items"] if r["action"] == "update"]
+    assert len(updates) == 1
+    assert updates[0]["changed_fields"] == ["content", "arguments"]
+
+
+async def test__str_replace_by_name__changed_fields_records_arguments_only_when_content_unchanged(
+    client: AsyncClient,
+) -> None:
+    """
+    Content unchanged + arguments actually different → changed_fields == ['arguments'].
+
+    Edge case: a str-replace where `old_str == new_str` (or otherwise resolves to identical
+    content) AND the supplied `arguments` differ structurally from the existing arguments
+    bypasses the no-op early return and records a history row with only 'arguments' as the
+    changed field. (See the companion test that confirms identical arguments DO trigger
+    the no-op return.)
+    """
+    create = await client.post("/prompts/", json={
+        "name": "kan148-changed-fields-args-only",
+        "content": "hello {{ name }}",
+        "arguments": [{"name": "name", "required": True}],
+    })
+    prompt_id = create.json()["id"]
+
+    # Replace a substring with the same value so content is unchanged.
+    patch = await client.patch(
+        "/prompts/name/kan148-changed-fields-args-only/str-replace",
+        json={
+            "old_str": "hello",
+            "new_str": "hello",
+            "arguments": [{"name": "name", "description": "new desc", "required": True}],
+        },
+    )
+    assert patch.status_code == 200
+
+    hist = await client.get(f"/history/prompt/{prompt_id}")
+    updates = [r for r in hist.json()["items"] if r["action"] == "update"]
+    assert len(updates) == 1
+    assert updates[0]["changed_fields"] == ["arguments"]
+
+
+async def test__str_replace_by_name__no_op_when_content_unchanged_and_arguments_identical(
+    client: AsyncClient,
+) -> None:
+    """
+    True no-op: content unchanged AND arguments identical to existing → no history row,
+    no updated_at bump.
+
+    Without the structural equality check on arguments, sending the same arguments list
+    bypasses the no-op early-return and writes a ghost history row + bumps updated_at,
+    even though nothing actually changed. This test pins the corrected behavior.
+    """
+    create = await client.post("/prompts/", json={
+        "name": "kan148-no-op-same-args",
+        "content": "hello world",
+        "arguments": [],
+    })
+    prompt_id = create.json()["id"]
+    original_updated_at = create.json()["updated_at"]
+
+    # Same arguments list (empty), str-replace that resolves to identical content.
+    await asyncio.sleep(0.01)  # ensure any new write would have a distinguishable timestamp
+    patch = await client.patch(
+        "/prompts/name/kan148-no-op-same-args/str-replace",
+        json={
+            "old_str": "world",
+            "new_str": "world",
+            "arguments": [],
+        },
+    )
+    assert patch.status_code == 200
+    assert patch.json()["data"]["updated_at"] == original_updated_at
+
+    hist = await client.get(f"/history/prompt/{prompt_id}")
+    updates = [r for r in hist.json()["items"] if r["action"] == "update"]
+    assert updates == [], (
+        f"Expected no UPDATE history rows (true no-op), got {len(updates)}: "
+        f"{[r['changed_fields'] for r in updates]}"
+    )
+
+
 async def test__str_replace_by_name__template_validation(client: AsyncClient) -> None:
     """Test that str-replace by name validates resulting template."""
     await client.post(

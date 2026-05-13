@@ -500,6 +500,7 @@ async def str_replace_note(
         metadata=metadata,
         context=context,
         limits=limits,
+        changed_fields=["content"],
     )
 
     if include_updated_entity:
