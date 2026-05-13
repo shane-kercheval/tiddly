@@ -3071,6 +3071,37 @@ async def test__str_replace_by_name__changed_fields_records_arguments_only_when_
     assert updates[0]["changed_fields"] == ["arguments"]
 
 
+async def test__str_replace_by_id__changed_fields_records_content_and_arguments(
+    client: AsyncClient,
+) -> None:
+    """
+    The id-based prompt str-replace handler shares `_perform_str_replace`
+    with the by-name handler. The other `changed_fields` tests exercise the
+    by-name path; this one pins that the by-id path doesn't diverge.
+    """
+    create = await client.post("/prompts/", json={
+        "name": "kan148-by-id-changed-fields",
+        "content": "hello world",
+        "arguments": [],
+    })
+    prompt_id = create.json()["id"]
+
+    patch = await client.patch(
+        f"/prompts/{prompt_id}/str-replace",
+        json={
+            "old_str": "world",
+            "new_str": "{{ name }}",
+            "arguments": [{"name": "name", "description": "user", "required": True}],
+        },
+    )
+    assert patch.status_code == 200
+
+    hist = await client.get(f"/history/prompt/{prompt_id}")
+    updates = [r for r in hist.json()["items"] if r["action"] == "update"]
+    assert len(updates) == 1
+    assert updates[0]["changed_fields"] == ["content", "arguments"]
+
+
 async def test__str_replace_by_name__no_op_when_content_unchanged_and_arguments_identical(
     client: AsyncClient,
 ) -> None:

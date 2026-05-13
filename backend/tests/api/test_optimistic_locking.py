@@ -297,15 +297,51 @@ async def test__update__expected_updated_at__timezone_handling(
 
 
 # =============================================================================
-# Prompt By-Name Endpoint Tests
+# str-replace: expected_updated_at is silently ignored
 # =============================================================================
 #
-# The str-replace endpoints (id-based and by-name) no longer accept
-# `expected_updated_at`. They use server-side row locking (`SELECT ... FOR
-# UPDATE`) which is the natural fit for content-addressable operations; see
+# The str-replace endpoints no longer accept `expected_updated_at` — the
+# schemas were stripped of the field, but Pydantic v2's default `extra="ignore"`
+# means existing MCP/CLI clients still sending it won't error. The tests
+# below pin that silent-ignore behavior: if someone later adds
+# `extra="forbid"` to the request schemas as a hardening change, these tests
+# will fail and surface the backward-compatibility regression.
+#
+# str-replace uses server-side row locking (`SELECT ... FOR UPDATE`); see
 # `docs/architecture.md` (Concurrency control for content edits). The regular
-# PATCH endpoints (which carry declarative payloads) still honor
-# `expected_updated_at` — those tests are covered above.
+# PATCH endpoints still honor `expected_updated_at` — those tests are above.
+
+
+@pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
+async def test__str_replace__expected_updated_at_silently_ignored(
+    client: AsyncClient,
+    entity_setup: dict[str, Any],
+) -> None:
+    """
+    Sending `expected_updated_at` to str-replace succeeds and applies the edit.
+
+    A stale timestamp would have triggered 409 under the previous optimistic-lock
+    behavior; under the row-locking design it should be silently ignored.
+    """
+    response = await client.patch(
+        f"{entity_setup['endpoint']}/str-replace",
+        json={
+            "old_str": entity_setup["str_replace_old"],
+            "new_str": entity_setup["str_replace_new"],
+            "expected_updated_at": "2020-01-01T00:00:00Z",  # intentionally stale
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    # Verify the edit was applied: the new_str must be present in current content.
+    get = await client.get(entity_setup["endpoint"])
+    assert get.status_code == 200
+    assert entity_setup["str_replace_new"] in get.json()["content"]
+
+
+# =============================================================================
+# Prompt By-Name Endpoint Tests
+# =============================================================================
 
 
 @pytest.fixture
