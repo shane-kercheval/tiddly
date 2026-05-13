@@ -496,14 +496,12 @@ async def str_replace_bookmark(
       (includes match locations with context to help construct unique match)
     """
     context = get_request_context(request)
-    # Check for conflicts before modifying
-    await check_optimistic_lock(
-        db, bookmark_service, current_user.id, bookmark_id,
-        data.expected_updated_at, BookmarkResponse,
-    )
 
-    # Fetch the bookmark (include archived, exclude deleted)
-    bookmark = await bookmark_service.get(db, current_user.id, bookmark_id, include_archived=True)
+    # Row lock prevents lost updates from concurrent str-replace calls. Held
+    # until the request transaction commits at end-of-request.
+    bookmark = await bookmark_service.get_for_update(
+        db, current_user.id, bookmark_id, include_archived=True,
+    )
     if bookmark is None:
         raise HTTPException(status_code=404, detail="Bookmark not found")
 
@@ -579,6 +577,7 @@ async def str_replace_bookmark(
         metadata=metadata,
         context=context,
         limits=limits,
+        changed_fields=["content"],
     )
 
     if include_updated_entity:

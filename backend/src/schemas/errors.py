@@ -16,7 +16,15 @@ from schemas.validators import check_duplicate_argument_names
 
 
 class StrReplaceRequest(BaseModel):
-    """Request body for str-replace operations (notes and bookmarks)."""
+    """
+    Request body for str-replace operations (notes and bookmarks).
+
+    str-replace is content-addressable: the operation succeeds as long as
+    `old_str` is still uniquely findable in the current content. The server
+    serializes concurrent calls against the same entity via `SELECT ... FOR
+    UPDATE` so optimistic locking is unnecessary here; the regular PATCH
+    endpoints (which carry a declarative payload) keep their `expected_updated_at`.
+    """
 
     old_str: str = Field(
         min_length=1,
@@ -24,11 +32,6 @@ class StrReplaceRequest(BaseModel):
     )
     new_str: str = Field(
         description="Replacement text (use empty string to delete)",
-    )
-    expected_updated_at: datetime | None = Field(
-        default=None,
-        description="For optimistic locking. If provided and the entity was modified after "
-                    "this timestamp, returns 409 Conflict with current server state.",
     )
 
 
@@ -39,6 +42,9 @@ class PromptStrReplaceRequest(BaseModel):
     Supports optional `arguments` field for atomic content + arguments updates.
     This solves the chicken-and-egg problem where adding/removing template variables
     requires updating both content and arguments together.
+
+    See `StrReplaceRequest` for the rationale on the absence of an
+    `expected_updated_at` field.
     """
 
     old_str: str = Field(
@@ -54,11 +60,6 @@ class PromptStrReplaceRequest(BaseModel):
         "If omitted, validation uses existing arguments. "
         "If provided, this list fully replaces current arguments (not a merge). "
         "Use this when adding/removing template variables to avoid validation errors.",
-    )
-    expected_updated_at: datetime | None = Field(
-        default=None,
-        description="For optimistic locking. If provided and the prompt was modified after "
-                    "this timestamp, returns 409 Conflict with current server state.",
     )
 
     @model_validator(mode="after")

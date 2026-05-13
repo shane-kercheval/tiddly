@@ -541,13 +541,48 @@ class PromptService(BaseEntityService[Prompt]):
             ),
         )
         prompt = result.scalar_one_or_none()
+        self._attach_content_length(prompt)
+        return prompt
 
-        if prompt is not None:
-            # Compute content_length in Python since content is already loaded.
-            # Full content endpoints always include content_length per the API contract.
-            content = prompt.content
-            prompt.content_length = len(content) if content is not None else None
+    async def get_by_name_for_update(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        name: str,
+    ) -> Prompt | None:
+        """
+        Get a prompt by name and acquire a `SELECT ... FOR UPDATE` row lock.
 
+        Mirror of `get_by_name(...)`: returns only active prompts (excludes
+        deleted AND archived). Used by the by-name str-replace endpoint
+        (`PATCH /prompts/name/{name}/str-replace`).
+
+        MUST be called inside a transaction. The lock is held until the
+        transaction commits or rolls back. Tags are intentionally NOT
+        eager-loaded — see `BaseEntityService.get_for_update` for the
+        rationale (fetch-time tag_objects are unused by str-replace; handlers
+        refresh them post-flush when they need to serialize).
+
+        Args:
+            db: Database session (must be inside an open transaction).
+            user_id: User ID to scope the prompt.
+            name: Name of the prompt to find.
+
+        Returns:
+            The prompt if found and active, None otherwise.
+        """
+        result = await db.execute(
+            select(Prompt)
+            .where(
+                Prompt.user_id == user_id,
+                Prompt.name == name,
+                Prompt.deleted_at.is_(None),
+                ~Prompt.is_archived,
+            )
+            .with_for_update(),
+        )
+        prompt = result.scalar_one_or_none()
+        self._attach_content_length(prompt)
         return prompt
 
     async def get_updated_at_by_name(

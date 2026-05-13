@@ -205,6 +205,17 @@ All inherit `UUIDv7Mixin` (time-sortable PK), `TimestampMixin` (`created_at`, `u
 - **Trigger-maintained FTS vectors.** Bookmarks/Notes/Prompts each have a `search_vector` TSVECTOR column that a Postgres trigger keeps up to date on insert/update (weighted: title/name=A, description/summary=B, content=C). GIN indexed. Migration: `c07d5e217ca3_add_search_vector_columns_triggers_gin_*`.
 - **pgvector** is enabled on the Postgres cluster, reserved for future embedding-based features.
 
+### Concurrency control for content edits
+
+Two concurrency models coexist for content writes, chosen per operation semantics:
+
+- **Optimistic locking (`expected_updated_at` → 409).** Used by the *declarative* PATCH endpoints (`PATCH /bookmarks/{id}`, `/notes/{id}`, `/prompts/{id}`, `/prompts/name/{name}`) where the client submits a full new state. The handler compares the client-supplied `expected_updated_at` against the current row; mismatch returns 409 with the current server state. Clients are expected to refetch and merge.
+- **Server-side row locking (`SELECT ... FOR UPDATE`).** Used by the *content-addressable* `str-replace` endpoints (`PATCH /<entity>/{id}/str-replace` for bookmarks/notes/prompts, plus `PATCH /prompts/name/{name}/str-replace`). The handler acquires a row lock via `BaseEntityService.get_for_update(...)` (or `PromptService.get_by_name_for_update(...)` for the by-name route) before reading-and-rewriting content. Parallel calls against the same entity serialize at the database; each acquires the lock in turn, reads the current content, applies its `old_str → new_str` against fresh state, and commits. All succeed (or, if a competing edit removed the pattern they were targeting, surface the existing `400 no_match` — never a silent overwrite). No client-side timestamp tracking, no 409-retry round-trips.
+
+The lock is released when the FastAPI request transaction commits or rolls back (see `db/session.py`). Postgres row locks survive `SAVEPOINT` rollback, so the savepoint-retry loop in `history_service.record_action` does not release a lock acquired by `get_for_update` in the same transaction.
+
+If FK-insert contention against locked rows ever becomes measurable, Postgres's `FOR NO KEY UPDATE` (less restrictive than `FOR UPDATE`) is a future tuning option; not justified at current scale.
+
 ### Versioning — `content_history`
 
 Single table covering all three entity types. Every content change produces a `ContentHistory` row: a reverse diff (diff-match-patch delta from new → old) plus a JSONB `metadata_snapshot`. Every 10th version stores a full snapshot instead of a diff so reconstruction cost is bounded. Audit-only events (delete, restore, archive, unarchive) are stored with `version=NULL`. Retention is tier-based (see §11).

@@ -141,8 +141,20 @@ async def _perform_str_replace(
             ).model_dump(),
         )
 
-    # Check for no-op (content unchanged AND no argument update requested)
-    if result.new_content == previous_content and data.arguments is None:
+    # Serialize the proposed arguments once (used by the no-op check, validation,
+    # the actual write, and the history changed_fields list). Compare structurally
+    # against the existing arguments — sending the same arguments list must be a
+    # no-op, not a ghost write that bumps updated_at and records a history row
+    # claiming "arguments" changed when they didn't.
+    new_args = (
+        [arg.model_dump() for arg in data.arguments]
+        if data.arguments is not None
+        else None
+    )
+    content_changed = result.new_content != previous_content
+    arguments_changed = new_args is not None and new_args != (prompt.arguments or [])
+
+    if not content_changed and not arguments_changed:
         if include_updated_entity:
             await db.refresh(prompt, attribute_names=["tag_objects"])
             return StrReplaceSuccess(
@@ -157,13 +169,10 @@ async def _perform_str_replace(
         )
 
     # Determine which arguments to use for validation:
-    # - If data.arguments is provided, use it (enables atomic content + args update)
-    # - Otherwise, use the prompt's existing arguments
-    if data.arguments is not None:
-        # Convert PromptArgument models to dicts for validate_template
-        validation_arguments = [arg.model_dump() for arg in data.arguments]
-    else:
-        validation_arguments = prompt.arguments or []
+    # - If data.arguments is provided, validate against the new list (enables
+    #   atomic content + args updates)
+    # - Otherwise, validate against the prompt's existing arguments
+    validation_arguments = new_args if new_args is not None else (prompt.arguments or [])
 
     # Validate the new content as a Jinja2 template BEFORE applying changes
     try:
@@ -184,14 +193,23 @@ async def _perform_str_replace(
     prompt.content = result.new_content
 
     # If arguments were provided, update them atomically
-    if data.arguments is not None:
-        prompt.arguments = [arg.model_dump() for arg in data.arguments]
+    if new_args is not None:
+        prompt.arguments = new_args
 
     prompt.updated_at = func.clock_timestamp()
     await db.flush()
     await db.refresh(prompt)
 
-    # Record history for str-replace (content changed)
+    # changed_fields = the fields whose values actually differ from the prior
+    # version (used by the frontend version-diff UI). Non-empty by construction:
+    # the no-op early return above ensures at least one of content/arguments
+    # actually changed by the time we reach this point.
+    changed_fields: list[str] = []
+    if content_changed:
+        changed_fields.append("content")
+    if arguments_changed:
+        changed_fields.append("arguments")
+
     await db.refresh(prompt, attribute_names=["tag_objects"])
     metadata = await prompt_service.get_metadata_snapshot(db, prompt.user_id, prompt)
     await history_service.record_action(
@@ -205,6 +223,7 @@ async def _perform_str_replace(
         metadata=metadata,
         context=context,
         limits=limits,
+        changed_fields=changed_fields,
     )
 
     if include_updated_entity:
@@ -523,22 +542,20 @@ async def str_replace_prompt_by_name(
     This endpoint is primarily used by the MCP server for prompt edits.
     To edit archived prompts, restore them first via the API or web UI.
 
-    Note: There is a tiny race window where a prompt could be archived between
-    lookup and edit. This is accepted behavior given the extremely small window
-    and minimal impact (edit succeeds on now-archived prompt).
+    A concurrent archive of this prompt is resolved by the FOR UPDATE lock —
+    `get_by_name_for_update` re-evaluates the active-only predicate at lock
+    acquisition under READ COMMITTED, so an archive committing during the
+    request results in a deterministic 404 rather than an edit slipping
+    through onto a now-archived prompt.
 
     See PATCH /prompts/{id}/str-replace for full documentation on matching
     strategy, atomic content + arguments updates, and error responses.
     """
     context = get_request_context(request)
-    # Check for conflicts before modifying
-    await check_optimistic_lock_by_name(
-        db, prompt_service, current_user.id, name,
-        data.expected_updated_at, PromptResponse,
-    )
 
-    # Look up by name (active prompts only)
-    prompt = await prompt_service.get_by_name(db, current_user.id, name)
+    # Row lock prevents lost updates from concurrent str-replace calls. Held
+    # until the request transaction commits at end-of-request.
+    prompt = await prompt_service.get_by_name_for_update(db, current_user.id, name)
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 
@@ -950,14 +967,12 @@ async def str_replace_prompt(
     - 400 with template validation error if result is invalid Jinja2
     """
     context = get_request_context(request)
-    # Check for conflicts before modifying
-    await check_optimistic_lock(
-        db, prompt_service, current_user.id, prompt_id,
-        data.expected_updated_at, PromptResponse,
-    )
 
-    # Fetch the prompt (include archived, exclude deleted)
-    prompt = await prompt_service.get(db, current_user.id, prompt_id, include_archived=True)
+    # Row lock prevents lost updates from concurrent str-replace calls. Held
+    # until the request transaction commits at end-of-request.
+    prompt = await prompt_service.get_for_update(
+        db, current_user.id, prompt_id, include_archived=True,
+    )
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
 

@@ -12,7 +12,8 @@ from mcp_server import server
 
 @pytest.fixture
 def mock_api() -> respx.MockRouter:
-    """Context manager for mocking API responses.
+    """
+    Context manager for mocking API responses.
 
     Reads VITE_API_URL from env (pinned by top-level conftest's
     pytest_configure) so the mock base_url matches the URL the MCP server
