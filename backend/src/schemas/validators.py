@@ -129,6 +129,11 @@ def slugify_prompt_name(value: str, max_length: int = 100) -> str:
     match PROMPT_NAME_PATTERN, or be the empty string if the input has no
     usable characters after sanitization.
 
+    Note: there is no word-boundary detection. `CamelCaseName` slugifies to
+    `camelcasename`, not `camel-case-name`. The LLM is prompted to use
+    kebab-case directly, so this is a graceful fallback rather than an
+    expected path.
+
     Args:
         value: Arbitrary string (e.g. "My Cool Prompt", "café-2024").
         max_length: Upper bound on the returned slug length. Defaults to 100

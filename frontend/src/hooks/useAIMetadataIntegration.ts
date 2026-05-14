@@ -90,6 +90,12 @@ export function useAIMetadataIntegration<T extends MetadataState>(
   const nameEnabled = !!(
     current.title.trim() || current.description.trim() || current.content.trim()
   )
+  // When clicking name, the hook also generates title/description if those
+  // are empty (matches the existing pattern for title/description sparkles).
+  // The tooltip surfaces this so users aren't surprised by side effects.
+  const nameTooltip = nameEnabled
+    ? 'Suggest a name (also fills empty title/description)'
+    : 'Add a title, description, or content to enable AI name suggestion'
   // Title icon enabled when description OR content exists
   const titleEnabled = !!(current.description.trim() || current.content.trim())
   // Description icon enabled when content exists
@@ -100,7 +106,7 @@ export function useAIMetadataIntegration<T extends MetadataState>(
       onSuggest: handleSuggestName,
       isSuggesting: isSuggestingName,
       suggestDisabled: !nameEnabled,
-      suggestTooltip: 'Add a title, description, or content to enable AI name suggestion',
+      suggestTooltip: nameTooltip,
     },
     titleSuggestProps: {
       onSuggest: handleSuggestTitle,

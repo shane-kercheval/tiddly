@@ -10,6 +10,7 @@
  * produce a fresh result.
  */
 import { useState, useCallback, useRef } from 'react'
+import toast from 'react-hot-toast'
 import { suggestMetadata } from '../services/aiApi'
 import { toastAiSuggestionError } from './aiErrorToast'
 
@@ -71,6 +72,8 @@ export function useMetadataSuggestions(
 
     setInFlightFields(fields)
 
+    const nameRequested = fields.includes('name')
+
     suggestMetadata({
       fields,
       url: context.url,
@@ -81,6 +84,14 @@ export function useMetadataSuggestions(
     })
       .then((response) => {
         if (requestIdRef.current === thisRequestId) {
+          // Soft notice when the user asked for a name and the LLM produced
+          // nothing usable (rare — only on garbage output that slugifies to
+          // empty). Sibling field updates are still applied so the user
+          // doesn't lose useful title/description suggestions from the same
+          // request.
+          if (nameRequested && response.name === null) {
+            toast("Couldn't generate a name. Try filling in a title or description first.")
+          }
           onUpdate(response.name, response.title, response.description)
         }
       })

@@ -81,6 +81,13 @@ def build_tag_suggestion_messages(
     ]
 
 
+# Hard cap on the length of an AI-suggested prompt name (slug). The LLM is
+# instructed to stay within this in the system prompt; server-side enforcement
+# via `slugify_prompt_name(..., max_length=SUGGESTED_NAME_MAX_LENGTH)` in
+# suggestion_service.suggest_metadata is the source of truth.
+SUGGESTED_NAME_MAX_LENGTH = 50
+
+
 def build_metadata_suggestion_messages(
     fields: list[str],
     url: str | None,
@@ -92,11 +99,11 @@ def build_metadata_suggestion_messages(
     """
     Build messages for name/title/description suggestion.
 
-    Always asks the LLM to return all three fields. For fields the caller
-    requested in `fields`, the LLM should generate a new value. For other
-    fields, the LLM should echo back the current value (the service layer
-    discards echoed values, so any drift is harmless — the echo exists to
-    keep the structured-output schema satisfied).
+    The structured-output schema requires all three fields to be present in
+    the response. The LLM is instructed to generate values for the fields
+    the caller asked for and to return empty strings for the rest; the
+    service layer discards those empty strings, so the only values that
+    matter are the generated ones.
 
     Args:
         fields: Which fields to generate — any non-empty subset of
@@ -107,55 +114,56 @@ def build_metadata_suggestion_messages(
         content_snippet: Item content (context).
         name: Existing name/slug (prompts only; bookmarks/notes pass None).
     """
-    generate_name = "name" in fields
-    generate_title = "title" in fields
-    generate_desc = "description" in fields
+    name_cap = SUGGESTED_NAME_MAX_LENGTH
+    generate_set = sorted(set(fields))  # stable order in prompt
+    fields_str = ", ".join(f"`{f}`" for f in generate_set)
 
     system_lines = [
-        "You are a content metadata assistant. You will always return three "
-        "fields: `name`, `title`, and `description`. For each field you are "
-        "asked to generate, produce a new value. For each field you are "
-        "asked to echo, return the current value unchanged.",
+        "You are a content metadata assistant. The response schema requires "
+        "values for `name`, `title`, and `description`. Generate a real value "
+        "for each field listed under 'Fields to generate'; return an empty "
+        "string (\"\") for any field not listed.",
         "",
         "Field guidelines:",
-        "- `name`: short URL-style slug, lowercase letters/numbers separated "
-        "by single hyphens (e.g. `code-review`, `weekly-status-template`). "
-        "Maximum 50 characters. Must start and end with a letter or number. "
-        "No spaces, underscores, or other punctuation.",
+        f"- `name`: short URL-style slug, lowercase letters/numbers separated "
+        f"by single hyphens (e.g. `code-review`, `weekly-status-template`). "
+        f"Maximum {name_cap} characters. Must start and end with a letter or "
+        f"number. No spaces, underscores, or other punctuation.",
         "- `title`: short and descriptive, under 100 characters.",
         "- `description`: 1-2 sentences summarizing the content.",
         "",
-        "Example:",
-        '  Input: title="Code Review Checklist", description="Items to check '
-        'during PR review.", content="..."',
-        '  Output: {"name": "code-review-checklist", "title": "Code Review '
-        'Checklist", "description": "Items to check during PR review."}',
+        "Example (fields to generate: `name`):",
+        '  Context: title="Code Review Checklist", description="Items to '
+        'check during PR review."',
+        '  Output: {"name": "code-review-checklist", "title": "", "description": ""}',
     ]
     system = "\n".join(system_lines)
 
-    def _field_line(label: str, current: str | None, generate: bool) -> str:
-        action = "GENERATE" if generate else "ECHO"
-        current_display = current if current else "(empty)"
-        return f"- {label} [{action}]: {current_display}"
+    user_parts = [f"Fields to generate: {fields_str}"]
 
-    user_parts = [
-        "Fields:",
-        _field_line("name", name, generate_name),
-        _field_line("title", title, generate_title),
-        _field_line("description", description, generate_desc),
-    ]
+    context_lines: list[str] = []
+    if name:
+        context_lines.append(f"- name: {name}")
+    if title:
+        context_lines.append(f"- title: {title}")
+    if description:
+        context_lines.append(f"- description: {description}")
     if url:
-        user_parts.append(f"\nURL (context): {url}")
+        context_lines.append(f"- url: {url}")
     if content_snippet:
-        user_parts.append(
-            f"\nContent snippet (context):\n{content_snippet[:CONTENT_SNIPPET_LLM_WINDOW_CHARS]}",
+        context_lines.append(
+            f"- content:\n{content_snippet[:CONTENT_SNIPPET_LLM_WINDOW_CHARS]}",
         )
 
-    user_msg = "\n".join(user_parts)
+    if context_lines:
+        user_parts.append("\nContext (do not return these as values):")
+        user_parts.extend(context_lines)
+    else:
+        user_parts.append("\nNo context provided.")
 
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": user_msg},
+        {"role": "user", "content": "\n".join(user_parts)},
     ]
 
 

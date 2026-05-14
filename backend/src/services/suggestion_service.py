@@ -32,6 +32,7 @@ from services._suggestion_llm_schemas import (
     _GenerateAllArgumentsResult,
 )
 from services.llm_prompts import (
+    SUGGESTED_NAME_MAX_LENGTH,
     build_generate_all_arguments_messages,
     build_metadata_suggestion_messages,
     build_refine_both_fields_messages,
@@ -276,7 +277,7 @@ async def suggest_metadata(
 
     suggested_name: str | None = None
     if generate_name:
-        slugified = slugify_prompt_name(parsed.name)
+        slugified = slugify_prompt_name(parsed.name, max_length=SUGGESTED_NAME_MAX_LENGTH)
         suggested_name = slugified or None
 
     return MetadataSuggestion(

@@ -16,10 +16,18 @@ import { renderHook, act } from '@testing-library/react'
 import { useMetadataSuggestions } from './useMetadataSuggestions'
 
 const mockSuggestMetadata = vi.fn()
+const mockToast = vi.fn()
+const mockToastError = vi.fn()
 
 vi.mock('../services/aiApi', () => ({
   suggestMetadata: (...args: unknown[]) => mockSuggestMetadata(...args),
 }))
+
+vi.mock('react-hot-toast', () => {
+  const toast = (message: string) => mockToast(message)
+  toast.error = (message: string) => mockToastError(message)
+  return { default: toast }
+})
 
 describe('useMetadataSuggestions', () => {
   beforeEach(() => {
@@ -232,6 +240,80 @@ describe('useMetadataSuggestions', () => {
       await vi.waitFor(() => {
         expect(onUpdate).toHaveBeenCalledWith(null, 'AI Title', null)
       })
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // suggestName partial-outcome handling
+  // -------------------------------------------------------------------------
+
+  describe('suggestName null-name outcome', () => {
+    it('toasts and still applies title/description when name comes back null', async () => {
+      mockSuggestMetadata.mockResolvedValue({
+        name: null,
+        title: 'Inferred Title',
+        description: 'Inferred description.',
+      })
+      const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
+      const onUpdate = vi.fn()
+
+      await act(async () => {
+        result.current.suggestName(
+          { name: '', title: '', description: '', content: 'some content body' },
+          onUpdate,
+        )
+      })
+
+      await vi.waitFor(() => {
+        expect(onUpdate).toHaveBeenCalledWith(null, 'Inferred Title', 'Inferred description.')
+      })
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.stringContaining("Couldn't generate a name"),
+      )
+    })
+
+    it('does not toast when name was requested and returned successfully', async () => {
+      mockSuggestMetadata.mockResolvedValue({
+        name: 'my-prompt',
+        title: '',
+        description: '',
+      })
+      const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
+      const onUpdate = vi.fn()
+
+      await act(async () => {
+        result.current.suggestName(
+          { name: '', title: 'My Prompt', description: 'A useful template.', content: '' },
+          onUpdate,
+        )
+      })
+
+      await vi.waitFor(() => {
+        expect(onUpdate).toHaveBeenCalledWith('my-prompt', '', '')
+      })
+      expect(mockToast).not.toHaveBeenCalled()
+    })
+
+    it('does not toast when name was not requested', async () => {
+      mockSuggestMetadata.mockResolvedValue({
+        name: null,
+        title: 'Title',
+        description: null,
+      })
+      const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
+      const onUpdate = vi.fn()
+
+      await act(async () => {
+        result.current.suggestTitle(
+          { title: '', description: 'Has description', content: 'Content' },
+          onUpdate,
+        )
+      })
+
+      await vi.waitFor(() => {
+        expect(onUpdate).toHaveBeenCalledWith(null, 'Title', null)
+      })
+      expect(mockToast).not.toHaveBeenCalled()
     })
   })
 

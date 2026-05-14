@@ -14,6 +14,7 @@ from schemas.ai import (
     RelationshipCandidateContext,
     TagVocabularyEntry,
 )
+from schemas.validators import PROMPT_NAME_PATTERN
 from services._suggestion_llm_schemas import (
     ArgumentDescriptionSuggestion,
     ArgumentNameSuggestion,
@@ -380,6 +381,25 @@ class TestSuggestMetadata:
             config=_mock_config(),
         )
         assert result.name == "code-review"
+
+    async def test_name_truncated_to_50_chars_server_side(self) -> None:
+        """LLM ignores the 50-char prompt instruction; server enforces hard cap."""
+        long_slug = "a-" * 40  # 80 chars, well-formed slug, exceeds 50-char cap
+        service = _mock_llm_service(self._full_response(name=long_slug))
+        result, _ = await suggest_metadata(
+            fields=["name"],
+            url=None,
+            title="Some prompt",
+            description=None,
+            content_snippet=None,
+            name=None,
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert result.name is not None
+        assert len(result.name) <= 50
+        # Still a valid slug after truncation (no dangling hyphen).
+        assert PROMPT_NAME_PATTERN.match(result.name)
 
     async def test_name_unusable_after_slugify_is_none(self) -> None:
         """LLM returns garbage that slugifies to empty -> name is None."""

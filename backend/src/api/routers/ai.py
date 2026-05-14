@@ -813,6 +813,16 @@ async def suggest_metadata_endpoint(
 
     An empty `fields` array is rejected with 422.
 
+    ### Item type and `name`
+
+    This endpoint is entity-agnostic — it generates strings from whatever
+    context you pass and does not check the caller's item type. The `name`
+    field is intended for prompts (which have a slug-style identifier).
+    Bookmarks and notes have no name field; passing `"name"` in `fields` for
+    those entities will still return a plausible-looking slug, but it has no
+    place to be stored and is not meaningful. Callers are expected to only
+    request `"name"` when the target entity is a prompt.
+
     **See the `ai` tag description at the top of this section** for
     authentication, rate limits, BYOK, and error handling.
     """
