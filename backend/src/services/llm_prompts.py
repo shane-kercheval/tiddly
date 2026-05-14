@@ -248,6 +248,19 @@ _REQUIRED_GUIDELINE = (
     "conditional block (e.g. {% if variable %} ... {% endif %})\n"
 )
 
+_DESCRIPTION_GUIDELINE = (
+    "- Descriptions should explain what the argument represents from the user's perspective:\n"
+    "  - For arguments with short, concrete inputs, include a brief example (e.g., `en`, `Python`, `casual`).\n"
+    "  - For arguments with long or free-form inputs (articles, code, JSON), describe the expected type or "
+    "format instead (e.g., 'A plain-text article to summarize' or 'A JSON object with "
+    "keys name and age').\n"
+    "- Do not mention Jinja2, templates, placeholders, conditional blocks, "
+    "or whether the argument is required — that information belongs in the "
+    "`required` field, not in the description.\n"
+    "- Do not explain your reasoning or describe how you chose the value — "
+    "the description should document what the argument is, not how you arrived at it.\n"
+)
+
 
 def _format_existing_arguments(existing_arguments: list[ArgumentInput]) -> str | None:
     """Render existing arguments as a bullet list for the user message, or None if empty."""
@@ -277,7 +290,7 @@ def build_generate_all_arguments_messages(
         "abbreviate, split, or combine them — the template already uses "
         "these names as {{ placeholder }} tokens, so renaming breaks the "
         "template\n"
-        "- Descriptions should explain what the argument represents and give an example\n"
+        + _DESCRIPTION_GUIDELINE
         + _REQUIRED_GUIDELINE
     )
 
@@ -319,7 +332,7 @@ def build_refine_single_field_messages(
             "You are a prompt template assistant. "
             "Suggest a description for the specified prompt argument.\n\n"
             "Guidelines:\n"
-            "- The description should explain what the argument represents and give an example\n"
+            + _DESCRIPTION_GUIDELINE
         )
 
     user_parts: list[str] = []
@@ -381,7 +394,7 @@ def build_refine_both_fields_messages(
         "Guidelines:\n"
         "- Pick exactly one of the listed unclaimed placeholder names for the `name` field\n"
         "- Use lowercase_with_underscores for the name (the placeholder already follows this)\n"
-        "- Descriptions should explain what the argument represents and give an example\n"
+        + _DESCRIPTION_GUIDELINE
         + _REQUIRED_GUIDELINE
     )
 

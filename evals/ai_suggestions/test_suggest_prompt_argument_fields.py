@@ -142,11 +142,15 @@ async def test_suggest_prompt_argument_fields(
         f"- name: {a.name} | description: {a.description} | required: {a.required}"
         for a in result
     ) if result else "No arguments returned."
+    argument_descriptions_joined = "\n".join(
+        a.description for a in result if a.description
+    ) if result else ""
 
     return {
         "argument_names": argument_names,
         "argument_count": len(argument_names),
         "arguments_detail": arguments_detail,
+        "argument_descriptions_joined": argument_descriptions_joined,
         "model_name": config.model,
         "temperature": temperature,
         "usage": {

@@ -140,6 +140,9 @@ async def test_suggest_prompt_arguments(
         f"- name: {a.name} | description: {a.description} | required: {a.required}"
         for a in result
     ) if result else "No arguments returned."
+    argument_descriptions_joined = "\n".join(
+        a.description for a in result if a.description
+    ) if result else ""
 
     # The judge needs to see existing arguments so it correctly interprets the
     # dedup behavior on `generate-all-with-existing` (generate-all skips
@@ -153,6 +156,7 @@ async def test_suggest_prompt_arguments(
         "argument_names": argument_names,
         "argument_count": len(argument_names),
         "arguments_detail": arguments_detail,
+        "argument_descriptions_joined": argument_descriptions_joined,
         "existing_arguments_detail": existing_arguments_detail,
         "model_name": config.model,
         "temperature": temperature,

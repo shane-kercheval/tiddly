@@ -132,6 +132,118 @@ test_cases:
           name: "Returned name matches expected placeholder"
           description: "Two-field refine must pick a name from the template's unclaimed placeholders"
 
+  - id: "suggest-description-long-value"
+    metadata:
+      description: "target_fields=['description'] on a long/free-form argument (article_text). Verifies the description characterizes the type rather than giving a literal example."
+    input:
+      prompt_content: "Summarize the following article in {{ target_language }}: {{ article_text }}"
+      arguments:
+        - name: "article_text"
+          description: null
+        - name: "target_language"
+          description: null
+      target_index: 0
+      target_fields: ["description"]
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Refine endpoint should return exactly one suggestion"
+      - type: "subset"
+        arguments:
+          collection: ["article_text"]
+          required: "$.output.value.argument_names"
+          case_sensitive: true
+        metadata:
+          name: "Name preserved"
+          description: "Description-only refine should preserve the original name (article_text)"
+
+  - id: "objective-jinja-conditional-description-only"
+    metadata:
+      description: "Regression case for KAN-134 — target_fields=['description'] on an argument named 'objective' inside a Jinja conditional block. Verifies description doesn't leak template-mechanics reasoning."
+    input:
+      prompt_content: |
+        Write with the following tone:
+        - Casual but professional.
+        - Direct and specific.
+        {%- if objective %}
+        **objective**:
+        ```
+        {{ objective }}
+        ```
+        {%- endif %}
+      arguments:
+        - name: "objective"
+          description: null
+      target_index: 0
+      target_fields: ["description"]
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Refine endpoint should return exactly one suggestion"
+      - type: "subset"
+        arguments:
+          collection: ["objective"]
+          required: "$.output.value.argument_names"
+          case_sensitive: true
+        metadata:
+          name: "Name preserved"
+          description: "Description-only refine should preserve the original name (objective)"
+
+  - id: "objective-jinja-conditional-both-fields"
+    metadata:
+      description: "Regression case for KAN-134 — target_fields=['name','description'] on a blank row with the Jinja conditional template. Verifies description is clean and required is False."
+    input:
+      prompt_content: |
+        Write with the following tone:
+        - Casual but professional.
+        - Direct and specific.
+        {%- if objective %}
+        **objective**:
+        ```
+        {{ objective }}
+        ```
+        {%- endif %}
+      arguments:
+        - name: null
+          description: null
+      target_index: 0
+      target_fields: ["name", "description"]
+    checks:
+      - type: "threshold"
+        arguments:
+          value: "$.output.value.argument_count"
+          min_value: 1
+          max_value: 1
+        metadata:
+          name: "Exactly one argument returned"
+          description: "Refine endpoint should return exactly one suggestion"
+      - type: "subset"
+        arguments:
+          collection: ["objective"]
+          required: "$.output.value.argument_names"
+          case_sensitive: true
+        metadata:
+          name: "Returned name matches template placeholder"
+          description: "Two-field refine must pick the objective placeholder from the template"
+      - type: "regex"
+        arguments:
+          text: "$.output.value.arguments_detail"
+          pattern: 'name: objective \| description:[\s\S]+\| required: False'
+          negate: false
+        metadata:
+          name: "objective is not required"
+          description: "objective is inside a conditional block — required must be False"
+
   - id: "refine-both-overwrites-populated"
     metadata:
       description: "target_fields=['name','description'] on already-populated row + template — explicit-opt-in overwrite regression test"
@@ -170,6 +282,16 @@ test_cases:
 
 # Global checks — applied to every test case.
 checks:
+  # Deterministic check: descriptions must not contain meta-commentary about
+  # the template, Jinja2, or requiredness mechanics.
+  - type: "regex"
+    arguments:
+      text: "$.output.value.argument_descriptions_joined"
+      pattern: '(?i)\b(?:jinja2?|marked as required|required only if|inside (?:a )?(?:jinja2? )?conditional block|template (?:placeholder|variable)|in this template)\b'
+      negate: true
+    metadata:
+      name: "No template meta-commentary in descriptions"
+      description: "Descriptions must not leak template-mechanics reasoning into user-facing text"
   # Argument descriptions are clear and helpful (LLM judge).
   # Tightening the criteria here can flag legitimate suggestions as failures
   # (judge-prompt drift) — change with care and re-baseline if you do.
@@ -201,6 +323,7 @@ checks:
         - Each returned argument should have a clear, helpful description that explains what it represents
         - Descriptions should not be vague or generic (e.g., "the value" or "input data")
         - Argument names should be valid (lowercase with underscores)
+        - Descriptions must NOT contain meta-commentary about the template, Jinja2, placeholders, conditional blocks, or whether the argument is required. That information belongs in the `required` field, not in the description. If you see phrases like "marked as required only if…", "inside a Jinja2 conditional block", "inside a conditional block", or "in this template", fail the description.
         - In target_fields=["name"] mode:
             - If the template is NULL or empty, the name should be descriptive of the argument's purpose — any reasonable descriptive name passes. Do NOT require the name to match a template placeholder (there is no template).
             - If the template contains placeholders and the description clearly maps to one of them, the suggested name should match that placeholder.
