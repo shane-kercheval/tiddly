@@ -823,6 +823,18 @@ With your cursor on a word in a note or prompt, press `⌘+D` to extend the sele
 - relatedDocs: [Keyboard shortcuts → /docs/features/shortcuts](/docs/features/shortcuts)
 - **Refinement note**: existing seed extended to mention `⌘+⇧+L` for select-all-matches.
 
+### 81. `search-dialog-vs-filter-search` — priority 18
+
+**The search dialog ranks by relevance; in-filter search doesn't**
+
+Tiddly has two search surfaces. The **search dialog** (press `/`) ranks results by relevance — the closer your query matches, the higher it lands. The **search input inside a saved filter or list view** doesn't rank; it just filters the list and keeps it in the filter's chosen sort (date modified, title, etc.). So if you type the exact name of a note, the dialog puts it at the top while the in-filter search may bury it under newer items. Use the dialog when you remember *what* you're looking for; use in-filter search when you're narrowing *within* a sort context.
+
+- Categories: search, shortcuts
+- Audience: all
+- shortcut: ['/']
+- relatedDocs: [Search → /docs/features/search](/docs/features/search)
+- **Origin**: [KAN-133](https://tiddly.atlassian.net/browse/KAN-133) — filed as a search-ranking bug, turned out to be a surface-mismatch confusion.
+
 ---
 
 ## Tips needing verification before authoring
