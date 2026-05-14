@@ -87,53 +87,75 @@ def build_metadata_suggestion_messages(
     title: str | None,
     description: str | None,
     content_snippet: str | None,
+    name: str | None = None,
 ) -> list[dict]:
     """
-    Build messages for title/description suggestion.
+    Build messages for name/title/description suggestion.
+
+    Always asks the LLM to return all three fields. For fields the caller
+    requested in `fields`, the LLM should generate a new value. For other
+    fields, the LLM should echo back the current value (the service layer
+    discards echoed values, so any drift is harmless — the echo exists to
+    keep the structured-output schema satisfied).
 
     Args:
-        fields: Which fields to generate — ["title"], ["description"],
-            or ["title", "description"].
-        url: Item URL.
-        title: Existing title (used as context, not regenerated unless requested).
-        description: Existing description (used as context).
-        content_snippet: Item content.
+        fields: Which fields to generate — any non-empty subset of
+            {"name", "title", "description"}.
+        url: Item URL (context).
+        title: Existing title.
+        description: Existing description.
+        content_snippet: Item content (context).
+        name: Existing name/slug (prompts only; bookmarks/notes pass None).
     """
+    generate_name = "name" in fields
     generate_title = "title" in fields
     generate_desc = "description" in fields
 
-    system = "You are a content summarization assistant.\n\nGuidelines:\n"
-    if generate_title:
-        system += "- Title: short and descriptive, under 100 characters\n"
-    if generate_desc:
-        system += "- Description: 1-2 sentences summarizing the content\n"
+    system_lines = [
+        "You are a content metadata assistant. You will always return three "
+        "fields: `name`, `title`, and `description`. For each field you are "
+        "asked to generate, produce a new value. For each field you are "
+        "asked to echo, return the current value unchanged.",
+        "",
+        "Field guidelines:",
+        "- `name`: short URL-style slug, lowercase letters/numbers separated "
+        "by single hyphens (e.g. `code-review`, `weekly-status-template`). "
+        "Maximum 50 characters. Must start and end with a letter or number. "
+        "No spaces, underscores, or other punctuation.",
+        "- `title`: short and descriptive, under 100 characters.",
+        "- `description`: 1-2 sentences summarizing the content.",
+        "",
+        "Example:",
+        '  Input: title="Code Review Checklist", description="Items to check '
+        'during PR review.", content="..."',
+        '  Output: {"name": "code-review-checklist", "title": "Code Review '
+        'Checklist", "description": "Items to check during PR review."}',
+    ]
+    system = "\n".join(system_lines)
 
-    user_parts = []
-    if title and not generate_title:
-        user_parts.append(f"Title: {title}")
-    elif title and generate_title:
-        user_parts.append(f"Current title (to improve): {title}")
-    if description and not generate_desc:
-        user_parts.append(f"Description: {description}")
-    elif description and generate_desc:
-        user_parts.append(f"Current description (to improve): {description}")
+    def _field_line(label: str, current: str | None, generate: bool) -> str:
+        action = "GENERATE" if generate else "ECHO"
+        current_display = current if current else "(empty)"
+        return f"- {label} [{action}]: {current_display}"
+
+    user_parts = [
+        "Fields:",
+        _field_line("name", name, generate_name),
+        _field_line("title", title, generate_title),
+        _field_line("description", description, generate_desc),
+    ]
     if url:
-        user_parts.append(f"URL: {url}")
+        user_parts.append(f"\nURL (context): {url}")
     if content_snippet:
-        user_parts.append(f"Content snippet: {content_snippet[:CONTENT_SNIPPET_LLM_WINDOW_CHARS]}")
+        user_parts.append(
+            f"\nContent snippet (context):\n{content_snippet[:CONTENT_SNIPPET_LLM_WINDOW_CHARS]}",
+        )
 
-    user_msg = "\n".join(user_parts) if user_parts else "No context provided."
-
-    if generate_title and generate_desc:
-        task = "Generate a title and description"
-    elif generate_title:
-        task = "Generate a title"
-    else:
-        task = "Generate a description"
+    user_msg = "\n".join(user_parts)
 
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"{task}:\n\n{user_msg}"},
+        {"role": "user", "content": user_msg},
     ]
 
 

@@ -86,7 +86,7 @@ describe('useMetadataSuggestions', () => {
     })
 
     it('sends ["title", "description"] when description is empty', async () => {
-      mockSuggestMetadata.mockResolvedValue({ title: 'New Title', description: 'New Desc' })
+      mockSuggestMetadata.mockResolvedValue({ name: null, title: 'New Title', description: 'New Desc' })
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
 
       await act(async () => {
@@ -104,7 +104,7 @@ describe('useMetadataSuggestions', () => {
 
   describe('suggestDescription fields logic', () => {
     it('sends ["description"] when title exists', async () => {
-      mockSuggestMetadata.mockResolvedValue({ title: null, description: 'New Desc' })
+      mockSuggestMetadata.mockResolvedValue({ name: null, title: null, description: 'New Desc' })
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
 
       await act(async () => {
@@ -120,7 +120,7 @@ describe('useMetadataSuggestions', () => {
     })
 
     it('sends ["title", "description"] when title is empty', async () => {
-      mockSuggestMetadata.mockResolvedValue({ title: 'New Title', description: 'New Desc' })
+      mockSuggestMetadata.mockResolvedValue({ name: null, title: 'New Title', description: 'New Desc' })
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
 
       await act(async () => {
@@ -142,7 +142,7 @@ describe('useMetadataSuggestions', () => {
 
   describe('request shape', () => {
     it('sends correct context fields', async () => {
-      mockSuggestMetadata.mockResolvedValue({ title: 'T', description: null })
+      mockSuggestMetadata.mockResolvedValue({ name: null, title: 'T', description: null })
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
 
       await act(async () => {
@@ -155,6 +155,7 @@ describe('useMetadataSuggestions', () => {
       expect(mockSuggestMetadata).toHaveBeenCalledWith({
         fields: ['title'],
         url: 'https://example.com',
+        name: null,
         title: 'Current Title',
         description: 'Current Desc',
         content_snippet: 'Full content',
@@ -162,7 +163,7 @@ describe('useMetadataSuggestions', () => {
     })
 
     it('truncates content to 2000 chars', async () => {
-      mockSuggestMetadata.mockResolvedValue({ title: 'T', description: null })
+      mockSuggestMetadata.mockResolvedValue({ name: null, title: 'T', description: null })
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
 
       await act(async () => {
@@ -178,7 +179,7 @@ describe('useMetadataSuggestions', () => {
     })
 
     it('sends null for empty title and description', async () => {
-      mockSuggestMetadata.mockResolvedValue({ title: 'T', description: 'D' })
+      mockSuggestMetadata.mockResolvedValue({ name: null, title: 'T', description: 'D' })
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
 
       await act(async () => {
@@ -200,7 +201,7 @@ describe('useMetadataSuggestions', () => {
 
   describe('onUpdate callback', () => {
     it('calls onUpdate with title and description from response', async () => {
-      mockSuggestMetadata.mockResolvedValue({ title: 'AI Title', description: 'AI Desc' })
+      mockSuggestMetadata.mockResolvedValue({ name: null, title: 'AI Title', description: 'AI Desc' })
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
       const onUpdate = vi.fn()
 
@@ -212,12 +213,12 @@ describe('useMetadataSuggestions', () => {
       })
 
       await vi.waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith('AI Title', 'AI Desc')
+        expect(onUpdate).toHaveBeenCalledWith(null, 'AI Title', 'AI Desc')
       })
     })
 
     it('calls onUpdate with null for unrequested fields', async () => {
-      mockSuggestMetadata.mockResolvedValue({ title: 'AI Title', description: null })
+      mockSuggestMetadata.mockResolvedValue({ name: null, title: 'AI Title', description: null })
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
       const onUpdate = vi.fn()
 
@@ -229,7 +230,7 @@ describe('useMetadataSuggestions', () => {
       })
 
       await vi.waitFor(() => {
-        expect(onUpdate).toHaveBeenCalledWith('AI Title', null)
+        expect(onUpdate).toHaveBeenCalledWith(null, 'AI Title', null)
       })
     })
   })
@@ -240,7 +241,7 @@ describe('useMetadataSuggestions', () => {
 
   describe('loading state', () => {
     it('sets both in-flight flags when generating both fields, clears on resolve', async () => {
-      let resolvePromise: (value: { title: string | null; description: string | null }) => void
+      let resolvePromise: (value: { name: string | null; title: string | null; description: string | null }) => void
       mockSuggestMetadata.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve }))
 
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
@@ -253,7 +254,7 @@ describe('useMetadataSuggestions', () => {
       expect(result.current.isSuggestingDescription).toBe(true)
 
       await act(async () => {
-        resolvePromise!({ title: 'T', description: 'D' })
+        resolvePromise!({ name: null, title: 'T', description: 'D' })
       })
 
       await vi.waitFor(() => {
@@ -263,7 +264,7 @@ describe('useMetadataSuggestions', () => {
     })
 
     it('suggestTitle with existing description only flags title as in flight', async () => {
-      let resolvePromise: (value: { title: string | null; description: string | null }) => void
+      let resolvePromise: (value: { name: string | null; title: string | null; description: string | null }) => void
       mockSuggestMetadata.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve }))
 
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
@@ -276,7 +277,7 @@ describe('useMetadataSuggestions', () => {
       expect(result.current.isSuggestingDescription).toBe(false)
 
       await act(async () => {
-        resolvePromise!({ title: 'T', description: null })
+        resolvePromise!({ name: null, title: 'T', description: null })
       })
 
       await vi.waitFor(() => {
@@ -285,7 +286,7 @@ describe('useMetadataSuggestions', () => {
     })
 
     it('suggestDescription with existing title only flags description as in flight', async () => {
-      let resolvePromise: (value: { title: string | null; description: string | null }) => void
+      let resolvePromise: (value: { name: string | null; title: string | null; description: string | null }) => void
       mockSuggestMetadata.mockReturnValue(new Promise((resolve) => { resolvePromise = resolve }))
 
       const { result } = renderHook(() => useMetadataSuggestions({ available: true }))
@@ -298,7 +299,7 @@ describe('useMetadataSuggestions', () => {
       expect(result.current.isSuggestingDescription).toBe(true)
 
       await act(async () => {
-        resolvePromise!({ title: null, description: 'D' })
+        resolvePromise!({ name: null, title: null, description: 'D' })
       })
 
       await vi.waitFor(() => {
@@ -340,8 +341,8 @@ describe('useMetadataSuggestions', () => {
 
   describe('race conditions', () => {
     it('discards stale response when a newer request is in flight', async () => {
-      let resolveA: (value: { title: string | null; description: string | null }) => void
-      let resolveB: (value: { title: string | null; description: string | null }) => void
+      let resolveA: (value: { name: string | null; title: string | null; description: string | null }) => void
+      let resolveB: (value: { name: string | null; title: string | null; description: string | null }) => void
 
       mockSuggestMetadata
         .mockReturnValueOnce(new Promise((resolve) => { resolveA = resolve }))
@@ -363,16 +364,16 @@ describe('useMetadataSuggestions', () => {
 
       // B resolves first
       await act(async () => {
-        resolveB!({ title: null, description: 'Desc B' })
+        resolveB!({ name: null, title: null, description: 'Desc B' })
       })
 
       await vi.waitFor(() => {
-        expect(onUpdateB).toHaveBeenCalledWith(null, 'Desc B')
+        expect(onUpdateB).toHaveBeenCalledWith(null, null, 'Desc B')
       })
 
       // A resolves later — should be discarded
       await act(async () => {
-        resolveA!({ title: 'Title A', description: null })
+        resolveA!({ name: null, title: 'Title A', description: null })
       })
 
       expect(onUpdateA).not.toHaveBeenCalled()

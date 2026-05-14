@@ -5,6 +5,7 @@ This module contains validators used across multiple entity schemas (bookmarks, 
 Format validation happens here; length validation happens in service layer (tier-based limits).
 """
 import re
+import unicodedata
 
 # Abuse prevention: cap on tags per entity. Not tier-based — universal safety guardrail.
 # Applies to all paths through validate_and_normalize_tags(), including read-path tag
@@ -112,6 +113,44 @@ def validate_prompt_name(name: str) -> str:
             "Use lowercase letters, numbers, and hyphens only (e.g., 'code-review'). "
             "Must start and end with a letter or number.",
         )
+    return trimmed
+
+
+_SLUG_NONALNUM_RE = re.compile(r"[^a-z0-9]+")
+_SLUG_HYPHEN_RUN_RE = re.compile(r"-{2,}")
+
+
+def slugify_prompt_name(value: str, max_length: int = 100) -> str:
+    """
+    Coerce an arbitrary string into a valid prompt name slug.
+
+    Used as a safety net for LLM-generated names — the LLM is instructed to
+    return slug format, but may not always comply. Output is guaranteed to
+    match PROMPT_NAME_PATTERN, or be the empty string if the input has no
+    usable characters after sanitization.
+
+    Args:
+        value: Arbitrary string (e.g. "My Cool Prompt", "café-2024").
+        max_length: Upper bound on the returned slug length. Defaults to 100
+            to match the FREE tier prompt name limit.
+
+    Returns:
+        A slug like "my-cool-prompt", or "" if nothing valid remains.
+    """
+    if not value:
+        return ""
+    # Strip accents via NFKD then drop combining marks. "café" -> "cafe".
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_only = "".join(c for c in normalized if not unicodedata.combining(c))
+    lowered = ascii_only.lower()
+    # Replace any run of non-[a-z0-9] with a single hyphen, then collapse repeats.
+    hyphenated = _SLUG_NONALNUM_RE.sub("-", lowered)
+    collapsed = _SLUG_HYPHEN_RUN_RE.sub("-", hyphenated)
+    trimmed = collapsed.strip("-")
+    if not trimmed:
+        return ""
+    if len(trimmed) > max_length:
+        trimmed = trimmed[:max_length].rstrip("-")
     return trimmed
 
 

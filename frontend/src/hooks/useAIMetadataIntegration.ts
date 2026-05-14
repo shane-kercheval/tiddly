@@ -14,6 +14,8 @@ import { useCallback } from 'react'
 import { useMetadataSuggestions } from './useMetadataSuggestions'
 
 interface MetadataState {
+  /** Prompt name/slug. Optional — bookmarks and notes don't have one. */
+  name?: string
   title: string
   description: string
   content: string
@@ -28,6 +30,8 @@ interface SuggestIconProps {
 }
 
 interface UseAIMetadataIntegrationReturn {
+  /** Props to spread on the prompt-name field. Undefined when AI not available. */
+  nameSuggestProps: SuggestIconProps | undefined
   /** Props to spread on InlineEditableTitle. Undefined when AI not available. */
   titleSuggestProps: SuggestIconProps | undefined
   /** Props to spread on InlineEditableText (description). Undefined when AI not available. */
@@ -39,15 +43,31 @@ export function useAIMetadataIntegration<T extends MetadataState>(
   setCurrent: React.Dispatch<React.SetStateAction<T>>,
   available: boolean = false,
 ): UseAIMetadataIntegrationReturn {
-  const { isSuggestingTitle, isSuggestingDescription, suggestTitle, suggestDescription } = useMetadataSuggestions({ available })
+  const {
+    isSuggestingName,
+    isSuggestingTitle,
+    isSuggestingDescription,
+    suggestName,
+    suggestTitle,
+    suggestDescription,
+  } = useMetadataSuggestions({ available })
 
-  const handleUpdate = useCallback((title: string | null, description: string | null) => {
+  const handleUpdate = useCallback((
+    name: string | null,
+    title: string | null,
+    description: string | null,
+  ) => {
     setCurrent((prev) => ({
       ...prev,
+      ...(name != null ? { name } : {}),
       ...(title != null ? { title } : {}),
       ...(description != null ? { description } : {}),
     }))
   }, [setCurrent])
+
+  const handleSuggestName = useCallback(() => {
+    suggestName(current, handleUpdate)
+  }, [suggestName, current, handleUpdate])
 
   const handleSuggestTitle = useCallback(() => {
     suggestTitle(current, handleUpdate)
@@ -59,17 +79,29 @@ export function useAIMetadataIntegration<T extends MetadataState>(
 
   if (!available) {
     return {
+      nameSuggestProps: undefined,
       titleSuggestProps: undefined,
       descriptionSuggestProps: undefined,
     }
   }
 
+  // Name icon enabled when title, description, OR content exists — name is
+  // the most derivative field, so any of the others is sufficient grounding.
+  const nameEnabled = !!(
+    current.title.trim() || current.description.trim() || current.content.trim()
+  )
   // Title icon enabled when description OR content exists
   const titleEnabled = !!(current.description.trim() || current.content.trim())
   // Description icon enabled when content exists
   const descriptionEnabled = !!current.content.trim()
 
   return {
+    nameSuggestProps: {
+      onSuggest: handleSuggestName,
+      isSuggesting: isSuggestingName,
+      suggestDisabled: !nameEnabled,
+      suggestTooltip: 'Add a title, description, or content to enable AI name suggestion',
+    },
     titleSuggestProps: {
       onSuggest: handleSuggestTitle,
       isSuggesting: isSuggestingTitle,

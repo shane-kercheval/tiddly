@@ -347,7 +347,7 @@ export function Prompt({
     useAITagIntegration(current, setCurrent, aiAvailable, 'prompt')
   const { aiRelationshipSuggestions, isAiRelationshipsLoading, aiRelationshipsHasError, handleLinkedContentOpen, handleLinkedContentClose, handleAddRelationshipWithDismiss } =
     useAIRelationshipIntegration({ ...current, contentId: prompt?.id ?? null }, aiAvailable)
-  const { titleSuggestProps, descriptionSuggestProps } =
+  const { nameSuggestProps, titleSuggestProps, descriptionSuggestProps } =
     useAIMetadataIntegration(current, setCurrent, aiAvailable)
   const { argumentSuggestProps } =
     useAIArgumentIntegration(current, setCurrent, aiAvailable)
@@ -1039,6 +1039,7 @@ export function Prompt({
             disabled={isSaving || isReadOnly}
             error={errors.name}
             maxLength={limits.max_prompt_name_length}
+            {...nameSuggestProps}
           />
 
           {/* Title (optional display name) */}

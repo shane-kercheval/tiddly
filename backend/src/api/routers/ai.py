@@ -757,7 +757,7 @@ async def suggest_tags_endpoint(
     "/suggest-metadata",
     response_model=SuggestMetadataResponse,
     responses=AI_SUGGESTION_RESPONSES,
-    summary="Suggest title and/or description for an item",
+    summary="Suggest name, title, and/or description for an item",
 )
 async def suggest_metadata_endpoint(
     data: SuggestMetadataRequest,
@@ -766,8 +766,8 @@ async def suggest_metadata_endpoint(
     _rate_limit: None = Depends(apply_ai_rate_limit),
 ) -> SuggestMetadataResponse:
     """
-    Generate a title, description, or both for an item — using the item's
-    existing metadata (when supplied) as grounding context.
+    Generate a `name` (prompts only), `title`, or `description` for an item —
+    using any supplied existing metadata as grounding context.
 
     ### Request fields
 
@@ -775,6 +775,7 @@ async def suggest_metadata_endpoint(
     |---|---|---|---|
     | `fields` | no | `["title","description"]` | Which field(s) to **generate**. Non-empty. |
     | `url` | no | `null` | LLM context. |
+    | `name` | no | `null` | Existing prompt name/slug. Prompts only. |
     | `title` | no | `null` | Existing title — see "context-vs-generate" below. |
     | `description` | no | `null` | Existing description — see "context-vs-generate" below. |
     | `content_snippet` | no | `null` | Body text. 10,000 char max; 5,000 sent to LLM. |
@@ -782,29 +783,33 @@ async def suggest_metadata_endpoint(
 
     ### Response
 
-    `{"title": string | null, "description": string | null}` — each field is
-    populated if it appeared in the request `fields` array, otherwise
-    `null`. Only the subset you asked to generate comes back.
+    `{"name": string | null, "title": string | null, "description": string | null}`
+    — each field is populated if it appeared in the request `fields` array,
+    otherwise `null`. Only the subset you asked to generate comes back.
+    A generated `name` is always a valid slug (lowercase letters/numbers with
+    hyphens). If the LLM returns an unusable name even after slugification,
+    `name` is `null` despite being requested.
 
     ### Behavior: context vs. generate
 
     The `fields` array tells the server which fields to **generate**. Any
-    `title` / `description` values you pass that are **not** in `fields` are
-    used as **LLM grounding context** instead — they shape the output but are
-    not regenerated and are not returned.
+    `name` / `title` / `description` values you pass that are **not** in
+    `fields` are used as **LLM grounding context** instead — they shape the
+    output but are not regenerated and are not returned.
 
     Common patterns:
 
-    - **Regenerate both from a URL.** Send `fields=["title", "description"]`
-      and `url` (+ optionally `content_snippet`). Response has both fields.
+    - **Regenerate title + description from a URL.** Send
+      `fields=["title", "description"]` and `url` (+ optionally
+      `content_snippet`). Response has both fields.
+    - **Suggest a prompt name from its title and description.** Send
+      `fields=["name"]` with the existing `title` and `description`. Response
+      has `name` populated; `title` and `description` are `null`.
     - **Regenerate only the description, keeping the title as context.**
       Send `fields=["description"]` with the existing `title` and
       `content_snippet`. The LLM uses the title to stay on-topic. The
       response has `title: null` and the new `description`. The frontend
       should display the original title unchanged.
-    - **Regenerate only the title, keeping the description as context.**
-      Mirror of the above. Send `fields=["title"]` with the existing
-      `description`.
 
     An empty `fields` array is rejected with 422.
 
@@ -824,6 +829,7 @@ async def suggest_metadata_endpoint(
             title=data.title,
             description=data.description,
             content_snippet=data.content_snippet,
+            name=data.name,
             llm_service=llm_service,
             config=config,
         )
@@ -837,7 +843,11 @@ async def suggest_metadata_endpoint(
         cost=cost, latency_ms=latency_ms,
     )
 
-    return SuggestMetadataResponse(title=result.title, description=result.description)
+    return SuggestMetadataResponse(
+        name=result.name,
+        title=result.title,
+        description=result.description,
+    )
 
 
 @router.post(
