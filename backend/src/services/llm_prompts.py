@@ -250,10 +250,11 @@ _REQUIRED_GUIDELINE = (
 
 _DESCRIPTION_GUIDELINE = (
     "- Descriptions should explain what the argument represents from the user's perspective:\n"
-    "  - For arguments with short, concrete inputs, include a brief example (e.g., `en`, `Python`, `casual`).\n"
-    "  - For arguments with long or free-form inputs (articles, code, JSON), describe the expected type or "
-    "format instead (e.g., 'A plain-text article to summarize' or 'A JSON object with "
-    "keys name and age').\n"
+    "  - For arguments with short, concrete inputs, include a brief example "
+    "(e.g., `en`, `Python`, `casual`).\n"
+    "  - For arguments with long or free-form inputs (articles, code, JSON), "
+    "describe the expected type or format instead "
+    "(e.g., 'A plain-text article to summarize' or 'A JSON object with keys name and age').\n"
     "- Do not mention Jinja2, templates, placeholders, conditional blocks, "
     "or whether the argument is required — that information belongs in the "
     "`required` field, not in the description.\n"
