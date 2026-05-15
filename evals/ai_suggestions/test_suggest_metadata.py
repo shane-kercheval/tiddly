@@ -125,6 +125,7 @@ async def test_suggest_metadata(
         title=input_data.get("title"),
         description=input_data.get("description"),
         content_snippet=input_data.get("content_snippet"),
+        name=input_data.get("name"),
         llm_service=_llm_service,
         config=config,
         timeout=EVAL_LLM_TIMEOUT,
@@ -132,9 +133,11 @@ async def test_suggest_metadata(
     )
 
     return {
+        "name": result.name,
         "title": result.title,
         "description": result.description,
         "title_length": len(result.title) if result.title else 0,
+        "name_length": len(result.name) if result.name else 0,
         "model_name": config.model,
         "temperature": temperature,
         "usage": {

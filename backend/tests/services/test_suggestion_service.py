@@ -14,6 +14,7 @@ from schemas.ai import (
     RelationshipCandidateContext,
     TagVocabularyEntry,
 )
+from schemas.validators import PROMPT_NAME_PATTERN
 from services._suggestion_llm_schemas import (
     ArgumentDescriptionSuggestion,
     ArgumentNameSuggestion,
@@ -290,48 +291,170 @@ class TestSuggestTags:
 class TestSuggestMetadata:
     """Tests for suggest_metadata service function."""
 
+    @staticmethod
+    def _full_response(name: str = "echo-name", title: str = "Echo Title",
+                       description: str = "Echo description.") -> str:
+        return (
+            '{"name": "' + name + '", '
+            '"title": "' + title + '", '
+            '"description": "' + description + '"}'
+        )
+
     async def test_title_only(self) -> None:
-        service = _mock_llm_service('{"title": "A Great Title"}')
+        service = _mock_llm_service(
+            self._full_response(title="A Great Title", description="echo"),
+        )
         result, cost = await suggest_metadata(
             fields=["title"],
             url=None,
             title=None,
             description="Existing desc",
             content_snippet="Some content",
+            name=None,
             llm_service=service,
             config=_mock_config(),
         )
+        assert result.name is None
         assert result.title == "A Great Title"
-        assert result.description is None
+        assert result.description is None  # echoed value is discarded
         assert cost == 0.001
 
     async def test_description_only(self) -> None:
-        service = _mock_llm_service('{"description": "A summary."}')
+        service = _mock_llm_service(self._full_response(description="A summary."))
         result, _ = await suggest_metadata(
             fields=["description"],
             url=None,
             title="Existing Title",
             description=None,
             content_snippet="Some content",
+            name=None,
             llm_service=service,
             config=_mock_config(),
         )
+        assert result.name is None
         assert result.title is None
         assert result.description == "A summary."
 
     async def test_both_fields(self) -> None:
-        service = _mock_llm_service('{"title": "T", "description": "D"}')
+        service = _mock_llm_service(self._full_response(title="T", description="D"))
         result, _ = await suggest_metadata(
             fields=["title", "description"],
             url=None,
             title=None,
             description=None,
             content_snippet="Some content",
+            name=None,
             llm_service=service,
             config=_mock_config(),
         )
+        assert result.name is None
         assert result.title == "T"
         assert result.description == "D"
+
+    async def test_name_only_slugified(self) -> None:
+        """LLM may not follow slug format perfectly; service slugifies output."""
+        service = _mock_llm_service(self._full_response(name="My Cool Prompt"))
+        result, _ = await suggest_metadata(
+            fields=["name"],
+            url=None,
+            title="My Cool Prompt",
+            description="A useful template.",
+            content_snippet=None,
+            name=None,
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert result.name == "my-cool-prompt"
+        assert result.title is None
+        assert result.description is None
+
+    async def test_name_already_valid_slug_passes_through(self) -> None:
+        service = _mock_llm_service(self._full_response(name="code-review"))
+        result, _ = await suggest_metadata(
+            fields=["name"],
+            url=None,
+            title="Code Review",
+            description=None,
+            content_snippet=None,
+            name=None,
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert result.name == "code-review"
+
+    async def test_name_truncated_to_50_chars_server_side(self) -> None:
+        """LLM ignores the 50-char prompt instruction; server enforces hard cap."""
+        long_slug = "a-" * 40  # 80 chars, well-formed slug, exceeds 50-char cap
+        service = _mock_llm_service(self._full_response(name=long_slug))
+        result, _ = await suggest_metadata(
+            fields=["name"],
+            url=None,
+            title="Some prompt",
+            description=None,
+            content_snippet=None,
+            name=None,
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert result.name is not None
+        assert len(result.name) <= 50
+        # Still a valid slug after truncation (no dangling hyphen).
+        assert PROMPT_NAME_PATTERN.match(result.name)
+
+    async def test_name_unusable_after_slugify_is_none(self) -> None:
+        """LLM returns garbage that slugifies to empty -> name is None."""
+        service = _mock_llm_service(self._full_response(name="!@#$%"))
+        result, _ = await suggest_metadata(
+            fields=["name"],
+            url=None,
+            title=None,
+            description=None,
+            content_snippet="some content",
+            name=None,
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert result.name is None
+
+    async def test_all_three_fields_returned(self) -> None:
+        service = _mock_llm_service(
+            self._full_response(name="weekly-status", title="Weekly Status",
+                                description="Team weekly update."),
+        )
+        result, _ = await suggest_metadata(
+            fields=["name", "title", "description"],
+            url=None,
+            title=None,
+            description=None,
+            content_snippet="content",
+            name=None,
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert result.name == "weekly-status"
+        assert result.title == "Weekly Status"
+        assert result.description == "Team weekly update."
+
+    async def test_echoed_fields_discarded(self) -> None:
+        """Non-requested fields the LLM echoes are not returned."""
+        service = _mock_llm_service(
+            self._full_response(
+                name="leaked-name", title="leaked title", description="real desc",
+            ),
+        )
+        result, _ = await suggest_metadata(
+            fields=["description"],
+            url=None,
+            title="user-typed title",
+            description=None,
+            content_snippet="content",
+            name="user-typed-name",
+            llm_service=service,
+            config=_mock_config(),
+        )
+        assert result.name is None
+        assert result.title is None
+        assert result.description == "real desc"
 
     async def test_parse_error_raises_with_cost(self) -> None:
         service = _mock_llm_service("invalid", cost=0.005)
@@ -342,6 +465,7 @@ class TestSuggestMetadata:
                 title=None,
                 description=None,
                 content_snippet=None,
+                name=None,
                 llm_service=service,
                 config=_mock_config(),
             )

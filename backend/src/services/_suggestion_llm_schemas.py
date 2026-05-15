@@ -13,21 +13,18 @@ service layer mapping LLM output onto that public shape.
 from pydantic import BaseModel
 
 
-class TitleOnly(BaseModel):
-    """LLM response format when only `title` is requested in suggest-metadata."""
+class MetadataSuggestionResult(BaseModel):
+    """
+    Unified LLM response format for `/ai/suggest-metadata`.
 
-    title: str
+    All three fields are required: the LLM is instructed to either generate
+    a new value (for fields the caller requested) or echo the current value
+    (for fields used as context only). The service layer discards echoed
+    values for non-requested fields so user-typed content can't drift via
+    subtle LLM rewording.
+    """
 
-
-class DescriptionOnly(BaseModel):
-    """LLM response format when only `description` is requested in suggest-metadata."""
-
-    description: str
-
-
-class TitleAndDescription(BaseModel):
-    """LLM response format when both fields are requested in suggest-metadata."""
-
+    name: str
     title: str
     description: str
 

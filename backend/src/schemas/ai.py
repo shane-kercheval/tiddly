@@ -509,6 +509,13 @@ class SuggestMetadataRequest(BaseModel):
                     "description": "Deep dive into Python's event loop.",
                     "content_snippet": "The event loop sits at the heart of asyncio...",
                 },
+                {
+                    "model": "openai/gpt-5.4-mini",
+                    "fields": ["name"],
+                    "title": "Weekly status update",
+                    "description": "Template for our team's weekly status report.",
+                    "content_snippet": "## This week\n- ...\n\n## Next week\n- ...",
+                },
             ],
         },
     )
@@ -521,19 +528,28 @@ class SuggestMetadataRequest(BaseModel):
             "locked to the use-case default. Call `GET /ai/models`."
         ),
     )
-    fields: list[Literal["title", "description"]] = Field(
+    fields: list[Literal["name", "title", "description"]] = Field(
         default_factory=lambda: ["title", "description"],
         min_length=1,
         description=(
             "Non-empty list of field names to generate; each element must be "
-            "`\"title\"` or `\"description\"`. Fields not listed here are "
-            "used as LLM context when supplied but are not returned in the "
-            "response."
+            "`\"name\"`, `\"title\"`, or `\"description\"`. Fields not listed "
+            "here are used as LLM context when supplied but are not returned "
+            "in the response. `\"name\"` is only meaningful for prompts; "
+            "bookmarks and notes don't have a name field."
         ),
     )
     url: str | None = Field(
         None, max_length=2048,
         description="Bookmark URL used as LLM context.",
+    )
+    name: str | None = Field(
+        None, max_length=255,
+        description=(
+            "Existing prompt name/slug used as LLM context. Not returned "
+            "unless `name` is included in `fields`. Only meaningful for "
+            "prompts; bookmarks and notes don't have a name field."
+        ),
     )
     title: str | None = Field(
         None, max_length=500,
@@ -560,7 +576,7 @@ class SuggestMetadataRequest(BaseModel):
 
 
 class SuggestMetadataResponse(BaseModel):
-    """Response with suggested title and/or description."""
+    """Response with suggested name, title, and/or description."""
 
     # Kept a single non-null example; the `title: null` case is documented
     # in the `title` field description instead. FastAPI's OpenAPI
@@ -571,6 +587,7 @@ class SuggestMetadataResponse(BaseModel):
         json_schema_extra={
             "examples": [
                 {
+                    "name": "async-await-internals",
                     "title": "Async/await internals in Python",
                     "description": "A walkthrough of how the event loop schedules coroutines.",
                 },
@@ -578,6 +595,14 @@ class SuggestMetadataResponse(BaseModel):
         },
     )
 
+    name: str | None = Field(
+        None,
+        description=(
+            "Generated prompt name/slug (lowercase letters/numbers with "
+            "hyphens). `null` unless `name` was in the request `fields`, or "
+            "if the LLM produced no usable value after slugification."
+        ),
+    )
     title: str | None = Field(
         None,
         description="Generated title. `null` unless `title` was in the request `fields`.",
