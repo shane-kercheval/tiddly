@@ -766,4 +766,174 @@ createContentComponentTests({
       expect(screen.getByDisplayValue('my-new-prompt')).toBeInTheDocument()
     })
   })
+
+  describe('Preview button', () => {
+    const mockPromptWithArgs: PromptType = {
+      ...mockPrompt,
+      arguments: [{ name: 'topic', description: 'Topic to write about', required: true }],
+    }
+
+    // Tooltip gates rendering on `matchMedia('(hover: hover)')` — jsdom returns false by
+    // default which would skip tooltip rendering entirely. Mock true so tooltip-content
+    // assertions can run.
+    let originalMatchMedia: typeof window.matchMedia
+    beforeEach(() => {
+      originalMatchMedia = window.matchMedia
+      window.matchMedia = vi.fn((query: string) => ({
+        matches: query === '(hover: hover)',
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        onchange: null,
+      })) as unknown as typeof window.matchMedia
+    })
+
+    afterEach(() => {
+      window.matchMedia = originalMatchMedia
+    })
+
+    // The Preview button is wrapped in a Tooltip's <div> wrapper. Hover the wrapper to
+    // trigger the tooltip — disabled buttons don't fire mouseenter reliably across browsers.
+    const hoverPreviewWrapper = async (user: ReturnType<typeof userEvent.setup>): Promise<void> => {
+      const wrapper = screen.getByRole('button', { name: 'Preview' }).parentElement!
+      await user.hover(wrapper)
+    }
+
+    it('should be visible and disabled in create mode (no arguments)', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+      renderWithRouter(
+        <Prompt
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      const previewButton = screen.getByRole('button', { name: 'Preview' })
+      expect(previewButton).toBeInTheDocument()
+      expect(previewButton).toBeDisabled()
+
+      await hoverPreviewWrapper(user)
+      expect(
+        await screen.findByText('Add an argument and create the prompt to enable preview')
+      ).toBeInTheDocument()
+    })
+
+    it('should be visible and disabled in create mode after adding an argument', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+      renderWithRouter(
+        <Prompt
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Add an argument via the ArgumentsBuilder
+      await user.click(screen.getByRole('button', { name: 'Add argument' }))
+
+      const previewButton = screen.getByRole('button', { name: 'Preview' })
+      expect(previewButton).toBeDisabled()
+
+      await hoverPreviewWrapper(user)
+      expect(
+        await screen.findByText('Create the prompt before previewing')
+      ).toBeInTheDocument()
+    })
+
+    it('should be visible and disabled for saved prompt with no arguments', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+      renderWithRouter(
+        <Prompt
+          prompt={mockPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      const previewButton = screen.getByRole('button', { name: 'Preview' })
+      expect(previewButton).toBeInTheDocument()
+      expect(previewButton).toBeDisabled()
+
+      await hoverPreviewWrapper(user)
+      expect(
+        await screen.findByText(/Preview is only available for prompts with arguments/)
+      ).toBeInTheDocument()
+    })
+
+    it('should be visible and enabled for saved prompt with arguments and no unsaved changes', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+      renderWithRouter(
+        <Prompt
+          prompt={mockPromptWithArgs}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      const previewButton = screen.getByRole('button', { name: 'Preview' })
+      expect(previewButton).toBeInTheDocument()
+      expect(previewButton).toBeEnabled()
+
+      // No tooltip should render in the enabled state
+      await hoverPreviewWrapper(user)
+      // Wait a tick to allow any pending tooltip render; none of the disabled-state
+      // strings should appear.
+      expect(screen.queryByText(/Save changes before previewing/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Preview is only available/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Create the prompt/)).not.toBeInTheDocument()
+    })
+
+    it('should be visible but disabled when prompt has arguments but is dirty', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+      renderWithRouter(
+        <Prompt
+          prompt={mockPromptWithArgs}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+        />
+      )
+
+      // Initially enabled (saved prompt with args, not dirty)
+      expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled()
+
+      // Edit the content to make the form dirty
+      const contentEditor = screen.getByTestId('content-editor')
+      await user.type(contentEditor, ' edited')
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled()
+      })
+
+      await hoverPreviewWrapper(user)
+      expect(
+        await screen.findByText('Save changes before previewing')
+      ).toBeInTheDocument()
+    })
+
+    it('should not be visible for a deleted (read-only) prompt', () => {
+      renderWithRouter(
+        <Prompt
+          prompt={mockDeletedPrompt}
+          tagSuggestions={mockTagSuggestions}
+          onSave={mockOnSave}
+          onClose={mockOnClose}
+          viewState="deleted"
+        />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Preview' })).not.toBeInTheDocument()
+    })
+  })
 })

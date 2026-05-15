@@ -924,13 +924,25 @@ export function Prompt({
             </button>
           )}
 
-          {/* Preview button - only for saved prompts with arguments, disabled when dirty */}
-          {!isCreate && !isReadOnly && prompt && prompt.arguments && prompt.arguments.length > 0 && (
-            <Tooltip content={isDirty ? 'Save changes before previewing' : null} compact>
+          {/* Preview button - always visible (except read-only); tooltip explains why disabled */}
+          {!isReadOnly && (
+            <Tooltip
+              content={
+                isCreate && current.arguments.length === 0
+                  ? 'Add an argument and create the prompt to enable preview'
+                  : isCreate
+                    ? 'Create the prompt before previewing'
+                    : isDirty
+                      ? 'Save changes before previewing'
+                      : current.arguments.length === 0
+                        ? 'Preview is only available for prompts with arguments. Add an argument to use it.'
+                        : null
+              }
+            >
               <button
                 type="button"
                 onClick={() => setIsPreviewModalOpen(true)}
-                disabled={isSaving || isDirty}
+                disabled={isSaving || isCreate || isDirty || current.arguments.length === 0}
                 className="btn-ghost"
               >
                 Preview
