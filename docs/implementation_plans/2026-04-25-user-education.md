@@ -109,6 +109,100 @@ We risk authoring tips that "work in our heads" but break for users.
 
 **General principle to fold into M5:** the authoring agent should not write a tip claiming API-or-template behavior unless a unit test exists that confirms the behavior. If verification reveals the claim doesn't hold, the tip is dropped or reframed.
 
+### 4. Tip-shortcut integration with the registry (blocks M5 continuation)
+
+**Discovered in:** merge of `main` into `user-education` after the shortcut registry refactor landed (`0f84c89`, KAN-144, plan at `docs/implementation_plans/2026-05-09-shortcut-registry-refactor.md`).
+
+**Why this matters:** the M1 refactor established a single source of truth for keyboard bindings in `frontend/src/shortcuts/registry.ts` — display tokens and event matchers paired in one entry, consumed by every display surface (ShortcutsDialog, DocsShortcuts, editor tooltips, the page-scoped `pageScoped.ts` extras module). The refactor's plan calls out an existing drift bug it's meant to prevent (`SettingsGeneral` advertised `⌘+/` while the binding was `⌘⇧/`, fixed in `c99ee4b`).
+
+Tips, as currently authored, sit *outside* this contract. `Tip` has `shortcut?: string[]` authored as raw Mac glyphs (`['⌘', '⇧', 'P']`) parallel to whatever the registry says. Two consequences:
+
+1. **No OS localization at render.** `TipCard.tsx:61-71` renders `tip.shortcut` raw — a Windows user sees `⌘ + V` instead of `Ctrl + V`.
+2. **Drift between tips and bindings is invisible.** If `app.commandPalette` is ever rebound from `⌘⇧P` to `⌘K`, the registry-backed display surfaces update; tips silently lie.
+
+Tips are a seventh inline-literal display site — the exact class of drift the registry was built to eliminate.
+
+**Proposed work:**
+
+- **Schema (M1 retro) — `frontend/src/data/tips/types.ts`:** add `shortcutId?: TipShortcutId` to the `Tip` interface, where `TipShortcutId = ShortcutId | TipExtraShortcutId`. Keep `shortcut?: readonly string[]` as a fallback for literal display only. Mutual exclusion enforced in validation, not in the type.
+
+- **New module — `frontend/src/data/tips/tipExtraShortcuts.ts`:** narrow extras-only registry for shortcuts the main `shortcuts/registry.ts` intentionally excludes. Shape:
+
+    ```ts
+    import {
+      PAGE_SCOPED_SAVE_KEYS,
+      PAGE_SCOPED_SAVE_AND_CLOSE_KEYS,
+    } from '../../shortcuts/pageScoped'
+
+    // Each entry's `keys` is a readonly Mac-glyph token array, same authoring
+    // convention as the main registry. Localization happens at render via
+    // `localizeKeys` / `formatShortcut` in `utils/platform.ts`.
+    export const TIP_EXTRA_SHORTCUTS = {
+      'page.save':           { keys: PAGE_SCOPED_SAVE_KEYS },
+      'page.saveAndClose':   { keys: PAGE_SCOPED_SAVE_AND_CLOSE_KEYS },
+      // Mirrors chrome-extension/manifest.json `commands._execute_action.suggested_key.default`.
+      // Cross-package import isn't worth the build complexity; if the manifest
+      // default changes, update this entry by hand.
+      'extension.openPopup': { keys: ['⌥', '⇧', 'S'] },
+    } as const satisfies Record<string, { keys: readonly string[] }>
+
+    export type TipExtraShortcutId = keyof typeof TIP_EXTRA_SHORTCUTS
+    ```
+
+- **Resolver and type guard — in the same module:**
+    ```ts
+    export function resolveTipShortcut(id: string): readonly string[]
+    export function isTipShortcutId(id: string): id is TipShortcutId
+    ```
+    `resolveTipShortcut` branches on `isShortcutId(id)` (from `shortcuts/registry.ts:339`) → `getShortcut(id).keys`, else looks up `TIP_EXTRA_SHORTCUTS[id].keys`. Throws on unknown ids.
+    
+    **Why `id: string` and not `id: TipShortcutId`:** this resolver sits at the markdown boundary — `validateTips` extracts token bodies from raw markdown via regex, where the captured group is `string` by construction. Typing it `TipShortcutId` would force the validator to either cast (lie to TypeScript) or duplicate the membership check. Different boundary semantics from `getShortcut(id: ShortcutId)`, which is only called from typed code paths. Future reviewers: do **not** tighten this back to `TipShortcutId` — the wider input type is load-bearing. Compile-time-safe call sites (e.g., `TipCard` passing `tip.shortcutId`) work because TypeScript allows passing a narrower type where `string` is accepted.
+
+- **Extract shared `Kbd` component first:** `Kbd` is currently defined file-locally at `frontend/src/components/tips/TipCard.tsx:107` and used only inside `TipCard`. The body-token override in `TipBody.tsx` needs the same visual styling, so move `Kbd` to its own module — `frontend/src/components/tips/Kbd.tsx` — and import from both `TipCard.tsx` and `TipBody.tsx`. No behavior change, just a relocation.
+
+- **TipCard render (M2 retro) — `frontend/src/components/tips/TipCard.tsx:61-71`:** branch on `shortcutId` vs `shortcut`. Either path runs through `localizeKeys` from `frontend/src/utils/platform.ts` so the chip row is platform-correct on every OS. Chip row keeps per-token `Kbd` component styling (now imported from the extracted module).
+
+- **TipBody render (M2 retro) — `frontend/src/components/tips/TipBody.tsx:62`:** add a `code` component override to the existing react-markdown setup. Behavior:
+    - If the inline code span's full text matches `^\{\{shortcut:([^}]+)\}\}$` (the capture group is intentionally liberal — registry ids use camelCase like `app.commandPalette`, `editor.inlineCode`, `page.saveAndClose`; the regex's job is to detect the `{{shortcut:…}}` shape, the resolver's job is to validate the id). Resolve the captured id via `resolveTipShortcut` and render a single `<Kbd>{formatShortcut(keys)}</Kbd>` — same `Kbd` component the chip row uses, so inline tokens visually match the chip row. Result: "Press <kbd>⌘⇧P</kbd> to…" on Mac; "Press <kbd>Ctrl+Shift+P</kbd> to…" on Windows.
+    - Multiple `{{shortcut:id}}` tokens in one body are supported — each code span is overridden independently.
+    - Tokens *not* inside a code span (e.g., bare `{{shortcut:x}}` in prose) are literal text. The override only fires on `code` nodes; markdown text outside code spans never reaches it.
+    - Any other code span content (a real `\`variable\`` reference, etc.) passes through unchanged to the default code rendering.
+    - **rehype-sanitize interaction:** the sanitizer at `TipBody.tsx:24-27` runs on the rehype AST *before* React render. The `components` override receives the `code` element during React render and returns JSX; the resulting `<kbd>` element exists in the React tree post-sanitize and is not affected by the allowlist. No sanitizer changes needed.
+
+- **validateTips extension — `frontend/src/data/tips/index.ts:33`:** for each tip:
+    - Mutual exclusion: if both `shortcutId` and `shortcut` set → throw.
+    - `shortcut` set → must be non-empty.
+    - `shortcutId` set → must resolve via `resolveTipShortcut` (catch the throw, re-throw with tip context).
+    - Body scan: find every inline-code-span-shaped `\`{{shortcut:X}}\`` in `tip.body` using the same liberal capture as the render-time regex (`\`\{\{shortcut:([^}]+)\}\}\``). For each captured id, call `resolveTipShortcut(id)` inside try/catch; on failure, throw `Tip "<tip-id>" references unknown shortcut token "{{shortcut:X}}"`. Reusing the resolver here (rather than duplicating the membership check) is exactly why its input type is `string`.
+
+- **Corpus migration (single batched pass after the code lands):**
+    1. Enumerate every tip with a shortcut reference: `grep -n "shortcut:" frontend/src/data/tips/tips.ts` gives the chip-row arrays; scan bodies separately for Mac-glyph code spans (`\`⌘`, `\`⌥`, `\`⇧`).
+    2. Per tip, classify the chip-row `shortcut` array as either: (a) maps to a `ShortcutId` in the main registry → switch to `shortcutId`; (b) maps to a `TipExtraShortcutId` → switch to `shortcutId`; (c) literal-display only (no current cases identified) → keep `shortcut`.
+    3. For each body code span referencing a keystroke, replace with `{{shortcut:id}}` using the same id resolution. Add new extras-module entries if any body references a non-registry shortcut not yet covered.
+    4. Run `validateTips` (executes at module load via `tips.ts` import); the build fails fast on any inconsistency.
+
+  Estimated ~15 tips touched.
+- **Tests** (use the existing `navigator.platform` mocking pattern from `frontend/src/utils/platform.test.ts`):
+    - **Resolver / type guard:** `resolveTipShortcut` returns expected keys for a registry-backed id; for an extras-backed id; throws on unknown id. `isTipShortcutId` returns `true` for registry id, `true` for extras id, `false` for unknown.
+    - **TipCard chip row** — keep in mind the existing render shape: per-token `<Kbd>` elements joined by visual `+` separators (`TipCard.tsx:64-70`). Assert each `<kbd>` element individually, not a concatenated string.
+        - Mac: three Kbd elements with text `⌘`, `⇧`, `P` (rendered with `+` separators between them).
+        - Windows: three Kbd elements with text `Ctrl`, `Shift`, `P` (with `+` separators).
+    - **TipBody body token** — `formatShortcut` output in a single `<Kbd>`:
+        - Mac: one Kbd element with text `⌘⇧P` (no separators).
+        - Windows: one Kbd element with text `Ctrl+Shift+P`.
+    - **TipBody pass-through:**
+        - A real code span like `` `tip.shortcut` `` renders as the default `<code>` element, not a `<Kbd>`.
+        - Mixed-content code spans like `` `Press {{shortcut:app.commandPalette}}` `` (text + token inside the same backticks) pass through as default `<code>` — the regex is exact-match.
+        - Multiple `{{shortcut:id}}` tokens in one body each render their own `<Kbd>`.
+    - **Validation:** `validateTips` throws on unknown body token with the documented error string; passes on valid token; throws when both `shortcut` and `shortcutId` are set on the same tip; throws when `shortcut` is set but empty.
+
+**Urgency:** this follow-up blocks resumption of M5 per-tip review. The current authoring convention (raw Mac glyphs in body markdown, `shortcut: ['⌘', 'X']` arrays for the chip row) sets a corpus-wide pattern we'd otherwise have to back-migrate across ~80 tips. Landing this *first* means the remaining ~60 unreviewed tips are authored in token form from the start.
+
+**Open questions:**
+
+- Should the resolver throw or warn on a `shortcutId` whose extras-module entry has been deleted? Throw, consistent with `getShortcut` in the main registry.
+- Should `validateTips` also verify that a tip's `shortcutId` and any body `{{shortcut:X}}` tokens reference the *same* binding when the tip is "about" one specific shortcut? Likely no — body tokens may legitimately reference adjacent shortcuts (e.g., a tip about `⌘+S` may also mention `⌘+⇧+S`). Validate ids individually; don't enforce same-id-as-chip-row.
+
 ## Validated assumptions
 
 The following were verified by reading code before drafting this plan. The agent should re-verify any specific detail before depending on it:

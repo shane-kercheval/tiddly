@@ -58,7 +58,7 @@ Once `tiddly_prompts` is connected, your AI agent can search, read, create, and 
 
 ### 5. `connect-ai-tool-to-content` — priority 8
 
-**Let Claude read and edit your bookmarks and notes directly**
+**Let your AI assistant read and edit your bookmarks and notes directly**
 
 Open Settings → AI Integration, pick your AI tool (Claude Desktop, Claude Code, Codex), and run the displayed `tiddly mcp configure` command. Your AI assistant can then search, read, and edit your bookmarks and notes directly — no copy-paste, no exporting. Ask it *"find the article I saved about transformers"* or *"fix the typo in my last meeting note"* and it goes straight at your library.
 
@@ -66,14 +66,14 @@ Open Settings → AI Integration, pick your AI tool (Claude Desktop, Claude Code
 - Audience: all
 - relatedDocs: [CLI MCP setup → /docs/cli/mcp](/docs/cli/mcp)
 
-### 6. `editor-command-palette` — priority 10
+### 6. `editor-command-menu` — priority 10
 
 **Open the editor command menu with `⌘+/`**
 
-Press `⌘+/` anywhere in a note or prompt to open a filterable menu of every formatting, insertion, and editor action — including save, discard, reading mode, version history, and the table of contents. Faster than memorizing individual shortcuts.
+Press `⌘+/` anywhere in a note or prompt to open a filterable menu of every editor action — including formatting, save, discard, reading mode, version history, and the table of contents. Great for when you forget an editor shortcut.
 
 - Categories: editor, notes, prompts
-- Audience: power
+- Audience: all
 - shortcut: ['⌘', '/']
 - areas: ['/app/notes', '/app/prompts']
 
@@ -81,7 +81,7 @@ Press `⌘+/` anywhere in a note or prompt to open a filterable menu of every fo
 
 **Use slash commands in the note and prompt editors**
 
-Type `/` after whitespace (start of line or mid-line) to open a menu of block-level formatting: headings, lists, code blocks, callouts, and more. The prompt editor's menu adds Jinja2 building blocks — variable, if block, if block (trim) — so you can scaffold a template without retyping braces.
+Type `/` at the start of a line — or after a space mid-line — to open a menu of common formatting: headings, lists, code blocks, callouts, and more. In the prompt editor, the menu also includes Jinja2 building blocks (variables, if blocks) so you can scaffold a template without retyping braces.
 
 - Categories: notes, prompts, editor
 - Audience: beginner
@@ -93,27 +93,27 @@ Type `/` after whitespace (start of line or mid-line) to open a menu of block-le
 
 **Set up MCP for every AI tool with one command**
 
-Run `tiddly mcp configure` with no arguments. The CLI auto-detects Claude Desktop, Claude Code, and Codex, mints a dedicated PAT per tool/server, and writes both `tiddly_notes_bookmarks` and `tiddly_prompts` MCP entries. Existing custom entries (e.g., a hand-added `work_prompts`) are preserved untouched.
+Run `tiddly mcp configure` with no arguments to set up every detected AI tool at once. The CLI finds Claude Desktop, Claude Code, and Codex, mints a dedicated token per tool/server, and writes both `tiddly_notes_bookmarks` and `tiddly_prompts` entries. Any custom MCP entries you've added by hand (e.g., `work_prompts`) are left untouched.
 
 - Categories: cli, mcp
 - Audience: beginner
 - relatedDocs: [CLI MCP setup → /docs/cli/mcp](/docs/cli/mcp)
 
-### 9. `click-checkbox-raw-editor` — priority 15
+### 9. `click-checkbox-raw-editor` — priority 35
 
 **Toggle checkboxes in the raw markdown editor by clicking them**
 
-In the raw markdown editor, you don't have to switch to reading mode to tick off a `- [ ]` task. Click directly on the `[ ]` or `[x]` glyph to flip it. The markdown updates and saves on next save — useful for checklists you want to read and edit in one view.
+Tick off a `- [ ]` task without switching to reading mode — just click the `[ ]` or `[x]` glyph and it flips. The markdown updates immediately and saves like any other edit. Useful for checklists you want to read and edit in the same view.
 
-- Categories: editor, notes
+- Categories: editor, notes, prompts
 - Audience: beginner
-- areas: ['/app/notes']
+- areas: ['/app/notes', '/app/prompts']
 
 ### 10. `combine-and-or-filters` — priority 15
 
-**Combine AND and OR in a single filter expression**
+**Use filter groups to mix AND and OR**
 
-Within a filter group, tags are ANDed (all must match). Between groups, ORed (any group can match). So `(python AND tutorial) OR (javascript AND guide)` joins two AND-groups with OR — useful for "either of two specific topics" without making two separate filters.
+Tiddly filters use a two-level structure: tags inside the same group must all match (AND), and any matching group wins (OR). So two groups `[python, tutorial]` and `[javascript, guide]` together mean "Python tutorials *or* JavaScript guides" — one filter, two related topics, no duplication. Add another group from the filter builder when "OR something else" is what you want.
 
 - Categories: filters
 - Audience: power
@@ -121,9 +121,9 @@ Within a filter group, tags are ANDed (all must match). Between groups, ORed (an
 
 ### 11. `generate-prompt-arguments` — priority 15
 
-**Generate prompt arguments from your `{{ placeholders }}`**
+**Let AI fill in prompt arguments from your `{{ placeholders }}`**
 
-After drafting a prompt template with `{{ placeholders }}`, click the sparkle icon in the Arguments header. AI scans the template and proposes a name, description, and required flag for every placeholder you haven't already defined. Per-row sparkles refine a single argument's blank fields.
+After drafting a template with `{{ placeholders }}`, click the sparkle icon in the Arguments header. AI scans the template and proposes a name, description, and required setting for every placeholder you haven't already defined. Or click the sparkle on a single row to fill just that argument's empty fields.
 
 - Categories: prompts, ai
 - Audience: beginner
@@ -134,7 +134,7 @@ After drafting a prompt template with `{{ placeholders }}`, click the sparkle ic
 
 **Open the command palette with `⌘+Shift+P`**
 
-Press `⌘+Shift+P` to open the command palette — works even while typing in an input. Jump to any sidebar filter, settings page, or `New Note`/`New Bookmark`/`New Prompt` action without touching the mouse. Tab-completion narrows the list as you type.
+Press `⌘+Shift+P` to open the command palette — works even while typing in an input. Jump to any sidebar filter, settings page, or New Note / New Bookmark / New Prompt action without touching the mouse. Type to filter the list.
 
 - Categories: shortcuts
 - Audience: beginner
