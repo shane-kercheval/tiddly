@@ -26,6 +26,7 @@ test_cases:
     fields:
     - title
     url: null
+    name: null
     title: null
     description: null
     content_snippet: Flask is a lightweight WSGI web application framework in Python.
@@ -60,6 +61,7 @@ test_cases:
     fields:
     - description
     url: null
+    name: null
     title: Flask Web Framework Guide
     description: null
     content_snippet: Flask is a lightweight WSGI web application framework in Python.
@@ -88,6 +90,7 @@ test_cases:
     - title
     - description
     url: null
+    name: null
     title: null
     description: null
     content_snippet: Kubernetes is an open-source container orchestration platform
@@ -124,6 +127,7 @@ test_cases:
     fields:
     - title
     url: null
+    name: null
     title: null
     description: A comprehensive guide to building REST APIs with Node.js and Express,
       covering middleware, routing, and error handling.
@@ -159,6 +163,7 @@ test_cases:
     fields:
     - description
     url: null
+    name: null
     title: Building REST APIs with Express.js
     description: null
     content_snippet: Express.js is a minimal and flexible Node.js web application
@@ -187,6 +192,7 @@ test_cases:
     - title
     - description
     url: https://docs.python.org/3/library/asyncio.html
+    name: null
     title: null
     description: null
     content_snippet: asyncio is a library to write concurrent code using the async/await
@@ -223,6 +229,7 @@ test_cases:
     fields:
     - title
     url: null
+    name: null
     title: null
     description: A detailed walkthrough of setting up monitoring and alerting for
       production Kubernetes clusters using Prometheus and Grafana.
@@ -256,6 +263,7 @@ test_cases:
     fields:
     - description
     url: null
+    name: null
     title: Redis Caching Strategies for Web Applications
     description: null
     content_snippet: null
@@ -273,16 +281,145 @@ test_cases:
     metadata:
       name: Unrequested field null
       description: Title was not requested — should be null in response
+- id: name-only-from-title-and-description
+  metadata:
+    description: Title + description filled, generate name (slug) only
+  input:
+    fields:
+    - name
+    url: null
+    name: null
+    title: Code Review Checklist
+    description: A checklist of items to verify during pull request review.
+    content_snippet: null
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.name
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Name was requested and should be non-null
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+    metadata:
+      name: Unrequested field null
+      description: Title was not requested — should be null
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+    metadata:
+      name: Unrequested field null
+      description: Description was not requested — should be null
+  - type: regex
+    arguments:
+      text: $.output.value.name
+      pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+    metadata:
+      name: Name matches prompt-name pattern
+      description: Generated name must be a valid prompt-name slug (lowercase alphanumeric
+        with hyphens, no leading/trailing hyphens)
+  - type: threshold
+    arguments:
+      value: $.output.value.name_length
+      max_value: 50
+    metadata:
+      name: Name length
+      description: Generated name should be under 50 characters per prompt instruction
+- id: name-from-content-only
+  metadata:
+    description: Only content provided, generate name + title + description together
+  input:
+    fields:
+    - name
+    - title
+    - description
+    url: null
+    name: null
+    title: null
+    description: null
+    content_snippet: Write a weekly status update covering accomplishments, blockers,
+      and next-week priorities. Keep it under 200 words.
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.name
+      negate: true
+    metadata:
+      name: Name present
+      description: Name was requested and should be non-null
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+      negate: true
+    metadata:
+      name: Title present
+      description: Title was requested and should be non-null
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+      negate: true
+    metadata:
+      name: Description present
+      description: Description was requested and should be non-null
+  - type: regex
+    arguments:
+      text: $.output.value.name
+      pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+    metadata:
+      name: Name matches prompt-name pattern
+      description: Generated name must be a valid prompt-name slug
+- id: name-from-title-only
+  metadata:
+    description: Only title provided, generate name (slug) from it
+  input:
+    fields:
+    - name
+    url: null
+    name: null
+    title: Explain Code in Simple Terms
+    description: null
+    content_snippet: null
+  checks:
+  - type: is_empty
+    arguments:
+      value: $.output.value.name
+      negate: true
+    metadata:
+      name: Requested field present
+      description: Name was requested and should be non-null
+  - type: regex
+    arguments:
+      text: $.output.value.name
+      pattern: ^[a-z0-9]+(-[a-z0-9]+)*$
+    metadata:
+      name: Name matches prompt-name pattern
+      description: Generated name must be a valid prompt-name slug
+  - type: is_empty
+    arguments:
+      value: $.output.value.title
+    metadata:
+      name: Unrequested field null
+      description: Title was not requested — should be null
+  - type: is_empty
+    arguments:
+      value: $.output.value.description
+    metadata:
+      name: Unrequested field null
+      description: Description was not requested — should be null
 checks:
 - type: llm_judge
   arguments:
-    prompt: 'You are evaluating metadata suggestions (title and/or description) for
-      a content item.
+    prompt: 'You are evaluating metadata suggestions (name and/or title and/or description)
+      for a content item.
 
 
       The item context:
 
       - URL: "{{$.test_case.input.url}}"
+
+      - Existing name: "{{$.test_case.input.name}}"
 
       - Existing title: "{{$.test_case.input.title}}"
 
@@ -296,12 +433,17 @@ checks:
 
       The suggested metadata:
 
+      - Name: "{{$.output.value.name}}"
+
       - Title: "{{$.output.value.title}}"
 
       - Description: "{{$.output.value.description}}"
 
 
       The recommender was instructed to:
+
+      - Generate a name (prompt slug) in lowercase-with-hyphens format, max 50 characters,
+      that reflects the content of the prompt
 
       - Generate a title that is short and descriptive, under 100 characters
 
@@ -311,6 +453,10 @@ checks:
 
 
       Evaluate the generated fields:
+
+      - A name is good if it is a concise slug that clearly relates to the title/description/content,
+      uses only lowercase letters/numbers separated by single hyphens, and is reasonably
+      short (under 50 chars).
 
       - A title is good if it accurately summarizes the main topic, is concise (under
       100 chars), and is not misleading or too vague.
@@ -329,5 +475,5 @@ checks:
     response_model: metadata
   metadata:
     name: Generated metadata is high quality
-    description: LLM judge evaluates whether generated title/description are accurate
+    description: LLM judge evaluates whether generated name/title/description are accurate
       and well-formatted

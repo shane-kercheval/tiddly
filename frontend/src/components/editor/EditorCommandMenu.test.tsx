@@ -8,9 +8,8 @@ import { createElement } from 'react'
 import { EditorCommandMenu } from './EditorCommandMenu'
 import type { EditorCommand } from './editorCommands'
 
-function makeCommand(overrides: Partial<EditorCommand> = {}): EditorCommand {
+function makeCommand(overrides: Partial<EditorCommand> & Pick<EditorCommand, 'id'>): EditorCommand {
   return {
-    id: 'test-cmd',
     label: 'Test Command',
     section: 'Format',
     icon: createElement('span', null, 'icon'),
@@ -20,10 +19,13 @@ function makeCommand(overrides: Partial<EditorCommand> = {}): EditorCommand {
 }
 
 const sampleCommands: EditorCommand[] = [
-  makeCommand({ id: 'bold', label: 'Bold', section: 'Format', shortcut: ['\u2318', 'B'] }),
-  makeCommand({ id: 'italic', label: 'Italic', section: 'Format' }),
+  // Registry-backed id — keyboard hint derives via isShortcutId path.
+  makeCommand({ id: 'editor.bold', label: 'Bold', section: 'Format' }),
+  makeCommand({ id: 'editor.italic', label: 'Italic', section: 'Format' }),
+  // Local id with no shortcut — no hint rendered.
   makeCommand({ id: 'heading-1', label: 'Heading 1', section: 'Insert' }),
-  makeCommand({ id: 'save', label: 'Save', section: 'Actions' }),
+  // Local id WITH a page-scoped shortcutKeys carve-out — hint renders via fallback.
+  makeCommand({ id: 'save-and-close', label: 'Save', section: 'Actions', shortcutKeys: ['⌘', '⇧', 'S'] }),
 ]
 
 describe('EditorCommandMenu', () => {

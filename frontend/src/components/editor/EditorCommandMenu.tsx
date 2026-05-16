@@ -13,6 +13,8 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import type { EditorCommand } from './editorCommands'
+import { localizeKeys } from '../../utils/platform'
+import { getShortcut, isShortcutId } from '../../shortcuts/registry'
 
 interface EditorCommandMenuProps {
   onClose: () => void
@@ -235,22 +237,29 @@ export function EditorCommandMenu({
                       {cmd.icon}
                     </span>
                     <span className="truncate flex-1">{cmd.label}</span>
-                    {cmd.shortcut && (
-                      <span className="hidden sm:flex items-center gap-0.5 shrink-0 ml-1">
-                        {cmd.shortcut.map((key, i) => (
-                          <kbd
-                            key={i}
-                            className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-[3px] text-[10px] font-medium rounded-[3px] border ${
-                              isSelected
-                                ? 'text-blue-300 bg-blue-100 border-blue-200'
-                                : 'text-gray-400 bg-gray-100 border-gray-200'
-                            }`}
-                          >
-                            {key}
-                          </kbd>
-                        ))}
-                      </span>
-                    )}
+                    {(() => {
+                      // Keys come from the registry for registry-backed ids,
+                      // or from the narrow `shortcutKeys` carve-out for
+                      // page-scoped entries (save-and-close).
+                      const keys = isShortcutId(cmd.id) ? getShortcut(cmd.id).keys : cmd.shortcutKeys
+                      if (!keys) return null
+                      return (
+                        <span className="hidden sm:flex items-center gap-0.5 shrink-0 ml-1">
+                          {localizeKeys(keys).map((key, i) => (
+                            <kbd
+                              key={i}
+                              className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-[3px] text-[10px] font-medium rounded-[3px] border ${
+                                isSelected
+                                  ? 'text-blue-300 bg-blue-100 border-blue-200'
+                                  : 'text-gray-400 bg-gray-100 border-gray-200'
+                              }`}
+                            >
+                              {key}
+                            </kbd>
+                          ))}
+                        </span>
+                      )
+                    })()}
                   </button>
                 )
               })}

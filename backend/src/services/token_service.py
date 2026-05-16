@@ -104,6 +104,8 @@ async def get_tokens(
     Returns:
         List of ApiToken models (without plaintext tokens).
     """
+    # Frontend optimistic insert in frontend/src/stores/tokensStore.ts:createToken
+    # assumes newest-first ordering. Update both if you change this ORDER BY.
     result = await db.execute(
         select(ApiToken)
         .where(ApiToken.user_id == user_id)

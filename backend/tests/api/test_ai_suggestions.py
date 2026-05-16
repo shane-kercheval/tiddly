@@ -136,6 +136,7 @@ class TestSuggestMetadata:
 
     async def test_generates_both_fields_by_default(self, client: AsyncClient) -> None:
         content = json.dumps({
+            "name": "understanding-rest-apis",
             "title": "Understanding REST APIs",
             "description": "A guide to building RESTful web services.",
         })
@@ -149,10 +150,16 @@ class TestSuggestMetadata:
         data = response.json()
         assert data["title"] is not None
         assert data["description"] is not None
+        # name not requested — echo discarded
+        assert data["name"] is None
 
     async def test_title_only(self, client: AsyncClient) -> None:
         """Request title only — description used as context, not generated."""
-        content = json.dumps({"title": "Better Title"})
+        content = json.dumps({
+            "name": "ignored-echo",
+            "title": "Better Title",
+            "description": "ignored echo",
+        })
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
@@ -167,10 +174,15 @@ class TestSuggestMetadata:
         data = response.json()
         assert data["title"] is not None
         assert data["description"] is None
+        assert data["name"] is None
 
     async def test_description_only(self, client: AsyncClient) -> None:
         """Request description only — title used as context, not generated."""
-        content = json.dumps({"description": "A detailed summary."})
+        content = json.dumps({
+            "name": "ignored",
+            "title": "ignored echo",
+            "description": "A detailed summary.",
+        })
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
@@ -185,10 +197,11 @@ class TestSuggestMetadata:
         data = response.json()
         assert data["title"] is None
         assert data["description"] is not None
+        assert data["name"] is None
 
     async def test_explicit_both_fields(self, client: AsyncClient) -> None:
         """Explicitly requesting both fields works the same as default."""
-        content = json.dumps({"title": "T", "description": "D"})
+        content = json.dumps({"name": "ignored", "title": "T", "description": "D"})
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
@@ -201,6 +214,49 @@ class TestSuggestMetadata:
         data = response.json()
         assert data["title"] is not None
         assert data["description"] is not None
+        assert data["name"] is None
+
+    async def test_name_field_generates_slug(self, client: AsyncClient) -> None:
+        """fields=['name'] returns a slugified name, others null."""
+        content = json.dumps({
+            "name": "My Cool Prompt",
+            "title": "My Cool Prompt",
+            "description": "An echo.",
+        })
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-metadata",
+                json={
+                    "fields": ["name"],
+                    "title": "My Cool Prompt",
+                    "description": "A useful template.",
+                },
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "my-cool-prompt"
+        assert data["title"] is None
+        assert data["description"] is None
+
+    async def test_name_field_unusable_after_slugify_returns_null(
+        self, client: AsyncClient,
+    ) -> None:
+        """LLM returns garbage for name; slugify produces empty -> name is null."""
+        content = json.dumps({
+            "name": "!@#$%",
+            "title": "echo",
+            "description": "echo",
+        })
+        p1, p2 = _patch_llm(content)
+        with p1, p2:
+            response = await client.post(
+                "/ai/suggest-metadata",
+                json={"fields": ["name"], "content_snippet": "Some content"},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] is None
 
     async def test_invalid_fields_rejected(self, client: AsyncClient) -> None:
         """Invalid field values are rejected at schema level (422, not 400)."""
@@ -221,7 +277,11 @@ class TestSuggestMetadata:
         self, client: AsyncClient,
     ) -> None:
         """When generating description, the existing title appears in the prompt."""
-        content = json.dumps({"description": "A summary."})
+        content = json.dumps({
+            "name": "echo",
+            "title": "echo",
+            "description": "A summary.",
+        })
         mock_response = _mock_llm_response(content)
         with (
             patch(
@@ -249,7 +309,11 @@ class TestSuggestMetadata:
         self, client: AsyncClient,
     ) -> None:
         """When generating title, the existing description appears in the prompt."""
-        content = json.dumps({"title": "A Title"})
+        content = json.dumps({
+            "name": "echo",
+            "title": "A Title",
+            "description": "echo",
+        })
         mock_response = _mock_llm_response(content)
         with (
             patch(
@@ -274,7 +338,11 @@ class TestSuggestMetadata:
         assert "A detailed description about machine learning" in user_msg
 
     async def test_works_with_url_only(self, client: AsyncClient) -> None:
-        content = json.dumps({"title": "Example", "description": "A site."})
+        content = json.dumps({
+            "name": "ignored",
+            "title": "Example",
+            "description": "A site.",
+        })
         p1, p2 = _patch_llm(content)
         with p1, p2:
             response = await client.post(
@@ -284,7 +352,7 @@ class TestSuggestMetadata:
         assert response.status_code == 200
 
     async def test_tracks_cost(self, client: AsyncClient) -> None:
-        content = json.dumps({"title": "T", "description": "D"})
+        content = json.dumps({"name": "ignored", "title": "T", "description": "D"})
         p1, p2 = _patch_llm(content)
         with p1, p2, patch("api.routers.ai.track_cost", new_callable=AsyncMock) as mock_track:
             await client.post(

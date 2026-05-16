@@ -748,8 +748,9 @@ export interface SuggestTagsResponse {
 /** Request for POST /ai/suggest-metadata */
 export interface SuggestMetadataRequest {
   model?: string | null
-  fields?: ('title' | 'description')[]
+  fields?: ('name' | 'title' | 'description')[]
   url?: string | null
+  name?: string | null
   title?: string | null
   description?: string | null
   content_snippet?: string | null
@@ -757,6 +758,7 @@ export interface SuggestMetadataRequest {
 
 /** Response from POST /ai/suggest-metadata */
 export interface SuggestMetadataResponse {
+  name: string | null
   title: string | null
   description: string | null
 }

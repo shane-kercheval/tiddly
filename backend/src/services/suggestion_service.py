@@ -23,17 +23,16 @@ from schemas.ai import (
     SuggestTagsResponse,
     TagVocabularyEntry,
 )
-from schemas.validators import validate_argument_name
+from schemas.validators import slugify_prompt_name, validate_argument_name
 from services._suggestion_llm_schemas import (
     ArgumentDescriptionSuggestion,
     ArgumentNameSuggestion,
-    DescriptionOnly,
-    TitleAndDescription,
-    TitleOnly,
+    MetadataSuggestionResult,
     _BothArgumentFieldsSuggestion,
     _GenerateAllArgumentsResult,
 )
 from services.llm_prompts import (
+    SUGGESTED_NAME_MAX_LENGTH,
     build_generate_all_arguments_messages,
     build_metadata_suggestion_messages,
     build_refine_both_fields_messages,
@@ -198,6 +197,7 @@ async def suggest_tags(
 class MetadataSuggestion:
     """Result from suggest_metadata. Only requested fields are non-None."""
 
+    name: str | None
     title: str | None
     description: str | None
 
@@ -209,25 +209,30 @@ async def suggest_metadata(
     title: str | None,
     description: str | None,
     content_snippet: str | None,
+    name: str | None,
     llm_service: LLMService,
     config: LLMConfig,
     timeout: int = _SUGGESTION_TIMEOUT_DEFAULT,
     num_retries: int = _SUGGESTION_NUM_RETRIES_DEFAULT,
 ) -> tuple[MetadataSuggestion, float | None]:
     """
-    Suggest title and/or description for a content item.
+    Suggest name and/or title and/or description for a content item.
 
     The fields parameter controls which fields are generated. Existing values
-    for non-requested fields are sent as context but not regenerated.
+    for non-requested fields are sent as context but not regenerated; the LLM
+    echoes them back to satisfy the unified response schema, and we discard
+    those echoed values here so they cannot drift via LLM rewording.
 
     Args:
         fields: Which fields to generate. Must contain at least one of
-            "title", "description". Controls which structured output schema
-            is used (TitleOnly, DescriptionOnly, TitleAndDescription).
-        url: Item URL.
-        title: Existing title (context, not regenerated unless requested).
-        description: Existing description (context).
-        content_snippet: Item content.
+            "name", "title", "description". Determines which fields the
+            response will populate (others are returned as None).
+        url: Item URL (context).
+        title: Existing title.
+        description: Existing description.
+        content_snippet: Item content (context).
+        name: Existing name/slug (prompts only). Bookmarks/notes have no
+            name field and should pass None.
         llm_service: LLM service instance for making completion calls.
         config: Resolved LLM config (model, key, key source).
         timeout: Seconds to wait for the LLM response before raising. Defaults to
@@ -237,23 +242,19 @@ async def suggest_metadata(
 
     Returns:
         Tuple of (MetadataSuggestion, cost). Only requested fields are non-None
-        in the result. Generated title is prompted to be under 100 characters;
-        no server-side truncation (the prompt instruction is the constraint).
+        in the result. Generated `name` is slugified server-side to guarantee
+        it matches the prompt-name regex; if the LLM produced nothing usable,
+        `name` is None even when it was requested. Generated title is prompted
+        to be under 100 characters; no server-side truncation.
 
     Raises:
         LLMResponseParseError: If the LLM returns invalid/unparseable output
             (including empty response.choices). Carries cost so the caller can
             still track spend.
     """
+    generate_name = "name" in fields
     generate_title = "title" in fields
     generate_desc = "description" in fields
-
-    if generate_title and generate_desc:
-        response_format = TitleAndDescription
-    elif generate_title:
-        response_format = TitleOnly
-    else:
-        response_format = DescriptionOnly
 
     messages = build_metadata_suggestion_messages(
         fields=fields,
@@ -261,21 +262,28 @@ async def suggest_metadata(
         title=title,
         description=description,
         content_snippet=content_snippet,
+        name=name,
     )
 
     response, cost = await llm_service.complete(
         messages=messages,
         config=config,
-        response_format=response_format,
+        response_format=MetadataSuggestionResult,
         timeout=timeout,
         num_retries=num_retries,
     )
 
-    parsed = _parse_response(response, response_format, cost)
+    parsed = _parse_response(response, MetadataSuggestionResult, cost)
+
+    suggested_name: str | None = None
+    if generate_name:
+        slugified = slugify_prompt_name(parsed.name, max_length=SUGGESTED_NAME_MAX_LENGTH)
+        suggested_name = slugified or None
 
     return MetadataSuggestion(
-        title=getattr(parsed, "title", None),
-        description=getattr(parsed, "description", None),
+        name=suggested_name,
+        title=parsed.title if generate_title else None,
+        description=parsed.description if generate_desc else None,
     ), cost
 
 

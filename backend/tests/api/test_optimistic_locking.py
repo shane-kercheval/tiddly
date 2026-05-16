@@ -297,71 +297,46 @@ async def test__update__expected_updated_at__timezone_handling(
 
 
 # =============================================================================
-# Str-Replace Tests - Parametrized
+# str-replace: expected_updated_at is silently ignored
 # =============================================================================
+#
+# The str-replace endpoints no longer accept `expected_updated_at` — the
+# schemas were stripped of the field, but Pydantic v2's default `extra="ignore"`
+# means existing MCP/CLI clients still sending it won't error. The tests
+# below pin that silent-ignore behavior: if someone later adds
+# `extra="forbid"` to the request schemas as a hardening change, these tests
+# will fail and surface the backward-compatibility regression.
+#
+# str-replace uses server-side row locking (`SELECT ... FOR UPDATE`); see
+# `docs/architecture.md` (Concurrency control for content edits). The regular
+# PATCH endpoints still honor `expected_updated_at` — those tests are above.
 
 
 @pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
-async def test__str_replace__with_expected_updated_at__success(
+async def test__str_replace__expected_updated_at_silently_ignored(
     client: AsyncClient,
     entity_setup: dict[str, Any],
 ) -> None:
-    """Str-replace succeeds when timestamps match exactly."""
+    """
+    Sending `expected_updated_at` to str-replace succeeds and applies the edit.
+
+    A stale timestamp would have triggered 409 under the previous optimistic-lock
+    behavior; under the row-locking design it should be silently ignored.
+    """
     response = await client.patch(
         f"{entity_setup['endpoint']}/str-replace",
         json={
             "old_str": entity_setup["str_replace_old"],
             "new_str": entity_setup["str_replace_new"],
-            "expected_updated_at": entity_setup["entity"]["updated_at"],
+            "expected_updated_at": "2020-01-01T00:00:00Z",  # intentionally stale
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
-
-@pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
-async def test__str_replace__with_expected_updated_at__conflict_returns_409(
-    client: AsyncClient,
-    entity_setup: dict[str, Any],
-) -> None:
-    """Str-replace returns 409 when entity was modified after expected time."""
-    stale_timestamp = entity_setup["entity"]["updated_at"]
-
-    # Modify the entity
-    await asyncio.sleep(0.01)
-    await client.patch(entity_setup["endpoint"], json={"title": "Modified"})
-
-    # Try str-replace with stale timestamp
-    response = await client.patch(
-        f"{entity_setup['endpoint']}/str-replace",
-        json={
-            "old_str": entity_setup["str_replace_old"],
-            "new_str": entity_setup["str_replace_new"],
-            "expected_updated_at": stale_timestamp,
-        },
-    )
-    assert response.status_code == 409
-    detail = response.json()["detail"]
-    assert detail["error"] == "conflict"
-    assert detail["message"] == "This item was modified since you loaded it"
-    assert "server_state" in detail
-    assert detail["server_state"]["title"] == "Modified"
-    assert detail["server_state"]["id"] == entity_setup["id"]
-
-
-@pytest.mark.parametrize("entity_setup", ENTITY_TYPES, indirect=True)
-async def test__str_replace__without_expected_updated_at__allows_update(
-    client: AsyncClient,
-    entity_setup: dict[str, Any],
-) -> None:
-    """Str-replace without expected_updated_at succeeds (backwards compatible)."""
-    response = await client.patch(
-        f"{entity_setup['endpoint']}/str-replace",
-        json={
-            "old_str": entity_setup["str_replace_old"],
-            "new_str": entity_setup["str_replace_new"],
-        },
-    )
-    assert response.status_code == 200
+    # Verify the edit was applied: the new_str must be present in current content.
+    get = await client.get(entity_setup["endpoint"])
+    assert get.status_code == 200
+    assert entity_setup["str_replace_new"] in get.json()["content"]
 
 
 # =============================================================================
@@ -433,53 +408,6 @@ async def test__update_prompt_by_name__with_expected_updated_at__conflict_return
     assert detail["message"] == "This item was modified since you loaded it"
     assert "server_state" in detail
     assert detail["server_state"]["title"] == "First Update"
-    assert detail["server_state"]["name"] == setup["entity"]["name"]
-
-
-async def test__str_replace_prompt_by_name__with_expected_updated_at__success(
-    client: AsyncClient,
-    prompt_for_name_tests: dict[str, Any],
-) -> None:
-    """Str-replace by name succeeds when timestamps match exactly."""
-    setup = prompt_for_name_tests
-    response = await client.patch(
-        f"{setup['name_endpoint']}/str-replace",
-        json={
-            "old_str": "Hello",
-            "new_str": "Hi",
-            "expected_updated_at": setup["entity"]["updated_at"],
-        },
-    )
-    assert response.status_code == 200
-
-
-async def test__str_replace_prompt_by_name__with_expected_updated_at__conflict_returns_409(
-    client: AsyncClient,
-    prompt_for_name_tests: dict[str, Any],
-) -> None:
-    """Str-replace by name returns 409 when prompt was modified after expected time."""
-    setup = prompt_for_name_tests
-    stale_timestamp = setup["entity"]["updated_at"]
-
-    # Modify the prompt
-    await asyncio.sleep(0.01)
-    await client.patch(setup["name_endpoint"], json={"title": "Modified"})
-
-    # Try str-replace with stale timestamp
-    response = await client.patch(
-        f"{setup['name_endpoint']}/str-replace",
-        json={
-            "old_str": "Hello",
-            "new_str": "Hi",
-            "expected_updated_at": stale_timestamp,
-        },
-    )
-    assert response.status_code == 409
-    detail = response.json()["detail"]
-    assert detail["error"] == "conflict"
-    assert detail["message"] == "This item was modified since you loaded it"
-    assert "server_state" in detail
-    assert detail["server_state"]["title"] == "Modified"
     assert detail["server_state"]["name"] == setup["entity"]["name"]
 
 

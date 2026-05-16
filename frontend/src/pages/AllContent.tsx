@@ -37,7 +37,9 @@ import {
   useUnarchivePrompt,
   useUpdatePrompt,
 } from '../hooks/usePromptMutations'
-import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { useGlobalShortcuts } from '../shortcuts/useGlobalShortcuts'
+import { usePasteUrlHandler } from '../shortcuts/usePasteUrlHandler'
+import type { ShortcutId } from '../shortcuts/registry'
 import { useListKeyboardNavigation } from '../hooks/useListKeyboardNavigation'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useEffectiveSort, getViewKey } from '../hooks/useEffectiveSort'
@@ -87,6 +89,11 @@ import { getFirstGroupTags } from '../utils'
  * - Bookmark add/edit via page navigation
  * - Note navigation with proper return state
  */
+const PAGE_SHORTCUT_IDS = [
+  'app.escape',
+  'app.focusPageSearch',
+] as const satisfies readonly ShortcutId[]
+
 export function AllContent(): ReactNode {
   const navigate = useNavigate()
   const location = useLocation()
@@ -202,27 +209,30 @@ export function AllContent(): ReactNode {
     return getFirstGroupTags(filter)
   }, [currentFilterId, filters])
 
-  // Keyboard shortcuts
-  useKeyboardShortcuts({
-    onEscape: () => {
+  // Page-scoped keyboard shortcuts. Escape overlaps with Layout's app.escape
+  // (multi-mount duplicate-id contract): both fire — Layout closes the
+  // shortcuts dialog if open; this handler blurs the search input if focused.
+  useGlobalShortcuts(PAGE_SHORTCUT_IDS, {
+    'app.escape': () => {
       if (document.activeElement === searchInputRef.current) {
         searchInputRef.current?.blur()
       }
     },
-    onFocusPageSearch: () => {
+    'app.focusPageSearch': () => {
       searchInputRef.current?.focus()
     },
-    onPasteUrl: (url) => {
-      if (currentView === 'active') {
-        navigate('/app/bookmarks/new', {
-          state: {
-            ...createReturnState(),
-            initialUrl: url,
-            initialTags: initialTagsFromFilter,
-          },
-        })
-      }
-    },
+  })
+
+  usePasteUrlHandler((url) => {
+    if (currentView === 'active') {
+      navigate('/app/bookmarks/new', {
+        state: {
+          ...createReturnState(),
+          initialUrl: url,
+          initialTags: initialTagsFromFilter,
+        },
+      })
+    }
   })
 
   // Debounce search query, then apply minimum length to avoid wasteful 1-char API searches.

@@ -14,6 +14,8 @@ import type {
 import { ViewPlugin } from '@codemirror/view'
 import type { EditorView, ViewUpdate } from '@codemirror/view'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from '../components/editor/jinjaTemplates'
+import { localizeKeys } from './platform'
+import { getShortcut, type ShortcutId } from '../shortcuts/registry'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -214,14 +216,21 @@ function createSlashCommandSource(showJinjaTools: boolean): CompletionSource {
 // Shortcut mapping (type → key symbols)
 // ---------------------------------------------------------------------------
 
-const SHORTCUT_MAP: Record<string, string[]> = {
-  bullet: ['⌘', '⇧', '7'],
-  number: ['⌘', '⇧', '8'],
-  checklist: ['⌘', '⇧', '9'],
-  quote: ['⌘', '⇧', '.'],
-  code: ['⌘', '⇧', 'E'],
-  link: ['⌘', 'K'],
-  hr: ['⌘', '⇧', '-'],
+/**
+ * Map from CodeMirror autocomplete completion `type` (used as the key for
+ * SVG icons + shortcut hints) to the registry shortcut id whose keys should
+ * appear next to the entry in the slash menu. Completion types that don't
+ * have a corresponding registry binding (h1, h2, h3, jinja-*) are absent —
+ * their entries render without a keyboard hint.
+ */
+const COMPLETION_TYPE_TO_SHORTCUT_ID: Record<string, ShortcutId> = {
+  bullet: 'editor.bulletList',
+  number: 'editor.numberedList',
+  checklist: 'editor.checklist',
+  quote: 'editor.blockquote',
+  code: 'editor.codeBlock',
+  link: 'editor.insertLink',
+  hr: 'editor.horizontalRule',
 }
 
 // ---------------------------------------------------------------------------
@@ -243,11 +252,11 @@ const slashCommandAddToOptions: AddToOptionsSpec[] = [
   },
   {
     render(completion: Completion): HTMLElement | null {
-      const keys = SHORTCUT_MAP[completion.type ?? '']
+      const shortcutId = COMPLETION_TYPE_TO_SHORTCUT_ID[completion.type ?? '']
       const wrapper = document.createElement('span')
       wrapper.className = 'cm-slash-shortcut'
-      if (keys) {
-        for (const key of keys) {
+      if (shortcutId) {
+        for (const key of localizeKeys(getShortcut(shortcutId).keys)) {
           const kbd = document.createElement('kbd')
           kbd.textContent = key
           wrapper.appendChild(kbd)
@@ -308,15 +317,17 @@ const scrollFadePlugin = ViewPlugin.fromClass(
         this.fadeEl.className = 'cm-autocomplete-fade'
         tooltip.appendChild(this.fadeEl)
 
-        // Footer hint for command menu shortcut
+        // Footer hint: "press ⌘⇧/ for all commands" — points to the shortcuts
+        // dialog (app.showShortcuts), which lists every keyboard shortcut in
+        // the app. The slash menu only shows block-level formatting; the
+        // dialog is the discovery surface for everything else.
         if (!tooltip.querySelector('.cm-slash-footer')) {
           this.footerEl = document.createElement('div')
           this.footerEl.className = 'cm-slash-footer'
-          const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
-          const modKey = isMac ? '⌘' : 'Ctrl'
-          this.footerEl.innerHTML =
-            `<kbd>${modKey}</kbd><kbd>⇧</kbd><kbd>/</kbd>` +
-            '<span>for all commands</span>'
+          const kbds = localizeKeys(getShortcut('app.showShortcuts').keys)
+            .map((k) => `<kbd>${k}</kbd>`)
+            .join('')
+          this.footerEl.innerHTML = `${kbds}<span>for all commands</span>`
           tooltip.appendChild(this.footerEl)
         }
 

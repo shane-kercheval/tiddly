@@ -81,59 +81,89 @@ def build_tag_suggestion_messages(
     ]
 
 
+# Hard cap on the length of an AI-suggested prompt name (slug). The LLM is
+# instructed to stay within this in the system prompt; server-side enforcement
+# via `slugify_prompt_name(..., max_length=SUGGESTED_NAME_MAX_LENGTH)` in
+# suggestion_service.suggest_metadata is the source of truth.
+SUGGESTED_NAME_MAX_LENGTH = 50
+
+
 def build_metadata_suggestion_messages(
     fields: list[str],
     url: str | None,
     title: str | None,
     description: str | None,
     content_snippet: str | None,
+    name: str | None = None,
 ) -> list[dict]:
     """
-    Build messages for title/description suggestion.
+    Build messages for name/title/description suggestion.
+
+    The structured-output schema requires all three fields to be present in
+    the response. The LLM is instructed to generate values for the fields
+    the caller asked for and to return empty strings for the rest; the
+    service layer discards those empty strings, so the only values that
+    matter are the generated ones.
 
     Args:
-        fields: Which fields to generate — ["title"], ["description"],
-            or ["title", "description"].
-        url: Item URL.
-        title: Existing title (used as context, not regenerated unless requested).
-        description: Existing description (used as context).
-        content_snippet: Item content.
+        fields: Which fields to generate — any non-empty subset of
+            {"name", "title", "description"}.
+        url: Item URL (context).
+        title: Existing title.
+        description: Existing description.
+        content_snippet: Item content (context).
+        name: Existing name/slug (prompts only; bookmarks/notes pass None).
     """
-    generate_title = "title" in fields
-    generate_desc = "description" in fields
+    name_cap = SUGGESTED_NAME_MAX_LENGTH
+    generate_set = sorted(set(fields))  # stable order in prompt
+    fields_str = ", ".join(f"`{f}`" for f in generate_set)
 
-    system = "You are a content summarization assistant.\n\nGuidelines:\n"
-    if generate_title:
-        system += "- Title: short and descriptive, under 100 characters\n"
-    if generate_desc:
-        system += "- Description: 1-2 sentences summarizing the content\n"
+    system_lines = [
+        "You are a content metadata assistant. The response schema requires "
+        "values for `name`, `title`, and `description`. Generate a real value "
+        "for each field listed under 'Fields to generate'; return an empty "
+        "string (\"\") for any field not listed.",
+        "",
+        "Field guidelines:",
+        f"- `name`: short URL-style slug, lowercase letters/numbers separated "
+        f"by single hyphens (e.g. `code-review`, `weekly-status-template`). "
+        f"Maximum {name_cap} characters. Must start and end with a letter or "
+        f"number. No spaces, underscores, or other punctuation.",
+        "- `title`: short and descriptive, under 100 characters.",
+        "- `description`: 1-2 sentences summarizing the content.",
+        "",
+        "Example (fields to generate: `name`):",
+        '  Context: title="Code Review Checklist", description="Items to '
+        'check during PR review."',
+        '  Output: {"name": "code-review-checklist", "title": "", "description": ""}',
+    ]
+    system = "\n".join(system_lines)
 
-    user_parts = []
-    if title and not generate_title:
-        user_parts.append(f"Title: {title}")
-    elif title and generate_title:
-        user_parts.append(f"Current title (to improve): {title}")
-    if description and not generate_desc:
-        user_parts.append(f"Description: {description}")
-    elif description and generate_desc:
-        user_parts.append(f"Current description (to improve): {description}")
+    user_parts = [f"Fields to generate: {fields_str}"]
+
+    context_lines: list[str] = []
+    if name:
+        context_lines.append(f"- name: {name}")
+    if title:
+        context_lines.append(f"- title: {title}")
+    if description:
+        context_lines.append(f"- description: {description}")
     if url:
-        user_parts.append(f"URL: {url}")
+        context_lines.append(f"- url: {url}")
     if content_snippet:
-        user_parts.append(f"Content snippet: {content_snippet[:CONTENT_SNIPPET_LLM_WINDOW_CHARS]}")
+        context_lines.append(
+            f"- content:\n{content_snippet[:CONTENT_SNIPPET_LLM_WINDOW_CHARS]}",
+        )
 
-    user_msg = "\n".join(user_parts) if user_parts else "No context provided."
-
-    if generate_title and generate_desc:
-        task = "Generate a title and description"
-    elif generate_title:
-        task = "Generate a title"
+    if context_lines:
+        user_parts.append("\nContext (do not return these as values):")
+        user_parts.extend(context_lines)
     else:
-        task = "Generate a description"
+        user_parts.append("\nNo context provided.")
 
     return [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"{task}:\n\n{user_msg}"},
+        {"role": "user", "content": "\n".join(user_parts)},
     ]
 
 
@@ -218,6 +248,20 @@ _REQUIRED_GUIDELINE = (
     "conditional block (e.g. {% if variable %} ... {% endif %})\n"
 )
 
+_DESCRIPTION_GUIDELINE = (
+    "- Descriptions should explain what the argument represents from the user's perspective:\n"
+    "  - For arguments with short, concrete inputs, include a brief example "
+    "(e.g., `en`, `Python`, `casual`).\n"
+    "  - For arguments with long or free-form inputs (articles, code, JSON), "
+    "describe the expected type or format instead "
+    "(e.g., 'A plain-text article to summarize' or 'A JSON object with keys name and age').\n"
+    "- Do not mention Jinja2, templates, placeholders, conditional blocks, "
+    "or whether the argument is required — that information belongs in the "
+    "`required` field, not in the description.\n"
+    "- Do not explain your reasoning or describe how you chose the value — "
+    "the description should document what the argument is, not how you arrived at it.\n"
+)
+
 
 def _format_existing_arguments(existing_arguments: list[ArgumentInput]) -> str | None:
     """Render existing arguments as a bullet list for the user message, or None if empty."""
@@ -247,7 +291,7 @@ def build_generate_all_arguments_messages(
         "abbreviate, split, or combine them — the template already uses "
         "these names as {{ placeholder }} tokens, so renaming breaks the "
         "template\n"
-        "- Descriptions should explain what the argument represents and give an example\n"
+        + _DESCRIPTION_GUIDELINE
         + _REQUIRED_GUIDELINE
     )
 
@@ -289,7 +333,7 @@ def build_refine_single_field_messages(
             "You are a prompt template assistant. "
             "Suggest a description for the specified prompt argument.\n\n"
             "Guidelines:\n"
-            "- The description should explain what the argument represents and give an example\n"
+            + _DESCRIPTION_GUIDELINE
         )
 
     user_parts: list[str] = []
@@ -351,7 +395,7 @@ def build_refine_both_fields_messages(
         "Guidelines:\n"
         "- Pick exactly one of the listed unclaimed placeholder names for the `name` field\n"
         "- Use lowercase_with_underscores for the name (the placeholder already follows this)\n"
-        "- Descriptions should explain what the argument represents and give an example\n"
+        + _DESCRIPTION_GUIDELINE
         + _REQUIRED_GUIDELINE
     )
 

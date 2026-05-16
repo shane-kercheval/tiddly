@@ -50,6 +50,13 @@ import { CloseIcon, HistoryIcon } from './icons'
 import { JINJA_VARIABLE, JINJA_IF_BLOCK, JINJA_IF_BLOCK_TRIM } from './editor/jinjaTemplates'
 import { createSlashCommandSource, slashCommandAddToOptions, scrollFadePlugin } from '../utils/slashCommands'
 import { wasEditorFocused } from '../utils/editorUtils'
+import { toCodeMirrorKeymap } from '../shortcuts/adapters/codemirror'
+import { dispatchRegistryShortcut } from '../shortcuts/dispatch'
+import { getShortcut, type ShortcutId } from '../shortcuts/registry'
+import { CAPTURE_PHASE_IDS } from '../shortcuts/capturePhase'
+import { findMatchingShortcut } from '../shortcuts/matcher'
+import { assertNoDuplicateMatchShapes } from '../shortcuts/useGlobalShortcuts'
+import { shortcutTooltipContent } from './editor/shortcutTooltip'
 import {
   toggleWrapMarkers,
   toggleLinePrefix,
@@ -121,60 +128,60 @@ interface CodeMirrorEditorProps {
 }
 
 /**
- * Dispatch a keyboard event to the document for global handlers to catch.
- * Used to pass shortcuts through from CodeMirror to global handlers.
+ * Registry ids the CodeMirror keymap owns. Order is the source of truth for
+ * the emitted KeyBinding[] (CM tries each in turn; first to return true wins).
  *
- * This enables shortcuts like Cmd+Shift+/ (help modal) and Cmd+\ (sidebar toggle)
- * to work when the CodeMirror editor has focus. The events bubble up to
- * document-level listeners in the parent components.
+ * Includes 'app.showShortcuts' for the passthrough binding — CM consumes
+ * Cmd+Shift+/ to prevent CM's default `toggleComment`, then dispatches a
+ * synthetic event that the global hook picks up via the matcher.
  */
-function dispatchGlobalShortcut(key: string, metaKey: boolean, shiftKey = false): void {
-  const event = new KeyboardEvent('keydown', {
-    key,
-    metaKey,
-    ctrlKey: !metaKey, // Use ctrlKey on non-Mac
-    shiftKey,
-    bubbles: true,
-  })
-  document.dispatchEvent(event)
-}
+const CM_KEYMAP_IDS = [
+  'editor.bold',
+  'editor.italic',
+  'editor.strikethrough',
+  'editor.highlight',
+  'editor.blockquote',
+  'editor.inlineCode',
+  'editor.codeBlock',
+  'editor.bulletList',
+  'editor.numberedList',
+  'editor.checklist',
+  'editor.insertLink',
+  'editor.horizontalRule',
+  'app.showShortcuts',
+] as const satisfies readonly ShortcutId[]
 
-/**
- * Create CodeMirror keybindings for markdown formatting.
- */
+type CmHandlers = Record<typeof CM_KEYMAP_IDS[number], (view: EditorView) => boolean>
+
 /** Wrap a command so it no-ops when the editor is readOnly. */
 function ifWritable(cmd: (view: EditorView) => boolean): (view: EditorView) => boolean {
   return (view) => view.state.readOnly ? false : cmd(view)
 }
 
 function createMarkdownKeyBindings(): KeyBinding[] {
-  return [
-    // Text formatting
-    { key: 'Mod-b', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.bold.before, MARKERS.bold.after)) },
-    { key: 'Mod-i', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.italic.before, MARKERS.italic.after)) },
-    { key: 'Mod-Shift-x', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.strikethrough.before, MARKERS.strikethrough.after)) },
-    { key: 'Mod-Shift-h', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.highlight.before, MARKERS.highlight.after)) },
-    { key: 'Mod-Shift-.', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.blockquote)) },
-    // Code
-    { key: 'Mod-e', run: ifWritable((view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after)) },
-    { key: 'Mod-Shift-e', run: ifWritable((view) => insertCodeBlock(view)) },
-    // Lists (matches toolbar/menu order: 7=bullet, 8=numbered, 9=checklist)
-    { key: 'Mod-Shift-7', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList)) },
-    { key: 'Mod-Shift-8', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList)) },
-    { key: 'Mod-Shift-9', run: ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.checklist)) },
-    // Links and other
-    { key: 'Mod-k', run: ifWritable((view) => insertLink(view)) },
-    { key: 'Mod-Shift--', run: ifWritable((view) => insertHorizontalRule(view)) },
-    // Pass through to global handlers (consume event, then dispatch globally)
-    {
-      key: 'Mod-Shift-/',
-      run: () => {
-        dispatchGlobalShortcut('/', true, true)
-        return true // Consume to prevent CodeMirror's comment toggle
-      },
+  const handlers: CmHandlers = {
+    'editor.bold': ifWritable((view) => toggleWrapMarkers(view, MARKERS.bold.before, MARKERS.bold.after)),
+    'editor.italic': ifWritable((view) => toggleWrapMarkers(view, MARKERS.italic.before, MARKERS.italic.after)),
+    'editor.strikethrough': ifWritable((view) => toggleWrapMarkers(view, MARKERS.strikethrough.before, MARKERS.strikethrough.after)),
+    'editor.highlight': ifWritable((view) => toggleWrapMarkers(view, MARKERS.highlight.before, MARKERS.highlight.after)),
+    'editor.blockquote': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.blockquote)),
+    'editor.inlineCode': ifWritable((view) => toggleWrapMarkers(view, MARKERS.inlineCode.before, MARKERS.inlineCode.after)),
+    'editor.codeBlock': ifWritable((view) => insertCodeBlock(view)),
+    'editor.bulletList': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.bulletList)),
+    'editor.numberedList': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.numberedList)),
+    'editor.checklist': ifWritable((view) => toggleLinePrefix(view, LINE_PREFIXES.checklist)),
+    'editor.insertLink': ifWritable((view) => insertLink(view)),
+    'editor.horizontalRule': ifWritable((view) => insertHorizontalRule(view)),
+    // Passthrough: consume locally so CM's default keymap doesn't fire, then
+    // dispatch a synthetic event the global hook picks up.
+    'app.showShortcuts': () => {
+      dispatchRegistryShortcut('app.showShortcuts')
+      return true
     },
-  ]
+  }
+  return toCodeMirrorKeymap(CM_KEYMAP_IDS, handlers)
 }
+
 
 /**
  * Toolbar button for CodeMirror editor.
@@ -185,7 +192,8 @@ function createMarkdownKeyBindings(): KeyBinding[] {
  */
 interface ToolbarButtonProps {
   onClick: () => void
-  title: string
+  /** Tooltip content. ReactNode so multi-line label-on-top, shortcut-below renders. */
+  title: ReactNode
   children: ReactNode
 }
 
@@ -293,66 +301,122 @@ export function CodeMirrorEditor({
   // This prevents user from being stuck in reading mode when disabled
   const effectiveReadingMode = readingMode && !disabled
 
-  // Keyboard shortcuts for editor
-  // Uses capture phase to intercept before macOS converts to special character (Ω for Alt+Z)
+  // Capture-phase keyboard shortcuts. Uses capture phase to intercept before
+  // macOS converts Option+letter to special characters (Ω for Alt+Z, etc.).
+  //
+  // Listener walks CAPTURE_PHASE_IDS via findMatchingShortcut. The match alone
+  // doesn't consume the event — each handler decides whether it acted (didHandle)
+  // and only THEN do we preventDefault + stopPropagation. This preserves
+  // matcher/handler symmetry: when a runtime precondition fails (reading mode,
+  // missing optional callback), the event bubbles unchanged, same as before
+  // the registry migration.
+  //
+  // Handlers read state through a ref so the listener installs once on mount
+  // and reads fresh state on each event, avoiding install/teardown churn.
+  const buildCaptureState = (): {
+    toggleReadingMode: () => void
+    effectiveReadingMode: boolean
+    wrapText: boolean
+    onWrapTextChange: ((wrap: boolean) => void) | undefined
+    showLineNumbers: boolean
+    onLineNumbersChange: ((show: boolean) => void) | undefined
+    monoFont: boolean
+    onMonoFontChange: ((mono: boolean) => void) | undefined
+    showTocToggle: boolean
+    togglePanel: (panel: 'history' | 'toc') => void
+    disabled: boolean
+    readOnly: boolean
+    openCommandMenuRef: typeof openCommandMenuRef
+  } => ({
+    toggleReadingMode,
+    effectiveReadingMode,
+    wrapText,
+    onWrapTextChange,
+    showLineNumbers,
+    onLineNumbersChange,
+    monoFont,
+    onMonoFontChange,
+    showTocToggle,
+    togglePanel,
+    disabled,
+    readOnly,
+    openCommandMenuRef,
+  })
+  const captureHandlersRef = useRef(buildCaptureState())
   useEffect(() => {
+    captureHandlersRef.current = buildCaptureState()
+  })
+
+  useEffect(() => {
+    const shortcuts = CAPTURE_PHASE_IDS.map(getShortcut)
+
+    if (import.meta.env.DEV) {
+      assertNoDuplicateMatchShapes(shortcuts)
+    }
+
     const handleKeyDown = (e: KeyboardEvent): void => {
-      const isMod = e.metaKey || e.ctrlKey
+      const matched = findMatchingShortcut(e, shortcuts)
+      if (!matched) return
 
-      // Cmd+Shift+M - toggle reading mode
-      if (isMod && e.shiftKey && e.code === 'KeyM') {
-        e.preventDefault()
-        e.stopPropagation()
-        toggleReadingMode()
-        return
+      const s = captureHandlersRef.current
+
+      // Exhaustive switch — TS catches a missing case when CAPTURE_PHASE_IDS grows.
+      // `matched.id` is structurally one of CAPTURE_PHASE_IDS because
+      // findMatchingShortcut iterates `CAPTURE_PHASE_IDS.map(getShortcut)`.
+      const id = matched.id as typeof CAPTURE_PHASE_IDS[number]
+      let didHandle = false
+      switch (id) {
+        case 'editor.toggleReadingMode':
+          s.toggleReadingMode()
+          didHandle = true
+          break
+        case 'editor.toggleWordWrap':
+          if (!s.effectiveReadingMode && s.onWrapTextChange) {
+            s.onWrapTextChange(!s.wrapText)
+            didHandle = true
+          }
+          break
+        case 'editor.toggleLineNumbers':
+          if (!s.effectiveReadingMode && s.onLineNumbersChange) {
+            s.onLineNumbersChange(!s.showLineNumbers)
+            didHandle = true
+          }
+          break
+        case 'editor.toggleMonoFont':
+          if (!s.effectiveReadingMode && s.onMonoFontChange) {
+            s.onMonoFontChange(!s.monoFont)
+            didHandle = true
+          }
+          break
+        case 'editor.toggleToc':
+          if (s.showTocToggle && !s.effectiveReadingMode) {
+            s.togglePanel('toc')
+            didHandle = true
+          }
+          break
+        case 'editor.commandMenu':
+          if (!s.effectiveReadingMode && !s.disabled && !s.readOnly) {
+            s.openCommandMenuRef.current()
+            didHandle = true
+          }
+          break
+        default: {
+          // Compile-time exhaustiveness check. Adding an id to CAPTURE_PHASE_IDS
+          // without a switch case fails to compile here.
+          const _exhaustive: never = id
+          throw new Error(`Unhandled capture-phase id: ${String(_exhaustive)}`)
+        }
       }
 
-      // Option+Z (Alt+Z) - toggle word wrap (only when not in reading mode)
-      // Uses e.code which is independent of keyboard layout
-      if (e.altKey && e.code === 'KeyZ' && !effectiveReadingMode && onWrapTextChange) {
+      if (didHandle) {
         e.preventDefault()
         e.stopPropagation()
-        onWrapTextChange(!wrapText)
-        return
-      }
-
-      // Option+L (Alt+L) - toggle line numbers (only when not in reading mode)
-      if (e.altKey && e.code === 'KeyL' && !effectiveReadingMode && onLineNumbersChange) {
-        e.preventDefault()
-        e.stopPropagation()
-        onLineNumbersChange(!showLineNumbers)
-        return
-      }
-
-      // Option+M (Alt+M) - toggle monospace font (only when not in reading mode)
-      if (e.altKey && e.code === 'KeyM' && !effectiveReadingMode && onMonoFontChange) {
-        e.preventDefault()
-        e.stopPropagation()
-        onMonoFontChange(!monoFont)
-        return
-      }
-
-      // Option+T (Alt+T) - toggle table of contents sidebar (only when not in reading mode)
-      if (e.altKey && e.code === 'KeyT' && showTocToggle && !effectiveReadingMode) {
-        e.preventDefault()
-        e.stopPropagation()
-        togglePanel('toc')
-        return
-      }
-
-      // Cmd+/ - open command menu (works whether editor has focus or not)
-      // Uses capture phase so it runs before CM's keymap handler.
-      // Uses ref to avoid dependency ordering issues (openCommandMenu defined later).
-      if (isMod && !e.shiftKey && e.code === 'Slash' && !effectiveReadingMode && !disabled && !readOnly) {
-        e.preventDefault()
-        e.stopPropagation()
-        openCommandMenuRef.current()
       }
     }
 
     document.addEventListener('keydown', handleKeyDown, true)
     return () => document.removeEventListener('keydown', handleKeyDown, true)
-  }, [toggleReadingMode, effectiveReadingMode, wrapText, onWrapTextChange, showLineNumbers, onLineNumbersChange, monoFont, onMonoFontChange, disabled, readOnly, showTocToggle, togglePanel])
+  }, [])
 
   // Get the EditorView from ref
   const getView = useCallback((): EditorView | undefined => {
@@ -594,52 +658,52 @@ export function CodeMirrorEditor({
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
         <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:pointer-events-none md:group-focus-within/editor:opacity-100 md:group-focus-within/editor:pointer-events-auto transition-opacity ${disabled || readOnly ? 'pointer-events-none' : ''}`}>
           {/* Text formatting */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title="Bold (⌘B)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title={shortcutTooltipContent('editor.bold')}>
             <BoldIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title="Italic (⌘I)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.italic.before, MARKERS.italic.after))} title={shortcutTooltipContent('editor.italic')}>
             <ItalicIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title="Strikethrough (⌘⇧X)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.strikethrough.before, MARKERS.strikethrough.after))} title={shortcutTooltipContent('editor.strikethrough')}>
             <StrikethroughIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title="Highlight (⌘⇧H)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.highlight.before, MARKERS.highlight.after))} title={shortcutTooltipContent('editor.highlight')}>
             <HighlightIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title="Blockquote (⌘⇧.)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.blockquote))} title={shortcutTooltipContent('editor.blockquote')}>
             <BlockquoteIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Code */}
-          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title="Inline Code (⌘E)">
+          <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.inlineCode.before, MARKERS.inlineCode.after))} title={shortcutTooltipContent('editor.inlineCode')}>
             <InlineCodeIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title="Code Block (⌘⇧E)">
+          <ToolbarButton onClick={() => runAction(insertCodeBlock)} title={shortcutTooltipContent('editor.codeBlock')}>
             <CodeBlockIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Lists */}
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title="Bullet List (⌘⇧7)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.bulletList))} title={shortcutTooltipContent('editor.bulletList')}>
             <BulletListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title="Numbered List (⌘⇧8)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.numberedList))} title={shortcutTooltipContent('editor.numberedList')}>
             <OrderedListIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.checklist))} title="Checklist (⌘⇧9)">
+          <ToolbarButton onClick={() => runAction((v) => toggleLinePrefix(v, LINE_PREFIXES.checklist))} title={shortcutTooltipContent('editor.checklist')}>
             <ChecklistIcon />
           </ToolbarButton>
 
           <ToolbarSeparator />
 
           {/* Links and dividers */}
-          <ToolbarButton onClick={() => runAction(insertLink)} title="Insert Link (⌘K)">
+          <ToolbarButton onClick={() => runAction(insertLink)} title={shortcutTooltipContent('editor.insertLink')}>
             <LinkIcon />
           </ToolbarButton>
-          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title="Horizontal Rule (⌘⇧-)">
+          <ToolbarButton onClick={() => runAction(insertHorizontalRule)} title={shortcutTooltipContent('editor.horizontalRule')}>
             <HorizontalRuleIcon />
           </ToolbarButton>
 
@@ -667,7 +731,7 @@ export function CodeMirrorEditor({
           <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
           {/* Wrap toggle - always visible, only shown when not in reading mode */}
           {onWrapTextChange && !effectiveReadingMode && (
-            <Tooltip content={<>Toggle word wrap<br /><span className="opacity-75">⌥Z</span></>} compact>
+            <Tooltip content={shortcutTooltipContent('editor.toggleWordWrap')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -691,7 +755,7 @@ export function CodeMirrorEditor({
 
           {/* Line numbers toggle - always visible, only shown when not in reading mode */}
           {onLineNumbersChange && !effectiveReadingMode && (
-            <Tooltip content={<>Toggle line numbers<br /><span className="opacity-75">⌥L</span></>} compact>
+            <Tooltip content={shortcutTooltipContent('editor.toggleLineNumbers')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -715,7 +779,7 @@ export function CodeMirrorEditor({
 
           {/* Mono font toggle - only shown when not in reading mode */}
           {onMonoFontChange && !effectiveReadingMode && (
-            <Tooltip content={<>Toggle monospace font<br /><span className="opacity-75">⌥M</span></>} compact>
+            <Tooltip content={shortcutTooltipContent('editor.toggleMonoFont')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -739,7 +803,7 @@ export function CodeMirrorEditor({
 
           {/* Table of Contents toggle - only shown when enabled and not in reading mode */}
           {showTocToggle && !effectiveReadingMode && (
-            <Tooltip content={<>Table of contents<br /><span className="opacity-75">⌥T</span></>} compact>
+            <Tooltip content={shortcutTooltipContent('editor.toggleToc')} compact>
               <button
                 type="button"
                 tabIndex={-1}
@@ -762,7 +826,7 @@ export function CodeMirrorEditor({
           )}
 
           {/* Reading mode toggle - always visible */}
-          <Tooltip content={<>Toggle reading mode<br /><span className="opacity-75">⌘⇧M</span></>} compact>
+          <Tooltip content={shortcutTooltipContent('editor.toggleReadingMode')} compact>
             <button
               type="button"
               tabIndex={-1}
