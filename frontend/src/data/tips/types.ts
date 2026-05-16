@@ -6,6 +6,8 @@
  * callouts. The schema is deliberately minimal — visual divergence between
  * surfaces lives in renderers (M2), not extra fields.
  */
+import type { ShortcutId } from '../../shortcuts/registry'
+import type { TipExtraShortcutId } from './tipExtraShortcuts'
 
 export type TipCategory =
   | 'editor'
@@ -67,8 +69,19 @@ export interface Tip {
    * path. Do not include trailing `*` — matching is exact-or-longest-prefix, not glob.
    */
   areas?: string[]
-  /** Keyboard shortcut tokens, if applicable. */
-  shortcut?: string[]
+  /**
+   * Stable id pointing at a shortcut definition. Preferred over `shortcut`
+   * because chip row and body tokens both resolve through the registry — when
+   * a binding moves, every display surface updates. Mutually exclusive with
+   * `shortcut`; enforced by `validateTips`.
+   */
+  shortcutId?: TipShortcutId
+  /**
+   * Literal display tokens — fallback for shortcuts no registry covers (none
+   * currently). Author as Mac glyphs (`['⌘', 'V']`); localization happens at
+   * render. Prefer `shortcutId` when the shortcut maps to a registry entry.
+   */
+  shortcut?: readonly string[]
   /** Links to deeper docs. */
   relatedDocs?: RelatedDoc[]
   /** Optional media (most tips have none). */
@@ -86,3 +99,10 @@ export interface Tip {
 
 export const TITLE_MAX_LENGTH = 80
 export const BODY_MAX_LENGTH = 500
+
+/**
+ * Union of shortcut ids that tips can reference. `ShortcutId` covers the main
+ * `frontend/src/shortcuts/registry.ts`; `TipExtraShortcutId` covers shortcuts
+ * the main registry intentionally excludes (page-scoped saves, Chrome ext).
+ */
+export type TipShortcutId = ShortcutId | TipExtraShortcutId

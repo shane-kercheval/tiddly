@@ -98,6 +98,162 @@ describe('validateTips', () => {
     const tip = buildTip({ id: 'plain', starter: false })
     expect(() => validateTips([tip])).not.toThrow()
   })
+
+  describe('shortcut fields', () => {
+    it('throws when both shortcutId and shortcut are set on the same tip', () => {
+      const tip = buildTip({
+        id: 'conflict',
+        shortcutId: 'app.commandPalette',
+        shortcut: ['⌘', 'P'],
+      })
+      expect(() => validateTips([tip])).toThrow(/both shortcutId and shortcut/)
+      expect(() => validateTips([tip])).toThrow(/conflict/)
+    })
+
+    it('throws when shortcutId is set to an unknown id', () => {
+      const tip = buildTip({
+        id: 'bad-id',
+        // Cast through string because the type union doesn't admit unknown ids.
+        shortcutId: 'app.notARealId' as never,
+      })
+      expect(() => validateTips([tip])).toThrow(/unknown shortcutId/)
+      expect(() => validateTips([tip])).toThrow(/bad-id/)
+    })
+
+    it('accepts a registry-backed shortcutId', () => {
+      const tip = buildTip({ id: 'ok-registry', shortcutId: 'app.commandPalette' })
+      expect(() => validateTips([tip])).not.toThrow()
+    })
+
+    it('accepts an extras-module shortcutId', () => {
+      const tip = buildTip({ id: 'ok-extras', shortcutId: 'page.save' })
+      expect(() => validateTips([tip])).not.toThrow()
+    })
+
+    it('throws when shortcut is set but empty', () => {
+      const tip = buildTip({ id: 'empty-shortcut', shortcut: [] })
+      expect(() => validateTips([tip])).toThrow(/empty shortcut array/)
+    })
+
+    it('accepts a non-empty literal shortcut array', () => {
+      const tip = buildTip({ id: 'ok-literal', shortcut: ['⌘', 'V'] })
+      expect(() => validateTips([tip])).not.toThrow()
+    })
+  })
+
+  describe('body shortcut tokens', () => {
+    it('throws on a body token whose id is unknown', () => {
+      const tip = buildTip({
+        id: 'bad-body-token',
+        body: 'Press `{{shortcut:app.notARealId}}` to do something.',
+      })
+      expect(() => validateTips([tip])).toThrow(/unknown shortcut token/)
+      expect(() => validateTips([tip])).toThrow(/bad-body-token/)
+      expect(() => validateTips([tip])).toThrow(/app\.notARealId/)
+    })
+
+    it('accepts a body token whose id resolves via the registry', () => {
+      const tip = buildTip({
+        id: 'ok-body-registry',
+        body: 'Press `{{shortcut:app.commandPalette}}` to open the palette.',
+      })
+      expect(() => validateTips([tip])).not.toThrow()
+    })
+
+    it('accepts a body token whose id resolves via the extras module', () => {
+      const tip = buildTip({
+        id: 'ok-body-extras',
+        body: 'Press `{{shortcut:page.saveAndClose}}` to close.',
+      })
+      expect(() => validateTips([tip])).not.toThrow()
+    })
+
+    it('catches all tokens, not just the first, when multiple appear', () => {
+      // Token 1 is valid; token 2 is bogus. The validator must throw on token 2.
+      const tip = buildTip({
+        id: 'multi-token',
+        body:
+          'First `{{shortcut:app.commandPalette}}` then `{{shortcut:bogus.id}}` last.',
+      })
+      expect(() => validateTips([tip])).toThrow(/bogus\.id/)
+    })
+
+    it('flags a token even when it appears outside a code span', () => {
+      // The render-time override only fires inside inline code, but a stale
+      // token reference in prose is still worth catching at validation time.
+      const tip = buildTip({
+        id: 'token-in-prose',
+        body: 'See {{shortcut:unknown.thing}} for details.',
+      })
+      expect(() => validateTips([tip])).toThrow(/unknown\.thing/)
+    })
+
+    // Backtick-wrapping enforcement — a valid id used bare in prose would
+    // render as literal `{{shortcut:X}}` text (the render-time override only
+    // fires inside `code` nodes). The validator must catch this.
+    it('rejects a valid-id token that is not wrapped in backticks', () => {
+      const tip = buildTip({
+        id: 'bare-valid-token',
+        body: 'Press {{shortcut:app.commandPalette}} to open.',
+      })
+      expect(() => validateTips([tip])).toThrow(/must be wrapped in an inline code span/)
+      expect(() => validateTips([tip])).toThrow(/bare-valid-token/)
+    })
+
+    it('rejects a token at position 0 of the body (no preceding backtick)', () => {
+      const tip = buildTip({
+        id: 'token-at-start',
+        body: '{{shortcut:app.commandPalette}} appears first.',
+      })
+      expect(() => validateTips([tip])).toThrow(/must be wrapped in an inline code span/)
+    })
+
+    it('rejects a token at the very end of the body (no trailing backtick)', () => {
+      const tip = buildTip({
+        id: 'token-at-end',
+        body: 'Ends with {{shortcut:app.commandPalette}}',
+      })
+      expect(() => validateTips([tip])).toThrow(/must be wrapped in an inline code span/)
+    })
+
+    it('rejects a token with only a leading backtick', () => {
+      const tip = buildTip({
+        id: 'leading-backtick-only',
+        body: 'Half-wrapped: `{{shortcut:app.commandPalette}} oops.',
+      })
+      expect(() => validateTips([tip])).toThrow(/must be wrapped in an inline code span/)
+    })
+
+    it('rejects a token with only a trailing backtick', () => {
+      const tip = buildTip({
+        id: 'trailing-backtick-only',
+        body: 'Half-wrapped: {{shortcut:app.commandPalette}}` oops.',
+      })
+      expect(() => validateTips([tip])).toThrow(/must be wrapped in an inline code span/)
+    })
+
+    it('accepts a token wrapped in double backticks', () => {
+      // CommonMark: matching backtick runs of equal length form an inline
+      // code span. Render hits the same code override regardless of run
+      // length, so the validator must accept this as a valid wrap.
+      const tip = buildTip({
+        id: 'double-backtick',
+        body: 'See ``{{shortcut:app.commandPalette}}`` for details.',
+      })
+      expect(() => validateTips([tip])).not.toThrow()
+    })
+
+    it('rejects a token inside a fenced code block (newline-adjacent)', () => {
+      // Fenced blocks produce a `code` element with `\n`-adjacent text; the
+      // render-time override doesn't fire on them, so a token authored in a
+      // fenced block would render literally. The validator should reject.
+      const tip = buildTip({
+        id: 'token-in-fence',
+        body: '```\n{{shortcut:app.commandPalette}}\n```',
+      })
+      expect(() => validateTips([tip])).toThrow(/must be wrapped in an inline code span/)
+    })
+  })
 })
 
 describe('byPriorityThenId', () => {

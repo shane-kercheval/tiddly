@@ -11,6 +11,9 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Tip, TipAudience } from '../../data/tips/types'
+import { resolveTipShortcut } from '../../data/tips/tipExtraShortcuts'
+import { localizeKey } from '../../utils/platform'
+import { Kbd } from './Kbd'
 import { TipBody } from './TipBody'
 import { TipMedia } from './TipMedia'
 
@@ -44,6 +47,15 @@ export function TipCard({ tip, variant }: TipCardProps): ReactNode {
   //
   // `scroll-mt-20` reserves space for the sticky public header so deep-link
   // scroll-into-view doesn't land behind it.
+
+  // Resolve the chip-row keys from `shortcutId` (registry-backed) or
+  // `shortcut` (literal fallback). `validateTips` at module load enforces
+  // mutual exclusion and id validity; a render-time throw from `resolveTipShortcut`
+  // would mean a validator bypass, which we want to surface loudly rather than
+  // silently render nothing.
+  const shortcutKeys: readonly string[] | undefined =
+    tip.shortcutId !== undefined ? resolveTipShortcut(tip.shortcutId) : tip.shortcut
+
   return (
     <div
       id={`tip-${tip.id}`}
@@ -58,13 +70,13 @@ export function TipCard({ tip, variant }: TipCardProps): ReactNode {
         ))}
       </div>
 
-      {tip.shortcut && tip.shortcut.length > 0 && (
+      {shortcutKeys !== undefined && shortcutKeys.length > 0 && (
         <div className="mb-3 flex items-center gap-1.5 text-xs text-gray-500">
           <span>Shortcut:</span>
-          {tip.shortcut.map((key, index) => (
+          {shortcutKeys.map((key, index) => (
             <span key={index} className="inline-flex items-center gap-1">
               {index > 0 && <span className="text-gray-400">+</span>}
-              <Kbd>{key}</Kbd>
+              <Kbd>{localizeKey(key)}</Kbd>
             </span>
           ))}
         </div>
@@ -101,13 +113,5 @@ function Badge({ children }: { children: ReactNode }): ReactNode {
     <span className="inline-block rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-600">
       {children}
     </span>
-  )
-}
-
-function Kbd({ children }: { children: ReactNode }): ReactNode {
-  return (
-    <kbd className="inline-flex min-w-[24px] items-center justify-center rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-xs font-medium text-gray-700">
-      {children}
-    </kbd>
   )
 }

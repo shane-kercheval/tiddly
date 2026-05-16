@@ -9,6 +9,10 @@ import { matchPathPrefix } from '../../utils/matchPathPrefix'
 import { ALL_CONTENT_TYPES, type ContentType } from '../../types'
 import { allTips } from './tips'
 import {
+  resolveTipShortcut,
+  SHORTCUT_TOKEN_SCAN_RE,
+} from './tipExtraShortcuts'
+import {
   BODY_MAX_LENGTH,
   TITLE_MAX_LENGTH,
   type Tip,
@@ -57,6 +61,71 @@ export function validateTips(tips: readonly Tip[]): void {
 
     if (tip.categories.length === 0) {
       throw new Error(`Tip "${tip.id}" has an empty categories array.`)
+    }
+
+    // Shortcut fields are mutually exclusive; `shortcutId` is preferred but
+    // `shortcut` (literal Mac glyphs) is allowed as a fallback when no
+    // registry entry exists. Empty arrays are pointless and likely a bug.
+    if (tip.shortcutId !== undefined && tip.shortcut !== undefined) {
+      throw new Error(
+        `Tip "${tip.id}" sets both shortcutId and shortcut. Pick one (shortcutId preferred).`,
+      )
+    }
+    if (tip.shortcutId !== undefined) {
+      try {
+        resolveTipShortcut(tip.shortcutId)
+      } catch {
+        throw new Error(
+          `Tip "${tip.id}" has unknown shortcutId "${tip.shortcutId}".`,
+        )
+      }
+    }
+    if (tip.shortcut !== undefined && tip.shortcut.length === 0) {
+      throw new Error(`Tip "${tip.id}" has an empty shortcut array.`)
+    }
+
+    // Body shortcut tokens — every `{{shortcut:X}}` in the markdown must
+    // (a) resolve to a real id and (b) be wrapped in an inline code span
+    // (`...`). The render-time override at TipBody only fires inside `code`
+    // nodes, so a bare token in prose would render as literal `{{shortcut:X}}`
+    // text — an authoring mistake worth catching at build time.
+    //
+    // "Wrapped in an inline code span" is checked positionally: the character
+    // immediately before and after the token must each be a backtick. This
+    // accepts every CommonMark inline code span form (single, double, or
+    // triple backticks of matching length all produce equivalent <code>
+    // output and reach the render override the same way) and rejects bare
+    // tokens, tokens with a leading-or-trailing-only backtick, and tokens
+    // inside fenced code blocks (where adjacent chars are newlines).
+    for (const tokenMatch of tip.body.matchAll(SHORTCUT_TOKEN_SCAN_RE)) {
+      const tokenId = tokenMatch[1]
+      const matchIndex = tokenMatch.index
+      // `matchAll` always supplies `index` at runtime, but the type allows
+      // `undefined`; treat missing index as a validation failure rather than
+      // casting.
+      if (matchIndex === undefined) {
+        throw new Error(
+          `Tip "${tip.id}": could not locate shortcut token "{{shortcut:${tokenId}}}" in body.`,
+        )
+      }
+      try {
+        resolveTipShortcut(tokenId)
+      } catch {
+        throw new Error(
+          `Tip "${tip.id}" references unknown shortcut token "{{shortcut:${tokenId}}}".`,
+        )
+      }
+      // `body[i]` returns `undefined` for out-of-bounds indices (token at
+      // position 0 or token ending at body.length); the explicit '`'
+      // comparison rejects both cases — a token at the literal start or end
+      // of the body can't be wrapped.
+      const charBefore = tip.body[matchIndex - 1]
+      const charAfter = tip.body[matchIndex + tokenMatch[0].length]
+      if (charBefore !== '`' || charAfter !== '`') {
+        throw new Error(
+          `Tip "${tip.id}": shortcut token "{{shortcut:${tokenId}}}" must be wrapped in an inline code span (backticks).`,
+        )
+      }
     }
 
     if (tip.starter === true) {

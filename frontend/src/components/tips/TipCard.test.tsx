@@ -1,8 +1,16 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TipCard } from './TipCard'
 import type { Tip } from '../../data/tips/types'
+
+function mockPlatform(value: string): void {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue(value)
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 function renderCard(
   tip: Tip,
@@ -51,7 +59,8 @@ describe('TipCard — full variant', () => {
     expect(screen.queryByText('All')).not.toBeInTheDocument()
   })
 
-  it('renders the shortcut as kbd elements when present', () => {
+  it('renders the literal shortcut as kbd elements on Mac (glyphs pass through)', () => {
+    mockPlatform('MacIntel')
     const { container } = renderCard({ ...baseTip, shortcut: ['⌘', 'V'] }, 'full')
     const kbds = container.querySelectorAll('kbd')
     expect(kbds.length).toBe(2)
@@ -59,9 +68,61 @@ describe('TipCard — full variant', () => {
     expect(kbds[1].textContent).toBe('V')
   })
 
-  it('omits the shortcut row when shortcut is missing', () => {
-    const { container } = renderCard(baseTip, 'full')
-    expect(container.querySelector('kbd')).toBeNull()
+  it('localizes the literal shortcut on Windows', () => {
+    mockPlatform('Win32')
+    const { container } = renderCard({ ...baseTip, shortcut: ['⌘', 'V'] }, 'full')
+    const kbds = container.querySelectorAll('kbd')
+    expect(kbds.length).toBe(2)
+    expect(kbds[0].textContent).toBe('Ctrl')
+    expect(kbds[1].textContent).toBe('V')
+  })
+
+  it('resolves shortcutId via the registry and renders localized chips on Mac', () => {
+    mockPlatform('MacIntel')
+    const { container } = renderCard(
+      { ...baseTip, shortcutId: 'app.commandPalette' },
+      'full',
+    )
+    const kbds = container.querySelectorAll('kbd')
+    // Registry entry keys are ['⌘', '⇧', 'P'].
+    expect(kbds.length).toBe(3)
+    expect(kbds[0].textContent).toBe('⌘')
+    expect(kbds[1].textContent).toBe('⇧')
+    expect(kbds[2].textContent).toBe('P')
+  })
+
+  it('resolves shortcutId via the registry and renders localized chips on Windows', () => {
+    mockPlatform('Win32')
+    const { container } = renderCard(
+      { ...baseTip, shortcutId: 'app.commandPalette' },
+      'full',
+    )
+    const kbds = container.querySelectorAll('kbd')
+    expect(kbds.length).toBe(3)
+    expect(kbds[0].textContent).toBe('Ctrl')
+    expect(kbds[1].textContent).toBe('Shift')
+    expect(kbds[2].textContent).toBe('P')
+  })
+
+  it('resolves an extras-module shortcutId (page.save)', () => {
+    mockPlatform('MacIntel')
+    const { container } = renderCard(
+      { ...baseTip, shortcutId: 'page.save' },
+      'full',
+    )
+    const kbds = container.querySelectorAll('kbd')
+    expect(kbds.length).toBe(2)
+    expect(kbds[0].textContent).toBe('⌘')
+    expect(kbds[1].textContent).toBe('S')
+  })
+
+  it('omits the shortcut row when neither shortcut nor shortcutId is present', () => {
+    // Use a body without any code spans so a kbd-not-present assertion is
+    // unambiguous (the body's MarkdownCode override produces `<code>`, not
+    // `<kbd>`, but a body change later could obscure the failure mode).
+    const tipWithoutCode = { ...baseTip, body: 'Plain prose body.' }
+    renderCard(tipWithoutCode, 'full')
+    expect(screen.queryByText('Shortcut:')).not.toBeInTheDocument()
   })
 
   it('renders related-doc links pointing at the right paths', () => {

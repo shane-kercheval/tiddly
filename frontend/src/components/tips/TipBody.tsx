@@ -8,12 +8,24 @@
  * Heading tags (h1–h6) are stripped from the allowlist so a tip body cannot
  * inject mid-page headings that break the surrounding document outline (the
  * /docs/tips page already has h1/h3 structure).
+ *
+ * Inline code spans whose full text matches the `{{shortcut:<id>}}` grammar
+ * are replaced with a localized `<Kbd>` chip so body prose stays in sync with
+ * the shortcut registry. Anything else inside an inline code span renders
+ * with the default `<code>` styling — the override is intentionally exact
+ * match, no mixed content.
  */
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router-dom'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
+import {
+  resolveTipShortcut,
+  SHORTCUT_TOKEN_RE,
+} from '../../data/tips/tipExtraShortcuts'
+import { formatShortcut } from '../../utils/platform'
+import { Kbd } from './Kbd'
 
 interface TipBodyProps {
   body: string
@@ -53,13 +65,51 @@ function MarkdownLink({
   )
 }
 
+/**
+ * Markdown inline-code override:
+ *   - `\`{{shortcut:<id>}}\`` (full match) → localized `<Kbd>` chip
+ *   - anything else → default `<code>` element (with `className` preserved
+ *     so syntax-highlighting hints like `language-typescript` survive)
+ *
+ * Fenced code blocks reach this override too (react-markdown invokes the
+ * `code` component for both); the `inline` prop from `react-markdown` v9
+ * is no longer reliable, so we sniff by reading children as plain text and
+ * pattern-matching the full string. A multi-line block can't match the
+ * single-line regex (verified by `tipExtraShortcuts.test.ts`), so fenced
+ * blocks pass through naturally.
+ *
+ * Only `className` is forwarded — never spread `...rest`. react-markdown
+ * passes internal props like `node` that aren't valid DOM attributes, and
+ * spreading them produces React "Unknown prop" warnings and writes them
+ * into the rendered HTML.
+ *
+ * `resolveTipShortcut` throws on an unknown id. `validateTips` at module
+ * load makes this unreachable for the live corpus — a render-time throw
+ * here surfaces a validator-bypass bug loudly rather than silently
+ * rendering nothing.
+ */
+function MarkdownCode({
+  children,
+  className,
+}: ComponentProps<'code'>): ReactNode {
+  const text = typeof children === 'string' ? children : null
+  if (text !== null) {
+    const match = SHORTCUT_TOKEN_RE.exec(text)
+    if (match !== null) {
+      const keys = resolveTipShortcut(match[1])
+      return <Kbd>{formatShortcut(keys)}</Kbd>
+    }
+  }
+  return <code className={className}>{children}</code>
+}
+
 export function TipBody({ body }: TipBodyProps): ReactNode {
   return (
     <div className="prose prose-sm max-w-none">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeSanitize, tipSanitizeSchema]]}
-        components={{ a: MarkdownLink }}
+        components={{ a: MarkdownLink, code: MarkdownCode }}
       >
         {body}
       </ReactMarkdown>
