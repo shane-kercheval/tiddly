@@ -193,7 +193,7 @@ class TestCachingHeaders:
         """200 response should include Cache-Control and Vary headers."""
         response = await client.get("/health")
         assert response.status_code == 200
-        assert response.headers.get("cache-control") == "private, must-revalidate"
+        assert response.headers.get("cache-control") == "private, no-cache"
         assert response.headers.get("vary") == "Authorization"
 
     async def test__caching_headers__present_on_304_response(
@@ -207,7 +207,7 @@ class TestCachingHeaders:
         # Request with matching ETag
         response2 = await client.get("/health", headers={"If-None-Match": etag})
         assert response2.status_code == 304
-        assert response2.headers.get("cache-control") == "private, must-revalidate"
+        assert response2.headers.get("cache-control") == "private, no-cache"
         assert response2.headers.get("vary") == "Authorization"
 
     async def test__caching_headers__etag_present_on_304(
@@ -220,6 +220,39 @@ class TestCachingHeaders:
         response2 = await client.get("/health", headers={"If-None-Match": etag})
         assert response2.status_code == 304
         assert response2.headers.get("etag") == etag
+
+    async def test__caching_headers__no_cache_directive_forbids_heuristic_freshness(
+        self, client: AsyncClient,
+    ) -> None:
+        """
+        Regression: Cache-Control MUST include `no-cache` (not just `must-revalidate`).
+
+        Per RFC 7234 §4.2.2, a response with `Last-Modified` but no explicit freshness
+        is eligible for heuristic freshness — caches (notably Safari) may infer a
+        lifetime of ~10% of (now - Last-Modified) and serve the entry WITHOUT contacting
+        the origin during that window. `must-revalidate` alone does NOT prevent this;
+        it only governs behavior after the entry is deemed stale.
+
+        Symptom of regressing this: out-of-band edits (e.g., via MCP) are silently
+        invisible on navigate-back in Safari. Recovery requires logout/login (which
+        rotates the Auth0 JWT and changes the Vary cache key).
+
+        See `backend/src/core/http_cache.py` `CACHE_HEADERS` comment for full context.
+        """
+        response = await client.get("/health")
+        cache_control = response.headers.get("cache-control", "")
+        directives = {d.strip().lower() for d in cache_control.split(",")}
+        assert "no-cache" in directives, (
+            f"Cache-Control must include 'no-cache' to prevent Safari heuristic "
+            f"freshness; got: {cache_control!r}"
+        )
+        # Also assert we did NOT regress to a permissive freshness directive.
+        forbidden_prefixes = ("max-age=", "s-maxage=", "stale-while-revalidate=")
+        for directive in directives:
+            assert not directive.startswith(forbidden_prefixes), (
+                f"Cache-Control must not include {forbidden_prefixes} on "
+                f"per-user API responses; got: {cache_control!r}"
+            )
 
 
 class TestSecurityHeadersOn304:
@@ -431,7 +464,7 @@ class TestCheckNotModified:
 
         result = check_not_modified(request, updated_at)
         assert result is not None
-        assert result.headers.get("cache-control") == "private, must-revalidate"
+        assert result.headers.get("cache-control") == "private, no-cache"
         assert result.headers.get("vary") == "Authorization"
         assert "last-modified" in result.headers
 

@@ -7,9 +7,33 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 
-# Headers for cacheable responses
+# Headers for cacheable responses.
+#
+# IMPORTANT: `no-cache` is intentional — do NOT change to `must-revalidate` alone.
+#
+# Per RFC 7234 §4.2.2, a response with `Last-Modified` but no explicit freshness
+# (`max-age` / `Expires` / `no-cache`) is eligible for *heuristic freshness*: caches
+# may infer a freshness lifetime as ~10% of (now - Last-Modified). During that
+# window, the cache serves the entry WITHOUT contacting the origin. `must-revalidate`
+# does NOT prevent this — it only governs behavior AFTER the entry becomes stale.
+#
+# Safari applies heuristic freshness aggressively to API responses; current Chrome
+# does not (it revalidates regardless). With `must-revalidate` alone, the symptom
+# was: an out-of-band edit (e.g., via the MCP server while a prompt is open in
+# Safari) was silently invisible on navigate-back, because Safari served the
+# stale entry from cache without ever asking the server. The "Load Latest" flow
+# papered over the immediate symptom via cache-busting query param (?_t=…), but
+# the canonical-URL cache entry stayed stale and subsequent navigate-backs
+# resurfaced the old content. The only user-visible recovery was logout/login
+# (which rotates the Auth0 JWT and changes the Vary cache key).
+#
+# `no-cache` forbids serving from cache without revalidation, eliminating the
+# heuristic-freshness loophole on every browser. The ETag middleware below still
+# returns 304 on unchanged content, so the bandwidth profile is unchanged — only
+# a ~1 KB headers round trip is added per cacheable GET. See `tests/core/
+# test_http_cache.py` for the regression test that pins this directive.
 CACHE_HEADERS = {
-    "Cache-Control": "private, must-revalidate",
+    "Cache-Control": "private, no-cache",
     "Vary": "Authorization",
 }
 
