@@ -372,15 +372,6 @@ Add a `-` inside a Jinja tag (`{%- if optional_arg %}…{%- endif %}`) to strip 
 - areas: ['/app/prompts']
 - **verify**: unit-test that the API → renderer pipeline strips whitespace as expected.
 
-### 38. `skill-description-as-trigger` — priority 20
-
-**Agents pick skills based on the description — write it like a trigger**
-
-When a prompt is exported as a skill, the description goes into the SKILL.md frontmatter and is what the agent reads to decide whether to invoke it. Make it a trigger — *"Reviews a Python file for bugs and style issues. Use when the user pastes Python code."* Not just *"code review."*
-
-- Categories: prompts, cli
-- Audience: power
-
 ### 40. `cmd-click-link-raw-editor` — priority 25
 
 **Follow a markdown link without switching to reading mode**
@@ -394,7 +385,7 @@ In the raw markdown editor, hold `⌘` and click a `[text](url)` link to open th
 
 **Open a card in a new tab to keep your list in place**
 
-Hold `⌘` (or `Ctrl` on Windows/Linux) and click any bookmark, note, or prompt card to open its detail page in a new tab. Same affordance as a browser link.
+Use `{{shortcut:card.openInNewTab}}` on any bookmark, note, or prompt card to open its detail page in a new tab. Same affordance as a browser link.
 
 - Categories: shortcuts
 - Audience: power
@@ -402,9 +393,9 @@ Hold `⌘` (or `Ctrl` on Windows/Linux) and click any bookmark, note, or prompt 
 
 ### 42. `collapse-sidebar` — priority 25
 
-**Free up screen space for long notes with `⌘+\`**
+**Free up screen space for long notes**
 
-Press `⌘+\` (or `Ctrl+\`) to collapse or expand the main sidebar. Works even while typing.
+Press `{{shortcut:app.toggleSidebar}}` to collapse or expand the main sidebar. Works even while typing.
 
 - Categories: shortcuts
 - Audience: power
@@ -412,7 +403,7 @@ Press `⌘+\` (or `Ctrl+\`) to collapse or expand the main sidebar. Works even w
 
 ### 43. `extension-default-tags` — priority 25
 
-**Pre-tag every save by setting default tags in the extension**
+**Pre-tag every save by setting default tags in the Chrome extension**
 
 Open the extension settings and pick default tags (e.g., `reading-list`). They're pre-selected on every save — clear them with the inline Clear link if a particular page doesn't fit.
 
@@ -449,26 +440,6 @@ Hold `⌘+⌥` and press the up or down arrow to add a second (or third) cursor 
 - Categories: editor
 - Audience: power
 - shortcut: ['⌘', '⌥', '↑/↓']
-
-### 48. `or-groups-merge-synonym-tags` — priority 25
-
-**Merge synonym tags into one filter without renaming**
-
-If you have both `js` and `javascript` (or `ml` and `machine-learning`), make a filter with two single-tag OR groups: `(js) OR (javascript)`. You get one unified view without bulk-renaming or losing either tag's history.
-
-- Categories: filters, tags
-- Audience: power
-- relatedDocs: [Tags & filters → /docs/features/tags-filters](/docs/features/tags-filters)
-
-### 49. `pat-generation-from-cli` — priority 25
-
-**Generate Personal Access Tokens from the CLI**
-
-`tiddly tokens create "CI Pipeline" --expires 90` mints a 90-day PAT and prints it once — copy it immediately. List with `tiddly tokens list`, delete with `tiddly tokens delete <id>`. PAT auth can't manage tokens — use OAuth login first.
-
-- Categories: cli, account
-- Audience: power
-- relatedDocs: [CLI reference → /docs/cli/reference](/docs/cli/reference)
 
 ### 50. `per-directory-mcp-scope` — priority 25
 
@@ -510,34 +481,14 @@ The Tiddly Bookmarks extension saves the page you're on with one click. Works in
 - Audience: beginner
 - relatedDocs: [Chrome extension → /docs/extensions/chrome](/docs/extensions/chrome)
 
-### 56. `select-lines-make-checklist` — priority 25
-
-**Turn a block of lines into a checklist with `⌘+⇧+9`**
-
-Select a block of lines and press `⌘+⇧+9` — every line gets a `- [ ]` prefix. Press it again on those same lines to remove the prefix. Pair with click-to-toggle in the raw editor to tick items off later.
-
-- Categories: editor, notes
-- Audience: beginner
-- shortcut: ['⌘', 'Shift', '9']
-
 ### 57. `shift-cmd-click-silent-open` — priority 25
 
 **Peek at a bookmark without bumping its last-used timestamp**
 
-Hold `Shift+⌘` (or `Shift+Ctrl`) when clicking a bookmark's title, favicon, or URL to open it without updating `last_used_at`. Useful when "Recently used" is your default sort and you don't want a one-off peek to reshuffle the list.
+Use `{{shortcut:bookmark.openLinkSilent}}` on a bookmark's title, favicon, or URL to open it without updating `last_used_at`. Useful when "Recently used" is your default sort and you don't want a one-off peek to reshuffle the list.
 
 - Categories: bookmarks
 - Audience: power
-
-### 59. `swap-list-or-heading-level` — priority 25
-
-**Swap a list type in one keystroke**
-
-To convert a numbered list to bullets, select the lines and press `⌘+⇧+7`; bullets to numbered, press `⌘+⇧+8`. The shortcut overwrites the existing prefix instead of nesting or duplicating it. Heading levels swap the same way, but only via the editor command menu (`⌘+/`).
-
-- Categories: editor
-- Audience: power
-- shortcut: ['⌘', 'Shift', '7']
 
 ### 60. `tiddly-status` — priority 25
 
@@ -573,9 +524,9 @@ Copy a URL anywhere, then press `⌘+V` from the All Content view (or any saved-
 
 ### 64. `comma-add-tag` — priority 30
 
-**Add multiple tags fast with comma**
+**Add and remove tags from the keyboard alone**
 
-When inline-editing tags on a note, bookmark, or prompt, press `,` (or Enter) to commit the current tag and keep the input open for the next one. Backspace on an empty input removes the previous tag.
+When inline-editing tags on a note, bookmark, or prompt, press `,` (or Enter) to commit the current tag and keep the input open for the next one. Press Backspace on an empty input to remove the previous tag.
 
 - Categories: tags
 - Audience: power
@@ -624,7 +575,7 @@ BYOK lets you map each use case (Suggestions today; Transform, Auto-Complete, Ch
 
 **Save the current page without leaving the keyboard**
 
-Press `Alt+Shift+S` (Mac: `Option+Shift+S`) to open the Tiddly popup, then hit Enter to save — focus lands on the Save button automatically. On restricted pages like `chrome://newtab/` the popup opens to Search with the input focused, so you can find a bookmark without touching the mouse either. Rebind the shortcut at `chrome://extensions/shortcuts` if it conflicts with another extension.
+Press `{{shortcut:extension.openPopup}}` to open the Tiddly popup, then hit Enter to save — focus lands on the Save button automatically. On restricted pages like `chrome://newtab/` the popup opens to Search with the input focused, so you can find a bookmark without touching the mouse either. Rebind the shortcut at `chrome://extensions/shortcuts` if it conflicts with another extension.
 
 - Categories: extension, shortcuts
 - Audience: all
@@ -669,24 +620,6 @@ Press `⌘+⌥+G` to open a small "go to line" prompt. Pair with line numbers (`
 - Audience: power
 - shortcut: ['⌘', '⌥', 'G']
 
-### 75. `mcp-configure-dry-run` — priority 35
-
-**Preview MCP config changes with `--dry-run`**
-
-Add `--dry-run` to `tiddly mcp configure` to see the exact diff (entries added, tokens that would be created) without writing any files or hitting the token API. Pair with `--force` to preview an overwrite of a mismatched CLI-managed entry.
-
-- Categories: cli, mcp
-- Audience: power
-
-### 76. `servers-scope-flag` — priority 35
-
-**Install only one MCP server with `--servers`**
-
-By default `tiddly mcp configure` installs both servers. Pass `--servers content` for bookmarks/notes only or `--servers prompts` for prompts only. Same flag on `tiddly mcp remove --servers content --delete-tokens` cleans up just one server's PAT.
-
-- Categories: cli, mcp
-- Audience: power
-
 ### 77. `shift-click-linked-chip` — priority 35
 
 **Open a linked bookmark inside Tiddly with `Shift+click`**
@@ -698,7 +631,7 @@ When a bookmark is linked from another note, prompt, or bookmark, clicking the c
 
 ### 79. `search-quoted-phrase` — priority 40 (seed, refine)
 
-**Match exact phrases or use search operators**
+**Sharpen search results with quoted phrases, `-term`, and `OR`**
 
 Wrap a phrase in quotes — e.g. `"machine learning"` — to match it exactly. Use `-term` to exclude matches (`python -django`). Use `OR` to widen across synonyms (`python OR ruby`). Combine them: `"web framework" -django OR rails`. Without operators, words become AND clauses and stemming may match variants like `learn` for `learning`.
 
