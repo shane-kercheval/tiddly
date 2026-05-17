@@ -576,14 +576,14 @@ After this milestone:
 
 ## Implementation Outline
 
-1. Create `frontend/src/utils/describeFilter.ts` with **two narrow functions**:
+1. Create `frontend/src/utils/describeFilter.ts` with the following:
 
    ```ts
    export function describeSavedFilter(
      filter: ContentFilter,
      effectiveContentTypes: ContentType[],  // post-chip-narrowing, not raw filter.content_types
      view: ViewOption,
-   ): { title: string; description: string; suggestion?: string }
+   ): { title: string }
 
    export function describeTagChips(
      tags: string[],
@@ -593,25 +593,31 @@ After this milestone:
      view: ViewOption,
      mode: 'standalone' | 'overlay',  // 'overlay' returns a subordinate clause
    ): { title?: string; description: string }
+
+   export function describeSearchOverlay(query: string): string
+   export function composeDescription(...fragments: string[]): string
+   export function resolveFilterContentTypes(filter: ContentFilter): ContentType[]
    ```
 
    `describeSavedFilter` takes the **effective** content type set (what the user is currently viewing after any transient content-type chip narrowing), not the raw `filter.content_types`. This is what makes the noun in copy match the noun the page is actually showing.
 
-2. **Normalizers** (shared between both functions and `AllContent.tsx`):
-   - `resolveFilterContentTypes(filter)` — if `filter.content_types.length === 0`, returns the same fallback `AllContent.tsx:169-171` uses (effectively all types). Otherwise returns the array as-is. Use this in **both** places so they can't drift.
-   - `describeSavedFilter` treats an unresolvable filter (no non-empty groups) as: `{ title: 'No items match this filter yet', description: '' }`, no suggestion. Defensive — should not occur in practice but the agent has a defined answer.
+2. **Normalizers** (shared between the utilities and `AllContent.tsx`):
+   - `resolveFilterContentTypes(filter)` — if `filter.content_types.length === 0`, returns the all-types fallback. Otherwise returns the array as-is. Used in both places so they can't drift.
+   - `describeSavedFilter` treats an unresolvable filter (no non-empty groups) as the fallback `{ title: 'No items match this filter yet' }`. Defensive — should not occur in practice but the utility has a defined answer.
    - `describeSavedFilter` treats `effectiveContentTypes.length === 0` (no types in scope) by using the generic noun "items" rather than enumerating.
 
 3. Plain-English rendering rules (shared):
-   - Within an AND group, tags join with " and " (`tagged python and reading-list`).
-   - Multiple OR groups (saved filters only) join with " or " (`tagged (python and reading-list) or (rust and tutorial)`).
+   - Every tag is wrapped in double quotes (`tagged with "python" and "reading list"`) so multi-word tags read as one unit, not as joined words.
+   - Within an AND group, tags join with " and ".
+   - Multiple OR groups (saved filters only) join with " or " with each group parenthesized.
    - Use parentheses only when there is more than one group.
-   - Content type renders as `bookmarks`, `notes`, `prompts`, or combinations (`bookmarks and notes`). **Always plural** in filter copy.
-   - Archived/deleted views compose: `No archived bookmarks tagged X yet`.
+   - Content type renders as `bookmarks`, `notes`, `prompts`, or 2-type combinations joined by "or" (`bookmarks or notes`). All three types collapse to "items". **Always plural.**
+   - Archived/deleted views compose: `No archived bookmarks tagged with "X" yet`.
+   - The descriptive headline lives in the **title**; saved-filter copy returns no description fragment of its own. Overlay clauses (tag-chip + search) compose into the description.
 
-4. `describeSavedFilter` may include a `suggestion` field with an actionable hint, but **only when** the filter is single-group, single-tag — that's the only case where the actionable copy reads cleanly. For multi-group, multi-tag, or normalized-fallback cases, omit the suggestion.
+4. `describeTagChips` in `'overlay'` mode returns a subordinate clause for composition, e.g., `description: 'You\'re also filtering by tag "tutorial".'` This avoids the awkward two-sentence concatenation problem. When composed by the caller, the result reads like: `'No bookmarks tagged with "python" yet'` (title) + `'You\'re also filtering by tag "tutorial".'` (description).
 
-5. `describeTagChips` in `'overlay'` mode returns a subordinate clause for composition, e.g., `description: "You're also filtering by tag tutorial."` This avoids the awkward two-sentence concatenation problem ("No bookmarks tagged python yet. No bookmarks tagged tutorial yet."). When composed by the caller, the result reads like: `"No bookmarks tagged python yet. You're also filtering by tag tutorial."` Suggestions are kept separate from the merged description.
+5. `describeSearchOverlay(query)` returns the appendix string `'Matching "<escaped-query>".'` using `JSON.stringify` to handle embedded quotes. Same composition contract as the tag-chip overlay.
 
 6. **Branch reorganization in `AllContent.tsx`** — important. M0 introduces a saved-filter-empty branch behind `!hasFilters`. M6 must reorganize so the saved-filter branch becomes the parent for **all** empty states on a saved-filter route, including the case where transient filters are layered. Two acceptable approaches:
    - Lift the `currentFilterId !== undefined && currentFilter !== undefined` check above the `hasFilters` check.
@@ -620,43 +626,50 @@ After this milestone:
    If the agent follows M0 literally and then M6 literally without reorganizing, the combined case (saved filter + transient overlay) will still be picked up by the existing transient branch and **the saved-filter description won't show** — exactly the regression M6 is meant to prevent.
 
 7. Update `AllContent.tsx` empty-state branches per the reorganization:
-   - **Saved-filter route empty (filter exists)**: call `describeSavedFilter(filter, effectiveContentTypes, view)` for the primary copy. If the user *also* applied transient tag chips, call `describeTagChips(..., 'overlay')` and append. If a transient search query is present, append `" Matching '${query}'."` (or the equivalent — keep simple). If a transient content-type chip is narrowing, the noun in `describeSavedFilter`'s output already reflects it.
+   - **Saved-filter route empty (filter exists)**: call `describeSavedFilter(filter, effectiveContentTypes, view)` for the primary title. If the user *also* applied transient tag chips, append `describeTagChips(..., 'overlay').description`. If a transient search query is present, append `describeSearchOverlay(query)`. Compose with `composeDescription`. Content-type chip narrowing is already reflected in the noun via `effectiveContentTypes`.
+   - **Visibility-breaking transient suppresses CTAs.** Transient search or transient tag chips suppress the create-content CTAs — creating an item with the filter's tags would not necessarily satisfy the layered transient, and offering the affordance there misleads. Content-type narrowing is safe and just trims the CTA list to the chip-narrowed types.
    - **Filter-not-found** (M0 branch): unchanged from M0.
    - **Transient empty (no saved filter)**: if `selectedTags.length > 0`, call `describeTagChips(..., 'standalone')`. Otherwise (search-only or content-type-only) keep the existing generic "Try adjusting your search or filter" copy — those dimensions are already visible to the user, regenerating them as prose adds nothing.
-   - Suggestion (when present) renders as a separate visual element below the description, not inline.
+
+8. **EmptyState extension.** Pull forward M7's planned `children?: ReactNode` slot now (idiomatic React, single extension point for both M6 and M7). Make `description?: string` and skip the `<p>` render when empty/undefined — descriptive copy frequently has no description fragment, and the empty paragraph adds unwanted vertical whitespace. Order is `icon → title → description → children → actions` (children sit above actions so contextual content precedes the CTAs in both M6 and M7).
 
 ## Open questions
 
-- Pluralization: confirmed always-plural (`No bookmarks tagged X yet` even when only 1 item would have matched).
-- Multi-group suggestion: confirmed omitted (only single-group single-tag filters show suggestions).
+- Pluralization: confirmed always-plural (`No bookmarks tagged with "X" yet` even when only 1 item would have matched).
+- Actionable suggestion copy: tried and removed. The proposed "Add the X tag to a bookmark" sentence paraphrased the title and duplicated the CTA buttons — net no information added. Saved-filter empty states are now title-only plus optional overlay description.
 
 ## Testing Strategy
 
 `describeSavedFilter` unit tests:
-- Single tag, single group, single content type → "No bookmarks tagged X yet" + suggestion.
-- Multiple tags in one AND group → "No bookmarks tagged X and Y yet" (no suggestion — multi-tag).
-- Multiple OR groups → "No items tagged (X and Y) or (A and B) yet" (no suggestion).
-- Multiple content types → "No bookmarks or notes tagged X yet".
+- Single tag, single group, single content type → `No bookmarks tagged with "X" yet`.
+- Multiple tags in one AND group → `No bookmarks tagged with "X" and "Y" yet`.
+- Multiple OR groups → `No items tagged with ("X" and "Y") or ("A" and "B") yet`.
+- Multiple content types → `No bookmarks or notes tagged with "X" yet`; all three types collapse to `items`.
 - Archived/deleted view modifiers compose correctly.
 - **`content_types: []` in saved filter** → noun is "items" (treated as all types via the shared normalizer).
-- **`groups: []` (or all groups have empty tags)** → fallback `{ title: 'No items match this filter yet', description: '' }`, no suggestion.
-- **Effective content types differ from declared** (transient content-type chip narrowed): noun reflects the **effective** types ("No notes tagged X yet" even when filter declares `['bookmark', 'note']`).
+- **`groups: []` (or all groups have empty tags)** → fallback `{ title: 'No items match this filter yet' }`.
+- **Effective content types differ from declared** (transient content-type chip narrowed): noun reflects the **effective** types (`No notes tagged with "X" yet` even when filter declares `['bookmark', 'note']`).
+- **Multi-word tag** (e.g. `reading list`) is quoted in the title so the boundary is unambiguous.
 
 `describeTagChips` unit tests:
-- Single chip with `match=all`, `mode='standalone'` → "No bookmarks tagged X yet".
-- Multiple chips with `match=all` → "No bookmarks tagged X and Y yet".
-- Multiple chips with `match=any` → "No bookmarks tagged X or Y yet".
-- Content type subset narrows the noun ("No notes tagged X yet").
+- Single chip with `match=all`, `mode='standalone'` → `No bookmarks tagged with "X" yet`.
+- Multiple chips with `match=all` → `No bookmarks tagged with "X" and "Y" yet`.
+- Multiple chips with `match=any` → `No bookmarks tagged with "X" or "Y" yet`.
+- Content type subset narrows the noun (`No notes tagged with "X" yet`).
 - Archived/deleted view modifiers compose.
-- **`mode='overlay'`** returns a subordinate clause ("You're also filtering by tag X.") suitable for appending to a saved-filter description.
+- **`mode='overlay'`** returns a subordinate clause (`You're also filtering by tag "X".`) suitable for appending to a saved-filter description.
+
+`describeSearchOverlay` unit tests:
+- Plain query renders as `Matching "query".`.
+- Embedded double quote in the query is escaped (`Matching "he\"llo".`) so the resulting copy remains balanced.
 
 Integration tests in `AllContent.test.tsx`:
 - Saved-filter empty state shows descriptive copy from `describeSavedFilter` (replaces M0's generic copy).
 - **Filter-not-found** state (M0) is unchanged by M6 — still shows the not-found copy.
-- Saved filter + transient tag chip composes saved-filter description + overlay clause from `describeTagChips`.
-- **Saved filter + transient search query** appends a "Matching '<query>'" segment.
-- **Saved filter + transient content-type chip narrowing** uses the narrowed noun in `describeSavedFilter`'s output (e.g., filter declares `['bookmark', 'note']`, user chips to notes only → "No notes tagged X yet").
-- **Saved filter + search + tag chip** (three-way composition) suppresses suggestion.
+- Saved filter + transient tag chip composes saved-filter title + overlay clause from `describeTagChips` and suppresses CTAs.
+- **Saved filter + transient search query** appends a `Matching "<query>".` segment and suppresses CTAs.
+- **Saved filter + transient content-type chip narrowing** uses the narrowed noun in `describeSavedFilter`'s output and trims the CTA list to the narrowed types.
+- **Saved filter + search + tag chip** (three-way composition) renders both overlay fragments in the composed description and suppresses CTAs.
 - Transient tag-chip-only empty state uses `describeTagChips` in standalone mode.
 - Search-query-only empty state still shows the generic "Try adjusting" copy (regression).
 - Content-type-chip-only empty state still shows the generic copy (regression).

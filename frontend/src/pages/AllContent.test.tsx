@@ -248,7 +248,14 @@ let mockSelectedContentTypes: ('bookmark' | 'note' | 'prompt')[] = ['bookmark', 
 
 vi.mock('../stores/contentTypeFilterStore', () => ({
   useContentTypeFilterStore: () => ({
-    getSelectedTypes: () => mockSelectedContentTypes,
+    // Mirror the real store's contract: the selection is always intersected
+    // with the route's available types. Without this, multi-type-fixture
+    // mocks would leak `prompt` into a bookmark+note-only filter view.
+    getSelectedTypes: (_view: string, availableTypes?: ('bookmark' | 'note' | 'prompt')[]) => {
+      if (availableTypes === undefined) return mockSelectedContentTypes
+      const intersected = mockSelectedContentTypes.filter((type) => availableTypes.includes(type))
+      return intersected.length > 0 ? intersected : availableTypes
+    },
     toggleType: mockToggleType,
   }),
 }))
@@ -270,6 +277,16 @@ const mockFilters = [
     name: 'Ideas',
     content_types: ['note'],
     filter_expression: { groups: [], group_operator: 'OR' },
+    default_sort_by: null,
+    default_sort_ascending: null,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: '4',
+    name: 'Python (single-tag, multi-type)',
+    content_types: ['bookmark', 'note'],
+    filter_expression: { groups: [{ tags: ['python'], operator: 'AND' }], group_operator: 'OR' },
     default_sort_by: null,
     default_sort_ascending: null,
     created_at: '2024-01-01T00:00:00Z',
@@ -378,15 +395,14 @@ describe('AllContent', () => {
       expect(screen.getByText('Items in trash are permanently deleted after 30 days.')).toBeInTheDocument()
     })
 
-    it('shows "No content found" when search filters match nothing in active view', async () => {
+    it('shows descriptive tag-chip empty state when only tag chips are layered in active view', async () => {
       mockContentQueryData = createMockResponse([])
       mockSelectedTags = ['nonexistent']
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('No content found')).toBeInTheDocument()
+        expect(screen.getByText('No items tagged with "nonexistent" yet')).toBeInTheDocument()
       })
-      expect(screen.getByText('Try adjusting your search or filter.')).toBeInTheDocument()
     })
 
     it('shows "No archived content found" when filters match nothing in archived view', async () => {
@@ -409,29 +425,30 @@ describe('AllContent', () => {
       })
     })
 
-    it('shows generic filter empty state in custom filter view (no transient filters)', async () => {
+    it('shows descriptive saved-filter empty state (no transient filters)', async () => {
       mockContentQueryData = createMockResponse([])
-      // Filter 1 is bookmark-only.
+      // Filter 1 is bookmark-only with tags ['filter-tag-1', 'filter-tag-2'] in a single AND group.
       renderAtRoute('/app/content/filters/1')
 
       await waitFor(() => {
-        expect(screen.getByText('No items match this filter')).toBeInTheDocument()
+        expect(
+          screen.getByText('No bookmarks tagged with "filter-tag-1" and "filter-tag-2" yet'),
+        ).toBeInTheDocument()
       })
-      expect(screen.getByText('This filter has no matches yet.')).toBeInTheDocument()
-      // CTAs match the filter's content_types — bookmark filter shows only New Bookmark.
       expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'New Note' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'New Prompt' })).not.toBeInTheDocument()
     })
 
-    it('shows CTAs for every content type a multi-type filter accepts', async () => {
+    it('falls back to "No items match this filter yet" when the filter has empty tag groups', async () => {
       mockContentQueryData = createMockResponse([])
-      // Filter 3 is ['bookmark', 'note'].
+      // Filter 3 is multi-type but has `groups: []` — the defensive fallback.
       renderAtRoute('/app/content/filters/3')
 
       await waitFor(() => {
-        expect(screen.getByText('No items match this filter')).toBeInTheDocument()
+        expect(screen.getByText('No items match this filter yet')).toBeInTheDocument()
       })
+      // CTAs still render for every content type the filter accepts.
       expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'New Note' })).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'New Prompt' })).not.toBeInTheDocument()
@@ -457,12 +474,103 @@ describe('AllContent', () => {
       )
     })
 
-    it('shows transient-filter empty state on saved-filter route with tag chips layered', async () => {
-      // M6 will replace this: saved-filter copy should compose with overlay copy,
-      // not be hidden by the transient branch. Pin current behavior so that flip is intentional.
+    it('composes saved-filter title with tag-chip overlay when transient tags layer on top', async () => {
       mockContentQueryData = createMockResponse([])
       mockSelectedTags = ['nonexistent']
       renderAtRoute('/app/content/filters/1')
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('No bookmarks tagged with "filter-tag-1" and "filter-tag-2" yet'),
+        ).toBeInTheDocument()
+      })
+      expect(
+        screen.getByText('You\'re also filtering by tag "nonexistent".'),
+      ).toBeInTheDocument()
+      // CTAs are suppressed — creating a bookmark wouldn't match the transient
+      // tag chip even if it satisfied the saved filter.
+      expect(screen.queryByRole('button', { name: 'New Bookmark' })).not.toBeInTheDocument()
+    })
+
+    it('suppresses saved-filter CTAs when a transient search query is layered', async () => {
+      mockContentQueryData = createMockResponse([])
+      // Set the URL search param so the page reads `effectiveSearchQuery` from the URL.
+      renderAtRoute('/app/content/filters/1?q=missing')
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('No bookmarks tagged with "filter-tag-1" and "filter-tag-2" yet'),
+        ).toBeInTheDocument()
+      })
+      expect(screen.getByText('Matching "missing".')).toBeInTheDocument()
+      // Creating a bookmark with the filter's tags won't necessarily contain
+      // the search term, so the CTA promise breaks — suppressed.
+      expect(screen.queryByRole('button', { name: 'New Bookmark' })).not.toBeInTheDocument()
+    })
+
+    it('renders the descriptive title for a single-tag saved filter', async () => {
+      mockContentQueryData = createMockResponse([])
+      // Filter 4: single-tag, multi-type.
+      renderAtRoute('/app/content/filters/4')
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('No bookmarks or notes tagged with "python" yet'),
+        ).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'New Note' })).toBeInTheDocument()
+    })
+
+    it('narrows the saved-filter noun and CTA list when a content-type chip restricts the view', async () => {
+      mockContentQueryData = createMockResponse([])
+      // Filter 4 declares ['bookmark', 'note']. Narrow via content-type chip to notes only.
+      mockSelectedContentTypes = ['note']
+      renderAtRoute('/app/content/filters/4')
+
+      await waitFor(() => {
+        expect(screen.getByText('No notes tagged with "python" yet')).toBeInTheDocument()
+      })
+      // CTA list narrows to match — only New Note, no New Bookmark.
+      expect(screen.getByRole('button', { name: 'New Note' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'New Bookmark' })).not.toBeInTheDocument()
+    })
+
+    it('composes saved-filter title with both tag-chip and search overlays (three-way)', async () => {
+      // Worst-case composition: saved filter + transient search + transient
+      // tag chip. Pins the order ("also filtering by tag" before "Matching
+      // …"), confirms both overlays appear, and locks CTA suppression for
+      // the combined visibility-breaking case.
+      mockContentQueryData = createMockResponse([])
+      mockSelectedTags = ['tutorial']
+      renderAtRoute('/app/content/filters/1?q=missing')
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('No bookmarks tagged with "filter-tag-1" and "filter-tag-2" yet'),
+        ).toBeInTheDocument()
+      })
+      const composedDescription = screen.getByText(
+        'You\'re also filtering by tag "tutorial". Matching "missing".',
+      )
+      expect(composedDescription).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'New Bookmark' })).not.toBeInTheDocument()
+    })
+
+    it('keeps generic copy for search-only empty state in active view (user can see the input)', async () => {
+      mockContentQueryData = createMockResponse([])
+      renderAtRoute('/app/content?q=missing')
+
+      await waitFor(() => {
+        expect(screen.getByText('No content found')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Try adjusting your search or filter.')).toBeInTheDocument()
+    })
+
+    it('keeps generic copy for content-type-chip-only empty state (user can see the chips)', async () => {
+      mockContentQueryData = createMockResponse([])
+      mockSelectedContentTypes = ['note']
+      renderAtRoute('/app/content')
 
       await waitFor(() => {
         expect(screen.getByText('No content found')).toBeInTheDocument()
@@ -1620,7 +1728,7 @@ describe('AllContent', () => {
       renderAtRoute('/app/content')
 
       await waitFor(() => {
-        expect(screen.getByText('No content found')).toBeInTheDocument()
+        expect(screen.getByText('No items tagged with "nonexistent" yet')).toBeInTheDocument()
       })
 
       const searchInput = screen.getByPlaceholderText('Search All Content...')

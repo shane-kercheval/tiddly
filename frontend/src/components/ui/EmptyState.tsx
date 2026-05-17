@@ -14,12 +14,18 @@ interface EmptyStateProps {
   icon: ReactNode
   /** Main heading */
   title: string
-  /** Description text */
-  description: string
+  /** Optional description text — rendered only when non-empty. */
+  description?: string
   /** Optional action button */
   action?: EmptyStateAction
   /** Optional action buttons */
   actions?: EmptyStateAction[]
+  /**
+   * Optional content rendered between description and actions — used for
+   * actionable hints (M6) or contextual tip cards (M7 starter tips). Sits
+   * above the action row so the explanatory copy precedes the buttons.
+   */
+  children?: ReactNode
 }
 
 /**
@@ -31,6 +37,7 @@ export function EmptyState({
   description,
   action,
   actions,
+  children,
 }: EmptyStateProps): ReactNode {
   const resolvedActions: EmptyStateAction[] = actions ?? (action ? [action] : [])
 
@@ -40,7 +47,10 @@ export function EmptyState({
         {icon}
       </div>
       <h3 className="mt-4 text-base font-medium text-gray-900">{title}</h3>
-      <p className="mt-1.5 text-sm text-gray-400">{description}</p>
+      {description !== undefined && description.length > 0 && (
+        <p className="mt-1.5 text-sm text-gray-400">{description}</p>
+      )}
+      {children}
       {resolvedActions.length > 0 && (
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           {resolvedActions.map((resolvedAction, index) => {

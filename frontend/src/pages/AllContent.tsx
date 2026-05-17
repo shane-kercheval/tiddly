@@ -77,6 +77,13 @@ import {
 import type { ContentListItem, ContentSearchParams, BookmarkListItem, NoteListItem, PromptListItem, ContentType } from '../types'
 import { ALL_CONTENT_TYPES } from '../types'
 import { getFirstGroupTags } from '../utils'
+import {
+  composeDescription,
+  describeSavedFilter,
+  describeSearchOverlay,
+  describeTagChips,
+  resolveFilterContentTypes,
+} from '../utils/describeFilter'
 
 /**
  * AllContent page - unified view for all content types.
@@ -175,8 +182,7 @@ export function AllContent(): ReactNode {
   const { getSelectedTypes, toggleType, clearTypes } = useContentTypeFilterStore()
   const availableContentTypes = useMemo(() => {
     if (currentFilterId === undefined) return ALL_CONTENT_TYPES
-    const filterTypes = currentFilter?.content_types
-    return filterTypes && filterTypes.length > 0 ? filterTypes : ALL_CONTENT_TYPES
+    return currentFilter ? resolveFilterContentTypes(currentFilter) : ALL_CONTENT_TYPES
   }, [currentFilterId, currentFilter])
   const contentTypeFilterKey = currentFilterId !== undefined ? `filter:${currentFilterId}` : currentView
   const shouldShowContentTypeFilters = currentFilterId === undefined || (filtersHasFetched && availableContentTypes.length > 1)
@@ -241,10 +247,20 @@ export function AllContent(): ReactNode {
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
   const effectiveSearchQuery = debouncedSearchQuery.length >= 2 ? debouncedSearchQuery : ''
 
-  // Derive hasFilters from effective search query, tag store, and content type filter
+  // Derive transient-filter state from effective search query, tag store, and
+  // content type filter. "Transient" = applied via the page UI on top of any
+  // saved filter route. The saved filter itself is *not* counted.
   const hasContentTypeFilter = selectedContentTypes !== undefined
     && selectedContentTypes.length < availableContentTypes.length
-  const hasFilters = effectiveSearchQuery.length > 0 || selectedTags.length > 0 || hasContentTypeFilter
+  const hasTransientSearch = effectiveSearchQuery.length > 0
+  const hasTransientTagChips = selectedTags.length > 0
+  const hasTransientFilters = hasTransientSearch || hasTransientTagChips || hasContentTypeFilter
+
+  // Effective content types: chip-narrowed when a content-type chip is active,
+  // otherwise the full available set. `selectedContentTypes` is undefined only
+  // when the chip row isn't shown (single-type filter route), so the nullish
+  // fallback covers every case without an extra explicit guard.
+  const effectiveContentTypes = selectedContentTypes ?? availableContentTypes
 
   // Sync debounced search to URL for bookmarkability + reset pagination.
   // Only fires when the change originated from user typing — not on initial mount,
@@ -755,7 +771,7 @@ export function AllContent(): ReactNode {
 
     if (items.length === 0) {
       if (currentView === 'archived') {
-        if (hasFilters) {
+        if (hasTransientFilters) {
           return (
             <EmptyState
               icon={<SearchIcon />}
@@ -774,7 +790,7 @@ export function AllContent(): ReactNode {
       }
 
       if (currentView === 'deleted') {
-        if (hasFilters) {
+        if (hasTransientFilters) {
           return (
             <EmptyState
               icon={<SearchIcon />}
@@ -807,20 +823,51 @@ export function AllContent(): ReactNode {
         )
       }
 
-      if (
-        currentFilterId !== undefined
-        && currentFilter !== undefined
-        && !hasFilters
-      ) {
-        // Pre-fill tags from the filter's first AND group so creating from this
-        // empty state produces an item that's visible here. Filter expressions
-        // are DNF (AND-of-tags ORed across groups, no exclusion), so satisfying
-        // group 1 always satisfies the whole filter via the OR — same behavior
-        // as the QuickAddMenu on filter routes.
-        const orderedContentTypes = [...availableContentTypes].sort((left, right) => (
+      // Saved-filter route owns ALL empty cases on the route, including those
+      // where transient filters layer on top. Without this hoist, the
+      // transient branch below would silently suppress the saved-filter
+      // context the user needs.
+      if (currentFilterId !== undefined && currentFilter !== undefined) {
+        const savedFilterCopy = describeSavedFilter(currentFilter, effectiveContentTypes, currentView)
+
+        // Compose overlay clauses for any layered transients. Tag chips get a
+        // describeTagChips overlay; a transient search gets a short
+        // "Matching '…'" appendix. Content-type narrowing is already
+        // reflected in the noun via effectiveContentTypes.
+        const overlayFragments: string[] = []
+        if (hasTransientTagChips) {
+          overlayFragments.push(
+            describeTagChips(
+              selectedTags,
+              tagMatch,
+              effectiveContentTypes,
+              availableContentTypes,
+              currentView,
+              'overlay',
+            ).description,
+          )
+        }
+        if (hasTransientSearch) {
+          overlayFragments.push(describeSearchOverlay(effectiveSearchQuery))
+        }
+        const description = composeDescription(...overlayFragments)
+
+        // Visibility-breaking transients suppress CTAs: a new item with the
+        // filter's tags won't necessarily satisfy a layered search or
+        // transient tag chip, so promising "create one" would mislead.
+        // Content-type narrowing is safe — it just trims the CTA list to the
+        // types the user is currently viewing.
+        const transientBreaksVisibility = hasTransientSearch || hasTransientTagChips
+        const ctaContentTypes = transientBreaksVisibility ? [] : effectiveContentTypes
+        const orderedCTATypes = [...ctaContentTypes].sort((left, right) => (
           ALL_CONTENT_TYPES.indexOf(left) - ALL_CONTENT_TYPES.indexOf(right)
         ))
-        const filterEmptyActions = orderedContentTypes.map((type) => ({
+        // Pre-fill tags from the filter's first AND group so creating from
+        // this empty state produces an item that's visible here. Filter
+        // expressions are DNF (AND-of-tags ORed across groups, no exclusion),
+        // so satisfying group 1 always satisfies the whole filter via the OR
+        // — same behavior as the QuickAddMenu on filter routes.
+        const filterEmptyActions = orderedCTATypes.map((type) => ({
           label: contentTypeActions[type].buttonLabel,
           onClick: contentTypeActions[type].onClick,
           variant: 'secondary' as const,
@@ -828,14 +875,36 @@ export function AllContent(): ReactNode {
         return (
           <EmptyState
             icon={<AdjustmentsIcon />}
-            title="No items match this filter"
-            description="This filter has no matches yet."
+            title={savedFilterCopy.title}
+            description={description}
             actions={filterEmptyActions}
           />
         )
       }
 
-      if (hasFilters) {
+      if (hasTransientFilters) {
+        // Tag chips get descriptive copy (the user can't always see the
+        // combined selection at a glance, especially on narrow viewports).
+        // Search-query-only and content-type-chip-only empty states keep
+        // generic copy — those dimensions are already visible in the input /
+        // chip row, so regenerating them as prose adds nothing.
+        if (hasTransientTagChips) {
+          const tagChipsCopy = describeTagChips(
+            selectedTags,
+            tagMatch,
+            effectiveContentTypes,
+            availableContentTypes,
+            currentView,
+            'standalone',
+          )
+          return (
+            <EmptyState
+              icon={<SearchIcon />}
+              title={tagChipsCopy.title ?? 'No content found'}
+              description={tagChipsCopy.description}
+            />
+          )
+        }
         return (
           <EmptyState
             icon={<SearchIcon />}
