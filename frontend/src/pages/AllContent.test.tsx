@@ -432,7 +432,7 @@ describe('AllContent', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('No bookmarks tagged with "filter-tag-1" and "filter-tag-2" yet'),
+          screen.getByText('No bookmarks tagged with "filter-tag-1" + "filter-tag-2" yet'),
         ).toBeInTheDocument()
       })
       expect(screen.getByRole('button', { name: 'New Bookmark' })).toBeInTheDocument()
@@ -481,7 +481,7 @@ describe('AllContent', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('No bookmarks tagged with "filter-tag-1" and "filter-tag-2" yet'),
+          screen.getByText('No bookmarks tagged with "filter-tag-1" + "filter-tag-2" yet'),
         ).toBeInTheDocument()
       })
       expect(
@@ -499,7 +499,7 @@ describe('AllContent', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('No bookmarks tagged with "filter-tag-1" and "filter-tag-2" yet'),
+          screen.getByText('No bookmarks tagged with "filter-tag-1" + "filter-tag-2" yet'),
         ).toBeInTheDocument()
       })
       expect(screen.getByText('Matching "missing".')).toBeInTheDocument()
@@ -547,7 +547,7 @@ describe('AllContent', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('No bookmarks tagged with "filter-tag-1" and "filter-tag-2" yet'),
+          screen.getByText('No bookmarks tagged with "filter-tag-1" + "filter-tag-2" yet'),
         ).toBeInTheDocument()
       })
       const composedDescription = screen.getByText(

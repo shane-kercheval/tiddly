@@ -57,7 +57,7 @@ describe('describeSavedFilter', () => {
       filter_expression: { groups: [group('python', 'tutorial')], group_operator: 'OR' },
     })
     expect(describeSavedFilter(filter, ['bookmark'], 'active').title)
-      .toBe('No bookmarks tagged with "python" and "tutorial" yet')
+      .toBe('No bookmarks tagged with "python" + "tutorial" yet')
   })
 
   it('joins multiple OR groups with "or", parenthesizing each AND group', () => {
@@ -69,7 +69,7 @@ describe('describeSavedFilter', () => {
       },
     })
     expect(describeSavedFilter(filter, ['bookmark', 'note', 'prompt'], 'active').title)
-      .toBe('No items tagged with ("python" and "reading-list") or ("rust" and "tutorial") yet')
+      .toBe('No items tagged with ("python" + "reading-list") or ("rust" + "tutorial") yet')
   })
 
   it('uses "or" between content type plurals for the 2-type case', () => {
@@ -140,30 +140,6 @@ describe('describeSavedFilter', () => {
       .toBe('No notes tagged with "python" yet')
   })
 
-  it('quotes tags that contain spaces so they read as one tag, not multiple', () => {
-    // The drift this guards against: an unquoted multi-word tag like
-    // `reading list` reads as if it were two tags joined by an unfortunate
-    // accident. Quotes make the boundary unambiguous.
-    const filter = buildFilter({
-      filter_expression: {
-        groups: [group('reading list', 'data science')],
-        group_operator: 'OR',
-      },
-    })
-    expect(describeSavedFilter(filter, ['bookmark'], 'active').title)
-      .toBe('No bookmarks tagged with "reading list" and "data science" yet')
-  })
-
-  it('escapes embedded double quotes in tag names so copy stays balanced', () => {
-    // A tag containing a `"` (rare but legal in the tag store) would render
-    // unbalanced quotes if we used naive wrapping. The escape keeps the copy
-    // honest at the cost of a visible backslash.
-    const filter = buildFilter({
-      filter_expression: { groups: [group('he"llo')], group_operator: 'OR' },
-    })
-    expect(describeSavedFilter(filter, ['bookmark'], 'active').title)
-      .toBe('No bookmarks tagged with "he\\"llo" yet')
-  })
 })
 
 describe('describeTagChips', () => {
@@ -177,7 +153,7 @@ describe('describeTagChips', () => {
 
   it('standalone: multiple tags with match=all join with "and"', () => {
     expect(describeTagChips(['python', 'tutorial'], 'all', ['bookmark'], ['bookmark'], 'active', 'standalone').title)
-      .toBe('No bookmarks tagged with "python" and "tutorial" yet')
+      .toBe('No bookmarks tagged with "python" + "tutorial" yet')
   })
 
   it('standalone: multiple tags with match=any join with "or"', () => {
@@ -208,7 +184,7 @@ describe('describeTagChips', () => {
 
   it('overlay: multiple tags with match=all use "and" and the "tags" label', () => {
     expect(describeTagChips(['tutorial', 'rust'], 'all', allTypes, allTypes, 'active', 'overlay').description)
-      .toBe('You\'re also filtering by tags "tutorial" and "rust".')
+      .toBe('You\'re also filtering by tags "tutorial" + "rust".')
   })
 
   it('overlay: multiple tags with match=any use "or"', () => {

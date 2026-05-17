@@ -83,7 +83,7 @@ export function describeTagChips(
   }
 
   if (mode === 'overlay') {
-    const joiner = match === 'all' ? ' and ' : ' or '
+    const joiner = match === 'all' ? ' + ' : ' or '
     const label = tags.length === 1 ? 'tag' : 'tags'
     const tagList = tags.map(quote).join(joiner)
     return { description: `You're also filtering by ${label} ${tagList}.` }
@@ -98,7 +98,7 @@ export function describeTagChips(
     : availableContentTypes
   const noun = nounForContentTypes(effectiveTypes)
   const viewPrefix = viewModifier(view)
-  const joiner = match === 'all' ? ' and ' : ' or '
+  const joiner = match === 'all' ? ' + ' : ' or '
   const tagList = tags.map(quote).join(joiner)
   return {
     title: `No ${viewPrefix}${noun} tagged with ${tagList} yet`,
@@ -152,10 +152,14 @@ function viewModifier(view: ViewOption): string {
   return ''
 }
 
+// `+` for tags AND'd within a group; `or` for groups OR'd against each other.
+// The mixed operator style is intentional: `+` is a tight, scan-friendly
+// conjunction symbol that suits a structured headline, while `or` is the
+// natural English word for alternatives (no symbol reads as cleanly).
 function renderTagExpression(tagGroups: string[][]): string {
-  if (tagGroups.length === 1) return tagGroups[0].map(quote).join(' and ')
+  if (tagGroups.length === 1) return tagGroups[0].map(quote).join(' + ')
   return tagGroups
-    .map((group) => `(${group.map(quote).join(' and ')})`)
+    .map((group) => `(${group.map(quote).join(' + ')})`)
     .join(' or ')
 }
 

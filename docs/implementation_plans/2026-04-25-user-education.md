@@ -607,9 +607,9 @@ After this milestone:
    - `describeSavedFilter` treats `effectiveContentTypes.length === 0` (no types in scope) by using the generic noun "items" rather than enumerating.
 
 3. Plain-English rendering rules (shared):
-   - Every tag is wrapped in double quotes (`tagged with "python" and "reading list"`) so multi-word tags read as one unit, not as joined words.
-   - Within an AND group, tags join with " and ".
-   - Multiple OR groups (saved filters only) join with " or " with each group parenthesized.
+   - Every tag is wrapped in double quotes (`tagged with "python" + "reading list"`) so multi-word tags read as one unit, not as joined words.
+   - Within an AND group, tags join with ` + ` — a tight, scan-friendly conjunction symbol that suits a structured headline. ("And" reads as prose; the title is closer to data.)
+   - Multiple OR groups (saved filters only) join with ` or ` with each group parenthesized. The asymmetry (`+` for AND, English `or` for alternatives) is intentional: no symbol reads as cleanly as the word "or".
    - Use parentheses only when there is more than one group.
    - Content type renders as `bookmarks`, `notes`, `prompts`, or 2-type combinations joined by "or" (`bookmarks or notes`). All three types collapse to "items". **Always plural.**
    - Archived/deleted views compose: `No archived bookmarks tagged with "X" yet`.
@@ -642,8 +642,8 @@ After this milestone:
 
 `describeSavedFilter` unit tests:
 - Single tag, single group, single content type → `No bookmarks tagged with "X" yet`.
-- Multiple tags in one AND group → `No bookmarks tagged with "X" and "Y" yet`.
-- Multiple OR groups → `No items tagged with ("X" and "Y") or ("A" and "B") yet`.
+- Multiple tags in one AND group → `No bookmarks tagged with "X" + "Y" yet`.
+- Multiple OR groups → `No items tagged with ("X" + "Y") or ("A" + "B") yet`.
 - Multiple content types → `No bookmarks or notes tagged with "X" yet`; all three types collapse to `items`.
 - Archived/deleted view modifiers compose correctly.
 - **`content_types: []` in saved filter** → noun is "items" (treated as all types via the shared normalizer).
@@ -653,7 +653,7 @@ After this milestone:
 
 `describeTagChips` unit tests:
 - Single chip with `match=all`, `mode='standalone'` → `No bookmarks tagged with "X" yet`.
-- Multiple chips with `match=all` → `No bookmarks tagged with "X" and "Y" yet`.
+- Multiple chips with `match=all` → `No bookmarks tagged with "X" + "Y" yet`.
 - Multiple chips with `match=any` → `No bookmarks tagged with "X" or "Y" yet`.
 - Content type subset narrows the noun (`No notes tagged with "X" yet`).
 - Archived/deleted view modifiers compose.
