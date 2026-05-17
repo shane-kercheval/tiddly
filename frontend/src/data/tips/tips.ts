@@ -36,7 +36,7 @@ export const allTips: Tip[] = [
     id: 'use-prompts-in-claude-desktop',
     title: 'Attach a Tiddly prompt to a Claude Desktop conversation',
     body:
-      'Once `tiddly_prompts` is connected, click the `+` below the message input in Claude Desktop, choose "Add from tiddly_prompts," pick a saved prompt, fill in its arguments, and click "Add prompt." The rendered prompt joins your message as an attachment Claude can read and act on. Claude Desktop treats prompts as attachments rather than executable commands — a Claude Desktop choice, not a Tiddly limitation.',
+      'Once the Prompt MCP server is connected, click the `+` below the message input in Claude Desktop and pick a saved Tiddly prompt from the menu. Fill in arguments, then click "Add prompt" — the rendered prompt joins your message as an attachment Claude can read and act on. Claude Desktop treats prompts as attachments rather than executable commands — a Claude Desktop choice, not a Tiddly limitation.',
     categories: ['prompts', 'mcp'],
     audience: 'power',
     priority: 5,
@@ -59,21 +59,8 @@ export const allTips: Tip[] = [
     ],
   },
   {
-    id: 'agent-authors-prompts',
-    title: 'Have your AI agent draft and refine prompts for you',
-    body:
-      'Once `tiddly_prompts` is connected, your AI agent can search, read, create, and edit prompts through MCP tools. Ask it to draft new prompts from scratch, iterate on existing wording, or rename arguments across many prompts at once. Often faster than hand-authoring for non-trivial templates — and edits land in version history with the source `MCP`, fully diffable and restorable.',
-    categories: ['prompts', 'ai', 'mcp'],
-    audience: 'power',
-    priority: 5,
-    relatedDocs: [
-      { label: 'Prompts', path: '/docs/features/prompts' },
-      { label: 'CLI MCP setup', path: '/docs/cli/mcp' },
-    ],
-  },
-  {
     id: 'global-search-shortcut',
-    title: 'Search across all your content with `/`',
+    title: 'Search across all your content',
     body:
       'Press `{{shortcut:app.focusSearch}}` (outside an input) to open the global search dialog. It searches bookmarks, notes, and prompts together and ranks results by relevance — unlike the in-filter search, which is scoped to the current filter.',
     categories: ['shortcuts'],
@@ -99,7 +86,7 @@ export const allTips: Tip[] = [
   // --- Priority 10 --------------------------------------------------------
   {
     id: 'editor-command-menu',
-    title: 'Open the editor command menu with `⌘+/`',
+    title: 'Open the editor command menu',
     body:
       'Press `{{shortcut:editor.commandMenu}}` anywhere in a note or prompt to open a filterable menu of every editor action — including formatting, save, discard, reading mode, version history, and the table of contents. Great for when you forget an editor shortcut.',
     categories: ['editor', 'notes', 'prompts'],
@@ -127,7 +114,7 @@ export const allTips: Tip[] = [
     id: 'auto-configure-mcp',
     title: 'Set up MCP for every AI tool with one command',
     body:
-      'Run `tiddly mcp configure` with no arguments to set up every detected AI tool at once. The CLI finds Claude Desktop, Claude Code, and Codex, mints a dedicated token per tool/server, and writes both `tiddly_notes_bookmarks` and `tiddly_prompts` entries. Any custom MCP entries you\'ve added by hand (e.g., `work_prompts`) are left untouched.',
+      'Run `tiddly mcp configure` with no arguments to set up every detected AI tool at once. The CLI finds Claude Desktop, Claude Code, and Codex, mints a dedicated token per tool/server, and writes entries for both the Content MCP and Prompt MCP servers. Any custom MCP entries you\'ve added by hand are left untouched.',
     categories: ['cli', 'mcp'],
     audience: 'beginner',
     priority: 15,
@@ -156,7 +143,7 @@ export const allTips: Tip[] = [
   },
   {
     id: 'palette-shortcut',
-    title: 'Open the command palette with `⌘+⇧+P`',
+    title: 'Open the command palette',
     body:
       'Press `{{shortcut:app.commandPalette}}` to open the command palette — works even while typing in an input. Jump to any sidebar filter, settings page, or New Note / New Bookmark / New Prompt action without touching the mouse. Type to filter the list.',
     categories: ['shortcuts'],
@@ -253,7 +240,7 @@ export const allTips: Tip[] = [
   },
   {
     id: 'editor-find-and-replace',
-    title: 'Find, replace, and regex inside a note or prompt with `⌘+F`',
+    title: 'Find, replace, and regex inside a note or prompt',
     body:
       '`⌘+F` opens an editor search panel with regex, case-sensitive, and replace toggles — enough to refactor a long note without leaving edit mode. Walk through matches with `⌘+G` (next) and `⌘+⇧+G` (previous).',
     categories: ['editor', 'notes', 'prompts'],
@@ -345,7 +332,7 @@ export const allTips: Tip[] = [
   },
   {
     id: 'shortcuts-dialog',
-    title: 'Find any shortcut with `⌘+⇧+/`',
+    title: 'Find any shortcut',
     body:
       'Forget a shortcut? Press `{{shortcut:app.showShortcuts}}` from anywhere — even mid-typing — to open the full shortcuts dialog. Find what you need, close, get back to work.',
     categories: ['shortcuts'],
@@ -447,7 +434,7 @@ export const allTips: Tip[] = [
   },
   {
     id: 'link-shortcut-wraps-selection',
-    title: 'Paste a URL onto selected text with `⌘+K`',
+    title: 'Convert selected text within editor to a link',
     body:
       'Highlight some text, press `{{shortcut:editor.insertLink}}`, and Tiddly turns it into `[selected](url)` with the URL field pre-selected so you can paste the destination immediately. Works in the note and prompt editors.',
     categories: ['editor', 'notes', 'prompts'],
@@ -457,7 +444,7 @@ export const allTips: Tip[] = [
   },
   {
     id: 'multi-cursor-above-below',
-    title: 'Edit parallel lines at once with multi-cursors (`⌘+⌥+↑/↓`)',
+    title: 'Edit parallel lines at once with multi-cursors',
     body:
       'Hold `⌘+⌥` and press the up or down arrow to add a second (or third) cursor on the line above or below. Type once and the same edit lands on every cursor — useful for editing list items or import statements in lockstep.',
     categories: ['editor'],
@@ -527,7 +514,7 @@ export const allTips: Tip[] = [
   },
   {
     id: 'toc-jump-around',
-    title: 'Open the Table of Contents with `⌥+T` to jump around long notes',
+    title: 'Open the Table of Contents to jump around long notes',
     body:
       'Press `{{shortcut:editor.toggleToc}}` to open the ToC sidebar. It lists every heading in the note — click one to scroll the editor to that line and place the cursor there. Combine with `⌘+⌥+G` for non-heading jumps.',
     categories: ['editor', 'notes'],
@@ -581,7 +568,7 @@ export const allTips: Tip[] = [
   },
   {
     id: 'full-width-layout',
-    title: 'Switch to a wider content view with `w`',
+    title: 'Switch to a wider content view',
     body:
       'Press `{{shortcut:app.toggleWidth}}` (no modifiers, outside inputs) to flip between centered and full-width content layout. Useful for wider notes, code-heavy prompts, or scanning long bookmark lists.',
     categories: ['shortcuts'],
@@ -611,7 +598,7 @@ export const allTips: Tip[] = [
   },
   {
     id: 'save-and-close',
-    title: 'Save and close in one shortcut: `⌘+⇧+S`',
+    title: 'Save and close the editor in one keystroke',
     body:
       '`{{shortcut:page.save}}` saves and stays in the editor; `{{shortcut:page.saveAndClose}}` saves and closes the editor view in one keystroke. Both also live in the `{{shortcut:editor.commandMenu}}` palette.',
     categories: ['editor', 'notes', 'prompts'],
@@ -661,7 +648,7 @@ export const allTips: Tip[] = [
   },
   {
     id: 'jump-to-line',
-    title: 'Jump to a specific line in the editor with `⌘+⌥+G`',
+    title: 'Jump to a specific line in the editor',
     body:
       'Press `⌘+⌥+G` to open a small "go to line" prompt. Pair with line numbers (`{{shortcut:editor.toggleLineNumbers}}`) on long notes to navigate quickly.',
     categories: ['editor'],
