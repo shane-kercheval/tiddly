@@ -44,7 +44,7 @@ When a feature is renamed, removed, or substantially changed, the changing PR is
 
 ## Follow-ups discovered during M4 review
 
-These are architectural / system-level changes that surfaced while reviewing the per-category candidate files. They aren't blocking M5 (authoring can proceed and we'll flag tips that need them), but they should be addressed before the corresponding tips actually ship to users. Each item links back to the candidate file where it was discovered.
+These are architectural / system-level changes that surfaced while reviewing the per-category candidate files. Each item links back to the candidate file where it was discovered; status of each is called out in its own section.
 
 ### 1. Tier flag on the `Tip` schema
 
@@ -52,11 +52,11 @@ These are architectural / system-level changes that surfaced while reviewing the
 
 **Why this matters:** Tips and Tricks doubles as a soft conversion surface for free-tier users when a tip is for a higher-tier feature — but only if the page can express tier-gating clearly and offer an upgrade path inline. Without it, AI tips read as universally available, which is misleading.
 
-**Proposed work:**
+**Status:**
 
-- **Schema (M1 retro):** add `minTier?: 'standard' | 'pro'` to the `Tip` interface. `undefined` = available on all tiers (free implicit baseline). `'pro'` = available only on Pro and above. Aligns with the existing `Tier` constants (`FREE` / `STANDARD` / `PRO`).
-- **TipCard (M2 retro):** when `minTier` is set, render a tier badge ("Pro") in the badge row. For users known to be on a tier below `minTier`, append a small inline "Upgrade to Pro" CTA pointing at `/pricing`.
-- **Authoring (M5):** every authored tip gets `minTier` evaluated. Tips for tier-gated features declare it; otherwise omit.
+- **Schema (in place):** `Tip.minTier?: 'standard' | 'pro'` in `frontend/src/data/tips/types.ts`. `undefined` = available on all tiers (free implicit baseline). `'pro'` = available only on Pro and above. Aligns with the existing `Tier` constants (`FREE` / `STANDARD` / `PRO`).
+- **Authoring (in place):** every authored tip evaluates `minTier`; tips for tier-gated features declare it, otherwise omit.
+- **TipCard rendering (pending):** when `minTier` is set, render a tier badge ("Pro") in the badge row. For users known to be on a tier below `minTier`, append a small inline "Upgrade to Pro" CTA pointing at `/pricing`. Until this lands, free-tier users see Pro tips with no visual gating signal — acceptable while the corpus is small and `/docs/tips` is a public docs page rather than a primary discovery surface.
 
 **Open questions:**
 
@@ -98,18 +98,18 @@ The actually-useful universe of MCP-visible tips is therefore much smaller than 
 
 We risk authoring tips that "work in our heads" but break for users.
 
-**Action (M5 prerequisite):** before authoring any tip that depends on a specific Jinja feature working through the API, write a unit test that exercises the full pipeline. Suggested location: `backend/tests/services/test_template_renderer.py` for renderer-level claims, `backend/tests/api/test_prompts.py` for API-end claims, and an MCP-path test if the tip implies MCP-side behavior.
+**Verification policy:** the authoring agent does not ship a tip claiming API-or-template behavior unless the behavior has been confirmed end-to-end. Confirmation is ideally a unit test (`backend/tests/services/test_template_renderer.py` for renderer-level claims, `backend/tests/api/test_prompts.py` for API-end claims, an MCP-path test if the tip implies MCP-side behavior); manual verification by a reviewer is also acceptable. If verification reveals the claim doesn't hold, the tip is dropped or reframed before authoring.
 
-**Tips currently flagged as needing verification:**
+**Shipped Jinja-dependent tips (verified):**
 
-- `prompts:2` — `{%- if %}` whitespace stripping
-- `prompts:6` — Jinja filters (`| default`, `| upper`, `| join`) through the API render path
-- `prompts:10` — `{# #}` comments stripped on render
-- `prompts:13` — `{% for %}` loop over a list-typed argument (highest-risk: argument schema may not currently express list types)
+- `whitespace-control-jinja` — `{%- if %}` whitespace stripping.
+- `jinja-filters` — `| default`, `| upper`, etc. through the API render path. Includes the body claim that single-arg `default` only fires on undefined: optional args are filled with `""` before render (`backend/src/services/template_renderer.py:73-76`), so `default` without `true` won't fire on an unset optional arg.
+- `jinja-comment` — `{# #}` stripped on render.
+- `required-vs-optional-args` — "optional defaults to empty string" verified at `backend/src/services/template_renderer.py:73-76`; required args raise `TemplateError` at lines 65-69.
 
-**General principle to fold into M5:** the authoring agent should not write a tip claiming API-or-template behavior unless a unit test exists that confirms the behavior. If verification reveals the claim doesn't hold, the tip is dropped or reframed.
+The originally-flagged `for-loop-list-arg` tip (`{% for %}` over a list-typed argument) was dropped during candidate review — the argument schema doesn't currently express list types, so the tip would have been misleading.
 
-### 4. Tip-shortcut integration with the registry (blocks M5 continuation)
+### 4. Tip-shortcut integration with the registry
 
 **Discovered in:** merge of `main` into `user-education` after the shortcut registry refactor landed (`0f84c89`, KAN-144, plan at `docs/implementation_plans/2026-05-09-shortcut-registry-refactor.md`).
 
@@ -196,7 +196,7 @@ Tips are a seventh inline-literal display site — the exact class of drift the 
         - Multiple `{{shortcut:id}}` tokens in one body each render their own `<Kbd>`.
     - **Validation:** `validateTips` throws on unknown body token with the documented error string; passes on valid token; throws when both `shortcut` and `shortcutId` are set on the same tip; throws when `shortcut` is set but empty.
 
-**Urgency:** this follow-up blocks resumption of M5 per-tip review. The current authoring convention (raw Mac glyphs in body markdown, `shortcut: ['⌘', 'X']` arrays for the chip row) sets a corpus-wide pattern we'd otherwise have to back-migrate across ~80 tips. Landing this *first* means the remaining ~60 unreviewed tips are authored in token form from the start.
+**Status:** implemented before M5 authoring. `Tip` carries `shortcutId?: TipShortcutId` (preferred) and `shortcut?: readonly string[]` (literal-glyph fallback); body markdown supports `` `{{shortcut:<id>}}` `` tokens resolved through `frontend/src/data/tips/tipExtraShortcuts.ts`; `validateTips` enforces mutual exclusion and unknown-id rejection; `TipCard` chip row and `TipBody` body tokens both resolve via `localizeKeys` from `frontend/src/utils/platform.ts`. M5 authored tips use `shortcutId` whenever the registry covers the binding.
 
 **Open questions:**
 
@@ -540,16 +540,17 @@ Produce the authored tip corpus from the finalized candidate list. After this mi
 
 After this milestone:
 - `tips.ts` is populated with authored tips matching the schema.
-- `starter: true` + `starterPriority` set on the curated new-user set (target: 8-12 tips total, distributed across content types, with contiguous priorities `1, 2, 3, ...` per category).
-- **Total v1 corpus targets ~30-50 tips**, prioritized by frequency-of-use of the underlying feature. Quality over volume — 30 sharp tips beats 200 bland ones. Additional tips can be authored in follow-up batches post-launch.
+- `starter: true` + `starterPriority` set on the curated new-user set — covers each content type (`bookmark`, `note`, `prompt`) plus the most-used shortcuts and search. Priorities are unique within every category each starter claims; multi-category starters share a single global priority across their categories.
+- Corpus size is whatever the finalized candidate list yields — no hard cap. Quality control happens during candidate review (between M4 and M5), not via a post-hoc size guard.
 
 ## Implementation Outline
 
 1. The implementing agent reads the finalized candidate list (output of Phase 2) and produces tip entries conforming to the schema from M1.
-2. The candidate list will likely contain more entries than the v1 corpus needs. The authoring agent should **prioritize ruthlessly**: pick the tips with the highest expected value-per-impression. Defer the rest to a follow-up batch — better to ship 30 sharp tips than 100 mediocre ones.
-3. Each tip body is hand-quality markdown: terse, no marketing tone, accurate to actual product behavior, includes the relevant shortcut tokens / `relatedDocs` where applicable. Treat the M1 seed tips as the calibration target for tone and density.
+2. The authoring agent ships every tip in the finalized list. Pruning happens during candidate review (Phase 2), where it's visible and reversible — not during authoring.
+3. Each tip body is hand-quality markdown: terse, no marketing tone, accurate to actual product behavior. Use `shortcutId` whenever the binding exists in `frontend/src/shortcuts/registry.ts` or the tip-extras module — both the chip row and body `{{shortcut:<id>}}` tokens then localize via `localizeKeys` (Windows users see `Ctrl`, etc.). Fall back to literal `shortcut` arrays / raw glyphs only for bindings the registry doesn't model (e.g., `⌘F`, `⌘⌥G`, `⌘⌥↑/↓`). Set `minTier: 'pro'` on tips for Pro-gated features. Treat the M1 seed tips as the calibration target for tone and density.
 4. The agent does **not** generate media files. Tips that warrant media in the future get `media` set later, manually.
-5. Run the M1 schema-validation tests — every tip must pass.
+5. Add any new `relatedDocs` route prefixes to `frontend/src/routePrefetch.ts` so the M5 corpus-level `findMatchingRoute` test passes and the page is hover-prefetched.
+6. Run the M1 schema-validation tests — every tip must pass.
 
 **Carry-over from M2 (must address before shipping a media tip):** the `image`/`video` variants of `TipMedia` accept no width/height, so loaded media will cause cumulative layout shift inside scroll-heavy contexts like `/docs/tips`. Before authoring the first media tip, extend `TipMedia` in `frontend/src/data/tips/types.ts` with explicit dimensions (or `aspectRatio`) and update `TipMedia.tsx` to reserve space. The schema currently has a code comment flagging this — keep the change atomic with the first media tip.
 
@@ -558,7 +559,6 @@ After this milestone:
 - All existing M1 tests pass against the populated dataset.
 - New: a corpus-level test that asserts there is **at least one starter tip per major content type** (`bookmark`, `note`, `prompt`).
 - New: every tip's `relatedDocs` paths resolve via `findMatchingRoute` from `frontend/src/routePrefetch.ts:58` — the test asserts `findMatchingRoute(tip.relatedDocs[i].path) !== undefined` for every tip. This is also a useful drift-guard for `routePrefetch.ts` itself; if a tip references a route the prefetcher doesn't know about, **add it to the prefetch table first** (same constraint that already applies for any new docs route).
-- New: corpus size is within target (≤ 50 v1 tips); test fails with a clear message if exceeded so the cap is visible to future contributors.
 
 ---
 

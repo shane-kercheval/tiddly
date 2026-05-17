@@ -9,7 +9,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { DocsTips } from './DocsTips'
-import { allTips } from '../../data/tips'
+import { allTips, byPriorityThenId } from '../../data/tips'
 
 // Skip the 200 ms debounce so search-driven tests run synchronously.
 vi.mock('../../hooks/useDebouncedValue', () => ({
@@ -41,16 +41,12 @@ describe('DocsTips', () => {
 
   it('renders every tip exactly once, ordered by global priority ascending', () => {
     const { container } = renderAtRoute()
-    // Pinned id order matches the seed corpus priorities (10, 20, 30, 40, 50).
-    // If the order ever changes silently in tips.ts, this test should fail —
-    // that's the regression flag for "the docs page rank just shifted."
-    expect(getRenderedTipIds(container)).toEqual([
-      'note-slash-commands',
-      'prompt-template-arguments',
-      'bookmark-paste-url',
-      'search-quoted-phrase',
-      'shortcut-select-next-occurrence',
-    ])
+    // Compute the expected order from the corpus directly — pinning specific
+    // ids would force a churn-y test edit on every tip add/remove, while
+    // missing the actual invariant: "what the page shows is allTips, sorted
+    // by `byPriorityThenId`, with no dupes."
+    const expected = [...allTips].sort(byPriorityThenId).map((tip) => tip.id)
+    expect(getRenderedTipIds(container)).toEqual(expected)
   })
 
   it('renders the page title and intro copy', () => {
@@ -68,7 +64,9 @@ describe('DocsTips', () => {
   it('search filters case-insensitively on title', async () => {
     const user = userEvent.setup()
     const { container } = renderAtRoute()
-    await user.type(screen.getByLabelText('Search tips'), 'PASTING')
+    // Phrase appears verbatim only in bookmark-paste-url's title; uppercase
+    // input confirms the title scan is case-insensitive.
+    await user.type(screen.getByLabelText('Search tips'), 'PASTING ITS URL')
     await waitFor(() => {
       expect(getRenderedTipIds(container)).toEqual(['bookmark-paste-url'])
     })
@@ -170,13 +168,26 @@ describe('DocsTips', () => {
   it('combining search + category + audience intersects all three', async () => {
     const user = userEvent.setup()
     const { container } = renderAtRoute()
-    // "press" appears in bookmark-paste-url (beginner, bookmarks+shortcuts)
-    // and shortcut-select-next-occurrence (power, shortcuts+editor).
+    // Verify the three filters AND together — every rendered tip must satisfy
+    // all three constraints. Asserting properties (vs. pinning ids) keeps the
+    // test stable as the corpus grows.
     await user.type(screen.getByLabelText('Search tips'), 'press')
     await user.click(screen.getByRole('button', { name: /^shortcuts$/ }))
     await user.click(screen.getByRole('radio', { name: 'Power user' }))
 
-    expect(getRenderedTipIds(container)).toEqual(['shortcut-select-next-occurrence'])
+    const renderedIds = getRenderedTipIds(container)
+    expect(renderedIds.length).toBeGreaterThan(0)
+    const renderedTips = renderedIds.map((id) => {
+      const tip = allTips.find((candidate) => candidate.id === id)
+      expect(tip).toBeDefined()
+      return tip!
+    })
+    for (const tip of renderedTips) {
+      const haystack = (tip.title + ' ' + tip.body).toLowerCase()
+      expect(haystack).toContain('press')
+      expect(tip.categories).toContain('shortcuts')
+      expect(['power', 'all']).toContain(tip.audience)
+    }
   })
 
   it('navigates to a deep-link and scrolls the matching tip into view on mount', async () => {

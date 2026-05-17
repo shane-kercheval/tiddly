@@ -20,7 +20,7 @@ import {
 } from './types'
 
 export { allTips } from './tips'
-export type { Tip, TipCategory, TipAudience, TipMedia, RelatedDoc } from './types'
+export type { Tip, TipCategory, TipAudience, TipMedia, TipMinTier, RelatedDoc } from './types'
 
 const CONTENT_TYPE_TO_CATEGORY: Record<ContentType, TipCategory> = {
   bookmark: 'bookmarks',

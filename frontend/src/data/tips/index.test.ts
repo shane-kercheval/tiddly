@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { findMatchingRoute } from '../../routePrefetch'
 import {
   allTips,
   byPriorityThenId,
@@ -320,17 +321,28 @@ describe('getTipsByCategory', () => {
       .toContain('note-slash-commands')
   })
 
-  it('orders results by priority ascending', () => {
-    // 'prompts' contains note-slash-commands (priority 10) and
-    // prompt-template-arguments (priority 20).
-    expect(getTipsByCategory('prompts').map((tip) => tip.id)).toEqual([
-      'note-slash-commands',
-      'prompt-template-arguments',
-    ])
-  })
+  // No explicit empty-category regression test: `getTipsByCategory` reads
+  // `allTips` directly, every TipCategory has at least one tip in the v1
+  // corpus, and adding corpus-injection just to test `Array.filter` returning
+  // `[]` would expand the API surface for negligible gain. If a new
+  // TipCategory ever lands without tips, the filter will simply return `[]`.
 
-  it('returns an empty array for a category with no tips', () => {
-    expect(getTipsByCategory('cli')).toEqual([])
+  it('returns the requested category\'s tips in ascending-priority, then ascending-id order', () => {
+    // Walk the result and assert the sort comparator held — independent of
+    // which specific tips happen to be in the corpus today.
+    const result = getTipsByCategory('shortcuts')
+    expect(result.length).toBeGreaterThan(0)
+    for (let i = 1; i < result.length; i++) {
+      const prev = result[i - 1]
+      const curr = result[i]
+      const prevPriority = prev.priority ?? Number.POSITIVE_INFINITY
+      const currPriority = curr.priority ?? Number.POSITIVE_INFINITY
+      if (prevPriority === currPriority) {
+        expect(prev.id.localeCompare(curr.id)).toBeLessThanOrEqual(0)
+      } else {
+        expect(prevPriority).toBeLessThan(currPriority)
+      }
+    }
   })
 })
 
@@ -414,11 +426,11 @@ describe('pickStarterTipsForContentTypes', () => {
     const result = pickStarterTipsForContentTypes(['note', 'bookmark', 'prompt'], 3)
     // Round 1: bookmark→paste-url (added), note→slash-commands (added),
     //          prompt→slash-commands (deduped, cursor still advances).
-    // Round 2: prompt→prompt-template-arguments (added).
+    // Round 2: note→reading-mode-toggle (added, hits limit before prompt).
     expect(result.map((tip) => tip.id)).toEqual([
       'bookmark-paste-url',
       'note-slash-commands',
-      'prompt-template-arguments',
+      'reading-mode-toggle',
     ])
   })
 
@@ -570,5 +582,33 @@ describe('searchTips', () => {
     const trimmed = searchTips('pasting')
     const padded = searchTips('  pasting  ')
     expect(padded.map((tip) => tip.id)).toEqual(trimmed.map((tip) => tip.id))
+  })
+})
+
+describe('corpus invariants (M5)', () => {
+  // Each content type's empty-state needs at least one starter to surface in
+  // the new-user empty state — without this guarantee, a fresh user landing
+  // on (say) the bookmarks view would see no starter tips at all.
+  it('has at least one starter tip per major content type', () => {
+    expect(getStarterTips('bookmarks').length).toBeGreaterThan(0)
+    expect(getStarterTips('notes').length).toBeGreaterThan(0)
+    expect(getStarterTips('prompts').length).toBeGreaterThan(0)
+  })
+
+  // Drift guard: a tip's `relatedDocs` paths must resolve through
+  // `findMatchingRoute` — same matcher PrefetchLink uses. If a tip references
+  // a route the prefetcher doesn't know about, add it to routePrefetch.ts
+  // first (so the link prefetches on hover), then the test passes.
+  it('every relatedDocs path resolves via findMatchingRoute', () => {
+    const failures: string[] = []
+    for (const tip of allTips) {
+      if (tip.relatedDocs === undefined) continue
+      for (const doc of tip.relatedDocs) {
+        if (findMatchingRoute(doc.path) === undefined) {
+          failures.push(`Tip "${tip.id}" relatedDocs path "${doc.path}" is not in routePrefetch.ts`)
+        }
+      }
+    }
+    expect(failures).toEqual([])
   })
 })

@@ -26,6 +26,18 @@ export type TipCategory =
 
 export type TipAudience = 'beginner' | 'power' | 'all'
 
+/**
+ * Subscription tier required to use the feature the tip describes.
+ * `undefined` = available on all tiers (free implicit baseline). Aligns with
+ * the runtime `Tier` constants (`FREE` / `STANDARD` / `PRO`); `DEV` is a
+ * runtime-only override and isn't expressed here.
+ *
+ * Renderer-side handling (tier badge + upgrade CTA) is part of Follow-up #1
+ * in the user-education plan and lands separately — authoring sets the field
+ * now so the corpus carries the right metadata when the UI catches up.
+ */
+export type TipMinTier = 'standard' | 'pro'
+
 // Note for the first author of a media tip: extend `image`/`video` variants
 // with explicit width/height (or aspectRatio) before shipping. Without
 // reserved dimensions, the loaded media will cause cumulative layout shift
@@ -86,6 +98,12 @@ export interface Tip {
   relatedDocs?: RelatedDoc[]
   /** Optional media (most tips have none). */
   media?: TipMedia
+  /**
+   * Minimum subscription tier required to use the feature this tip describes.
+   * Omit for features available on all tiers. See `TipMinTier` for the
+   * renderer-handoff note.
+   */
+  minTier?: TipMinTier
   /** True for the curated new-user starter set; used in empty states. */
   starter?: boolean
   /**
