@@ -41,12 +41,7 @@ import {
   NoteIcon,
   PromptIcon,
   IconWithBadge,
-  TagIcon,
-  KeyIcon,
-  SparklesIcon,
-  HistoryIcon,
   HelpIcon,
-  AdjustmentsIcon,
   LightbulbIcon,
   BackArrowIcon,
   ChevronLeftIcon,
@@ -56,6 +51,7 @@ import { useListKeyboardNavigation } from '../hooks/useListKeyboardNavigation'
 import { allTips } from '../data/tips'
 import type { Tip } from '../data/tips/types'
 import { DOCS_ROUTES, getDocsIcon } from '../data/docsRoutes'
+import { SETTINGS_ROUTES } from '../data/settingsRoutes'
 import { TipCard } from './tips/TipCard'
 import { isEffectivelyArchived } from '../utils'
 import { localizeKeys } from '../utils/platform'
@@ -394,22 +390,18 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
       }
     }
 
-    // 5. Settings pages
-    const settingsItems: { label: string; path: string; icon: ReactNode }[] = [
-      { label: 'Settings: General', path: '/app/settings/general', icon: <AdjustmentsIcon className="h-4 w-4" /> },
-      { label: 'Settings: Tags', path: '/app/settings/tags', icon: <TagIcon className="h-4 w-4" /> },
-      { label: 'Settings: Personal Access Tokens', path: '/app/settings/tokens', icon: <KeyIcon className="h-4 w-4" /> },
-      { label: 'Settings: AI Configuration', path: '/app/settings/ai', icon: <SparklesIcon className="h-4 w-4" /> },
-      { label: 'Settings: AI Integration', path: '/app/settings/ai-integration', icon: <SparklesIcon className="h-4 w-4" /> },
-      { label: 'Settings: Version History', path: '/app/settings/history', icon: <HistoryIcon className="h-4 w-4" /> },
-      { label: 'Settings: FAQ', path: '/app/settings/faq', icon: <HelpIcon className="h-4 w-4" /> },
-    ]
-    for (const s of settingsItems) {
+    // 5. Settings pages — maintained by hand in
+    //    `frontend/src/data/settingsRoutes.tsx` so each entry carries a
+    //    keyword-rich `searchText`. Without that, settings would match by
+    //    label only (e.g. "mcp" wouldn't surface "Settings: AI Integration"
+    //    even though that's where MCP is configured).
+    for (const settingsRoute of SETTINGS_ROUTES) {
       cmds.push({
-        id: `settings-${s.path}`,
-        label: s.label,
-        icon: s.icon,
-        action: () => navigateAndClose(s.path),
+        id: `settings-${settingsRoute.path}`,
+        label: settingsRoute.label,
+        icon: settingsRoute.icon,
+        searchText: settingsRoute.searchText,
+        action: () => navigateAndClose(settingsRoute.path),
       })
     }
 

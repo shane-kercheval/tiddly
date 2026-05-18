@@ -487,6 +487,33 @@ describe('CommandPalette', () => {
       expect(`Tip: ${screen.getByRole('heading', { level: 3 }).textContent}`).toBe(firstLabel)
     })
 
+    it('surfaces a settings entry on a body-keyword match (no longer label-only)', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      // "mcp" appears only in the AI Integration settings entry's searchText
+      // keyword soup — not in the literal label "Settings: AI Integration".
+      // This is the original motivating case for adding searchText to settings.
+      await user.keyboard('mcp')
+      const labels = commandLabels()
+      expect(labels).toContain('Settings: AI Integration')
+    })
+
+    it('ranks the matching settings entry above the matching docs entry for the same keyword', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      await user.keyboard('mcp')
+      const labels = commandLabels()
+      const settingsIndex = labels.indexOf('Settings: AI Integration')
+      const docsIndex = labels.indexOf('Docs: AI Integration')
+      expect(settingsIndex).toBeGreaterThan(-1)
+      expect(docsIndex).toBeGreaterThan(-1)
+      // Settings is the actionable place ("configure MCP here"), Docs is the
+      // reference ("read about MCP"). Settings should rank first.
+      expect(settingsIndex).toBeLessThan(docsIndex)
+    })
+
     it('renders docs entries between Settings and Tips in the default view', () => {
       render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
       const labels = commandLabels()
