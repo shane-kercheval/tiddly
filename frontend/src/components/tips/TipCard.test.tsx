@@ -1,0 +1,217 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { TipCard } from './TipCard'
+import type { Tip } from '../../data/tips/types'
+
+function mockPlatform(value: string): void {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue(value)
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+function renderCard(
+  tip: Tip,
+  variant: 'full' | 'compact',
+): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter>
+      <TipCard tip={tip} variant={variant} />
+    </MemoryRouter>,
+  )
+}
+
+const baseTip: Tip = {
+  id: 'fixture',
+  title: 'Save a bookmark by pasting its URL',
+  body: 'Copy a URL anywhere on the web, then press `⌘+V`.',
+  categories: ['bookmarks'],
+  audience: 'beginner',
+}
+
+describe('TipCard — full variant', () => {
+  it('renders the title and body', () => {
+    renderCard(baseTip, 'full')
+    expect(screen.getByText(baseTip.title)).toBeInTheDocument()
+    expect(screen.getByText(/Copy a URL anywhere/)).toBeInTheDocument()
+  })
+
+  it('renders one category badge per declared category', () => {
+    renderCard({ ...baseTip, categories: ['bookmarks', 'shortcuts'] }, 'full')
+    expect(screen.getByText('bookmarks')).toBeInTheDocument()
+    expect(screen.getByText('shortcuts')).toBeInTheDocument()
+  })
+
+  it('renders the audience badge for beginner', () => {
+    renderCard(baseTip, 'full')
+    expect(screen.getByText('Beginner')).toBeInTheDocument()
+  })
+
+  it('renders the audience badge for power', () => {
+    renderCard({ ...baseTip, audience: 'power' }, 'full')
+    expect(screen.getByText('Power user')).toBeInTheDocument()
+  })
+
+  it('hides the audience badge when audience is "all"', () => {
+    renderCard({ ...baseTip, audience: 'all' }, 'full')
+    expect(screen.queryByText('All')).not.toBeInTheDocument()
+  })
+
+  it('renders the literal shortcut as kbd elements on Mac (glyphs pass through)', () => {
+    mockPlatform('MacIntel')
+    const { container } = renderCard({ ...baseTip, shortcut: ['⌘', 'V'] }, 'full')
+    const kbds = container.querySelectorAll('kbd')
+    expect(kbds.length).toBe(2)
+    expect(kbds[0].textContent).toBe('⌘')
+    expect(kbds[1].textContent).toBe('V')
+  })
+
+  it('localizes the literal shortcut on Windows', () => {
+    mockPlatform('Win32')
+    const { container } = renderCard({ ...baseTip, shortcut: ['⌘', 'V'] }, 'full')
+    const kbds = container.querySelectorAll('kbd')
+    expect(kbds.length).toBe(2)
+    expect(kbds[0].textContent).toBe('Ctrl')
+    expect(kbds[1].textContent).toBe('V')
+  })
+
+  it('resolves shortcutId via the registry and renders localized chips on Mac', () => {
+    mockPlatform('MacIntel')
+    const { container } = renderCard(
+      { ...baseTip, shortcutId: 'app.commandPalette' },
+      'full',
+    )
+    const kbds = container.querySelectorAll('kbd')
+    // Registry entry keys are ['⌘', '⇧', 'P'].
+    expect(kbds.length).toBe(3)
+    expect(kbds[0].textContent).toBe('⌘')
+    expect(kbds[1].textContent).toBe('⇧')
+    expect(kbds[2].textContent).toBe('P')
+  })
+
+  it('resolves shortcutId via the registry and renders localized chips on Windows', () => {
+    mockPlatform('Win32')
+    const { container } = renderCard(
+      { ...baseTip, shortcutId: 'app.commandPalette' },
+      'full',
+    )
+    const kbds = container.querySelectorAll('kbd')
+    expect(kbds.length).toBe(3)
+    expect(kbds[0].textContent).toBe('Ctrl')
+    expect(kbds[1].textContent).toBe('Shift')
+    expect(kbds[2].textContent).toBe('P')
+  })
+
+  it('resolves an extras-module shortcutId (page.save)', () => {
+    mockPlatform('MacIntel')
+    const { container } = renderCard(
+      { ...baseTip, shortcutId: 'page.save' },
+      'full',
+    )
+    const kbds = container.querySelectorAll('kbd')
+    expect(kbds.length).toBe(2)
+    expect(kbds[0].textContent).toBe('⌘')
+    expect(kbds[1].textContent).toBe('S')
+  })
+
+  it('omits the shortcut row when neither shortcut nor shortcutId is present', () => {
+    // Use a body without any code spans so a kbd-not-present assertion is
+    // unambiguous (the body's MarkdownCode override produces `<code>`, not
+    // `<kbd>`, but a body change later could obscure the failure mode).
+    const tipWithoutCode = { ...baseTip, body: 'Plain prose body.' }
+    renderCard(tipWithoutCode, 'full')
+    expect(screen.queryByText('Shortcut:')).not.toBeInTheDocument()
+  })
+
+  it('renders related-doc links pointing at the right paths', () => {
+    renderCard(
+      {
+        ...baseTip,
+        relatedDocs: [
+          { label: 'Keyboard shortcuts', path: '/docs/features/shortcuts' },
+        ],
+      },
+      'full',
+    )
+    const link = screen.getByRole('link', { name: 'Keyboard shortcuts' })
+    expect(link).toHaveAttribute('href', '/docs/features/shortcuts')
+  })
+
+  it('omits the related-doc section when relatedDocs is empty or missing', () => {
+    renderCard({ ...baseTip, relatedDocs: [] }, 'full')
+    expect(screen.queryByText('Related:')).not.toBeInTheDocument()
+  })
+
+  it('renders an image when media kind is image', () => {
+    const { container } = renderCard(
+      { ...baseTip, media: { kind: 'image', src: '/x.png', alt: 'demo' } },
+      'full',
+    )
+    expect(container.querySelector('img')).not.toBeNull()
+  })
+
+  it('does not crash when all optional fields are absent', () => {
+    expect(() =>
+      renderCard(
+        {
+          id: 'minimal',
+          title: 'Minimal tip',
+          body: 'Body text.',
+          categories: ['editor'],
+          audience: 'all',
+        },
+        'full',
+      ),
+    ).not.toThrow()
+  })
+
+  it('exposes a stable hash anchor id matching the tip id', () => {
+    const { container } = renderCard(baseTip, 'full')
+    expect(container.querySelector('#tip-fixture')).not.toBeNull()
+  })
+
+  it('reserves space for the sticky header via scroll-mt-20 on the container', () => {
+    const { container } = renderCard(baseTip, 'full')
+    expect(container.firstChild).toHaveClass('scroll-mt-20')
+  })
+})
+
+describe('TipCard — compact variant', () => {
+  it('renders title and body', () => {
+    renderCard(baseTip, 'compact')
+    expect(screen.getByText(baseTip.title)).toBeInTheDocument()
+    expect(screen.getByText(/Copy a URL anywhere/)).toBeInTheDocument()
+  })
+
+  it('does not render category or audience badges', () => {
+    renderCard(baseTip, 'compact')
+    expect(screen.queryByText('bookmarks')).not.toBeInTheDocument()
+    expect(screen.queryByText('Beginner')).not.toBeInTheDocument()
+  })
+
+  it('does not render the shortcut row even when shortcut is present', () => {
+    const { container } = renderCard({ ...baseTip, shortcut: ['⌘', 'V'] }, 'compact')
+    expect(container.querySelector('kbd')).toBeNull()
+  })
+
+  it('does not render related-doc links even when relatedDocs is present', () => {
+    renderCard(
+      {
+        ...baseTip,
+        relatedDocs: [{ label: 'Shortcuts', path: '/docs/features/shortcuts' }],
+      },
+      'compact',
+    )
+    expect(screen.queryByRole('link', { name: 'Shortcuts' })).not.toBeInTheDocument()
+  })
+
+  it('does not render media even when media is present', () => {
+    const { container } = renderCard(
+      { ...baseTip, media: { kind: 'image', src: '/x.png', alt: 'demo' } },
+      'compact',
+    )
+    expect(container.querySelector('img')).toBeNull()
+  })
+})

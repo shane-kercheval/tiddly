@@ -3,14 +3,7 @@ import { usePageTitle } from '../../hooks/usePageTitle'
 import { localizeKeys } from '../../utils/platform'
 import { getShortcut, getShortcutsBySection } from '../../shortcuts/registry'
 import { PAGE_SCOPED_SAVE_KEYS, PAGE_SCOPED_SAVE_AND_CLOSE_KEYS } from '../../shortcuts/pageScoped'
-
-function Kbd({ children }: { children: ReactNode }): ReactNode {
-  return (
-    <kbd className="inline-flex min-w-[24px] items-center justify-center rounded border border-gray-300 bg-gray-100 px-1.5 py-0.5 font-mono text-xs font-medium text-gray-700">
-      {children}
-    </kbd>
-  )
-}
+import { Kbd } from '../../components/ui/Kbd'
 
 function ShortcutRow({ keys, description }: { keys: readonly string[]; description: string }): ReactNode {
   const localized = localizeKeys([...keys])

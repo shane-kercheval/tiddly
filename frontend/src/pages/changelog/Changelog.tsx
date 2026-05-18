@@ -44,17 +44,41 @@ interface ChangelogMonth {
 const CHANGELOG: ChangelogMonth[] = [
   {
     month: 'May 2026',
-    theme: 'Chrome Extension Polish',
+    theme: 'Tips, Discoverability, and Polish',
     categories: [
       {
         label: 'New',
         emoji: '🚀',
         entries: [
           {
-            title: 'Default keyboard shortcut',
+            title: 'Tips & Tricks docs page',
+            description:
+              'Browse a curated catalog of usage tips at /docs/tips, filterable by topic and audience. Search by keyword to find the trick you\'re thinking of.',
+            tag: 'web',
+          },
+          {
+            title: 'Command palette searches tips, docs, and settings',
+            description:
+              'Press Cmd+Shift+P and start typing. Beyond commands and content, the palette now finds tips, docs pages, and settings — by concept, not just literal name (e.g. "mcp" finds AI Integration settings).',
+            tag: 'web',
+          },
+          {
+            title: 'Default keyboard shortcut for the Chrome extension',
             description:
               'Open the Chrome extension with Option+Shift+S (Mac) or Alt+Shift+S (Windows/Linux). Rebind anytime at chrome://extensions/shortcuts.',
             tag: 'extension',
+          },
+        ],
+      },
+      {
+        label: 'Improved',
+        emoji: '✨',
+        entries: [
+          {
+            title: 'Better empty states on saved filter views',
+            description:
+              'When a saved filter has no matches, the empty state now describes what the filter is actually looking for — content types, tags, plus any transient search or chips layered on top — instead of a generic "no items match."',
+            tag: 'web',
           },
         ],
       },

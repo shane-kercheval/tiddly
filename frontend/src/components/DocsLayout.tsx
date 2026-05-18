@@ -46,6 +46,7 @@ const docsNav: DocNavItem[] = [
     ],
   },
   { label: 'API', path: '/docs/api' },
+  { label: 'Tips', path: '/docs/tips' },
   { label: 'FAQ', path: '/docs/faq' },
   { label: 'Known Issues', path: '/docs/known-issues' },
 ]

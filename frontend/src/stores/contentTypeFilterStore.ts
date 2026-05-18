@@ -7,9 +7,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { ContentType } from '../types'
-
-/** All available content types */
-export const ALL_CONTENT_TYPES: ContentType[] = ['bookmark', 'note', 'prompt']
+import { ALL_CONTENT_TYPES } from '../types'
 
 /** Current storage version - increment when adding new content types */
 const STORAGE_VERSION = 2

@@ -56,7 +56,17 @@ describe('DocsLayout', () => {
     expect(screen.getByRole('link', { name: 'AI Integration' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Extensions' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'API' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Tips' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'FAQ' })).toBeInTheDocument()
+  })
+
+  it('should expose the Tips entry pointing at /docs/tips', () => {
+    // Regression guard for M3: the Tips page is registered in App.tsx, the
+    // route prefetcher, and the sidebar — three duplicated sources of truth.
+    // Pin the sidebar entry so a future drift on any of them surfaces here.
+    renderDocsLayout('/docs')
+    const tipsLink = screen.getByRole('link', { name: 'Tips' })
+    expect(tipsLink).toHaveAttribute('href', '/docs/tips')
   })
 
   it('should highlight active nav item', () => {

@@ -4,6 +4,7 @@
  * The routeImports map duplicates import paths from App.tsx. If an entry is missing,
  * the only consequence is no prefetch for that route — the lazy load still works normally.
  */
+import { matchPathPrefix } from './utils/matchPathPrefix'
 
 const routeImports: Record<string, () => Promise<unknown>> = {
   // Public pages (layout + page prefetched together)
@@ -24,12 +25,17 @@ const routeImports: Record<string, () => Promise<unknown>> = {
   '/docs/features/versioning': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsVersioning') },
   '/docs/features/shortcuts': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsShortcuts') },
   '/docs/ai': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAIHub') },
+  '/docs/cli': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsCLIHub') },
+  '/docs/cli/mcp': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsCLIMCP') },
+  '/docs/cli/skills': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsCLISkills') },
+  '/docs/cli/reference': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsCLIReference') },
   '/docs/extensions': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsExtensionsHub') },
   '/docs/extensions/chrome': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsExtensionsChrome') },
   '/docs/extensions/safari': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsExtensionsSafari') },
   '/docs/api': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsAPI') },
   '/docs/faq': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsFAQ') },
   '/docs/known-issues': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsKnownIssues') },
+  '/docs/tips': () => { import('./components/DocsLayout').catch(() => {}); return import('./pages/docs/DocsTips') },
 
   // App detail pages (heavy — CodeMirror + Milkdown)
   '/app/bookmarks': () => import('./pages/BookmarkDetail'),
@@ -47,8 +53,7 @@ const routeImports: Record<string, () => Promise<unknown>> = {
   '/app/settings/history': () => import('./pages/settings/SettingsVersionHistory'),
 }
 
-// Pre-sort keys by length descending for longest-prefix matching
-const sortedPrefixes = Object.keys(routeImports).sort((a, b) => b.length - a.length)
+const routePrefixes = Object.keys(routeImports)
 
 /**
  * Find the matching route key for a given path.
@@ -56,20 +61,7 @@ const sortedPrefixes = Object.keys(routeImports).sort((a, b) => b.length - a.len
  * Returns undefined if no route matches.
  */
 export function findMatchingRoute(path: string): string | undefined {
-  // Strip query string and hash
-  const cleanPath = path.split('?')[0].split('#')[0]
-
-  // Exact match first
-  if (routeImports[cleanPath]) return cleanPath
-
-  // Longest prefix match
-  for (const prefix of sortedPrefixes) {
-    if (cleanPath.startsWith(prefix + '/') || cleanPath === prefix) {
-      return prefix
-    }
-  }
-
-  return undefined
+  return matchPathPrefix(path, routePrefixes)
 }
 
 /**

@@ -17,6 +17,12 @@ export interface FilterChipProps {
   icon?: ReactNode
   /** Whether the chip is disabled (e.g., can't deselect last item) */
   disabled?: boolean
+  /**
+   * ARIA role override. Defaults to a plain button (suitable for multi-select
+   * filter rows). Pass `'radio'` when this chip is one of an exclusive set
+   * inside a `role="radiogroup"`; the parent must wire selection semantics.
+   */
+  role?: 'radio'
 }
 
 export function FilterChip({
@@ -25,10 +31,14 @@ export function FilterChip({
   onClick,
   icon,
   disabled = false,
+  role,
 }: FilterChipProps): ReactNode {
   return (
     <button
       type="button"
+      role={role}
+      aria-checked={role === 'radio' ? selected : undefined}
+      aria-pressed={role === undefined ? selected : undefined}
       onClick={onClick}
       disabled={disabled}
       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${

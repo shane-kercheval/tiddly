@@ -16,7 +16,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useTagFilterStore } from '../stores/tagFilterStore'
 import { useUIPreferencesStore, DEFAULT_VIEW_FILTERS } from '../stores/uiPreferencesStore'
 import type { ViewFilter } from '../stores/uiPreferencesStore'
-import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from '../stores/contentTypeFilterStore'
+import { useContentTypeFilterStore } from '../stores/contentTypeFilterStore'
 import { useTagsStore } from '../stores/tagsStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useSidebarStore } from '../stores/sidebarStore'
@@ -41,14 +41,18 @@ import {
   NoteIcon,
   PromptIcon,
   IconWithBadge,
-  TagIcon,
-  KeyIcon,
-  SparklesIcon,
-  HistoryIcon,
   HelpIcon,
-  AdjustmentsIcon,
+  LightbulbIcon,
+  BackArrowIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from './icons'
 import { useListKeyboardNavigation } from '../hooks/useListKeyboardNavigation'
+import { allTips } from '../data/tips'
+import type { Tip } from '../data/tips/types'
+import { DOCS_ROUTES, getDocsIcon } from '../data/docsRoutes'
+import { SETTINGS_ROUTES } from '../data/settingsRoutes'
+import { TipCard } from './tips/TipCard'
 import { isEffectivelyArchived } from '../utils'
 import { localizeKeys } from '../utils/platform'
 import { getShortcut, isShortcutId } from '../shortcuts/registry'
@@ -56,6 +60,7 @@ import { getFilterRoute, getBuiltinRoute } from './sidebar/routes'
 import { getFilterIcon, getBuiltinIcon } from './sidebar/sidebarDndUtils'
 import {
   isNavigableBuiltin,
+  ALL_CONTENT_TYPES,
 } from '../types'
 import type {
   ContentListItem,
@@ -71,7 +76,7 @@ import type {
 } from '../types'
 import type { PageSize } from '../stores/uiPreferencesStore'
 
-type PaletteView = 'commands' | 'search'
+type PaletteView = 'commands' | 'search' | 'tip'
 
 interface CommandPaletteProps {
   isOpen: boolean
@@ -92,6 +97,12 @@ interface CommandItem {
   label: string
   icon: ReactNode
   action: () => void
+  /**
+   * Additional searchable text matched alongside `label` (case-insensitive
+   * substring). Tips populate this with their body so a body-only match
+   * surfaces the tip. Non-tip commands omit it.
+   */
+  searchText?: string
 }
 
 /** Sort options available in search (relevance + base options) */
@@ -182,6 +193,9 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
   const navigate = useNavigate()
   const [view, setView] = useState<PaletteView>(initialView)
   const [commandFilter, setCommandFilter] = useState('')
+  // Tip selected for the 'tip' sub-view. Null when the sub-view isn't active —
+  // the render branch guards on both so a stale value can't leak through.
+  const [selectedTipForView, setSelectedTipForView] = useState<Tip | null>(null)
   const commandInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const previousActiveElement = useRef<HTMLElement | null>(null)
@@ -272,12 +286,15 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
     }
   }, [])
 
-  // Focus appropriate input when view changes
+  // Focus appropriate input when view changes. The tip sub-view has no input
+  // to focus — let the scroll container take focus naturally so arrow keys
+  // scroll the tip body, and so the next-rendered "Back" button can be
+  // reached via Tab.
   useEffect(() => {
     const timer = setTimeout(() => {
       if (view === 'commands') {
         commandInputRef.current?.focus()
-      } else {
+      } else if (view === 'search') {
         searchInputRef.current?.focus()
       }
     }, 50)
@@ -373,33 +390,65 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
       }
     }
 
-    // 5. Settings pages
-    const settingsItems: { label: string; path: string; icon: ReactNode }[] = [
-      { label: 'Settings: General', path: '/app/settings/general', icon: <AdjustmentsIcon className="h-4 w-4" /> },
-      { label: 'Settings: Tags', path: '/app/settings/tags', icon: <TagIcon className="h-4 w-4" /> },
-      { label: 'Settings: Personal Access Tokens', path: '/app/settings/tokens', icon: <KeyIcon className="h-4 w-4" /> },
-      { label: 'Settings: AI Configuration', path: '/app/settings/ai', icon: <SparklesIcon className="h-4 w-4" /> },
-      { label: 'Settings: AI Integration', path: '/app/settings/ai-integration', icon: <SparklesIcon className="h-4 w-4" /> },
-      { label: 'Settings: Version History', path: '/app/settings/history', icon: <HistoryIcon className="h-4 w-4" /> },
-      { label: 'Settings: FAQ', path: '/app/settings/faq', icon: <HelpIcon className="h-4 w-4" /> },
-    ]
-    for (const s of settingsItems) {
+    // 5. Settings pages — maintained by hand in
+    //    `frontend/src/data/settingsRoutes.tsx` so each entry carries a
+    //    keyword-rich `searchText`. Without that, settings would match by
+    //    label only (e.g. "mcp" wouldn't surface "Settings: AI Integration"
+    //    even though that's where MCP is configured).
+    for (const settingsRoute of SETTINGS_ROUTES) {
       cmds.push({
-        id: `settings-${s.path}`,
-        label: s.label,
-        icon: s.icon,
-        action: () => navigateAndClose(s.path),
+        id: `settings-${settingsRoute.path}`,
+        label: settingsRoute.label,
+        icon: settingsRoute.icon,
+        searchText: settingsRoute.searchText,
+        action: () => navigateAndClose(settingsRoute.path),
+      })
+    }
+
+    // 6. Docs — public reference pages. `searchText` carries a keyword-rich
+    //    summary so body-content matches surface (the page bodies themselves
+    //    are JSX and not statically searchable). Maintained by hand in
+    //    `frontend/src/data/docsRoutes.ts`.
+    for (const docsRoute of DOCS_ROUTES) {
+      cmds.push({
+        id: `docs-${docsRoute.path}`,
+        label: docsRoute.label,
+        icon: getDocsIcon(),
+        searchText: docsRoute.searchText,
+        action: () => navigateAndClose(docsRoute.path),
+      })
+    }
+
+    // 7. Tips — appended last so they rank below the curated non-tip commands
+    //    (Settings, Docs, etc.) both in the default view and when a query
+    //    matches both. `searchText` carries title + body so a body-only match
+    //    still surfaces the tip.
+    for (const tip of allTips) {
+      cmds.push({
+        id: `tip-${tip.id}`,
+        label: `Tip: ${tip.title}`,
+        icon: <LightbulbIcon className="h-4 w-4" />,
+        searchText: `${tip.title}\n${tip.body}`,
+        action: () => {
+          setSelectedTipForView(tip)
+          setView('tip')
+        },
       })
     }
 
     return cmds
   }, [sidebar, navigateAndClose, onShowShortcuts, onClose])
 
-  // Filter commands by search text
+  // Filter commands by search text. Matching is OR across `label` and
+  // `searchText` so a body-only tip match still surfaces.
   const filteredCommands = useMemo(() => {
     if (!commandFilter) return commands
     const lower = commandFilter.toLowerCase()
-    return commands.filter((cmd) => cmd.label.toLowerCase().includes(lower))
+    return commands.filter((cmd) => {
+      if (cmd.label.toLowerCase().includes(lower)) return true
+      if (cmd.searchText?.toLowerCase().includes(lower)) return true
+      return false
+    })
   }, [commands, commandFilter])
 
   // Keyboard navigation for command list
@@ -600,7 +649,7 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
         style={{ height: '85vh', maxHeight: '85vh' }}
         onClick={(e) => e.stopPropagation()}
       >
-        {view === 'commands' ? (
+        {view === 'commands' && (
           /* ===== Main Command View ===== */
           <>
             {/* Search input */}
@@ -650,7 +699,8 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
               )}
             </div>
           </>
-        ) : (
+        )}
+        {view === 'search' && (
           /* ===== Search Sub-View ===== */
           <>
             {/* Search controls */}
@@ -789,6 +839,67 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
             </div>
           </>
         )}
+        {view === 'tip' && selectedTipForView && (() => {
+          /* ===== Tip Detail Sub-View =====
+             Reuses TipCard's full variant so the in-palette presentation
+             matches /docs/tips exactly. Back arrow returns to the commands
+             view with the user's query preserved. Prev/Next cycle through
+             the tips currently surfaced in the command list (i.e., scoped to
+             the user's query), wrapping at both ends — so the cycle respects
+             what the user is actively browsing, not the entire corpus. */
+          const tipsInFilteredOrder = filteredCommands
+            .filter((cmd) => cmd.id.startsWith('tip-'))
+            .map((cmd) => allTips.find((tip) => `tip-${tip.id}` === cmd.id))
+            .filter((tip): tip is Tip => tip !== undefined)
+          const currentIndex = tipsInFilteredOrder.findIndex(
+            (tip) => tip.id === selectedTipForView.id,
+          )
+          const cycleAvailable = tipsInFilteredOrder.length > 1 && currentIndex !== -1
+          const goToOffset = (offset: number): void => {
+            if (!cycleAvailable) return
+            const length = tipsInFilteredOrder.length
+            const target = tipsInFilteredOrder[(currentIndex + offset + length) % length]
+            setSelectedTipForView(target)
+          }
+          return (
+            <>
+              <div className="px-3 border-b border-gray-100 flex items-center justify-between" style={{ height: 34 }}>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedTipForView(null); setView('commands') }}
+                  className="inline-flex items-center gap-1.5 px-1.5 py-1 -ml-1 rounded text-sm text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+                  aria-label="Back to commands"
+                >
+                  <BackArrowIcon className="h-4 w-4" />
+                  <span>Back</span>
+                </button>
+                {cycleAvailable && (
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => goToOffset(-1)}
+                      className="inline-flex items-center justify-center h-6 w-6 rounded text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+                      aria-label="Previous tip"
+                    >
+                      <ChevronLeftIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToOffset(1)}
+                      className="inline-flex items-center justify-center h-6 w-6 rounded text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+                      aria-label="Next tip"
+                    >
+                      <ChevronRightIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 py-2">
+                <TipCard tip={selectedTipForView} variant="full" />
+              </div>
+            </>
+          )
+        })()}
       </div>
     </div>
   )

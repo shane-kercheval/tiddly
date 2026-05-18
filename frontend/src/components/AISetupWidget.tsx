@@ -1282,8 +1282,9 @@ function CodexInstructions({
           <h3 className="text-sm font-semibold text-blue-900 mb-2">Using Your Prompts</h3>
           <p className="text-sm text-blue-800 mb-3">
             <strong>Note:</strong> Codex does not support MCP Prompts directly (the{' '}
-            <code className="bg-blue-100 px-1 rounded">/prompt-name</code> invocation style).
-            Instead, it exposes your server&apos;s tools for managing and retrieving prompts.
+            <code className="bg-blue-100 px-1 rounded">/prompt-name</code> slash invocation style
+            available in Claude Code). Instead, it exposes your server&apos;s tools for managing
+            and retrieving prompts.
           </p>
           <p className="text-sm text-blue-800 mb-2">
             To use a saved prompt, ask Codex to fetch and apply it:

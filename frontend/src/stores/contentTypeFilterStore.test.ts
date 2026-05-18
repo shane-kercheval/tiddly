@@ -4,7 +4,8 @@
  * Tests the content type filter state management for All/Archived/Trash views.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useContentTypeFilterStore, ALL_CONTENT_TYPES } from './contentTypeFilterStore'
+import { useContentTypeFilterStore } from './contentTypeFilterStore'
+import { ALL_CONTENT_TYPES } from '../types'
 
 describe('useContentTypeFilterStore', () => {
   beforeEach(() => {

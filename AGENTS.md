@@ -39,6 +39,7 @@ cd frontend && npx vitest run src/path/to/file.test.ts
 ### Frontend (`frontend/src/`)
 - React 19 + TypeScript + Vite + Tailwind CSS 4. Node v22 (`.nvmrc`).
 - State: Zustand (`stores/`). Data fetching: @tanstack/react-query (`hooks/`). Routing: React Router v7. Editor: Milkdown.
+- Static product data lives in `data/` — `tips/` (tip corpus + selectors + validation), `docsRoutes.tsx` and `settingsRoutes.tsx` (command-palette keyword indexes for the public docs and settings surfaces). Tips are TypeScript objects with markdown body strings; validation runs at module load.
 
 ### MCP Servers
 - **Content MCP** (`backend/src/mcp_server/`, port 8001): bookmarks/notes CRUD and search.
@@ -96,6 +97,11 @@ After any feature, API, pricing, or UI change, review whether these need updatin
 
 **LLM/AI discoverability:**
 - `frontend/public/llms.txt` — LLM-friendly site index; update when features, API, or tiers change.
+
+**Command palette search index:**
+- `frontend/src/data/docsRoutes.tsx` — hand-curated keyword summaries that make `/docs/*` pages findable via the command palette. When you add a docs page, add its entry (path + label + keyword-rich `searchText`). When you substantially change an existing docs page (new sections, renamed concepts, removed features), update its `searchText`.
+- `frontend/src/data/settingsRoutes.tsx` — same shape and obligation for `/app/settings/*` pages. The motivating case: searching `mcp` should surface `Settings: AI Integration` (where MCP is configured) even though the literal label doesn't contain that term.
+- Optimize both for keyword density, not prose — terms a user might search for when looking for that page. Drift is graceful (a missing keyword means a missed result, not a broken feature), but accumulating drift erodes palette discoverability over time.
 
 **Project-level docs:**
 - `README.md` — feature list and setup instructions.

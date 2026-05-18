@@ -357,4 +357,230 @@ describe('CommandPalette', () => {
       expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
     })
   })
+
+  describe('tips integration (M8)', () => {
+    // Tip-related assertions exercise the real `allTips` corpus, not a mock —
+    // the integration we care about is "tips authored in M5 surface here." If
+    // a referenced tip is ever removed from the corpus, the test will fail
+    // visibly so we know to update it.
+
+    function commandLabels(): string[] {
+      return screen.getAllByRole('option').map((el) => el.textContent ?? '')
+    }
+
+    it('renders tip entries below the Settings group in the default (empty-query) view', () => {
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      const labels = commandLabels()
+      // Tip entries exist at all and are placed after the last Settings: entry.
+      const firstTipIndex = labels.findIndex((label) => label.startsWith('Tip:'))
+      let lastSettingsIndex = -1
+      for (let i = labels.length - 1; i >= 0; i--) {
+        if (labels[i].startsWith('Settings:')) { lastSettingsIndex = i; break }
+      }
+      expect(firstTipIndex).toBeGreaterThan(-1)
+      expect(lastSettingsIndex).toBeGreaterThan(-1)
+      expect(lastSettingsIndex).toBeLessThan(firstTipIndex)
+    })
+
+    it('surfaces a tip when the query matches the title', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      // Stable seed-tip title: "Open the command palette".
+      await user.keyboard('command palette')
+      const labels = commandLabels()
+      expect(labels).toContain('Tip: Open the command palette')
+    })
+
+    it('surfaces a tip when the query matches only the body (not the title)', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      // "filterable" appears in `editor-command-menu`'s body but not its title;
+      // verifies `searchText` OR-matching against `label`.
+      await user.keyboard('filterable')
+      const labels = commandLabels()
+      expect(labels.some((label) => label.startsWith('Tip:'))).toBe(true)
+    })
+
+    it('ranks non-tip commands above matching tips in the filtered list', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      // "search" matches the built-in "Search" command and several tip
+      // titles/bodies (e.g. global-search-shortcut, search-quoted-phrase).
+      await user.keyboard('search')
+      const labels = commandLabels()
+      const firstTipIndex = labels.findIndex((label) => label.startsWith('Tip:'))
+      let lastNonTipIndex = -1
+      for (let i = labels.length - 1; i >= 0; i--) {
+        if (!labels[i].startsWith('Tip:')) { lastNonTipIndex = i; break }
+      }
+      expect(firstTipIndex).toBeGreaterThan(-1)
+      expect(lastNonTipIndex).toBeGreaterThan(-1)
+      expect(lastNonTipIndex).toBeLessThan(firstTipIndex)
+    })
+
+    it('selecting a tip opens the tip-detail sub-view; back returns to commands', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      await user.keyboard('command palette')
+      await user.click(screen.getByText('Tip: Open the command palette'))
+
+      // Tip-detail view: TipCard rendered with the tip's anchor DOM id, and a
+      // Back affordance to leave the sub-view.
+      expect(document.querySelector('#tip-palette-shortcut')).not.toBeNull()
+      expect(screen.queryByPlaceholderText('Type a command...')).toBeNull()
+
+      await user.click(screen.getByRole('button', { name: 'Back to commands' }))
+      // Back lands on the commands view (command input back, tip card gone).
+      expect(screen.getByPlaceholderText('Type a command...')).toBeInTheDocument()
+      expect(document.querySelector('#tip-palette-shortcut')).toBeNull()
+    })
+
+    it('renders prev/next cycle buttons when the filtered list has multiple tips', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      // Open the palette with the default (empty-query) view — every tip is
+      // listed, so the cycle has the full corpus to walk through.
+      await user.click(screen.getAllByText(/^Tip:/)[0])
+      expect(screen.getByRole('button', { name: 'Previous tip' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Next tip' })).toBeInTheDocument()
+    })
+
+    it('Next cycles to the following tip; Previous cycles backward', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      const firstTipButton = screen.getAllByText(/^Tip:/)[0]
+      const firstTipLabel = firstTipButton.textContent ?? ''
+      await user.click(firstTipButton)
+
+      // Capture the rendered tip's title (sits at h3) before cycling.
+      const initialTitle = screen.getByRole('heading', { level: 3 }).textContent
+      expect(`Tip: ${initialTitle}`).toBe(firstTipLabel)
+
+      await user.click(screen.getByRole('button', { name: 'Next tip' }))
+      const afterNext = screen.getByRole('heading', { level: 3 }).textContent
+      expect(afterNext).not.toBe(initialTitle)
+
+      await user.click(screen.getByRole('button', { name: 'Previous tip' }))
+      const afterPrev = screen.getByRole('heading', { level: 3 }).textContent
+      expect(afterPrev).toBe(initialTitle)
+    })
+
+    it('Previous from the first tip wraps to the last (and vice versa)', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      const tipButtons = screen.getAllByText(/^Tip:/)
+      const firstLabel = tipButtons[0].textContent ?? ''
+      const lastLabel = tipButtons[tipButtons.length - 1].textContent ?? ''
+
+      // Open the first tip, hit Previous — should wrap to the last tip.
+      await user.click(tipButtons[0])
+      expect(`Tip: ${screen.getByRole('heading', { level: 3 }).textContent}`).toBe(firstLabel)
+      await user.click(screen.getByRole('button', { name: 'Previous tip' }))
+      expect(`Tip: ${screen.getByRole('heading', { level: 3 }).textContent}`).toBe(lastLabel)
+
+      // From the last tip, Next wraps back to the first.
+      await user.click(screen.getByRole('button', { name: 'Next tip' }))
+      expect(`Tip: ${screen.getByRole('heading', { level: 3 }).textContent}`).toBe(firstLabel)
+    })
+
+    it('surfaces a settings entry on a body-keyword match (no longer label-only)', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      // "mcp" appears only in the AI Integration settings entry's searchText
+      // keyword soup — not in the literal label "Settings: AI Integration".
+      // This is the original motivating case for adding searchText to settings.
+      await user.keyboard('mcp')
+      const labels = commandLabels()
+      expect(labels).toContain('Settings: AI Integration')
+    })
+
+    it('ranks the matching settings entry above the matching docs entry for the same keyword', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      await user.keyboard('mcp')
+      const labels = commandLabels()
+      const settingsIndex = labels.indexOf('Settings: AI Integration')
+      const docsIndex = labels.indexOf('Docs: AI Integration')
+      expect(settingsIndex).toBeGreaterThan(-1)
+      expect(docsIndex).toBeGreaterThan(-1)
+      // Settings is the actionable place ("configure MCP here"), Docs is the
+      // reference ("read about MCP"). Settings should rank first.
+      expect(settingsIndex).toBeLessThan(docsIndex)
+    })
+
+    it('renders docs entries between Settings and Tips in the default view', () => {
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      const labels = commandLabels()
+      let lastSettingsIndex = -1
+      for (let i = labels.length - 1; i >= 0; i--) {
+        if (labels[i].startsWith('Settings:')) { lastSettingsIndex = i; break }
+      }
+      const firstDocsIndex = labels.findIndex((label) => label.startsWith('Docs:'))
+      const lastDocsIndex = (() => {
+        for (let i = labels.length - 1; i >= 0; i--) {
+          if (labels[i].startsWith('Docs:')) return i
+        }
+        return -1
+      })()
+      const firstTipIndex = labels.findIndex((label) => label.startsWith('Tip:'))
+      // Settings → Docs → Tips ordering is load-bearing for the palette UX.
+      expect(lastSettingsIndex).toBeGreaterThan(-1)
+      expect(firstDocsIndex).toBeGreaterThan(-1)
+      expect(lastDocsIndex).toBeGreaterThan(-1)
+      expect(firstTipIndex).toBeGreaterThan(-1)
+      expect(lastSettingsIndex).toBeLessThan(firstDocsIndex)
+      expect(lastDocsIndex).toBeLessThan(firstTipIndex)
+    })
+
+    it('surfaces a docs entry on a title-only match', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      await user.keyboard('chrome extension')
+      const labels = commandLabels()
+      expect(labels).toContain('Docs: Chrome Extension')
+    })
+
+    it('surfaces a docs entry on a body-keyword match', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      // "swagger" appears only in the API page's searchText keyword soup,
+      // not in the label "Docs: API". A hit here proves keyword matching
+      // works end-to-end.
+      await user.keyboard('swagger')
+      const labels = commandLabels()
+      expect(labels).toContain('Docs: API')
+    })
+
+    it('selecting a docs entry navigates to its path and closes the palette', async () => {
+      const user = userEvent.setup()
+      const onClose = vi.fn()
+      render(<CommandPalette isOpen onClose={onClose} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      await user.keyboard('chrome extension')
+      await user.click(screen.getByText('Docs: Chrome Extension'))
+      expect(mockNavigate).toHaveBeenCalledWith('/docs/extensions/chrome')
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('cycling respects the user\'s query — Next walks tips that match the filter only', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      // Narrow to a single matching tip and confirm the cycle hides the controls.
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      // A query specific enough to match exactly one tip's title.
+      await user.keyboard('Save and close the editor')
+      await user.click(screen.getByText('Tip: Save and close the editor in one keystroke'))
+      // Only one tip matches → prev/next are hidden (no cycle to walk).
+      expect(screen.queryByRole('button', { name: 'Previous tip' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Next tip' })).toBeNull()
+    })
+  })
 })
