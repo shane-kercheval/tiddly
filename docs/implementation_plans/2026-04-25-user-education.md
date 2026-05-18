@@ -14,6 +14,7 @@ This is shipping as a **single PR with multiple commits**. The milestone structu
 - **M1 → M2 → M3** is the tips infrastructure path (data model → renderer → docs page).
 - **M4 → M5** is an editorial pipeline producing the authored corpus. M5 is the only milestone that produces tip *content*; the others produce code or process artifacts.
 - **M7, M8, M9** depend on M5 having authored tips to surface (specifically: M7 needs starter tips, M8/M9 need the corpus).
+- **M7 and M9 were deliberately dropped after M5** — see their sections for the reasoning. Only M8 ships from this group.
 - **M10** is the cross-cutting file-sync pass that runs last.
 
 ## Maintenance & ownership
@@ -676,7 +677,9 @@ Integration tests in `AllContent.test.tsx`:
 
 ---
 
-# Milestone 7 — Embed starter tips in new-user empty state
+# Milestone 7 — Embed starter tips in new-user empty state (NOT SHIPPED)
+
+**Status: deliberately dropped after M5.** The decision: the new-user empty state needs a more thoughtful "getting started" experience than 2-3 tip cards, and we don't want to invest in this stop-gap UI just to remove it when a real onboarding flow lands. The `starter: true` / `starterPriority` fields on the `Tip` schema and the `pickStarterTipsForContentTypes()` helper are still authored as designed — they're available for a future onboarding effort to consume. The carry-over `EmptyState.children` extension this milestone would have driven was pulled forward into M6 (where it shipped without an in-M6 caller) so the schema is ready when needed. Section retained below for reference.
 
 ## Goal & Outcome
 
@@ -763,7 +766,9 @@ After this milestone:
 
 ---
 
-# Milestone 9 — Ambient `InfoCallout` placements
+# Milestone 9 — Ambient `InfoCallout` placements (NOT SHIPPED)
+
+**Status: deliberately dropped after M5.** The decision: tips already live on `/docs/tips` and are searchable from the command palette via M8. A "tip of the day" rotation was discussed as a future surface but was scoped out — it requires server-side state (impression tracking, opt-in/opt-out) that's out of proportion with the value. Static `InfoCallout` sprinkles risk going stale and add maintenance burden across many pages for marginal additional discoverability. Section retained below for reference.
 
 ## Goal & Outcome
 

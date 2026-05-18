@@ -39,6 +39,7 @@ cd frontend && npx vitest run src/path/to/file.test.ts
 ### Frontend (`frontend/src/`)
 - React 19 + TypeScript + Vite + Tailwind CSS 4. Node v22 (`.nvmrc`).
 - State: Zustand (`stores/`). Data fetching: @tanstack/react-query (`hooks/`). Routing: React Router v7. Editor: Milkdown.
+- Static product data lives in `data/` — `tips/` (tip corpus + selectors + validation), `docsRoutes.tsx` and `settingsRoutes.tsx` (command-palette keyword indexes for the public docs and settings surfaces). Tips are TypeScript objects with markdown body strings; validation runs at module load.
 
 ### MCP Servers
 - **Content MCP** (`backend/src/mcp_server/`, port 8001): bookmarks/notes CRUD and search.
