@@ -13,7 +13,7 @@ import { Link } from 'react-router-dom'
 import type { Tip, TipAudience } from '../../data/tips/types'
 import { resolveTipShortcut } from '../../data/tips/tipExtraShortcuts'
 import { localizeKey } from '../../utils/platform'
-import { Kbd } from './Kbd'
+import { Kbd } from '../ui/Kbd'
 import { TipBody } from './TipBody'
 import { TipMedia } from './TipMedia'
 
@@ -62,8 +62,8 @@ export function TipCard({ tip, variant }: TipCardProps): ReactNode {
       className="scroll-mt-20 border-b border-gray-100 py-5 last:border-b-0"
       data-tip-id={tip.id}
     >
-      <div className="flex flex-wrap items-center gap-2 mb-2">
-        <h3 className="text-base font-medium text-gray-900">{tip.title}</h3>
+      <h3 className="text-base font-medium text-gray-900">{tip.title}</h3>
+      <div className="mt-1 mb-4 flex flex-wrap items-center gap-1.5">
         {tip.audience !== 'all' && <Badge>{AUDIENCE_LABELS[tip.audience]}</Badge>}
         {tip.categories.map((category) => (
           <Badge key={category}>{category}</Badge>

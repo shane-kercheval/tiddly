@@ -25,7 +25,7 @@ import {
   SHORTCUT_TOKEN_RE,
 } from '../../data/tips/tipExtraShortcuts'
 import { formatShortcut } from '../../utils/platform'
-import { Kbd } from './Kbd'
+import { Kbd } from '../ui/Kbd'
 
 interface TipBodyProps {
   body: string

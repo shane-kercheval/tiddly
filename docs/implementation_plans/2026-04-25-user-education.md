@@ -722,7 +722,7 @@ After this milestone:
 
 ## Implementation Outline
 
-1. Extend `CommandItem` (defined around `CommandPalette.tsx:83`) with an optional `searchText?: string` field. Update `filteredCommands` derivation at line 397 to OR-match against it:
+1. Extend `CommandItem` with an optional `searchText?: string` field. Update `filteredCommands` derivation to OR-match against it:
    ```ts
    commands.filter((cmd) =>
      cmd.label.toLowerCase().includes(lower) ||
@@ -730,11 +730,11 @@ After this milestone:
    )
    ```
    Non-tip commands omit the field, so existing behavior is unchanged.
-2. In `CommandPalette.tsx`, append tip entries to the `commands` array (the `useMemo` at line 308).
-   - Each tip becomes a `CommandItem` with `label: 'Tip: ' + tip.title`, `searchText: \`${tip.title}\\n${tip.body}\``, lightbulb icon, and an action that opens the tip detail.
-   - Tips are appended **after** all other command groups so they rank below in the filtered list. Verify this is what the existing array order produces; if not, fix ordering.
-3. **Suppress tips when query length < 2.** Filter tip entries out of `filteredCommands` when the user hasn't typed a meaningful query. At 30-50 tips this isn't a noise problem yet, but the rule scales naturally if the corpus grows post-launch and avoids confusion on first palette open.
-4. Tip detail view: **open question, see below**.
+2. Append tip entries to the `commands` array in the palette's `useMemo`.
+   - Each tip becomes a `CommandItem` with `label: 'Tip: ' + tip.title`, `searchText: \`${tip.title}\\n${tip.body}\``, lightbulb icon, and an action that opens the tip detail sub-view.
+   - Tips are appended **after** all other command groups (Search, Shortcuts, New items, sidebar nav, Settings) so they rank below the curated command list both in the default browse view and in matched search results.
+3. **Tips are visible in the default (empty-query) view.** The original plan suppressed tips until query length ≥ 2 — that was reversed in implementation. With a v1 corpus of ~60 tips, browsing the full list under Settings is acceptable; it surfaces tips as a first-class discovery surface. If the corpus grows past the point where a default-view list becomes too long, revisit (gate behind a query threshold, scope to starter tips, or paginate).
+4. Tip detail view: open the tip as a `'tip'` sub-view inside the palette (option 2 below). Renders `<TipCard variant="full" />` with a back arrow to return to the command list.
 
 **Carry-over from M2 (extract shared `<Kbd>` primitive):** by M8 we'll have at least three concrete `<kbd>` callers — `DocsShortcuts.tsx` (private `Kbd`, `min-w-[24px]`), `CommandPalette.tsx` (inline `<kbd>`, `min-w-[20px]`), and `TipCard.tsx` (private `Kbd`, `min-w-[24px]`). When this milestone lands, extract a shared `frontend/src/components/ui/Kbd.tsx` informed by the actual usage shapes and migrate all three to it. Same pattern may apply to `<Badge>` if M8 introduces a tip badge in the palette. Don't promote earlier — three concrete callers produce a better abstraction than two.
 
@@ -752,12 +752,11 @@ After this milestone:
 
 ## Testing Strategy
 
-- Empty query: command palette shows non-tip commands; **no tip entries appear**.
-- Query length 1: still no tip entries.
-- Query length ≥ 2 matching a tip's title: tip appears in results, ranked after non-tip commands.
-- Query length ≥ 2 matching only a tip's body (text not in title): tip appears (verifies `searchText` matching).
-- Query matching both a tip and a non-tip command: non-tip command ranks first (above the tip).
-- Selecting a tip opens the chosen detail UX (per resolved open question).
+- Empty query: tip entries appear after the last `Settings:` entry (pinned ordering — tips are a discrete group below Settings).
+- Query matching a tip's title: tip appears, ranked after any non-tip command also matching.
+- Query matching only a tip's body (text not in title): tip appears (verifies `searchText` OR-matching).
+- Query matching both a tip and a non-tip command: non-tip command ranks above the tip.
+- Selecting a tip opens the tip-detail sub-view; the Back button returns to the commands view with the user's query preserved.
 - Tip entries display the lightbulb icon and `Tip:` prefix.
 - Existing palette behavior (search sub-view, navigation commands, settings) is not regressed.
 - **`searchText` regression**: a non-tip command with no `searchText` filters identically to today's behavior.
