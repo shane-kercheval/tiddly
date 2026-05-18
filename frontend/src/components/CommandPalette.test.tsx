@@ -487,6 +487,62 @@ describe('CommandPalette', () => {
       expect(`Tip: ${screen.getByRole('heading', { level: 3 }).textContent}`).toBe(firstLabel)
     })
 
+    it('renders docs entries between Settings and Tips in the default view', () => {
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      const labels = commandLabels()
+      let lastSettingsIndex = -1
+      for (let i = labels.length - 1; i >= 0; i--) {
+        if (labels[i].startsWith('Settings:')) { lastSettingsIndex = i; break }
+      }
+      const firstDocsIndex = labels.findIndex((label) => label.startsWith('Docs:'))
+      const lastDocsIndex = (() => {
+        for (let i = labels.length - 1; i >= 0; i--) {
+          if (labels[i].startsWith('Docs:')) return i
+        }
+        return -1
+      })()
+      const firstTipIndex = labels.findIndex((label) => label.startsWith('Tip:'))
+      // Settings → Docs → Tips ordering is load-bearing for the palette UX.
+      expect(lastSettingsIndex).toBeGreaterThan(-1)
+      expect(firstDocsIndex).toBeGreaterThan(-1)
+      expect(lastDocsIndex).toBeGreaterThan(-1)
+      expect(firstTipIndex).toBeGreaterThan(-1)
+      expect(lastSettingsIndex).toBeLessThan(firstDocsIndex)
+      expect(lastDocsIndex).toBeLessThan(firstTipIndex)
+    })
+
+    it('surfaces a docs entry on a title-only match', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      await user.keyboard('chrome extension')
+      const labels = commandLabels()
+      expect(labels).toContain('Docs: Chrome Extension')
+    })
+
+    it('surfaces a docs entry on a body-keyword match', async () => {
+      const user = userEvent.setup()
+      render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      // "swagger" appears only in the API page's searchText keyword soup,
+      // not in the label "Docs: API". A hit here proves keyword matching
+      // works end-to-end.
+      await user.keyboard('swagger')
+      const labels = commandLabels()
+      expect(labels).toContain('Docs: API')
+    })
+
+    it('selecting a docs entry navigates to its path and closes the palette', async () => {
+      const user = userEvent.setup()
+      const onClose = vi.fn()
+      render(<CommandPalette isOpen onClose={onClose} />, { wrapper: Wrapper })
+      await user.click(screen.getByPlaceholderText('Type a command...'))
+      await user.keyboard('chrome extension')
+      await user.click(screen.getByText('Docs: Chrome Extension'))
+      expect(mockNavigate).toHaveBeenCalledWith('/docs/extensions/chrome')
+      expect(onClose).toHaveBeenCalled()
+    })
+
     it('cycling respects the user\'s query — Next walks tips that match the filter only', async () => {
       const user = userEvent.setup()
       render(<CommandPalette isOpen onClose={vi.fn()} />, { wrapper: Wrapper })

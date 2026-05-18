@@ -55,6 +55,7 @@ import {
 import { useListKeyboardNavigation } from '../hooks/useListKeyboardNavigation'
 import { allTips } from '../data/tips'
 import type { Tip } from '../data/tips/types'
+import { DOCS_ROUTES, getDocsIcon } from '../data/docsRoutes'
 import { TipCard } from './tips/TipCard'
 import { isEffectivelyArchived } from '../utils'
 import { localizeKeys } from '../utils/platform'
@@ -412,10 +413,24 @@ function CommandPaletteInner({ initialView, onClose, onShowShortcuts }: { initia
       })
     }
 
-    // 6. Tips — appended last so they rank below the curated non-tip commands
-    //    (Settings, etc.) both in the default view and when a query matches
-    //    both. `searchText` carries title + body so a body-only match still
-    //    surfaces the tip.
+    // 6. Docs — public reference pages. `searchText` carries a keyword-rich
+    //    summary so body-content matches surface (the page bodies themselves
+    //    are JSX and not statically searchable). Maintained by hand in
+    //    `frontend/src/data/docsRoutes.ts`.
+    for (const docsRoute of DOCS_ROUTES) {
+      cmds.push({
+        id: `docs-${docsRoute.path}`,
+        label: docsRoute.label,
+        icon: getDocsIcon(),
+        searchText: docsRoute.searchText,
+        action: () => navigateAndClose(docsRoute.path),
+      })
+    }
+
+    // 7. Tips — appended last so they rank below the curated non-tip commands
+    //    (Settings, Docs, etc.) both in the default view and when a query
+    //    matches both. `searchText` carries title + body so a body-only match
+    //    still surfaces the tip.
     for (const tip of allTips) {
       cmds.push({
         id: `tip-${tip.id}`,

@@ -97,6 +97,9 @@ After any feature, API, pricing, or UI change, review whether these need updatin
 **LLM/AI discoverability:**
 - `frontend/public/llms.txt` — LLM-friendly site index; update when features, API, or tiers change.
 
+**Command palette docs search index:**
+- `frontend/src/data/docsRoutes.tsx` — hand-curated keyword summaries that make `/docs/*` pages findable via the command palette. When you add a docs page, add its entry (path + label + keyword-rich `searchText`). When you substantially change an existing docs page (new sections, renamed concepts, removed features), update its `searchText`. Optimize for keyword density, not prose — terms a user might search for when looking for that page. Drift is graceful (a missing keyword means a missed result, not a broken feature), but accumulating drift erodes palette discoverability over time.
+
 **Project-level docs:**
 - `README.md` — feature list and setup instructions.
 - `.env.example` — when adding/removing/renaming environment variables.
