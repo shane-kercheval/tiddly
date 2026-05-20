@@ -77,6 +77,21 @@ const ROADMAP: RoadmapColumn[] = [
     accentColor: 'border-t-green-500',
     items: [
       {
+        title: 'Antigravity MCP support',
+        description: 'Connect Google Antigravity (the agy CLI and IDE) to your content via `tiddly mcp configure antigravity`.',
+        date: '2026-05',
+      },
+      {
+        title: 'Tips catalog & command palette discovery',
+        description: 'Browse a curated tips catalog at /docs/tips, and find tips, docs pages, and settings from the command palette by concept — not just literal name.',
+        date: '2026-05',
+      },
+      {
+        title: 'Chrome extension keyboard shortcut',
+        description: 'Open the extension with Option+Shift+S (Mac) or Alt+Shift+S (Windows/Linux); rebindable in Chrome.',
+        date: '2026-05',
+      },
+      {
         title: 'AI-powered suggestions',
         description: 'Tag, metadata, relationship, and prompt argument suggestions powered by AI. Includes BYOK support and per-use-case configuration.',
         date: '2026-04',

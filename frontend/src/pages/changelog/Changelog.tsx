@@ -51,21 +51,31 @@ const CHANGELOG: ChangelogMonth[] = [
         emoji: '🚀',
         entries: [
           {
+            title: 'Antigravity MCP support',
+            description:
+              'Connect Google Antigravity — the agy CLI and the Antigravity IDE — to your bookmarks, notes, and prompts. Run `tiddly mcp configure antigravity` (it configures both, since they share one config). Antigravity is Google\'s successor to Gemini CLI for individual-tier users.',
+            pr: 137,
+            tag: 'cli',
+          },
+          {
             title: 'Tips & Tricks docs page',
             description:
               'Browse a curated catalog of usage tips at /docs/tips, filterable by topic and audience. Search by keyword to find the trick you\'re thinking of.',
+            pr: 136,
             tag: 'web',
           },
           {
             title: 'Command palette searches tips, docs, and settings',
             description:
               'Press Cmd+Shift+P and start typing. Beyond commands and content, the palette now finds tips, docs pages, and settings — by concept, not just literal name (e.g. "mcp" finds AI Integration settings).',
+            pr: 136,
             tag: 'web',
           },
           {
             title: 'Default keyboard shortcut for the Chrome extension',
             description:
               'Open the Chrome extension with Option+Shift+S (Mac) or Alt+Shift+S (Windows/Linux). Rebind anytime at chrome://extensions/shortcuts.',
+            pr: 129,
             tag: 'extension',
           },
         ],
@@ -75,9 +85,17 @@ const CHANGELOG: ChangelogMonth[] = [
         emoji: '✨',
         entries: [
           {
+            title: 'Keyboard shortcuts display correctly on Windows and Linux',
+            description:
+              'Shortcuts now render with platform-native modifiers — Ctrl, Alt, and Shift on Windows/Linux instead of the Mac ⌘/⌥/⇧ glyphs — everywhere they appear: the shortcuts dialog, docs, toolbar tooltips, command palette, and settings.',
+            pr: 131,
+            tag: 'web',
+          },
+          {
             title: 'Better empty states on saved filter views',
             description:
               'When a saved filter has no matches, the empty state now describes what the filter is actually looking for — content types, tags, plus any transient search or chips layered on top — instead of a generic "no items match."',
+            pr: 136,
             tag: 'web',
           },
         ],
@@ -95,21 +113,25 @@ const CHANGELOG: ChangelogMonth[] = [
           {
             title: 'AI tag suggestions',
             description: 'Open the tag input to get AI-suggested tags based on your content. Click to add.',
+            pr: 115,
             tag: 'ai',
           },
           {
             title: 'AI metadata suggestions',
             description: 'Sparkle icons on title and description fields generate suggestions from your content.',
+            pr: 115,
             tag: 'ai',
           },
           {
             title: 'AI relationship suggestions',
             description: 'Open the link input to get suggestions for related bookmarks, notes, and prompts.',
+            pr: 115,
             tag: 'ai',
           },
           {
             title: 'AI prompt argument suggestions',
             description: 'Generate prompt arguments from template placeholders, or suggest names and descriptions for individual arguments.',
+            pr: 116,
             tag: 'ai',
           },
         ],
@@ -121,11 +143,13 @@ const CHANGELOG: ChangelogMonth[] = [
           {
             title: 'Collapsible sidebar settings',
             description: 'Settings section in the sidebar is now collapsible with persisted state.',
+            pr: 115,
             tag: 'web',
           },
           {
             title: 'Docs link in sidebar',
             description: 'Quick access to documentation from the sidebar settings section.',
+            pr: 115,
             tag: 'web',
           },
         ],
