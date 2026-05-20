@@ -188,7 +188,7 @@ tiddly skills list --tags python         # list skills filtered by tags`} />
       {/* Cross-links */}
       <InfoCallout variant="tip" title="See Also">
         <p>
-          For manual setup without the CLI, see the{' '}
+          For an overview of supported AI tools and connection methods, see the{' '}
           <Link to="/docs/ai" className="underline hover:text-gray-900">AI Integration</Link>{' '}
           docs. For creating prompts to export as skills, see{' '}
           <Link to="/docs/features/prompts" className="underline hover:text-gray-900">Prompts &amp; Templates</Link>.

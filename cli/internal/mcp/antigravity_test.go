@@ -457,3 +457,19 @@ func TestAntigravity__user_scope_only(t *testing.T) {
 	h := &AntigravityHandler{}
 	assert.Equal(t, []string{"user"}, h.SupportedScopes())
 }
+
+// Configure must warn that the IDE needs a restart — Antigravity reads its
+// config at startup (M1), so without this warning a configure looks like it
+// did nothing inside a running IDE.
+func TestAntigravityHandler__configure_warns_plaintext_and_restart(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "mcp_config.json")
+	h := &AntigravityHandler{}
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+
+	warnings, _, err := h.Configure(rc, "bm_content", "bm_prompts", DetectedTool{Name: "antigravity"})
+	require.NoError(t, err)
+	require.Len(t, warnings, 2)
+	assert.Contains(t, warnings[0], "plaintext")
+	assert.Contains(t, warnings[1], "Restart the Antigravity IDE")
+}

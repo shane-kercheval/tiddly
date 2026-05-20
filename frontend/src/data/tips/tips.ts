@@ -76,7 +76,7 @@ export const allTips: Tip[] = [
     id: 'connect-ai-tool-to-content',
     title: 'Let your AI assistant read and edit your bookmarks and notes',
     body:
-      'Open Settings → AI Integration, pick your AI tool (Claude Desktop, Claude Code, Codex), and run the displayed `tiddly mcp configure` command. Your AI assistant can then search, read, and edit your bookmarks and notes directly — no copy-paste, no exporting. Ask it *"find the article I saved about transformers"* or *"fix the typo in my last meeting note"* and it goes straight at your library.',
+      'Open Settings → AI Integration, pick your AI tool (Claude Desktop, Claude Code, Codex, Antigravity), and run the displayed `tiddly mcp configure` command. Your AI assistant can then search, read, and edit your bookmarks and notes directly — no copy-paste, no exporting. Ask it *"find the article I saved about transformers"* or *"fix the typo in my last meeting note"* and it goes straight at your library.',
     categories: ['cli', 'mcp', 'bookmarks', 'notes'],
     audience: 'all',
     priority: 8,
@@ -114,7 +114,7 @@ export const allTips: Tip[] = [
     id: 'auto-configure-mcp',
     title: 'Set up MCP for every AI tool with one command',
     body:
-      'Run `tiddly mcp configure` with no arguments to set up every detected AI tool at once. The CLI finds Claude Desktop, Claude Code, and Codex, mints a dedicated token per tool/server, and writes entries for both the Content MCP and Prompt MCP servers. Any custom MCP entries you\'ve added by hand are left untouched.',
+      'Run `tiddly mcp configure` with no arguments to set up every detected AI tool at once. The CLI finds Claude Desktop, Claude Code, Codex, and Antigravity, mints a dedicated token per tool/server, and writes entries for both the Content MCP and Prompt MCP servers. Any custom MCP entries you\'ve added by hand are left untouched.',
     categories: ['cli', 'mcp'],
     audience: 'beginner',
     priority: 15,

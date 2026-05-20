@@ -1,7 +1,7 @@
 /**
  * Tests for SettingsMCP settings page.
  *
- * Tests both the CLI setup section (default tab) and the manual setup section (Curl/PAT tab).
+ * Covers the CLI setup section (the only setup flow — the manual Curl/PAT tab was removed).
  *
  * For the tool/scope support matrix and terminology decisions,
  * see docs/ai-integration.md

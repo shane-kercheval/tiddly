@@ -69,6 +69,10 @@ func (h *AntigravityHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT 
 	}
 	warnings := []string{
 		fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path),
+		// Antigravity reads mcp_config.json at startup, not live (M1 verified
+		// the IDE only picks up new entries after a restart). The agy CLI
+		// re-reads per invocation, so it needs no restart.
+		"Antigravity reads its config at startup. Restart the Antigravity IDE to apply changes (the agy CLI picks them up on its next run).",
 	}
 	return warnings, backupPath, nil
 }

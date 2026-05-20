@@ -75,8 +75,9 @@ tiddly mcp configure claude-code codex              # multiple tools`} />
           configured with <code className="bg-blue-100 px-1 rounded">tiddly mcp configure antigravity</code>.
           The <code className="bg-blue-100 px-1 rounded">agy</code> CLI and the Antigravity IDE share
           one config file (<code className="bg-blue-100 px-1 rounded">~/.gemini/config/mcp_config.json</code>),
-          so configuring once covers both. It reads the file at startup — quit and restart Antigravity
-          after configuring. Antigravity supports <strong>user scope only</strong>, and like Codex it&apos;s
+          so configuring once covers both. Antigravity reads the file at startup, so quit and restart
+          the IDE after configuring (the <code className="bg-blue-100 px-1 rounded">agy</code> CLI picks
+          up changes on its next run). Antigravity supports <strong>user scope only</strong>, and like Codex it&apos;s
           a tools-only MCP client (no MCP Prompts). Unlike Codex, it has no Tiddly skills integration,
           so your prompt templates are accessed through the prompt server&apos;s tools{' '}
           (<code className="bg-blue-100 px-1 rounded">search_prompts</code>,{' '}
