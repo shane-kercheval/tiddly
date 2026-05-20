@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/api"
@@ -86,10 +87,13 @@ Examples:
 			if len(args) > 0 {
 				tools = args
 			} else {
-				// Auto-detect tools
+				// Auto-detect tools. Filter to skills-supported tools only:
+				// some MCP tools (e.g. antigravity) are detectable for MCP
+				// configuration but have no Tiddly skills integration, so they
+				// must not leak into skills auto-detection.
 				detected := mcp.DetectAll(appDeps.handlers(), appDeps.ExecLooker)
 				for _, t := range detected {
-					if t.Detected {
+					if t.Detected && slices.Contains(validSkillsTools, t.Name) {
 						tools = append(tools, t.Name)
 					}
 				}

@@ -111,12 +111,20 @@ func isTiddlyPromptURL(rawURL string) bool {
 	return urlMatchesPrefix(rawURL, urlPrefix(PromptMCPURL()))
 }
 
-// extractServerURL returns the MCP URL from a server entry, checking both
-// the HTTP format ("url" field) and the stdio/npx mcp-remote format ("args" array).
-// For stdio format, it finds "mcp-remote" anywhere in args and returns the next element.
-// This handles variants like ["mcp-remote", "<url>"] and ["-y", "mcp-remote", "<url>"]
-// since users may manually configure servers with different npx flag orderings.
+// extractServerURL returns the MCP URL from a server entry, checking the HTTP
+// formats ("serverUrl" or "url" field) and the stdio/npx mcp-remote format
+// ("args" array). For stdio format, it finds "mcp-remote" anywhere in args and
+// returns the next element. This handles variants like ["mcp-remote", "<url>"]
+// and ["-y", "mcp-remote", "<url>"] since users may manually configure servers
+// with different npx flag orderings.
+//
+// "serverUrl" is Antigravity's HTTP field name; "url" is what Claude Code and
+// Claude Desktop use. Antigravity wins when both are present so an Antigravity
+// entry classifies on its own field.
 func extractServerURL(serverMap map[string]any) string {
+	if urlStr, _ := serverMap["serverUrl"].(string); urlStr != "" {
+		return urlStr
+	}
 	if urlStr, _ := serverMap["url"].(string); urlStr != "" {
 		return urlStr
 	}
@@ -133,10 +141,13 @@ func extractServerURL(serverMap map[string]any) string {
 }
 
 // detectTransport returns the transport type for a JSON MCP server entry.
-// Returns "http" if a url field or type:"http" is present, "stdio" if a command
-// field is present, or "" if the format is unrecognized.
-// When both url/type and command fields exist, http takes precedence.
+// Returns "http" if a serverUrl/url field or type:"http" is present, "stdio" if
+// a command field is present, or "" if the format is unrecognized.
+// When both an HTTP URL and command fields exist, http takes precedence.
 func detectTransport(serverMap map[string]any) string {
+	if _, ok := serverMap["serverUrl"].(string); ok {
+		return "http"
+	}
 	if _, ok := serverMap["url"].(string); ok {
 		return "http"
 	}

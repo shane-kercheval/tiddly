@@ -10,12 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultHandlers__returns_all_three_in_order(t *testing.T) {
+func TestDefaultHandlers__returns_all_in_order(t *testing.T) {
 	handlers := DefaultHandlers()
-	require.Len(t, handlers, 3)
+	require.Len(t, handlers, 4)
 	assert.Equal(t, "claude-desktop", handlers[0].Name())
 	assert.Equal(t, "claude-code", handlers[1].Name())
 	assert.Equal(t, "codex", handlers[2].Name())
+	assert.Equal(t, "antigravity", handlers[3].Name())
 }
 
 func TestGetHandler__found(t *testing.T) {
@@ -224,5 +225,5 @@ func TestDetectAll__returns_results_in_handler_order(t *testing.T) {
 
 func TestValidToolNames(t *testing.T) {
 	names := ValidToolNames(DefaultHandlers())
-	assert.Equal(t, []string{"claude-desktop", "claude-code", "codex"}, names)
+	assert.Equal(t, []string{"claude-desktop", "claude-code", "codex", "antigravity"}, names)
 }

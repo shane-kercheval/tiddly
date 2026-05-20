@@ -208,6 +208,17 @@ func RunConfigure(opts ConfigureOpts, tools []DetectedTool) (*ConfigureResult, e
 		// Tiddly URL entries live in sr.Servers with MatchByName.
 		var mismatches []canonicalMismatch
 		for _, o := range sr.OtherServers {
+			// An entry with no recognizable URL isn't a URL conflict — there's
+			// nothing for the canonical write to clash with, so overwrite it
+			// freely (the backup preserves the prior contents) rather than
+			// refusing with a misleading "unexpected URL" error. This also
+			// lets a canonical entry mis-keyed with "url" instead of the
+			// agy-required "serverUrl" (which reads as an empty URL under
+			// Antigravity's strict serverUrl-only classification) self-heal on
+			// configure instead of demanding --force.
+			if o.URL == "" {
+				continue
+			}
 			expected, known := ServerTypeForCanonicalName(o.Name)
 			if !known {
 				continue

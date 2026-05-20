@@ -33,7 +33,7 @@ func newMCPCmd() *cobra.Command {
 	mcpCmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Manage MCP server integrations",
-		Long: `Configure and manage MCP (Model Context Protocol) servers for AI tools like Claude Desktop, Claude Code, and Codex.
+		Long: `Configure and manage MCP (Model Context Protocol) servers for AI tools like Claude Desktop, Claude Code, Codex, and Antigravity.
 
   tiddly mcp configure           Auto-detect tools and configure MCP servers
   tiddly mcp status              Show MCP configuration for all tools
@@ -68,7 +68,7 @@ If a CLI-managed entry already exists but points at a URL that's not the expecte
 Before destructive writes, the existing config file is copied to <path>.bak.<timestamp> alongside the original.
 
 Tools:
-  claude-desktop, claude-code, codex (auto-detect if omitted)
+  claude-desktop, claude-code, codex, antigravity (auto-detect if omitted)
 
 Scope:
   The --scope flag controls where the MCP server config is written. The default is "user",
@@ -76,6 +76,7 @@ Scope:
 
   user       Configuration available everywhere for the user
   directory  Configuration only applies when running tools from a specific directory
+             (not supported by claude-desktop or antigravity, which are user-scope only)
 
 Examples:
   tiddly mcp configure                                  Auto-detect and configure for all found tools
@@ -298,7 +299,7 @@ Claude Desktop users: restart Claude Desktop after removing.
 Use --servers to scope the removal to only content or only prompts, leaving the other CLI-managed entry untouched.
 
 Tools:
-  claude-desktop, claude-code, codex
+  claude-desktop, claude-code, codex, antigravity
 
 Examples:
   tiddly mcp remove claude-code                          Remove CLI-managed entries

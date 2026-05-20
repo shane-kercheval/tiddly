@@ -1890,6 +1890,36 @@ func TestRunConfigure__force_is_no_op_when_no_mismatch(t *testing.T) {
 	assert.NotContains(t, stderr.String(), "Forcing overwrite")
 }
 
+func TestRunConfigure__antigravity_mis_keyed_canonical_self_heals(t *testing.T) {
+	// A canonical-named Antigravity entry mis-keyed with "url" (which agy
+	// ignores) reads as an empty URL under strict serverUrl-only classification.
+	// That must NOT trigger the "unexpected URL" mismatch refusal — configure
+	// should overwrite it in place with the correct serverUrl form.
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "mcp_config.json")
+	writeTestJSON(t, configPath, map[string]any{
+		"mcpServers": map[string]any{
+			serverNameContent: map[string]any{
+				"url":     ContentMCPURL(),
+				"headers": map[string]any{"Authorization": "Bearer bm_old"},
+			},
+		},
+	})
+
+	client := api.NewClient("http://unused", "bm_login", "pat")
+	tools := []DetectedTool{{Name: "antigravity", Detected: true, ConfigPath: configPath}}
+
+	_, err := RunConfigure(ConfigureOpts{
+		Handlers: DefaultHandlers(), Client: client, AuthType: "pat",
+	}, tools)
+	require.NoError(t, err, "mis-keyed canonical entry must self-heal, not refuse")
+
+	servers := readTestJSON(t, configPath)["mcpServers"].(map[string]any)
+	content := servers[serverNameContent].(map[string]any)
+	assert.Equal(t, ContentMCPURL(), content["serverUrl"])
+	assert.NotContains(t, content, "url", "mis-keyed url field must be replaced by serverUrl")
+}
+
 func TestRunConfigure__reports_preserved_non_canonical_entries(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".claude.json")
