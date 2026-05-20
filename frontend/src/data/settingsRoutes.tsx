@@ -85,7 +85,7 @@ export const SETTINGS_ROUTES: SettingsRoute[] = [
     icon: <SparklesIcon className="h-4 w-4" />,
     searchText:
       'ai integration mcp model context protocol claude desktop claude code '
-      + 'codex setup configure cli command manual curl pat tokens scope user '
+      + 'codex antigravity agy gemini google setup configure cli command tokens scope user '
       + 'directory tools servers content prompts skills agent connect ai '
       + 'assistant install remove status detect',
   },

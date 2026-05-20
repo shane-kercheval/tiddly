@@ -13,7 +13,7 @@ export function DocsCLIMCP(): ReactNode {
       <p className="text-sm text-gray-600 mb-8">
         The <code className="bg-gray-100 px-1 rounded">tiddly mcp</code> commands auto-detect
         installed AI tools and configure MCP servers with dedicated tokens. Supported tools:
-        Claude Desktop, Claude Code, and Codex.
+        Claude Desktop, Claude Code, Codex, and Antigravity.
       </p>
 
       {/* tiddly mcp configure */}
@@ -67,6 +67,24 @@ tiddly mcp configure claude-code codex              # multiple tools`} />
           <Link to="/docs/cli/skills" className="underline hover:text-gray-900">Skills</Link>.
         </p>
       </InfoCallout>
+
+      <div className="mt-4">
+      <InfoCallout variant="info" title="Antigravity (Google)">
+        <p>
+          Antigravity — Google&apos;s successor to Gemini CLI for individual-tier users — is
+          configured with <code className="bg-blue-100 px-1 rounded">tiddly mcp configure antigravity</code>.
+          The <code className="bg-blue-100 px-1 rounded">agy</code> CLI and the Antigravity IDE share
+          one config file (<code className="bg-blue-100 px-1 rounded">~/.gemini/config/mcp_config.json</code>),
+          so configuring once covers both. It reads the file at startup — quit and restart Antigravity
+          after configuring. Antigravity supports <strong>user scope only</strong>, and like Codex it&apos;s
+          a tools-only MCP client (no MCP Prompts). Unlike Codex, it has no Tiddly skills integration,
+          so your prompt templates are accessed through the prompt server&apos;s tools{' '}
+          (<code className="bg-blue-100 px-1 rounded">search_prompts</code>,{' '}
+          <code className="bg-blue-100 px-1 rounded">get_prompt_content</code>) rather than as slash
+          commands or skills.
+        </p>
+      </InfoCallout>
+      </div>
 
       {/* tiddly mcp status */}
       <h2 className="text-lg font-bold text-gray-900 mt-10 mb-4">tiddly mcp status</h2>
@@ -214,9 +232,13 @@ tiddly mcp remove claude-code --delete-tokens" />
               <td className="py-2 pr-4">Claude Code</td>
               <td className="py-2"><code className="bg-gray-100 px-1 rounded">claude</code> binary in PATH</td>
             </tr>
-            <tr>
+            <tr className="border-b border-gray-100">
               <td className="py-2 pr-4">Codex</td>
               <td className="py-2"><code className="bg-gray-100 px-1 rounded">codex</code> binary in PATH or <code className="bg-gray-100 px-1 rounded">~/.codex/</code> exists</td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-4">Antigravity</td>
+              <td className="py-2"><code className="bg-gray-100 px-1 rounded">agy</code> binary in PATH, or <code className="bg-gray-100 px-1 rounded">~/.gemini/antigravity-cli/</code> / <code className="bg-gray-100 px-1 rounded">~/.gemini/antigravity/</code> exists</td>
             </tr>
           </tbody>
         </table>
@@ -250,10 +272,15 @@ tiddly mcp remove claude-code --delete-tokens" />
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.claude.json</code></td>
               <td className="py-2">JSON</td>
             </tr>
-            <tr>
+            <tr className="border-b border-gray-100">
               <td className="py-2 pr-4">Codex</td>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.codex/config.toml</code></td>
               <td className="py-2">TOML</td>
+            </tr>
+            <tr>
+              <td className="py-2 pr-4">Antigravity</td>
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.gemini/config/mcp_config.json</code>{' '}<span className="text-gray-400 text-xs">(shared by the agy CLI and IDE)</span></td>
+              <td className="py-2">JSON</td>
             </tr>
           </tbody>
         </table>
@@ -285,7 +312,8 @@ tiddly mcp remove claude-code --delete-tokens" />
               <th className="py-2 pr-4 text-left font-semibold text-gray-900">Scope</th>
               <th className="py-2 pr-4 text-left font-semibold text-gray-900">Claude Desktop</th>
               <th className="py-2 pr-4 text-left font-semibold text-gray-900">Claude Code</th>
-              <th className="py-2 text-left font-semibold text-gray-900">Codex</th>
+              <th className="py-2 pr-4 text-left font-semibold text-gray-900">Codex</th>
+              <th className="py-2 text-left font-semibold text-gray-900">Antigravity</th>
             </tr>
           </thead>
           <tbody className="text-sm text-gray-600">
@@ -293,13 +321,15 @@ tiddly mcp remove claude-code --delete-tokens" />
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">user</code> (default)</td>
               <td className="py-2 pr-4">Global config</td>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.claude.json</code> top-level</td>
-              <td className="py-2"><code className="bg-gray-100 px-1 rounded text-xs">~/.codex/config.toml</code></td>
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.codex/config.toml</code></td>
+              <td className="py-2"><code className="bg-gray-100 px-1 rounded text-xs">~/.gemini/config/mcp_config.json</code></td>
             </tr>
             <tr>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded">directory</code></td>
               <td className="py-2 pr-4 text-gray-400">Not supported</td>
               <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">~/.claude.json</code> under project key</td>
-              <td className="py-2"><code className="bg-gray-100 px-1 rounded text-xs">.codex/config.toml</code> in cwd</td>
+              <td className="py-2 pr-4"><code className="bg-gray-100 px-1 rounded text-xs">.codex/config.toml</code> in cwd</td>
+              <td className="py-2 text-gray-400">Not supported</td>
             </tr>
           </tbody>
         </table>
@@ -341,13 +371,6 @@ tiddly mcp remove claude-code --delete-tokens" />
       </div>
 
       {/* Cross-link to AI Integration */}
-      <InfoCallout variant="tip" title="Manual Setup">
-        <p>
-          Prefer configuring MCP servers manually? See the{' '}
-          <Link to="/docs/ai" className="underline hover:text-gray-900">AI Integration</Link>{' '}
-          docs for step-by-step guides.
-        </p>
-      </InfoCallout>
     </div>
   )
 }

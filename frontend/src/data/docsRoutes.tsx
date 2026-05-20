@@ -116,7 +116,7 @@ export const DOCS_ROUTES: DocsRoute[] = [
     label: 'Docs: AI Integration',
     searchText:
       'ai integration mcp model context protocol claude code claude desktop codex '
-      + 'cursor windsurf chatgpt connect ai assistants agents setup configure tokens '
+      + 'antigravity agy gemini google cursor windsurf chatgpt connect ai assistants agents setup configure tokens '
       + 'example prompts widget tools server',
   },
   {
