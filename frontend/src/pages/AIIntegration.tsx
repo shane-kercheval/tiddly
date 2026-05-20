@@ -61,41 +61,49 @@ const AI_CLIENTS: AIClient[] = [
     comingSoon: true,
   },
   {
-    name: 'Gemini CLI',
+    name: 'Antigravity',
     maker: 'Google',
     icon: <GeminiIcon className="h-6 w-6" />,
-    environment: 'Terminal',
-    description: 'MCP integration instructions are coming soon.',
-    connectionMethods: { mcp: false, skills: false },
+    environment: 'Terminal + Desktop',
+    description: 'Access your bookmarks, notes, and prompts from the agy CLI or the Antigravity IDE.',
+    connectionMethods: { mcp: true, skills: false },
     docsPath: '/docs/ai',
-    comingSoon: true,
+    configType: 'JSON',
+    mcpPrompts: false,
   },
 ]
 
+// Antigravity values reflect agy 1.0.0 (verified 2026-05-19): JSON config,
+// tools-only MCP client (no MCP prompts), and no Tiddly skills integration.
+// Revisit if a future agy release adds prompt support.
 const comparisonRows = [
   {
     feature: 'Environment',
     claudeDesktop: 'Desktop',
     claudeCode: 'Terminal',
     codex: 'Terminal',
+    antigravity: 'Terminal + Desktop',
   },
   {
     feature: 'Config type',
     claudeDesktop: 'JSON',
     claudeCode: 'CLI',
     codex: 'TOML',
+    antigravity: 'JSON',
   },
   {
     feature: 'MCP Prompts',
     claudeDesktop: true,
     claudeCode: true,
     codex: false,
+    antigravity: false,
   },
   {
     feature: 'Agent Skills',
     claudeDesktop: true,
     claudeCode: true,
     codex: true,
+    antigravity: false,
   },
 ]
 
@@ -229,6 +237,9 @@ export function AIIntegration(): ReactNode {
                 <th className="px-4 py-4 text-center text-sm font-semibold text-gray-900">
                   Codex
                 </th>
+                <th className="px-4 py-4 text-center text-sm font-semibold text-gray-900">
+                  Antigravity
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -243,6 +254,9 @@ export function AIIntegration(): ReactNode {
                   </td>
                   <td className="px-4 py-3 text-center text-sm text-gray-600">
                     <ComparisonCell value={row.codex} />
+                  </td>
+                  <td className="px-4 py-3 text-center text-sm text-gray-600">
+                    <ComparisonCell value={row.antigravity} />
                   </td>
                 </tr>
               ))}

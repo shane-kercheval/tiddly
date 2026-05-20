@@ -1,114 +1,30 @@
 /**
- * Reusable AI Integration setup widget with CLI and manual (Curl/PAT) tabs.
+ * Reusable AI Integration setup widget driving the CLI-based setup flow.
  * Used by both Settings → AI Integration and Docs → AI Integration.
  */
 import { useState, useEffect, useRef } from 'react'
 import type { ReactNode, KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { config } from '../config'
 import { api } from '../services/api'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 import type { TagCount, TagListResponse } from '../types'
 
-const CONFIG_PATH_MAC = '~/Library/Application\\ Support/Claude/claude_desktop_config.json'
-const CONFIG_PATH_WINDOWS = '%APPDATA%\\Claude\\claude_desktop_config.json'
 
 // Selector types
 type ServerType = 'content' | 'prompts'
-type ClientType = 'claude-desktop' | 'claude-code' | 'gemini-cli' | 'chatgpt' | 'codex'
-type AuthType = 'bearer' | 'oauth'
-type IntegrationType = 'mcp' | 'skills'
-type SetupTab = 'cli' | 'manual'
-
-interface McpServerConfig {
-  command: string
-  args: string[]
-}
-
-/**
- * Selector row component for PyTorch-style configuration.
- */
-interface SelectorOption<T extends string> {
-  value: T
-  label: string
-  disabled?: boolean
-  comingSoon?: boolean
-}
-
-interface SelectorRowProps<T extends string> {
-  label: string
-  options: SelectorOption<T>[]
-  value: T
-  onChange: (value: T) => void
-  disabled?: boolean
-}
-
-function SelectorRow<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-  disabled = false,
-}: SelectorRowProps<T>): ReactNode {
-  return (
-    <div className="flex flex-col md:flex-row md:items-center gap-1.5">
-      {/* Label - on mobile shows above options with orange border, on desktop shows inline */}
-      <div className="border-l-4 border-l-[#f09040] pl-3 md:border-l-0 md:pl-4 md:w-32 md:flex-shrink-0">
-        <span className={`text-sm font-medium ${disabled ? 'text-gray-400' : 'text-gray-700'}`}>{label}</span>
-      </div>
-      {/* Options - stack vertically on mobile, horizontal on desktop */}
-      <div className="flex flex-col md:flex-row md:flex-1 gap-1.5 pl-4 md:pl-0">
-        {options.map((option) => {
-          const isSelected = value === option.value
-          const isComingSoon = option.comingSoon
-          const isOptionDisabled = disabled || option.disabled
-
-          // Color scheme:
-          // Supported: light orange (unselected) / dark orange (selected)
-          // Unsupported/coming soon: light gray (unselected) / dark gray (selected)
-          // Disabled: very light gray, not clickable
-
-          return (
-            <button
-              key={option.value}
-              type="button"
-              disabled={isOptionDisabled}
-              onClick={() => !isOptionDisabled && onChange(option.value)}
-              className={`
-                md:flex-1 px-4 py-2.5 text-sm font-medium transition-colors text-left md:text-center
-                ${
-                  isOptionDisabled
-                    ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                    : isComingSoon
-                    ? isSelected
-                      ? 'bg-gray-300 text-gray-700'
-                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                    : isSelected
-                    ? 'bg-[#f09040] text-white'
-                    : 'bg-[#fff0e5] text-[#d97b3d] hover:bg-[#ffe4d1]'
-                }
-              `}
-            >
-              {option.label}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// =============================================================================
-// CLI-First Setup Section
-//
-// For the tool/scope support matrix and terminology decisions,
-// see docs/ai-integration.md
-// =============================================================================
-
-type CliToolType = 'claude-desktop' | 'claude-code' | 'codex'
+type CliToolType = 'claude-desktop' | 'claude-code' | 'codex' | 'antigravity'
 type CliActionType = 'configure' | 'remove'
 type ScopeType = 'user' | 'directory'
 type TagMatchType = 'all' | 'any'
+
+// All MCP-configurable tools, in display order.
+const ALL_CLI_TOOLS: CliToolType[] = ['claude-desktop', 'claude-code', 'codex', 'antigravity']
+// Tools with a Tiddly skills integration. Antigravity is excluded — it has no
+// skills support (its plugin model differs from our SKILL.md export), so it
+// must never appear in `tiddly skills configure` commands or skills paths.
+const SKILLS_CLI_TOOLS: CliToolType[] = ['claude-desktop', 'claude-code', 'codex']
+// Tools that only support user scope (no --scope directory).
+const USER_SCOPE_ONLY_TOOLS: CliToolType[] = ['claude-desktop', 'antigravity']
 
 interface PillOption<T extends string> {
   value: T
@@ -252,24 +168,6 @@ function PillSelectGroup<T extends string>({
 /**
  * Numbered step card for setup instructions.
  */
-function StepCard({ number, title, subtitle, children }: { number: number; title: string; subtitle?: string; children?: ReactNode }): ReactNode {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <div className="flex gap-4">
-        <span className="text-lg font-semibold text-[#d97b3d] select-none">{number}</span>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-          {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
-          {children}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Generate CLI command(s) based on selected options.
- */
 function generateCLICommands(
   action: CliActionType,
   selectedServers: Set<ServerType>,
@@ -284,15 +182,14 @@ function generateCLICommands(
     return generateRemoveCommands(selectedServers, installSkills, selectedTools, deleteTokens, scope)
   }
 
-  const allTools: CliToolType[] = ['claude-desktop', 'claude-code', 'codex']
   const needsCd = scope === 'directory'
   const parts: string[] = []
 
   if (selectedServers.size > 0 && selectedTools.size > 0) {
     let cmd = 'tiddly mcp configure'
 
-    const mcpTools = allTools.filter((t) => selectedTools.has(t))
-    if (mcpTools.length < allTools.length) {
+    const mcpTools = ALL_CLI_TOOLS.filter((t) => selectedTools.has(t))
+    if (mcpTools.length < ALL_CLI_TOOLS.length) {
       cmd += ' ' + mcpTools.join(' ')
     }
 
@@ -307,11 +204,11 @@ function generateCLICommands(
     parts.push(cmd)
   }
 
-  if (installSkills && selectedTools.size > 0) {
+  const skillsTools = SKILLS_CLI_TOOLS.filter((t) => selectedTools.has(t))
+  if (installSkills && skillsTools.length > 0) {
     let cmd = 'tiddly skills configure'
 
-    const skillsTools = allTools.filter((t) => selectedTools.has(t))
-    if (skillsTools.length < allTools.length) {
+    if (skillsTools.length < SKILLS_CLI_TOOLS.length) {
       cmd += ' ' + skillsTools.join(' ')
     }
 
@@ -352,12 +249,11 @@ function generateRemoveCommands(
   deleteTokens: boolean,
   scope: ScopeType,
 ): string {
-  const allTools: CliToolType[] = ['claude-desktop', 'claude-code', 'codex']
   const needsCd = scope === 'directory'
   const parts: string[] = []
 
   if (selectedServers.size > 0 && selectedTools.size > 0) {
-    const mcpTools = allTools.filter((t) => selectedTools.has(t))
+    const mcpTools = ALL_CLI_TOOLS.filter((t) => selectedTools.has(t))
     for (const tool of mcpTools) {
       let cmd = `tiddly mcp remove ${tool}`
       if (selectedServers.size === 1) {
@@ -374,7 +270,7 @@ function generateRemoveCommands(
   }
 
   if (removeSkills && selectedTools.size > 0) {
-    const skillsTools = allTools.filter((t) => selectedTools.has(t))
+    const skillsTools = SKILLS_CLI_TOOLS.filter((t) => selectedTools.has(t))
     for (const tool of skillsTools) {
       if (tool === 'claude-desktop') {
         parts.push('# Claude Desktop: manually remove skills from Settings > Capabilities')
@@ -407,6 +303,7 @@ const CLI_TOOL_LABELS: Record<CliToolType, string> = {
   'claude-desktop': 'Claude Desktop',
   'claude-code': 'Claude Code',
   'codex': 'Codex',
+  'antigravity': 'Antigravity',
 }
 
 interface AffectedFile {
@@ -441,6 +338,9 @@ function getAffectedFiles(
     if (selectedTools.has('claude-desktop')) {
       files.push({ path: '~/Library/Application Support/Claude/claude_desktop_config.json', description: 'Claude Desktop MCP (macOS)' })
     }
+    if (selectedTools.has('antigravity')) {
+      files.push({ path: '~/.gemini/config/mcp_config.json', description: 'Antigravity MCP (shared by the agy CLI and the IDE)' })
+    }
   }
 
   if (installSkills) {
@@ -465,11 +365,24 @@ function getAffectedFiles(
 }
 
 /**
- * Returns true when Claude Desktop is selected with directory scope — an invalid
- * configuration since Claude Desktop only supports user scope.
+ * Returns the user-scope-only tools (Claude Desktop, Antigravity) selected
+ * alongside directory scope — an invalid combination since those tools only
+ * support user scope. Empty when there's no conflict.
  */
-function hasClaudeDesktopDirectoryError(selectedTools: Set<CliToolType>, scope: ScopeType): boolean {
-  return selectedTools.has('claude-desktop') && scope === 'directory'
+function userScopeOnlyDirectoryConflicts(selectedTools: Set<CliToolType>, scope: ScopeType): CliToolType[] {
+  if (scope !== 'directory') return []
+  return USER_SCOPE_ONLY_TOOLS.filter((t) => selectedTools.has(t))
+}
+
+/**
+ * Returns the selected tools that have no Tiddly skills integration (e.g.
+ * Antigravity) when skills are enabled — an invalid combination, since skills
+ * cannot be installed for those tools. Empty when skills are off or every
+ * selected tool supports skills. Preserves ALL_CLI_TOOLS display order.
+ */
+function skillsUnsupportedConflicts(selectedTools: Set<CliToolType>, installSkills: boolean): CliToolType[] {
+  if (!installSkills) return []
+  return ALL_CLI_TOOLS.filter((t) => selectedTools.has(t) && !SKILLS_CLI_TOOLS.includes(t))
 }
 
 /**
@@ -530,8 +443,11 @@ function CLISetupSection(): ReactNode {
   const hasMcpServers = selectedServers.size > 0
   const hasSelections = (hasMcpServers || installSkills) && selectedTools.size > 0
   const activeScope = isRemove ? removeScope : scope
-  const desktopDirectoryError = hasClaudeDesktopDirectoryError(selectedTools, activeScope)
-  const command = desktopDirectoryError ? '' : generateCLICommands(cliAction, selectedServers, installSkills, selectedTools, activeScope, skillsTags, skillsTagMatch, deleteTokens)
+  const scopeConflictTools = userScopeOnlyDirectoryConflicts(selectedTools, activeScope)
+  const scopeConflictError = scopeConflictTools.length > 0
+  const skillsConflictTools = skillsUnsupportedConflicts(selectedTools, installSkills)
+  const skillsConflictError = skillsConflictTools.length > 0
+  const command = (scopeConflictError || skillsConflictError) ? '' : generateCLICommands(cliAction, selectedServers, installSkills, selectedTools, activeScope, skillsTags, skillsTagMatch, deleteTokens)
   const hasAnything = hasSelections && command !== ''
   const affectedFiles = hasAnything ? getAffectedFiles(selectedTools, activeScope, hasMcpServers, installSkills, cliAction) : []
 
@@ -566,6 +482,7 @@ function CLISetupSection(): ReactNode {
     { value: 'claude-desktop', label: 'Claude Desktop' },
     { value: 'claude-code', label: 'Claude Code' },
     { value: 'codex', label: 'Codex' },
+    { value: 'antigravity', label: 'Antigravity' },
   ]
 
   // Server options
@@ -724,8 +641,15 @@ function CLISetupSection(): ReactNode {
       <SectionDivider label="Steps" />
       {!hasSelections ? (
         <p className="text-sm text-gray-400 italic">Select at least one item and one target tool above.</p>
-      ) : desktopDirectoryError ? (
-        <p className="text-sm text-amber-600 italic">Claude Desktop only supports User scope. Deselect Claude Desktop or switch to User scope.</p>
+      ) : (scopeConflictError || skillsConflictError) ? (
+        <div className="space-y-1">
+          {scopeConflictError && (
+            <p className="text-sm text-amber-600 italic">{scopeConflictTools.map((t) => CLI_TOOL_LABELS[t]).join(' and ')} only support{scopeConflictTools.length === 1 ? 's' : ''} User scope. Deselect {scopeConflictTools.length === 1 ? 'it' : 'them'} or switch to User scope.</p>
+          )}
+          {skillsConflictError && (
+            <p className="text-sm text-amber-600 italic">{skillsConflictTools.map((t) => CLI_TOOL_LABELS[t]).join(' and ')} {skillsConflictTools.length === 1 ? 'does' : 'do'} not support skills. Deselect {skillsConflictTools.length === 1 ? 'it' : 'them'} or turn off Skills.</p>
+          )}
+        </div>
       ) : (
         <div className="space-y-3">
           {/* Step 1: Install CLI */}
@@ -848,624 +772,6 @@ function CLISetupSection(): ReactNode {
   )
 }
 
-// =============================================================================
-// Manual Setup Section (existing PyTorch-style selector, collapsed by default)
-// =============================================================================
-
-/**
- * Generate the Claude Desktop config JSON based on server selection.
- */
-function generateClaudeDesktopConfig(
-  server: ServerType,
-  mcpUrl: string,
-  promptMcpUrl: string
-): string {
-  const servers: Record<string, McpServerConfig> = {}
-
-  if (server === 'content') {
-    servers.tiddly_notes_bookmarks = {
-      command: 'npx',
-      args: [
-        'mcp-remote',
-        `${mcpUrl}/mcp`,
-        '--header',
-        'Authorization: Bearer YOUR_TOKEN_HERE',
-      ],
-    }
-  } else {
-    servers.tiddly_prompts = {
-      command: 'npx',
-      args: [
-        'mcp-remote',
-        `${promptMcpUrl}/mcp`,
-        '--header',
-        'Authorization: Bearer YOUR_TOKEN_HERE',
-      ],
-    }
-  }
-
-  const configObj = { mcpServers: servers }
-  return JSON.stringify(configObj, null, 2)
-}
-
-/**
- * Generate the Claude Code commands based on server selection.
- */
-function generateClaudeCodeCommand(
-  server: ServerType,
-  mcpUrl: string,
-  promptMcpUrl: string
-): string {
-  if (server === 'content') {
-    return `claude mcp add --transport http tiddly_notes_bookmarks ${mcpUrl}/mcp \\
-  --header "Authorization: Bearer YOUR_TOKEN_HERE"`
-  } else {
-    return `claude mcp add --transport http tiddly_prompts ${promptMcpUrl}/mcp \\
-  --header "Authorization: Bearer YOUR_TOKEN_HERE"`
-  }
-}
-
-/**
- * Claude Desktop setup instructions component.
- */
-interface ClaudeDesktopInstructionsProps {
-  server: ServerType
-  mcpUrl: string
-  promptMcpUrl: string
-}
-
-function ClaudeDesktopInstructions({
-  server,
-  mcpUrl,
-  promptMcpUrl,
-}: ClaudeDesktopInstructionsProps): ReactNode {
-  const [copiedConfig, setCopiedConfig] = useState(false)
-  const [copiedPathMac, setCopiedPathMac] = useState(false)
-  const [copiedPathWin, setCopiedPathWin] = useState(false)
-
-  const exampleConfig = generateClaudeDesktopConfig(server, mcpUrl, promptMcpUrl)
-
-  const handleCopyConfig = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(exampleConfig)
-      setCopiedConfig(true)
-      setTimeout(() => setCopiedConfig(false), 2000)
-    } catch {
-      // Silent fail
-    }
-  }
-
-  const handleCopyPathMac = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(CONFIG_PATH_MAC)
-      setCopiedPathMac(true)
-      setTimeout(() => setCopiedPathMac(false), 2000)
-    } catch {
-      // Silent fail
-    }
-  }
-
-  const handleCopyPathWin = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(CONFIG_PATH_WINDOWS)
-      setCopiedPathWin(true)
-      setTimeout(() => setCopiedPathWin(false), 2000)
-    } catch {
-      // Silent fail
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <StepCard number={1} title="Create a Personal Access Token" subtitle="Authenticate with the MCP server">
-        <Link
-          to="/app/settings/tokens"
-          className="btn-primary inline-flex items-center gap-2 mt-2"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Create Token
-        </Link>
-      </StepCard>
-
-      <StepCard number={2} title="Locate Config File" subtitle="Create or edit the Claude Desktop configuration file">
-        <div className="space-y-3 mt-2">
-          <div>
-            <span className="text-xs font-medium text-gray-700">macOS:</span>
-            <div className="relative mt-1">
-              <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14">
-                {CONFIG_PATH_MAC}
-              </code>
-              <button
-                onClick={handleCopyPathMac}
-                className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-                  copiedPathMac
-                    ? 'bg-green-600 text-white'
-                    : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-                }`}
-              >
-                {copiedPathMac ? 'Copied!' : 'Copy'}
-              </button>
-            </div>
-          </div>
-          <div>
-            <span className="text-xs font-medium text-gray-700">Windows:</span>
-            <div className="relative mt-1">
-              <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14">
-                {CONFIG_PATH_WINDOWS}
-              </code>
-              <button
-                onClick={handleCopyPathWin}
-                className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-                  copiedPathWin
-                    ? 'bg-green-600 text-white'
-                    : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-                }`}
-              >
-                {copiedPathWin ? 'Copied!' : 'Copy'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </StepCard>
-
-      <StepCard number={3} title="Add Configuration" subtitle="Add the following to your config file">
-        <div className="relative mt-2">
-          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap break-all overflow-x-auto font-mono pr-14">
-            <code>{exampleConfig}</code>
-          </pre>
-          <button
-            onClick={handleCopyConfig}
-            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-              copiedConfig
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-            }`}
-          >
-            {copiedConfig ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-gray-500">
-          Replace <code className="bg-gray-100 px-1 rounded">YOUR_TOKEN_HERE</code> with
-          your Personal Access Token from Step 1.
-        </p>
-      </StepCard>
-
-      <StepCard number={4} title="Restart Claude Desktop" subtitle="Load the MCP server">
-        <div className="mt-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
-          <p className="text-xs text-blue-800">
-            <strong>Verify:</strong> Start a new conversation and try{' '}
-            {server === 'content' ? (
-              <em>&quot;Search my bookmarks&quot;</em>
-            ) : (
-              <em>&quot;List my prompts&quot;</em>
-            )}{' '}
-            to confirm the integration is working.
-          </p>
-        </div>
-      </StepCard>
-
-      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Want to add both servers?</h3>
-        <p className="text-sm text-gray-600">
-          Switch between &quot;Content&quot; and &quot;Prompts&quot; in the selector above to see the configuration for each server.
-          You can add both configurations to your <code className="bg-gray-200 px-1 rounded text-xs">mcpServers</code> object
-          by combining them.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Claude Code setup instructions component.
- */
-interface ClaudeCodeInstructionsProps {
-  server: ServerType
-  mcpUrl: string
-  promptMcpUrl: string
-}
-
-function ClaudeCodeInstructions({
-  server,
-  mcpUrl,
-  promptMcpUrl,
-}: ClaudeCodeInstructionsProps): ReactNode {
-  const [copiedCommand, setCopiedCommand] = useState(false)
-  const [copiedImport, setCopiedImport] = useState(false)
-
-  const command = generateClaudeCodeCommand(server, mcpUrl, promptMcpUrl)
-  const importCommand = 'claude mcp add-from-claude-desktop'
-
-  const handleCopyCommand = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(command)
-      setCopiedCommand(true)
-      setTimeout(() => setCopiedCommand(false), 2000)
-    } catch {
-      // Silent fail
-    }
-  }
-
-  const handleCopyImport = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(importCommand)
-      setCopiedImport(true)
-      setTimeout(() => setCopiedImport(false), 2000)
-    } catch {
-      // Silent fail
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <StepCard number={1} title="Create a Personal Access Token" subtitle="Authenticate with the MCP server">
-        <Link
-          to="/app/settings/tokens"
-          className="btn-primary inline-flex items-center gap-2 mt-2"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Create Token
-        </Link>
-      </StepCard>
-
-      <StepCard number={2} title="Add MCP Server" subtitle="Run this command in your project directory">
-        <div className="relative mt-2">
-          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
-            <code>{command}</code>
-          </pre>
-          <button
-            onClick={handleCopyCommand}
-            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-              copiedCommand
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-            }`}
-          >
-            {copiedCommand ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-gray-500">
-          Replace <code className="bg-gray-100 px-1 rounded">YOUR_TOKEN_HERE</code> with
-          your Personal Access Token from Step 1.
-        </p>
-      </StepCard>
-
-      <StepCard number={3} title="Verify Installation">
-        <p className="text-xs text-gray-500 mt-1">
-          The server is now configured for this project. Try asking Claude Code to{' '}
-          {server === 'content' ? (
-            <em>&quot;search my bookmarks&quot;</em>
-          ) : (
-            <em>&quot;list my prompts&quot;</em>
-          )}{' '}
-          to verify it&apos;s working.
-        </p>
-        <div className="mt-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
-          <p className="text-xs text-blue-800">
-            <strong>Note:</strong> Claude Code MCP servers are configured per project/directory.
-            Run the command in each project where you want access.
-          </p>
-        </div>
-      </StepCard>
-
-      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Alternative: Import from Claude Desktop</h3>
-        <p className="text-sm text-gray-600 mb-3">
-          If you&apos;ve already configured Claude Desktop, you can import those servers:
-        </p>
-        <div className="relative">
-          <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14">
-            {importCommand}
-          </code>
-          <button
-            onClick={handleCopyImport}
-            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-              copiedImport
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-            }`}
-          >
-            {copiedImport ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-      </div>
-
-      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Want to add both servers?</h3>
-        <p className="text-sm text-gray-600">
-          Switch between &quot;Content&quot; and &quot;Prompts&quot; in the selector above to see the command for each server.
-          Run both commands to add both MCP servers to your project.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Generate the Codex config TOML based on server selection.
- */
-function generateCodexConfig(
-  server: ServerType,
-  mcpUrl: string,
-  promptMcpUrl: string
-): string {
-  if (server === 'content') {
-    return `[mcp_servers.tiddly_notes_bookmarks]
-url = "${mcpUrl}/mcp"
-http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
-  } else {
-    return `[mcp_servers.tiddly_prompts]
-url = "${promptMcpUrl}/mcp"
-http_headers = { "Authorization" = "Bearer YOUR_TOKEN_HERE" }`
-  }
-}
-
-/**
- * Codex setup instructions component.
- */
-interface CodexInstructionsProps {
-  server: ServerType
-  mcpUrl: string
-  promptMcpUrl: string
-}
-
-function CodexInstructions({
-  server,
-  mcpUrl,
-  promptMcpUrl,
-}: CodexInstructionsProps): ReactNode {
-  const [copiedConfig, setCopiedConfig] = useState(false)
-
-  const configContent = generateCodexConfig(server, mcpUrl, promptMcpUrl)
-
-  const handleCopyConfig = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(configContent)
-      setCopiedConfig(true)
-      setTimeout(() => setCopiedConfig(false), 2000)
-    } catch {
-      // Silent fail
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <StepCard number={1} title="Create a Personal Access Token" subtitle="Authenticate with the MCP server">
-        <Link
-          to="/app/settings/tokens"
-          className="btn-primary inline-flex items-center gap-2 mt-2"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Create Token
-        </Link>
-      </StepCard>
-
-      <StepCard number={2} title="Add to Config File" subtitle={`Open (or create) ~/.codex/config.toml and add:`}>
-        <div className="relative mt-2">
-          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
-            <code>{configContent}</code>
-          </pre>
-          <button
-            onClick={handleCopyConfig}
-            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-              copiedConfig
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-            }`}
-          >
-            {copiedConfig ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-gray-500">
-          Replace <code className="bg-gray-100 px-1 rounded">YOUR_TOKEN_HERE</code> with
-          your Personal Access Token from Step 1.
-        </p>
-      </StepCard>
-
-      <StepCard number={3} title="Restart Codex" subtitle="If Codex is running, quit and restart it." />
-
-      <StepCard number={4} title="Verify Installation">
-        <p className="text-xs text-gray-500 mt-1">
-          In Codex, type <code className="bg-gray-100 px-1 rounded">/mcp</code> to confirm the server
-          is connected and shows available tools.
-        </p>
-      </StepCard>
-
-      {server === 'prompts' && (
-        <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
-          <h3 className="text-sm font-semibold text-blue-900 mb-2">Using Your Prompts</h3>
-          <p className="text-sm text-blue-800 mb-3">
-            <strong>Note:</strong> Codex does not support MCP Prompts directly (the{' '}
-            <code className="bg-blue-100 px-1 rounded">/prompt-name</code> slash invocation style
-            available in Claude Code). Instead, it exposes your server&apos;s tools for managing
-            and retrieving prompts.
-          </p>
-          <p className="text-sm text-blue-800 mb-2">
-            To use a saved prompt, ask Codex to fetch and apply it:
-          </p>
-          <ul className="text-sm text-blue-800 list-disc list-inside space-y-1">
-            <li>
-              <em>&quot;Get my &apos;code-review&apos; prompt and use it to review the changes in this file&quot;</em>
-            </li>
-            <li>
-              <em>&quot;Search my prompts for &apos;commit message&apos; and use the best match to write a commit for my staged changes&quot;</em>
-            </li>
-          </ul>
-        </div>
-      )}
-
-      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Want to add both servers?</h3>
-        <p className="text-sm text-gray-600">
-          Switch between &quot;Bookmarks &amp; Notes&quot; and &quot;Prompts&quot; in the selector above to see the configuration for each server.
-          You can add both configurations to your <code className="bg-gray-200 px-1 rounded text-xs">config.toml</code> file.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Coming soon placeholder component for various unsupported configurations.
- */
-interface ComingSoonProps {
-  title: string
-  description: string
-}
-
-function ComingSoon({ title, description }: ComingSoonProps): ReactNode {
-  return (
-    <div className="rounded-lg bg-gray-50 border border-gray-200 p-6 text-center">
-      <div className="mb-4">
-        <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      </div>
-      <h3 className="text-lg font-medium text-gray-900 mb-2">
-        {title}
-      </h3>
-      <p className="text-sm text-gray-600">
-        {description}
-      </p>
-    </div>
-  )
-}
-
-/**
- * Available tools section component.
- */
-interface AvailableToolsProps {
-  server: ServerType
-}
-
-function AvailableTools({ server }: AvailableToolsProps): ReactNode {
-  const contentTools = [
-    { tool: 'get_context', category: 'Context', description: 'Get context summary of bookmarks and notes' },
-    { tool: 'search_items', category: 'Search & Read', description: 'Search bookmarks and notes by text/tags' },
-    { tool: 'get_item', category: 'Search & Read', description: 'Get full details by ID' },
-    { tool: 'search_in_content', category: 'Search & Read', description: 'Search within content for editing' },
-    { tool: 'list_filters', category: 'Search & Read', description: 'List content filters with IDs and tag rules' },
-    { tool: 'list_tags', category: 'Search & Read', description: 'Get all tags with usage counts' },
-    { tool: 'create_bookmark', category: 'Create & Edit', description: 'Save a new URL' },
-    { tool: 'create_note', category: 'Create & Edit', description: 'Create a new note' },
-    { tool: 'update_item', category: 'Create & Edit', description: 'Update metadata or fully replace content' },
-    { tool: 'edit_content', category: 'Create & Edit', description: 'Edit content using string replacement' },
-  ]
-
-  const promptTools = [
-    { tool: 'get_context', category: 'Context', description: 'Get context summary of prompts' },
-    { tool: 'search_prompts', category: 'Search & Read', description: 'Search prompts by text/tags' },
-    { tool: 'get_prompt_content', category: 'Search & Read', description: 'Get template and arguments for viewing/editing' },
-    { tool: 'get_prompt_metadata', category: 'Search & Read', description: 'Get metadata without the template' },
-    { tool: 'list_filters', category: 'Search & Read', description: 'List prompt filters with IDs and tag rules' },
-    { tool: 'list_tags', category: 'Search & Read', description: 'Get all tags with usage counts' },
-    { tool: 'create_prompt', category: 'Create & Edit', description: 'Create a new prompt template' },
-    { tool: 'edit_prompt_content', category: 'Create & Edit', description: 'Edit template and arguments using string replacement' },
-    { tool: 'update_prompt', category: 'Create & Edit', description: 'Update metadata, content, or arguments' },
-  ]
-
-  const tools = server === 'content' ? contentTools : promptTools
-
-  // Group tools by category and calculate rowSpan
-  const categoryGroups: { category: string; tools: typeof tools }[] = []
-  let currentCategory = ''
-  for (const tool of tools) {
-    if (tool.category !== currentCategory) {
-      categoryGroups.push({ category: tool.category, tools: [tool] })
-      currentCategory = tool.category
-    } else {
-      categoryGroups[categoryGroups.length - 1].tools.push(tool)
-    }
-  }
-
-  return (
-    <div className="mb-8">
-      <h2 className="text-base font-semibold text-gray-900 mb-2">Available MCP Tools</h2>
-      <p className="text-gray-600 mb-4">
-        Once connected, AI agents can use these tools:
-      </p>
-
-      {/* Mobile: Section/bullet format */}
-      <div className="md:hidden space-y-4">
-        {categoryGroups.map((group) => (
-          <div key={group.category}>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              {group.category}
-            </h4>
-            <ul className="space-y-2 text-sm text-gray-600">
-              {group.tools.map((item) => (
-                <li key={item.tool} className="flex items-start gap-2">
-                  <code className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800 text-xs flex-shrink-0">
-                    {item.tool}
-                  </code>
-                  <span className="text-xs">{item.description}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-
-      {/* Desktop: Table format */}
-      <div className="hidden md:block overflow-hidden rounded-lg border border-gray-200">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                Category
-              </th>
-              <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                Tool
-              </th>
-              <th scope="col" className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                Description
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200 bg-white">
-            {categoryGroups.map((group) =>
-              group.tools.map((item, index) => (
-                <tr key={item.tool}>
-                  {index === 0 && (
-                    <td
-                      rowSpan={group.tools.length}
-                      className="px-3 py-2 text-sm text-gray-500 whitespace-nowrap align-top border-r border-gray-200 bg-gray-50"
-                    >
-                      {group.category}
-                    </td>
-                  )}
-                  <td className="px-3 py-2 text-sm">
-                    <code className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">{item.tool}</code>
-                  </td>
-                  <td className="px-3 py-2 text-sm text-gray-600">
-                    {item.description}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// =============================================================================
-// Skills Export Components
-// =============================================================================
-
-// Client type for skills export (subset that supports skills)
-type SkillsClientType = 'claude-code' | 'claude-desktop' | 'codex'
-
-/**
- * Multi-select tag dropdown for filtering which prompts to export as skills.
- */
 interface SkillsTagSelectorProps {
   availableTags: TagCount[]
   selectedTags: string[]
@@ -1607,215 +913,6 @@ function SkillsTagSelector({
 /**
  * Build the export URL for skills API endpoint.
  */
-function buildSkillsExportUrl(client: SkillsClientType, selectedTags: string[]): string {
-  const params = new URLSearchParams()
-  params.append('client', client)
-  selectedTags.forEach((tag) => params.append('tags', tag))
-  return `${config.apiUrl}/prompts/export/skills?${params.toString()}`
-}
-
-/**
- * Claude Code skills configure instructions.
- */
-interface ClaudeCodeSkillsInstructionsProps {
-  exportUrl: string
-}
-
-function ClaudeCodeSkillsInstructions({ exportUrl }: ClaudeCodeSkillsInstructionsProps): ReactNode {
-  const [copiedCommand, setCopiedCommand] = useState(false)
-
-  const syncCommand = `mkdir -p ~/.claude/skills && curl -sH "Authorization: Bearer $PROMPTS_TOKEN" "${exportUrl}" | tar -xzf - -C ~/.claude/skills/`
-
-  const handleCopyCommand = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(syncCommand)
-      setCopiedCommand(true)
-      setTimeout(() => setCopiedCommand(false), 2000)
-    } catch {
-      // Silent fail
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <StepCard number={3} title="Install Skills" subtitle="Run this command to install your skills">
-        <div className="relative mt-2">
-          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
-            <code>{syncCommand}</code>
-          </pre>
-          <button
-            onClick={handleCopyCommand}
-            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-              copiedCommand
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-            }`}
-          >
-            {copiedCommand ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-      </StepCard>
-
-      <StepCard number={4} title="Use Your Skills">
-        <p className="text-xs text-gray-500 mt-1">
-          After syncing, Claude auto-invokes skills when relevant to your task.
-          You can also trigger them manually with <code className="bg-gray-100 px-1 rounded">/skill-name</code>.
-        </p>
-        <p className="text-xs text-gray-400 mt-1">
-          Tip: Add this command to a cron job or shell alias for regular syncing.
-        </p>
-      </StepCard>
-
-      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Sync Behavior</h3>
-        <p className="text-sm text-gray-600">
-          Syncing is <strong>additive</strong>: new skills are added and existing skills are updated,
-          but skills are not deleted. To remove a skill, manually delete its folder from{' '}
-          <code className="bg-gray-200 px-1 rounded text-xs">~/.claude/skills/</code>.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Codex skills configure instructions.
- */
-interface CodexSkillsInstructionsProps {
-  exportUrl: string
-}
-
-function CodexSkillsInstructions({ exportUrl }: CodexSkillsInstructionsProps): ReactNode {
-  const [copiedCommand, setCopiedCommand] = useState(false)
-
-  const syncCommand = `mkdir -p ~/.codex/skills && curl -sH "Authorization: Bearer $PROMPTS_TOKEN" "${exportUrl}" | tar -xzf - -C ~/.codex/skills/`
-
-  const handleCopyCommand = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(syncCommand)
-      setCopiedCommand(true)
-      setTimeout(() => setCopiedCommand(false), 2000)
-    } catch {
-      // Silent fail
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <StepCard number={3} title="Install Skills" subtitle="Run this command to install your skills">
-        <div className="relative mt-2">
-          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
-            <code>{syncCommand}</code>
-          </pre>
-          <button
-            onClick={handleCopyCommand}
-            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-              copiedCommand
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-            }`}
-          >
-            {copiedCommand ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-      </StepCard>
-
-      <StepCard number={4} title="Use Your Skills">
-        <p className="text-xs text-gray-500 mt-1">
-          After syncing, invoke skills by typing <code className="bg-gray-100 px-1 rounded">$skill-name</code> in your prompt.
-          Codex will also auto-select skills based on your task context.
-        </p>
-      </StepCard>
-
-      <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Sync Behavior</h3>
-        <p className="text-sm text-gray-600">
-          Syncing is <strong>additive</strong>: new skills are added and existing skills are updated,
-          but skills are not deleted. To remove a skill, manually delete its folder from{' '}
-          <code className="bg-gray-200 px-1 rounded text-xs">~/.codex/skills/</code>.
-        </p>
-      </div>
-    </div>
-  )
-}
-
-/**
- * Claude Desktop skills configure instructions.
- */
-interface ClaudeDesktopSkillsInstructionsProps {
-  exportUrl: string
-}
-
-function ClaudeDesktopSkillsInstructions({ exportUrl }: ClaudeDesktopSkillsInstructionsProps): ReactNode {
-  const [copiedCommand, setCopiedCommand] = useState(false)
-
-  const downloadCommand = `curl -sH "Authorization: Bearer YOUR_PAT" "${exportUrl}" -o skills.zip`
-
-  const handleCopyCommand = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(downloadCommand)
-      setCopiedCommand(true)
-      setTimeout(() => setCopiedCommand(false), 2000)
-    } catch {
-      // Silent fail
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <StepCard number={3} title="Download Zip File" subtitle="Run this command to download your skills">
-        <div className="relative mt-2">
-          <pre className="rounded bg-gray-50 px-3 py-2 text-xs text-gray-700 whitespace-pre-wrap overflow-x-auto font-mono pr-14">
-            <code>{downloadCommand}</code>
-          </pre>
-          <button
-            onClick={handleCopyCommand}
-            className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
-              copiedCommand
-                ? 'bg-green-600 text-white'
-                : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
-            }`}
-          >
-            {copiedCommand ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-gray-500">
-          Replace <code className="bg-gray-100 px-1 rounded">YOUR_PAT</code> with your Personal Access Token from Step 1.
-        </p>
-      </StepCard>
-
-      <StepCard number={4} title="Upload to Claude Desktop">
-        <ol className="list-decimal list-inside text-xs text-gray-500 space-y-2 mt-1">
-          <li>Unzip the downloaded <code className="bg-gray-100 px-1 rounded">skills.zip</code> file</li>
-          <li>Open Claude Desktop and go to <strong>Settings → Capabilities</strong></li>
-          <li>Drag and drop <strong>individual</strong> <code className="bg-gray-100 px-1 rounded">.md</code> files from the unzipped folder onto the Capabilities screen, or click <strong>+ Add</strong> to select them one at a time</li>
-        </ol>
-        <p className="mt-2 text-xs text-gray-400">
-          Claude Desktop only accepts one skill per upload — repeat for each <code className="bg-gray-100 px-1 rounded">.md</code> file.
-        </p>
-      </StepCard>
-
-      <StepCard number={5} title="Use Your Skills">
-        <p className="text-xs text-gray-500 mt-1">
-          Skills are invoked via natural language (e.g., &quot;use my code review skill&quot;).
-          Claude will also auto-invoke them when relevant to your conversation.
-        </p>
-      </StepCard>
-    </div>
-  )
-}
-
-/**
- * Main skills export section component.
- */
-interface SkillsExportSectionProps {
-  client: SkillsClientType
-}
-
-/**
- * Compute default tags based on available tags.
- * Returns ['skill'] if 'skill' tag exists, ['skills'] if 'skills' tag exists, otherwise [].
- */
 function getDefaultSkillTags(availableTags: TagCount[]): string[] {
   const tagNames = availableTags.map((t) => t.name)
   if (tagNames.includes('skill')) return ['skill']
@@ -1823,286 +920,7 @@ function getDefaultSkillTags(availableTags: TagCount[]): string[] {
   return []
 }
 
-function SkillsExportSection({ client }: SkillsExportSectionProps): ReactNode {
-  const { isAuthenticated } = useAuthStatus()
-
-  // Local state for prompt-only tags (don't use global store which has all tags)
-  const [promptTags, setPromptTags] = useState<TagCount[]>([])
-  const [selectedTags, setSelectedTags] = useState<string[]>([])
-
-  // Fetch prompt tags on mount and apply default selection (only when authenticated to avoid 401 redirect)
-  useEffect(() => {
-    if (!isAuthenticated) return
-    let cancelled = false
-
-    const fetchPromptTags = async (): Promise<void> => {
-      try {
-        const response = await api.get<TagListResponse>('/tags/?content_types=prompt')
-        if (!cancelled) {
-          const tags = response.data.tags
-          setPromptTags(tags)
-          // Apply default tag selection
-          const defaultTags = getDefaultSkillTags(tags)
-          if (defaultTags.length > 0) {
-            setSelectedTags(defaultTags)
-          }
-        }
-      } catch {
-        // Silent fail - tags are optional
-      }
-    }
-    fetchPromptTags()
-
-    return () => {
-      cancelled = true
-    }
-  }, [isAuthenticated])
-
-  const exportUrl = buildSkillsExportUrl(client, selectedTags)
-
-  return (
-    <>
-      {/* CLI tip */}
-      <div className="mb-6 rounded-lg bg-blue-50 border border-blue-200 p-4">
-        <p className="text-sm text-blue-800">
-          <strong>Tip:</strong> If you have the Tiddly CLI installed, run{' '}
-          <code className="bg-blue-100 px-1 rounded">tiddly skills configure {client}</code> instead.
-          See <Link to="/docs/cli/skills" className="text-[#d97b3d] hover:underline">CLI docs</Link>.
-        </p>
-      </div>
-
-      {/* Client-specific notes */}
-      {(client === 'claude-code' || client === 'claude-desktop') && (
-        <div className="mb-6 rounded-lg bg-amber-50 border border-amber-200 p-4">
-          <p className="text-sm text-amber-800">
-            <strong>Note:</strong> Prompt names longer than 64 characters will be truncated for {client === 'claude-code' ? 'Claude Code' : 'Claude Desktop'}.
-          </p>
-        </div>
-      )}
-      {client === 'codex' && (
-        <div className="mb-6 rounded-lg bg-amber-50 border border-amber-200 p-4">
-          <p className="text-sm text-amber-800">
-            <strong>Note:</strong> Multi-line descriptions will be collapsed to a single line for Codex compatibility.
-          </p>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        <StepCard number={1} title="Create a Personal Access Token" subtitle={`Set it as the PROMPTS_TOKEN environment variable`}>
-          <Link
-            to="/app/settings/tokens"
-            className="btn-primary inline-flex items-center gap-2 mt-2"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            Create Token
-          </Link>
-        </StepCard>
-
-        <StepCard number={2} title="Filter by Tags (Optional)" subtitle="Select which prompts to export. Leave empty to export all.">
-          <div className="mt-2">
-            <SkillsTagSelector
-              availableTags={promptTags}
-              selectedTags={selectedTags}
-              onChange={setSelectedTags}
-            />
-          </div>
-        </StepCard>
-
-        {/* Client-specific instructions (steps 3+) */}
-        {client === 'claude-code' && <ClaudeCodeSkillsInstructions exportUrl={exportUrl} />}
-        {client === 'codex' && <CodexSkillsInstructions exportUrl={exportUrl} />}
-        {client === 'claude-desktop' && <ClaudeDesktopSkillsInstructions exportUrl={exportUrl} />}
-      </div>
-    </>
-  )
-}
-
-/**
- * Manual setup section — the existing PyTorch-style selector and step-by-step
- * instructions using Personal Access Tokens and curl commands.
- */
-function ManualSetupSection(): ReactNode {
-  // Selector state
-  const [server, setServer] = useState<ServerType>('content')
-  const [client, setClient] = useState<ClientType>('claude-desktop')
-  const [auth, setAuth] = useState<AuthType>('bearer')
-  const [integration, setIntegration] = useState<IntegrationType>('mcp')
-
-  // Helper flags
-  const isSkills = integration === 'skills'
-  const isSkillsClient = client === 'claude-desktop' || client === 'claude-code' || client === 'codex'
-  const isMcpSupported = auth === 'bearer' && integration === 'mcp' && isSkillsClient
-  const isSkillsSupported = isSkills && isSkillsClient && server === 'prompts'
-
-  const getComingSoonContent = (): { title: string; description: string } | null => {
-    if (integration === 'mcp') {
-      if (client === 'chatgpt') {
-        return {
-          title: 'ChatGPT Integration Coming Soon',
-          description: 'ChatGPT requires OAuth authentication. OAuth implementation is coming soon.',
-        }
-      }
-      if (client === 'gemini-cli') {
-        return {
-          title: 'Gemini CLI Integration Coming Soon',
-          description: 'Gemini CLI MCP integration instructions are coming soon.',
-        }
-      }
-      if (auth === 'oauth') {
-        return {
-          title: 'OAuth Coming Soon',
-          description: 'OAuth authentication will allow secure browser-based login without needing to manage tokens manually. Coming soon.',
-        }
-      }
-    }
-    if (isSkills && server === 'content') {
-      return {
-        title: 'Skills Only Apply to Prompts',
-        description: 'Skills are exported from your prompt templates. Select "Prompts" to export your prompt templates as skills.',
-      }
-    }
-    if (isSkills && !isSkillsClient) {
-      return {
-        title: `${client === 'chatgpt' ? 'ChatGPT' : 'Gemini CLI'} Skills Coming Soon`,
-        description: `Skills export for ${client === 'chatgpt' ? 'ChatGPT' : 'Gemini CLI'} is not yet supported.`,
-      }
-    }
-    return null
-  }
-
-  const comingSoonContent = getComingSoonContent()
-
-  const manualServerOptions: SelectorOption<ServerType>[] = [
-    { value: 'content', label: 'Bookmarks & Notes', comingSoon: isSkills },
-    { value: 'prompts', label: 'Prompts' },
-  ]
-
-  const handleIntegrationChange = (newIntegration: IntegrationType): void => {
-    setIntegration(newIntegration)
-    if (newIntegration === 'skills') {
-      setServer('prompts')
-    }
-  }
-
-  const clientOptions: SelectorOption<ClientType>[] = [
-    { value: 'claude-desktop', label: 'Claude Desktop' },
-    { value: 'claude-code', label: 'Claude Code' },
-    { value: 'chatgpt', label: 'ChatGPT', comingSoon: true },
-    { value: 'codex', label: 'Codex' },
-    { value: 'gemini-cli', label: 'Gemini CLI', comingSoon: true },
-  ]
-
-  const authOptions: SelectorOption<AuthType>[] = [
-    { value: 'bearer', label: 'Bearer Token', comingSoon: client === 'chatgpt' },
-    { value: 'oauth', label: 'OAuth', comingSoon: true },
-  ]
-
-  const integrationOptions: SelectorOption<IntegrationType>[] = [
-    { value: 'mcp', label: 'MCP Server' },
-    { value: 'skills', label: 'Skills' },
-  ]
-
-  return (
-    <div data-testid="manual-setup-section">
-      <p className="text-sm text-gray-500 mb-6">
-        Step-by-step instructions for configuring MCP servers and skills using Personal Access Tokens and curl commands.
-        Note: this approach requires manually creating PATs and setting up each server/tool individually.
-        For a faster setup, use the CLI tab above.
-      </p>
-
-      {/* Config Selector */}
-      <div className="mb-8">
-        <h3 className="text-base font-bold text-gray-900 mb-4">Select Integration</h3>
-        <div className="md:border-l-4 md:border-l-[#f09040] bg-white py-1.5 flex flex-col gap-4 md:gap-1.5">
-          <SelectorRow
-            label="Integration"
-            options={integrationOptions}
-            value={integration}
-            onChange={handleIntegrationChange}
-          />
-          <SelectorRow
-            label="Content"
-            options={manualServerOptions}
-            value={server}
-            onChange={setServer}
-          />
-          <SelectorRow
-            label="Client"
-            options={clientOptions}
-            value={client}
-            onChange={setClient}
-          />
-          {!isSkills && (
-            <SelectorRow
-              label="Auth"
-              options={authOptions}
-              value={auth}
-              onChange={setAuth}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Integration explanation */}
-      {integration === 'mcp' && (
-        <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">What is MCP?</h3>
-          <p className="text-sm text-gray-600">
-            The <a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Model Context Protocol (MCP)</a> is
-            an open standard that allows AI assistants to securely access external tools and data.
-            By connecting your bookmarks, notes, and prompts via MCP, AI agents can search your content,
-            create new items, and use your prompt templates directly.
-          </p>
-        </div>
-      )}
-      {integration === 'skills' && (
-        <div className="mb-8 rounded-lg bg-gray-50 border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">What are Skills?</h3>
-          <p className="text-sm text-gray-600">
-            Skills are reusable instruction files that AI agents auto-invoke based on context
-            or that you trigger manually. Export your prompts as skills and sync them to your AI client.
-            Skills follow the <a href="https://agentskills.io/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Agent Skills Standard</a>.
-          </p>
-        </div>
-      )}
-
-      {/* Setup Instructions */}
-      <div className="mb-6">
-        <h3 className="text-base font-bold text-gray-900 mb-4">Setup Instructions</h3>
-      </div>
-
-      {comingSoonContent && (
-        <ComingSoon title={comingSoonContent.title} description={comingSoonContent.description} />
-      )}
-
-      {isMcpSupported && client === 'claude-desktop' && (
-        <ClaudeDesktopInstructions server={server} mcpUrl={config.mcpUrl} promptMcpUrl={config.promptMcpUrl} />
-      )}
-      {isMcpSupported && client === 'claude-code' && (
-        <ClaudeCodeInstructions server={server} mcpUrl={config.mcpUrl} promptMcpUrl={config.promptMcpUrl} />
-      )}
-      {isMcpSupported && client === 'codex' && (
-        <CodexInstructions server={server} mcpUrl={config.mcpUrl} promptMcpUrl={config.promptMcpUrl} />
-      )}
-
-      {isSkillsSupported && (
-        <SkillsExportSection client={client as SkillsClientType} />
-      )}
-
-      {isMcpSupported && <div className="mt-8"><AvailableTools server={server} /></div>}
-    </div>
-  )
-}
-
-/**
- * Reusable AI setup widget with CLI and manual (Curl/PAT) tabs.
- * Renders the full interactive setup experience without page title or heading.
- */
 export function AISetupWidget(): ReactNode {
-  const [activeTab, setActiveTab] = useState<SetupTab>('cli')
-
   return (
     <div>
       <p className="text-sm text-gray-600 mb-4">
@@ -2126,34 +944,11 @@ export function AISetupWidget(): ReactNode {
         files that AI assistants can auto-invoke based on context.
       </p>
 
-      {/* Tab bar */}
-      <div className="flex border-b border-gray-200 mb-6">
-        <button
-          type="button"
-          onClick={() => setActiveTab('cli')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'cli'
-              ? 'border-[#f09040] text-[#d97b3d]'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-          }`}
-        >
-          Setup via CLI (Recommended)
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('manual')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            activeTab === 'manual'
-              ? 'border-[#f09040] text-[#d97b3d]'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-          }`}
-        >
-          Setup via Curl/PAT
-        </button>
-      </div>
+      <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-2 border-b border-gray-200">
+        Setup via CLI
+      </h2>
 
-      {activeTab === 'cli' && <CLISetupSection />}
-      {activeTab === 'manual' && <ManualSetupSection />}
+      <CLISetupSection />
     </div>
   )
 }

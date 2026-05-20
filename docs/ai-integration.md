@@ -93,6 +93,27 @@ From the [Config Reference](https://developers.openai.com/codex/config-reference
 
 Claude Desktop does not have a CLI or scope flags. MCP servers are configured via the GUI (Settings > Developer) which writes to a single config file. Skills are configured via Settings > Capabilities.
 
+### Antigravity (Google)
+
+Antigravity is Google's successor to Gemini CLI for individual-tier users (Gemini CLI stops serving Google One / unpaid / Pro / Ultra tiers on 2026-06-18; enterprise keeps it). It ships as both the `agy` CLI and the Antigravity desktop IDE, which **share one MCP config file**.
+
+#### MCP Configuration
+
+- **Config path**: `~/.gemini/config/mcp_config.json` (Antigravity inherits the `~/.gemini/` tree from its Gemini lineage). Empirically verified against agy 1.0.0: the `agy` CLI logs this path on startup, and the IDE reads the same file. Note this is NOT the legacy Gemini CLI `~/.gemini/settings.json`, which Antigravity does not read.
+- **Schema**: HTTP MCP servers use the `serverUrl` field (NOT `url` like Claude Code/Desktop, NOT `httpUrl`), with bearer auth under `headers.Authorization`:
+  ```json
+  {
+    "mcpServers": {
+      "tiddly_notes_bookmarks": {
+        "serverUrl": "https://content-mcp.tiddly.me/mcp",
+        "headers": { "Authorization": "Bearer <PAT>" }
+      }
+    }
+  }
+  ```
+- **No `mcp add` subcommand**: unlike Claude Code, `agy` has no command to add MCP servers. The Tiddly CLI writes the config file directly (the same approach it uses for Claude Desktop and Codex).
+- **Reload**: Antigravity reads `mcp_config.json` at startup, not live. After `tiddly mcp configure antigravity`, quit and restart the IDE (or re-invoke `agy`) to pick up changes.
+
 ## Tiddly CLI Scope Mapping
 
 Our CLI (`tiddly mcp configure`, `tiddly skills configure`) provides two scopes: `user` and `directory`. These apply to both MCP and skills configuration.
@@ -107,7 +128,9 @@ Our CLI (`tiddly mcp configure`, `tiddly skills configure`) provides two scopes:
 | `user`        | `--scope user` (`~/.claude.json` top-level)    | `~/.claude/skills/`      | "User-level" (`~/.codex/config.toml`)        | `USER` scope (`~/.agents/skills/`)        |
 | `directory`   | `--scope local` (`~/.claude.json` under project) | `.claude/skills/`      | "Project-scoped" (`.codex/config.toml`)      | `REPO` scope (`.agents/skills/`)          |
 
-Claude Code and Codex support both scopes for both MCP and skills. Claude Desktop only supports `user` scope.
+Claude Code and Codex support both scopes for both MCP and skills. Claude Desktop and Antigravity only support `user` scope.
+
+For Antigravity, `tiddly mcp configure antigravity` always writes the user-level `~/.gemini/config/mcp_config.json`; `--scope directory` is rejected. Antigravity has no skills integration (see Known Limitations), so it does not appear in `tiddly skills configure`.
 
 ### Known Limitations
 
@@ -116,4 +139,8 @@ Claude Code and Codex support both scopes for both MCP and skills. Claude Deskto
 2. **No official scope flags for skills**: Neither Claude Code nor Codex have a `--scope` flag for skills — scope is determined by file placement. Our `tiddly skills configure --scope` flag is our own abstraction over directory placement.
 
 3. **Codex MCP has no `--scope` flag**: Codex uses "user-level" and "project-scoped" terminology but does not have a CLI `--scope` flag. Our CLI maps our scope flags to writing the appropriate config file.
+
+4. **Antigravity has no directory/project scope (as of agy 1.0.0, 2026-05-19)**: M1 verification probed three candidate project-level paths (`<cwd>/mcp_config.json`, `<cwd>/.gemini/config/mcp_config.json`, `<cwd>/.antigravitycli/mcp_config.json`); none were read by agy. Antigravity is therefore user-scope only. Re-evaluate if a future agy release surfaces a working project path.
+
+5. **Antigravity does not surface MCP prompts (as of agy 1.0.0, 2026-05-19)**: Antigravity (both the `agy` CLI and the IDE) is a tools-only MCP client — it ignores the `prompts/list` / `prompts/get` RPCs that Tiddly's prompt MCP server exposes. Tiddly prompt templates are still fully usable through the prompt server's *tools* (`search_prompts`, `get_prompt_content`, `create_prompt`, etc.); they just aren't invokable as slash-command-style MCP prompts the way Claude Desktop and Claude Code surface them.
 

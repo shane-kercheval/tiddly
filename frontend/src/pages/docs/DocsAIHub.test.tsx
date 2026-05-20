@@ -46,11 +46,11 @@ describe('DocsAIHub', () => {
     expect(screen.getByText(/Agent Skills/)).toBeInTheDocument()
   })
 
-  it('should render the AI setup widget with CLI tab', () => {
+  it('should render the AI setup widget (CLI setup, no manual tab)', () => {
     renderPage()
     expect(screen.getByTestId('cli-setup-section')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Setup via CLI (Recommended)' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Setup via Curl/PAT' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Setup via CLI' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Setup via Curl/PAT' })).not.toBeInTheDocument()
   })
 
   it('should render example prompts section', () => {

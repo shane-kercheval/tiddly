@@ -5,6 +5,7 @@ var (
 	_ ToolHandler = (*ClaudeDesktopHandler)(nil)
 	_ ToolHandler = (*ClaudeCodeHandler)(nil)
 	_ ToolHandler = (*CodexHandler)(nil)
+	_ ToolHandler = (*AntigravityHandler)(nil)
 )
 
 // TiddlyPAT describes one Bearer token found in a tiddly-URL entry during a
@@ -41,7 +42,7 @@ type PATExtraction struct {
 }
 
 // ToolHandler encapsulates all tool-specific behavior for MCP server management.
-// Each supported AI tool (claude-desktop, claude-code, codex) implements this interface.
+// Each supported AI tool (claude-desktop, claude-code, codex, antigravity) implements this interface.
 type ToolHandler interface {
 	Name() string
 	SupportedScopes() []string
@@ -128,6 +129,7 @@ func DefaultHandlers() []ToolHandler {
 		&ClaudeDesktopHandler{},
 		&ClaudeCodeHandler{},
 		&CodexHandler{},
+		&AntigravityHandler{},
 	}
 }
 

@@ -143,56 +143,29 @@ curl -X POST https://prompts-mcp.tiddly.me/mcp \
 
 ### Setting Up MCP Servers
 
-All MCP setup requires a Personal Access Token (PAT). Generate one in Settings > Personal Access Tokens on tiddly.me. Replace `YOUR_PAT` below with your token. It is recommended to use separate PATs for each MCP server so access can be revoked independently. Treat PATs like passwords — never share them, commit them to version control, or expose them in client-side code. If compromised, revoke immediately in Settings and create a new one.
+The recommended way to connect any supported tool is the Tiddly CLI. It mints dedicated Personal Access Tokens (PATs) per server, writes each tool's config file, and detects which tools are installed — so you never hand-edit config files.
 
-**Claude Desktop** — Add to config file (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
-
-```json
-{
-  "mcpServers": {
-    "tiddly_notes_bookmarks": {
-      "command": "npx",
-      "args": ["mcp-remote", "https://content-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
-    },
-    "tiddly_prompts": {
-      "command": "npx",
-      "args": ["mcp-remote", "https://prompts-mcp.tiddly.me/mcp", "--header", "Authorization: Bearer YOUR_PAT"]
-    }
-  }
-}
-```
-
-Restart Claude Desktop after saving. Uses `mcp-remote` as a bridge since Claude Desktop does not natively support streamable HTTP transport.
-
-**Claude Code** — Run in your project directory:
+Install the CLI, log in, then configure:
 
 ```
-claude mcp add --transport http tiddly_notes_bookmarks https://content-mcp.tiddly.me/mcp \
-  --header "Authorization: Bearer YOUR_PAT"
-
-claude mcp add --transport http tiddly_prompts https://prompts-mcp.tiddly.me/mcp \
-  --header "Authorization: Bearer YOUR_PAT"
+curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh
+tiddly login
+tiddly mcp configure                       # auto-detect installed tools, both servers
+tiddly mcp configure claude-code           # a specific tool
+tiddly mcp configure --servers content     # only the bookmarks/notes server
 ```
 
-Note: Claude Code MCP servers are configured per project directory. Alternatively, if you've already configured Claude Desktop, run `claude mcp add-from-claude-desktop` to import those servers.
+Supported tools: Claude Desktop, Claude Code, Codex, Antigravity. The CLI creates and stores the PATs; manage or revoke them anytime in Settings > Personal Access Tokens on tiddly.me. Treat PATs like passwords — never share or commit them; revoke immediately if compromised.
 
-**Codex** — Add to `~/.codex/config.toml`:
+For an interactive walkthrough that generates the exact command for your selected tools and servers, see the AI Integration settings page: https://tiddly.me/app/settings/ai-integration (Settings > AI Integration).
 
-```toml
-[mcp_servers.tiddly_notes_bookmarks]
-url = "https://content-mcp.tiddly.me/mcp"
-http_headers = { "Authorization" = "Bearer YOUR_PAT" }
+Per-tool notes (the CLI handles each automatically; these explain behavior differences):
 
-[mcp_servers.tiddly_prompts]
-url = "https://prompts-mcp.tiddly.me/mcp"
-http_headers = { "Authorization" = "Bearer YOUR_PAT" }
-```
-
-Note: Codex does not support MCP Prompts natively (the `/prompt-name` slash invocation available in Claude Code). Bookmarks and notes still work normally — Codex uses the MCP tools to search, read, and edit them just like Claude Code does. But to invoke a saved prompt directly, export it as a Codex Skill: at https://tiddly.me/app/settings/ai-integration, pick Codex and run the displayed `tiddly skills configure` command. It writes every prompt tagged `skill` as a SKILL.md file (default: `~/.agents/skills/`). Codex surfaces those skills as `$skill-name` invocations or auto-selects them based on task context — same template behavior, different invocation surface.
-
-**ChatGPT** — Not yet supported. ChatGPT requires OAuth authentication, which is coming soon.
-
-**Gemini CLI** — Not yet supported. Integration instructions coming soon.
+- **Claude Desktop** — user scope only. Restart Claude Desktop after configuring. Uses an `mcp-remote` bridge since it doesn't natively support streamable HTTP transport.
+- **Claude Code** — supports user and directory scope (`--scope directory` writes per-project config).
+- **Codex** — tools-only MCP client: it doesn't surface MCP Prompts (the `/prompt-name` slash invocation available in Claude Code). Bookmarks, notes, and prompt templates all still work through the MCP tools. To invoke a saved prompt directly, export it as a Codex Skill — run the displayed `tiddly skills configure` command, which writes every prompt tagged `skill` as a SKILL.md file (default `~/.agents/skills/`). Codex surfaces those as `$skill-name` invocations or auto-selects them by context.
+- **Antigravity** (Google) — user scope only; the `agy` CLI and the Antigravity IDE share one config file, so `tiddly mcp configure antigravity` covers both. Antigravity reads the config at startup — quit and restart it afterward. Like Codex it's a tools-only client (no MCP Prompts), and it has no Tiddly skills integration. Antigravity is Google's successor to Gemini CLI for individual-tier users.
+- **ChatGPT** — not yet supported (requires OAuth authentication, coming soon).
 
 ### Chrome Extension
 
@@ -216,7 +189,7 @@ curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/ins
 **Commands:**
 - `tiddly login` / `tiddly logout`: Authenticate via OAuth device flow or Personal Access Token.
 - `tiddly status [--path /dir]`: Overview of authentication, API health, content counts, and MCP server status. Use `--path` to inspect a specific directory for directory-scoped configurations (default: cwd).
-- `tiddly mcp configure`: Auto-detect installed AI tools (Claude Desktop, Claude Code, Codex) and configure MCP servers with dedicated tokens.
+- `tiddly mcp configure`: Auto-detect installed AI tools (Claude Desktop, Claude Code, Codex, Antigravity) and configure MCP servers with dedicated tokens.
 - `tiddly mcp status` / `tiddly mcp remove`: View or remove MCP server configurations.
 - `tiddly skills configure [tool...]`: Install prompt templates as agent skills for Claude Code, Codex, or Claude Desktop. Auto-detects tools if none specified. Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode, and `--scope` (user or directory) for scope selection.
 - `tiddly skills list`: List available skills (prompts eligible for export). Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode.

@@ -33,7 +33,7 @@ export function DocsCLIHub(): ReactNode {
       <p className="text-sm text-gray-600 mb-8">
         The Tiddly CLI (<code className="bg-gray-100 px-1 rounded">tiddly</code>) is a command-line
         tool for authenticating with the Tiddly API, configuring MCP servers, syncing agent skills,
-        and exporting content for AI tools like Claude Desktop, Claude Code, and Codex.
+        and exporting content for AI tools like Claude Desktop, Claude Code, Codex, and Antigravity.
       </p>
 
       <div className="mb-10">

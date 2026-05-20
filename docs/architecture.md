@@ -21,6 +21,7 @@ flowchart LR
         ClaudeDesktop[Claude Desktop]
         ClaudeCode[Claude Code]
         Codex[Codex]
+        Antigravity[Antigravity]
     end
 
     subgraph ExternalDeps["External dependencies"]
@@ -54,6 +55,7 @@ flowchart LR
     CLITerm -.->|"tiddly mcp configure\nwrites MCP config + PAT"| ClaudeDesktop
     CLITerm -.->|"tiddly mcp configure\nwrites MCP config + PAT"| ClaudeCode
     CLITerm -.->|"tiddly mcp configure\nwrites MCP config + PAT"| Codex
+    CLITerm -.->|"tiddly mcp configure\nwrites MCP config + PAT"| Antigravity
 
     %% Agentic tool flows
     ClaudeDesktop -->|"MCP protocol"| ContentMCP
@@ -62,6 +64,8 @@ flowchart LR
     ClaudeCode -->|"MCP protocol"| PromptMCP
     Codex -->|"MCP protocol"| ContentMCP
     Codex -->|"MCP protocol"| PromptMCP
+    Antigravity -->|"MCP protocol"| ContentMCP
+    Antigravity -->|"MCP protocol"| PromptMCP
 
     ContentMCP -->|"HTTPS + PAT"| API
     PromptMCP -->|"HTTPS + PAT"| API
@@ -88,7 +92,7 @@ flowchart LR
 - The api service is the only process with direct database access. MCP servers and the CLI are clients of the api, not independent DB consumers.
 - Redis fails open: if it's unavailable, rate limiting and auth caching degrade but the app still serves requests.
 - `orphan-relationships` is implemented and documented in `README_DEPLOY.md`, but **intentionally not deployed** at current beta scale. See [KAN-67](https://tiddly.atlassian.net/browse/KAN-67) for the deferral rationale and §9 below.
-- Dashed edges from CLI to the agentic tools represent `tiddly mcp configure` — a one-time local setup action where the CLI mints a PAT (via the api) and writes it into each detected tool's native config file (`claude_desktop_config.json`, `~/.claude.json`, `~/.codex/config.toml`). These are not runtime network protocols; they're filesystem writes on the user's machine that bootstrap the subsequent MCP-protocol edges.
+- Dashed edges from CLI to the agentic tools represent `tiddly mcp configure` — a one-time local setup action where the CLI mints a PAT (via the api) and writes it into each detected tool's native config file (`claude_desktop_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.gemini/config/mcp_config.json`). These are not runtime network protocols; they're filesystem writes on the user's machine that bootstrap the subsequent MCP-protocol edges.
 
 ---
 
@@ -114,7 +118,7 @@ flowchart LR
 
 ### MCP servers — `backend/src/mcp_server/` and `backend/src/prompt_mcp_server/`
 
-Two independent MCP services that agentic tools (Claude Desktop, Claude Code, Codex) talk to via the MCP protocol. Both proxy through the api service over HTTPS using a user-supplied PAT; they hold no database credentials.
+Two independent MCP services that agentic tools (Claude Desktop, Claude Code, Codex, Antigravity) talk to via the MCP protocol. Both proxy through the api service over HTTPS using a user-supplied PAT; they hold no database credentials.
 
 - **content-mcp** — bookmarks + notes: search, get, create, update, content-level edits (old_str/new_str patches), tag and filter listing, relationship creation. Local dev port: 8001.
 - **prompt-mcp** — prompt templates: search, metadata/content fetch, create, update, content-level edits, tag/filter listing. Local dev port: 8002.
@@ -128,7 +132,7 @@ A thin REST client plus an MCP-setup assistant.
 - Commands: `login`, `logout`, `auth`, `status`, `mcp configure|status|remove`, `skills configure|list`, `export`, `tokens`, `config`, `update`
 - Auth: OAuth device-code flow (default) or `--token bm_...` for non-interactive use; credentials stored via `go-keyring` with a plaintext fallback at `~/.config/tiddly/credentials`
 - Config: `~/.config/tiddly/config.yaml` (Viper-managed), `TIDDLY_*` env overrides
-- **Primary non-obvious value:** `tiddly mcp configure` detects installed agentic tools on the host (by probing PATH and tool-specific config locations), generates scoped PATs, and writes the MCP server URLs into each tool's native config file (e.g. `claude_desktop_config.json`, `~/.claude.json`, `~/.codex/config.toml`). This is the "connect my Claude apps to Tiddly" onramp.
+- **Primary non-obvious value:** `tiddly mcp configure` detects installed agentic tools on the host (by probing PATH and tool-specific config locations), generates scoped PATs, and writes the MCP server URLs into each tool's native config file (e.g. `claude_desktop_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.gemini/config/mcp_config.json`). This is the "connect my Claude apps to Tiddly" onramp.
 - Sends `X-Request-Source: cli` on every request
 
 ### Chrome extension — `chrome-extension/`
@@ -476,7 +480,7 @@ Run: `make evals` (requires api + MCP servers + Docker containers running).
 |---|---|
 | [`AGENTS.md`](../AGENTS.md) | Conventions and coding rules for people/agents editing this repo |
 | [`README_DEPLOY.md`](../README_DEPLOY.md) | Railway service setup, env vars, Auth0, crons, post-deploy analytics role |
-| [`docs/ai-integration.md`](ai-integration.md) | Claude Desktop / Claude Code / Codex MCP + skills scope mapping |
+| [`docs/ai-integration.md`](ai-integration.md) | Claude Desktop / Claude Code / Codex / Antigravity MCP + skills scope mapping |
 | [`docs/content-versioning.md`](content-versioning.md) | `ContentHistory` design: reverse diffs, snapshots, audit vs. content events, tier retention, reconstruction |
 | [`docs/http-caching.md`](http-caching.md) | ETag / Last-Modified behavior for GET JSON endpoints |
 | [`docs/connection-pool-tuning.md`](connection-pool-tuning.md) | SQLAlchemy + Redis pool sizing rationale |

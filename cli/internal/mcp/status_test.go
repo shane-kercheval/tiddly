@@ -73,6 +73,21 @@ func TestExtractServerURL__empty_map(t *testing.T) {
 	assert.Equal(t, "", extractServerURL(map[string]any{}))
 }
 
+func TestExtractServerURL__antigravity_serverUrl_field(t *testing.T) {
+	m := map[string]any{"serverUrl": "https://example.com/mcp"}
+	assert.Equal(t, "https://example.com/mcp", extractServerURL(m))
+}
+
+// serverUrl wins when both are set so an Antigravity entry classifies on its
+// own field. Existing url support must remain intact for the Claude handlers.
+func TestExtractServerURL__serverUrl_takes_precedence_over_url(t *testing.T) {
+	m := map[string]any{
+		"serverUrl": "https://antigravity.example.com/mcp",
+		"url":       "https://other.example.com/mcp",
+	}
+	assert.Equal(t, "https://antigravity.example.com/mcp", extractServerURL(m))
+}
+
 func TestDetectTransport__url_field(t *testing.T) {
 	assert.Equal(t, "http", detectTransport(map[string]any{"url": "https://example.com"}))
 }
@@ -91,6 +106,10 @@ func TestDetectTransport__url_takes_precedence(t *testing.T) {
 
 func TestDetectTransport__empty_map(t *testing.T) {
 	assert.Equal(t, "", detectTransport(map[string]any{}))
+}
+
+func TestDetectTransport__serverUrl_field(t *testing.T) {
+	assert.Equal(t, "http", detectTransport(map[string]any{"serverUrl": "https://example.com/mcp"}))
 }
 
 func TestSortOtherServers(t *testing.T) {

@@ -154,10 +154,10 @@ func TestConfigPath__returns_error_when_home_unavailable(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestDetectAll__always_returns_three_tools(t *testing.T) {
+func TestDetectAll__always_returns_all_tools(t *testing.T) {
 	looker := newMockLooker()
 	tools := DetectAll(DefaultHandlers(), looker)
-	assert.Len(t, tools, 3)
+	assert.Len(t, tools, 4)
 
 	names := make(map[string]bool)
 	for _, tool := range tools {
@@ -166,4 +166,5 @@ func TestDetectAll__always_returns_three_tools(t *testing.T) {
 	assert.True(t, names["claude-desktop"])
 	assert.True(t, names["claude-code"])
 	assert.True(t, names["codex"])
+	assert.True(t, names["antigravity"])
 }

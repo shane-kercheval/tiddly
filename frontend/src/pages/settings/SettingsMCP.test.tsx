@@ -1,7 +1,7 @@
 /**
  * Tests for SettingsMCP settings page.
  *
- * Tests both the CLI setup section (default tab) and the manual setup section (Curl/PAT tab).
+ * Covers the CLI setup section (the only setup flow — the manual Curl/PAT tab was removed).
  *
  * For the tool/scope support matrix and terminology decisions,
  * see docs/ai-integration.md
@@ -100,13 +100,6 @@ function renderWithRouter(): void {
   )
 }
 
-/** Switch to manual setup tab and return the manual section container. */
-async function openManualSection(): Promise<HTMLElement> {
-  const user = userEvent.setup()
-  await user.click(screen.getByRole('button', { name: 'Setup via Curl/PAT' }))
-  return screen.getByTestId('manual-setup-section')
-}
-
 describe('SettingsMCP', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -126,23 +119,13 @@ describe('SettingsMCP', () => {
       expect(screen.getByText('AI Integration')).toBeInTheDocument()
     })
 
-    it('should render tab buttons', () => {
+    it('should render the CLI setup section (no tabs, manual setup removed)', () => {
       renderWithRouter()
-      expect(screen.getByRole('button', { name: 'Setup via CLI (Recommended)' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Setup via Curl/PAT' })).toBeInTheDocument()
-    })
-
-    it('should show CLI section by default', () => {
-      renderWithRouter()
+      expect(screen.getByRole('heading', { name: 'Setup via CLI' })).toBeInTheDocument()
       expect(screen.getByTestId('cli-setup-section')).toBeInTheDocument()
+      // The old Curl/PAT manual tab is gone.
+      expect(screen.queryByRole('button', { name: 'Setup via Curl/PAT' })).not.toBeInTheDocument()
       expect(screen.queryByTestId('manual-setup-section')).not.toBeInTheDocument()
-    })
-
-    it('should switch to manual section when tab clicked', async () => {
-      renderWithRouter()
-      await openManualSection()
-      expect(screen.getByTestId('manual-setup-section')).toBeInTheDocument()
-      expect(screen.queryByTestId('cli-setup-section')).not.toBeInTheDocument()
     })
   })
 
@@ -168,6 +151,7 @@ describe('SettingsMCP', () => {
       expect(within(cli).getByRole('button', { name: 'Claude Desktop' })).toBeInTheDocument()
       expect(within(cli).getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
       expect(within(cli).getByRole('button', { name: 'Codex' })).toBeInTheDocument()
+      expect(within(cli).getByRole('button', { name: 'Antigravity' })).toBeInTheDocument()
     })
 
     it('should have servers and tools selected by default with skills off', () => {
@@ -255,6 +239,29 @@ describe('SettingsMCP', () => {
       const pre = within(cli).getByTestId('cli-install-command')
       expect(pre.textContent).toContain('tiddly mcp configure claude-code')
       expect(pre.textContent).not.toContain('codex')
+    })
+
+    // Intentional asymmetry: when ALL tools are selected the command omits tool
+    // names and emits bare `tiddly mcp configure`, which auto-detects *installed*
+    // tools and gracefully skips ones that aren't present. A PARTIAL selection
+    // (the test above) names tools explicitly, which is strict — `tiddly mcp
+    // configure <uninstalled-tool>` errors. So "select everything" maps to the
+    // forgiving auto-detect path on purpose, not by accident.
+    it('should emit bare auto-detect command when all tools selected', async () => {
+      const user = userEvent.setup()
+      renderWithRouter()
+      const cli = screen.getByTestId('cli-setup-section')
+
+      // Defaults are claude-code + codex; add the remaining two to select all four.
+      await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
+      await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
+
+      const pre = within(cli).getByTestId('cli-install-command')
+      const mcpLine = (pre.textContent || '').split('\n').find((l) => l.includes('tiddly mcp configure')) || ''
+      expect(mcpLine).toContain('tiddly mcp configure')
+      for (const name of ['claude-desktop', 'claude-code', 'codex', 'antigravity']) {
+        expect(mcpLine).not.toContain(name)
+      }
     })
 
     it('should show empty state when nothing selected', async () => {
@@ -346,6 +353,135 @@ describe('SettingsMCP', () => {
         renderWithRouter()
         const cli = screen.getByTestId('cli-setup-section')
         expect(within(cli).queryByText(/doesn't support/)).not.toBeInTheDocument()
+      })
+    })
+
+    describe('antigravity', () => {
+      it('should add antigravity to the configure command when selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
+
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('antigravity')
+      })
+
+      it('should show user-scope-only error when antigravity selected with Directory scope', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
+        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
+
+        expect(within(cli).getByText(/only support.*User scope/)).toBeInTheDocument()
+        // No command is offered while the conflict stands.
+        expect(within(cli).queryByTestId('cli-install-command')).not.toBeInTheDocument()
+      })
+
+      it('should not be affected by the Skills toggle on its own (no skills, no error when skills off)', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        // Select only Antigravity (deselect the two defaults).
+        await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
+        await user.click(within(cli).getByRole('button', { name: 'Codex' }))
+        await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
+
+        // Skills off (default): just the configure command, no skills, no error.
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('tiddly mcp configure antigravity')
+        expect(pre.textContent).not.toContain('tiddly skills configure')
+        expect(within(cli).queryByText(/does not support skills/)).not.toBeInTheDocument()
+      })
+    })
+
+    describe('skills support conflict', () => {
+      it('should error when skills enabled with only Antigravity selected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
+        await user.click(within(cli).getByRole('button', { name: 'Codex' }))
+        await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
+        await user.click(within(cli).getByRole('button', { name: 'Yes' })) // enable skills
+
+        expect(within(cli).getByText('Antigravity does not support skills. Deselect it or turn off Skills.')).toBeInTheDocument()
+        // The conflict blocks the command entirely (mirrors the scope conflict).
+        expect(within(cli).queryByTestId('cli-install-command')).not.toBeInTheDocument()
+      })
+
+      it('should error when skills enabled and Antigravity is selected alongside skills-capable tools', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        // Defaults claude-code + codex (skills-capable) plus Antigravity.
+        await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
+        await user.click(within(cli).getByRole('button', { name: 'Yes' })) // enable skills
+
+        expect(within(cli).getByText('Antigravity does not support skills. Deselect it or turn off Skills.')).toBeInTheDocument()
+        expect(within(cli).queryByTestId('cli-install-command')).not.toBeInTheDocument()
+      })
+
+      it('should clear the skills conflict when Skills is turned off', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
+        await user.click(within(cli).getByRole('button', { name: 'Yes' })) // enable skills → conflict
+        expect(within(cli).getByText(/does not support skills/)).toBeInTheDocument()
+
+        await user.click(within(cli).getByRole('button', { name: 'No' })) // disable skills → resolved
+        expect(within(cli).queryByText(/does not support skills/)).not.toBeInTheDocument()
+        expect(within(cli).getByTestId('cli-install-command').textContent).toContain('tiddly mcp configure')
+      })
+
+      it('should clear the skills conflict when the unsupported tool is deselected', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
+        await user.click(within(cli).getByRole('button', { name: 'Yes' })) // conflict
+        expect(within(cli).getByText(/does not support skills/)).toBeInTheDocument()
+
+        await user.click(within(cli).getByRole('button', { name: 'Antigravity' })) // deselect → resolved
+        expect(within(cli).queryByText(/does not support skills/)).not.toBeInTheDocument()
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('tiddly skills configure')
+      })
+
+      it('should show both scope and skills conflicts together', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
+        await user.click(within(cli).getByRole('button', { name: 'Yes' }))       // skills conflict
+        await user.click(within(cli).getByRole('button', { name: 'Directory' })) // scope conflict
+
+        expect(within(cli).getByText(/only support.*User scope/)).toBeInTheDocument()
+        expect(within(cli).getByText(/does not support skills/)).toBeInTheDocument()
+        expect(within(cli).queryByTestId('cli-install-command')).not.toBeInTheDocument()
+      })
+
+      it('should not error when skills enabled with only skills-capable tools', async () => {
+        const user = userEvent.setup()
+        renderWithRouter()
+        const cli = screen.getByTestId('cli-setup-section')
+
+        // Defaults claude-code + codex are both skills-capable.
+        await user.click(within(cli).getByRole('button', { name: 'Yes' })) // enable skills
+
+        expect(within(cli).queryByText(/does not support skills/)).not.toBeInTheDocument()
+        const pre = within(cli).getByTestId('cli-install-command')
+        expect(pre.textContent).toContain('tiddly skills configure')
       })
     })
 
@@ -447,655 +583,4 @@ describe('SettingsMCP', () => {
     })
   })
 
-  // ===========================================================================
-  // Manual Setup Section (Curl/PAT tab)
-  // ===========================================================================
-  describe('manual setup section', () => {
-    it('should not be visible on default CLI tab', () => {
-      renderWithRouter()
-      expect(screen.queryByTestId('manual-setup-section')).not.toBeInTheDocument()
-    })
-
-    it('should show when Curl/PAT tab clicked', async () => {
-      renderWithRouter()
-      const manual = await openManualSection()
-      expect(manual).toBeInTheDocument()
-      expect(within(manual).getByText('Select Integration')).toBeInTheDocument()
-    })
-
-    describe('selector rows', () => {
-      it('should render all selector row labels', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        expect(within(manual).getByText('Content')).toBeInTheDocument()
-        expect(within(manual).getByText('Client')).toBeInTheDocument()
-        expect(within(manual).getByText('Auth')).toBeInTheDocument()
-        expect(within(manual).getByText('Integration')).toBeInTheDocument()
-      })
-
-      it('should render integration options', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        expect(within(manual).getByRole('button', { name: 'MCP Server' })).toBeInTheDocument()
-        expect(within(manual).getByRole('button', { name: 'Skills' })).toBeInTheDocument()
-      })
-
-      it('should render client options', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        expect(within(manual).getByRole('button', { name: 'Claude Desktop' })).toBeInTheDocument()
-        expect(within(manual).getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
-        expect(within(manual).getByRole('button', { name: 'Gemini CLI' })).toBeInTheDocument()
-        expect(within(manual).getByRole('button', { name: 'ChatGPT' })).toBeInTheDocument()
-        expect(within(manual).getByRole('button', { name: 'Codex' })).toBeInTheDocument()
-      })
-
-      it('should render auth options', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        expect(within(manual).getByRole('button', { name: 'Bearer Token' })).toBeInTheDocument()
-        expect(within(manual).getByRole('button', { name: 'OAuth' })).toBeInTheDocument()
-      })
-    })
-
-    describe('MCP instructions', () => {
-      it('should show What is MCP section when MCP is selected', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-        expect(within(manual).getByText('What is MCP?')).toBeInTheDocument()
-      })
-
-      it('should show Claude Desktop instructions by default', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        expect(within(manual).getByText('Locate Config File')).toBeInTheDocument()
-        expect(within(manual).getByText(/macOS:/)).toBeInTheDocument()
-        expect(within(manual).getByText(/Windows:/)).toBeInTheDocument()
-      })
-
-      it('should generate config with tiddly_notes_bookmarks for content server', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        const preElement = manual.querySelector('pre code')
-        expect(preElement?.textContent).toContain('tiddly_notes_bookmarks')
-        expect(preElement?.textContent).toContain('http://localhost:8001/mcp')
-      })
-
-      it('should show Claude Code instructions when Claude Code is selected', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Claude Code' }))
-
-        expect(within(manual).getByText('Add MCP Server')).toBeInTheDocument()
-        const preElement = manual.querySelector('pre code')
-        expect(preElement?.textContent).toContain('claude mcp add --transport http tiddly_notes_bookmarks')
-      })
-
-      it('should show Claude Code import from desktop option', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Claude Code' }))
-
-        expect(within(manual).getByText('Alternative: Import from Claude Desktop')).toBeInTheDocument()
-        expect(within(manual).getByText('claude mcp add-from-claude-desktop')).toBeInTheDocument()
-      })
-
-      it('should show Codex instructions when Codex is selected', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Codex' }))
-
-        expect(within(manual).getByText('Add to Config File')).toBeInTheDocument()
-        expect(within(manual).getByText(/~\/\.codex\/config\.toml/)).toBeInTheDocument()
-      })
-
-      it('should show prompt server config when Prompts is selected', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Prompts' }))
-
-        const preElement = manual.querySelector('pre code')
-        expect(preElement?.textContent).toContain('"tiddly_prompts"')
-        expect(preElement?.textContent).toContain('http://localhost:8002/mcp')
-      })
-    })
-
-    describe('coming soon features', () => {
-      it('should show coming soon for ChatGPT', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'ChatGPT' }))
-
-        expect(within(manual).getByText('ChatGPT Integration Coming Soon')).toBeInTheDocument()
-      })
-
-      it('should show coming soon for OAuth', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'OAuth' }))
-
-        expect(within(manual).getByText('OAuth Coming Soon')).toBeInTheDocument()
-      })
-
-      it('should show skills not applicable for Bookmarks & Notes', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Skills' }))
-        await user.click(within(manual).getByRole('button', { name: 'Bookmarks & Notes' }))
-
-        expect(within(manual).getByText('Skills Only Apply to Prompts')).toBeInTheDocument()
-      })
-    })
-
-    describe('skills export', () => {
-      it('should show skills export section when Skills + Prompts selected', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Skills' }))
-
-        expect(within(manual).getByText('Filter by Tags (Optional)')).toBeInTheDocument()
-      })
-
-      it('should show What are Skills section', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Skills' }))
-
-        expect(within(manual).getByText('What are Skills?')).toBeInTheDocument()
-      })
-    })
-
-    describe('available tools', () => {
-      it('should show content tools for content server', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        expect(within(manual).getByText('Available MCP Tools')).toBeInTheDocument()
-        expect(within(manual).getAllByText('search_items').length).toBeGreaterThan(0)
-        expect(within(manual).getAllByText('create_bookmark').length).toBeGreaterThan(0)
-      })
-
-      it('should show prompt tools for prompt server', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Prompts' }))
-
-        expect(within(manual).getAllByText('search_prompts').length).toBeGreaterThan(0)
-        expect(within(manual).getAllByText('create_prompt').length).toBeGreaterThan(0)
-      })
-
-      it('should not show tools for unsupported clients', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Gemini CLI' }))
-
-        expect(within(manual).queryByText('Available MCP Tools')).not.toBeInTheDocument()
-      })
-    })
-
-    describe('links', () => {
-      it('should have link to create token page', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        const createTokenLink = within(manual).getByRole('link', { name: /create token/i })
-        expect(createTokenLink).toHaveAttribute('href', '/app/settings/tokens')
-      })
-
-      it('should have link to MCP documentation', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        const mcpLink = within(manual).getByRole('link', { name: /model context protocol/i })
-        expect(mcpLink).toHaveAttribute('href', 'https://modelcontextprotocol.io/')
-        expect(mcpLink).toHaveAttribute('target', '_blank')
-      })
-    })
-
-    describe('both servers tip', () => {
-      it('should show tip for Claude Desktop', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-        expect(within(manual).getByText('Want to add both servers?')).toBeInTheDocument()
-      })
-
-      it('should show tip for Claude Code', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        await user.click(within(manual).getByRole('button', { name: 'Claude Code' }))
-
-        expect(within(manual).getByText('Want to add both servers?')).toBeInTheDocument()
-      })
-    })
-
-    describe('copy functionality', () => {
-      it('should copy config when copy button clicked', async () => {
-        renderWithRouter()
-        const manual = await openManualSection()
-
-        const copyButtons = within(manual).getAllByText('Copy')
-        const user = userEvent.setup()
-        await user.click(copyButtons[0])
-
-        await waitFor(() => {
-          expect(within(manual).getAllByText('Copied!').length).toBeGreaterThan(0)
-        })
-      })
-    })
-  })
-
-  // ===========================================================================
-  // Remove Flow
-  // ===========================================================================
-  describe('remove flow', () => {
-    /** Switch to Remove action and return the CLI section. */
-    async function switchToRemove(): Promise<{ user: ReturnType<typeof userEvent.setup>; cli: HTMLElement }> {
-      const user = userEvent.setup()
-      renderWithRouter()
-      const cli = screen.getByTestId('cli-setup-section')
-      await user.click(within(cli).getByRole('button', { name: 'Remove' }))
-      return { user, cli }
-    }
-
-    describe('scope selector', () => {
-      it('should show single Scope selector in remove flow', async () => {
-        const { cli } = await switchToRemove()
-        expect(within(cli).getByText('Scope')).toBeInTheDocument()
-        expect(within(cli).getByRole('button', { name: 'User' })).toBeInTheDocument()
-        expect(within(cli).getByRole('button', { name: 'Directory' })).toBeInTheDocument()
-      })
-
-      it('should show Scope when only skills selected in remove flow', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
-        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
-        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
-        await user.click(yesButtons[0])
-
-        expect(within(cli).getByText('Scope')).toBeInTheDocument()
-      })
-
-      it('should default remove scope to user', async () => {
-        const { cli } = await switchToRemove()
-        expect(within(cli).getByRole('button', { name: 'User' }).className).toContain('bg-[#f09040]')
-      })
-
-      it('should add --scope directory to remove command', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('--scope directory')
-      })
-
-      it('should not add --scope when user scope selected', async () => {
-        const { cli } = await switchToRemove()
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).not.toContain('--scope')
-      })
-    })
-
-    describe('cd step', () => {
-      it('should prepend cd when directory scope selected for remove', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
-      })
-
-      it('should not have cd line when user scope selected for remove', async () => {
-        const { cli } = await switchToRemove()
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).not.toContain('cd /path/to/your/project')
-      })
-
-      it('should prepend cd when directory scope selected for configure', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toMatch(/^cd \/path\/to\/your\/project/)
-      })
-
-      it('should not have cd line when user scope selected for configure', () => {
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).not.toContain('cd /path/to/your/project')
-      })
-    })
-
-    describe('skills removal warning', () => {
-      /** Enable skills in remove mode — clicks the first "Yes" button (Skills toggle, not Delete Tokens). */
-      async function enableSkills(user: ReturnType<typeof userEvent.setup>, cli: HTMLElement): Promise<void> {
-        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
-        // Skills Yes is the first Yes button (Delete Tokens Yes comes after in the Options section)
-        await user.click(yesButtons[0])
-      }
-
-      it('should show warning when action=remove and skills=yes', async () => {
-        const { user, cli } = await switchToRemove()
-        await enableSkills(user, cli)
-
-        expect(within(cli).getByTestId('skills-remove-warning')).toBeInTheDocument()
-        expect(within(cli).getByText(/cannot distinguish Tiddly skills from other skills/)).toBeInTheDocument()
-      })
-
-      it('should hide warning when action=configure', async () => {
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        expect(within(cli).queryByTestId('skills-remove-warning')).not.toBeInTheDocument()
-      })
-
-      it('should generate commented-out rm commands for user scope skills', async () => {
-        const { user, cli } = await switchToRemove()
-        await enableSkills(user, cli)
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('# rm -rf ~/.claude/skills/')
-        expect(pre.textContent).toContain('# rm -rf ~/.agents/skills/')
-        // Also includes deprecated Codex path cleanup
-        expect(pre.textContent).toContain('# rm -rf ~/.codex/skills/')
-        expect(pre.textContent).not.toContain('\nrm -rf')
-      })
-
-      it('should generate commented-out rm commands for directory scope skills', async () => {
-        const { user, cli } = await switchToRemove()
-        await enableSkills(user, cli)
-        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('# rm -rf .claude/skills/')
-        expect(pre.textContent).toContain('# rm -rf .agents/skills/')
-        // Should NOT include user-scope paths
-        expect(pre.textContent).not.toContain('~/.claude/skills/')
-        expect(pre.textContent).not.toContain('~/.agents/skills/')
-      })
-
-      it('should show manual instruction for Claude Desktop skills', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
-        await enableSkills(user, cli)
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('Claude Desktop: manually remove skills')
-      })
-    })
-
-    describe('delete tokens', () => {
-      it('should default delete tokens to no', async () => {
-        const { cli } = await switchToRemove()
-        // The second "No" button (Delete Tokens) should be selected
-        const noButtons = within(cli).getAllByRole('button', { name: 'No' })
-        // Delete Tokens No should be selected (orange)
-        expect(noButtons[noButtons.length - 1].className).toContain('bg-[#f09040]')
-      })
-
-      it('should hide login step when delete tokens is no', async () => {
-        const { cli } = await switchToRemove()
-        // Delete tokens defaults to No, so login step should not be shown
-        expect(within(cli).queryByText('Log in')).not.toBeInTheDocument()
-      })
-
-      it('should show login step when delete tokens is yes', async () => {
-        const { user, cli } = await switchToRemove()
-        // Enable delete tokens — click the last "Yes" button (Delete Tokens)
-        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
-        await user.click(yesButtons[yesButtons.length - 1])
-
-        expect(within(cli).getByText('Log in')).toBeInTheDocument()
-      })
-
-      it('should add --delete-tokens to generated command when enabled', async () => {
-        const { user, cli } = await switchToRemove()
-        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
-        await user.click(yesButtons[yesButtons.length - 1])
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('--delete-tokens')
-      })
-
-      it('should not add --delete-tokens when disabled', async () => {
-        const { cli } = await switchToRemove()
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).not.toContain('--delete-tokens')
-      })
-
-      it('should hide delete tokens option when only skills selected', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
-        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
-        // Enable skills
-        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
-
-        expect(within(cli).queryByText('Delete Tokens')).not.toBeInTheDocument()
-      })
-
-      it('should show Claude Desktop directory scope error instead of steps', async () => {
-        const { user, cli } = await switchToRemove()
-        // Select only Claude Desktop
-        await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
-        await user.click(within(cli).getByRole('button', { name: 'Codex' }))
-        await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
-        // Select directory scope
-        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
-
-        expect(within(cli).getByText(/Claude Desktop only supports User scope\. Deselect Claude Desktop or switch to User scope\./)).toBeInTheDocument()
-        expect(within(cli).queryByText('Install the CLI')).not.toBeInTheDocument()
-      })
-    })
-
-    describe('--servers flag in remove', () => {
-      it('should add --servers when only one server selected', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('--servers content')
-      })
-
-      it('should not add --servers when both servers selected', async () => {
-        const { cli } = await switchToRemove()
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).not.toContain('--servers')
-      })
-    })
-
-    describe('configure command join behavior', () => {
-      it('should join configure commands with && when user scope', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        // Enable skills
-        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).toContain('&& \\')
-      })
-
-      it('should join configure commands with newlines when directory scope', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        // Enable skills and select directory scope
-        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
-        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
-
-        const pre = within(cli).getByTestId('cli-install-command')
-        expect(pre.textContent).not.toContain('&&')
-        expect(pre.textContent).toContain('cd /path/to/your/project')
-      })
-    })
-
-    describe('empty command handling', () => {
-      it('should show Claude Desktop error when only Claude Desktop + directory scope', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
-        await user.click(within(cli).getByRole('button', { name: 'Codex' }))
-        await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
-        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
-
-        expect(within(cli).getByText(/Claude Desktop only supports User scope\. Deselect Claude Desktop or switch to User scope\./)).toBeInTheDocument()
-        expect(within(cli).queryByText('Install the CLI')).not.toBeInTheDocument()
-      })
-
-      it('should show error when Claude Desktop + other tools + directory scope', async () => {
-        const { user, cli } = await switchToRemove()
-        await user.click(within(cli).getByRole('button', { name: 'Claude Desktop' }))
-        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
-
-        expect(within(cli).getByText(/Claude Desktop only supports User scope\. Deselect Claude Desktop or switch to User scope\./)).toBeInTheDocument()
-        expect(within(cli).queryByText('Install the CLI')).not.toBeInTheDocument()
-      })
-
-      it('should show nothing-selected message when nothing selected', async () => {
-        const { user, cli } = await switchToRemove()
-        // Deselect all servers and tools
-        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
-        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
-
-        expect(within(cli).getByText(/Select at least one item and one target tool above/)).toBeInTheDocument()
-      })
-    })
-
-    describe('file details disclosure', () => {
-      it('should show file details when command is generated', () => {
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        expect(within(cli).getByTestId('affected-files')).toBeInTheDocument()
-        expect(within(cli).getByText('Files modified')).toBeInTheDocument()
-      })
-
-      it('should hide file details when nothing selected', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
-        await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
-
-        expect(within(cli).queryByTestId('affected-files')).not.toBeInTheDocument()
-      })
-
-      it('should show only Claude Code files when only Claude Code selected', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        await user.click(within(cli).getByRole('button', { name: 'Codex' }))
-
-        const details = within(cli).getByTestId('affected-files')
-        expect(within(details).getByText('~/.claude.json')).toBeInTheDocument()
-        expect(within(details).queryByText('~/.codex/config.toml')).not.toBeInTheDocument()
-      })
-
-      it('should show only Codex files when only Codex selected', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
-
-        const details = within(cli).getByTestId('affected-files')
-        expect(within(details).getByText('~/.codex/config.toml')).toBeInTheDocument()
-        expect(within(details).queryByText('~/.claude.json')).not.toBeInTheDocument()
-      })
-
-      it('should show user-scope paths for user scope', () => {
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        const details = within(cli).getByTestId('affected-files')
-        expect(within(details).getByText('~/.claude.json')).toBeInTheDocument()
-        expect(within(details).getByText('~/.codex/config.toml')).toBeInTheDocument()
-      })
-
-      it('should show directory-scope paths for directory scope', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        await user.click(within(cli).getByRole('button', { name: 'Directory' }))
-
-        const details = within(cli).getByTestId('affected-files')
-        // Claude Code MCP still writes to ~/.claude.json (under project key)
-        expect(within(details).getByText('~/.claude.json')).toBeInTheDocument()
-        // Codex MCP writes to project directory
-        expect(within(details).getByText('.codex/config.toml')).toBeInTheDocument()
-      })
-
-      it('should include skills paths when skills enabled in configure flow', async () => {
-        const user = userEvent.setup()
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        await user.click(within(cli).getByRole('button', { name: 'Yes' }))
-
-        const details = within(cli).getByTestId('affected-files')
-        expect(within(details).getByText('~/.claude/skills/')).toBeInTheDocument()
-        expect(within(details).getByText('~/.agents/skills/')).toBeInTheDocument()
-        // Deprecated Codex path NOT shown in configure flow
-        expect(within(details).queryByText('~/.codex/skills/')).not.toBeInTheDocument()
-      })
-
-      it('should include deprecated Codex path in remove flow', async () => {
-        const { user, cli } = await switchToRemove()
-        const yesButtons = within(cli).getAllByRole('button', { name: 'Yes' })
-        await user.click(yesButtons[0])
-
-        const details = within(cli).getByTestId('affected-files')
-        expect(within(details).getByText('~/.agents/skills/')).toBeInTheDocument()
-        expect(within(details).getByText('~/.codex/skills/')).toBeInTheDocument()
-      })
-    })
-
-    describe('status tip', () => {
-      it('should show status tip', () => {
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        expect(within(cli).getByTestId('status-tip')).toBeInTheDocument()
-        expect(within(cli).getByText(/tiddly status/)).toBeInTheDocument()
-      })
-
-      it('should contain code element for tiddly status', () => {
-        renderWithRouter()
-        const cli = screen.getByTestId('cli-setup-section')
-        const tip = within(cli).getByTestId('status-tip')
-        const code = tip.querySelector('code')
-        expect(code).not.toBeNull()
-        expect(code?.textContent).toBe('tiddly status')
-      })
-    })
-  })
 })
