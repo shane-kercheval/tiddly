@@ -27,10 +27,13 @@ vi.mock('../hooks/useHistory', () => ({
 
 // Mock the sidebar store
 vi.mock('../stores/rightSidebarStore', () => ({
-  useRightSidebarStore: (selector: (state: { width: number }) => unknown) =>
-    selector({ width: 500 }),
+  useRightSidebarStore: (
+    selector: (state: { width: number; maximized: boolean; toggleMaximized: () => void; setMaximized: () => void }) => unknown,
+  ) => selector({ width: 500, maximized: false, toggleMaximized: () => {}, setMaximized: () => {} }),
   MIN_SIDEBAR_WIDTH: 300,
   MIN_CONTENT_WIDTH: 400,
+  computeMaxWidth: (innerWidth: number, leftSidebarWidth: number) =>
+    Math.max(300, innerWidth - leftSidebarWidth - 400),
 }))
 
 function createEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {

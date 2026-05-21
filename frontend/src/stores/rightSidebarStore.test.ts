@@ -4,13 +4,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   useRightSidebarStore,
+  computeMaxWidth,
   DEFAULT_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
+  MIN_CONTENT_WIDTH,
 } from './rightSidebarStore'
 
 describe('rightSidebarStore', () => {
   beforeEach(() => {
-    useRightSidebarStore.setState({ activePanel: null, width: DEFAULT_SIDEBAR_WIDTH })
+    useRightSidebarStore.setState({ activePanel: null, width: DEFAULT_SIDEBAR_WIDTH, maximized: false })
     localStorage.clear()
   })
 
@@ -182,7 +184,76 @@ describe('rightSidebarStore', () => {
     })
   })
 
+  describe('computeMaxWidth', () => {
+    it('subtracts left sidebar and reserved content width from the viewport', () => {
+      // 1440 - 288 (expanded left) - 600 reserved = 552
+      expect(computeMaxWidth(1440, 288)).toBe(1440 - 288 - MIN_CONTENT_WIDTH)
+    })
+
+    it('grows when the left sidebar is collapsed', () => {
+      // Same viewport, collapsed left sidebar (48) leaves more room.
+      expect(computeMaxWidth(1440, 48)).toBeGreaterThan(computeMaxWidth(1440, 288))
+    })
+
+    it('floors at MIN_SIDEBAR_WIDTH on narrow viewports', () => {
+      // 900 - 288 - 600 = 12, below the floor.
+      expect(computeMaxWidth(900, 288)).toBe(MIN_SIDEBAR_WIDTH)
+    })
+  })
+
+  describe('maximize', () => {
+    it('toggleMaximized flips and persists the flag', () => {
+      const { toggleMaximized } = useRightSidebarStore.getState()
+      toggleMaximized()
+      expect(useRightSidebarStore.getState().maximized).toBe(true)
+      expect(localStorage.getItem('right-sidebar-maximized')).toBe('true')
+
+      toggleMaximized()
+      expect(useRightSidebarStore.getState().maximized).toBe(false)
+      expect(localStorage.getItem('right-sidebar-maximized')).toBe('false')
+    })
+
+    it('setMaximized does not touch the stored width (restore target preserved)', () => {
+      const { setWidth, setMaximized } = useRightSidebarStore.getState()
+      setWidth(700)
+      setMaximized(true)
+      expect(useRightSidebarStore.getState().width).toBe(700)
+      setMaximized(false)
+      expect(useRightSidebarStore.getState().width).toBe(700)
+    })
+
+    it('handles localStorage errors gracefully', () => {
+      const { setMaximized } = useRightSidebarStore.getState()
+      const originalSetItem = localStorage.setItem
+      localStorage.setItem = vi.fn(() => {
+        throw new Error('Storage quota exceeded')
+      })
+
+      expect(() => setMaximized(true)).not.toThrow()
+      expect(useRightSidebarStore.getState().maximized).toBe(true)
+
+      localStorage.setItem = originalSetItem
+    })
+  })
+
   describe('initialization from localStorage', () => {
+    it('should initialize maximized from localStorage when set to true', async () => {
+      vi.resetModules()
+      localStorage.clear()
+      localStorage.setItem('right-sidebar-maximized', 'true')
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().maximized).toBe(true)
+    })
+
+    it('should default maximized to false when localStorage is empty', async () => {
+      vi.resetModules()
+      localStorage.clear()
+
+      const { useRightSidebarStore: freshStore } = await import('./rightSidebarStore')
+      expect(freshStore.getState().maximized).toBe(false)
+    })
+
     it('should use default width when localStorage is empty', async () => {
       vi.resetModules()
       localStorage.clear()

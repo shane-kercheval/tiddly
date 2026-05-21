@@ -115,21 +115,40 @@ vi.mock('../stores/sidebarStore', () => ({
 
 // Track right sidebar state for tests
 let mockActivePanel: string | null = null
+let mockMaximized = false
 const mockRightSidebarWidth = 384
+const mockToggleMaximized = vi.fn()
 vi.mock('../stores/rightSidebarStore', () => ({
   useRightSidebarStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state = {
       activePanel: mockActivePanel,
       width: mockRightSidebarWidth,
+      maximized: mockMaximized,
       setActivePanel: vi.fn(),
       togglePanel: vi.fn(),
       setWidth: vi.fn(),
+      setMaximized: vi.fn(),
+      toggleMaximized: mockToggleMaximized,
     }
     return selector ? selector(state) : state
   },
   MIN_SIDEBAR_WIDTH: 280,
   MIN_CONTENT_WIDTH: 600,
+  // Used by measureMaxSidebarWidth (via Layout's getRightSidebarMargin).
+  computeMaxWidth: (innerWidth: number, leftSidebarWidth: number) =>
+    Math.max(280, innerWidth - leftSidebarWidth - 600),
 }))
+
+function setWindowWidth(width: number): void {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
+}
+
+/** Dispatch the ⌘⌥\ (maximize sidebar) shortcut as a real keydown on document. */
+function pressMaximizeShortcut(): void {
+  document.dispatchEvent(
+    new KeyboardEvent('keydown', { metaKey: true, altKey: true, code: 'Backslash', bubbles: true }),
+  )
+}
 
 function TestPage(): ReactNode {
   return <div data-testid="test-page">Test Page Content</div>
@@ -152,7 +171,9 @@ describe('Layout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockActivePanel = null
+    mockMaximized = false
     mockNeedsConsent = false
+    setWindowWidth(1024) // desktop by default
     vi.mocked(config).isDevMode = true
   })
 
@@ -305,6 +326,57 @@ describe('Layout', () => {
 
       const main = screen.getByRole('main')
       expect(main.style.getPropertyValue('--right-sidebar-margin')).toBe('0px')
+    })
+
+    it('should apply the max width as margin when maximized, ignoring the smaller stored width', () => {
+      // jsdom: innerWidth 1024, no measurable left sidebar → max = 1024 - 0 - 600 = 424,
+      // larger than the stored width (384), so maximize widens the margin.
+      mockActivePanel = 'history'
+      mockMaximized = true
+      renderLayout('/app/notes/abc-123')
+
+      const main = screen.getByRole('main')
+      expect(main.style.marginRight).toBe('424px')
+      expect(main.style.getPropertyValue('--right-sidebar-margin')).toBe('424px')
+    })
+  })
+
+  describe('maximize shortcut (⌘⌥\\)', () => {
+    it('toggles maximize on a detail page with a panel open (desktop)', () => {
+      mockActivePanel = 'history'
+      renderLayout('/app/notes/abc-123')
+
+      pressMaximizeShortcut()
+
+      expect(mockToggleMaximized).toHaveBeenCalledTimes(1)
+    })
+
+    it('is a no-op on mobile, so it cannot silently flip the persisted flag', () => {
+      setWindowWidth(600) // below the md breakpoint
+      mockActivePanel = 'history'
+      renderLayout('/app/notes/abc-123')
+
+      pressMaximizeShortcut()
+
+      expect(mockToggleMaximized).not.toHaveBeenCalled()
+    })
+
+    it('is a no-op when no sidebar panel is open', () => {
+      mockActivePanel = null
+      renderLayout('/app/notes/abc-123')
+
+      pressMaximizeShortcut()
+
+      expect(mockToggleMaximized).not.toHaveBeenCalled()
+    })
+
+    it('is a no-op on non-detail pages', () => {
+      mockActivePanel = 'history'
+      renderLayout('/app/bookmarks')
+
+      pressMaximizeShortcut()
+
+      expect(mockToggleMaximized).not.toHaveBeenCalled()
     })
   })
 })

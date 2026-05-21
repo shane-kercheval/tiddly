@@ -41,11 +41,13 @@ interface ShortcutMatchBase {
  *
  * - `key`: compares against `event.key`. Used for almost everything (Cmd+B,
  *   Cmd+Shift+/, Escape). Single-letter keys compare case-insensitively.
- * - `code`: compares against `event.code` (physical key). Use ONLY where
- *   macOS Option-key conversion forces our hand (Option+Z reports
- *   `event.key === 'Ω'`). e.g. 'KeyZ', 'KeyL', 'KeyM', 'KeyT'.
- *   Belongs to the capture-phase listener path; the CM keymap adapter throws
- *   on these.
+ * - `code`: compares against `event.code` (physical key). Use where macOS
+ *   Option-key conversion forces our hand (Option+Z reports `event.key === 'Ω'`,
+ *   Option+\ reports '«'). e.g. 'KeyZ', 'KeyL', 'KeyM', 'KeyT', 'Backslash'.
+ *   Capture-phase editor entries must use `code`, and the CM keymap adapter
+ *   throws on `code` — but global (bubble-phase) entries dispatched via
+ *   useGlobalShortcuts may also use `code`, since the matcher handles it and
+ *   such entries never reach the CM adapter (e.g. app.toggleSidebarMaxWidth).
  */
 export type ShortcutMatch =
   & ShortcutMatchBase

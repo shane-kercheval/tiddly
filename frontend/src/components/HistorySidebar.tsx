@@ -14,6 +14,7 @@ import { Tooltip } from './ui/Tooltip'
 import { ActionDot } from './ActionDot'
 import { ChangeIndicators } from './ChangeIndicators'
 import { VersionDiffPanel } from './VersionDiffPanel'
+import { RightSidebarMaxWidthToggle } from './RightSidebarMaxWidthToggle'
 import { formatAction, formatSource, isAuditAction } from '../constants/historyLabels'
 
 interface HistorySidebarProps {
@@ -143,13 +144,16 @@ export function HistorySidebar({
             <HelpIcon className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
           </Tooltip>
         </div>
-        <button
-          onClick={onClose}
-          className="h-[28px] w-[28px] flex items-center justify-center text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100"
-          aria-label="Close history sidebar"
-        >
-          <CloseIcon className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          {isDesktop && <RightSidebarMaxWidthToggle />}
+          <button
+            onClick={onClose}
+            className="h-[28px] w-[28px] flex items-center justify-center text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100"
+            aria-label="Close history sidebar"
+          >
+            <CloseIcon className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Pagination - only shown when there's more than one page */}

@@ -65,6 +65,7 @@ import {
   IconWithBadge,
 } from '../icons'
 import { Tooltip } from '../ui'
+import { DESKTOP_SIDEBAR_ID } from '../../constants/sidebar'
 import type {
   SidebarItemComputed,
   SidebarBuiltinItemComputed,
@@ -871,7 +872,7 @@ export function Sidebar({ onOpenPalette }: SidebarProps): ReactNode {
 
       {/* Desktop sidebar */}
       <aside
-        id="desktop-sidebar"
+        id={DESKTOP_SIDEBAR_ID}
         className={`hidden h-dvh flex-shrink-0 border-r border-gray-200 bg-white transition-all md:block ${
           isCollapsed ? 'w-12' : 'w-72'
         }`}

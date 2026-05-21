@@ -32,7 +32,7 @@ beforeEach(() => {
   // Default to desktop width
   setWindowWidth(1400)
   // Reset store
-  useRightSidebarStore.setState({ activePanel: null, width: DEFAULT_SIDEBAR_WIDTH })
+  useRightSidebarStore.setState({ activePanel: null, width: DEFAULT_SIDEBAR_WIDTH, maximized: false })
   // No left sidebar element by default
   document.getElementById('desktop-sidebar')?.remove()
 })
@@ -119,22 +119,62 @@ describe('useResizableSidebar', () => {
       sidebar.remove()
     })
 
-    it('should constrain store width on window resize', () => {
-      // Start with width that fits
+    it('should clamp rendered width on window resize without mutating the stored width', () => {
+      // The stored width is the user's chosen "restore" target — a transient
+      // viewport shrink must clamp what's rendered but never overwrite it.
       useRightSidebarStore.setState({ width: 500 })
-      renderHook(() => useResizableSidebar())
+      const { result } = renderHook(() => useResizableSidebar())
+      expect(result.current.width).toBe(500)
 
-      // Shrink window so max becomes smaller than stored width
-      // New max = max(280, 700 - 0 - 600) = 280 (since MIN_SIDEBAR_WIDTH clamping applies in store)
-      setWindowWidth(700)
+      // Shrink to a still-desktop width (>= 768) so max = max(280, 800 - 0 - 600)
+      // = 280, below stored 500. Below 768 we'd hit the mobile (unclamped) path.
+      setWindowWidth(800)
       act(() => {
         window.dispatchEvent(new Event('resize'))
       })
 
-      // Store should have been constrained
-      // max = max(280, 700 - 0 - 600) = 280
-      // 500 > 280, so store gets set to 280
-      expect(useRightSidebarStore.getState().width).toBe(MIN_SIDEBAR_WIDTH)
+      expect(result.current.width).toBe(MIN_SIDEBAR_WIDTH) // rendered clamps
+      expect(useRightSidebarStore.getState().width).toBe(500) // stored preserved
+    })
+  })
+
+  describe('maximize', () => {
+    it('should render at max width when maximized, ignoring the smaller stored width', () => {
+      // Stored 400, but maximized → max = max(280, 1400 - 0 - 600) = 800
+      useRightSidebarStore.setState({ width: 400, maximized: true })
+      const { result } = renderHook(() => useResizableSidebar())
+
+      expect(result.current.width).toBe(800)
+    })
+
+    it('should return to the stored width when maximize is turned off', () => {
+      useRightSidebarStore.setState({ width: 400, maximized: true })
+      const { result, rerender } = renderHook(() => useResizableSidebar())
+      expect(result.current.width).toBe(800)
+
+      act(() => {
+        useRightSidebarStore.getState().setMaximized(false)
+      })
+      rerender()
+
+      expect(result.current.width).toBe(400)
+    })
+
+    it('should exit maximize mode when the user drags the handle', () => {
+      useRightSidebarStore.setState({ width: 400, maximized: true })
+      const { result } = renderHook(() => useResizableSidebar())
+
+      act(() => {
+        const mockEvent = { preventDefault: vi.fn() } as unknown as React.MouseEvent
+        result.current.handleMouseDown(mockEvent)
+      })
+      // Drag to clientX=1000 → newWidth = 1400 - 1000 = 400
+      act(() => {
+        document.dispatchEvent(new MouseEvent('mousemove', { clientX: 1000 }))
+      })
+
+      expect(useRightSidebarStore.getState().maximized).toBe(false)
+      expect(useRightSidebarStore.getState().width).toBe(400)
     })
   })
 

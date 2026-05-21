@@ -16,7 +16,7 @@ import { TableOfContentsSidebar } from './TableOfContentsSidebar'
 const mockSetActivePanel = vi.fn()
 vi.mock('../stores/rightSidebarStore', () => ({
   useRightSidebarStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ setActivePanel: mockSetActivePanel, width: 320 }),
+    selector({ setActivePanel: mockSetActivePanel, width: 320, maximized: false, toggleMaximized: vi.fn() }),
   MIN_SIDEBAR_WIDTH: 300,
   MIN_CONTENT_WIDTH: 400,
 }))
@@ -120,10 +120,7 @@ describe('TableOfContentsSidebar', () => {
       <TableOfContentsSidebar content={content} onHeadingClick={vi.fn()} />
     )
 
-    // Find the close button (the one that doesn't contain heading text)
-    const headerButtons = screen.getAllByRole('button')
-    const closeBtn = headerButtons.find(btn => !btn.textContent?.includes('Heading'))!
-    fireEvent.click(closeBtn)
+    fireEvent.click(screen.getByLabelText('Close table of contents'))
 
     expect(mockSetActivePanel).toHaveBeenCalledWith(null)
   })
