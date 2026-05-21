@@ -286,5 +286,25 @@ describe('Layout', () => {
       const main = screen.getByRole('main')
       expect(main.style.marginRight).toBe('0px')
     })
+
+    // The CodeMirror Cmd+F search panel (position: fixed) offsets its `right`
+    // by --right-sidebar-margin so it shifts with the content instead of
+    // hiding behind the sidebar. The variable must always equal marginRight.
+    it('should expose the margin as the --right-sidebar-margin variable when open', () => {
+      mockActivePanel = 'history'
+      renderLayout('/app/notes/abc-123')
+
+      const main = screen.getByRole('main')
+      expect(main.style.getPropertyValue('--right-sidebar-margin')).toBe(`${mockRightSidebarWidth}px`)
+      expect(main.style.getPropertyValue('--right-sidebar-margin')).toBe(main.style.marginRight)
+    })
+
+    it('should set --right-sidebar-margin to 0px when sidebar is closed', () => {
+      mockActivePanel = null
+      renderLayout('/app/notes/abc-123')
+
+      const main = screen.getByRole('main')
+      expect(main.style.getPropertyValue('--right-sidebar-margin')).toBe('0px')
+    })
   })
 })

@@ -297,11 +297,16 @@ body {
 /* Float the CM search panel in a fixed viewport position so it stays
    visible when scrolling long documents. The panel is in .cm-panels-top
    (via search({ top: true })), and position: fixed removes it from the
-   flex layout so .cm-scroller expands to fill — no layout gap. */
+   flex layout so .cm-scroller expands to fill — no layout gap.
+
+   The right offset tracks --right-sidebar-margin (set on #main-content by
+   Layout) so the panel shifts with the content instead of hiding behind the
+   right sidebar when it's open. Defaults to 0 when no sidebar is present, and
+   transitions in step with the content's margin animation. */
 .cm-editor .cm-panels-top {
   position: fixed !important;
   top: auto !important;
-  right: 2rem !important;
+  right: calc(var(--right-sidebar-margin, 0px) + 2rem) !important;
   left: auto !important;
   bottom: 0 !important;
   height: auto !important;
@@ -309,6 +314,7 @@ body {
   z-index: 50;
   border: none !important;
   background: transparent !important;
+  transition: right 200ms;
 }
 
 /* Style the CM search panel to match the app's design system */

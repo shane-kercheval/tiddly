@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Sidebar } from './sidebar'
 import { ShortcutsDialog } from './ShortcutsDialog'
 import { CommandPalette } from './CommandPalette'
@@ -109,6 +109,25 @@ export function Layout(): ReactNode {
     return () => window.removeEventListener('resize', handleResize)
   }, [rightSidebarOpen])
 
+  // Recompute the right-sidebar margin when the left sidebar's width changes.
+  // Collapsing/expanding it animates (w-12 ↔ w-72), and the margin depends on
+  // that width (see getRightSidebarMargin). A ResizeObserver tracks the live
+  // width across the transition — a state subscription would re-render once at
+  // the animation's start and read the stale pre-transition width. Keeping the
+  // margin in sync also keeps the Cmd+F search panel offset correct, since it
+  // reads the --right-sidebar-margin variable set below.
+  useEffect(() => {
+    if (!rightSidebarOpen) return
+    const leftSidebar = document.getElementById('desktop-sidebar')
+    if (!leftSidebar) return
+    // Guard for environments without ResizeObserver (matches DropdownPortal);
+    // the window-resize handler above remains the fallback for margin recompute.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => setResizeCount((c) => c + 1))
+    observer.observe(leftSidebar)
+    return () => observer.disconnect()
+  }, [rightSidebarOpen])
+
   const togglePanel = useRightSidebarStore((state) => state.togglePanel)
 
   // Global keyboard shortcuts (work on all pages).
@@ -148,6 +167,11 @@ export function Layout(): ReactNode {
     return Math.min(rightSidebarWidth, maxWidth)
   }
 
+  // Single source of truth for the content offset. Exposed as a CSS variable so
+  // the CodeMirror search panel (position: fixed) can offset by the same amount
+  // and shift with the content instead of hiding behind the right sidebar.
+  const rightSidebarMargin = getRightSidebarMargin()
+
   return (
     <div data-viewport-locked className="flex h-dvh bg-white overflow-hidden">
       <Sidebar onOpenPalette={() => openPalette('commands')} />
@@ -155,7 +179,7 @@ export function Layout(): ReactNode {
       <main
         id="main-content"
         className="flex-1 flex flex-col min-w-0 relative overflow-x-hidden transition-[margin] duration-200"
-        style={{ marginRight: `${getRightSidebarMargin()}px` }}
+        style={{ marginRight: `${rightSidebarMargin}px`, '--right-sidebar-margin': `${rightSidebarMargin}px` } as CSSProperties}
       >
         <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
           <div className={`flex flex-col min-h-0 px-4 pb-4 md:px-5 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>
