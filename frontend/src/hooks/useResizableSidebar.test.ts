@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useResizableSidebar } from './useResizableSidebar'
 import { useRightSidebarStore, DEFAULT_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH } from '../stores/rightSidebarStore'
+import { DESKTOP_SIDEBAR_ID } from '../constants/sidebar'
 
 // We don't mock the store — we use the real Zustand store and reset it between tests.
 // This gives higher confidence that the hook integrates correctly.
@@ -34,7 +35,7 @@ beforeEach(() => {
   // Reset store
   useRightSidebarStore.setState({ activePanel: null, width: DEFAULT_SIDEBAR_WIDTH, maximized: false })
   // No left sidebar element by default
-  document.getElementById('desktop-sidebar')?.remove()
+  document.getElementById(DESKTOP_SIDEBAR_ID)?.remove()
 })
 
 afterEach(() => {
@@ -106,7 +107,7 @@ describe('useResizableSidebar', () => {
     it('should account for left sidebar width in max calculation', () => {
       // Create a left sidebar element
       const sidebar = document.createElement('div')
-      sidebar.id = 'desktop-sidebar'
+      sidebar.id = DESKTOP_SIDEBAR_ID
       // jsdom doesn't compute layout, getBoundingClientRect returns zeros
       // So left sidebar width will be 0; this just verifies the element lookup works
       document.body.appendChild(sidebar)

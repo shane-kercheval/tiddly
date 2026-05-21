@@ -2,10 +2,16 @@
 
 **Ticket:** https://tiddly.atlassian.net/browse/KAN-153
 **Date:** 2026-05-20
-**Status:** Planned — reviewed (two AI review passes + synthesis), pending implementation
+**Status:** Implemented — shipped on branch `kan-153-right-sidebar-improvements` (Part 1: commit `de93cb9`; Part 2: commit `986d8ba`)
 **Branch:** `kan-153-right-sidebar-improvements`
 
 > **Review note (2026-05-20):** This plan was reviewed by two independent agents and a synthesis pass. Six findings were folded back in — see the "Review-driven corrections" callouts inline and the revised Open Questions. All correctness/testing findings (#1–#5) accepted; #6 (shared maximize flag) confirmed as intended.
+
+> **As-built note (2026-05-20):** Implemented as planned, with these deliberate deviations (recorded here because the rationale otherwise lives only in code comments and review threads):
+> - **Left-sidebar invalidation uses a `ResizeObserver` on the desktop sidebar element, not an `isCollapsed` store subscription** (finding #2 below offered both). A subscription re-renders once at the *start* of the sidebar's `w-12 ↔ w-72` width animation and reads stale pre-animation geometry via `getBoundingClientRect()`, computing the wrong margin until an unrelated re-render. The observer tracks the live width across the animation. Applies to both the Part 1 Cmd+F offset and the Part 2 maximized width. **Do not "simplify" this back to a subscription** — it reintroduces the stale-geometry bug.
+> - **Max-width toggle uses a single icon (no glyph flip) plus active styling when maximized** (resolved the open icon question): the sidebar's expanded state is itself the cue; tooltip/aria-label flip "Maximize" ↔ "Restore". Tooltip is positioned `left` so it isn't clipped at the viewport's right edge.
+> - **The shortcut handler is also gated on `isDesktop`** (mirroring the desktop-only button) so `⌘⌥\` can't silently flip the persisted `maximized` flag on mobile.
+> - The shared `'desktop-sidebar'` id is centralized as `DESKTOP_SIDEBAR_ID` (`src/constants/sidebar.ts`) to avoid silent-failure coupling across its read sites.
 
 ## Summary
 
