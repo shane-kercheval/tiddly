@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Sidebar } from './sidebar'
 import { ShortcutsDialog } from './ShortcutsDialog'
 import { CommandPalette } from './CommandPalette'
@@ -13,10 +13,12 @@ import { useSidebarStore } from '../stores/sidebarStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFiltersStore } from '../stores/filtersStore'
 import { useTagsStore } from '../stores/tagsStore'
-import { useRightSidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/rightSidebarStore'
+import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { useGlobalShortcuts } from '../shortcuts/useGlobalShortcuts'
 import type { ShortcutId } from '../shortcuts/registry'
 import { useLimits } from '../hooks/useLimits'
+import { measureMaxSidebarWidth } from '../hooks/useResizableSidebar'
+import { DESKTOP_SIDEBAR_ID } from '../constants/sidebar'
 
 /**
  * Layout component that wraps authenticated pages.
@@ -40,6 +42,7 @@ const APP_GLOBAL_IDS = [
   'app.commandPalette',
   'app.toggleSidebar',
   'app.toggleHistorySidebar',
+  'app.toggleSidebarMaxWidth',
   'app.toggleWidth',
   'app.focusSearch',
   'app.escape',
@@ -68,6 +71,8 @@ export function Layout(): ReactNode {
   const hasFetchedRef = useRef(false)
   const rightSidebarOpen = useRightSidebarStore((state) => state.activePanel !== null)
   const rightSidebarWidth = useRightSidebarStore((state) => state.width)
+  const rightSidebarMaximized = useRightSidebarStore((state) => state.maximized)
+  const toggleSidebarMaximized = useRightSidebarStore((state) => state.toggleMaximized)
 
   // Command palette state
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -109,6 +114,25 @@ export function Layout(): ReactNode {
     return () => window.removeEventListener('resize', handleResize)
   }, [rightSidebarOpen])
 
+  // Recompute the right-sidebar margin when the left sidebar's width changes.
+  // Collapsing/expanding it animates (w-12 ↔ w-72), and the margin depends on
+  // that width (see getRightSidebarMargin). A ResizeObserver tracks the live
+  // width across the transition — a state subscription would re-render once at
+  // the animation's start and read the stale pre-transition width. Keeping the
+  // margin in sync also keeps the Cmd+F search panel offset correct, since it
+  // reads the --right-sidebar-margin variable set below.
+  useEffect(() => {
+    if (!rightSidebarOpen) return
+    const leftSidebar = document.getElementById(DESKTOP_SIDEBAR_ID)
+    if (!leftSidebar) return
+    // Guard for environments without ResizeObserver (matches DropdownPortal);
+    // the window-resize handler above remains the fallback for margin recompute.
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => setResizeCount((c) => c + 1))
+    observer.observe(leftSidebar)
+    return () => observer.disconnect()
+  }, [rightSidebarOpen])
+
   const togglePanel = useRightSidebarStore((state) => state.togglePanel)
 
   // Global keyboard shortcuts (work on all pages).
@@ -132,6 +156,13 @@ export function Layout(): ReactNode {
       if (!isDetailPage) return
       togglePanel('history')
     },
+    'app.toggleSidebarMaxWidth': () => {
+      // Desktop-only, mirroring the button: on mobile the sidebar is full-width
+      // and maximize has no visible effect, so toggling would silently mutate
+      // the persisted flag and surprise the user on their next desktop session.
+      if (!isDetailPage || !rightSidebarOpen || !isDesktop) return
+      toggleSidebarMaximized()
+    },
     'app.escape': () => {
       if (showShortcuts) setShowShortcuts(false)
     },
@@ -141,12 +172,16 @@ export function Layout(): ReactNode {
   // Uses the same logic as sidebar components to ensure they stay in sync
   const getRightSidebarMargin = (): number => {
     if (!rightSidebarOpen || !isDesktop || !isDetailPage) return 0
-    const leftSidebar = document.getElementById('desktop-sidebar')
-    const leftSidebarWidth = leftSidebar?.getBoundingClientRect().width ?? 0
-    // Clamp to MIN_SIDEBAR_WIDTH to prevent negative values on narrow viewports
-    const maxWidth = Math.max(MIN_SIDEBAR_WIDTH, window.innerWidth - leftSidebarWidth - MIN_CONTENT_WIDTH)
-    return Math.min(rightSidebarWidth, maxWidth)
+    const maxWidth = measureMaxSidebarWidth()
+    // When maximized the sidebar fills the max; otherwise clamp the stored width
+    // to it. Mirrors useResizableSidebar so margin and sidebar width agree.
+    return rightSidebarMaximized ? maxWidth : Math.min(rightSidebarWidth, maxWidth)
   }
+
+  // Single source of truth for the content offset. Exposed as a CSS variable so
+  // the CodeMirror search panel (position: fixed) can offset by the same amount
+  // and shift with the content instead of hiding behind the right sidebar.
+  const rightSidebarMargin = getRightSidebarMargin()
 
   return (
     <div data-viewport-locked className="flex h-dvh bg-white overflow-hidden">
@@ -155,7 +190,7 @@ export function Layout(): ReactNode {
       <main
         id="main-content"
         className="flex-1 flex flex-col min-w-0 relative overflow-x-hidden transition-[margin] duration-200"
-        style={{ marginRight: `${getRightSidebarMargin()}px` }}
+        style={{ marginRight: `${rightSidebarMargin}px`, '--right-sidebar-margin': `${rightSidebarMargin}px` } as CSSProperties}
       >
         <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
           <div className={`flex flex-col min-h-0 px-4 pb-4 md:px-5 ${fullWidthLayout ? 'max-w-full' : 'max-w-5xl'}`}>

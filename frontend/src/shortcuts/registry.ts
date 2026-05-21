@@ -147,6 +147,18 @@ export const SHORTCUTS = [
     allowInInputs: true,
   },
   {
+    // Global (bubble-phase) shortcut, so `code` is safe here even though it's
+    // the convention for capture-phase editor entries: `code: 'Backslash'`
+    // avoids the macOS Option-key character shift (Option+\ reports key '«').
+    // Pairs with ⌘⇧\ (history sidebar) on the same physical key.
+    id: 'app.toggleSidebarMaxWidth',
+    label: 'Maximize Sidebar Width',
+    section: 'View',
+    keys: ['⌘', '⌥', '\\'],
+    match: { mod: true, alt: true, code: 'Backslash' },
+    allowInInputs: true,
+  },
+  {
     id: 'app.showShortcuts',
     label: 'Show Shortcuts',
     section: 'View',

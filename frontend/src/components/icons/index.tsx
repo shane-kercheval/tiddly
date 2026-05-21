@@ -196,6 +196,13 @@ export const NoteIcon = ({ className = 'h-full w-full' }: IconProps): ReactNode 
   </svg>
 )
 
+/** Horizontal double-headed arrow — "expand width" affordance for the sidebar max-width toggle */
+export const ExpandWidthIcon = ({ className = 'h-5 w-5' }: IconProps): ReactNode => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5M7.5 8.25 3.75 12l3.75 3.75M16.5 8.25 20.25 12l-3.75 3.75" />
+  </svg>
+)
+
 /** Restore/undo arrow icon */
 export const RestoreIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">

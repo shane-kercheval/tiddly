@@ -10,6 +10,15 @@ if (!Range.prototype.getClientRects) {
 // jsdom doesn't implement scrollIntoView
 Element.prototype.scrollIntoView = vi.fn()
 
+// jsdom doesn't implement ResizeObserver (used to track left-sidebar width changes)
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+}
+
 // Mock react-diff-viewer-continued to avoid ESM module resolution issues in tests
 vi.mock('react-diff-viewer-continued', () => ({
   default: ({ oldValue, newValue }: { oldValue: string; newValue: string }) =>

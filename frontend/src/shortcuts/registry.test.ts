@@ -155,6 +155,7 @@ describe('global-shortcut policy invariants', () => {
       'app.commandPalette',
       'app.toggleSidebar',
       'app.toggleHistorySidebar',
+      'app.toggleSidebarMaxWidth',
       'app.escape',
     ])
     for (const shortcut of getAllShortcuts()) {

@@ -1,16 +1,24 @@
 /**
  * Shared drag-to-resize logic for right sidebar panels.
- * Handles width constraints, drag state, responsive breakpoint, and window resize.
+ * Handles width constraints, drag state, responsive breakpoint, maximize mode,
+ * and recompute on viewport / left-sidebar width changes.
  */
-import { useState, useEffect, useCallback } from 'react'
-import { useRightSidebarStore, MIN_SIDEBAR_WIDTH, MIN_CONTENT_WIDTH } from '../stores/rightSidebarStore'
+import { useReducer, useState, useEffect, useCallback } from 'react'
+import { useRightSidebarStore, computeMaxWidth } from '../stores/rightSidebarStore'
+import { DESKTOP_SIDEBAR_ID } from '../constants/sidebar'
 
 const MD_BREAKPOINT = 768
 
-function calculateMaxWidth(): number {
-  const leftSidebar = document.getElementById('desktop-sidebar')
+/**
+ * Measure the current maximum sidebar width from the live DOM/window. The left
+ * sidebar's width is read from the desktop sidebar element (it collapses
+ * w-12 ↔ w-72). Thin wrapper over the pure computeMaxWidth so the arithmetic
+ * stays testable.
+ */
+export function measureMaxSidebarWidth(): number {
+  const leftSidebar = document.getElementById(DESKTOP_SIDEBAR_ID)
   const leftSidebarWidth = leftSidebar?.getBoundingClientRect().width ?? 0
-  return Math.max(MIN_SIDEBAR_WIDTH, window.innerWidth - leftSidebarWidth - MIN_CONTENT_WIDTH)
+  return computeMaxWidth(window.innerWidth, leftSidebarWidth)
 }
 
 interface ResizableSidebarResult {
@@ -23,26 +31,46 @@ interface ResizableSidebarResult {
 export function useResizableSidebar(): ResizableSidebarResult {
   const storeWidth = useRightSidebarStore((state) => state.width)
   const setWidth = useRightSidebarStore((state) => state.setWidth)
+  const maximized = useRightSidebarStore((state) => state.maximized)
+  const setMaximized = useRightSidebarStore((state) => state.setMaximized)
   const [isDragging, setIsDragging] = useState(false)
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth >= MD_BREAKPOINT : true
   )
+  // Forces a width recompute when the viewport or left-sidebar width changes.
+  // Kept separate from the persisted `width` so a transient viewport shrink
+  // clamps the rendered width without overwriting the user's chosen width.
+  const [, recompute] = useReducer((n: number) => n + 1, 0)
 
-  // Constrain width to current viewport on mount and window resize
   useEffect(() => {
-    const constrainWidth = (): void => {
-      const maxWidth = calculateMaxWidth()
-      if (storeWidth > maxWidth) {
-        setWidth(maxWidth)
-      }
+    const onResize = (): void => {
       setIsDesktop(window.innerWidth >= MD_BREAKPOINT)
+      recompute()
     }
-    constrainWidth()
-    window.addEventListener('resize', constrainWidth)
-    return () => window.removeEventListener('resize', constrainWidth)
-  }, [storeWidth, setWidth])
+    window.addEventListener('resize', onResize)
 
-  const width = isDesktop ? Math.min(storeWidth, calculateMaxWidth()) : storeWidth
+    // Track the left sidebar's animated collapse/expand so the clamped (and,
+    // when maximized, the effective) width stay in step with it.
+    const leftSidebar = document.getElementById(DESKTOP_SIDEBAR_ID)
+    let observer: ResizeObserver | undefined
+    if (leftSidebar && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => recompute())
+      observer.observe(leftSidebar)
+    }
+
+    return () => {
+      window.removeEventListener('resize', onResize)
+      observer?.disconnect()
+    }
+  }, [])
+
+  // Effective rendered width. When maximized, follow the live max; otherwise
+  // clamp the stored width to it. Clamping here (not by mutating the store)
+  // keeps the restore target intact across viewport changes.
+  const maxWidth = measureMaxSidebarWidth()
+  const width = isDesktop
+    ? (maximized ? maxWidth : Math.min(storeWidth, maxWidth))
+    : storeWidth
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -54,8 +82,10 @@ export function useResizableSidebar(): ResizableSidebarResult {
 
     const handleMouseMove = (e: MouseEvent): void => {
       const newWidth = window.innerWidth - e.clientX
-      const maxWidth = calculateMaxWidth()
-      setWidth(Math.min(newWidth, maxWidth))
+      setWidth(Math.min(newWidth, measureMaxSidebarWidth()))
+      // A manual drag is an explicit width choice — leave maximize mode. Guarded
+      // so it fires once; the effect re-binds with maximized=false afterward.
+      if (maximized) setMaximized(false)
     }
 
     const handleMouseUp = (): void => {
@@ -73,7 +103,7 @@ export function useResizableSidebar(): ResizableSidebarResult {
       document.body.style.userSelect = ''
       document.body.style.cursor = ''
     }
-  }, [isDragging, setWidth])
+  }, [isDragging, setWidth, maximized, setMaximized])
 
   return { width, isDesktop, isDragging, handleMouseDown }
 }

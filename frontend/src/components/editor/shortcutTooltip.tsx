@@ -18,11 +18,16 @@ import type { ReactNode } from 'react'
 import { getShortcut, type ShortcutId } from '../../shortcuts/registry'
 import { formatShortcut } from '../../utils/platform'
 
-export function shortcutTooltipContent(id: ShortcutId): ReactNode {
+/**
+ * @param labelOverride - replaces the registry label on the first line (the
+ *   shortcut combo stays registry-driven). For buttons whose label depends on
+ *   state, e.g. "Maximize" vs "Restore" for a single toggle id.
+ */
+export function shortcutTooltipContent(id: ShortcutId, labelOverride?: string): ReactNode {
   const entry = getShortcut(id)
   return (
     <>
-      {entry.label}
+      {labelOverride ?? entry.label}
       <br />
       <span className="opacity-75">{formatShortcut(entry.keys)}</span>
     </>
