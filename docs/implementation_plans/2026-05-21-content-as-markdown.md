@@ -1,8 +1,6 @@
 # Content as Markdown + Data: single-source public content for humans, agents, and clients
 
 **Date:** 2026-05-21
-**Status:** Planning
-**Relationship to other plans:** Independent of and a prerequisite to the agent-empowerment plan (KAN-152), `agent-empowerment.md` in this directory (being renamed to a `2026-05-23-` prefix on the KAN-152 branch so it sorts after this one). Once this lands, the hand-authored `llms-*.txt` family that plan describes can largely *link to or be generated from* the content this plan publishes, so KAN-152 will be revisited and simplified afterward. This plan does not depend on KAN-152 and should be executed first.
 
 ## Problem
 
@@ -17,27 +15,26 @@ A single source for each piece of public content, consumable by humans (the SPA)
 
 ### Decisions made in this conversation (transmit these; not recoverable from the code)
 
-- **Architecture A — static files at the web origin (`tiddly.me/...`), not an API content service (B).** Both are plain unauthenticated `GET`s returning text, so neither needs special agent tooling — but A keeps content at the same origin as the human site, makes URLs guessable/conventional, is public-by-default (no risk of inheriting API auth), and has unambiguous format. B was rejected for prose: host indirection, an auth-misconfiguration failure mode, and a markdown-vs-JSON-envelope question, with no benefit since we own the requirements and markdown/JSON-over-HTTP is acceptable. Record this rationale in code/commit so no one reintroduces an API content layer.
+- **Serve content as static files at the web origin (`tiddly.me/...`), not from a backend content API.** Both options are just unauthenticated HTTP `GET`s that return text, so neither needs special client tooling — but static files at the web origin keep content alongside the human site, give guessable/conventional URLs, are public by default (no risk of accidentally inheriting the API's auth), and return an unambiguous format. Serving content through a backend API was considered and rejected for prose: it adds a separate host, an auth-misconfiguration failure mode, and a markdown-vs-JSON-envelope ambiguity, with no offsetting benefit — we own the requirements and markdown/JSON over HTTP is acceptable for every consumer. Record this rationale in code/commit so no one reintroduces a content API.
 - **No SSR / no framework migration.** Agent/client readability comes entirely from the served `.md`/`.json`. The human SPA pages stay client-rendered and are *never* the agent-readable surface. SSR/prerender is explicitly out of scope. This is what keeps the effort bounded; record the rationale at the build step.
 - **Render prose with `react-markdown`, NOT MDX.** `react-markdown` renders a markdown *string* at runtime, so the file we author is byte-identical to the file we serve — a true single source with no derived artifact. MDX compiles markdown-with-embedded-JSX into a React module, which would force a *generated*, stripped `.md` emit (the drift we're avoiding) and a new dependency we don't have. The styled helpers used across docs today (`InfoCallout`, `StepSection`) lower to plain markdown (a callout → blockquote, steps → ordered list) and are styled via `react-markdown`'s `components` map — no visual regression, still valid `.md`. Genuinely interactive widgets (`AISetupWidget`, `ExamplePrompts`) are composed as **page-level siblings** of the rendered markdown, with a markdown equivalent of their information written into the prose so the served `.md` is complete. **MDX is not a supported authoring mode.** It may be introduced for a *single page only*, as a documented exception, if the code-scan finds a genuinely *inline* interactive component that can't be expressed as markdown or composed as a sibling — and that page's `.md` is then explicitly a generated artifact. The gate: confirm during the scan whether `AISetupWidget`/`ExamplePrompts` are block-level (expected); if so, the exception is never needed.
 - **Canonical data lives in data files; code reads them.** We do *not* define data as TS/Python literals and generate JSON from it. The JSON file *is* the source of truth: the frontend reads it, the backend reads it (tiers), and the same file is served. Validation that exists today as code (`validateTips` at module load; typed `TierLimits` literals) is preserved as **schema validation on load** (fail fast), not lost.
 - **Honest build-step framing (not "copy, not generate").** Content `.md`/`.json` files are authored and **copied** verbatim — there's no content generation. But the build *does* produce two generated things: the per-folder `index.json` manifests, and (only if the MDX exception is ever used) that page's emitted `.md`. Name this honestly: a tested build step that copies content and generates manifests, with completeness/round-trip tests as the staleness guard. The single-source argument doesn't need a "zero generation" overclaim.
-- **URL layout — two folders + manifests.** Prose under `tiddly.me/prose/`, structured data under `tiddly.me/data/`, each with an `index.json` manifest listing its files (served path, short description, and for prose the human route it mirrors). HTTP can't list a static directory, so the manifest is how an agent discovers the *set*. (`/prose` and `/data` are recommended names — "prose vs data" mirrors the two kinds; open to a better name at review. Chosen over Clerk-style "append `.md` to the human route" because we want one discoverable group + manifest, not URL-guessing.)
-- **Output format by kind:** prose → `.md`; structured data → `.json`. FAQ stays prose (`.md`), authored with a heading-per-question convention so Q&A pairs are extractable.
+- **URL layout — two folders + manifests.** Prose under `tiddly.me/prose/`, structured data under `tiddly.me/data/`, each with an `index.json` manifest listing its files (served path, short description, and for prose the human route it mirrors). HTTP can't list a static directory, so the manifest is how an agent discovers the *set*. (`/prose` and `/data` are recommended names — "prose vs data" mirrors the two kinds; open to a better name at review. Chosen over the alternative of mirroring each human page's URL with a `.md` suffix (e.g. `tiddly.me/docs/faq.md`) because grouping the files under two folders with a manifest lets an agent discover the whole set, rather than relying on it guessing per-page URLs.)
+- **Output format by kind:** whole-document prose (docs pages, legal) → `.md`; structured data (records) → `.json`. Records may carry markdown *body* fields (a tip's `body`, an FAQ entry's `answer`) rendered by the same `react-markdown` renderer. The **FAQ is structured data, not prose** — it's a list of `{question, answer}` (answer = markdown), which is exactly the shape a mobile FAQ screen or an agent wants — so it's a `.json` file, not a markdown document with a heading convention.
 - **`openapi.json` is out of scope.** `api.tiddly.me/openapi.json` already serves *programmatic API clients* (frontend, MCP, CLI, mobile). It is not an agent-education artifact and this plan doesn't touch it. `DocsAPI` (the human/agent *explanation* of the API) is prose → markdown.
 
-### Prior art and required reading (read before implementing)
+### Libraries (already in the stack — no new tooling)
 
-- Clerk reference: `https://clerk.com/llms.txt` (index) and `https://clerk.com/docs/quickstarts/react.md` (a doc served as plain markdown). Clerk authors docs as markdown and serves both rendered HTML and `.md`; we ship the `.md`/`.json` half without the SSR half.
-- `react-markdown` + `remark-gfm` + `rehype-sanitize` (already in `frontend/package.json`, used only by `TipBody` today): `https://github.com/remarkjs/react-markdown`. Reuse these; do **not** add MDX tooling.
-- Vite static-serving (`public/` → origin) and native JSON import.
+The prose renderer is built on `react-markdown` + `remark-gfm` + `rehype-sanitize`, already in `frontend/package.json` (used today only by `TipBody`). Build the renderer against the `react-markdown` API (its `components` mapping and plugins); do **not** add MDX tooling. Vite serves the build output at the origin and imports JSON natively — that's what backs the `/prose` + `/data` serving and the tiers build-time import.
 
 ## Content inventory (full scope, classified)
 
-**Prose → markdown (`/prose/`):** the shared FAQ (`FAQContent`, rendered by both `DocsFAQ` and `SettingsFAQ`), `PrivacyPolicy`, `TermsOfService`, and the docs prose pages: `DocsOverview, DocsFeaturesHub, DocsContentTypes, DocsPrompts, DocsTagsFilters, DocsSearch, DocsVersioning, DocsAIHub, DocsAIFeatures, DocsCLIHub, DocsCLIMCP, DocsCLISkills, DocsExtensionsHub, DocsExtensionsChrome, DocsExtensionsSafari, DocsKnownIssues, DocsAPI`. Lower priority (M4): `LandingPage`/`FeaturesPage`/`AIIntegration.tsx` marketing copy. *(`DocsAIFeatures` = `/docs/features/ai` — present in the router; do not omit it.)*
+**Prose → markdown (`/prose/`):** `PrivacyPolicy`, `TermsOfService`, and the docs prose pages: `DocsOverview, DocsFeaturesHub, DocsContentTypes, DocsPrompts, DocsTagsFilters, DocsSearch, DocsVersioning, DocsAIHub, DocsAIFeatures, DocsCLIHub, DocsCLIMCP, DocsCLISkills, DocsExtensionsHub, DocsExtensionsChrome, DocsExtensionsSafari, DocsKnownIssues, DocsAPI`. Lower priority (M4): `LandingPage`/`FeaturesPage`/`AIIntegration.tsx` marketing copy. *(`DocsAIFeatures` = `/docs/features/ai` — present in the router; do not omit it.)*
 
 **Structured data → canonical JSON (`/data/`):**
-- **Tips** — canonical today: `frontend/src/data/tips/` TS objects (`Tip` shape). `DocsTips` is a view.
+- **FAQ** — canonical today: `frontend/src/components/FAQContent.tsx`, a flat list of `{question, answer}` hand-written in TSX (answers are prose). **`DocsFAQ` and `SettingsFAQ` render the exact same content** (both mount `<FAQContent/>` with no props — only the page title differs), so one `faq.json` (`[{question, answer}]`, answer = markdown) feeds both pages plus agents/mobile.
+- **Tips** — canonical today: `frontend/src/data/tips/` TS objects (`Tip` shape, with a markdown `body`). `DocsTips` is a view.
 - **Shortcuts** — canonical today: the registry under `frontend/src/shortcuts/`. Only the *data* subset (id → keys/description) becomes a file; behavior stays in code. `DocsShortcuts` is a view.
 - **Tier limits** — canonical today: `backend/src/core/tier_limits.py` (`TIER_LIMITS`, enforced). Cross-stack: backend (enforcement) + frontend (display) + agents.
 
@@ -59,9 +56,9 @@ A single source for each piece of public content, consumable by humans (the SPA)
 
 **Goal & Outcome**
 
-Stand up the markdown content pipeline and migrate the prose pages (docs, FAQ, legal). This single milestone covers all prose — there is no separate "interactive prose" milestone, because the styled helpers lower to markdown and true widgets compose as siblings.
+Stand up the markdown content pipeline and migrate the prose pages (docs, legal). This single milestone covers all prose — there is no separate "interactive prose" milestone, because the styled helpers lower to markdown and true widgets compose as siblings. (The FAQ is structured data, handled in M2, but its markdown answers reuse the renderer built here.)
 
-- Prose docs, the FAQ, and the legal pages live as plain `.md` files (single source); the SPA renders them via `react-markdown`, unchanged in appearance.
+- Prose docs and the legal pages live as plain `.md` files (single source); the SPA renders them via `react-markdown`, unchanged in appearance.
 - Each is fetchable as plain markdown at `tiddly.me/prose/...`; `tiddly.me/prose/index.json` lists them.
 - Renderer handles GFM tables/lists, fenced code with copy, internal links, callouts (blockquote), and steps (ordered list).
 
@@ -70,39 +67,38 @@ Stand up the markdown content pipeline and migrate the prose pages (docs, FAQ, l
 - Build the shared `react-markdown` renderer with the `components` map and the docs-specific sanitize schema (see Shared conventions). **Do not add MDX tooling.**
 - Migrate page content out of TSX into `.md` files; each docs page component becomes a thin renderer. Lower `InfoCallout` → blockquote and `StepSection` → ordered list, styled via the `components` map (run the code-scan to enumerate every embedded helper/widget first — `InfoCallout`/`StepSection` are on ~11 pages; confirm the full set).
 - Compose genuinely-interactive widgets (`AISetupWidget`, `ExamplePrompts`) as page-level siblings of the rendered markdown, and write a markdown equivalent of their information into the prose so the `.md` is complete. Only if the scan finds an *inline* widget that can't be a sibling or markdown, apply the documented single-page MDX exception (and mark that `.md` generated).
-- FAQ: author with a **heading-per-question** convention; remember it renders in both `/docs/faq` and Settings→FAQ.
 - Build step copies `.md` into `dist/prose/` and generates `/prose/index.json`; wire the dev/test serving path. Confirm production serves these paths (today `public/llms.txt` → `/llms.txt`).
 - Keep `docsRoutes.tsx` accurate. Don't touch tier numbers (M3) or the curated top-level `llms.txt` hub (KAN-152 owns it).
 
 **Definition of Done**
 
 - Migrated prose renders identically for humans and is fetchable as `.md`; `/prose/index.json` resolves.
-- **Completeness test driven from `DOCS_ROUTES` + an explicit public/legal page list** (not `App.tsx` router introspection): every entry has a `.md` artifact + manifest entry, with explicit exclusions for the structured-data views (`DocsTips`, `DocsShortcuts`) and authenticated app pages.
-- Round-trip test: each served `.md` equals its authored source (copy path); representative content strings present; FAQ `.md` parses into the expected Q&A structure; a heading-bearing doc keeps its headings (guards the sanitize schema).
+- **Completeness test driven from `DOCS_ROUTES` + an explicit public/legal page list** (not `App.tsx` router introspection): every entry has a `.md` artifact + manifest entry, with explicit exclusions for the structured-data views (`DocsFAQ`/`SettingsFAQ`, `DocsTips`, `DocsShortcuts` — these come from `/data/*.json`, not `/prose/`) and authenticated app pages.
+- Round-trip test: each served `.md` equals its authored source (copy path); representative content strings present; a heading-bearing doc keeps its headings (guards the sanitize schema).
 - `make frontend-verify` passes; rationale ("no SSR; react-markdown not MDX; readability via served files") recorded at the renderer/build step.
 
 ---
 
-### Milestone 2 — Structured data as canonical JSON: tips + shortcuts under `/data/`
+### Milestone 2 — Structured data as canonical JSON: FAQ, tips, shortcuts under `/data/`
 
 **Goal & Outcome**
 
 Move frontend-owned structured data to canonical JSON files the code reads, served for agents/clients.
 
-- Tips and the shortcut data subset live in canonical JSON; the SPA reads them (tips/shortcuts pages and in-app consumers render from the same files).
-- Fetchable at `tiddly.me/data/tips.json` and `tiddly.me/data/shortcuts.json`; `tiddly.me/data/index.json` lists them.
+- The FAQ, tips, and the shortcut data subset live in canonical JSON; the SPA reads them (the FAQ pages, tips/shortcuts pages, and in-app consumers render from the same files).
+- Fetchable at `tiddly.me/data/faq.json`, `tiddly.me/data/tips.json`, `tiddly.me/data/shortcuts.json`; `tiddly.me/data/index.json` lists them.
 - Validation previously in code (`validateTips`, etc.) runs against the JSON on load/test.
 
 **Implementation Outline**
 
-- Convert the tips corpus and shortcut data subset from TS literals to canonical JSON; consumers read from them (Vite JSON import or runtime fetch — agent's choice against the code). Behavior/selectors/handlers stay in code, now operating on loaded data; relocate `validateTips`-style checks to schema validation on load (+ test).
-- For shortcuts, only the data (id/keys/description) moves; runtime behavior stays in code and references it.
+- **FAQ:** extract `FAQContent.tsx`'s items into `faq.json` as `[{question, answer}]` with `answer` authored as **markdown** (the current TSX answers use `<strong>`, paragraphs, lists — all expressible in markdown). Replace `FAQContent` with a thin component that maps each entry to the collapsible item and renders `answer` via the M1 `react-markdown` renderer. Since `DocsFAQ` and `SettingsFAQ` both mount `FAQContent`, both pick this up with no per-page change.
+- **Tips / shortcuts:** convert the tips corpus and shortcut data subset from TS literals to canonical JSON; consumers read from them (Vite JSON import or runtime fetch — agent's choice against the code). Behavior/selectors/handlers stay in code, now operating on loaded data; relocate `validateTips`-style checks to schema validation on load (+ test). For shortcuts, only the data (id/keys/description) moves; runtime behavior stays in code and references it.
 - Build step copies the JSON into `dist/data/` and generates `/data/index.json` (reuse M1's manifest shape + dev/test serving).
 
 **Definition of Done**
 
-- Tips/shortcuts pages and in-app consumers render from the JSON; the `/data/*.json` and `/data/index.json` resolve.
-- Tests: schema validation rejects malformed data; files load into expected shapes; existing tips/shortcuts UI tests pass against file-sourced data.
+- FAQ pages, tips/shortcuts pages, and in-app consumers render from the JSON; `/data/faq.json|tips.json|shortcuts.json` and `/data/index.json` resolve.
+- Tests: schema validation rejects malformed data; files load into expected shapes; the FAQ renders the same questions/answers as before (no content lost in the TSX→JSON move); existing tips/shortcuts UI tests pass against file-sourced data.
 - `make frontend-verify` passes.
 
 ---
