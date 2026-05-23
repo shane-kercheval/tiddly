@@ -83,6 +83,8 @@ Outcomes (the deliverable, reviewed with the human):
 
 Once the artifact set is approved, revisit and detail Milestones 1–4 against it: which files get written (M1), what the CLI fetches and the landing prompt points at (M2/M3), and which surfaces host which artifact (M4). The provisional outlines below capture only the decisions already fixed; treat them as scaffolding to be firmed up here.
 
+**Automated content validation — deliberately declined at beta scale.** A broader cross-surface validation layer (asserting public files exist, `llms.txt` links resolve, command/tool names in artifacts exist in code) was considered and rejected: the cheap checks guard plumbing, not the content currency that actually drifts (the FAQ failure mode), and the name-existence checks that *would* catch drift are partial and not worth the cost here. The genuinely useful checks aren't a "layer" — they're ordinary per-milestone tests already in scope (the M2 fetch-URL test; testing M5's pointer wiring). Drift is instead handled by the canonical-source headers (see M1) plus the M6 reconciliation pass. Recorded as a conscious choice, not an oversight.
+
 ---
 
 ### Milestone 1 — Author the artifact family *(provisional — detail after M0)*
@@ -92,8 +94,9 @@ Once the artifact set is approved, revisit and detail Milestones 1–4 against i
 Write/refine the `llms-*.txt` files defined in M0, per the writing philosophy and hard principles. An evaluation-mode agent reading `llms.txt` can explain and honestly pitch Tiddly without mandatory link-chasing; each subfile serves its one job without restating generic information.
 
 **Fixed decisions (carry into the detailed plan):**
-- `llms.txt` is a **refinement, not a rewrite** — the current file already opens with a clear value prop and follows llmstxt.org structure. It additionally becomes the hub/index for the family.
+- `llms.txt` **keeps its value prop, concepts, use-cases, and a pricing *summary*, gains the hub/index, and sheds the rest.** This is not a light touch-up: roughly half the current 320-line file relocates under the no-restatement rule — the MCP/integration section (~lines 77–222) → `llms-integration.txt`, keyboard shortcuts (~226–254) → `llms-app-usage.txt`, and the exhaustive tier table (~271–302) → a summary + `/pricing` link. The opening value prop is reused; the body is substantially restructured. Say so to the implementer so the diff target is unambiguous and integration content doesn't end up duplicated in both files.
 - Subfiles obey the no-restatement principle and cross-reference `llms.txt`/docs.
+- **Code-derived facts name their canonical source in the artifact header.** The AGENTS.md "Files to Keep in Sync" convention is *not* sufficient on its own — it already lists `FAQContent.tsx` and that file still drifted (see findings doc / M6). So for any inlined fact that derives from code (command names, MCP tool names, tier numbers, URLs, the 403 surfaces), the artifact's header states where it must agree with (e.g. "command list mirrors `cli/cmd/`; tier numbers: see `/pricing`"). This gives a reviewer an explicit diff target. Prefer linking over inlining for code-derived facts wherever possible; reserve inlining for facts an agent must have without a fetch. The findings-doc inventory tags each fact code-derived vs. narrative to make this concrete.
 - **`llms-app-usage.txt` is orientation, not a tips dump.** It is the higher-level "map" of how the app is structured and how to accomplish core tasks (organize, search, filter, edit) plus the gotchas to warn users about. It cross-references the `/docs/tips` corpus wholesale and may deep-link a small handful of high-value tips by `#tip-<id>` anchor where one is load-bearing for a core workflow — but it does **not** reproduce the corpus (tips remain the authoritative home for granular tips).
 - All files are static assets served from `frontend/public/`.
 - Exact copy for every file is finalized *within this milestone* (reviewed with the human), not pre-specified.
@@ -114,13 +117,15 @@ A CLI consumer of the integration/CLI artifact: an integration-mode agent workin
 - The command **fetches a hosted artifact** (the M0-named CLI file, e.g. `llms-cli-instructions.txt`) so copy updates don't require a CLI release. The CLI is just one consumer of that file.
 - **No auth required** — must work before `tiddly login` so an agent can call it immediately; do not resolve credentials or hit the authenticated API.
 - **Graceful offline degradation:** ships a *minimal* embedded fallback (via `go:embed`), prefers the live URL with a short timeout, and on any fetch failure prints the fallback (which points at the URL) and **still exits 0 with usable content**, plus a one-line stderr note. The embedded fallback is intentionally minimal so its drift cost is low — comment this rationale at the embed site.
-- New command file in `cli/cmd/`, registered in `cli/cmd/root.go`; model on simple text-output commands (`logout.go`, `auth status.go`). Derive the web origin from however the CLI already builds `tiddly.me` links (read the code; add one minimal constant only if none exists).
+- New command file in `cli/cmd/`, registered in `cli/cmd/root.go`; model on simple text-output commands (`logout.go`, `auth status.go`).
+- **A new web-origin constant is required, distinct from `DefaultAPIURL`.** The CLI's only base URL today is `DefaultAPIURL = "https://api.tiddly.me"` (`cli/internal/config/config.go`) — the *API* host. The hosted artifacts are static frontend assets served from the *web* origin (`https://tiddly.me/...`). Reusing `DefaultAPIURL` would 404 and silently serve the embedded fallback on every call. Add a `tiddly.me` web-origin constant; **confirm the production serving path for `frontend/public/*.txt` before hardcoding.**
+- **Skip `PersistentPreRunE` side effects.** `cli/cmd/root.go` runs config/keyring init and starts a background update check in `PersistentPreRunE`, with an existing early-return skip set for `completion`/`help` (root.go:63). Add `ai-instructions` to that skip set so the command does no dep init and no update-check network call — its only side effect is the instruction fetch (+ fallback).
 - **`--help` advertises it as the command an agent should call first** (per the ticket's example wording).
 - **Subcommands deferred** (single command prints the full hosted doc); note the deferral in a doc comment.
 
 **Definition of Done** *(to be detailed after M0)*
 - Implemented + registered; `make cli-verify` passes.
-- Go tests: success path (mock 200 → prints body), failure path (mock error/non-200/timeout → prints fallback, exits 0, stderr note), `--help` contains the agent-first-call guidance.
+- Go tests: success path (mock 200 → prints body), failure path (mock error/non-200/timeout → prints fallback, exits 0, stderr note), `--help` contains the agent-first-call guidance, default fetch URL equals `https://tiddly.me/llms-cli-instructions.txt`, and the command runs with **no stored credentials and no update-check network call** (only the instruction fetch path).
 - Docs: `frontend/src/pages/docs/DocsCLIReference.tsx` + CLI hub; `frontend/src/data/docsRoutes.tsx` searchText; `AGENTS.md` CLI command list + artifact in sync list; `docs/architecture.md` CLI section.
 
 ---
@@ -157,24 +162,27 @@ Identify and populate other surfaces where an evaluation- or integration-oriente
 **Definition of Done** *(to be detailed after M0)*
 - Candidate list reviewed; approved placements implemented; `make frontend-verify` passes; relevant sync-list docs updated.
 
-### Milestone 5 — MCP server instructions → hosted rich artifacts *(provisional — detail after M0)*
+### Milestone 5 — MCP hosted depth (additive, hypothesis-gated) *(provisional — detail after M0)*
 
 **Goal & Outcome**
 
-An agent connected to a Tiddly MCP server is pointed, from the server's own instructions, to a richer hosted artifact with tool-usage guidance and examples — so the in-context instructions stay lean while depth lives in a file we can update without redeploying the servers.
+Where the MCP server/tool descriptions can be *meaningfully improved*, an agent is pointed to a richer hosted artifact (`llms-mcp-content.txt` / `llms-mcp-prompts.txt`) with additional high-value clarifications, workflows, and examples. The MCP server instructions and per-tool descriptions are the **first thing an agent reads** when choosing which server/tool to use, and they're always in-context — a high-leverage discovery path the landing page and CLI can't serve (an MCP-connected agent may never see either).
 
-The MCP server instructions and per-tool descriptions are the **first thing an agent reads** when choosing which server/tool to use, and they're always in-context. This makes them a high-leverage, distinct discovery path that the landing page and CLI can't serve (an MCP-connected agent may never see either).
+**This milestone is strictly additive and the hosted files are hypotheses, not commitments.** Two hard constraints drive that:
+- **Never subtract from `instructions.md` or tool descriptions.** A single-response, one-shot tool-calling LLM (exactly what our evals exercise) *cannot* fetch-then-act within one turn, so anything essential to correct tool selection/use must remain inline regardless of agent capability. We removed the earlier "keep it lean" motivation entirely — it was the only thing that created downside.
+- **Create a hosted file only if it earns it.** The bet is that we can write guidance *beyond* what's already inline. If, when drafting, `instructions.md` already says enough, **we do not create the file** — no file for symmetry's sake. This is the "earns its existence" guardrail applied at authoring time.
 
 **Fixed decisions (carry into the detailed plan):**
-- Author two hosted artifacts (per M0): `llms-mcp-content.txt` and `llms-mcp-prompts.txt` — tool-usage workflows and worked examples, **not** restated tool schemas or concepts (cross-reference `llms.txt`).
-- Update the two server instruction files — `backend/src/mcp_server/instructions.md` and `backend/src/prompt_mcp_server/instructions.md` (loaded via `load_instructions(_DIR)`) — to stay **concise** and add a pointer to the matching hosted file. Each server points only at its own file.
-- Two files (one per server) maps to the deployment topology; revisit only if M0 lands on a single combined file.
-- The exact copy for the hosted files and the instruction-file pointers is finalized *within this milestone*.
+- Hosted MCP files are **conditional**: authored only where they add meaningful, optional depth beyond the existing inline descriptions. The MCP pair may end up as zero, one, or two files.
+- Any depth added is **purely additive** — `instructions.md` and tool descriptions are only ever extended, never trimmed.
+- If a hosted file is created, its pointer goes in **both** the server `instructions.md` **and** the relevant individual tool descriptions, so a multi-step agent finds it from wherever it's looking. Essential guidance still lives inline for single-shot agents.
+- Hosted content is tool-usage workflows/examples — **not** restated tool schemas or concepts (cross-reference `llms.txt`).
+- The exact copy and the decision to create each file are finalized *within this milestone*.
 
 **Definition of Done** *(to be detailed after M0)*
-- Two hosted files authored and reviewed; both `instructions.md` files updated with concise summary + pointer.
-- `make backend-verify` passes. **Run the MCP evals** (`make evals`) — per `AGENTS.md`, changes to MCP tool/server descriptions can shift agent tool-selection behavior, so check for regressions.
-- `AGENTS.md` sync list updated to include the MCP artifacts and the instructions-pointer convention.
+- For each server, an explicit decision recorded: hosted file created (with additive pointers wired into instructions + tool descriptions) or consciously skipped because inline guidance suffices.
+- `make backend-verify` passes. **Run the MCP evals** (`make evals`) against a recorded pre-change baseline. Because nothing is removed, regression risk is ~nil; the eval question is whether the additions *help* — a regression is still a blocker.
+- `AGENTS.md` sync list updated for any MCP artifact actually created, plus the instructions-pointer convention.
 
 ### Milestone 6 — Content consistency reconciliation (capstone)
 

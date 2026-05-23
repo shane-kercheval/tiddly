@@ -1,7 +1,9 @@
 # Milestone 0 — Concept categorization & artifact-family definition
 
 **Parent plan:** [`2026-05-21-agent-empowerment.md`](./2026-05-21-agent-empowerment.md)
-**Status:** Draft for human review.
+**Status:** Frozen historical record of the M0 research. Living decisions have moved to the parent plan.
+
+> **Superseded notes:** (1) The FAQ tier-limit fix (§5/§6, originally "a separate fix, out of scope") is folded into parent plan **Milestone 6** and resolved in this PR. (2) The living findings ledger now lives in Milestone 6, not this doc. The original text below is preserved as the M0 snapshot.
 
 The executed M0 deliverable: the concept inventory, the justified artifact set (with recommendations taken, not punted), the index/discoverability strategy, the copy-ready anti-drift philosophy, and findings uncovered during the research. Sources mined: `frontend/public/llms.txt`, the `frontend/src/pages/docs/*` pages, `frontend/src/data/docsRoutes.tsx`, `AGENTS.md`, and `docs/architecture.md`.
 
@@ -57,13 +59,22 @@ Jobs: **EVAL** (what/why/compare/who-for) · **USE** (operating app features) ·
 | Use cases & examples (PKB, AI prompt library, research, AI content mgmt, automation) | EVAL | `llms.txt` |
 | Getting-started flows (first bookmark, MCP setup, skills, extension, CLI login, API) | EVAL→INTEG | `llms.txt` points to the right artifact per flow |
 
+### 1a. Code-derived vs. narrative classification (drift exposure)
+
+*(Added post-review; feeds the parent plan's M1 "name the canonical source in the header" rule.)* Every fact above is one of two kinds, and they have different drift exposure:
+
+- **Code-derived** — has an authoritative source elsewhere and rots when that source changes: CLI command set/scopes (`cli/cmd/`), MCP tool names/inventory (server tool registries), tier/pricing numbers (`tier_limits.py` / `/pricing`), endpoint groups + the **403/Auth0-only surfaces** (API routers), per-tool quirks, dashboard URLs, MCP endpoints. **Prefer linking; if inlined, name the canonical source in the artifact header.**
+- **Narrative** — exists only in the artifact and can't drift against code: value prop, who-it's/isn't-for, use cases, task orchestration ("to do X, do Y"), tool-usage workflows, the agent-resource index, "optimized for an agent" framing. Owned outright by its artifact.
+
+The FAQ tier-limit drift (§5) is the cautionary case: a code-derived fact (Free-tier counts) inlined into a surface that's *already* in the AGENTS.md sync list, and it still went stale — which is why naming an explicit diff target in the header matters beyond the sync-list reminder.
+
 ---
 
 ## 2. Artifact set — recommendation
 
-**Recommendation: six files.** Four general-purpose files (below), plus two MCP-server-specific files (`llms-mcp-content.txt`, `llms-mcp-prompts.txt`) reached from a new discovery path — the MCP server instructions themselves. I'm reversing my earlier "defer app-usage" — the mining shows a substantial, distinct USE body (search operators, editor mechanics, filters/collections, lifecycle, *and the known-issues/gotchas an agent should warn a user about*) that neither `llms.txt` (concepts) nor the integration/CLI files should carry. Its consumer is real (below). I keep it **lean and pointer-heavy** to docs, and we re-confirm at M1 drafting that it isn't a thin redirector — if it collapses, fold it into `llms.txt`.
+**Recommendation: four committed files + up to two conditional MCP files.** The four general-purpose files (below) we'll clearly need. The two MCP-server-specific files (`llms-mcp-content.txt`, `llms-mcp-prompts.txt`) are **hypothesis-gated** (revised post-review — see the MCP entries and parent plan M5): they're created only if, when drafting, we can write meaningful guidance *beyond* what the always-in-context `instructions.md`/tool descriptions already provide. The MCP pair may end up as zero, one, or two files. I'm reversing my earlier "defer app-usage" — the mining shows a substantial, distinct USE body (search operators, editor mechanics, filters/collections, lifecycle, *and the known-issues/gotchas an agent should warn a user about*) that neither `llms.txt` (concepts) nor the integration/CLI files should carry. Its consumer is real (below). I keep it **lean and pointer-heavy** to docs, and we re-confirm at M1 drafting that it isn't a thin redirector — if it collapses, fold it into `llms.txt`.
 
-> **On proliferation:** six files is the most this family should grow without strong justification. Each here passes the "distinct consumer + distinct job" guardrail, and the MCP pair has a *distinct discovery path* (the server instructions) that the others can't serve. But this is the ceiling — new artifact proposals should be met with "can an existing file own this?" first.
+> **On proliferation:** four committed files is the ceiling without strong justification; the MCP pair is *additive depth*, gated on earning its existence at authoring time. Each file passes the "distinct consumer + distinct job" guardrail, and the MCP pair has a *distinct discovery path* (the server instructions) that the others can't serve. New artifact proposals should be met with "can an existing file own this?" first.
 
 ### `llms.txt` — the hub (EVAL + index) — **build**
 - **Consumer:** an evaluation-mode agent (the landing-page CTA points here); any agent's first stop.
@@ -85,19 +96,18 @@ Jobs: **EVAL** (what/why/compare/who-for) · **USE** (operating app features) ·
 - **Objective:** full `tiddly` command reference, scopes, credential/token resolution, common workflows, the dashboard URLs CLI work touches.
 - **Owns:** CLI command details and workflows.
 
-### `llms-mcp-content.txt` — using the Content MCP server (MCP-USE) — **build**
-- **Consumer:** an agent already connected to the Content MCP server, deciding when/how to use its tools. **Discovery path is the server's own instructions** (`backend/src/mcp_server/instructions.md`), which agents read to choose servers/tools — so the inline instructions stay concise and point here for depth.
-- **Objective:** tool-usage guidance and worked examples — when to reach for `get_context` vs `search_items`, partial reads with `get_item`, surgical `edit_content` str-replace patterns, multi-step workflows. Cross-references `llms.txt` for concepts and does not restate tool schemas (those live in the MCP protocol/tool descriptions).
-- **Owns:** "how to use the Content MCP tools well."
+### `llms-mcp-content.txt` — using the Content MCP server (MCP-USE) — **conditional / additive** (revised post-review)
+- **Consumer:** an agent already connected to the Content MCP server, deciding when/how to use its tools. **Discovery path is the server's own instructions** (`backend/src/mcp_server/instructions.md`) and the per-tool descriptions, which agents read to choose servers/tools.
+- **Objective:** *additional* high-value tool-usage guidance/examples beyond what's already inline — e.g. when to reach for `get_context` vs `search_items`, partial reads with `get_item`, surgical `edit_content` str-replace patterns, multi-step workflows. Cross-references `llms.txt` for concepts; does not restate tool schemas.
+- **Owns:** "extra depth for using the Content MCP tools well" — **only if it earns it.** `mcp_server/instructions.md` is already ~139 lines / 10 worked examples; create this file only if drafting yields meaningful additions, otherwise skip it.
 
-### `llms-mcp-prompts.txt` — using the Prompt MCP server (MCP-USE) — **build**
-- **Consumer:** an agent connected to the Prompt MCP server. Discovery path: `backend/src/prompt_mcp_server/instructions.md`.
-- **Objective:** native MCP prompts (`list_prompts`/`get_prompt` rendering) vs. management tools, the optimistic-locking workflow (`expected_updated_at`), naming conventions, worked examples.
-- **Owns:** "how to use the Prompt MCP tools well."
+### `llms-mcp-prompts.txt` — using the Prompt MCP server (MCP-USE) — **conditional / additive** (revised post-review)
+- **Consumer:** an agent connected to the Prompt MCP server. Discovery path: `backend/src/prompt_mcp_server/instructions.md` + tool descriptions.
+- **Objective:** *additional* depth on native MCP prompts (`list_prompts`/`get_prompt` rendering) vs. management tools, the optimistic-locking workflow (`expected_updated_at`), naming conventions, worked examples.
+- **Owns:** "extra depth for using the Prompt MCP tools well" — **only if it earns it.** `prompt_mcp_server/instructions.md` is already minimal (~28 lines), so there's likely room here — but still gated on adding real value, not symmetry with the content file.
 
 **Decisions taken (were open questions):**
-- **MCP artifacts: two files, one per server.** They map cleanly to the two deployed servers and their two `instructions.md` files — each server points only at its own file. (Open for your input: a single combined `llms-mcp.txt` is possible, but two matches the deployment topology and keeps each agent's fetch scoped to the server it's actually using.)
-- **Inline MCP instructions stay concise + point to the hosted file.** The instructions are always in-context for a connected agent, so depth lives in the fetched-on-demand file, not the deployed string. This also means we can improve the rich guidance without redeploying the MCP servers.
+- **MCP files are additive and hypothesis-gated** *(revised post-review — supersedes the earlier "two files, lean instructions" stance)*. We **never subtract** from `instructions.md` or tool descriptions: a single-shot tool-calling LLM (what our evals exercise) can't fetch-then-act in one turn, so essential guidance must stay inline. The hosted files add optional depth *beyond* inline, are created only where they earn it (zero/one/two files), and if created their pointer goes in both the server instructions and the relevant tool descriptions. See parent plan M5.
 - **CLI stays separate from integration.** Distinct consumer (the CLI command consumes the CLI file and already has the CLI installed); the no-restatement rule keeps the two from overlapping (integration says "use the CLI → see CLI file"; CLI file says "for the why, see integration").
 - **Tier limits: summarize in `llms.txt`, link `/pricing` for authoritative numbers.** The exhaustive per-tier table is reference-heavy and a proven drift magnet (the FAQ already drifted — see §5). One authoritative home, linked, not copied.
 - **Command vs. file naming: keep them different on purpose.** The command `tiddly ai-instructions` is optimized for agent discovery via `--help`; the file `llms-cli-instructions.txt` fits the family convention. The file URL is an implementation detail behind the command, so they needn't match.
@@ -110,7 +120,7 @@ Jobs: **EVAL** (what/why/compare/who-for) · **USE** (operating app features) ·
 - **Routing by user mode:** evaluating → stay in `llms.txt`; using the app → `llms-app-usage.txt`; connecting → `llms-integration.txt`; the CLI itself → `llms-cli-instructions.txt`. `llms.txt` states this routing explicitly so an agent self-selects.
 - **Web consumers** reach subfiles via `llms.txt` links.
 - **CLI consumer** reaches `llms-cli-instructions.txt` via a hardcoded URL in `tiddly ai-instructions`, with the minimal embedded fallback (per M2). The CLI does **not** parse `llms.txt`.
-- **MCP consumers** reach `llms-mcp-content.txt` / `llms-mcp-prompts.txt` via a pointer in each server's `instructions.md` — a second top-of-funnel entry point independent of `llms.txt`, since an agent connected via MCP may never see the landing page. The server instructions are the agent's first contact, so this is high-leverage discovery.
+- **MCP consumers**, *if a hosted MCP file is created* (conditional — see §2), reach it via an additive pointer in both the server's `instructions.md` and the relevant tool descriptions — a second top-of-funnel entry point independent of `llms.txt`, since an agent connected via MCP may never see the landing page. Essential guidance stays inline regardless (single-shot agents can't fetch); the file is optional depth.
 - All artifacts are static assets in `frontend/public/`, served at `https://tiddly.me/<name>.txt`.
 
 ---
@@ -124,7 +134,7 @@ Jobs: **EVAL** (what/why/compare/who-for) · **USE** (operating app features) ·
 > 2. **CLI command details live only in `llms-cli-instructions.txt`.** `llms-integration.txt` says "use the CLI (see CLI instructions)" and covers *when/why* + the manual alternative; it does not re-list commands.
 > 3. **The MCP/API/PAT integration model lives only in `llms-integration.txt`.** `llms.txt` mentions "AI integration via MCP" at value-prop level and links onward.
 > 4. **App mechanics live in `llms-app-usage.txt`**, which cross-references `/docs/*` for exhaustive detail rather than copying it.
-> 4b. **MCP tool-usage guidance lives in `llms-mcp-content.txt` / `llms-mcp-prompts.txt`.** These do not restate tool schemas (the MCP protocol/tool descriptions own those) or concepts (`llms.txt`); they add workflows and examples. Each server's `instructions.md` carries only a concise summary + a pointer to its file.
+> 4b. **MCP tool-usage depth (if created) lives in `llms-mcp-content.txt` / `llms-mcp-prompts.txt`** — additive only. These do not restate tool schemas (the MCP protocol/tool descriptions own those) or concepts (`llms.txt`); they add workflows and examples *beyond* what's inline. We never trim `instructions.md` or tool descriptions; the hosted file is optional depth, pointed to from both, and created only where it earns it.
 > 5. **A subfile goes deep on a subject only when that subject is its job.** Everything else is a cross-reference.
 > 6. **Don't duplicate `/docs/*` or `SKILL.md` content** — link to it; add the agent-oriented narrative/orchestration that docs lack.
 > 7. **System internals are out of scope** for this family (they belong to `AGENTS.md` / `docs/architecture.md`); include only the user-observable contract.
@@ -144,11 +154,11 @@ Each artifact opens with a one-line header stating its job, its consumer, and "d
 
 ## 6. What needs human sign-off
 
-Per the DoD, this milestone gates the build work. I've taken positions on every decision above; the ones most worth your explicit yes/no before the re-planning checkpoint:
+*Resolved during post-M0 review — recorded here for history; the live versions are in the parent plan.*
 
-- The **six-file set** (especially: reversing to *build* a lean `llms-app-usage.txt` — agree, or keep it deferred? — and **two MCP files vs. one combined `llms-mcp.txt`**).
-- **Tiers summarized + linked** rather than exhaustively inline in `llms.txt`.
-- Treating the **FAQ tier-limit drift as a separate fix** (not folded into this ticket).
-- **System internals explicitly out of scope** for this artifact family.
+- **Artifact set:** four committed files + up to two **conditional, additive** MCP files (revised from "six committed"; the single-vs-two MCP question is moot now that they're hypothesis-gated). `llms-app-usage.txt` confirmed as a build (lean). ✔
+- **Tiers summarized + linked** rather than exhaustively inline in `llms.txt`. ✔
+- **FAQ tier-limit drift** folded into parent plan **Milestone 6** (not a separate fix) — see superseded note at top. ✔
+- **System internals explicitly out of scope** for this artifact family. ✔
 
-On approval, this triggers the re-planning checkpoint to detail Milestones 1–4 against this artifact set.
+These resolutions feed the re-planning checkpoint and the detailed Milestones 1–6 in the parent plan.
