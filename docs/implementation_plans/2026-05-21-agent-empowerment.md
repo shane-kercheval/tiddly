@@ -94,6 +94,7 @@ Write/refine the `llms-*.txt` files defined in M0, per the writing philosophy an
 **Fixed decisions (carry into the detailed plan):**
 - `llms.txt` is a **refinement, not a rewrite** — the current file already opens with a clear value prop and follows llmstxt.org structure. It additionally becomes the hub/index for the family.
 - Subfiles obey the no-restatement principle and cross-reference `llms.txt`/docs.
+- **`llms-app-usage.txt` is orientation, not a tips dump.** It is the higher-level "map" of how the app is structured and how to accomplish core tasks (organize, search, filter, edit) plus the gotchas to warn users about. It cross-references the `/docs/tips` corpus wholesale and may deep-link a small handful of high-value tips by `#tip-<id>` anchor where one is load-bearing for a core workflow — but it does **not** reproduce the corpus (tips remain the authoritative home for granular tips).
 - All files are static assets served from `frontend/public/`.
 - Exact copy for every file is finalized *within this milestone* (reviewed with the human), not pre-specified.
 
@@ -175,10 +176,34 @@ The MCP server instructions and per-tool descriptions are the **first thing an a
 - `make backend-verify` passes. **Run the MCP evals** (`make evals`) — per `AGENTS.md`, changes to MCP tool/server descriptions can shift agent tool-selection behavior, so check for regressions.
 - `AGENTS.md` sync list updated to include the MCP artifacts and the instructions-pointer convention.
 
+### Milestone 6 — Content consistency reconciliation (capstone)
+
+**Goal & Outcome**
+
+Authoring each artifact against the real code and existing surfaces will surface content inconsistencies across the product (FAQ, docs, `llms.txt`, MCP instructions, etc.) — the FAQ tier-limit drift found during M0 is the first of likely several. This is the running ledger for those findings and the consolidated pass that fixes them, reconciling each against the single sources of truth this effort establishes.
+
+This milestone owns the **living findings list** (the M0 findings doc, `2026-05-21-agent-empowerment-m0-findings.md`, stays frozen as a historical record; new inconsistencies discovered during M1–M5 are appended to the list below, not to that doc).
+
+Outcomes:
+- Every logged inconsistency reconciled against its canonical source.
+- For **each** affected file, `AGENTS.md` "Files to Keep in Sync" is verified to list it — added if missing. This converts each one-off fix into a durable guardrail against re-drift.
+
+**Findings list** (seeded from M0; append as discovered):
+- **FAQ tier limits (was [KAN-154](https://tiddly.atlassian.net/browse/KAN-154)).** `frontend/src/components/FAQContent.tsx` "How much content can I store?" shows wrong Free-tier numbers (100/100/100 vs. actual 10/10/5; 100,000 vs. 25,000 char content limit; 100 vs. 200 char title). Reconcile against `backend/src/core/tier_limits.py` (or have it reference `/pricing`), and confirm the FAQ surface is in the `AGENTS.md` sync list. **Folded into this milestone rather than fixed separately** — at beta scale the user-facing risk is low, and consolidating keeps related content fixes in one reviewable PR.
+
+**Fixed decisions:**
+- KAN-154 is resolved here, not on its own branch.
+- The findings list lives in *this plan*, not in the frozen M0 findings doc.
+
+**Definition of Done** *(to be detailed as findings accumulate)*
+- All logged inconsistencies resolved against canonical sources.
+- `AGENTS.md` sync-list coverage verified (and extended) for every affected file.
+- `make frontend-verify` / `make backend-verify` pass as appropriate to the files touched; KAN-154 closeable.
+
 ## Cross-cutting concerns
 
 - **Anti-drift / single source of truth.** The hard principles (no restatement; `llms.txt` as hub; each artifact earns its existence) are the mitigation. Record them in `AGENTS.md` so future changes know which file owns which concept. Note the existing content homes that overlap (`docs/*`, skills `SKILL.md`, the MCP `instructions.md` files) and ensure artifacts cross-reference rather than copy them.
-- **Sequencing.** M0 gates everything and triggers the re-planning checkpoint. M1 (artifacts) must land before M3's prompt references them. M2 is independent of M1/M3 once its artifact exists. M4 depends on M3's reusable component. M5 depends on M0's artifact set and on its two hosted files existing (authored in M1 or within M5); it is otherwise independent and touches the backend + evals.
+- **Sequencing.** M0 gates everything and triggers the re-planning checkpoint. M1 (artifacts) must land before M3's prompt references them. M2 is independent of M1/M3 once its artifact exists. M4 depends on M3's reusable component. M5 depends on M0's artifact set and on its two hosted files existing (authored in M1 or within M5); it is otherwise independent and touches the backend + evals. M6 is the capstone — it runs throughout as a findings ledger and resolves everything in the final pass, so it depends on M1–M5 having surfaced the inconsistencies.
 - **No commits until human approval at each milestone boundary.**
 
 ## Open items (resolved during execution, not blockers)
