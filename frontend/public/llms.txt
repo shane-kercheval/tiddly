@@ -1,319 +1,89 @@
 # tiddly.me
 
-> tiddly.me is a content management platform for bookmarks, notes, and prompts (Jinja2 templates). It features tagging, full-text search, content versioning, and AI integration via two MCP (Model Context Protocol) servers.
+> tiddly.me is a content manager for bookmarks, notes, and prompts (Jinja2 templates) built to connect a personal knowledge base directly to AI assistants. Everything is full-text searchable, tagged, and version-tracked — and the same content you organize in the web app is readable and editable by Claude and other AI tools through two MCP servers.
+
+This file is the entry point for an AI agent learning about tiddly.me — what it is, who it's for, and how it works conceptually — so you can explain it and help someone decide whether to use it. It does not cover setup or task mechanics; those live in the companion files listed under **Agent Resources** at the end. Pricing numbers are summarized here but authoritative on the pricing page (linked); the current list of supported AI tools is authoritative in the app's AI Integration settings (linked).
 
 ## Why tiddly.me Exists
 
-- **Bookmarks without the bloat.** Most bookmark managers are either too simple to be useful or too complex to stick with. tiddly.me saves bookmarks with full page content for search, personal notes, and tags — without the clutter.
-- **Markdown notes that work with AI.** Simple markdown notes that AI assistants can read, search, and edit directly through MCP — no copy-pasting between apps.
-- **AI transparency and version control.** When AI edits your content, every change is tracked with full version history. You can see exactly what changed, when, and from where — and revert when it inevitably gets something wrong.
-- **A prompt library that syncs to your tools.** Build and organize reusable prompt templates in one place, then access them from any AI assistant through MCP — no more prompts scattered across conversations and config files.
+- **Bookmarks without the bloat.** Most bookmark managers are either too simple to be useful or too heavy to stick with. tiddly.me saves a bookmark's full page content for search, plus your own notes and tags — searchable, organized, and nothing more.
+- **Markdown notes that work with AI.** Plain markdown notes that an AI assistant can read, search, and edit directly through MCP — no copy-pasting between apps.
+- **AI transparency and version control.** When an AI edits your content, every change is tracked with full version history that records what changed, when, and from where (web, API, or a specific MCP server). You can review and revert — which matters precisely because AI gets things wrong.
+- **A prompt library that syncs to your tools.** Reusable Jinja2 prompt templates live in one place and are reachable from any AI assistant through MCP, instead of being scattered across conversations and config files.
+
+## Who tiddly.me Is (and Isn't) For
+
+It's a good fit if you want a single searchable home for bookmarks, notes, and prompts that your AI assistant can read and edit directly, with a clear history of every change. It's built for one person's knowledge base wired into AI tooling.
+
+It's probably **not** the right tool if you need:
+
+- **Sharing or real-time collaboration.** Content is isolated per account; there is no sharing between users.
+- **Files or rich media.** Content is text/markdown only. External image URLs render in markdown, but there's no file hosting or attachments.
+- **End-to-end encryption.** Content is encrypted at rest but readable server-side — a requirement for full-text search. Self-hosting is the path to full privacy.
+
+How it compares: unlike a plain bookmark manager, tiddly.me stores full page text for search and treats prompts as first-class, versioned content. Unlike a general notes app, it's organized around AI access (MCP) and change transparency rather than collaboration or media.
 
 ## What tiddly.me Does
 
-tiddly.me helps users organize three types of content:
+Three content types, all of which support tagging, full-text search, version history, relationships (linking items together), archiving, and soft-delete with restore:
 
-- **Bookmarks**: Save URLs with auto-scraped metadata (title, description, page content), personal notes, and tags. Clicking a bookmark's title or URL opens the link in a new tab; use the pencil icon to edit.
-- **Notes**: Freeform markdown documents with tags. Clicking a note opens it for viewing and editing.
-- **Prompts**: A new content type for the AI era, treated as first-class entities. Prompts are Jinja2 templates with named arguments and a unique `prompt_name` identifier. They support the same versioning, tagging, search, and organization as bookmarks and notes, but are purpose-built for rendering with variables and integrating with AI assistants via MCP. Clicking a prompt opens it for viewing and editing.
+- **Bookmarks** — a URL with auto-scraped page content (so the full text is searchable), plus your own title, description, and tags.
+- **Notes** — freeform markdown documents.
+- **Prompts** — Jinja2 templates with named arguments, treated as first-class content for the AI era. They render with variable substitution and are consumed by AI assistants over MCP. Same versioning, tagging, and search as everything else.
 
-All content types support tagging, full-text search, content versioning with history, archiving, soft-delete with restore, relationships (linking items together), and usage tracking.
+## Organizing and Finding Content
 
-## Content Organization
+- **Tags** are global across all content types; a "work" tag is the same tag on a bookmark or a note.
+- **Filters** are saved views built from boolean tag expressions (AND within a group, OR between groups), and can be grouped into **collections** in the sidebar.
+- **Relationships** link any item to any other (bookmark↔note↔prompt) with an optional description.
+- **Search** combines full-text search (stemmed, ranked) with substring matching in one query across titles, descriptions, content, and bookmark URLs, with operators for phrases, exclusion, and OR.
 
-### Tags
-- Tags are global across all content types. A "work" tag on a bookmark and a note is the same tag.
-- Renaming a tag is a global rename across all content and filters.
-- Deleting a tag removes the association from all content but does not delete the content itself.
-- Inactive tags are tags that exist only on archived or deleted items.
+These are summarized for evaluation; for how to actually use them, see `llms-app-usage.txt`.
 
-### Content Filters
-- Saved filters use tag-based boolean expressions: groups of tags combined with AND within a group, OR between groups.
-- Example: `(python AND tutorial) OR (javascript AND guide)` matches items tagged with both python+tutorial, or both javascript+guide.
-- Filters appear in the sidebar for quick access and can be organized into collections.
-- Collections are drag-and-drop groupable containers in the sidebar that hold filters, allowing users to organize them by topic or workflow.
-- Deleting a filter only removes the saved view; your content is unaffected.
-- Deleting a collection moves its filters back to the sidebar root — nothing is lost.
+## Versioning and Transparency
 
-### Relationships
-- Any content item can be linked to any other item (bookmark-to-note, note-to-prompt, etc.) with an optional description.
-- Relationships are shown when viewing an item's detail page.
+Every create, update, and restore is versioned; deletes, archives, and restores are recorded as audit events. Each change records its source (web UI, API, or a specific MCP server) and the authentication method used, and any prior version can be reconstructed or restored. This is the mechanism behind the "AI transparency" pitch above — it's what makes letting an AI edit your content safe to reason about.
 
-## Prompts and Templates
+## AI Integration
 
-Prompts are Jinja2 templates that can be rendered with arguments. The primary use case is through MCP — AI assistants call the Prompt MCP Server to list, render, and manage prompt templates during conversations.
+This is the core differentiator, summarized here at a conceptual level:
 
-- **Template syntax**: Use `{{ variable_name }}` for template variables.
-- **Arguments**: Each prompt defines arguments with a name, description, and whether they are required.
-- **Rendering**: Provide argument values to render a prompt into final text. Required arguments must be supplied; optional arguments default to empty string.
-- **Auto-sync**: When editing a template, arguments are automatically updated to match the template variables.
-- **Skills export**: Prompts can be exported as Agent Skills (SKILL.md format) compatible with Claude Code, Claude Desktop, and Codex.
+- **Two MCP servers** expose your content to AI assistants — one for bookmarks and notes, one for prompts — so an assistant can search, read, create, and edit your content and render your prompt templates in a conversation.
+- **Agent Skills export** — prompts can also be exported as SKILL.md Agent Skills for tools that support them.
+- **Programmatic access** — a full REST API authenticated with Personal Access Tokens.
+- **In-app AI features** (Pro) — suggestions for tags, titles/descriptions, relationships, and prompt arguments, with optional bring-your-own-key.
 
-## Search
+Supported AI tools, exact setup steps, and the security model live in `llms-integration.txt`; the `tiddly` CLI that wires it all up is documented in `llms-cli-instructions.txt`. The current authoritative list of supported tools is the AI Integration settings page (linked below).
 
-- **Full-text search**: Combines PostgreSQL full-text search (stemmed, ranked) with substring matching (ILIKE) in a single query. Matches against title, description, content body, and URL (bookmarks). Items matching both methods rank highest. Supports operators: `"exact phrase"`, `-exclude`, and `OR`.
-- **In-content search**: Search within a single item's content using literal string matching (case-insensitive by default, supports multiline queries). Returns matching lines with line numbers and surrounding context.
-- **Filtering options**: Filter by content type (bookmark, note, prompt), tags (with AND/OR operator), view state (active, archived, or both), sort by created date, updated date, title, or last used date.
-- **Unified search**: Search across all content types simultaneously via the `/content/` endpoint or the command palette. The `view` parameter accepts multiple values (e.g. `?view=active&view=archived`) to search across view states. When searching both active and archived with relevance sorting, archived items receive a relevance penalty so active content ranks higher.
+## Pricing
 
-## Content Versioning and History
+Three tiers — Free, Standard, and Pro — where higher tiers raise capacity (item counts, content length, version-history retention, rate limits) and Pro unlocks the in-app AI features. **tiddly.me is currently in beta, and all accounts have Pro access at no charge.** Authoritative limits and current prices: https://tiddly.me/pricing.
 
-Every content change is tracked:
+## Platform and Privacy
 
-- **Versioned actions**: Create, update, and restore operations are assigned sequential version numbers.
-- **Audit actions**: Delete, undelete, archive, and unarchive are recorded without version numbers.
-- **Version reconstruction**: Any previous version of content can be reconstructed and viewed.
-- **Restore**: Content can be restored to any historical version, rebuilding the full state (content, title, description, tags, etc.).
-- **Source tracking**: Each change records where it came from (web UI, MCP server, API) and the authentication method used.
+- **Self-hostable and open source** — the codebase is public at https://github.com/shane-kercheval/tiddly and can be self-hosted with no tier limits and full data control.
+- **Infrastructure** — FastAPI backend, React frontend, PostgreSQL (encrypted at rest), Redis. Hosted on Railway's Pro tier (SOC 2, DDoS protection, daily backups).
+- **Auth** — Auth0.
+- **Multi-tenant** — content is isolated per user; there is no sharing.
+- **Privacy** — no end-to-end encryption (it would prevent full-text search); a database administrator could technically access data. Self-host for complete privacy.
 
-## Content Lifecycle
+## Use Cases
 
-Items have three states:
+- **Personal knowledge base** — bookmark articles (full text searchable), write notes, tag and filter into views like "all Python resources."
+- **AI prompt library** — build reusable templates (e.g. a code-review prompt with `language`/`code`/`focus_area` arguments) and render them from any AI assistant over MCP.
+- **Research and reference** — bookmark papers, link related items via relationships, track how notes evolve through version history.
+- **AI-assisted content management** — let an assistant search, create, and edit your content and render prompts through natural conversation.
 
-1. **Active**: Normal state, visible in default views.
-2. **Archived**: Hidden from default views but preserved. Archived items can be included in searches by selecting the Archived view filter. They do not count toward tag counts. Can be unarchived at any time.
-3. **Deleted (Trash)**: Soft-deleted, visible in trash. Can be restored. Items in trash will be automatically permanently deleted after 30 days (not yet deployed).
+## Agent Resources
 
-## AI Integration via MCP Servers
+Start here, then follow the file that matches what the user wants to do:
 
-tiddly.me provides two MCP (Model Context Protocol) servers that allow AI assistants (Claude, etc.) to read, search, create, and edit content.
+- **Using the app** → `https://tiddly.me/llms-app-usage.txt` — how to organize, search, filter, edit, and the known issues to flag.
+- **Connecting to AI tooling** → `https://tiddly.me/llms-integration.txt` — MCP setup, supported tools, Agent Skills, REST API, and the auth/security model.
+- **The `tiddly` CLI** → `https://tiddly.me/llms-cli-instructions.txt` — full command reference and workflows (an agent already using the CLI can also run `tiddly ai-instructions`).
 
-### Content MCP Server
+Human-facing references:
 
-Provides access to bookmarks and notes.
-
-**Tools available:**
-- `search_items`: Search bookmarks and notes by query, tags, content type, with sorting and pagination.
-- `get_item`: Retrieve full content of a bookmark or note. Supports partial reads (line ranges) for large items.
-- `edit_content`: Edit content via exact string replacement (old_str/new_str). Preferred for surgical edits.
-- `search_in_content`: Search within a specific item's content using regex. Returns matching lines with context.
-- `update_item`: Update metadata (title, description, tags, URL, note).
-- `create_bookmark`: Create a new bookmark with URL, title, description, note, tags, and content.
-- `create_note`: Create a new note with title, content, description, and tags.
-- `create_relationship`: Link two content items together.
-- `get_context`: Get aggregated context including content counts, all tags, saved filters, and recent items.
-- `list_tags`: List all tags with usage counts.
-- `list_filters`: List saved content filters.
-
-**Typical workflow**: Use `get_context` or `search_items` to find content, then `get_item` for full details. Use `edit_content` for precise edits or `update_item` for metadata changes.
-
-### Prompt MCP Server
-
-Provides access to prompts as both MCP tools and the MCP prompts capability.
-
-**MCP Prompts (native MCP protocol):**
-- `list_prompts`: List all prompts with their names, descriptions, and arguments.
-- `get_prompt`: Render a prompt template with provided arguments and return the result.
-
-**Tools available:**
-- `search_prompts`: Search prompts by query and tags.
-- `get_prompt_content`: Get raw (unrendered) template content. Supports partial reads.
-- `get_prompt_metadata`: Get prompt metadata without content.
-- `create_prompt`: Create a new prompt with name, title, content, description, tags, and arguments.
-- `edit_prompt_content`: Edit part of a template via string replacement. Use when editing a specific section. Auto-syncs arguments when variables change.
-- `update_prompt`: Rewrite, restructure, or fully replace template content, and/or update metadata (title, description, tags, name).
-- `get_context`: Aggregated context for prompts.
-- `list_tags`: Tags with counts.
-- `list_filters`: Saved filters.
-
-**Using prompts**: Agents consume prompts via the native MCP prompts capability — `list_prompts` to discover available prompts, `get_prompt` to render a template with arguments. This is the standard MCP protocol flow.
-
-**Managing prompts**: The tools (`search_prompts`, `get_prompt_content`, `edit_prompt_content`, `create_prompt`, `update_prompt`) are for viewing raw templates, creating new prompts, and editing existing ones.
-
-### MCP Endpoints
-
-- Content MCP: `https://content-mcp.tiddly.me/mcp`
-- Prompt MCP: `https://prompts-mcp.tiddly.me/mcp`
-
-Test connectivity with curl:
-
-```
-# Content MCP
-curl -X POST https://content-mcp.tiddly.me/mcp \
-  -H "Authorization: Bearer YOUR_PAT" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-
-# Prompt MCP
-curl -X POST https://prompts-mcp.tiddly.me/mcp \
-  -H "Authorization: Bearer YOUR_PAT" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
-
-### Setting Up MCP Servers
-
-The recommended way to connect any supported tool is the Tiddly CLI. It mints dedicated Personal Access Tokens (PATs) per server, writes each tool's config file, and detects which tools are installed — so you never hand-edit config files.
-
-Install the CLI, log in, then configure:
-
-```
-curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh
-tiddly login
-tiddly mcp configure                       # auto-detect installed tools, both servers
-tiddly mcp configure claude-code           # a specific tool
-tiddly mcp configure --servers content     # only the bookmarks/notes server
-```
-
-Supported tools: Claude Desktop, Claude Code, Codex, Antigravity. The CLI creates and stores the PATs; manage or revoke them anytime in Settings > Personal Access Tokens on tiddly.me. Treat PATs like passwords — never share or commit them; revoke immediately if compromised.
-
-For an interactive walkthrough that generates the exact command for your selected tools and servers, see the AI Integration settings page: https://tiddly.me/app/settings/ai-integration (Settings > AI Integration).
-
-Per-tool notes (the CLI handles each automatically; these explain behavior differences):
-
-- **Claude Desktop** — user scope only. Restart Claude Desktop after configuring. Uses an `mcp-remote` bridge since it doesn't natively support streamable HTTP transport.
-- **Claude Code** — supports user and directory scope (`--scope directory` writes per-project config).
-- **Codex** — tools-only MCP client: it doesn't surface MCP Prompts (the `/prompt-name` slash invocation available in Claude Code). Bookmarks, notes, and prompt templates all still work through the MCP tools. To invoke a saved prompt directly, export it as a Codex Skill — run the displayed `tiddly skills configure` command, which writes every prompt tagged `skill` as a SKILL.md file (default `~/.agents/skills/`). Codex surfaces those as `$skill-name` invocations or auto-selects them by context.
-- **Antigravity** (Google) — user scope only; the `agy` CLI and the Antigravity IDE share one config file, so `tiddly mcp configure antigravity` covers both. Antigravity reads the config at startup — quit and restart it afterward. Like Codex it's a tools-only client (no MCP Prompts), and it has no Tiddly skills integration. Antigravity is Google's successor to Gemini CLI for individual-tier users.
-- **ChatGPT** — not yet supported (requires OAuth authentication, coming soon).
-
-### Chrome Extension
-
-The Tiddly Bookmarks Chrome extension lets you save the current page as a bookmark or search your existing bookmarks from a tabbed popup. It uses Personal Access Tokens (PATs) for authentication.
-
-- **Tabbed popup:** The popup has two tabs (Save and Search) plus a settings button. The default tab depends on the current page — a regular webpage opens to Save, while a new tab, `chrome://` page, or other restricted URL opens to Search. You can switch tabs manually at any time; Save is disabled on pages that can't be bookmarked.
-- **Save flow:** On the Save tab, a pre-filled form (URL, title, description, tags) captures page content automatically for full-text search. Tags are pre-selected from your defaults and last-used tags, with selectable chips from your existing tags.
-- **Search flow:** On the Search tab, browse your recent bookmarks or full-text search across titles, descriptions, URLs, and content. Filter by tag and sort by created, relevance, last used, modified, or title.
-- **Setup:** Install from the [Chrome Web Store](https://chrome.google.com/webstore/detail/npjlfgkihebhandkknldnjlcdmcpomkc), then open the extension options and enter a Personal Access Token (create one in Settings > Personal Access Tokens on tiddly.me). Optionally configure default tags that will be pre-selected on every save.
-- **Keyboard shortcut:** `Option+Shift+S` (Mac) / `Alt+Shift+S` (Windows/Linux) opens the popup. Chrome's auto-bind is best-effort — if another extension already owns the combo, Chrome silently leaves the shortcut unbound. Rebind at `chrome://extensions/shortcuts` (find "Tiddly Bookmarks", edit "Activate the extension").
-
-### CLI
-
-The Tiddly CLI (`tiddly`) manages authentication, MCP server configuration, agent skills, token management, content export, and self-updates for AI tools.
-
-**Installation:**
-```
-curl -fsSL https://raw.githubusercontent.com/shane-kercheval/tiddly/main/cli/install.sh | sh
-```
-
-**Commands:**
-- `tiddly login` / `tiddly logout`: Authenticate via OAuth device flow or Personal Access Token.
-- `tiddly status [--path /dir]`: Overview of authentication, API health, content counts, and MCP server status. Use `--path` to inspect a specific directory for directory-scoped configurations (default: cwd).
-- `tiddly mcp configure`: Auto-detect installed AI tools (Claude Desktop, Claude Code, Codex, Antigravity) and configure MCP servers with dedicated tokens.
-- `tiddly mcp status` / `tiddly mcp remove`: View or remove MCP server configurations.
-- `tiddly skills configure [tool...]`: Install prompt templates as agent skills for Claude Code, Codex, or Claude Desktop. Auto-detects tools if none specified. Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode, and `--scope` (user or directory) for scope selection.
-- `tiddly skills list`: List available skills (prompts eligible for export). Defaults to `--tags skill` (use `--tags ""` for all prompts). Supports `--tag-match` ("all" or "any") for tag matching mode.
-- `tiddly tokens list`: List all Personal Access Tokens with name, prefix, last used, expiration, and creation date.
-- `tiddly tokens create <name> [--expires N]`: Create a new PAT. The plaintext token is shown once at creation.
-- `tiddly tokens delete <id> [--force]`: Revoke a PAT by ID. Prompts for confirmation unless `--force` is used.
-- `tiddly completion bash/zsh/fish`: Generate shell completion scripts.
-- `tiddly export`: Bulk export bookmarks, notes, and prompts as JSON. Supports `--types`, `--output`, and `--include-archived`.
-- `tiddly update`: Download and install the latest CLI version. Verifies SHA256 checksum before replacing the binary.
-- `tiddly config list`: Show all configuration values.
-- `tiddly config get <key>`: Get a configuration value.
-- `tiddly config set <key> <value>`: Set a configuration value. Supported keys: `api_url`, `update_check`.
-
-Token management requires OAuth login (browser-based). PAT authentication is not sufficient for token operations.
-
-**Config scopes** control where MCP server and skills entries are written:
-- `user` (default) — available everywhere for the user. Stored in the user's home directory.
-- `directory` — configuration only applies when running tools from a specific directory.
-
-Also supports dry-run mode and automatic token management. Full documentation at https://tiddly.me/docs/cli.
-
-### Programmatic API Access
-
-The full REST API is available at `https://api.tiddly.me`. Authenticate with a PAT via `Authorization: Bearer bm_...` header. PATs support all standard read and write operations on bookmarks, notes, prompts, tags, filters, and history.
-
-**PATs are rejected (403) on a few security-sensitive surfaces:**
-- **AI endpoints** (`/ai/*` — tag/metadata/relationship/argument suggestions, health, models, validate-key): Auth0 JWT only. This is deliberate — AI features are not intended for programmatic automation due to cost implications.
-- **Token management** (`/tokens/*`): Auth0 only, to prevent a compromised PAT from minting more PATs.
-- **User settings** (`/settings/*`): Auth0 only, for account-level changes.
-- **URL metadata scraping** (`GET /bookmarks/fetch-metadata`): Auth0 only (outbound URL fetching is rate-limited and cost-sensitive).
-
-If you need scripted access to these, authenticate with an Auth0 session.
-
-## Keyboard Shortcuts and Tips
-
-A browsable Tips page lives at https://tiddly.me/docs/tips, ranked by editorial priority with filtering by topic and audience and a keyword search. Individual tips can be deep-linked via `https://tiddly.me/docs/tips#tip-<tip-id>`.
-
-### Navigation
-- `Cmd+Shift+P` (or `Ctrl+Shift+P`): Open command palette for quick search and navigation.
-- `/`: Focus the search bar.
-- `Cmd+\`: Toggle sidebar.
-- `Cmd+Shift+\`: Toggle history sidebar.
-- `Cmd+Shift+/`: Show all keyboard shortcuts.
-
-### Content Actions
-- `Cmd+V`: Paste a URL (when not in an input field) to quick-create a bookmark with auto-scraped metadata.
-- `Cmd+S`: Save current item.
-- `Cmd+Shift+S`: Save and close.
-- `Cmd+Click` on a card: Open in new tab.
-- `Shift+Cmd+Click` on a bookmark: Open the URL without tracking usage.
-- `Shift+Click` on a bookmark relationship chip: Open the bookmark entity in Tiddly (default click opens the URL in a new tab).
-- `w`: Toggle full-width layout.
-
-### Markdown Editor
-- `/` slash menu: Type `/` at the start of a line or after a space to open a filterable dropdown of block commands (headings, lists, code blocks, links, etc.). On prompt pages, Jinja2 template commands (variable, if block) also appear.
-- `Cmd+/`: Open the editor command menu — a filterable palette of all formatting, insertion, and action commands. Works anywhere in the editor, supports selections, and includes save/discard actions. On prompt pages, Jinja2 commands also appear.
-- `Cmd+Shift+M`: Toggle reading mode.
-- `Alt+Z`: Toggle word wrap.
-- `Alt+L`: Toggle line numbers.
-- `Alt+M`: Toggle monospace font.
-- `Alt+T`: Toggle table of contents sidebar (navigable list of headings).
-- Standard formatting: `Cmd+B` (bold), `Cmd+I` (italic), `Cmd+E` (inline code), `Cmd+K` (link), `Cmd+Shift+E` (code block), `Cmd+Shift+7` (bullet list), `Cmd+Shift+8` (numbered list), `Cmd+Shift+9` (checklist).
-
-## Platform
-
-- **Pricing**: Three tiers — Free ($0), Standard ($2/mo or $1/mo annual), and Pro ($5/mo or $4/mo annual). Higher tiers increase capacity (more items, longer history, higher rate limits). Currently in beta — all accounts have Pro access at no charge.
-- **Self-hostable**: The codebase is publicly available at https://github.com/shane-kercheval/tiddly and can be self-hosted with no tier limits.
-- **Infrastructure**: FastAPI backend, React frontend, PostgreSQL database (encryption at rest), Redis for caching and rate limiting. Hosted on Railway's Pro tier which includes SOC 2 compliance, DDoS protection, automatic daily database backups, and manual snapshots before major updates.
-- **Authentication**: Auth0.
-- **Multi-tenant**: All content is isolated by user ID. There is no sharing functionality.
-- **Privacy**: No client-side/end-to-end encryption (would prevent full-text search). The database administrator could technically access user data. Self-hosting is available for complete privacy.
-- **Data export**: The CLI provides `tiddly export` for bulk JSON export of bookmarks, notes, and prompts. Supports filtering by content type (`--types`), writing to file (`--output`), and including archived items (`--include-archived`). The full REST API can also be used with a PAT to export content programmatically.
-- **AI features** (Pro): AI-powered suggestions for organizing content. Users can bring their own API key (BYOK) for higher rate limits and custom model selection.
-  - **Tag suggestions** — Suggested automatically when opening the tag input. Appear as muted chips; click to accept.
-  - **Title & description suggestions** — Click the sparkle icon next to the field to generate.
-  - **Relationship suggestions** — Suggested automatically when opening the linked content input. Click to link.
-  - **Argument suggestions** — Click sparkle icons in the prompt arguments section to generate names, descriptions, or all arguments from template placeholders.
-
-## Tier Limits
-
-Currently in beta — all accounts have Pro access at no charge.
-
-### Free Tier
-- **Items**: 10 bookmarks, 10 notes, 5 prompts.
-- **Content length**: Up to 25,000 characters per item.
-- **Personal Access Tokens**: Up to 3 active tokens.
-- **Version history**: 1-day retention, up to 100 versions per entity.
-- **Rate limits**: 60 reads/min, 500 reads/day; 20 writes/min, 200 writes/day; 5 sensitive/min, 25 sensitive/day.
-- **AI rate limits**: No AI calls (AI features not available on Free tier).
-- **Field limits**: Titles up to 200 characters, descriptions up to 1,000 characters, tag names up to 50 characters, URLs up to 2,048 characters.
-- **Relationships**: Up to 50 per entity.
-- **Tags**: Up to 100 per entity.
-
-### Standard Tier ($2/month or $1/month billed annually)
-- **Items**: 250 bookmarks, 100 notes, 50 prompts.
-- **Content length**: Up to 50,000 characters per item.
-- **Personal Access Tokens**: Up to 10 active tokens.
-- **Version history**: 5-day retention, up to 100 versions per entity.
-- **Rate limits**: 120 reads/min, 2,000 reads/day; 60 writes/min, 1,000 writes/day; 15 sensitive/min, 100 sensitive/day.
-- **AI rate limits**: No AI calls (AI features not available on Standard tier).
-- All other limits same as Free tier.
-
-### Pro Tier ($5/month or $4/month billed annually)
-- **Items**: Unlimited bookmarks, notes, and prompts.
-- **Content length**: Up to 100,000 characters per item.
-- **Personal Access Tokens**: Up to 50 active tokens.
-- **Version history**: 15-day retention, up to 100 versions per entity.
-- **Rate limits**: 300 reads/min, 10,000 reads/day; 200 writes/min, 5,000 writes/day; 30 sensitive/min, 250 sensitive/day.
-- **AI rate limits**: 30 AI calls/min, 500 AI calls/day; with BYOK (bring your own key): 120 calls/min, 2,000 calls/day.
-- All other limits same as Free tier.
-
-## Use Cases and Examples
-
-### Personal Knowledge Base
-Save bookmarks to articles, write notes to summarize key learnings, tag everything by topic. Use content filters to create views like "All Python resources" or "Machine learning papers."
-
-### AI Prompt Library
-Build a library of reusable prompt templates. For example, a "Code Review" prompt with arguments for `language`, `code`, and `focus_area`. Render it via the MCP server from any AI assistant, or export as Agent Skills for Claude Code.
-
-### Research and Reference
-Bookmark research papers (page content is scraped and searchable), link related bookmarks and notes via relationships, and use version history to track how your notes evolve over time.
-
-### AI-Assisted Content Management
-Connect the MCP servers to Claude or another AI assistant. The AI can search your bookmarks and notes, create new content, edit existing items, and render prompt templates — all through natural conversation.
-
-### Workflow Automation
-Use PATs with the REST API to programmatically create bookmarks (e.g., from a browser extension or script), bulk-tag content, or integrate with other tools.
+- Docs: https://tiddly.me/docs · Tips: https://tiddly.me/docs/tips
+- Pricing (authoritative tier limits): https://tiddly.me/pricing
+- AI Integration settings (authoritative supported-tools list): https://tiddly.me/app/settings/ai-integration
