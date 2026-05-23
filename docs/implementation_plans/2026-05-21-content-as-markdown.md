@@ -43,8 +43,9 @@ The prose renderer is built on `react-markdown` + `remark-gfm` + `rehype-sanitiz
 ## Shared conventions (established in M1; reused everywhere)
 
 - **Serving + build output:** generated/copied files are emitted into the **build output** (`dist/prose`, `dist/data`), never written into source-controlled `frontend/public/` (that would dirty the working tree on every build). Provide a **dev/test serving path** so local verification doesn't require a production build: a Vite dev-server middleware that serves `/prose/*` and `/data/*` during `vite dev`, or a `predev`/`pretest` step that materializes them to a temp/cache dir.
+- **Static files must win over the SPA catch-all.** This is a single-page app: unknown routes fall through to `index.html`. `/prose/*.md` and `/data/*.json` must be served as **real static files**, ahead of that fallback — otherwise an agent fetching `/prose/faq.md` gets the SPA HTML shell, not markdown. Positive precedent: `llms.txt` already serves correctly at `/llms.txt` today, so the host serves root-level static files ahead of the fallback — but **verify the same holds for subdirectory `.md`/`.json` paths** in production (the static-host/router config), since that's where this silently breaks. This is a hard requirement, not a nice-to-have; the round-trip tests (M1/M2) should assert a fetched artifact is the file, not HTML.
 - **Prose rendering:** one shared `react-markdown` renderer/layout, with a `components` map: fenced code → the existing `CopyableCodeBlock`, links → router `Link`, blockquote → callout styling, ordered list → step styling. Docs page components become thin renderers of their `.md`.
-- **Docs sanitize schema:** the renderer uses a **docs-specific** `rehype-sanitize` schema that allows headings and table elements. It is explicitly **not** `TipBody`'s schema, which strips `h1–h6` (so tip snippets can't inject document structure) — reusing that would silently delete docs headings and break FAQ Q&A extraction.
+- **Docs sanitize schema:** the renderer uses a **docs-specific** `rehype-sanitize` schema that allows headings and table elements. It is explicitly **not** `TipBody`'s schema, which strips `h1–h6` (so tip snippets can't inject document structure) — reusing that would silently delete the headings docs prose depends on.
 - **Manifest shape:** `/prose/index.json` and `/data/index.json` are lists of entries with at least `path` (served URL) + `description`; prose entries also carry the mirrored human route. Define once, reuse for both.
 - **Data validation on load:** every JSON data file is validated against a schema when read (frontend at load/test; backend at startup, fail-fast). Replaces the compile-time guarantees given up by moving literals → JSON.
 
@@ -126,7 +127,8 @@ Make tier limits a single file read by backend enforcement, frontend display, an
 
 - The display==enforcement guarantee is **by construction**: frontend imports and backend `COPY`s+loads the *same* `frontend/src/data/tiers.json`, so they cannot diverge. Tests are two independent file-pinned assertions — (1) frontend display equals the JSON; (2) backend enforcement equals the JSON — **not** a cross-stack frontend-reaches-into-backend comparison.
 - A test asserts no hardcoded tier integers remain in `Pricing.tsx`/`FAQContent.tsx` (values come from the import); a test asserts the served `tiers.json` excludes `dev`; backend startup-validation fails fast on malformed/missing data; existing tier tests pass against file-sourced values.
-- KAN-154 closeable. `make backend-verify` + `make frontend-verify` pass. Backend Dockerfile updated; if public reachability changed, update deployed security tests and remind the user to run them.
+- KAN-154 closeable. `make backend-verify` + `make frontend-verify` pass.
+- **Deploy + docs:** `Dockerfile.api` updated to `COPY` the file; **update `README_DEPLOY.md`** (the backend now has a build-time cross-stack file dependency and won't boot without it) and **`docs/architecture.md`** (tier limits are now loaded from a file, not Python literals). This milestone publishes new *public* static files (`/data/*.json`); sanity-check they expose nothing sensitive (DEV excluded above; FAQ/tips are public content) — no auth boundary changes, so the deployed penetration tests don't need new cases, but confirm the new paths return the file, not the SPA shell.
 
 ---
 
@@ -136,16 +138,16 @@ Make tier limits a single file read by backend enforcement, frontend display, an
 
 Lock in the model and close gaps.
 
-- `AGENTS.md` documents the model: prose as markdown under the content source (not TSX), structured data as canonical JSON read by code (not hardcoded), the `/prose` + `/data` + manifest + `dist/` convention, react-markdown-not-MDX, and no SSR.
+- `AGENTS.md` and `docs/architecture.md` document the model: prose as markdown under the content source (not TSX), structured data as canonical JSON read by code (not hardcoded), the `/prose` + `/data` + manifest + `dist/` serving convention (static-files-before-SPA-fallback), react-markdown-not-MDX, and no SSR.
 - Both manifests complete; optionally migrate marketing prose (`LandingPage`/`FeaturesPage`/`AIIntegration`) using the M1 pattern (lower priority — designed layouts; agent value largely covered by the KAN-152 hub).
 
 **Implementation Outline**
 
-- Update `AGENTS.md` "Files to Keep in Sync"/conventions with the model + a pointer to this plan. Verify both manifests list everything published. Migrate marketing prose only if desired this pass; else record as a follow-up.
+- Update `AGENTS.md` "Files to Keep in Sync"/conventions and `docs/architecture.md` (the content-serving shape) with the model + a pointer to this plan. Verify both manifests list everything published. Migrate marketing prose only if desired this pass; else record as a follow-up.
 
 **Definition of Done**
 
-- `AGENTS.md` reflects the model; manifests complete; any migrated marketing prose meets the M1 bar; `make frontend-verify` passes.
+- `AGENTS.md` and `docs/architecture.md` reflect the model; manifests complete; any migrated marketing prose meets the M1 bar; `make frontend-verify` passes.
 
 ## Cross-cutting concerns
 
