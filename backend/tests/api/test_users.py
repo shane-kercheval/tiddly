@@ -1,4 +1,5 @@
 """Tests for user authentication endpoints."""
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -6,7 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.tier_limits import TIER_LIMITS, Tier, get_tier_limits
+from core.tier_limits import TIER_LIMITS, _TIERS_JSON_PATH, Tier, get_tier_limits
 from models.user import User
 
 
@@ -176,17 +177,26 @@ class TestGetMyLimits:
         assert data["max_prompts"] == 2
         assert data["max_title_length"] == 10
 
-    async def test__get_my_limits__returns_free_tier_when_not_dev_mode(
+    @pytest.mark.parametrize("tier_name", ["free", "standard", "pro"])
+    async def test__get_my_limits__returns_tiers_json_values_when_not_dev_mode(
         self,
         client: AsyncClient,
+        tier_name: str,
     ) -> None:
-        """Test that /users/me/limits returns FREE tier when dev mode is off."""
+        """
+        Outside dev mode, the endpoint returns the published tiers.json values for the user's tier.
+
+        The dev-mode test above asserts DEV (a code constant). This is the production path:
+        dev_mode=False → user's stored tier → the numbers a user actually sees over the API.
+        Pinned directly to tiers.json (not TIER_LIMITS) so it proves the *published* tier
+        values reach the user end-to-end, across all three product tiers.
+        """
         from api.main import app  # noqa: PLC0415
         from core.auth import get_current_user as _get_current_user  # noqa: PLC0415
         from core.config import get_settings as _get_settings  # noqa: PLC0415
 
         mock_user = MagicMock()
-        mock_user.tier = "free"
+        mock_user.tier = tier_name
         mock_settings = MagicMock()
         mock_settings.dev_mode = False
 
@@ -200,11 +210,15 @@ class TestGetMyLimits:
 
         assert response.status_code == 200
         data = response.json()
-        free_limits = TIER_LIMITS[Tier.FREE]
-        assert data["tier"] == "free"
-        assert data["max_bookmarks"] == free_limits.max_bookmarks
-        assert data["max_notes"] == free_limits.max_notes
-        assert data["max_prompts"] == free_limits.max_prompts
+        expected = json.loads(_TIERS_JSON_PATH.read_text())[tier_name]
+        assert data["tier"] == tier_name
+        for field in (
+            "max_bookmarks", "max_notes", "max_prompts", "max_pats",
+            "max_bookmark_content_length", "max_note_content_length", "max_prompt_content_length",
+            "history_retention_days", "max_history_per_entity",
+            "rate_ai_per_day", "rate_ai_byok_per_day", "rate_read_per_minute",
+        ):
+            assert data[field] == expected[field], f"{tier_name}.{field}"
 
 
 class TestGetCurrentLimits:

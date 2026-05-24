@@ -7,6 +7,28 @@ import { usePageTitle } from '../hooks/usePageTitle'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 import { CheckIcon } from '../components/icons'
 import { FAQItem } from '../components/ui/FAQItem'
+import tiersData from '../content/data/tiers.json'
+
+// Tier values come from the canonical cross-stack tiers.json (single source with
+// backend enforcement — KAN-154). Only display formatting lives here; the numbers
+// do not. Qualitative cells (Included / Standard / Higher) aren't tier data.
+type TierData = typeof tiersData.free
+const free: TierData = tiersData.free
+const standard: TierData = tiersData.standard
+const pro: TierData = tiersData.pro
+
+/** Item count, or "Unlimited" when the tier is flagged as such (display-only flag). */
+const itemCount = (tier: TierData, value: number): string =>
+  tier.unlimited_items ? 'Unlimited' : value.toLocaleString()
+/**
+ * Characters limit shown compactly on cards, e.g. 25000 → "25K". Uses the bookmark
+ * content length as the single "per item" figure — safe because bookmark/note/prompt
+ * limits are equal within each tier (enforced by a backend invariant test); revisit
+ * this single-value display if those ever diverge.
+ */
+const charsCompact = (tier: TierData): string => `${tier.max_bookmark_content_length / 1000}K`
+const retentionDays = (n: number): string => `${n} day${n === 1 ? '' : 's'}`
+const aiCallsPerDay = (n: number): string => (n > 0 ? `${n.toLocaleString()} calls/day` : '—')
 
 function FeatureItem({ children }: { children: ReactNode }): ReactNode {
   return (
@@ -86,21 +108,21 @@ const comparisonData = [
   {
     category: 'Content',
     rows: [
-      { feature: 'Bookmarks', free: '10', standard: '250', pro: 'Unlimited' },
-      { feature: 'Notes', free: '10', standard: '100', pro: 'Unlimited' },
-      { feature: 'Prompt templates', free: '5', standard: '50', pro: 'Unlimited' },
+      { feature: 'Bookmarks', free: itemCount(free, free.max_bookmarks), standard: itemCount(standard, standard.max_bookmarks), pro: itemCount(pro, pro.max_bookmarks) },
+      { feature: 'Notes', free: itemCount(free, free.max_notes), standard: itemCount(standard, standard.max_notes), pro: itemCount(pro, pro.max_notes) },
+      { feature: 'Prompt templates', free: itemCount(free, free.max_prompts), standard: itemCount(standard, standard.max_prompts), pro: itemCount(pro, pro.max_prompts) },
     ],
   },
   {
     category: 'Storage',
     rows: [
-      { feature: 'Characters per content item', free: '25,000', standard: '50,000', pro: '100,000' },
+      { feature: 'Characters per content item', free: free.max_bookmark_content_length.toLocaleString(), standard: standard.max_bookmark_content_length.toLocaleString(), pro: pro.max_bookmark_content_length.toLocaleString() },
     ],
   },
   {
     category: 'API & Automation',
     rows: [
-      { feature: 'Personal Access Tokens', free: '3', standard: '10', pro: '50' },
+      { feature: 'Personal Access Tokens', free: String(free.max_pats), standard: String(standard.max_pats), pro: String(pro.max_pats) },
       { feature: 'Rate limits', free: 'Standard', standard: 'Higher', pro: 'Highest' },
       { feature: 'MCP integration', free: 'Included', standard: 'Included', pro: 'Included' },
       { feature: 'Chrome extension', free: 'Included', standard: 'Included', pro: 'Included' },
@@ -109,14 +131,14 @@ const comparisonData = [
   {
     category: 'AI Features',
     rows: [
-      { feature: 'AI suggestions (tags, metadata, relationships)', free: '—', standard: '—', pro: '500 calls/day' },
-      { feature: 'Bring your own API key', free: '—', standard: '—', pro: '2,000 calls/day' },
+      { feature: 'AI suggestions (tags, metadata, relationships)', free: aiCallsPerDay(free.rate_ai_per_day), standard: aiCallsPerDay(standard.rate_ai_per_day), pro: aiCallsPerDay(pro.rate_ai_per_day) },
+      { feature: 'Bring your own API key', free: aiCallsPerDay(free.rate_ai_byok_per_day), standard: aiCallsPerDay(standard.rate_ai_byok_per_day), pro: aiCallsPerDay(pro.rate_ai_byok_per_day) },
     ],
   },
   {
     category: 'History & Versioning',
     rows: [
-      { feature: 'Version history retention', free: '1 day', standard: '5 days', pro: '15 days' },
+      { feature: 'Version history retention', free: retentionDays(free.history_retention_days), standard: retentionDays(standard.history_retention_days), pro: retentionDays(pro.history_retention_days) },
       { feature: 'Full-text search', free: 'Included', standard: 'Included', pro: 'Included' },
     ],
   },
@@ -127,7 +149,7 @@ const comparisonData = [
  */
 export function Pricing(): ReactNode {
   usePageTitle('Pricing')
-  const [isAnnual, setIsAnnual] = useState(false)
+  const [isAnnual, setIsAnnual] = useState(true)
 
   const standardPrice = isAnnual ? '1' : '2'
   const standardBillingNote = isAnnual ? 'per month, billed annually' : 'per month'
@@ -188,12 +210,12 @@ export function Pricing(): ReactNode {
           <CTAButton variant="secondary" tier="free" />
 
           <ul className="mt-8 space-y-4 text-sm text-gray-600">
-            <FeatureItem>10 bookmarks</FeatureItem>
-            <FeatureItem>10 notes</FeatureItem>
-            <FeatureItem>5 prompt templates</FeatureItem>
-            <FeatureItem>25K characters per item</FeatureItem>
-            <FeatureItem>3 API tokens</FeatureItem>
-            <FeatureItem>1-day version history</FeatureItem>
+            <FeatureItem>{free.max_bookmarks} bookmarks</FeatureItem>
+            <FeatureItem>{free.max_notes} notes</FeatureItem>
+            <FeatureItem>{free.max_prompts} prompt templates</FeatureItem>
+            <FeatureItem>{charsCompact(free)} characters per item</FeatureItem>
+            <FeatureItem>{free.max_pats} API tokens</FeatureItem>
+            <FeatureItem>{retentionDays(free.history_retention_days)} version history</FeatureItem>
             <FeatureItem>Full-text search</FeatureItem>
             <FeatureItem>MCP integration</FeatureItem>
             <FeatureItem>Chrome extension</FeatureItem>
@@ -212,12 +234,12 @@ export function Pricing(): ReactNode {
           <CTAButton variant="secondary" tier="standard" />
 
           <ul className="mt-8 space-y-4 text-sm text-gray-600">
-            <FeatureItem>250 bookmarks</FeatureItem>
-            <FeatureItem>100 notes</FeatureItem>
-            <FeatureItem>50 prompt templates</FeatureItem>
-            <FeatureItem>50K characters per item</FeatureItem>
-            <FeatureItem>10 API tokens</FeatureItem>
-            <FeatureItem>5-day version history</FeatureItem>
+            <FeatureItem>{standard.max_bookmarks} bookmarks</FeatureItem>
+            <FeatureItem>{standard.max_notes} notes</FeatureItem>
+            <FeatureItem>{standard.max_prompts} prompt templates</FeatureItem>
+            <FeatureItem>{charsCompact(standard)} characters per item</FeatureItem>
+            <FeatureItem>{standard.max_pats} API tokens</FeatureItem>
+            <FeatureItem>{retentionDays(standard.history_retention_days)} version history</FeatureItem>
             <FeatureItem>Higher rate limits</FeatureItem>
           </ul>
         </div>
@@ -234,11 +256,15 @@ export function Pricing(): ReactNode {
           <CTAButton variant="primary" tier="pro" />
 
           <ul className="mt-8 space-y-4 text-sm text-gray-600">
-            <FeatureItem><strong>Unlimited</strong> bookmarks, notes & prompts</FeatureItem>
-            <FeatureItem>100K characters per item</FeatureItem>
+            <FeatureItem>
+              {pro.unlimited_items
+                ? <><strong>Unlimited</strong> bookmarks, notes & prompts</>
+                : `${pro.max_bookmarks} bookmarks, notes & prompts`}
+            </FeatureItem>
+            <FeatureItem>{charsCompact(pro)} characters per item</FeatureItem>
             <FeatureItem>AI-powered suggestions</FeatureItem>
-            <FeatureItem>50 API tokens</FeatureItem>
-            <FeatureItem>15-day version history</FeatureItem>
+            <FeatureItem>{pro.max_pats} API tokens</FeatureItem>
+            <FeatureItem>{retentionDays(pro.history_retention_days)} version history</FeatureItem>
             <FeatureItem>Highest rate limits</FeatureItem>
           </ul>
         </div>

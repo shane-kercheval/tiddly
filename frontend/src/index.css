@@ -1,6 +1,44 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* Numbered "step" cards in docs prose. An ordered list whose every item begins
+   with a bold title is rendered by DocsMarkdown with this class; the source stays
+   a plain agent-readable ordered list. A CSS counter draws the orange step number
+   (the legacy StepSection look) — done in real CSS because the number comes from
+   a `counter()`, which utility classes can't express. */
+.docs-steps {
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 1rem;
+  counter-reset: docs-step;
+}
+.docs-steps > li {
+  counter-increment: docs-step;
+  position: relative;
+  border: 1px solid #e5e7eb; /* gray-200 */
+  border-radius: 0.5rem;
+  background: #fff;
+  padding: 1rem 1rem 1rem 2.75rem;
+}
+.docs-steps > li + li {
+  margin-top: 1rem;
+}
+.docs-steps > li::before {
+  content: counter(docs-step);
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #d97b3d; /* brand orange */
+}
+.docs-steps > li > :first-child { margin-top: 0; }
+.docs-steps > li > :last-child { margin-bottom: 0; }
+.docs-steps > li > p:first-child { color: #111827; font-weight: 600; } /* step title */
+/* The title is authored as `**bold**` (a <strong>, weight 700); inherit the
+   title's 600 so it's semibold like the legacy StepSection, not double-bold. */
+.docs-steps > li > p:first-child strong { font-weight: inherit; }
+
 /* Full viewport height for app layout */
 html, body, #root {
   height: 100%;

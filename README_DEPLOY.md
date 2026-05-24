@@ -16,6 +16,8 @@ Deploy Tiddly services to Railway using Docker.
 | **Postgres** | PostgreSQL database | (managed by Railway) |
 | **Redis** | Rate limiting and auth cache | (managed by Railway) |
 
+> **Cross-stack tier data:** every `Dockerfile.api`-built service (api + the three crons) reads subscription tier limits from `frontend/src/content/data/tiers.json` at startup (`core/tier_limits.py`) and **fails fast on boot if it's missing**. `Dockerfile.api` `COPY`s the file into the image at the same path. Its watch paths include `frontend/src/content/data/tiers.json` so editing a tier limit redeploys the backend (otherwise enforcement would lag the published Pricing page until the next backend deploy).
+
 ---
 
 ## Prerequisites
@@ -87,7 +89,7 @@ Click on each service → **Settings** tab → Configure as follows:
 **Settings → Build:**
 - Builder: **Dockerfile**
 - Dockerfile Path: `/Dockerfile.api`
-- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`
+- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`, `frontend/src/content/data/tiers.json`
 
 **Settings → Deploy:**
 - No Custom Start Command needed (the Dockerfile handles this)
@@ -150,7 +152,7 @@ Hourly job that flushes Redis AI-cost buckets into the `ai_usage` Postgres table
 **Settings → Build:**
 - Builder: **Dockerfile**
 - Dockerfile Path: `/Dockerfile.api`
-- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`
+- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`, `frontend/src/content/data/tiers.json`
 
 **Settings → Deploy:**
 - **Cron Schedule:** `30 * * * *` (every hour at :30, UTC). Railway's minimum interval is 5 minutes.
@@ -182,7 +184,7 @@ Daily job that enforces tier-based history retention (`content_history`), perman
 **Settings → Build:**
 - Builder: **Dockerfile**
 - Dockerfile Path: `/Dockerfile.api`
-- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`
+- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`, `frontend/src/content/data/tiers.json`
 
 **Settings → Deploy:**
 - **Cron Schedule:** `0 3 * * *` (daily at 03:00 UTC)
@@ -203,7 +205,7 @@ Daily job that finds rows in `content_relationships` whose source or target enti
 **Settings → Build:**
 - Builder: **Dockerfile**
 - Dockerfile Path: `/Dockerfile.api`
-- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`
+- Watch Paths: `backend/**`, `pyproject.toml`, `Dockerfile.api`, `frontend/src/content/data/tiers.json`
 
 **Settings → Deploy:**
 - **Cron Schedule:** `0 4 * * *` (daily at 04:00 UTC — offset by an hour from `cleanup` so they don't pile on the DB simultaneously)

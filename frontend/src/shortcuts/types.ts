@@ -5,10 +5,12 @@
  * *event matchers* (what fires the binding) so both surfaces share one source
  * of truth.
  *
- * `ShortcutId` is derived from the SHORTCUTS array in `registry.ts` (so adding
- * a new entry expands the union automatically). `Section` is declared here as
- * an explicit literal union — narrow enough that authoring a registry entry
- * with `section: 'Navagation'` (typo) fails to compile.
+ * The shortcut data is authored in `registry.ts`'s sibling `shortcuts.json`
+ * (the single source) and loaded + validated by `registry.ts`. `ShortcutId` is
+ * a hand-maintained union in `registry.ts` kept in sync with the JSON by a test
+ * (TypeScript can't derive a literal union from a runtime-loaded JSON file).
+ * `Section` is declared here as an explicit literal union — narrow enough that a
+ * `section: 'Navagation'` typo in the JSON fails load-time validation.
  *
  * SEPARATION OF CONCERNS
  * ----------------------
@@ -31,6 +33,11 @@ interface ShortcutMatchBase {
   mod?: boolean
   shift?: boolean
   alt?: boolean
+  // No `control` flag: no current shortcut binds the literal Control key. The
+  // matcher's `mod` already covers "Cmd-or-Ctrl". Add a distinct control flag
+  // (and a `Control` display token in platform.ts) only when a real
+  // Control-key shortcut appears — note it would collapse with `mod` → "Ctrl"
+  // on Windows/Linux, so such a combo has no unambiguous non-Mac form.
 }
 
 /**
@@ -72,13 +79,25 @@ export interface Shortcut {
   /** Section header for grouping in the shortcuts dialog and docs page. */
   section: Section
   /**
-   * Display tokens — Cmd-first authoring convention (⌘, ⌥, ⇧, then the
-   * non-modifier). Use raw glyphs ('⌘', '⇧'), not `\u`-escapes.
-   * Mouse interactions belong here too: ['⌘', 'Click'], ['Paste URL'].
+   * OS-agnostic display tokens, modifier-first: `Mod` (Cmd/Ctrl), `Alt`,
+   * `Shift`, then the non-modifier token. NOT Mac glyphs — `platform.ts`
+   * renders each token per-OS (`Mod` → ⌘ on Mac, Ctrl elsewhere).
+   *
+   * Derived, not authored: `registry.ts` computes `keys` from `match` for
+   * keyboard shortcuts (so display can't drift from the matcher), or uses the
+   * explicit `display` tokens of the matchless display-only entries (mouse
+   * modifiers, paste hints, upstream-owned). See `shortcuts.json`.
    */
   keys: readonly string[]
-  /** Event matcher. Omit only for the two display-only categories. */
+  /** Event matcher. Absent for the display-only entries (which set `display` in the JSON). */
   match?: ShortcutMatch
+  /**
+   * Optional maintainer rationale for a non-obvious entry (why `match` is
+   * omitted, why `code` rather than `key`, where a display-only binding lives).
+   * Carries the per-entry comments the old TS registry held, now that the data
+   * is JSON. Not rendered; not part of the public served shortcut projection.
+   */
+  note?: string
   /**
    * If true, the hook fires this shortcut even when a text input is focused.
    * Default false. Dispatch policy — read by the hook after `match` fires.

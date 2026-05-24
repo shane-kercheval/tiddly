@@ -50,7 +50,8 @@ export const TIP_EXTRA_SHORTCUTS = {
   'page.save': { keys: PAGE_SCOPED_SAVE_KEYS },
   'page.saveAndClose': { keys: PAGE_SCOPED_SAVE_AND_CLOSE_KEYS },
   // Mirrors chrome-extension/manifest.json `commands._execute_action.suggested_key.default`.
-  'extension.openPopup': { keys: ['⌥', '⇧', 'S'] },
+  // OS-agnostic tokens (Alt/Shift), rendered per-OS by platform.ts.
+  'extension.openPopup': { keys: ['Alt', 'Shift', 'S'] },
 } as const satisfies Record<string, { keys: readonly string[] }>
 
 export type TipExtraShortcutId = keyof typeof TIP_EXTRA_SHORTCUTS

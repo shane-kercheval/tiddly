@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   SHORTCUTS,
+  SHORTCUT_IDS,
   getShortcut,
   getShortcutsBySection,
   getAllShortcuts,
   isShortcutId,
+  validateShortcutsData,
   type ShortcutId,
 } from './registry'
 
@@ -12,7 +14,7 @@ describe('registry selectors', () => {
   it('getShortcut returns the entry by id', () => {
     const entry = getShortcut('app.showShortcuts')
     expect(entry.id).toBe('app.showShortcuts')
-    expect(entry.keys).toEqual(['⌘', '⇧', '/'])
+    expect(entry.keys).toEqual(['Mod', 'Shift', '/'])
   })
 
   it('getShortcut throws on unknown id', () => {
@@ -56,64 +58,43 @@ describe('registry selectors', () => {
   })
 })
 
-describe('keys ↔ match coherence', () => {
-  // Codes for non-letter punctuation displayed as a glyph in `keys`.
-  const CODE_TO_DISPLAY: Record<string, string> = {
-    Slash: '/',
-    Backslash: '\\',
-    Minus: '-',
-    Period: '.',
-    Comma: ',',
-    Equal: '=',
-    Quote: "'",
-    Semicolon: ';',
-  }
+describe('display tokens derived from match', () => {
+  // `keys` is derived from `match` in registry.ts (no stored display to drift).
+  // These exact-output cases lock the derivation rules: modifier-first ordering,
+  // letter case (uppercase with a modifier, lowercase when bare to signal
+  // "no Shift"), physical-code → symbol, and special key names.
+  it.each([
+    ['editor.bold', ['Mod', 'B']], // modifier + letter → uppercase
+    ['editor.toggleReadingMode', ['Mod', 'Shift', 'M']], // code KeyM → M
+    ['editor.toggleWordWrap', ['Alt', 'Z']], // code KeyZ → Z
+    ['app.focusPageSearch', ['s']], // bare letter → lowercase
+    ['app.toggleWidth', ['w']], // bare letter → lowercase
+    ['app.focusSearch', ['/']], // bare punctuation key
+    ['app.escape', ['Esc']], // special key name
+    ['app.commandPalette', ['Mod', 'Shift', 'P']], // modifier ordering
+    ['app.toggleSidebarMaxWidth', ['Mod', 'Alt', '\\']], // code Backslash → \
+    ['editor.commandMenu', ['Mod', '/']], // code Slash → /
+    ['editor.bulletList', ['Mod', 'Shift', '7']], // digit key
+  ])('%s derives to %j', (id, expected) => {
+    expect(getShortcut(id as ShortcutId).keys).toEqual(expected)
+  })
 
-  // Iterate via the widening selector so `match` types as `ShortcutMatch | undefined`
-  // (SHORTCUTS itself has narrow literal types from `as const satisfies`).
-  for (const shortcut of getAllShortcuts()) {
-    if (!shortcut.match) continue
-    const match = shortcut.match // narrow to ShortcutMatch for closure capture
+  it('display-only entries use their explicit display tokens (no matcher)', () => {
+    expect(getShortcut('card.openInNewTab').match).toBeUndefined()
+    expect(getShortcut('card.openInNewTab').keys).toEqual(['Mod', 'Click'])
+    expect(getShortcut('bookmark.pasteUrl').keys).toEqual(['Mod', 'V'])
+  })
 
-    it(`'${shortcut.id}' display tokens align with match shape`, () => {
-      const { keys } = shortcut
-
-      // Modifier presence in keys must match the match flags.
-      expect(keys.includes('⌘')).toBe(match.mod === true)
-      expect(keys.includes('⇧')).toBe(match.shift === true)
-      expect(keys.includes('⌥')).toBe(match.alt === true)
-
-      // The non-modifier final token of keys should align with match.key/code.
-      // ⌃ stays in the strip filter for forward-compat with platform.ts even
-      // though no current shortcut uses it.
-      const nonModifierTokens = keys.filter(
-        (k) => k !== '⌘' && k !== '⇧' && k !== '⌥' && k !== '⌃',
+  it('every entry has modifiers before the non-modifier token', () => {
+    for (const shortcut of getAllShortcuts()) {
+      const lastModifier = shortcut.keys.reduce(
+        (acc, k, i) => (['Mod', 'Alt', 'Shift'].includes(k) ? i : acc),
+        -1,
       )
-      expect(nonModifierTokens.length).toBe(1)
-      const finalToken = nonModifierTokens[0]
-
-      if (match.code !== undefined) {
-        // Letter codes ('KeyZ') → last-segment letter; digit codes ('Digit7') →
-        // the digit; punctuation codes via map.
-        const letterMatch = match.code.match(/^Key([A-Z])$/)
-        const digitMatch = match.code.match(/^Digit([0-9])$/)
-        const expectedDisplay = letterMatch
-          ? letterMatch[1]
-          : digitMatch
-            ? digitMatch[1]
-            : (CODE_TO_DISPLAY[match.code] ?? match.code)
-        expect(finalToken.toUpperCase()).toBe(expectedDisplay.toUpperCase())
-      } else {
-        // Schema XOR: when code is unset, key is set.
-        // Special-named keys ('Escape', 'Backspace') display as 'Esc', 'Backspace'.
-        const SPECIAL_DISPLAY: Record<string, string> = {
-          Escape: 'Esc',
-        }
-        const expected = SPECIAL_DISPLAY[match.key] ?? match.key
-        expect(finalToken.toLowerCase()).toBe(expected.toLowerCase())
-      }
-    })
-  }
+      const modifierCount = shortcut.keys.filter((k) => ['Mod', 'Alt', 'Shift'].includes(k)).length
+      expect(lastModifier).toBe(modifierCount - 1)
+    }
+  })
 })
 
 describe('schema invariants', () => {
@@ -133,6 +114,66 @@ describe('schema invariants', () => {
     // building SHORTCUTS_BY_ID), but assert here so the contract is testable.
     const ids = SHORTCUTS.map((s) => s.id)
     expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('SHORTCUT_IDS stays in sync with shortcuts.json', () => {
+    // TypeScript can't derive the ShortcutId union from a runtime JSON import,
+    // so SHORTCUT_IDS is hand-maintained. This asserts it matches the data file
+    // exactly — add/remove a shortcut in shortcuts.json without updating the
+    // union (in registry.ts) and this fails loudly.
+    const jsonIds = SHORTCUTS.map((s) => s.id).sort()
+    const unionIds = [...SHORTCUT_IDS].sort()
+    expect(unionIds).toEqual(jsonIds)
+  })
+})
+
+describe('validateShortcutsData (load-time validation)', () => {
+  const base = { id: 'test.entry', label: 'Test', section: 'View' as const }
+
+  it('accepts a well-formed keyboard entry', () => {
+    expect(() => validateShortcutsData([{ ...base, match: { mod: true, key: 'x' } }])).not.toThrow()
+  })
+
+  it('rejects a non-array root', () => {
+    expect(() => validateShortcutsData({ id: 'x' })).toThrow(/must be an array/)
+  })
+
+  it('rejects a typo\'d modifier field on match (excess-property safety)', () => {
+    expect(() => validateShortcutsData([{ ...base, match: { shfit: true, key: 'x' } }])).toThrow(
+      /unknown field 'shfit'/,
+    )
+  })
+
+  it('rejects a non-boolean modifier flag (would desync display from dispatch)', () => {
+    expect(() => validateShortcutsData([{ ...base, match: { mod: 'true', key: 'x' } }])).toThrow(
+      /match\.mod must be a boolean/,
+    )
+  })
+
+  it('rejects a non-string key', () => {
+    expect(() => validateShortcutsData([{ ...base, match: { mod: true, key: 1 } }])).toThrow(
+      /match\.key must be a string/,
+    )
+  })
+
+  it('rejects an entry with neither match nor display', () => {
+    expect(() => validateShortcutsData([{ ...base }])).toThrow(/exactly one of 'match' .* or 'display'/)
+  })
+
+  it('rejects an entry with both match and display', () => {
+    expect(() =>
+      validateShortcutsData([{ ...base, match: { key: 'x' }, display: ['Mod', 'X'] }]),
+    ).toThrow(/exactly one of 'match' .* or 'display'/)
+  })
+
+  it('rejects a non-boolean dispatch flag', () => {
+    expect(() =>
+      validateShortcutsData([{ ...base, match: { key: 'x' }, allowInInputs: 'yes' }]),
+    ).toThrow(/allowInInputs must be a boolean/)
+  })
+
+  it('rejects a Mac glyph in a display-only entry', () => {
+    expect(() => validateShortcutsData([{ ...base, display: ['⌘', 'V'] }])).toThrow(/Mac glyph/)
   })
 })
 

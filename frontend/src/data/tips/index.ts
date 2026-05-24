@@ -6,8 +6,9 @@
  * ad-hoc inputs without re-triggering module-load side effects.
  */
 import { matchPathPrefix } from '../../utils/matchPathPrefix'
+import { assertNoLegacyShortcutGlyphs } from '../../utils/platform'
 import { ALL_CONTENT_TYPES, type ContentType } from '../../types'
-import { allTips } from './tips'
+import tipsData from '../../content/data/tips.json'
 import {
   resolveTipShortcut,
   SHORTCUT_TOKEN_SCAN_RE,
@@ -19,7 +20,7 @@ import {
   type TipCategory,
 } from './types'
 
-export { allTips } from './tips'
+export const allTips = tipsData as Tip[]
 export type { Tip, TipCategory, TipAudience, TipMedia, TipMinTier, RelatedDoc } from './types'
 
 const CONTENT_TYPE_TO_CATEGORY: Record<ContentType, TipCategory> = {
@@ -64,7 +65,7 @@ export function validateTips(tips: readonly Tip[]): void {
     }
 
     // Shortcut fields are mutually exclusive; `shortcutId` is preferred but
-    // `shortcut` (literal Mac glyphs) is allowed as a fallback when no
+    // `shortcut` (literal OS-agnostic tokens) is allowed as a fallback when no
     // registry entry exists. Empty arrays are pointless and likely a bug.
     if (tip.shortcutId !== undefined && tip.shortcut !== undefined) {
       throw new Error(
@@ -80,8 +81,13 @@ export function validateTips(tips: readonly Tip[]): void {
         )
       }
     }
-    if (tip.shortcut !== undefined && tip.shortcut.length === 0) {
-      throw new Error(`Tip "${tip.id}" has an empty shortcut array.`)
+    if (tip.shortcut !== undefined) {
+      if (tip.shortcut.length === 0) {
+        throw new Error(`Tip "${tip.id}" has an empty shortcut array.`)
+      }
+      // Enforce the OS-agnostic token contract — a literal Mac glyph would
+      // render raw (⌘) to Windows/Linux users.
+      assertNoLegacyShortcutGlyphs(tip.shortcut, `Tip "${tip.id}" shortcut`)
     }
 
     // Body shortcut tokens — every `{{shortcut:X}}` in the markdown must

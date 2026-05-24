@@ -105,7 +105,7 @@ describe('validateTips', () => {
       const tip = buildTip({
         id: 'conflict',
         shortcutId: 'app.commandPalette',
-        shortcut: ['⌘', 'P'],
+        shortcut: ['Mod', 'P'],
       })
       expect(() => validateTips([tip])).toThrow(/both shortcutId and shortcut/)
       expect(() => validateTips([tip])).toThrow(/conflict/)
@@ -136,9 +136,15 @@ describe('validateTips', () => {
       expect(() => validateTips([tip])).toThrow(/empty shortcut array/)
     })
 
-    it('accepts a non-empty literal shortcut array', () => {
-      const tip = buildTip({ id: 'ok-literal', shortcut: ['⌘', 'V'] })
+    it('accepts a non-empty literal shortcut array of OS-agnostic tokens', () => {
+      const tip = buildTip({ id: 'ok-literal', shortcut: ['Mod', 'V'] })
       expect(() => validateTips([tip])).not.toThrow()
+    })
+
+    it('throws when a literal shortcut uses a Mac glyph (must be OS-agnostic)', () => {
+      const tip = buildTip({ id: 'glyph-shortcut', shortcut: ['⌘', 'V'] })
+      expect(() => validateTips([tip])).toThrow(/Mac glyph/)
+      expect(() => validateTips([tip])).toThrow(/glyph-shortcut/)
     })
   })
 
