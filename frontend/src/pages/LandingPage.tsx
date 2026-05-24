@@ -338,8 +338,8 @@ function LandingContent({
 
             <FAQItem question="How much does Tiddly cost?">
               <p>
-                Tiddly has three tiers: Free ($0), Standard ($2/mo), and Pro ($5/mo).
-                During beta, all accounts have Pro access at no charge. See the{' '}
+                Tiddly has three tiers: Free, Standard, and Pro. During beta, all
+                accounts have Pro access at no charge. See the{' '}
                 <a href="/pricing" className="text-blue-600 hover:underline">
                   pricing page
                 </a>{' '}

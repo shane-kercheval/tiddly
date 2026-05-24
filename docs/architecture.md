@@ -417,6 +417,17 @@ All clients send `X-Request-Source`: `web`, `cli`, `chrome-extension`, `mcp-cont
 - Cron tasks log start + completion with summary stats. Failures surface via Railway's deployment-failure indicator.
 - No dedicated monitoring/alerting stack yet. Railway's log viewer is the current sink. Moving to structured log sinks or APM is a TODO once traffic justifies it.
 
+### Public content serving (agent-readable)
+
+Public content — docs/legal prose, FAQ, tips, keyboard shortcuts, tier limits — is single-sourced in `frontend/src/content/` and served as static files **at the web origin**, so non-JS clients (AI agents, a future mobile app) can read what the SPA otherwise only renders client-side. There is **no SSR**; agent-readability comes entirely from the served files.
+
+- **Two kinds, two folders.** Whole-document prose → markdown at `/prose/*.md` (authored in `content/prose/`, rendered for humans with `react-markdown` — not MDX, so the served file is byte-identical to the source). Structured data → JSON at `/data/*.json`: the authored files in `content/data/` (`faq.json`, `known-issues.json`, `tips.json`, `tiers.json`) plus a generated `shortcuts.json` projected from the keyboard registry (`shortcuts/`) — not an authored file. Records may carry markdown *body* fields rendered by the same renderer.
+- **Manifests for discovery.** Each folder has a generated `index.json` (`/prose/index.json`, `/data/index.json`) listing its files — HTTP can't list a static directory, so the manifest is how an agent discovers the set. Directory autoindex is intentionally off.
+- **Build + serve.** Two Vite plugins (`frontend/plugins/proseContent.ts`, `dataContent.ts`) emit the files verbatim into `dist/` at build (never into source-controlled `public/`) and serve the same paths during `vite dev`. In production, Caddy (`frontend/Caddyfile`) serves real files ahead of the SPA `index.html` fallback via `try_files`, so `/prose/foo.md` returns markdown, not the app shell — the same mechanism that already serves `llms.txt`.
+- **Single-source by construction.** The SPA renders from these same sources (docs pages are thin renderers; `Pricing.tsx` imports `tiers.json`), so there is no "keep N copies in sync" discipline — the file *is* the source for humans, agents, and (for tiers) the backend. Tier limits are the cross-stack case; see §11.
+
+Design rationale and milestones: `docs/implementation_plans/2026-05-21-content-as-markdown.md`.
+
 ---
 
 ## 11. Subscription tiers
@@ -517,7 +528,7 @@ Areas of this doc most likely to go stale between edits. If you notice one of th
 - **CLI commands and subcommands.** `cli/cmd/` changes whenever a command is added, renamed, or restructured. The §2 CLI list and `tiddly mcp configure` details drift with it.
 - **Deployment topology.** Service list in §1, cron schedules in §9, and middleware order in §10 are authoritatively defined in Railway's dashboard and `api/main.py` respectively. Cron schedules in particular are **not** in the repo.
 - **Middleware and error-handler wiring.** `api/main.py:270-287` defines middleware registration order (LIFO → reverse of execution order) and `@app.exception_handler(...)` registrations. Easy to get out of sync when a new middleware or error type is added.
-- **Tier definitions.** `backend/src/core/tier_limits.py` — limits, thresholds, per-tier flags. The §11 table is derived from it and drifts every time limits change. User-facing copy (`frontend/public/llms.txt`, `Pricing.tsx`) must also stay synced.
+- **Tier definitions.** `frontend/src/content/data/tiers.json` is the single cross-stack source (§11): the backend builds `TIER_LIMITS` from it (`core/tier_limits.py`) and `Pricing.tsx` renders from it, so those two no longer drift. The §11 table in *this* doc is hand-derived and must be updated when values change. `frontend/public/llms.txt` still holds a hardcoded copy not yet wired to the file (KAN-152), so keep it synced.
 - **Redis key schemas.** `ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}` is the contract between `LLMService` (writer) and `tasks/ai_usage_flush.py` (reader/parser). If one side changes the key format without the other, cost data will be silently dropped. Similar risk exists for rate-limiter key layouts and the auth cache.
 - **Auth variant count (§5).** A new `get_current_user_*` dependency added to `core/auth.py` for a niche use case is easy to miss here.
 - **AI use-case wiring status.** The §7 table flags which use cases are wired to endpoints. Adding an endpoint for TRANSFORM / AUTO_COMPLETE / CHAT without updating that table or this doc is a likely drift.

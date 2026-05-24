@@ -45,9 +45,6 @@ const EXCLUDED_FROM_PROSE: Record<string, string> = {
   // Interactive widget / placeholder UI pages (not content prose).
   '/docs/ai': 'interactive AI-setup widget (owned by KAN-152)',
   '/docs/extensions/safari': 'placeholder "coming soon" UI page (not prose)',
-  // Deferred prose.
-  '/privacy': 'deferred-prose: legal page (M4)',
-  '/terms': 'deferred-prose: legal page (M4)',
 }
 
 describe('prose registry', () => {
