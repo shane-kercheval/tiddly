@@ -18,5 +18,6 @@
  * deferred. This module closes the *display* drift surface only.
  */
 
-export const PAGE_SCOPED_SAVE_KEYS = ['⌘', 'S'] as const
-export const PAGE_SCOPED_SAVE_AND_CLOSE_KEYS = ['⌘', '⇧', 'S'] as const
+// OS-agnostic display tokens (`Mod`/`Shift`), rendered per-OS by platform.ts.
+export const PAGE_SCOPED_SAVE_KEYS = ['Mod', 'S'] as const
+export const PAGE_SCOPED_SAVE_AND_CLOSE_KEYS = ['Mod', 'Shift', 'S'] as const

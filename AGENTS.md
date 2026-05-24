@@ -39,7 +39,8 @@ cd frontend && npx vitest run src/path/to/file.test.ts
 ### Frontend (`frontend/src/`)
 - React 19 + TypeScript + Vite + Tailwind CSS 4. Node v22 (`.nvmrc`).
 - State: Zustand (`stores/`). Data fetching: @tanstack/react-query (`hooks/`). Routing: React Router v7. Editor: Milkdown.
-- Static product data lives in `data/` — `tips/` (tip corpus + selectors + validation), `docsRoutes.tsx` and `settingsRoutes.tsx` (command-palette keyword indexes for the public docs and settings surfaces). Tips are TypeScript objects with markdown body strings; validation runs at module load.
+- **Public content is single-sourced and agent-readable** (`content/`): docs/legal prose as markdown (`content/prose/*.md`, rendered via `react-markdown` — not MDX, no SSR) and structured data as JSON the code reads (`content/data/*.json`: FAQ, known issues, tips, tiers). A Vite plugin serves both verbatim as static files at `/prose/*.md` and `/data/*.json` (each with a generated `index.json` manifest), so non-JS clients can read them; the `Docs*.tsx` pages are thin renderers of the prose. See `docs/implementation_plans/2026-05-21-content-as-markdown.md`.
+- Other static data in `data/` — `tips/` (loader + selectors + validation over `content/data/tips.json`), `docsRoutes.tsx`/`settingsRoutes.tsx` (command-palette keyword indexes). Keyboard shortcuts are a validated JSON source at `shortcuts/shortcuts.json` (the loader derives OS-agnostic display tokens; `utils/platform.ts` localizes them at render — Mod → ⌘ on Mac, Ctrl elsewhere). JSON data files are schema-validated at load.
 
 ### MCP Servers
 - **Content MCP** (`backend/src/mcp_server/`, port 8001): bookmarks/notes CRUD and search.
@@ -88,12 +89,14 @@ Includes SSRF tests (run locally) and live penetration tests (`deployed/test_liv
 
 After any feature, API, pricing, or UI change, review whether these need updating:
 
-**User-facing content pages** (`frontend/src/pages/`):
-- `FeaturesPage.tsx`, `Pricing.tsx`, `LandingPage.tsx`
-- `changelog/Changelog.tsx`, `roadmap/Roadmap.tsx`
-- `docs/DocsFAQ.tsx`, `settings/SettingsFAQ.tsx`
-- `docs/Docs*.tsx` — especially `DocsAPI.tsx`, `DocsAIFeatures.tsx`, `DocsCLIReference.tsx`, `DocsContentTypes.tsx`, `DocsShortcuts.tsx`, `DocsKnownIssues.tsx`
-- `../components/FAQContent.tsx` (shared FAQ content)
+**Public content — edit the single source, not the renderer:**
+- Docs/legal prose: `frontend/src/content/prose/*.md`. The `docs/Docs*.tsx` pages and the legal pages (`PrivacyPolicy.tsx`/`TermsOfService.tsx`, which add only page chrome + the dynamic "Last Updated" date) are thin renderers of these — editing the `.tsx` won't change the content (or what's served at `/prose/*.md`).
+- FAQ: `frontend/src/content/data/faq.json` (one file feeds both `DocsFAQ` and `SettingsFAQ` via `components/FAQContent.tsx`). Known issues: `content/data/known-issues.json`. Tips: `content/data/tips.json`.
+- Keyboard shortcuts: `frontend/src/shortcuts/shortcuts.json`.
+- Tier limits / pricing numbers: `frontend/src/content/data/tiers.json` — the single cross-stack source (backend enforcement + `Pricing.tsx` display + served `/data/tiers.json`). **Never re-hardcode tier numbers**; `Pricing.tsx` reads them from this file (a test guards against drift).
+
+**Designed pages still authored in TSX** (`frontend/src/pages/`):
+- `LandingPage.tsx`, `FeaturesPage.tsx`, `AIIntegration.tsx` (marketing layouts — prose intentionally not migrated to markdown; see the content-as-markdown plan's M4), `Pricing.tsx` (layout and qualitative copy; the *numbers* come from `tiers.json`), `changelog/Changelog.tsx`, `roadmap/Roadmap.tsx`.
 
 **LLM/AI discoverability:**
 - `frontend/public/llms.txt` — LLM-friendly site index; update when features, API, or tiers change.

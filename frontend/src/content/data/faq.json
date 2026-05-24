@@ -1,0 +1,196 @@
+[
+  {
+    "section": "Navigation & Interaction",
+    "items": [
+      {
+        "question": "What happens when I click on an item in the content list?",
+        "answer": "**Bookmarks:** Clicking the title or URL opens the bookmark in a new browser tab. To edit a bookmark, click the pencil icon that appears on hover.\n\n**Notes & Prompts:** Clicking anywhere on the row opens the item for viewing and editing."
+      },
+      {
+        "question": "Why do bookmarks behave differently from notes and prompts?",
+        "answer": "The behavior is intentionally different to match user intent. When you click a bookmark, you most likely want to visit that website. When you click a note or prompt, you most likely want to read or edit the content. The edit icon on bookmarks provides explicit access to edit mode when needed."
+      }
+    ]
+  },
+  {
+    "section": "Filters & Collections",
+    "items": [
+      {
+        "question": "What is a filter?",
+        "answer": "Filters are saved views that automatically show content based on content type and tags. For example, you can create a \"Work\" filter that shows all bookmarks and notes tagged with \"work\". Filters support complex logic using AND/OR operators, so you can create views like \"items tagged 'python' AND 'tutorial'\" or \"items tagged 'reading' OR 'research'\"."
+      },
+      {
+        "question": "Does deleting a filter delete the content in it?",
+        "answer": "No. Deleting a filter only removes the saved view. Your bookmarks, notes, and prompts remain untouched. Filters are just a way to view your content—they don't own or contain the actual items."
+      },
+      {
+        "question": "What is a collection?",
+        "answer": "Collections are organizational folders in the sidebar that help you group your filters together. You can drag filters into collections to keep your sidebar tidy. Collections are purely for organization—they don't affect how your content is filtered."
+      },
+      {
+        "question": "Does deleting a collection delete the filters in it?",
+        "answer": "No. When you delete a collection, the filters inside are moved back to the top level of the sidebar. Your filters and their settings are preserved."
+      },
+      {
+        "question": "How do I reorder items in the sidebar?",
+        "answer": "Hover over any filter or collection to reveal the drag handle (grip icon) on the right side. Click and drag to reorder items. You can rearrange filters, collections, and even the built-in items like \"All Content\"."
+      },
+      {
+        "question": "How do I add a filter to a collection?",
+        "answer": "Drag a filter and drop it onto a collection. The collection will highlight when you hover over it. You can drop onto a collapsed collection, or drop within an expanded collection to place it at a specific position."
+      },
+      {
+        "question": "How do I remove a filter from a collection?",
+        "answer": "Drag the filter out of the collection and drop it at the root level of the sidebar, or into a different collection."
+      }
+    ]
+  },
+  {
+    "section": "Tags",
+    "items": [
+      {
+        "question": "Are tags shared between bookmarks, notes, and prompts?",
+        "answer": "Yes. Tags are global across all content types. If you tag a bookmark with \"work\" and a note with \"work\", they share the same tag and will appear together in any filter or search that uses that tag."
+      },
+      {
+        "question": "What happens when I rename a tag?",
+        "answer": "Renaming a tag updates it everywhere—on all bookmarks, notes, and prompts that use it, and in all filters. It's a global rename across your entire account."
+      },
+      {
+        "question": "What happens when I delete a tag?",
+        "answer": "Deleting a tag removes it from all bookmarks, notes, and prompts. The content itself is not deleted—only the tag association is removed. If a filter depends on that tag, those items will no longer appear in that filter."
+      },
+      {
+        "question": "What are inactive tags?",
+        "answer": "Inactive tags are tags that exist but aren't used by any active content. This can happen when you delete or archive all items with a particular tag, or when you remove a tag from all items. You can delete inactive tags to clean up your tag list."
+      }
+    ]
+  },
+  {
+    "section": "Archive & Trash",
+    "items": [
+      {
+        "question": "What's the difference between archiving and deleting?",
+        "answer": "**Archive:** Moves content out of your main view but keeps it accessible. Archived items don't appear in lists or searches by default, but you can view them in the Archive section and restore them anytime.\n\n**Delete:** Moves content to the Trash. Deleted items can be restored from the Trash if you change your mind."
+      },
+      {
+        "question": "Can I restore deleted content?",
+        "answer": "Yes. Deleted items go to the Trash where you can restore them. Currently, items remain in the Trash until you manually permanently delete them. In a future update, items in Trash will be automatically permanently deleted after 30 days."
+      },
+      {
+        "question": "Do archived items count toward tag counts?",
+        "answer": "No. Tag counts shown in the Tags settings page only count active (non-archived, non-deleted) content. This is why you might see \"inactive tags\" - tags that exist only on archived or deleted items."
+      }
+    ]
+  },
+  {
+    "section": "Version History",
+    "items": [
+      {
+        "question": "How long is version history kept?",
+        "answer": "Version history retention and the maximum number of versions kept per item depend on your plan — see the [Pricing](/pricing) page for the limits on each tier. Older versions beyond the limit are automatically cleaned up."
+      },
+      {
+        "question": "Can I see who or what made a change?",
+        "answer": "Yes. Each version records the source of the change (web UI, MCP Content Server, MCP Prompt Server, API) and the authentication method (Auth0, PAT). For PAT-based changes, the token prefix is recorded so you can identify which token was used."
+      },
+      {
+        "question": "How do I restore a previous version?",
+        "answer": "Open an item, go to its history, and select the version you want to restore. Restoring rebuilds the full state including content, title, description, and tags. The restore itself is recorded as a new version, so you can always undo it."
+      }
+    ]
+  },
+  {
+    "section": "Relationships",
+    "items": [
+      {
+        "question": "What are relationships?",
+        "answer": "Relationships let you link any content item to any other — bookmark to note, note to prompt, bookmark to bookmark, etc. Each link can have an optional description. This is useful for connecting related resources, like linking a bookmark to your notes about it, or linking a prompt to the reference material it draws from."
+      }
+    ]
+  },
+  {
+    "section": "Content Limits",
+    "items": [
+      {
+        "question": "How much content can I store?",
+        "answer": "How many bookmarks, notes, and prompts you can store — and the maximum characters per item — depend on your plan. See the [Pricing](/pricing) page for the limits on each tier. Field limits are the same across plans: titles up to 200 characters, descriptions up to 1,000 characters, URLs up to 2,048 characters, and tag names up to 50 characters."
+      }
+    ]
+  },
+  {
+    "section": "Search",
+    "items": [
+      {
+        "question": "What does search look through?",
+        "answer": "Search looks through titles, descriptions, URLs (for bookmarks), and the full content. For bookmarks, the page content is automatically extracted when you save the URL. For notes and prompts, your markdown content is searched."
+      },
+      {
+        "question": "Can I combine search with filters?",
+        "answer": "Yes. You can search while viewing a specific filter (which narrows by tags), and the search will only look within items matching that filter's criteria. You can also add tag filters directly to your search."
+      },
+      {
+        "question": "Does search support operators?",
+        "answer": "Yes. Search uses PostgreSQL full-text search which supports several operators:\n\n- `\"exact phrase\"` — match an exact phrase\n- `-word` — exclude results containing a word\n- `OR` — match either term (e.g., `python OR javascript`)\n\nSearch also includes substring matching, so partial words and code symbols (like \"auth\" matching \"authentication\") work automatically."
+      }
+    ]
+  },
+  {
+    "section": "AI Features",
+    "items": [
+      {
+        "question": "What are AI suggestions?",
+        "answer": "Pro accounts get AI-powered suggestions to help organize content. Tag and relationship suggestions appear automatically when you open the tag or linked content input. Title, description, and argument suggestions are triggered by clicking the sparkle icon next to the field. See [AI Features](/docs/features/ai) for full details."
+      },
+      {
+        "question": "Can I use my own API key?",
+        "answer": "Yes. In Settings → AI Configuration, you can add your own API key and select a model from any supported provider (OpenAI, Anthropic, Google). This gives you higher rate limits and the ability to use more powerful models for suggestions.\n\nThe model override currently applies to all suggestion types (tags, relationships, metadata, arguments). Future AI features like text auto-complete and chat will have independent model overrides."
+      },
+      {
+        "question": "Which tiers include AI features?",
+        "answer": "AI suggestions are available on the Pro tier. Free and Standard tiers do not include AI features. Pro includes 500 AI calls per day with platform-provided models, or 2,000 per day when using your own API key."
+      }
+    ]
+  },
+  {
+    "section": "API & Integrations",
+    "items": [
+      {
+        "question": "What are Personal Access Tokens (PATs)?",
+        "answer": "PATs let you access your bookmarks programmatically through the API. You can use them for automation, CLI tools, or custom integrations. Tokens are prefixed with \"bm_\" and should be kept secret like a password."
+      },
+      {
+        "question": "How do I keep my PAT secure?",
+        "answer": "Treat PATs like passwords. Never share them, commit them to version control, or expose them in client-side code. Store them in environment variables or a secret manager.\n\nIf you suspect a token has been exposed, delete it immediately in Settings → Tokens and create a new one."
+      },
+      {
+        "question": "What is MCP integration?",
+        "answer": "MCP (Model Context Protocol) is an open standard that allows AI assistants to securely access external tools and data. Once configured, you can ask AI agents to search your bookmarks, create notes, use your prompt templates, and more—all through natural language."
+      },
+      {
+        "question": "Which MCP clients are supported?",
+        "answer": "Any MCP-compatible client works, including Claude Desktop, Claude Code, Cursor, and others. The setup instructions in Settings → AI Integration provide configuration for Claude Desktop and Claude Code, with similar steps for other clients."
+      },
+      {
+        "question": "Why are there two MCP servers?",
+        "answer": "**Content Server:** Lets AI agents interact with your data—searching, creating, and managing your bookmarks and notes.\n\n**Prompt Server:** Provides AI agents with your reusable prompt templates. Agents can use your saved prompts and create new ones.\n\nThey serve different purposes, so you can enable one or both based on your needs."
+      },
+      {
+        "question": "Do I need separate tokens for each MCP server?",
+        "answer": "It's not required, but recommended if you enable both servers. Using separate tokens lets you revoke access to one server without affecting the other, and makes it easier to track usage."
+      },
+      {
+        "question": "What can AI agents do with my content?",
+        "answer": "**Content Server tools:** Search bookmarks and notes by text or tags, get full details of specific items, create new bookmarks (with auto-fetched metadata) and notes, and list all your tags.\n\n**Prompt Server tools:** List available prompts, use prompts with variable substitution, and create new prompt templates."
+      },
+      {
+        "question": "What are Skills?",
+        "answer": "Skills are an alternative way to use your prompts with AI assistants. Instead of connecting via MCP, you export your prompts as SKILL.md files and install them directly into your AI client. Skills follow the [Agent Skills Standard](https://agentskills.io/).\n\nSupported clients: Claude Code, Claude Desktop, Codex, and any tool supporting the Agent Skills standard. Set up skills export in Settings → AI Integration."
+      },
+      {
+        "question": "What are prompt templates with variables?",
+        "answer": "Prompts can include variables using Jinja2 syntax, like `{{ topic }}`. When an AI agent uses the prompt, it provides values for these variables, and the final prompt is rendered with those values substituted in.\n\nThis lets you create reusable prompts like \"Explain {{ topic }} in simple terms\" that work for any topic the agent provides."
+      }
+    ]
+  }
+]

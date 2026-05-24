@@ -14,6 +14,13 @@ COPY backend/ ./backend/
 # Install dependencies and project
 RUN uv sync --locked --no-dev
 
+# Canonical tier limits — cross-stack data file the backend reads at startup
+# (core/tier_limits.py). Copied to the same repo-relative path the loader resolves;
+# the API fails fast on boot if it's missing. See README_DEPLOY.md. Placed after
+# `uv sync` so editing a tier limit rebuilds only this final layer, not the
+# dependency install (the intended "edit tiers.json → redeploy backend" path).
+COPY frontend/src/content/data/tiers.json ./frontend/src/content/data/tiers.json
+
 # WORKDIR stays at /app so alembic can find alembic.ini
 # Pre-deploy command (uv run alembic upgrade head) runs from here
 

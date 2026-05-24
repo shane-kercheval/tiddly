@@ -283,16 +283,17 @@ Content exceeding these limits will be rejected with a validation error.
 
 ## Updating Privacy Policy or Terms of Service
 
-When updating PRIVACY.md or TERMS.md:
+The policy text is single-sourced as markdown at `frontend/src/content/prose/privacy.md` and `frontend/src/content/prose/terms.md` — rendered for humans at `/privacy` and `/terms`, and served verbatim at `/prose/privacy.md` / `/prose/terms.md` for agents. The effective date is **not** stored in these files; it's the version constant below, shown on the page (fetched from the backend) and used for consent gating.
 
-1. Update the policy document
-2. Update "Last Updated" date in the policy file
-3. Update version constants in `backend/src/core/policy_versions.py`:
+When updating a policy:
+
+1. Edit the policy text in `frontend/src/content/prose/privacy.md` or `frontend/src/content/prose/terms.md`
+2. Update the version constant in `backend/src/core/policy_versions.py`:
    ```python
    PRIVACY_POLICY_VERSION = "YYYY-MM-DD"  # New date
    TERMS_OF_SERVICE_VERSION = "YYYY-MM-DD"  # New date
    ```
-4. Deploy changes
-5. All users will see consent dialog again on next login (version mismatch requires re-consent)
+3. Deploy changes (frontend + backend)
+4. All users will see the consent dialog again on next login (version mismatch requires re-consent)
 
 The backend is the single source of truth for policy versions. The frontend fetches current versions from the `/consent/status` endpoint.

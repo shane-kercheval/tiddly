@@ -59,9 +59,9 @@ describe('TipCard — full variant', () => {
     expect(screen.queryByText('All')).not.toBeInTheDocument()
   })
 
-  it('renders the literal shortcut as kbd elements on Mac (glyphs pass through)', () => {
+  it('renders the literal shortcut as kbd elements on Mac (Mod renders as ⌘)', () => {
     mockPlatform('MacIntel')
-    const { container } = renderCard({ ...baseTip, shortcut: ['⌘', 'V'] }, 'full')
+    const { container } = renderCard({ ...baseTip, shortcut: ['Mod', 'V'] }, 'full')
     const kbds = container.querySelectorAll('kbd')
     expect(kbds.length).toBe(2)
     expect(kbds[0].textContent).toBe('⌘')
@@ -70,7 +70,7 @@ describe('TipCard — full variant', () => {
 
   it('localizes the literal shortcut on Windows', () => {
     mockPlatform('Win32')
-    const { container } = renderCard({ ...baseTip, shortcut: ['⌘', 'V'] }, 'full')
+    const { container } = renderCard({ ...baseTip, shortcut: ['Mod', 'V'] }, 'full')
     const kbds = container.querySelectorAll('kbd')
     expect(kbds.length).toBe(2)
     expect(kbds[0].textContent).toBe('Ctrl')
@@ -84,7 +84,7 @@ describe('TipCard — full variant', () => {
       'full',
     )
     const kbds = container.querySelectorAll('kbd')
-    // Registry entry keys are ['⌘', '⇧', 'P'].
+    // Registry entry keys are ['Mod', 'Shift', 'P'].
     expect(kbds.length).toBe(3)
     expect(kbds[0].textContent).toBe('⌘')
     expect(kbds[1].textContent).toBe('⇧')
@@ -192,7 +192,7 @@ describe('TipCard — compact variant', () => {
   })
 
   it('does not render the shortcut row even when shortcut is present', () => {
-    const { container } = renderCard({ ...baseTip, shortcut: ['⌘', 'V'] }, 'compact')
+    const { container } = renderCard({ ...baseTip, shortcut: ['Mod', 'V'] }, 'compact')
     expect(container.querySelector('kbd')).toBeNull()
   })
 

@@ -1,353 +1,279 @@
 /**
- * Single source of truth for keyboard shortcut definitions.
+ * Keyboard shortcut registry — loads and validates the canonical data in
+ * `shortcuts.json`.
  *
- * Each entry pairs display tokens (`keys`) with an event matcher (`match`).
- * Consumers (hooks, editor adapters) reference entries by stable `id`; display
- * surfaces (ShortcutsDialog, DocsShortcuts, tooltips) read tokens from here.
+ * SOURCE OF TRUTH
+ * ---------------
+ * `shortcuts.json` is the single source. Each entry sets exactly one of:
+ *   - `match` — the event matcher for a keyboard shortcut. The OS-agnostic
+ *     display tokens (`keys`) are *derived* from it (`deriveDisplayTokens`), so
+ *     display can never drift from the binding — there is no separate `keys`
+ *     field to keep in sync.
+ *   - `display` — explicit OS-agnostic tokens for the matchless display-only
+ *     categories (upstream-owned bindings; non-keyboard interactions like mouse
+ *     modifiers and paste hints), which have no matcher to derive from.
+ * Plus dispatch flags and a maintainer `note`. Code reads it; nothing else
+ * defines shortcut data. The same data (projected) is served to agents/clients.
+ * Display tokens are OS-agnostic (`Mod`/`Alt`/`Shift`); the matcher uses `mod`
+ * (= Cmd-or-Ctrl) — see `types.ts` for the no-Control note.
  *
- * SCOPE
- * -----
- * Key-combo bindings only. Commands without keyboard shortcuts (toolbar
- * buttons, slash menu items) live in their own sidecar tables and join with
- * registry entries by id.
- *
- * `match`-OMITTED ENTRIES — STRICT RULES
- * --------------------------------------
- * Omitting `match` is allowed in exactly two cases:
- *
- *   1. Upstream-owned bindings — bound by a library we don't control
- *      (Milkdown commonmark for ⌘B/⌘I; CodeMirror's searchKeymap for ⌘D).
- *      Comment on the entry must point to the upstream source. A smoke test
- *      asserts the upstream binding still works.
- *
- *   2. Non-keyboard interactions — mouse modifiers (⌘+Click, ⇧+Click) and
- *      paste-event hints. No runtime match exists.
- *
- * Anything else without `match` is a code smell. If we own the binding, the
- * registry entry MUST include `match` — otherwise the entry is documentation
- * pretending to be source-of-truth, which is exactly the drift the registry
- * is meant to prevent.
- *
- * AUTHORING CONVENTION
- * --------------------
- * Cmd-first display tokens: ⌘, then ⌥, then ⇧, then the non-modifier. Use
- * raw glyphs ('⌘', '⇧'), not `\u`-escapes. The `keys ↔ match` coherence test
- * in `registry.test.ts` enforces alignment between display and matcher.
+ * COMPILE-TIME IDS
+ * ----------------
+ * `ShortcutId` is the hand-maintained union below. TypeScript can't derive a
+ * literal union from a runtime-loaded JSON file, so the union is authored here
+ * and a test (`registry.test.ts`) asserts it matches `shortcuts.json` exactly —
+ * add a shortcut to the JSON without adding its id here and the test fails loudly.
+ * This keeps build-time typo-safety on the ~40 selector call sites while the JSON
+ * stays the data source.
  */
 
-import type { Section, Shortcut } from './types'
+import shortcutsData from './shortcuts.json'
+import { assertNoLegacyShortcutGlyphs } from '../utils/platform'
+import type { Section, Shortcut, ShortcutMatch } from './types'
 
-// Re-export Section so consumers can keep importing it from the registry barrel.
 export type { Section } from './types'
 
 /**
- * The eight global shortcuts seeded in M1. Editor-section entries land in
- * later milestones. Order within a section controls dialog row order.
+ * Every shortcut id. Kept in sync with `shortcuts.json` by a test. Order is not
+ * significant here (the registry's order comes from the JSON array).
  */
-export const SHORTCUTS = [
-  // --- Actions -------------------------------------------------------------
-  // Display-only entries for paste-event and non-keyboard interactions. The
-  // four page-scoped `Cmd+S` / `Cmd+Shift+S` save shortcuts in Note/Bookmark/
-  // Prompt stay inline in ShortcutsDialog/DocsShortcuts per the M5 carve-out
-  // (page-scope context isn't modeled in the registry; a `match`-omitted
-  // entry for those page-scoped bindings would silently drift).
-  {
-    id: 'bookmark.pasteUrl',
-    label: 'Paste URL to add bookmark',
-    section: 'Actions',
-    keys: ['⌘', 'V'],
-    // Paste-event listener at frontend/src/pages/AllContent.tsx via
-    // usePasteUrlHandler. Not a keydown shortcut.
-  },
-  {
-    id: 'bookmark.openLinkSilent',
-    label: 'Open link without tracking',
-    section: 'Actions',
-    keys: ['⌘', '⇧', 'Click'],
-    // Non-keyboard mouse modifier at frontend/src/components/BookmarkCard.tsx:95-101.
-    // Skips the usage-tracking call on URL link clicks. The `bookmark.*`
-    // namespace (vs `card.*`) reflects that this behavior is specifically
-    // for bookmark URLs — Notes and Prompts don't have a tracked-URL concept.
-  },
-
-  // --- Navigation -----------------------------------------------------------
-  {
-    id: 'app.focusSearch',
-    label: 'Search',
-    section: 'Navigation',
-    keys: ['/'],
-    match: { key: '/' },
-  },
-  {
-    id: 'app.focusPageSearch',
-    label: 'Focus Page Search',
-    section: 'Navigation',
-    keys: ['s'],
-    match: { key: 's' },
-  },
-  {
-    id: 'app.commandPalette',
-    label: 'Command Palette',
-    section: 'Navigation',
-    keys: ['⌘', '⇧', 'P'],
-    match: { mod: true, shift: true, key: 'p' },
-    allowInInputs: true,
-  },
-  {
-    id: 'app.escape',
-    label: 'Close Modal / Unfocus Search',
-    section: 'Navigation',
-    keys: ['Esc'],
-    match: { key: 'Escape' },
-    allowInInputs: true,
-    // Today's code intentionally lets Escape reach native targets so
-    // contenteditable, native form semantics, and modal-close handlers see it.
-    preventDefault: false,
-  },
-  // Display-only non-keyboard entries. Bound in card/relationship click handlers.
-  // Distinct ids from `editor.openLinkInNewTab` (Markdown Editor section) per
-  // the "Distinct ids for same display tokens in different contexts" rule.
-  {
-    id: 'card.openInNewTab',
-    label: 'Open Card in New Tab',
-    section: 'Navigation',
-    keys: ['⌘', 'Click'],
-    // Bound at frontend/src/components/ContentCard/ContentCard.tsx:50.
-  },
-  {
-    id: 'relationship.openInTiddly',
-    label: 'Open Bookmark Relationship in Tiddly (instead of URL)',
-    section: 'Navigation',
-    keys: ['⇧', 'Click'],
-    // Bound at frontend/src/hooks/useLinkedNavigation.ts:21.
-  },
-
-  // --- View -----------------------------------------------------------------
-  {
-    id: 'app.toggleWidth',
-    label: 'Toggle Full-Width Layout',
-    section: 'View',
-    keys: ['w'],
-    match: { key: 'w' },
-  },
-  {
-    id: 'app.toggleSidebar',
-    label: 'Toggle Sidebar',
-    section: 'View',
-    keys: ['⌘', '\\'],
-    match: { mod: true, key: '\\' },
-    allowInInputs: true,
-  },
-  {
-    id: 'app.toggleHistorySidebar',
-    label: 'Toggle History Sidebar',
-    section: 'View',
-    keys: ['⌘', '⇧', '\\'],
-    match: { mod: true, shift: true, key: '\\' },
-    allowInInputs: true,
-  },
-  {
-    // Global (bubble-phase) shortcut, so `code` is safe here even though it's
-    // the convention for capture-phase editor entries: `code: 'Backslash'`
-    // avoids the macOS Option-key character shift (Option+\ reports key '«').
-    // Pairs with ⌘⇧\ (history sidebar) on the same physical key.
-    id: 'app.toggleSidebarMaxWidth',
-    label: 'Maximize Sidebar Width',
-    section: 'View',
-    keys: ['⌘', '⌥', '\\'],
-    match: { mod: true, alt: true, code: 'Backslash' },
-    allowInInputs: true,
-  },
-  {
-    id: 'app.showShortcuts',
-    label: 'Show Shortcuts',
-    section: 'View',
-    keys: ['⌘', '⇧', '/'],
-    match: { mod: true, shift: true, key: '/' },
-    allowInInputs: true,
-  },
-  // Editor-View entries — capture-phase, code-based.
-  // `match.code` is used here for two reasons:
-  //   - Alt+Z/L/M/T: Mac Option-letter conversion (Option+Z reports event.key='Ω' etc.).
-  //   - Cmd+Shift+M: layout-stable physical-key matching across keyboard layouts.
-  // Both are documented at the schema rule in the plan; do NOT migrate to `key`.
-  {
-    id: 'editor.toggleReadingMode',
-    label: 'Toggle Reading Mode',
-    section: 'View',
-    keys: ['⌘', '⇧', 'M'],
-    match: { mod: true, shift: true, code: 'KeyM' },
-  },
-  {
-    id: 'editor.toggleWordWrap',
-    label: 'Toggle Word Wrap',
-    section: 'View',
-    keys: ['⌥', 'Z'],
-    match: { alt: true, code: 'KeyZ' },
-  },
-  {
-    id: 'editor.toggleLineNumbers',
-    label: 'Toggle Line Numbers',
-    section: 'View',
-    keys: ['⌥', 'L'],
-    match: { alt: true, code: 'KeyL' },
-  },
-  {
-    id: 'editor.toggleMonoFont',
-    label: 'Toggle Monospace Font',
-    section: 'View',
-    keys: ['⌥', 'M'],
-    match: { alt: true, code: 'KeyM' },
-  },
-  {
-    id: 'editor.toggleToc',
-    label: 'Toggle Table of Contents',
-    section: 'View',
-    keys: ['⌥', 'T'],
-    match: { alt: true, code: 'KeyT' },
-  },
-
-  // --- Markdown Editor -----------------------------------------------------
-  // Title Case labels are the single canonical text — used both in the
-  // toolbar tooltip and in the dialog/docs row.
-  {
-    id: 'editor.bold',
-    label: 'Bold',
-    section: 'Markdown Editor',
-    keys: ['⌘', 'B'],
-    match: { mod: true, key: 'b' },
-  },
-  {
-    id: 'editor.italic',
-    label: 'Italic',
-    section: 'Markdown Editor',
-    keys: ['⌘', 'I'],
-    match: { mod: true, key: 'i' },
-  },
-  {
-    id: 'editor.strikethrough',
-    label: 'Strikethrough',
-    section: 'Markdown Editor',
-    keys: ['⌘', '⇧', 'X'],
-    match: { mod: true, shift: true, key: 'x' },
-  },
-  {
-    id: 'editor.highlight',
-    label: 'Highlight',
-    section: 'Markdown Editor',
-    keys: ['⌘', '⇧', 'H'],
-    match: { mod: true, shift: true, key: 'h' },
-  },
-  {
-    id: 'editor.blockquote',
-    label: 'Blockquote',
-    section: 'Markdown Editor',
-    keys: ['⌘', '⇧', '.'],
-    match: { mod: true, shift: true, key: '.' },
-  },
-  {
-    id: 'editor.inlineCode',
-    label: 'Inline Code',
-    section: 'Markdown Editor',
-    keys: ['⌘', 'E'],
-    match: { mod: true, key: 'e' },
-  },
-  {
-    id: 'editor.codeBlock',
-    label: 'Code Block',
-    section: 'Markdown Editor',
-    keys: ['⌘', '⇧', 'E'],
-    match: { mod: true, shift: true, key: 'e' },
-  },
-  {
-    id: 'editor.bulletList',
-    label: 'Bullet List',
-    section: 'Markdown Editor',
-    keys: ['⌘', '⇧', '7'],
-    match: { mod: true, shift: true, key: '7' },
-  },
-  {
-    id: 'editor.numberedList',
-    label: 'Numbered List',
-    section: 'Markdown Editor',
-    keys: ['⌘', '⇧', '8'],
-    match: { mod: true, shift: true, key: '8' },
-  },
-  {
-    id: 'editor.checklist',
-    label: 'Checklist',
-    section: 'Markdown Editor',
-    keys: ['⌘', '⇧', '9'],
-    match: { mod: true, shift: true, key: '9' },
-  },
-  {
-    id: 'editor.insertLink',
-    label: 'Insert Link',
-    section: 'Markdown Editor',
-    keys: ['⌘', 'K'],
-    match: { mod: true, key: 'k' },
-  },
-  {
-    id: 'editor.horizontalRule',
-    label: 'Horizontal Rule',
-    section: 'Markdown Editor',
-    keys: ['⌘', '⇧', '-'],
-    match: { mod: true, shift: true, key: '-' },
-  },
-  // Capture-phase entry. `match.code: 'Slash'` for layout-stable matching
-  // (German layout: event.key='/' requires Shift+7, conflicts with bullet-list).
-  {
-    id: 'editor.commandMenu',
-    label: 'Command Menu',
-    section: 'Markdown Editor',
-    keys: ['⌘', '/'],
-    match: { mod: true, code: 'Slash' },
-  },
-  // Display-only — non-keyboard (mouse modifier in MilkdownEditor link click plugin).
-  // No `match`. Distinct from `card.openInNewTab` (Navigation section, future).
-  {
-    id: 'editor.openLinkInNewTab',
-    label: 'Open Link in New Tab',
-    section: 'Markdown Editor',
-    keys: ['⌘', 'Click'],
-  },
-  // Display-only — upstream-owned by @codemirror/search's searchKeymap.
-  // The search() extension at CodeMirrorEditor auto-registers Mod-d → selectNextOccurrence.
-  // Plugin-presence smoke test in CodeMirrorEditor.test.tsx asserts the binding exists.
-  {
-    id: 'editor.selectNextOccurrence',
-    label: 'Select Next Occurrence',
-    section: 'Markdown Editor',
-    keys: ['⌘', 'D'],
-  },
-] as const satisfies readonly Shortcut[]
+export const SHORTCUT_IDS = [
+  'bookmark.pasteUrl',
+  'bookmark.openLinkSilent',
+  'app.focusSearch',
+  'app.focusPageSearch',
+  'app.commandPalette',
+  'app.escape',
+  'card.openInNewTab',
+  'relationship.openInTiddly',
+  'app.toggleWidth',
+  'app.toggleSidebar',
+  'app.toggleHistorySidebar',
+  'app.toggleSidebarMaxWidth',
+  'app.showShortcuts',
+  'editor.toggleReadingMode',
+  'editor.toggleWordWrap',
+  'editor.toggleLineNumbers',
+  'editor.toggleMonoFont',
+  'editor.toggleToc',
+  'editor.bold',
+  'editor.italic',
+  'editor.strikethrough',
+  'editor.highlight',
+  'editor.blockquote',
+  'editor.inlineCode',
+  'editor.codeBlock',
+  'editor.bulletList',
+  'editor.numberedList',
+  'editor.checklist',
+  'editor.insertLink',
+  'editor.horizontalRule',
+  'editor.commandMenu',
+  'editor.openLinkInNewTab',
+  'editor.selectNextOccurrence',
+] as const
 
 /** Compile-time-narrow id union — typos in selectors fail to compile. */
-export type ShortcutId = typeof SHORTCUTS[number]['id']
+export type ShortcutId = typeof SHORTCUT_IDS[number]
+
+const VALID_SECTIONS: ReadonlySet<Section> = new Set<Section>([
+  'Actions',
+  'Navigation',
+  'View',
+  'Markdown Editor',
+])
+
+// Physical `code` values that display as punctuation rather than a letter/digit.
+const CODE_TO_SYMBOL: Record<string, string> = {
+  Slash: '/',
+  Backslash: '\\',
+  Minus: '-',
+  Period: '.',
+  Comma: ',',
+  Equal: '=',
+  Quote: "'",
+  Semicolon: ';',
+}
+
+// `event.key` values with a conventional short display name.
+const KEY_TO_SYMBOL: Record<string, string> = {
+  Escape: 'Esc',
+}
+
+/** The display symbol for a match's non-modifier key (from `key` or `code`). */
+function keyDisplay(match: ShortcutMatch, hasModifier: boolean): string {
+  if (match.code !== undefined) {
+    const letter = /^Key([A-Z])$/.exec(match.code)
+    if (letter) return letter[1]
+    const digit = /^Digit([0-9])$/.exec(match.code)
+    if (digit) return digit[1]
+    return CODE_TO_SYMBOL[match.code] ?? match.code
+  }
+  const key = match.key
+  if (KEY_TO_SYMBOL[key] !== undefined) return KEY_TO_SYMBOL[key]
+  // Single letters render uppercase when combined with a modifier (⌘B), but
+  // bare keys render lowercase (`s`, `w`) to signal "no Shift" to the reader.
+  if (/^[a-z]$/i.test(key)) return hasModifier ? key.toUpperCase() : key.toLowerCase()
+  return key
+}
 
 /**
- * Build the id → entry map at module load. Throw on duplicate id rather than
- * silently overwriting — duplicates are structural authoring bugs, not a
- * runtime condition we want to paper over.
+ * Derive OS-agnostic display tokens from a matcher: modifier-first (Mod, Alt,
+ * Shift) then the key symbol. This is why keyboard entries don't store `keys` —
+ * display is a pure projection of the matcher, so the two can't drift.
+ */
+function deriveDisplayTokens(match: ShortcutMatch): string[] {
+  // Strict `=== true` to mirror the matcher (matcher.ts), so display can't
+  // advertise a modifier the matcher won't require (and vice versa).
+  const tokens: string[] = []
+  if (match.mod === true) tokens.push('Mod')
+  if (match.alt === true) tokens.push('Alt')
+  if (match.shift === true) tokens.push('Shift')
+  tokens.push(keyDisplay(match, tokens.length > 0))
+  return tokens
+}
+
+const ALLOWED_MATCH_FIELDS = new Set(['mod', 'shift', 'alt', 'key', 'code'])
+
+/**
+ * Validate the `match` object: only known fields, modifier flags boolean,
+ * key/code string, exactly one of key/code. Restores the excess-property and
+ * type safety the old `as const satisfies` gave — a typo like `shfit` or a
+ * mistyped `"mod": "true"` now fails at load instead of silently mis-binding.
+ */
+function validateMatch(id: string, raw: unknown): ShortcutMatch {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`Shortcut '${id}' match must be an object.`)
+  }
+  const match = raw as Record<string, unknown>
+  for (const field of Object.keys(match)) {
+    if (!ALLOWED_MATCH_FIELDS.has(field)) {
+      throw new Error(`Shortcut '${id}' match has unknown field '${field}' (allowed: mod, shift, alt, key, code).`)
+    }
+  }
+  for (const flag of ['mod', 'shift', 'alt'] as const) {
+    if (match[flag] !== undefined && typeof match[flag] !== 'boolean') {
+      throw new Error(`Shortcut '${id}' match.${flag} must be a boolean.`)
+    }
+  }
+  const hasKey = match.key !== undefined
+  const hasCode = match.code !== undefined
+  if (hasKey === hasCode) {
+    throw new Error(`Shortcut '${id}' match must set exactly one of 'key' or 'code'.`)
+  }
+  if (hasKey && typeof match.key !== 'string') {
+    throw new Error(`Shortcut '${id}' match.key must be a string.`)
+  }
+  if (hasCode && typeof match.code !== 'string') {
+    throw new Error(`Shortcut '${id}' match.code must be a string.`)
+  }
+  return match as unknown as ShortcutMatch
+}
+
+/** Validate an optional boolean dispatch flag. */
+function validateBooleanFlag(id: string, name: string, value: unknown): boolean | undefined {
+  if (value !== undefined && typeof value !== 'boolean') {
+    throw new Error(`Shortcut '${id}' ${name} must be a boolean when present.`)
+  }
+  return value
+}
+
+/**
+ * Validate one raw JSON entry and build a `Shortcut` (with derived `keys`).
+ * Fail-fast with an actionable message — a malformed entry is an authoring bug,
+ * not a runtime condition to paper over (this replaces the compile-time
+ * `as const satisfies` guarantee the old TS array gave).
+ *
+ * An entry sets exactly one of `match` (keyboard — `keys` derived from it) or
+ * `display` (the matchless display-only categories — explicit tokens).
+ */
+function validateEntry(raw: unknown): Shortcut {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error(`Shortcut entry is not an object: ${JSON.stringify(raw)}`)
+  }
+  const entry = raw as Record<string, unknown>
+  const id = entry.id
+  if (typeof id !== 'string') {
+    throw new Error(`Shortcut entry is missing a string id: ${JSON.stringify(raw)}`)
+  }
+  if (typeof entry.label !== 'string' || entry.label.length === 0) {
+    throw new Error(`Shortcut '${id}' is missing a label.`)
+  }
+  if (typeof entry.section !== 'string' || !VALID_SECTIONS.has(entry.section as Section)) {
+    throw new Error(`Shortcut '${id}' has an invalid section: ${JSON.stringify(entry.section)}`)
+  }
+  if (entry.note !== undefined && typeof entry.note !== 'string') {
+    throw new Error(`Shortcut '${id}' note must be a string when present.`)
+  }
+
+  const hasMatch = entry.match !== undefined
+  const hasDisplay = entry.display !== undefined
+  if (hasMatch === hasDisplay) {
+    throw new Error(`Shortcut '${id}' must set exactly one of 'match' (keyboard) or 'display' (display-only).`)
+  }
+
+  const base = {
+    id,
+    label: entry.label,
+    section: entry.section as Section,
+    allowInInputs: validateBooleanFlag(id, 'allowInInputs', entry.allowInInputs),
+    preventDefault: validateBooleanFlag(id, 'preventDefault', entry.preventDefault),
+    note: entry.note as string | undefined,
+  }
+
+  if (hasMatch) {
+    const match = validateMatch(id, entry.match)
+    return { ...base, match, keys: deriveDisplayTokens(match) }
+  }
+
+  const display = entry.display
+  if (!Array.isArray(display) || display.length === 0 || !display.every((k) => typeof k === 'string')) {
+    throw new Error(`Shortcut '${id}' display must be a non-empty array of string tokens.`)
+  }
+  assertNoLegacyShortcutGlyphs(display, `Shortcut '${id}' display`)
+  return { ...base, keys: display as string[] }
+}
+
+/**
+ * Validate raw shortcut data (the parsed `shortcuts.json`) into typed entries.
+ * Exported so tests can drive it with malformed inputs without re-triggering the
+ * module-load side effect.
+ */
+export function validateShortcutsData(raw: unknown): Shortcut[] {
+  if (!Array.isArray(raw)) {
+    throw new Error('shortcuts.json must be an array of shortcut entries.')
+  }
+  return raw.map(validateEntry)
+}
+
+/**
+ * The registry, in JSON declaration order. Order is load-bearing: dialog/docs
+ * rows render in this order within each section.
+ */
+export const SHORTCUTS: readonly Shortcut[] = validateShortcutsData(shortcutsData)
+
+/**
+ * id → entry map. Throws on a duplicate id, or on an id outside `SHORTCUT_IDS`
+ * (the JSON drifted from the hand-maintained union).
  */
 const SHORTCUTS_BY_ID: Map<string, Shortcut> = (() => {
+  const allowed = new Set<string>(SHORTCUT_IDS)
   const map = new Map<string, Shortcut>()
   for (const shortcut of SHORTCUTS) {
     if (map.has(shortcut.id)) {
-      throw new Error(`Duplicate shortcut id in SHORTCUTS: '${shortcut.id}'`)
+      throw new Error(`Duplicate shortcut id in shortcuts.json: '${shortcut.id}'`)
+    }
+    if (!allowed.has(shortcut.id)) {
+      throw new Error(
+        `shortcuts.json has id '${shortcut.id}' not in SHORTCUT_IDS — add it to the union in registry.ts.`,
+      )
     }
     map.set(shortcut.id, shortcut)
   }
   return map
 })()
 
-/**
- * Type guard for narrowing `string` to `ShortcutId`. Used by surfaces that
- * mix registry-backed entries with non-registry entries (e.g., editorCommands
- * has both `editor.bold` registry ids and local ids like `heading-1` /
- * `save-and-close` that don't have a registry equivalent). At render time:
- *   const keys = isShortcutId(cmd.id) ? getShortcut(cmd.id).keys : undefined
- */
+/** Type guard for narrowing `string` to `ShortcutId`. */
 export function isShortcutId(id: string): id is ShortcutId {
   return SHORTCUTS_BY_ID.has(id)
 }
@@ -364,12 +290,12 @@ export function getShortcut(id: ShortcutId): Shortcut {
   return shortcut
 }
 
-/** Return all entries in the given section, in registry declaration order. */
+/** Return all entries in the given section, in declaration (JSON) order. */
 export function getShortcutsBySection(section: Section): readonly Shortcut[] {
   return SHORTCUTS.filter((shortcut) => shortcut.section === section)
 }
 
-/** Return all registered shortcuts in registry order. */
+/** Return all registered shortcuts in declaration (JSON) order. */
 export function getAllShortcuts(): readonly Shortcut[] {
   return SHORTCUTS
 }

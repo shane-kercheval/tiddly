@@ -20,12 +20,7 @@ import ReactMarkdown from 'react-markdown'
 import { Link } from 'react-router-dom'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
-import {
-  resolveTipShortcut,
-  SHORTCUT_TOKEN_RE,
-} from '../../data/tips/tipExtraShortcuts'
-import { formatShortcut } from '../../utils/platform'
-import { Kbd } from '../ui/Kbd'
+import { resolveShortcutToken } from '../markdown/shortcutToken'
 
 interface TipBodyProps {
   body: string
@@ -67,26 +62,18 @@ function MarkdownLink({
 
 /**
  * Markdown inline-code override:
- *   - `\`{{shortcut:<id>}}\`` (full match) → localized `<Kbd>` chip
+ *   - `\`{{shortcut:<id>}}\`` (full match) → localized `<Kbd>` chip (shared
+ *     resolver, also used by `DocsMarkdown`).
  *   - anything else → default `<code>` element (with `className` preserved
  *     so syntax-highlighting hints like `language-typescript` survive)
  *
  * Fenced code blocks reach this override too (react-markdown invokes the
- * `code` component for both); the `inline` prop from `react-markdown` v9
- * is no longer reliable, so we sniff by reading children as plain text and
- * pattern-matching the full string. A multi-line block can't match the
- * single-line regex (verified by `tipExtraShortcuts.test.ts`), so fenced
- * blocks pass through naturally.
+ * `code` component for both); a multi-line block can't match the single-line
+ * shortcut-token regex, so fenced blocks pass through naturally.
  *
  * Only `className` is forwarded — never spread `...rest`. react-markdown
  * passes internal props like `node` that aren't valid DOM attributes, and
- * spreading them produces React "Unknown prop" warnings and writes them
- * into the rendered HTML.
- *
- * `resolveTipShortcut` throws on an unknown id. `validateTips` at module
- * load makes this unreachable for the live corpus — a render-time throw
- * here surfaces a validator-bypass bug loudly rather than silently
- * rendering nothing.
+ * spreading them produces React "Unknown prop" warnings.
  */
 function MarkdownCode({
   children,
@@ -94,11 +81,8 @@ function MarkdownCode({
 }: ComponentProps<'code'>): ReactNode {
   const text = typeof children === 'string' ? children : null
   if (text !== null) {
-    const match = SHORTCUT_TOKEN_RE.exec(text)
-    if (match !== null) {
-      const keys = resolveTipShortcut(match[1])
-      return <Kbd>{formatShortcut(keys)}</Kbd>
-    }
+    const shortcut = resolveShortcutToken(text)
+    if (shortcut !== null) return shortcut
   }
   return <code className={className}>{children}</code>
 }

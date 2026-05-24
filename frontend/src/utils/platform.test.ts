@@ -47,24 +47,18 @@ describe('isMac', () => {
 })
 
 describe('localizeKey', () => {
-  it('passes Mac glyphs through on Mac', () => {
+  it('renders modifier tokens as Mac glyphs on Mac', () => {
     mockPlatform('MacIntel')
-    expect(localizeKey('⌘')).toBe('⌘')
-    expect(localizeKey('⌥')).toBe('⌥')
-    expect(localizeKey('⇧')).toBe('⇧')
+    expect(localizeKey('Mod')).toBe('⌘')
+    expect(localizeKey('Alt')).toBe('⌥')
+    expect(localizeKey('Shift')).toBe('⇧')
   })
 
-  it('translates Mac glyphs to text words on Windows', () => {
+  it('renders modifier tokens as text words on Windows/Linux', () => {
     mockPlatform('Win32')
-    expect(localizeKey('⌘')).toBe('Ctrl')
-    expect(localizeKey('⌥')).toBe('Alt')
-    expect(localizeKey('⇧')).toBe('Shift')
-    expect(localizeKey('⌃')).toBe('Ctrl')
-  })
-
-  it('passes Mac Control glyph through on Mac', () => {
-    mockPlatform('MacIntel')
-    expect(localizeKey('⌃')).toBe('⌃')
+    expect(localizeKey('Mod')).toBe('Ctrl')
+    expect(localizeKey('Alt')).toBe('Alt')
+    expect(localizeKey('Shift')).toBe('Shift')
   })
 
   it('passes non-modifier tokens through unchanged', () => {
@@ -79,21 +73,21 @@ describe('localizeKey', () => {
 describe('localizeKeys', () => {
   it('localizes each token in an array', () => {
     mockPlatform('Win32')
-    expect(localizeKeys(['⌘', '⇧', 'B'])).toEqual(['Ctrl', 'Shift', 'B'])
+    expect(localizeKeys(['Mod', 'Shift', 'B'])).toEqual(['Ctrl', 'Shift', 'B'])
   })
 })
 
 describe('formatShortcut', () => {
   it('joins with no separator on Mac', () => {
     mockPlatform('MacIntel')
-    expect(formatShortcut(['⌘', 'B'])).toBe('⌘B')
-    expect(formatShortcut(['⌘', '⇧', 'X'])).toBe('⌘⇧X')
+    expect(formatShortcut(['Mod', 'B'])).toBe('⌘B')
+    expect(formatShortcut(['Mod', 'Shift', 'X'])).toBe('⌘⇧X')
   })
 
-  it('joins with + on Windows and translates glyphs', () => {
+  it('joins with + on Windows and renders modifier words', () => {
     mockPlatform('Win32')
-    expect(formatShortcut(['⌘', 'B'])).toBe('Ctrl+B')
-    expect(formatShortcut(['⌘', '⇧', 'X'])).toBe('Ctrl+Shift+X')
-    expect(formatShortcut(['⌥', 'Z'])).toBe('Alt+Z')
+    expect(formatShortcut(['Mod', 'B'])).toBe('Ctrl+B')
+    expect(formatShortcut(['Mod', 'Shift', 'X'])).toBe('Ctrl+Shift+X')
+    expect(formatShortcut(['Alt', 'Z'])).toBe('Alt+Z')
   })
 })

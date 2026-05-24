@@ -1,9 +1,18 @@
 """Tests for tier-based usage limits."""
 import dataclasses
+import json
 
 import pytest
 
-from core.tier_limits import TIER_LIMITS, Tier, TierLimits, get_tier_limits, get_tier_safely
+from core.tier_limits import (
+    TIER_LIMITS,
+    Tier,
+    TierLimits,
+    _build_tier_limits,
+    _TIERS_JSON_PATH,
+    get_tier_limits,
+    get_tier_safely,
+)
 
 
 class TestTierEnum:
@@ -133,6 +142,23 @@ class TestTierOrdering:
                 f"{field.name}: FREE={free_val}, STANDARD={std_val}, PRO={pro_val}"
             )
 
+    def test__content_lengths_uniform_within_every_product_tier(self) -> None:
+        """
+        Bookmark/note/prompt content lengths must be equal within each product tier.
+
+        The Pricing page shows ONE 'characters per item' number per tier (sourced from
+        max_bookmark_content_length). This invariant guarantees that single value is
+        correct for all three content types; if a future tier diverges, this fails and
+        forces a Pricing-page update rather than silently mis-reporting.
+        """
+        for tier in (Tier.FREE, Tier.STANDARD, Tier.PRO):
+            limits = get_tier_limits(tier)
+            assert (
+                limits.max_bookmark_content_length
+                == limits.max_note_content_length
+                == limits.max_prompt_content_length
+            ), f"{tier.value}: bookmark/note/prompt content lengths must be equal"
+
     def test__field_lengths_same_across_tiers(self) -> None:
         """Structural field lengths should be identical across all production tiers."""
         free = get_tier_limits(Tier.FREE)
@@ -175,6 +201,53 @@ class TestDevTier:
             assert dev_val >= free_val, (
                 f"DEV {field.name}={dev_val} < FREE {field.name}={free_val}"
             )
+
+
+class TestTiersJsonSource:
+    """Tier values are loaded from the canonical tiers.json (KAN-154 single source)."""
+
+    def test__enforcement_matches_tiers_json(self) -> None:
+        """Each product tier's enforced limits equal the values in tiers.json (by construction)."""
+        raw = json.loads(_TIERS_JSON_PATH.read_text())
+        for tier in (Tier.FREE, Tier.STANDARD, Tier.PRO):
+            entry = raw[tier.value]
+            limits = TIER_LIMITS[tier]
+            for field in dataclasses.fields(TierLimits):
+                assert getattr(limits, field.name) == entry[field.name], (
+                    f"{tier.value}.{field.name}: enforced {getattr(limits, field.name)} "
+                    f"!= tiers.json {entry[field.name]}"
+                )
+
+    def test__tiers_json_excludes_dev(self) -> None:
+        """DEV is runtime-only and must never appear in the served data file."""
+        raw = json.loads(_TIERS_JSON_PATH.read_text())
+        assert "dev" not in raw
+
+    def test__build_tier_limits__rejects_missing_field(self) -> None:
+        with pytest.raises(RuntimeError, match="missing fields"):
+            _build_tier_limits({"max_bookmarks": 10}, "free")
+
+    def test__build_tier_limits__rejects_non_integer(self) -> None:
+        good = {f.name: 1 for f in dataclasses.fields(TierLimits)}
+        with pytest.raises(RuntimeError, match="must be an integer"):
+            _build_tier_limits({**good, "max_bookmarks": "10"}, "free")
+
+    def test__build_tier_limits__rejects_bool(self) -> None:
+        good = {f.name: 1 for f in dataclasses.fields(TierLimits)}
+        with pytest.raises(RuntimeError, match="must be an integer"):
+            _build_tier_limits({**good, "max_bookmarks": True}, "free")
+
+    def test__build_tier_limits__rejects_unknown_field(self) -> None:
+        good = {f.name: 1 for f in dataclasses.fields(TierLimits)}
+        with pytest.raises(RuntimeError, match="unknown fields"):
+            _build_tier_limits({**good, "bogus_field": 1}, "free")
+
+    def test__build_tier_limits__allows_display_only_keys(self) -> None:
+        """`unlimited_items` is display metadata, not an enforcement field — tolerated, ignored."""
+        good = {f.name: 1 for f in dataclasses.fields(TierLimits)}
+        limits = _build_tier_limits({**good, "unlimited_items": True}, "pro")
+        assert isinstance(limits, TierLimits)
+        assert not hasattr(limits, "unlimited_items")
 
 
 class TestGetTierSafely:

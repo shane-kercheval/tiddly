@@ -1,16 +1,11 @@
 import type { ReactNode } from 'react'
+import { VARIANT_STYLES, type CalloutVariant } from './calloutStyles'
 
 interface InfoCalloutProps {
-  variant: 'info' | 'warning' | 'tip'
+  variant: CalloutVariant
   title?: string
   children: ReactNode
 }
-
-const VARIANT_STYLES = {
-  info: 'bg-blue-50 border-blue-200 text-blue-800',
-  warning: 'bg-amber-50 border-amber-200 text-amber-800',
-  tip: 'bg-gray-50 border-gray-200 text-gray-700',
-} as const
 
 /**
  * Styled callout box for tips, notes, and warnings.
