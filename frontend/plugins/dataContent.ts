@@ -48,6 +48,10 @@ const FILE_ENTRIES: FileDataEntry[] = [
     name: 'tips.json',
     description: 'Product tips: short markdown guidance with categories, audience, and related docs.',
   },
+  {
+    name: 'tiers.json',
+    description: 'Subscription tier limits (free/standard/pro) — item caps, content lengths, PATs, rate limits, AI quotas, and history retention.',
+  },
 ]
 
 /** Project the keyboard registry to the public, agent-facing shortcut shape. */

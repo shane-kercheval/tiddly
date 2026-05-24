@@ -114,7 +114,7 @@
     "items": [
       {
         "question": "How much content can I store?",
-        "answer": "On the free tier: up to 100 bookmarks, 100 notes, and 100 prompts. Each item can have up to 100,000 characters of content.\n\nOther limits: titles up to 100 characters, descriptions up to 1,000 characters, URLs up to 2,048 characters, and tag names up to 50 characters."
+        "answer": "How many bookmarks, notes, and prompts you can store — and the maximum characters per item — depend on your plan. See the [Pricing](/pricing) page for the limits on each tier. Field limits are the same across plans: titles up to 200 characters, descriptions up to 1,000 characters, URLs up to 2,048 characters, and tag names up to 50 characters."
       }
     ]
   },

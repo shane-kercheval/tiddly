@@ -11,6 +11,7 @@ describe('data content serving', () => {
       '/data/faq.json',
       '/data/known-issues.json',
       '/data/shortcuts.json',
+      '/data/tiers.json',
       '/data/tips.json',
     ])
     for (const entry of manifest) {
@@ -50,5 +51,15 @@ describe('data content serving', () => {
     for (const { content } of files) {
       expect(() => JSON.parse(content)).not.toThrow()
     }
+  })
+
+  it('serves tiers.json with product tiers only — never the runtime-only dev tier', () => {
+    const file = files.find((f) => f.name === 'tiers.json')
+    expect(file).toBeDefined()
+    const tiers = JSON.parse(file!.content) as Record<string, unknown>
+    expect(Object.keys(tiers).filter((k) => k !== '_comment').sort()).toEqual(['free', 'pro', 'standard'])
+    expect(tiers).not.toHaveProperty('dev')
+    // The display-only flag is present so consumers can render "Unlimited".
+    expect((tiers.pro as { unlimited_items: boolean }).unlimited_items).toBe(true)
   })
 })

@@ -123,8 +123,12 @@ Make tier limits a single file read by backend enforcement, frontend display, an
 - **Canonical location: `frontend/src/data/tiers.json`.** It must live inside `frontend/` because the frontend's deploy build context is `/frontend` — a repo-root/`shared/` file would be outside that context and unreachable for the frontend's build-time import and serving. **Document loudly in the file/code that it is cross-stack-owned** (backend enforcement depends on it) despite its location, so a future frontend cleanup doesn't move/delete it and silently break enforcement; the backend's fail-fast startup load is the tripwire.
 - **Frontend consumes via build-time import** (Vite JSON import), not runtime fetch — so Pricing/FAQ render synchronously with no loading state or error path. Build copies the file into `dist/data/tiers.json` and adds it to `/data/index.json`.
 - **Backend** loads `tiers.json` at startup and constructs the existing `TIER_LIMITS: dict[Tier, TierLimits]` from it, validating fail-fast. Contained change: `TierLimits` is a frozen dataclass and consumers go through `get_tier_limits()`, so only the *source* of values moves. `Dockerfile.api`'s context is the repo root, so it `COPY`s `frontend/src/data/tiers.json` into the image (packaging, not generation) — startup fails fast if absent.
-- **Enforced values are the arbiter.** Seed `tiers.json` from `tier_limits.py`'s actual `TIER_LIMITS` values (read them — do not assume any display surface is canonical; Free is 10/10/5). Both `Pricing.tsx` (already 10/10/5) and `FAQContent.tsx` (currently wrong: 100/100/100) are rewritten to render from the file.
-- **Public file excludes the `DEV` tier.** `tiers.json` holds product tiers only (free/standard/pro). The backend keeps `Tier.DEV` synthesized from a private constant (runtime-only, resolved under `dev_mode`) — it must not leak into the served file.
+- **Full `TierLimits` in the file, not a subset.** `tiers.json` holds the *complete* per-tier limits (item caps, content lengths, PATs, field lengths, rate limits, AI limits, relationships, history retention) — it's all structured data and belongs in one source; serving it publicly is fine (the repo is public). The backend constructs `TIER_LIMITS` for free/standard/pro entirely from the file. Field-length values (identical across tiers today) are repeated per tier for self-containment, with a test asserting they stay equal across product tiers (preserves the "structural, same across tiers" invariant). Load-time validation (fail-fast) replaces the dataclass's compile-time construction check, same pattern as `shortcuts.json`.
+- **Enforced values are the arbiter.** Seed `tiers.json` from `tier_limits.py`'s actual `TIER_LIMITS` values (read them — do not assume any display surface is canonical; Free is 10/10/5).
+- **"Unlimited" is display, not enforcement.** `Pricing.tsx` shows Pro item caps as "Unlimited" while the backend enforces a finite anti-abuse ceiling (today 10,000). `tiers.json` stores the enforced integer **plus a per-tier `unlimitedItems` flag** (set on Pro); Pricing renders "Unlimited" when the flag is set, the backend ignores it and enforces the integer. (The 10,000 ceiling is a value the engineer can bump in the file; not changed here.)
+- **`Pricing.tsx` is the single display surface that renders numbers; the FAQ points to it.** FAQ answers are static markdown (M2) and can't template tier data, so the FAQ content-limits answer (currently wrong: 100/100/100 in `faq.json`) is reworded to drop the numbers and link to Pricing — KAN-154 fixed by removing the drift, not by re-templating the FAQ. Pricing renders the comparison table + cards (including the "Version history retention" row) from `tiers.json`.
+- **Public file excludes the `DEV` tier.** `tiers.json` holds product tiers only (free/standard/pro). `Tier.DEV` stays a code constant (runtime-only, resolved under `dev_mode`) — it is never in the file and never served.
+- **Deferred drift surfaces (pick up later).** Two other places still hardcode tier numbers and are intentionally out of M3 scope; the `tier_limits.py` sync comment is updated to name `tiers.json` as the source and point at these: (1) `LandingPage.tsx`'s "How much does Tiddly cost?" copy → **M4** (marketing prose); (2) `frontend/public/llms.txt` Tier Limits section → **KAN-152** (agent-empowerment). Each should be rewired to read/derive from `tiers.json` when its milestone runs.
 - Record that this **supersedes KAN-152's Milestone 6** FAQ-tier handling, so the two plans don't both own it.
 
 **Definition of Done**
@@ -148,10 +152,40 @@ Lock in the model and close gaps.
 **Implementation Outline**
 
 - Update `AGENTS.md` "Files to Keep in Sync"/conventions and `docs/architecture.md` (the content-serving shape) with the model + a pointer to this plan. Verify both manifests list everything published. Migrate marketing prose only if desired this pass; else record as a follow-up.
+- **Carryover from M3:** `LandingPage.tsx`'s "How much does Tiddly cost?" copy still hardcodes tier numbers. When migrating it, source the numbers from `tiers.json` (build-time import) rather than re-hardcoding, so it doesn't reintroduce the KAN-154 drift M3 closed. (`llms.txt`'s Tier Limits section is the parallel carryover owned by KAN-152.)
 
 **Definition of Done**
 
 - `AGENTS.md` and `docs/architecture.md` reflect the model; manifests complete; any migrated marketing prose meets the M1 bar; `make frontend-verify` passes.
+
+---
+
+### Milestone 5 — Deployment & rollout checklist (Railway)
+
+**Goal & Outcome**
+
+A clear operator runbook for shipping this branch — what's verified before merge, and the exact manual Railway actions + production checks after merge. **This milestone is the canonical home for the one-off rollout steps** (they don't belong in `README_DEPLOY.md`, which documents from-scratch deploys). The *permanent* config those steps establish — `tiers.json` in the `Dockerfile.api` services' watch paths, and the cross-stack dependency note — already lives in `README_DEPLOY.md`'s setup so a future from-scratch deploy gets it.
+
+This branch introduces a **build-time cross-stack file dependency** (the backend reads `frontend/src/content/data/tiers.json` at startup) and **new public static paths** (`/prose/*.md`, `/data/*.json`). The tiers dependency is the one needing an operator action (a watch-path change); the static paths are already handled by the frontend's Caddy config and just warrant a post-deploy confirmation.
+
+**Pre-merge (in-repo / CI — no Railway action)**
+
+- `make backend-verify` and `make frontend-verify` pass.
+- `npm run build` (or `make frontend-build`) emits `dist/prose/*.md`, `dist/data/*.json`, and both `index.json` manifests.
+- No new env vars, no DB migration, no Makefile change required (the content pipeline rides the Vite build; the backend resolves `tiers.json` via a repo-relative path that also works in `make api-run` and CI).
+
+**Post-merge (Railway dashboard — manual operator actions)**
+
+1. **Watch paths.** On all four `Dockerfile.api` services (`api`, `ai-usage-flush`, `cleanup`, `orphan-relationships`), add `frontend/src/content/data/tiers.json` to **Settings → Build → Watch Paths**. Without it, editing a tier limit alone won't trigger a backend redeploy, so enforcement would lag the published Pricing page. (`Dockerfile.api` `COPY`s the file into every backend image regardless, so booting isn't affected — this is purely about auto-redeploy on tiers-only edits.)
+2. **Deploy + boot check.** Deploy the API (and crons). They **fail fast on boot if `tiers.json` is missing**; confirm the API comes up healthy (the `COPY` ensures the file is present).
+3. **Confirm production static serving (expected to pass — final belt-and-suspenders check).** The frontend's Caddy config (`frontend/Caddyfile`) serves via `try_files {path} {path}.html {path}/index.html /index.html` — it serves an existing file first and only falls back to the SPA `index.html` for non-file routes. So `/data/*.json` and `/prose/*.md` (both emitted into `dist/`) are served as real files; this is the same mechanism that already serves `llms.txt`. As a final check, `curl` `https://tiddly.me/data/tiers.json`, `/data/index.json`, `/prose/<page>.md`, `/prose/index.json` and confirm each returns the **file** (correct `Content-Type`), not `index.html`. This is no longer an unknown — verified locally via `vite preview` and confirmed by the Caddyfile; if it somehow failed it would be a Caddy `root`/`{{.DIST_DIR}}` misconfig (the `dist/` root that already serves `llms.txt`), not a missing route. **Discovery is via the `index.json` manifests, not directory listing** — agents fetch `/data/index.json` and `/prose/index.json` (directory autoindex is intentionally not enabled).
+4. **Sanity-check the data.** Served `/data/tiers.json` excludes the `dev` tier and shows the correct product-tier numbers; the Pricing page renders them.
+
+**Definition of Done**
+
+- API + crons boot with `tiers.json` present; the four services' watch paths include it.
+- `/data/*` and `/prose/*` confirmed serving as files (not the SPA shell) in production.
+- `README_DEPLOY.md`'s from-scratch setup carries the permanent config (watch paths + the cross-stack dependency note); the one-off rollout steps stay in this milestone.
 
 ## Cross-cutting concerns
 
@@ -161,7 +195,7 @@ Lock in the model and close gaps.
 
 ## Sequencing
 
-M1 establishes the prose pipeline, the serving/`dist` convention, the sanitize schema, and the manifest shape; it lands first. M2 establishes the structured-data/`/data/` convention (reusing M1's manifest + serving). M3 depends on M2's `/data/` convention and additionally touches the backend + deploy. M4 is the wrap-up. KAN-152 is revisited only after this plan completes.
+M1 establishes the prose pipeline, the serving/`dist` convention, the sanitize schema, and the manifest shape; it lands first. M2 establishes the structured-data/`/data/` convention (reusing M1's manifest + serving). M3 depends on M2's `/data/` convention and additionally touches the backend + deploy. M4 is the docs/conventions wrap-up. M5 is the deployment checklist — its post-merge Railway actions run when the branch ships. KAN-152 is revisited only after this plan completes.
 
 ## Open items (resolve during execution)
 

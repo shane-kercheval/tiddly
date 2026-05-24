@@ -421,7 +421,7 @@ All clients send `X-Request-Source`: `web`, `cli`, `chrome-extension`, `mcp-cont
 
 ## 11. Subscription tiers
 
-Full definitions in `backend/src/core/tier_limits.py`; user-facing copy in `frontend/public/llms.txt` and `frontend/src/pages/Pricing.tsx`.
+**Single source of truth:** product-tier values (free/standard/pro) live in `frontend/src/content/data/tiers.json` — a cross-stack data file the backend reads at startup to build `TIER_LIMITS` (`core/tier_limits.py`, fail-fast if missing) and the frontend imports to render `Pricing.tsx`. It is also served publicly at `/data/tiers.json`. This replaces the former hand-maintained triplication (the KAN-154 root cause). The runtime-only `DEV` tier stays a code constant (never in the file/served). The file carries a display-only `unlimited_items` flag (true for PRO) so the pricing page shows "Unlimited" while the backend still enforces the finite `max_*` ceiling. (`LandingPage.tsx` and `llms.txt` still hold hardcoded copies — see the content-as-markdown plan's M3 deferrals.)
 
 | Dimension | FREE | STANDARD | PRO |
 |---|---|---|---|
