@@ -246,7 +246,7 @@ export const allTips: Tip[] = [
     categories: ['editor', 'notes', 'prompts'],
     audience: 'beginner',
     priority: 20,
-    shortcut: ['⌘', 'F'],
+    shortcut: ['Mod', 'F'],
   },
   {
     id: 'export-to-json',
@@ -450,7 +450,7 @@ export const allTips: Tip[] = [
     categories: ['editor'],
     audience: 'power',
     priority: 25,
-    shortcut: ['⌘', '⌥', '↑/↓'],
+    shortcut: ['Mod', 'Alt', '↑/↓'],
   },
   {
     id: 'per-directory-mcp-scope',
@@ -654,7 +654,7 @@ export const allTips: Tip[] = [
     categories: ['editor'],
     audience: 'power',
     priority: 35,
-    shortcut: ['⌘', '⌥', 'G'],
+    shortcut: ['Mod', 'Alt', 'G'],
   },
   {
     id: 'shift-click-linked-chip',

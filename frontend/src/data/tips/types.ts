@@ -90,8 +90,8 @@ export interface Tip {
   shortcutId?: TipShortcutId
   /**
    * Literal display tokens — fallback for shortcuts no registry covers (none
-   * currently). Author as Mac glyphs (`['⌘', 'V']`); localization happens at
-   * render. Prefer `shortcutId` when the shortcut maps to a registry entry.
+   * currently). Author as OS-agnostic tokens (`['Mod', 'V']`); localization
+   * happens at render. Prefer `shortcutId` when the shortcut maps to a registry entry.
    */
   shortcut?: readonly string[]
   /** Links to deeper docs. */

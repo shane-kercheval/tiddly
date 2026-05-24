@@ -10,8 +10,8 @@ import { PAGE_SCOPED_SAVE_KEYS, PAGE_SCOPED_SAVE_AND_CLOSE_KEYS } from '../../sh
 
 describe('resolveTipShortcut', () => {
   it('resolves a registry-backed id to its keys', () => {
-    // app.commandPalette → ['⌘', '⇧', 'P'] per registry.ts.
-    expect(resolveTipShortcut('app.commandPalette')).toEqual(['⌘', '⇧', 'P'])
+    // app.commandPalette → ['Mod', 'Shift', 'P'] per registry.ts.
+    expect(resolveTipShortcut('app.commandPalette')).toEqual(['Mod', 'Shift', 'P'])
   })
 
   it('resolves an extras-backed page.save id from pageScoped constants', () => {
@@ -23,7 +23,7 @@ describe('resolveTipShortcut', () => {
   })
 
   it('resolves the Chrome extension popup id', () => {
-    expect(resolveTipShortcut('extension.openPopup')).toEqual(['⌥', '⇧', 'S'])
+    expect(resolveTipShortcut('extension.openPopup')).toEqual(['Alt', 'Shift', 'S'])
   })
 
   it('throws on an unknown id with the id in the message', () => {

@@ -112,7 +112,7 @@ describe('buildEditorCommands', () => {
     // Note/Bookmark/Prompt handlers, not via the global registry.
     expect(isShortcutId(cmd!.id)).toBe(false)
     // ...but the shortcutKeys carve-out surfaces the hint in the command menu.
-    expect(cmd!.shortcutKeys).toEqual(['⌘', '⇧', 'S'])
+    expect(cmd!.shortcutKeys).toEqual(['Mod', 'Shift', 'S'])
   })
 
   it('includes discard command when callback provided', () => {
@@ -210,7 +210,7 @@ describe('buildEditorCommands', () => {
     const bold = commands.find((c) => c.id === 'editor.bold')
     expect(bold).toBeDefined()
     expect(isShortcutId(bold!.id)).toBe(true)
-    expect(getShortcut(bold!.id as 'editor.bold').keys).toEqual(['⌘', 'B'])
+    expect(getShortcut(bold!.id as 'editor.bold').keys).toEqual(['Mod', 'B'])
 
     const italic = commands.find((c) => c.id === 'editor.italic')
     expect(italic).toBeDefined()
@@ -278,7 +278,7 @@ describe('buildEditorCommands', () => {
     expect(cmd!.label).toBe('Table of Contents')
     expect(cmd!.section).toBe('Actions')
     expect(isShortcutId(cmd!.id)).toBe(true)
-    expect(getShortcut(cmd!.id as 'editor.toggleToc').keys).toEqual(['⌥', 'T'])
+    expect(getShortcut(cmd!.id as 'editor.toggleToc').keys).toEqual(['Alt', 'T'])
   })
 
   it('does not include editor.toggleToc when showTocToggle is false', () => {
@@ -306,7 +306,7 @@ describe('buildEditorCommands', () => {
     // M5 framing: labels are surface-local; keys come from the registry.
     expect(cmd!.label).toBe('Version History')
     expect(cmd!.section).toBe('Actions')
-    expect(getShortcut(cmd!.id as 'app.toggleHistorySidebar').keys).toEqual(['⌘', '⇧', '\\'])
+    expect(getShortcut(cmd!.id as 'app.toggleHistorySidebar').keys).toEqual(['Mod', 'Shift', '\\'])
   })
 
   it('calls togglePanel(history) when app.toggleHistorySidebar action is executed', () => {

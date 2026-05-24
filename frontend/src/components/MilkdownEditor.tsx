@@ -271,7 +271,7 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
             (see ContentEditor.tsx). The toolbar is hidden in production
             via the !readOnly guard above. No registry entry exists for
             this Cmd+Shift+C binding since it doesn't fire in production. */}
-        <ToolbarButton onAction={onCodeBlockToggle} title={`Code Block (${formatShortcut(['⌘', '⇧', 'C'])})`}>
+        <ToolbarButton onAction={onCodeBlockToggle} title={`Code Block (${formatShortcut(['Mod', 'Shift', 'C'])})`}>
           <CodeBlockIcon />
         </ToolbarButton>
 

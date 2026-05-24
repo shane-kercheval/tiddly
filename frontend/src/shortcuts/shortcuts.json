@@ -1,0 +1,218 @@
+[
+  {
+    "id": "bookmark.pasteUrl",
+    "label": "Paste URL to add bookmark",
+    "section": "Actions",
+    "display": ["Mod", "V"],
+    "note": "Paste-event listener (usePasteUrlHandler), not a keydown shortcut — display-only, no match."
+  },
+  {
+    "id": "bookmark.openLinkSilent",
+    "label": "Open link without tracking",
+    "section": "Actions",
+    "display": ["Mod", "Shift", "Click"],
+    "note": "Non-keyboard mouse modifier on bookmark URL clicks; skips usage tracking. Display-only, no match."
+  },
+  {
+    "id": "app.focusSearch",
+    "label": "Search",
+    "section": "Navigation",
+    "match": { "key": "/" }
+  },
+  {
+    "id": "app.focusPageSearch",
+    "label": "Focus Page Search",
+    "section": "Navigation",
+    "match": { "key": "s" }
+  },
+  {
+    "id": "app.commandPalette",
+    "label": "Command Palette",
+    "section": "Navigation",
+    "match": { "mod": true, "shift": true, "key": "p" },
+    "allowInInputs": true
+  },
+  {
+    "id": "app.escape",
+    "label": "Close Modal / Unfocus Search",
+    "section": "Navigation",
+    "match": { "key": "Escape" },
+    "allowInInputs": true,
+    "preventDefault": false,
+    "note": "preventDefault is false so Escape still reaches native targets (contenteditable, modal-close, form semantics)."
+  },
+  {
+    "id": "card.openInNewTab",
+    "label": "Open Card in New Tab",
+    "section": "Navigation",
+    "display": ["Mod", "Click"],
+    "note": "Non-keyboard mouse modifier. Distinct id from editor.openLinkInNewTab (different context)."
+  },
+  {
+    "id": "relationship.openInTiddly",
+    "label": "Open Bookmark Relationship in Tiddly (instead of URL)",
+    "section": "Navigation",
+    "display": ["Shift", "Click"],
+    "note": "Non-keyboard mouse modifier (useLinkedNavigation)."
+  },
+  {
+    "id": "app.toggleWidth",
+    "label": "Toggle Full-Width Layout",
+    "section": "View",
+    "match": { "key": "w" }
+  },
+  {
+    "id": "app.toggleSidebar",
+    "label": "Toggle Sidebar",
+    "section": "View",
+    "match": { "mod": true, "key": "\\" },
+    "allowInInputs": true
+  },
+  {
+    "id": "app.toggleHistorySidebar",
+    "label": "Toggle History Sidebar",
+    "section": "View",
+    "match": { "mod": true, "shift": true, "key": "\\" },
+    "allowInInputs": true
+  },
+  {
+    "id": "app.toggleSidebarMaxWidth",
+    "label": "Maximize Sidebar Width",
+    "section": "View",
+    "match": { "mod": true, "alt": true, "code": "Backslash" },
+    "allowInInputs": true,
+    "note": "match.code (not key) avoids the macOS Option+\\ character shift (reports key '«')."
+  },
+  {
+    "id": "app.showShortcuts",
+    "label": "Show Shortcuts",
+    "section": "View",
+    "match": { "mod": true, "shift": true, "key": "/" },
+    "allowInInputs": true
+  },
+  {
+    "id": "editor.toggleReadingMode",
+    "label": "Toggle Reading Mode",
+    "section": "View",
+    "match": { "mod": true, "shift": true, "code": "KeyM" },
+    "note": "match.code for layout-stable physical-key matching across keyboard layouts."
+  },
+  {
+    "id": "editor.toggleWordWrap",
+    "label": "Toggle Word Wrap",
+    "section": "View",
+    "match": { "alt": true, "code": "KeyZ" },
+    "note": "match.code: macOS Option+Z reports key 'Ω'."
+  },
+  {
+    "id": "editor.toggleLineNumbers",
+    "label": "Toggle Line Numbers",
+    "section": "View",
+    "match": { "alt": true, "code": "KeyL" }
+  },
+  {
+    "id": "editor.toggleMonoFont",
+    "label": "Toggle Monospace Font",
+    "section": "View",
+    "match": { "alt": true, "code": "KeyM" }
+  },
+  {
+    "id": "editor.toggleToc",
+    "label": "Toggle Table of Contents",
+    "section": "View",
+    "match": { "alt": true, "code": "KeyT" }
+  },
+  {
+    "id": "editor.bold",
+    "label": "Bold",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "key": "b" }
+  },
+  {
+    "id": "editor.italic",
+    "label": "Italic",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "key": "i" }
+  },
+  {
+    "id": "editor.strikethrough",
+    "label": "Strikethrough",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "shift": true, "key": "x" }
+  },
+  {
+    "id": "editor.highlight",
+    "label": "Highlight",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "shift": true, "key": "h" }
+  },
+  {
+    "id": "editor.blockquote",
+    "label": "Blockquote",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "shift": true, "key": "." }
+  },
+  {
+    "id": "editor.inlineCode",
+    "label": "Inline Code",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "key": "e" }
+  },
+  {
+    "id": "editor.codeBlock",
+    "label": "Code Block",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "shift": true, "key": "e" }
+  },
+  {
+    "id": "editor.bulletList",
+    "label": "Bullet List",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "shift": true, "key": "7" }
+  },
+  {
+    "id": "editor.numberedList",
+    "label": "Numbered List",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "shift": true, "key": "8" }
+  },
+  {
+    "id": "editor.checklist",
+    "label": "Checklist",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "shift": true, "key": "9" }
+  },
+  {
+    "id": "editor.insertLink",
+    "label": "Insert Link",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "key": "k" }
+  },
+  {
+    "id": "editor.horizontalRule",
+    "label": "Horizontal Rule",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "shift": true, "key": "-" }
+  },
+  {
+    "id": "editor.commandMenu",
+    "label": "Command Menu",
+    "section": "Markdown Editor",
+    "match": { "mod": true, "code": "Slash" },
+    "note": "match.code for layout stability (German layout: key '/' needs Shift+7, conflicts with bullet-list)."
+  },
+  {
+    "id": "editor.openLinkInNewTab",
+    "label": "Open Link in New Tab",
+    "section": "Markdown Editor",
+    "display": ["Mod", "Click"],
+    "note": "Non-keyboard mouse modifier (MilkdownEditor link-click plugin). Distinct id from card.openInNewTab."
+  },
+  {
+    "id": "editor.selectNextOccurrence",
+    "label": "Select Next Occurrence",
+    "section": "Markdown Editor",
+    "display": ["Mod", "D"],
+    "note": "Upstream-owned by @codemirror/search's searchKeymap (Mod-d). Display-only; a smoke test asserts the binding exists."
+  }
+]
