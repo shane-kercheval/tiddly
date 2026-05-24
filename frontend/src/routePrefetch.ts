@@ -56,6 +56,13 @@ const routeImports: Record<string, () => Promise<unknown>> = {
 const routePrefixes = Object.keys(routeImports)
 
 /**
+ * All known app route paths (the prefetch map's keys). Exposed so coverage tests
+ * — e.g. "every public docs/legal page has an agent-readable `/prose/*.md`" — can
+ * anchor to this list rather than a separate hand-maintained one.
+ */
+export const KNOWN_ROUTE_PATHS: readonly string[] = routePrefixes
+
+/**
  * Find the matching route key for a given path.
  * Exact match takes priority, then longest prefix match.
  * Returns undefined if no route matches.

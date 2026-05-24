@@ -86,20 +86,24 @@ Stand up the markdown content pipeline and migrate the prose pages (docs, legal)
 
 Move frontend-owned structured data to canonical JSON files the code reads, served for agents/clients.
 
-- The FAQ, tips, and the shortcut data subset live in canonical JSON; the SPA reads them (the FAQ pages, tips/shortcuts pages, and in-app consumers render from the same files).
-- Fetchable at `tiddly.me/data/faq.json`, `tiddly.me/data/tips.json`, `tiddly.me/data/shortcuts.json`; `tiddly.me/data/index.json` lists them.
+- The FAQ, known issues, tips, and the shortcut data subset live in canonical JSON; the SPA reads them (the FAQ pages, known-issues/tips/shortcuts pages, and in-app consumers render from the same files).
+- Fetchable at `tiddly.me/data/faq.json`, `tiddly.me/data/known-issues.json`, `tiddly.me/data/tips.json`, `tiddly.me/data/shortcuts.json`; `tiddly.me/data/index.json` lists them.
 - Validation previously in code (`validateTips`, etc.) runs against the JSON on load/test.
+- Docs prose shortcuts render OS-correctly (Mac vs Windows/Linux) and are single-sourced from `shortcuts.json` (see the shortcut-token task below).
 
 **Implementation Outline**
 
 - **FAQ:** extract `FAQContent.tsx`'s items into `faq.json` as `[{question, answer}]` with `answer` authored as **markdown** (the current TSX answers use `<strong>`, paragraphs, lists — all expressible in markdown). Replace `FAQContent` with a thin component that maps each entry to the collapsible item and renders `answer` via the M1 `react-markdown` renderer. Since `DocsFAQ` and `SettingsFAQ` both mount `FAQContent`, both pick this up with no per-page change.
+- **Known issues:** `DocsKnownIssues` is structured records (`[{title, status, body}]`, `status ∈ {expected-behavior, bug, limitation}`, `body` = markdown), not prose — reclassified from M1 to here during M1 execution. Extract into `known-issues.json`; `DocsKnownIssues` becomes a thin view that renders the status badge + the `body` via the M1 `react-markdown` renderer.
 - **Tips / shortcuts:** convert the tips corpus and shortcut data subset from TS literals to canonical JSON; consumers read from them (Vite JSON import or runtime fetch — agent's choice against the code). Behavior/selectors/handlers stay in code, now operating on loaded data; relocate `validateTips`-style checks to schema validation on load (+ test). For shortcuts, only the data (id/keys/description) moves; runtime behavior stays in code and references it.
+- **Docs-prose shortcut tokens (OS-correctness):** M1 left docs-prose shortcuts as hardcoded literal text (e.g. `` `Cmd+V` ``), matching the original TSX — so Windows/Linux users see Mac modifiers. Now that `shortcuts.json` exists: (1) extend the shared `DocsMarkdown` renderer to resolve `` `{{shortcut:<id>}}` `` inline tokens to an OS-localized `<Kbd>` chip (via `formatShortcut`), **consolidating the mechanism `TipBody` currently implements on its own copy** — one shared resolver, not two; (2) sweep the M1-migrated docs `.md` files, replacing hardcoded shortcut text with `{{shortcut:<id>}}` tokens so docs are OS-correct and single-sourced from `shortcuts.json`. The served `.md` carries the token; an agent resolves it against `shortcuts.json`.
 - Build step copies the JSON into `dist/data/` and generates `/data/index.json` (reuse M1's manifest shape + dev/test serving).
 
 **Definition of Done**
 
-- FAQ pages, tips/shortcuts pages, and in-app consumers render from the JSON; `/data/faq.json|tips.json|shortcuts.json` and `/data/index.json` resolve.
-- Tests: schema validation rejects malformed data; files load into expected shapes; the FAQ renders the same questions/answers as before (no content lost in the TSX→JSON move); existing tips/shortcuts UI tests pass against file-sourced data.
+- FAQ/known-issues/tips/shortcuts pages and in-app consumers render from the JSON; `/data/faq.json|known-issues.json|tips.json|shortcuts.json` and `/data/index.json` resolve.
+- Docs-prose shortcuts render OS-localized via shared `{{shortcut:<id>}}` tokens; `TipBody` and `DocsMarkdown` use one shared resolver (no duplicated shortcut logic); a test asserts a docs `.md` shortcut token renders the right keys per platform.
+- Tests: schema validation rejects malformed data; files load into expected shapes; the FAQ and known-issues render the same content as before (nothing lost in the TSX→JSON move); existing tips/shortcuts UI tests pass against file-sourced data.
 - `make frontend-verify` passes.
 
 ---
