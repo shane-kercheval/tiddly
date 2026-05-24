@@ -8,7 +8,7 @@
 import { matchPathPrefix } from '../../utils/matchPathPrefix'
 import { assertNoLegacyShortcutGlyphs } from '../../utils/platform'
 import { ALL_CONTENT_TYPES, type ContentType } from '../../types'
-import { allTips } from './tips'
+import tipsData from '../../content/data/tips.json'
 import {
   resolveTipShortcut,
   SHORTCUT_TOKEN_SCAN_RE,
@@ -20,7 +20,7 @@ import {
   type TipCategory,
 } from './types'
 
-export { allTips } from './tips'
+export const allTips = tipsData as Tip[]
 export type { Tip, TipCategory, TipAudience, TipMedia, TipMinTier, RelatedDoc } from './types'
 
 const CONTENT_TYPE_TO_CATEGORY: Record<ContentType, TipCategory> = {

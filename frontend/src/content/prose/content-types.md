@@ -18,9 +18,9 @@ Save URLs with automatically scraped metadata. When you add a URL, Tiddly fetche
 - **Content** — full page text extracted via article parser (also handles PDFs)
 - **Tags** — for organizing and filtering
 
-**Quick Add:** Copy a URL and press `Cmd+V` anywhere in the app (when not focused on an input) to instantly create a bookmark with scraped metadata. You can also click the **+** button or use the [browser extension](/docs/extensions).
+**Quick Add:** Copy a URL and press `{{shortcut:bookmark.pasteUrl}}` anywhere in the app (when not focused on an input) to instantly create a bookmark with scraped metadata. You can also click the **+** button or use the [browser extension](/docs/extensions).
 
-**Interaction:** Clicking a bookmark's title opens the URL. Use the pencil icon to edit details. Hold `Shift+Cmd+Click` to open a link without updating the "last used" timestamp.
+**Interaction:** Clicking a bookmark's title opens the URL. Use the pencil icon to edit details. Hold `{{shortcut:bookmark.openLinkSilent}}` to open a link without updating the "last used" timestamp.
 
 ## Notes
 
@@ -34,8 +34,8 @@ Freeform markdown documents for capturing ideas, documentation, meeting notes, o
 ### Editor Features
 
 - **Slash commands** — type `/` at the start of a line for headings, lists, code blocks, links, and more
-- **Command menu** — press `Cmd+/` for a filterable palette of all formatting options
-- **Reading mode** — toggle with `Cmd+Shift+M` to see rendered markdown preview
+- **Command menu** — press `{{shortcut:editor.commandMenu}}` for a filterable palette of all formatting options
+- **Reading mode** — toggle with `{{shortcut:editor.toggleReadingMode}}` to see rendered markdown preview
 - **Display options** — toggle word wrap, line numbers, monospace font, and table of contents sidebar
 
 See [Keyboard Shortcuts](/docs/features/shortcuts) for the full list of editor formatting shortcuts.

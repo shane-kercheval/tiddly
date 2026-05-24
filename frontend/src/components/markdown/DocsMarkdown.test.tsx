@@ -79,6 +79,16 @@ describe('DocsMarkdown', () => {
     expect(() => renderMarkdown('`{{icon:nope}}`')).toThrow(/Unknown inline icon token/)
   })
 
+  it('renders `{{shortcut:id}}` inline tokens as a key chip, not literal text', () => {
+    const { container } = renderMarkdown('Press `{{shortcut:app.commandPalette}}` to search.')
+    expect(container.querySelector('kbd')).not.toBeNull()
+    expect(container.textContent).not.toContain('{{shortcut:')
+  })
+
+  it('throws on an unknown shortcut token so typos fail loudly', () => {
+    expect(() => renderMarkdown('`{{shortcut:not.a.real.id}}`')).toThrow(/Unknown tip shortcut id/)
+  })
+
   it('renders an all-bold-led ordered list as step cards', () => {
     const { container } = renderMarkdown('1. **Install**\n\n   Do this.\n\n2. **Configure**\n\n   Then that.')
     expect(container.querySelector('ol.docs-steps')).not.toBeNull()

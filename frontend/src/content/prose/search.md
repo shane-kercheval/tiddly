@@ -10,8 +10,8 @@ Search across all your bookmarks, notes, and prompts. Tiddly uses a two-tier sea
 
 ## Quick Access
 
-- **Search bar** — press `/` to focus the search bar and start typing
-- **Command palette** — press `Cmd+Shift+P` for quick search and navigation across all content
+- **Search bar** — press `{{shortcut:app.focusSearch}}` to focus the search bar and start typing
+- **Command palette** — press `{{shortcut:app.commandPalette}}` for quick search and navigation across all content
 
 ## How Search Works
 

@@ -8,6 +8,8 @@ import { parseProseFile } from './frontmatter'
 import { ProseDocPage } from '../pages/docs/ProseDocPage'
 import { collectProseContent } from '../../plugins/proseContent'
 import { KNOWN_ROUTE_PATHS, findMatchingRoute } from '../routePrefetch'
+import { resolveTipShortcut } from '../data/tips/tipExtraShortcuts'
+import { resolveInlineIcon } from '../components/markdown/inlineIcons'
 
 /**
  * Public-content routes M1 is responsible for: every `/docs/*` page plus the
@@ -114,6 +116,27 @@ describe('prose content build output', () => {
       const h1 = /^#\s+(.+)$/m.exec(body)?.[1].trim()
       const entry = manifest.find((e) => e.path === `/prose/${name}`)
       expect(entry?.title).toBe(h1)
+    }
+  })
+})
+
+describe('prose inline tokens resolve (build-time guard)', () => {
+  // Docs-prose `{{shortcut:id}}` / `{{icon:id}}` tokens are otherwise only
+  // validated when their page renders. Walk every prose body so a mistyped id
+  // fails the suite instead of shipping a token that crashes one page.
+  it('every {{shortcut:id}} token in prose resolves to a real shortcut', () => {
+    for (const doc of PROSE_DOCS) {
+      for (const match of doc.body.matchAll(/\{\{shortcut:([^}]+)\}\}/g)) {
+        expect(() => resolveTipShortcut(match[1]), `${doc.slug}: {{shortcut:${match[1]}}}`).not.toThrow()
+      }
+    }
+  })
+
+  it('every {{icon:id}} token in prose resolves to a real icon', () => {
+    for (const doc of PROSE_DOCS) {
+      for (const match of doc.body.matchAll(/\{\{icon:([^}]+)\}\}/g)) {
+        expect(resolveInlineIcon(`{{icon:${match[1]}}}`), `${doc.slug}: {{icon:${match[1]}}}`).not.toBeNull()
+      }
     }
   })
 })

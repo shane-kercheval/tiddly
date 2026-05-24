@@ -7,8 +7,8 @@
 import type { ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { DocsSection } from './components/DocsSection'
-
-type IssueStatus = 'expected-behavior' | 'bug' | 'limitation'
+import { DocsMarkdown } from '../../components/markdown/DocsMarkdown'
+import { KNOWN_ISSUES_SECTIONS, type IssueStatus } from '../../content/data/knownIssues'
 
 interface StatusBadgeProps {
   status: IssueStatus
@@ -38,25 +38,6 @@ function StatusBadge({ status }: StatusBadgeProps): ReactNode {
   )
 }
 
-interface KnownIssueProps {
-  title: string
-  status: IssueStatus
-  children: ReactNode
-}
-
-function KnownIssue({ title, status, children }: KnownIssueProps): ReactNode {
-  return (
-    <div className="border-b border-gray-100 py-5 last:border-b-0">
-      <div className="flex items-center gap-2 mb-2">
-        <h3 className="text-base font-medium text-gray-900">{title}</h3>
-        <StatusBadge status={status} />
-      </div>
-      <div className="text-sm text-gray-600 space-y-2">{children}</div>
-    </div>
-  )
-}
-
-
 export function DocsKnownIssues(): ReactNode {
   usePageTitle('Docs - Known Issues')
   return (
@@ -73,59 +54,21 @@ export function DocsKnownIssues(): ReactNode {
         </tbody>
       </table>
 
-      <DocsSection title="Content">
-        <KnownIssue title="Text-only content — no image or file attachments" status="limitation">
-          <p>
-            Bookmarks, notes, and prompts currently support text content only. You cannot upload
-            or attach images, PDFs, or other files. Markdown image syntax (e.g.,{' '}
-            <code className="bg-gray-100 px-1 rounded">![alt](url)</code>) works for referencing
-            externally hosted images, but there is no built-in file hosting.
-          </p>
-        </KnownIssue>
-      </DocsSection>
-
-      <DocsSection title="Editor">
-        <KnownIssue title="Extra line break when continuing loose lists" status="expected-behavior">
-          <p>
-            When a markdown list has blank lines between items (a "loose" or "non-tight" list),
-            pressing Enter to add a new item will insert an extra blank line to match the existing
-            style. This is the default behavior of the CodeMirror markdown editor — it preserves
-            the spacing pattern of the list.
-          </p>
-          <p>
-            For example, if you have:
-          </p>
-          <pre className="bg-gray-50 border border-gray-200 rounded p-3 text-xs font-mono whitespace-pre overflow-x-auto">
-{`- [ ] First item
-                         ← blank line
-- [ ] Second item`}
-          </pre>
-          <p>
-            Pressing Enter after "First item" will add a new checkbox with a blank line above it,
-            matching the loose list style. To avoid this, keep list items on consecutive lines without
-            blank lines between them.
-          </p>
-        </KnownIssue>
-
-        <KnownIssue title="Shift+Arrow selection gets stuck on wrapped lines" status="bug">
-          <p>
-            When word wrap is enabled and a line wraps to multiple visual lines, using Shift+Down or
-            Shift+Up to extend the selection can get stuck at the visual line boundary. Regular arrow
-            keys (without Shift) are not affected.
-          </p>
-          <p>
-            <strong>Workaround:</strong> Press Shift+Right to advance past the stuck point, then
-            continue with Shift+Down. Alternatively, toggle word wrap off (Alt+Z) to avoid the issue.
-          </p>
-        </KnownIssue>
-
-        <KnownIssue title="Toolbar flickers when interacting with Find &amp; Replace checkboxes" status="bug">
-          <p>
-            Clicking the checkboxes (e.g., &quot;match case&quot;, &quot;regexp&quot;) in the editor&apos;s
-            Find &amp; Replace panel can cause the formatting toolbar to briefly appear and disappear.
-          </p>
-        </KnownIssue>
-      </DocsSection>
+      {KNOWN_ISSUES_SECTIONS.map((section) => (
+        <DocsSection key={section.section} title={section.section}>
+          {section.items.map((item) => (
+            <div key={item.title} className="border-b border-gray-100 py-5 last:border-b-0">
+              <div className="flex items-center gap-2 mb-2">
+                <h3 className="text-base font-medium text-gray-900">{item.title}</h3>
+                <StatusBadge status={item.status} />
+              </div>
+              <div className="text-sm text-gray-600 space-y-2">
+                <DocsMarkdown body={item.body} />
+              </div>
+            </div>
+          ))}
+        </DocsSection>
+      ))}
     </div>
   )
 }

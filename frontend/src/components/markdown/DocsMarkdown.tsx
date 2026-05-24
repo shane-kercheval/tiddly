@@ -28,6 +28,7 @@ import { VARIANT_STYLES, type CalloutVariant } from '../../pages/docs/components
 import { remarkCallouts } from './remarkCallouts'
 import { docsSanitizeSchema } from './docsSanitizeSchema'
 import { resolveInlineIcon } from './inlineIcons'
+import { resolveShortcutToken } from './shortcutToken'
 
 /** Minimal shape of the hast nodes `react-markdown` passes to component overrides. */
 interface HastNode {
@@ -114,11 +115,14 @@ const components: Components = {
       />
     )
   },
-  // Inline code: an `{{icon:id}}` token renders its icon; everything else is a
-  // normal inline `<code>` (className preserved for any language hint).
+  // Inline code: a `{{shortcut:id}}` token renders an OS-localized key chip, an
+  // `{{icon:id}}` token renders its icon; everything else is a normal inline
+  // `<code>` (className preserved for any language hint).
   code({ children, className }) {
     const text = typeof children === 'string' ? children : null
     if (text !== null) {
+      const shortcut = resolveShortcutToken(text)
+      if (shortcut !== null) return shortcut
       const icon = resolveInlineIcon(text)
       if (icon !== null) return icon
     }

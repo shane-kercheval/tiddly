@@ -56,10 +56,7 @@ Switch to Search from any page, or let the popup default to it on restricted pag
 
 ## Keyboard shortcut
 
-The extension suggests a default shortcut to open the popup:
-
-- **Mac:** `Option+Shift+S`
-- **Windows / Linux / ChromeOS:** `Alt+Shift+S`
+The extension suggests a default shortcut to open the popup: `{{shortcut:extension.openPopup}}`.
 
 > [!warning]
 > Chrome only auto-binds this on a fresh install if no other extension already claims the same combination. If another extension got there first, Chrome silently leaves Tiddly's shortcut unbound — there is no error message. If the shortcut doesn't open the popup, follow the rebind steps below.

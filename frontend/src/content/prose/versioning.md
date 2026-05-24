@@ -29,7 +29,7 @@ Recorded for the audit trail but don't create content versions:
 
 ## History Sidebar
 
-Open the history sidebar with `Cmd+Shift+\` while viewing any item to see its full version history:
+Open the history sidebar with `{{shortcut:app.toggleHistorySidebar}}` while viewing any item to see its full version history:
 
 - **Version list** — all versions with timestamps and action types
 - **Change indicators** — see which fields changed in each version (title, content, tags, etc.)
