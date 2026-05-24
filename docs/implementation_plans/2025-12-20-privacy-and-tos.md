@@ -451,6 +451,8 @@ If stricter enforcement is needed:
 
 ## Updating Policies in the Future
 
+> ⚠️ **Out of date.** The policy text moved from root `PRIVACY.md`/`TERMS.md` into `frontend/src/content/prose/privacy.md` and `terms.md`, and the effective date is now the backend version constant (not a line in the file). See README → *Updating Privacy Policy or Terms of Service* for the current procedure. The steps below are kept as a historical record.
+
 When you need to update PRIVACY.md or TERMS.md:
 
 1. **Update the policy document** (PRIVACY.md or TERMS.md)

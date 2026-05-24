@@ -10,7 +10,7 @@
  *     projected from the keyboard registry to just the agent-facing fields
  *     (id/keys/label/section) — dropping the matcher and maintainer `note`.
  *
- * Adding a new served data file = add an entry below (M3's tiers.json will).
+ * Adding a new served data file = add an entry below.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'

@@ -10,9 +10,9 @@ When changing the *shape* (adding/removing a limit field), update in lockstep:
 - frontend/src/types.ts (UserLimits interface)
 - backend/src/schemas/user_limits.py (UserLimitsResponse)
 
-Known still-hardcoded copies of tier values, deferred (see the content-as-markdown
-plan): frontend/src/pages/LandingPage.tsx (cost FAQ) → M4; frontend/public/llms.txt
-(Tier Limits section) → KAN-152. Rewire each to read tiers.json when its work runs.
+Known still-hardcoded copy of tier values, deferred (see the content-as-markdown
+plan): frontend/public/llms.txt (Tier Limits section) → KAN-152. Rewire it to read
+tiers.json when that work runs.
 """
 import json
 import logging
