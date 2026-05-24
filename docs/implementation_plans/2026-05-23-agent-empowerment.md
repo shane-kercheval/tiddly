@@ -2,11 +2,17 @@
 
 **Ticket:** [KAN-152](https://tiddly.atlassian.net/browse/KAN-152)
 **Date:** 2026-05-21
-**Status:** Paused — pending the [`2026-05-21-content-as-markdown.md`](./2026-05-21-content-as-markdown.md) refactor.
+**Status:** Active — [`2026-05-21-content-as-markdown.md`](./2026-05-21-content-as-markdown.md) has merged; reconciled against it below. Resuming at Milestone 1.
 
-> **Revisit before resuming.** This plan predates the discovery that tiddly's public content (docs, pricing) is a client-rendered SPA invisible to non-JS agents, and that the content-as-markdown refactor will make public content agent-readable and single-source the structured data. After that refactor merges, **re-evaluate this plan against the new reality** — in particular, the hand-authored `llms-*.txt` family likely becomes partly *generated* from the content source rather than maintained by hand, the "link to /docs and /pricing" assumptions change (those become agent-readable), and Milestone 6's FAQ tier-limit fix is superseded (resolved at the root by the refactor's structured-data work).
+> **Reconciled with content-as-markdown (merged 2026-05-24).** That refactor made tiddly's public content agent-readable and single-sourced the structured data, changing several assumptions this plan was written under. The points below are **authoritative over any conflicting wording in the milestones/appendix that follow**:
+> 1. **Agents can now read `/docs` and `/pricing` content** — served as `/prose/*.md` and `/data/*.json`, each with an `index.json` manifest. This makes the plan's "prefer linking over inlining for code-derived facts" principle *strictly* better than inlining (an agent can fetch the target), so lean harder on linking.
+> 2. **Tier numbers link the machine-readable canonical `/data/tiers.json`** (the file the backend itself reads at startup), with `/pricing` as the human page — supersedes the earlier "link `/pricing`" wording (A.2/A.5).
+> 3. **Cross-references target the agent-readable artifacts, not the SPA routes:** `/prose/<page>.md`, `/data/known-issues.json`, `/data/tips.json`, `/data/faq.json`, `/data/shortcuts.json`.
+> 4. **`llms.txt`'s "Agent resources" index points at the new manifests** (`/prose/index.json`, `/data/index.json`). Relationship: content-as-markdown provides *machine discovery* (manifests + raw files); this plan adds *curated narrative + mode routing* (the `llms.txt` family). Complementary, not redundant.
+> 5. **Milestone 6's seed finding is already resolved** — content-as-markdown M3 fixed the FAQ tier-limit drift (KAN-154, now closeable) and single-sourced tiers. M6 collapses to a ledger for *new* inconsistencies surfaced during M1–M5 (see M6).
+> 6. **Public content now lives in `frontend/src/content/prose/*.md` + `content/data/*.json`** (the `Docs*.tsx` pages are thin renderers) — M1 authoring and M0's "mine existing sources" target those, not the TSX pages.
 >
-> **In-progress artifact:** `frontend/public/llms.txt` was rewritten as the hub during M1 on this branch (committed here as work-in-progress). It was drafted under the pre-refactor assumptions (e.g. it links to `/pricing`, which an agent can't read) and **must be re-evaluated** during the revisit — do not treat it as final.
+> **In-progress artifact:** `frontend/public/llms.txt` was rewritten as the hub during M1 on this branch (committed as work-in-progress). It was drafted under the pre-refactor assumptions (e.g. links `/pricing`, which an agent then couldn't read) and is **redone fresh in M1** against the reconciliation above — do not treat it as final.
 
 ## Summary
 
@@ -100,8 +106,8 @@ Write/refine the `llms-*.txt` files defined in M0, per the writing philosophy an
 **Fixed decisions (carry into the detailed plan):**
 - `llms.txt` **keeps its value prop, concepts, use-cases, and a pricing *summary*, gains the hub/index, and sheds the rest.** This is not a light touch-up: roughly half the current 320-line file relocates under the no-restatement rule — the MCP/integration section (~lines 77–222) → `llms-integration.txt`, keyboard shortcuts (~226–254) → `llms-app-usage.txt`, and the exhaustive tier table (~271–302) → a summary + `/pricing` link. The opening value prop is reused; the body is substantially restructured. Say so to the implementer so the diff target is unambiguous and integration content doesn't end up duplicated in both files.
 - Subfiles obey the no-restatement principle and cross-reference `llms.txt`/docs.
-- **Code-derived facts name their canonical source in the artifact header.** The AGENTS.md "Files to Keep in Sync" convention is *not* sufficient on its own — it already lists `FAQContent.tsx` and that file still drifted (see findings doc / M6). So for any inlined fact that derives from code (command names, MCP tool names, tier numbers, URLs, the 403 surfaces), the artifact's header states where it must agree with (e.g. "command list mirrors `cli/cmd/`; tier numbers: see `/pricing`"). This gives a reviewer an explicit diff target. Prefer linking over inlining for code-derived facts wherever possible; reserve inlining for facts an agent must have without a fetch. Appendix A's inventory tags each fact code-derived vs. narrative to make this concrete.
-- **`llms-app-usage.txt` is orientation, not a tips dump.** It is the higher-level "map" of how the app is structured and how to accomplish core tasks (organize, search, filter, edit) plus the gotchas to warn users about. It cross-references the `/docs/tips` corpus wholesale and may deep-link a small handful of high-value tips by `#tip-<id>` anchor where one is load-bearing for a core workflow — but it does **not** reproduce the corpus (tips remain the authoritative home for granular tips).
+- **Code-derived facts name their canonical source in the artifact header.** The AGENTS.md "Files to Keep in Sync" convention is *not* sufficient on its own — it already lists `FAQContent.tsx` and that file still drifted (see findings doc / M6). So for any inlined fact that derives from code (command names, MCP tool names, tier numbers, URLs, the 403 surfaces), the artifact's header states where it must agree with (e.g. "command list mirrors `cli/cmd/`; tier numbers: `/data/tiers.json`"). This gives a reviewer an explicit diff target. Prefer linking over inlining for code-derived facts wherever possible — and post-content-as-markdown the link targets are themselves agent-readable (`/data/*.json`, `/prose/*.md`), so a linked fact is now genuinely fetchable rather than a dead-end SPA route; reserve inlining for facts an agent must have without a fetch. Appendix A's inventory tags each fact code-derived vs. narrative to make this concrete.
+- **`llms-app-usage.txt` is orientation, not a tips dump.** It is the higher-level "map" of how the app is structured and how to accomplish core tasks (organize, search, filter, edit) plus the gotchas to warn users about. It cross-references the tips corpus wholesale — the agent-readable `/data/tips.json` (human page `/docs/tips`) — and may deep-link a small handful of high-value tips where one is load-bearing for a core workflow, but it does **not** reproduce the corpus (tips remain the authoritative home for granular tips). Likewise its known-issues awareness cross-references `/data/known-issues.json`.
 - All files are static assets served from `frontend/public/`.
 - Exact copy for every file is finalized *within this milestone* (reviewed with the human), not pre-specified.
 
@@ -201,16 +207,16 @@ Outcomes:
 - For **each** affected file, `AGENTS.md` "Files to Keep in Sync" is verified to list it — added if missing. This converts each one-off fix into a durable guardrail against re-drift.
 
 **Findings list** (seeded from M0; append as discovered):
-- **FAQ tier limits (was [KAN-154](https://tiddly.atlassian.net/browse/KAN-154)).** `frontend/src/components/FAQContent.tsx` "How much content can I store?" shows wrong Free-tier numbers (100/100/100 vs. actual 10/10/5; 100,000 vs. 25,000 char content limit; 100 vs. 200 char title). Reconcile against `backend/src/core/tier_limits.py` (or have it reference `/pricing`), and confirm the FAQ surface is in the `AGENTS.md` sync list. **Folded into this milestone rather than fixed separately** — at beta scale the user-facing risk is low, and consolidating keeps related content fixes in one reviewable PR.
+- ✅ **RESOLVED upstream — FAQ tier limits (was [KAN-154](https://tiddly.atlassian.net/browse/KAN-154)).** The FAQ "How much content can I store?" answer showed wrong Free-tier numbers. **Fixed by content-as-markdown M3**, not here: the FAQ moved to `/data/faq.json` and its storage answer was reworded to drop the numbers and link `/pricing`, and tier numbers are now single-sourced from `/data/tiers.json` (backend + Pricing read the same file). KAN-154 is already closeable; no action remains in this milestone. Retained as the cautionary example that motivates the "name the canonical source in the header" rule.
 
 **Fixed decisions:**
-- KAN-154 is resolved here, not on its own branch.
+- M6 collapses to a **ledger only**: its seed finding (KAN-154) was resolved by content-as-markdown, so M6 carries no required fix at resume time. It exists to capture and reconcile *new* inconsistencies surfaced while authoring artifacts against the code during M1–M5. If none surface, M6 is a no-op verification pass.
 - The findings list lives in *this milestone*, not in the frozen M0 snapshot (Appendix A).
 
 **Definition of Done** *(to be detailed as findings accumulate)*
-- All logged inconsistencies resolved against canonical sources.
+- Any inconsistency logged during M1–M5 reconciled against its canonical source (the new single sources: `/data/*.json`, `/prose/*.md`, `tier_limits.py`); if none were logged, that is recorded explicitly.
 - `AGENTS.md` sync-list coverage verified (and extended) for every affected file.
-- `make frontend-verify` / `make backend-verify` pass as appropriate to the files touched; KAN-154 closeable.
+- `make frontend-verify` / `make backend-verify` pass as appropriate to any files touched. (KAN-154 is already closeable independent of this milestone.)
 
 ## Cross-cutting concerns
 
@@ -230,7 +236,7 @@ Outcomes:
 
 **Status:** Frozen historical record of the M0 research; the living decisions are in the milestones above. Preserved here as the M0 snapshot.
 
-> **Superseded notes:** (1) The FAQ tier-limit fix (§5/§6 below, originally "a separate fix, out of scope") is folded into **Milestone 6** and resolved in this PR. (2) The living findings ledger now lives in Milestone 6, not in this appendix.
+> **Superseded notes:** (1) The FAQ tier-limit fix (§5/§6 below) was **resolved by the content-as-markdown refactor**, not in this PR (see Milestone 6). (2) The living findings ledger now lives in Milestone 6, not in this appendix. (3) **Link targets below are superseded by the reconciliation note at the top of this plan:** tier numbers now link `/data/tiers.json` (not just `/pricing`), and `/docs/*` cross-references become the agent-readable `/prose/*.md` + `/data/*.json` artifacts. The appendix text is preserved as the frozen M0 snapshot; the reconciliation note is authoritative where they differ.
 
 The executed M0 deliverable: the concept inventory, the justified artifact set (with recommendations taken, not punted), the index/discoverability strategy, the copy-ready anti-drift philosophy, and findings uncovered during the research. Sources mined: `frontend/public/llms.txt`, the `frontend/src/pages/docs/*` pages, `frontend/src/data/docsRoutes.tsx`, `AGENTS.md`, and `docs/architecture.md`.
 
