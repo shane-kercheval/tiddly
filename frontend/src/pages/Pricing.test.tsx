@@ -40,4 +40,13 @@ describe('Pricing — values sourced from tiers.json', () => {
     expect(screen.getByText(`${pro.history_retention_days} days`)).toBeInTheDocument() // 15 days
     expect(screen.getByText(`${free.max_pats} API tokens`)).toBeInTheDocument() // 3 API tokens
   })
+
+  it('renders prices from the file (annual is the default toggle state)', () => {
+    renderPricing()
+    const { free, standard, pro } = tiersData
+    // Default toggle is Annual, so cards show the annual per-month price.
+    expect(screen.getByText(`$${free.price.monthly_usd}`)).toBeInTheDocument() // $0
+    expect(screen.getByText(`$${standard.price.annual_monthly_usd}`)).toBeInTheDocument() // $1
+    expect(screen.getByText(`$${pro.price.annual_monthly_usd}`)).toBeInTheDocument() // $4
+  })
 })

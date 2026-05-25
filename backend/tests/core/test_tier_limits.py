@@ -243,11 +243,15 @@ class TestTiersJsonSource:
             _build_tier_limits({**good, "bogus_field": 1}, "free")
 
     def test__build_tier_limits__allows_display_only_keys(self) -> None:
-        """`unlimited_items` is display metadata, not an enforcement field — tolerated, ignored."""
+        """`unlimited_items` and `price` are display metadata, not enforcement fields — tolerated, ignored."""
         good = {f.name: 1 for f in dataclasses.fields(TierLimits)}
-        limits = _build_tier_limits({**good, "unlimited_items": True}, "pro")
+        limits = _build_tier_limits(
+            {**good, "unlimited_items": True, "price": {"monthly_usd": 5, "annual_monthly_usd": 4}},
+            "pro",
+        )
         assert isinstance(limits, TierLimits)
         assert not hasattr(limits, "unlimited_items")
+        assert not hasattr(limits, "price")
 
 
 class TestGetTierSafely:

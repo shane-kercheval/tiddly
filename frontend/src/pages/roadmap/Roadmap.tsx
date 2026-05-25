@@ -1,193 +1,26 @@
 import { useState, type ReactNode } from 'react'
 import { usePageTitle } from '../../hooks/usePageTitle'
-
-interface RoadmapItem {
-  title: string
-  description: string
-  date?: string // yyyy-mm, shown as tag on Shipped items
-}
-
-interface RoadmapColumn {
-  title: string
-  description: string
-  accentColor: string
-  items: RoadmapItem[]
-}
+import { ROADMAP, type RoadmapColumn } from '../../content/data/roadmap'
 
 const INITIAL_VISIBLE_COUNT = 7
 
-const ROADMAP: RoadmapColumn[] = [
-  {
-    title: 'Backlog',
-    description: 'Planned work we intend to build.',
-    accentColor: 'border-t-gray-300',
-    items: [
-      {
-        title: 'AI auto-complete',
-        description: 'Inline completions while writing notes and prompt templates.',
-      },
-      {
-        title: 'AI chat',
-        description: 'Conversational interface for searching and managing content.',
-      },
-      {
-        title: 'OAuth for MCP',
-        description: 'Connect MCP clients like ChatGPT without personal access tokens.',
-      },
-      {
-        title: 'Data export',
-        description: 'Export all your content in standard formats.',
-      },
-      {
-        title: 'Safari extension',
-        description: 'Save and search bookmarks directly from Safari.',
-      },
-      {
-        title: 'Image support',
-        description: 'Attach images to bookmarks and notes.',
-      },
-      {
-        title: 'Multi-select actions',
-        description: 'Bulk tag, archive, or delete multiple items at once.',
-      },
-      {
-        title: 'Content encryption',
-        description: 'End-to-end encryption for sensitive content.',
-      },
-    ],
-  },
-  {
-    title: 'In Progress',
-    description: 'Actively being built.',
-    accentColor: 'border-t-amber-500',
-    items: [
-      {
-        title: 'Semantic search',
-        description: 'Vector-based search using embeddings for meaning-aware content discovery.',
-      },
-      {
-        title: 'Mobile app',
-        description: 'Native mobile experience backed by the existing API.',
-      },
-    ],
-  },
-  {
-    title: 'Shipped',
-    description: 'Recently launched.',
-    accentColor: 'border-t-green-500',
-    items: [
-      {
-        title: 'Antigravity MCP support',
-        description: 'Connect Google Antigravity (the agy CLI and IDE) to your content via `tiddly mcp configure antigravity`.',
-        date: '2026-05',
-      },
-      {
-        title: 'Tips catalog & command palette discovery',
-        description: 'Browse a curated tips catalog at /docs/tips, and find tips, docs pages, and settings from the command palette by concept — not just literal name.',
-        date: '2026-05',
-      },
-      {
-        title: 'Chrome extension keyboard shortcut',
-        description: 'Open the extension with Option+Shift+S (Mac) or Alt+Shift+S (Windows/Linux); rebindable in Chrome.',
-        date: '2026-05',
-      },
-      {
-        title: 'AI-powered suggestions',
-        description: 'Tag, metadata, relationship, and prompt argument suggestions powered by AI. Includes BYOK support and per-use-case configuration.',
-        date: '2026-04',
-      },
-      {
-        title: 'Tiddly CLI',
-        description: 'Command-line tool for configuring MCP servers and syncing agent skills.',
-        date: '2026-03',
-      },
-      {
-        title: 'Public docs site',
-        description: 'AI integration guides, content types, search, versioning, and keyboard shortcuts.',
-        date: '2026-03',
-      },
-      {
-        title: 'Keyboard navigation',
-        description: 'Arrow keys to navigate content lists, Enter to open.',
-        date: '2026-03',
-      },
-      {
-        title: 'PAT rename',
-        description: 'Rename Personal Access Tokens from the settings page.',
-        date: '2026-03',
-      },
-      {
-        title: 'Chrome extension',
-        description: 'Save and search bookmarks from any page.',
-        date: '2026-02',
-      },
-      {
-        title: 'Content versioning',
-        description: 'Full history with diffs and one-click restore.',
-        date: '2026-02',
-      },
-      {
-        title: 'Full-text search',
-        description: 'Search across all content with command palette.',
-        date: '2026-02',
-      },
-      {
-        title: 'Content relationships',
-        description: 'Link related bookmarks, notes, and prompts together.',
-        date: '2026-02',
-      },
-      {
-        title: 'Keyboard shortcuts & command palette',
-        description: 'Slash commands, editor palette, and global shortcuts.',
-        date: '2026-02',
-      },
-      {
-        title: 'Rich markdown editor',
-        description: 'WYSIWYG editing with syntax highlighting and keyboard shortcuts.',
-        date: '2026-01',
-      },
-      {
-        title: 'Filters & Collections',
-        description: 'Saved tag-based views for organizing content.',
-        date: '2026-01',
-      },
-      {
-        title: 'Agent Skills export',
-        description: 'Export prompts for Claude Code, Claude Desktop, and Codex.',
-        date: '2026-01',
-      },
-      {
-        title: 'MCP integration',
-        description: 'AI assistant access to bookmarks, notes, and prompts.',
-        date: '2025-12',
-      },
-      {
-        title: 'First commit',
-        description: 'Bookmarks, notes, prompt templates, tags, and API access.',
-        date: '2025-12',
-      },
-    ],
-  },
-]
-
-const IDEAS: RoadmapItem[] = [
-  {
-    title: 'Chrome extension editing',
-    description: 'Edit bookmarks and notes directly from the extension popup.',
-  },
-  {
-    title: 'Integrations',
-    description: 'Google Docs, Confluence, and other third-party connections.',
-  },
-]
+// Presentation only: per-column top-border accent. Keys MUST match the column
+// `title`s in roadmap.json — an unmapped title falls back to gray silently (a
+// rename there drops the accent, not the column), so keep these in sync.
+const COLUMN_ACCENT_COLORS: Record<string, string> = {
+  Backlog: 'border-t-gray-300',
+  'In Progress': 'border-t-amber-500',
+  Shipped: 'border-t-green-500',
+}
 
 function RoadmapColumnCard({ column }: { column: RoadmapColumn }): ReactNode {
   const [expanded, setExpanded] = useState(false)
   const hasMore = column.items.length > INITIAL_VISIBLE_COUNT
   const visibleItems = expanded ? column.items : column.items.slice(0, INITIAL_VISIBLE_COUNT)
+  const accentColor = COLUMN_ACCENT_COLORS[column.title] ?? 'border-t-gray-300'
 
   return (
-    <div className={`rounded-xl border border-gray-200 border-t-4 ${column.accentColor}`}>
+    <div className={`rounded-xl border border-gray-200 border-t-4 ${accentColor}`}>
       <div className="p-6">
         <h2 className="text-lg font-bold text-gray-900">{column.title}</h2>
         <p className="mt-1 text-sm text-gray-500">{column.description}</p>
@@ -230,7 +63,7 @@ function IdeasSection(): ReactNode {
         </p>
       </div>
       <div className="grid gap-3 px-6 pb-6 sm:grid-cols-2">
-        {IDEAS.map((item) => (
+        {ROADMAP.ideas.map((item) => (
           <div key={item.title} className="rounded-lg bg-gray-50 p-4">
             <h3 className="text-sm font-semibold text-gray-900">{item.title}</h3>
             <p className="mt-1 text-sm text-gray-600">{item.description}</p>
@@ -257,7 +90,7 @@ export function Roadmap(): ReactNode {
       </div>
 
       <div className="grid gap-8 lg:grid-cols-3">
-        {ROADMAP.map((column) => (
+        {ROADMAP.columns.map((column) => (
           <RoadmapColumnCard key={column.title} column={column} />
         ))}
       </div>

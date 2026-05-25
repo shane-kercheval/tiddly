@@ -151,10 +151,13 @@ export function Pricing(): ReactNode {
   usePageTitle('Pricing')
   const [isAnnual, setIsAnnual] = useState(true)
 
-  const standardPrice = isAnnual ? '1' : '2'
-  const standardBillingNote = isAnnual ? 'per month, billed annually' : 'per month'
-  const proPrice = isAnnual ? '4' : '5'
-  const proBillingNote = isAnnual ? 'per month, billed annually' : 'per month'
+  // Prices come from the canonical tiers.json (display-only `price` field), not hardcoded —
+  // so they're single-sourced with the served /data/tiers.json an agent reads.
+  const monthlyPrice = (tier: TierData): number =>
+    isAnnual ? tier.price.annual_monthly_usd : tier.price.monthly_usd
+  const standardPrice = monthlyPrice(standard)
+  const proPrice = monthlyPrice(pro)
+  const billingNote = isAnnual ? 'per month, billed annually' : 'per month'
 
   return (
     <div>
@@ -203,7 +206,7 @@ export function Pricing(): ReactNode {
         <div className="rounded-2xl border border-gray-200 bg-white p-8">
           <h2 className="text-lg font-semibold text-gray-900">Free</h2>
           <div className="mt-4 flex items-baseline gap-1">
-            <span className="text-5xl font-bold tracking-tight text-gray-900">$0</span>
+            <span className="text-5xl font-bold tracking-tight text-gray-900">${free.price.monthly_usd}</span>
           </div>
           <p className="mt-2 text-sm text-gray-500">Free forever</p>
 
@@ -229,7 +232,7 @@ export function Pricing(): ReactNode {
             <span className="text-5xl font-bold tracking-tight text-gray-900">${standardPrice}</span>
             <span className="text-lg text-gray-500">/mo</span>
           </div>
-          <p className="mt-2 text-sm text-gray-500">{standardBillingNote}</p>
+          <p className="mt-2 text-sm text-gray-500">{billingNote}</p>
 
           <CTAButton variant="secondary" tier="standard" />
 
@@ -251,7 +254,7 @@ export function Pricing(): ReactNode {
             <span className="text-5xl font-bold tracking-tight text-gray-900">${proPrice}</span>
             <span className="text-lg text-gray-500">/mo</span>
           </div>
-          <p className="mt-2 text-sm text-gray-500">{proBillingNote}</p>
+          <p className="mt-2 text-sm text-gray-500">{billingNote}</p>
 
           <CTAButton variant="primary" tier="pro" />
 

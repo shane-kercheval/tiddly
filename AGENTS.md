@@ -92,11 +92,12 @@ After any feature, API, pricing, or UI change, review whether these need updatin
 **Public content — edit the single source, not the renderer:**
 - Docs/legal prose: `frontend/src/content/prose/*.md`. The `docs/Docs*.tsx` pages and the legal pages (`PrivacyPolicy.tsx`/`TermsOfService.tsx`, which add only page chrome + the dynamic "Last Updated" date) are thin renderers of these — editing the `.tsx` won't change the content (or what's served at `/prose/*.md`).
 - FAQ: `frontend/src/content/data/faq.json` (one file feeds both `DocsFAQ` and `SettingsFAQ` via `components/FAQContent.tsx`). Known issues: `content/data/known-issues.json`. Tips: `content/data/tips.json`.
+- Changelog: `frontend/src/content/data/changelog.json`. Roadmap: `content/data/roadmap.json`. The `changelog/Changelog.tsx` and `roadmap/Roadmap.tsx` pages are thin renderers — editing the `.tsx` won't change the content (or what's served at `/data/*.json`); presentation-only bits (tag/accent colors) stay in the renderer.
 - Keyboard shortcuts: `frontend/src/shortcuts/shortcuts.json`.
 - Tier limits / pricing numbers: `frontend/src/content/data/tiers.json` — the single cross-stack source (backend enforcement + `Pricing.tsx` display + served `/data/tiers.json`). **Never re-hardcode tier numbers**; `Pricing.tsx` reads them from this file (a test guards against drift).
 
 **Designed pages still authored in TSX** (`frontend/src/pages/`):
-- `LandingPage.tsx`, `FeaturesPage.tsx`, `AIIntegration.tsx` (marketing layouts — prose intentionally not migrated to markdown; see the content-as-markdown plan's M4), `Pricing.tsx` (layout and qualitative copy; the *numbers* come from `tiers.json`), `changelog/Changelog.tsx`, `roadmap/Roadmap.tsx`.
+- `LandingPage.tsx`, `FeaturesPage.tsx`, `AIIntegration.tsx` (marketing layouts — prose intentionally not migrated to markdown; see the content-as-markdown plan's M4), `Pricing.tsx` (layout and qualitative copy; the *numbers* come from `tiers.json`).
 
 **LLM/AI discoverability:**
 - `frontend/public/llms.txt` — LLM-friendly site index; update when features, API, or tiers change.

@@ -1,63 +1,76 @@
 # tiddly.me
 
-> tiddly.me is a content manager for bookmarks, notes, and prompts (Jinja2 templates) built to connect a personal knowledge base directly to AI assistants. Everything is full-text searchable, tagged, and version-tracked — and the same content you organize in the web app is readable and editable by Claude and other AI tools through two MCP servers.
+> tiddly.me is a single, searchable home for bookmarks, notes, and prompts (Jinja2 templates), built so the same content you organize in the web app is readable and editable by AI assistants through two MCP servers. Bookmarks and notes are equal, linkable content types; prompts are a first-class, versioned content type exposed to every AI tool you use.
 
-This file is the entry point for an AI agent learning about tiddly.me — what it is, who it's for, and how it works conceptually — so you can explain it and help someone decide whether to use it. It does not cover setup or task mechanics; those live in the companion files listed under **Agent Resources** at the end. Pricing numbers are summarized here but authoritative on the pricing page (linked); the current list of supported AI tools is authoritative in the app's AI Integration settings (linked).
+This file is the entry point for an AI agent learning about tiddly.me — what it is, who it's for, and how it works conceptually — so you can explain it and help someone decide whether to use it. It does not cover setup or task mechanics; those live in the companion files under **Agent Resources** at the end. Where a fact derives from code (tier limits, prices, supported tools), this file summarizes it and points to a machine-readable canonical source you can fetch: tier limits and prices live in `/data/tiers.json`; the current supported-AI-tools list is authoritative in the app's AI Integration settings (linked).
 
-## Why tiddly.me Exists
+## Why Tiddly
 
-- **Bookmarks without the bloat.** Most bookmark managers are either too simple to be useful or too heavy to stick with. tiddly.me saves a bookmark's full page content for search, plus your own notes and tags — searchable, organized, and nothing more.
-- **Markdown notes that work with AI.** Plain markdown notes that an AI assistant can read, search, and edit directly through MCP — no copy-pasting between apps.
-- **AI transparency and version control.** When an AI edits your content, every change is tracked with full version history that records what changed, when, and from where (web, API, or a specific MCP server). You can review and revert — which matters precisely because AI gets things wrong.
-- **A prompt library that syncs to your tools.** Reusable Jinja2 prompt templates live in one place and are reachable from any AI assistant through MCP, instead of being scattered across conversations and config files.
+Tiddly starts from two gaps:
 
-## Who tiddly.me Is (and Isn't) For
+- **Bookmarks and notes live in separate tools.** Most notes apps treat bookmarks as an afterthought, and most bookmark managers don't connect to your notes. So the articles you've read sit somewhere separate from the notes you wrote about them, neither is searchable in one place, and any AI agent you connect to one has no visibility into the other.
+- **Forgetting *that* you read something.** The problem isn't only forgetting what an article said — it's forgetting it exists at all, when something you read eight months ago is directly relevant to what you're doing now. An AI agent can surface it for you, but only if the content lives somewhere the agent can actually search.
 
-It's a good fit if you want a single searchable home for bookmarks, notes, and prompts that your AI assistant can read and edit directly, with a clear history of every change. It's built for one person's knowledge base wired into AI tooling.
+**Prompts are a different kind of content.** Notes and bookmarks are passive knowledge you accumulate; prompts are tools you actively use. Left alone they get duplicated and scattered — saved in text files, copy-pasted between AI tools, recreated from memory in each new context. Tiddly gives them one home, and because they're exposed over MCP, the same library is available across every AI tool you use (Claude Desktop, Claude Code, Codex) with no separate copies to maintain.
 
-It's probably **not** the right tool if you need:
+### Why bookmarks and notes belong together
 
-- **Sharing or real-time collaboration.** Content is isolated per account; there is no sharing between users.
-- **Files or rich media.** Content is text/markdown only. External image URLs render in markdown, but there's no file hosting or attachments.
+Keeping them in separate tools creates a quiet, persistent problem: you can't search across both, you can't link an article to the note you wrote about it, and an AI agent connected to one is blind to the other. The tools were built for different jobs — Pocket/Instapaper are *consumption* tools (read it later), Bear/Obsidian are *writing* tools (bookmarks aren't a real content type) — so people bolt them together by hand, usually badly.
+
+Tiddly treats bookmarks and notes as equal content types in one place, sharing tags, search, and relationships. You can link an article to the note about it, tag both under one topic, and search across them together. An agent connected via MCP sees all of it as one knowledge base: it can search bookmarks and notes simultaneously, link related items automatically, and auto-archive things untouched for months — which matters because both bookmark collections and note archives accumulate noise over time until they're hard to trust.
+
+### Why prompts are a first-class content type
+
+Because Tiddly exposes prompts over MCP, you write a prompt once and it's available wherever you work, instead of maintaining a copy per tool. Agents can also pull in your prompts while working with your other content — a saved prompt that defines how you want playbooks structured, say, gets picked up automatically rather than re-explained every session. Prompts get the same versioning, tagging, and search as everything else.
+
+## Who Tiddly Is (and Isn't) For
+
+A good fit if you want one searchable home for bookmarks, notes, and prompts that your AI assistant can read and edit directly, with a clear history of every change. It's built for **one person's** knowledge base wired into AI tooling.
+
+Probably **not** the right tool if you need:
+
+- **Sharing or real-time collaboration.** Content is isolated per account; there's no sharing between users.
+- **Files or rich media (today).** Content is text/markdown only — external image URLs render in markdown, but there's no file hosting or attachments yet. Image attachments for bookmarks and notes are planned (see the roadmap data at https://tiddly.me/data/roadmap.json).
 - **End-to-end encryption.** Content is encrypted at rest but readable server-side — a requirement for full-text search. Self-hosting is the path to full privacy.
 
-How it compares: unlike a plain bookmark manager, tiddly.me stores full page text for search and treats prompts as first-class, versioned content. Unlike a general notes app, it's organized around AI access (MCP) and change transparency rather than collaboration or media.
+## What Tiddly Does
 
-## What tiddly.me Does
-
-Three content types, all of which support tagging, full-text search, version history, relationships (linking items together), archiving, and soft-delete with restore:
+Three content types, all with tagging, full-text search, version history, relationships, archiving, and soft-delete with restore:
 
 - **Bookmarks** — a URL with auto-scraped page content (so the full text is searchable), plus your own title, description, and tags.
 - **Notes** — freeform markdown documents.
-- **Prompts** — Jinja2 templates with named arguments, treated as first-class content for the AI era. They render with variable substitution and are consumed by AI assistants over MCP. Same versioning, tagging, and search as everything else.
+- **Prompts** — Jinja2 templates with named arguments, versioned and searchable like everything else. They render with variable substitution and are consumed by AI assistants over MCP.
 
 ## Organizing and Finding Content
 
-- **Tags** are global across all content types; a "work" tag is the same tag on a bookmark or a note.
-- **Filters** are saved views built from boolean tag expressions (AND within a group, OR between groups), and can be grouped into **collections** in the sidebar.
-- **Relationships** link any item to any other (bookmark↔note↔prompt) with an optional description.
-- **Search** combines full-text search (stemmed, ranked) with substring matching in one query across titles, descriptions, content, and bookmark URLs, with operators for phrases, exclusion, and OR.
+- **Unified search** runs across bookmarks, notes, and prompts in one query — over titles, descriptions, bookmark URLs, and full content body — combining stemmed/ranked full-text search with substring matching, plus operators for phrases, exclusion, and OR.
+- **Tags** are shared across all content types; a "work" tag is the same tag on a bookmark or a note.
+- **Filters** are saved views built from boolean tag expressions (AND within a group, OR between groups) — e.g. everything tagged `python` and `tutorial` — and appear in the sidebar, groupable into **collections**.
+- **Relationships** link any item to any other across types (a bookmark to the note about it); agents can create them automatically.
 
 These are summarized for evaluation; for how to actually use them, see `llms-app-usage.txt`.
 
 ## Versioning and Transparency
 
-Every create, update, and restore is versioned; deletes, archives, and restores are recorded as audit events. Each change records its source (web UI, API, or a specific MCP server) and the authentication method used, and any prior version can be reconstructed or restored. This is the mechanism behind the "AI transparency" pitch above — it's what makes letting an AI edit your content safe to reason about.
+Every change to any content — from the web UI, MCP, or API — is recorded with a full diff, timestamp, and source (which surface, and the auth method used). If an agent rewrites a note, you can see exactly which lines changed, restore any previous version, or undelete anything; deletes, archives, and restores are themselves audit events. This is what makes giving an agent write access reasonable: you always know what changed and can undo it.
 
 ## AI Integration
 
-This is the core differentiator, summarized here at a conceptual level:
+The core of Tiddly, summarized here conceptually:
 
-- **Two MCP servers** expose your content to AI assistants — one for bookmarks and notes, one for prompts — so an assistant can search, read, create, and edit your content and render your prompt templates in a conversation.
-- **Agent Skills export** — prompts can also be exported as SKILL.md Agent Skills for tools that support them.
-- **Programmatic access** — a full REST API authenticated with Personal Access Tokens.
-- **In-app AI features** (Pro) — suggestions for tags, titles/descriptions, relationships, and prompt arguments, with optional bring-your-own-key.
+- **Two MCP servers** give agents access to your content — one for bookmarks and notes (search, read, create, edit), one for prompts (list, render, create, edit). They're **remote/hosted** — no local process to run or maintain. The Prompt server exposes prompts over the native MCP prompts protocol, so an agent can list and render them with arguments.
+- **Setup is one command.** `tiddly mcp configure` auto-detects your installed AI tools and writes their configs — no hand-editing JSON.
+- **Agent Skills export** — prompts can be exported as `SKILL.md` skills for Claude Code and Codex (`tiddly skills configure`, filterable by tag), invoked by name or picked up automatically by task context.
+- **REST API** — full programmatic access, authenticated with Personal Access Tokens.
+- **In-app AI suggestions (Pro)** — tag, title, description, and relationship suggestions as you create or edit, with optional bring-your-own-key for higher limits and model choice.
 
-Supported AI tools, exact setup steps, and the security model live in `llms-integration.txt`; the `tiddly` CLI that wires it all up is documented in `llms-cli-instructions.txt`. The current authoritative list of supported tools is the AI Integration settings page (linked below).
+Supported tools, exact setup, and the security model live in `llms-integration.txt`; the `tiddly` CLI is documented in `llms-cli-instructions.txt`. The authoritative supported-tools list is the AI Integration settings page (linked below).
 
 ## Pricing
 
-Three tiers — Free, Standard, and Pro — where higher tiers raise capacity (item counts, content length, version-history retention, rate limits) and Pro unlocks the in-app AI features. **tiddly.me is currently in beta, and all accounts have Pro access at no charge.** Authoritative limits and current prices: https://tiddly.me/pricing.
+Three tiers — Free, Standard, and Pro — where higher tiers raise capacity (item counts, content length, version-history retention, rate limits) and Pro unlocks the in-app AI features. **tiddly.me is currently in beta, and all accounts have Pro access at no charge.** For authoritative limits and prices, fetch the machine-readable tier data at https://tiddly.me/data/tiers.json (the same file the backend enforces and the pricing page renders); the human view is https://tiddly.me/pricing.
+
+When reading `tiers.json`, note that Pro's item counts carry an `unlimited_items: true` flag and are shown as "Unlimited." The numeric `max_bookmarks`/`max_notes`/`max_prompts` on Pro (10,000) is a high **anti-abuse ceiling** the backend still enforces — not a marketed limit. Describe Pro as effectively unlimited for normal use, not as "capped at 10,000."
 
 ## Platform and Privacy
 
@@ -65,25 +78,36 @@ Three tiers — Free, Standard, and Pro — where higher tiers raise capacity (i
 - **Infrastructure** — FastAPI backend, React frontend, PostgreSQL (encrypted at rest), Redis. Hosted on Railway's Pro tier (SOC 2, DDoS protection, daily backups).
 - **Auth** — Auth0.
 - **Multi-tenant** — content is isolated per user; there is no sharing.
-- **Privacy** — no end-to-end encryption (it would prevent full-text search); a database administrator could technically access data. Self-host for complete privacy.
+- **Privacy** — no end-to-end encryption (it would prevent full-text search); a database administrator could technically access data. Self-host for complete privacy. Full policy: https://tiddly.me/prose/privacy.md.
 
 ## Use Cases
 
-- **Personal knowledge base** — bookmark articles (full text searchable), write notes, tag and filter into views like "all Python resources."
+- **Personal knowledge base** — bookmark articles (full text searchable), write notes, link an article to the note about it, and filter both into views like "all Python resources."
 - **AI prompt library** — build reusable templates (e.g. a code-review prompt with `language`/`code`/`focus_area` arguments) and render them from any AI assistant over MCP.
-- **Research and reference** — bookmark papers, link related items via relationships, track how notes evolve through version history.
-- **AI-assisted content management** — let an assistant search, create, and edit your content and render prompts through natural conversation.
+- **Research and reference** — bookmark papers, link related items via relationships, and track how notes evolve through version history.
+- **AI-assisted content management** — let an assistant search, create, edit, link, and auto-archive your content and render prompts through natural conversation.
 
 ## Agent Resources
 
-Start here, then follow the file that matches what the user wants to do:
+`llms.txt` (this file) is the hub. Follow the sibling guide that matches what the user is doing, and fetch the machine-readable artifacts when you need authoritative, current facts rather than this summary.
 
-- **Using the app** → `https://tiddly.me/llms-app-usage.txt` — how to organize, search, filter, edit, and the known issues to flag.
-- **Connecting to AI tooling** → `https://tiddly.me/llms-integration.txt` — MCP setup, supported tools, Agent Skills, REST API, and the auth/security model.
-- **The `tiddly` CLI** → `https://tiddly.me/llms-cli-instructions.txt` — full command reference and workflows (an agent already using the CLI can also run `tiddly ai-instructions`).
+**Sibling guides (curated narrative, like this file):**
 
-Human-facing references:
+- **Using the app** → https://tiddly.me/llms-app-usage.txt — how to organize, search, filter, edit, and the known issues to flag.
+- **Connecting to AI tooling** → https://tiddly.me/llms-integration.txt — MCP setup, supported tools, Agent Skills, REST API, and the auth/security model.
+- **The `tiddly` CLI** → https://tiddly.me/llms-cli-instructions.txt — full command reference and workflows (an agent already using the CLI can also run `tiddly ai-instructions`).
+
+**Machine-readable artifacts (fetch for authoritative facts — these are the same files the app and backend use, so they never drift):**
+
+- **Tier limits & prices** → https://tiddly.me/data/tiers.json
+- **Structured data index** → https://tiddly.me/data/index.json — lists `faq.json`, `tips.json`, `known-issues.json`, `shortcuts.json`, `tiers.json`, `changelog.json` (what shipped, by month — recency/velocity signal), and `roadmap.json` (planned / in-progress / shipped features).
+- **Docs index** → https://tiddly.me/prose/index.json — every docs/legal page as plain markdown (`/prose/*.md`).
+
+**Human pages:**
 
 - Docs: https://tiddly.me/docs · Tips: https://tiddly.me/docs/tips
-- Pricing (authoritative tier limits): https://tiddly.me/pricing
+- Pricing (human view of tier limits): https://tiddly.me/pricing
+- Roadmap (planned features, e.g. image attachments): https://tiddly.me/roadmap
 - AI Integration settings (authoritative supported-tools list): https://tiddly.me/app/settings/ai-integration
+
+(These are human-facing SPA pages — they render in a browser, not as plain text an agent can fetch. For agent-readable content use the machine-readable artifacts above.)

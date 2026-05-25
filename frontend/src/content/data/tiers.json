@@ -1,7 +1,8 @@
 {
-  "_comment": "Canonical subscription tier limits — the single source of truth, cross-stack-owned. The BACKEND reads this at startup to build enforcement limits (backend/src/core/tier_limits.py) and the FRONTEND imports it to render the Pricing page; it is also served publicly at /data/tiers.json. It lives under frontend/ only because the frontend build context requires it there; do NOT move or delete it without updating the backend loader (which fails fast if it's missing) and Dockerfile.api (which COPYs it). Product tiers only — the runtime-only DEV tier stays in code. `unlimited_items` is DISPLAY-ONLY: when true, the pricing page shows 'Unlimited' for bookmark/note/prompt counts; the backend ignores it and still enforces the max_bookmarks/max_notes/max_prompts values as an anti-abuse ceiling.",
+  "_comment": "Canonical subscription tier limits — the single source of truth, cross-stack-owned. The BACKEND reads this at startup to build enforcement limits (backend/src/core/tier_limits.py) and the FRONTEND imports it to render the Pricing page; it is also served publicly at /data/tiers.json. It lives under frontend/ only because the frontend build context requires it there; do NOT move or delete it without updating the backend loader (which fails fast if it's missing) and Dockerfile.api (which COPYs it). Product tiers only — the runtime-only DEV tier stays in code. `unlimited_items` is DISPLAY-ONLY: when true, the pricing page shows 'Unlimited' for bookmark/note/prompt counts; the backend ignores it and still enforces the max_bookmarks/max_notes/max_prompts values as an anti-abuse ceiling. `price` is likewise DISPLAY-ONLY (monthly_usd = month-to-month price; annual_monthly_usd = per-month price when billed annually): the pricing page renders it and agents read it from the served file; the backend ignores it. Update prices here, not in Pricing.tsx.",
   "free": {
     "unlimited_items": false,
+    "price": { "monthly_usd": 0, "annual_monthly_usd": 0 },
     "max_bookmarks": 10,
     "max_notes": 10,
     "max_prompts": 5,
@@ -32,6 +33,7 @@
   },
   "standard": {
     "unlimited_items": false,
+    "price": { "monthly_usd": 2, "annual_monthly_usd": 1 },
     "max_bookmarks": 250,
     "max_notes": 100,
     "max_prompts": 50,
@@ -62,6 +64,7 @@
   },
   "pro": {
     "unlimited_items": true,
+    "price": { "monthly_usd": 5, "annual_monthly_usd": 4 },
     "max_bookmarks": 10000,
     "max_notes": 10000,
     "max_prompts": 10000,

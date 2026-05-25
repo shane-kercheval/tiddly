@@ -8,8 +8,10 @@ describe('data content serving', () => {
   it('serves every data file with a manifest entry', () => {
     const paths = manifest.map((e) => e.path).sort()
     expect(paths).toEqual([
+      '/data/changelog.json',
       '/data/faq.json',
       '/data/known-issues.json',
+      '/data/roadmap.json',
       '/data/shortcuts.json',
       '/data/tiers.json',
       '/data/tips.json',

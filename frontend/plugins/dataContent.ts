@@ -36,6 +36,11 @@ interface FileDataEntry {
 /** Canonical `.json` files in `src/content/data/`, served verbatim. */
 const FILE_ENTRIES: FileDataEntry[] = [
   {
+    name: 'changelog.json',
+    description:
+      'Release changelog by month: each month has a theme and categories (New / Improved); each entry is a titled change with description, optional PR number, and a tag (web / api / cli / extension / site / performance / ai).',
+  },
+  {
     name: 'faq.json',
     description: 'Frequently asked questions, grouped by section; each item is a question and a markdown answer.',
   },
@@ -47,6 +52,11 @@ const FILE_ENTRIES: FileDataEntry[] = [
   {
     name: 'tips.json',
     description: 'Product tips: short markdown guidance with categories, audience, and related docs.',
+  },
+  {
+    name: 'roadmap.json',
+    description:
+      'Product roadmap: columns (Backlog / In Progress / Shipped), each with items (title + description, plus a yyyy-mm date on shipped items), and a separate list of speculative ideas.',
   },
   {
     name: 'tiers.json',
