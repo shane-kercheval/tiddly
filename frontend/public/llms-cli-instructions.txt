@@ -1,0 +1,66 @@
+# Tiddly — CLI Instructions
+
+> What the `tiddly` CLI does and how to drive it: the full command set, how auth/token resolution works, and the common workflows. This is the document the `tiddly ai-instructions` command prints, and the "CLI" companion to the hub (https://tiddly.me/llms.txt). It assumes the CLI is installed and you're driving it on a user's machine. For *why* you'd connect via MCP/skills/API, see https://tiddly.me/llms-integration.txt; for what Tiddly is, https://tiddly.me/llms.txt.
+
+**Scope / cross-references.** This file owns the CLI command reference and workflows. It does **not** restate the value prop or tiers (https://tiddly.me/llms.txt) or the integration model and per-tool quirks (https://tiddly.me/llms-integration.txt — go there for *why*; this file is *how*). Full doc pages: https://tiddly.me/prose/cli-reference.md, https://tiddly.me/prose/cli-mcp.md, https://tiddly.me/prose/cli-skills.md.
+
+## What the CLI is for
+
+`tiddly` is a thin REST client plus an MCP/skills setup assistant. Its headline job is **connecting a user's AI tools to their Tiddly content** (`tiddly mcp configure`); it also exports prompts as skills, manages tokens, exports content, and reports status. Day-to-day content editing happens over MCP or the web app, not the CLI.
+
+## Authentication
+
+- **`tiddly login`** — OAuth device-code flow (default): prints a URL + one-time code to authorize in a browser, then stores access + refresh tokens.
+- **`tiddly login --token bm_…`** — authenticate with a Personal Access Token, for CI/headless use (validates the `bm_` prefix, verifies against the API).
+- **`tiddly logout`** — removes all stored credentials.
+- **`tiddly auth status`** — shows the active auth method (`pat` / `oauth` / `flag` / `env`), API URL, and account email (read-only).
+
+**Credential storage:** the system keyring (service name `tiddly-cli`). When the keyring is unavailable (containers, SSH, WSL), credentials fall back to `~/.config/tiddly/credentials` (mode 0600) — safe to use; pass `--keyring=file` to force it and silence the warning.
+
+**Token resolution order** (when a command needs a token): `--token` flag → `TIDDLY_TOKEN` env var → stored PAT → stored OAuth JWT (auto-refreshed). Commands that hit Auth0-only endpoints (e.g. token management) prefer the OAuth JWT over a stored PAT, since PATs are rejected there (see the 403 surfaces in https://tiddly.me/llms-integration.txt).
+
+## Connecting AI tools — the main job
+
+- **`tiddly mcp configure [tool...]`** — detects installed tools, mints a dedicated PAT per tool+server, and writes each tool's native MCP config (atomic, with a `.bak` of the prior file). Flags: `--servers content|prompts` (default both), `--scope user|directory` (default user), `--dry-run` (preview), `--force` (overwrite a CLI-managed entry pointing at the wrong URL), `--expires <1-365|0>` (PAT TTL in days). With no tool argument it configures all detected tools.
+- **`tiddly mcp status`** — shows configured Tiddly (and other) MCP servers per tool and scope; reads config files directly, no API calls.
+- **`tiddly mcp remove <tool>`** — removes only the CLI-managed entries (`tiddly_notes_bookmarks`, `tiddly_prompts`); `--delete-tokens` also revokes the matching PATs.
+
+Supported tools: Claude Desktop, Claude Code, Codex, Antigravity. Per-tool config paths, scope support, and quirks (Codex/Antigravity are tools-only) are in https://tiddly.me/llms-integration.txt and https://tiddly.me/prose/cli-mcp.md. The exact configure command for each tool is also shown in Settings → AI Integration (https://tiddly.me/app/settings/ai-integration).
+
+## Exporting prompts as skills
+
+- **`tiddly skills configure [tool...]`** — exports each prompt tagged `skill` as a `SKILL.md` agent skill for Claude Code, Codex, and Claude Desktop (Claude Code/Codex install directly; Claude Desktop produces a file to upload). Select a different tag set with `--tags`.
+- **`tiddly skills list`** — lists installed skills across tools and scopes.
+
+Whether a tool *needs* skills depends on how it consumes prompts: **Claude Code / Claude Desktop** surface saved prompts as native MCP Prompts (slash / picker), so skills are optional; **Codex** has no native MCP Prompts, so exporting skills (`tiddly skills configure codex`) is how its users invoke prompts (`$skill-name` or auto-selected by context); **Antigravity** supports neither and reaches prompts only through the prompt server's tools. The full per-tool model is in https://tiddly.me/llms-integration.txt; install mechanics in https://tiddly.me/prose/cli-skills.md.
+
+## Tokens (requires OAuth login)
+
+Token management is Auth0-only, so these need `tiddly login` (OAuth), not a PAT:
+
+- **`tiddly tokens list`** — list all PATs.
+- **`tiddly tokens create <name> [--expires <days>]`** — create a PAT (shown once).
+- **`tiddly tokens delete <id> [--force]`** — revoke a PAT (confirmation unless `--force`).
+
+PATs can also be created in Settings → Personal Access Tokens (https://tiddly.me/app/settings/tokens).
+
+## Exporting content
+
+- **`tiddly export`** — bulk-export all content as JSON (backup/migration). `--types bookmark,note,prompt` to scope, `--output <file>` to write to a file, `--include-archived` to include archived items.
+
+## Status, config, maintenance
+
+- **`tiddly status`** — full overview: CLI version, auth status, API health + latency, content counts (bookmarks/notes/prompts), and MCP + skills configuration across every detected tool and scope. `--path <dir>` inspects directory-scoped config for a specific project.
+- **`tiddly config list | get <key> | set <key> <value>`** — CLI config in `~/.config/tiddly/config.yaml` (`api_url`, `update_check`). Resolution order: flags → env vars (`TIDDLY_API_URL`, `TIDDLY_UPDATE_CHECK`) → config file → defaults (`https://api.tiddly.me`, `true`).
+- **`tiddly completion bash|zsh|fish`** — shell tab-completion scripts.
+- **`tiddly update`** — self-update the CLI binary.
+
+## Common workflows
+
+- **First-time setup:** `tiddly login` → `tiddly mcp configure` → restart the AI tool (Claude Desktop / Antigravity read config at startup) → `tiddly status` to confirm the servers are wired.
+- **Connect one tool:** `tiddly mcp configure claude-code` (optionally `--servers content`).
+- **Use saved prompts in Codex** (tools-only for MCP): `tiddly skills configure codex`, then invoke them as `$skill-name`.
+- **CI / headless:** `tiddly login --token bm_…` (or set `TIDDLY_TOKEN`), then e.g. `tiddly export --output backup.json`.
+- **Full backup:** `tiddly export --include-archived --output backup.json`.
+
+When guiding a user, prefer `tiddly mcp configure` over hand-editing config files — it handles detection, token minting, scoping, and backups. Re-running it is safe (it reuses valid existing tokens).

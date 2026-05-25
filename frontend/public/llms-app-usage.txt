@@ -1,0 +1,71 @@
+# Tiddly — Using the App
+
+> How an AI agent should guide a person in *operating* the Tiddly web app: finding, organizing, linking, editing, and managing the lifecycle of their bookmarks, notes, and prompts — plus the gotchas to proactively warn about. This is the "use" companion to the hub (https://tiddly.me/llms.txt). It assumes the person already uses Tiddly; for what Tiddly is and why, see https://tiddly.me/llms.txt; for connecting it to AI tools, see https://tiddly.me/llms-integration.txt.
+
+**Scope / cross-references.** This file owns task orientation ("to do X, do Y") and known-issue awareness. It does **not** restate the value prop, tiers, or integration model (see https://tiddly.me/llms.txt and https://tiddly.me/llms-integration.txt), and it does **not** reproduce the docs or the tips/known-issues corpora — it points to them:
+- Full mechanics (human + agent-readable markdown): `https://tiddly.me/prose/<page>.md` (index: https://tiddly.me/prose/index.json).
+- Granular how-to tips: https://tiddly.me/data/tips.json (human page https://tiddly.me/docs/tips).
+- Current known issues (authoritative): https://tiddly.me/data/known-issues.json.
+- Keyboard shortcuts (authoritative, full set): https://tiddly.me/data/shortcuts.json. Keys here are OS-agnostic — `Mod` is ⌘ on macOS, Ctrl elsewhere.
+
+## Orientation — the surfaces
+
+- **Content types:** bookmarks, notes, prompts — one app, shared tags/search/relationships.
+- **Sidebar:** built-in views **All** (active items), **Archived**, **Trash**, plus the user's saved **filters** grouped into **collections**.
+- **Command palette:** the fastest way to search and jump around — open with `Mod+Shift+P`, or press `/` to go straight to search. Min 2 characters to search.
+- **Item editor:** click an item to view it (read-only render); edit in place. Notes/descriptions use a markdown editor; prompt templates use a code editor with Jinja2 highlighting.
+
+## Finding content (search)
+
+Search is **unified** — one query spans bookmarks, notes, and prompts at once — and **two-tier**: full-text (stemmed, ranked) plus substring matching (catches partial words, code symbols, punctuation). Fields are weighted title > description > content > URL (URL = bookmarks only).
+
+Operators (combine freely): `"exact phrase"`, `-exclude` a term, `term OR term`; multiple words are **AND** by default.
+
+**Boundaries (so you build queries that actually work):** under the hood this is PostgreSQL full-text search via `websearch_to_tsquery` (English) combined with a substring (`ILIKE`) pass, ranked by `ts_rank` plus field weight. The operators above are the *entire* supported query syntax — there is no raw `tsquery`, wildcard, regex, or fuzzy/typo matching, and stemming is English-only (non-English text stems poorly). The substring pass is what lets exact fragments, code symbols, and punctuation match when stemming wouldn't (e.g. `Node.js`, `get_item`). Meaning-based / semantic (vector) search is not available yet — it's on the roadmap (https://tiddly.me/data/roadmap.json).
+
+Combine search with tags for precision: tag match **all** (AND) or **any** (OR). Saved filters persist a tag expression as a reusable view (below).
+
+To find a specific string *inside* a long item without loading the whole thing, use in-content search — but that's API/MCP only (see https://tiddly.me/llms-integration.txt). Full detail: https://tiddly.me/prose/search.md.
+
+## Organizing (tags, filters, collections)
+
+- **Tags** are global and case-insensitive — one namespace across all three content types; edit them inline on any item (autocomplete shows usage counts). Manage globally in **Settings → Tags** (rename/delete apply everywhere; a tag used by a saved filter can't be deleted until removed from that filter).
+- **Saved filters** are boolean tag expressions: **AND within a group, OR between groups** — e.g. `(python AND tutorial) OR (javascript AND guide)`. A filter also scopes by content type and can set a default sort; it appears in the sidebar. New accounts start with *All Bookmarks / Notes / Prompts*.
+- **Collections** group related filters in the sidebar (drag-and-drop to reorder/move; collapsible). Deleting a collection keeps its filters (moves them to the sidebar root). The whole sidebar order is persisted.
+
+To make "all my Python tutorials" as a one-click view: create a filter with group `python AND tutorial`. Full detail: https://tiddly.me/prose/tags-filters.md.
+
+## Linking (relationships)
+
+Link any item to any other across types (bookmark ↔ note ↔ prompt) — e.g. an article to the note about it. In the web UI, add a link via the "+" on an item, then search-and-pick the target; **web-UI relationships are plain links with no description** (the API/MCP relationship *can* carry an optional description — see https://tiddly.me/llms-integration.txt). On Pro, the editor surfaces AI relationship suggestions, and an agent can create relationships automatically.
+
+## Editing (the markdown editor)
+
+- **Slash menu:** type `/` at the start of a line to insert blocks — headings, bulleted/numbered/checklist, code block, blockquote, link, horizontal rule. In a *prompt*, the menu also offers Jinja2 blocks (variable, if-block). It does not trigger mid-line or inside a code fence.
+- **All shortcuts:** open the shortcuts dialog with `Mod+Shift+/`. Useful editor toggles: reading/preview mode `Mod+Shift+M`, word wrap `Alt+Z`. Full, OS-correct set: https://tiddly.me/data/shortcuts.json.
+- **Quick-add a bookmark:** paste a URL anywhere with `Mod+V` and Tiddly starts a new bookmark pre-filled from that URL.
+- **Authoring prompts** (Jinja2 templates: variables, conditionals, filters, loops, strict mode): see https://tiddly.me/prose/prompts.md.
+
+## Lifecycle (active → archived → trash)
+
+- **Archive** to hide an item from default views while keeping it **searchable and restorable** — the way to clear noise without deleting. Archiving can be immediate or **scheduled for a future date** (presets from 1 week to 1 year, or a custom date), and unarchived any time. This is a deliberate cleanup tool: schedule something to auto-archive when you already know it'll be stale (e.g. a release note or event link that's irrelevant in 3 months), and have an agent proactively archive items that have gone stale (untouched for months, superseded, no longer relevant). Knowledge bases and bookmark piles accumulate noise until they're hard to trust; proactive archiving keeps what's surfaced in default views current without losing anything.
+- **Delete** moves an item to **Trash**, where it's recoverable for **30 days**, then permanently purged. Restore from Trash before then. Items in Trash are read-only.
+- Every state change (and edit) is versioned — see "transparency" in https://tiddly.me/llms.txt; full mechanics in https://tiddly.me/prose/versioning.md.
+
+## When an agent and a person edit the same item (conflict)
+
+Tiddly uses **optimistic locking**. If an item changed since it was loaded, the save is rejected as a conflict (HTTP 409 over the API). In the web UI the user gets a **"Save Conflict"** dialog — "Your changes could not be saved because the server has a newer version." — with four choices: **Copy My Content** (to clipboard), **Load Latest Version** (discard local), **Save My Version** (overwrite — requires a two-click confirm), or **Do Nothing**. The dialog can't be dismissed by Escape/backdrop; the user must choose.
+
+If *you* are the agent editing via MCP/API, pass `expected_updated_at` and handle the 409 by re-reading and merging rather than blindly overwriting — and warn the user before clobbering their concurrent edits. Conflict-handling details: https://tiddly.me/llms-integration.txt.
+
+## AI suggestions (Pro)
+
+As a user creates or edits an item, Pro surfaces inline suggestions in the editor: **tags**, **title/description**, and **relationships** (each in a suggestions panel alongside manual entry). Bring-your-own-key and per-use-case configuration live in **Settings → AI Integration**. Setup and the integration model: https://tiddly.me/llms-integration.txt.
+
+## Gotchas to proactively flag
+
+The one limitation worth proactively raising in most conversations:
+
+- **Text only.** No image/file uploads or attachments today — external image URLs render via markdown `![alt](url)`, but there's no file hosting. Image attachments are planned (https://tiddly.me/data/roadmap.json).
+
+For the current, authoritative list of smaller editor quirks and limitations (e.g. loose-list spacing, wrapped-line selection), read https://tiddly.me/data/known-issues.json and surface the relevant one if a user hits it.
