@@ -59,8 +59,10 @@ Authenticate, configure MCP servers, sync skills, export data, and manage tokens
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// Skip init for completion and help commands
-			if cmd.Name() == "completion" || cmd.Name() == "help" {
+			// Skip init for commands that need no auth/config and must have no side
+			// effects. `ai-instructions` is agent-facing and zero-auth: it only fetches
+			// a public URL, so it does no dep init and starts no background update check.
+			if cmd.Name() == "completion" || cmd.Name() == "help" || cmd.Name() == "ai-instructions" {
 				return nil
 			}
 
@@ -143,6 +145,7 @@ Authenticate, configure MCP servers, sync skills, export data, and manage tokens
 	rootCmd.AddCommand(newCompletionCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newUpdateCmd())
+	rootCmd.AddCommand(newAIInstructionsCmd())
 
 	return rootCmd
 }

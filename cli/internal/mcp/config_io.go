@@ -87,6 +87,40 @@ func backupConfigFile(path string) (backupPath string, err error) {
 	}
 }
 
+// restoreConfigBackup copies a backup made by backupConfigFile back over path.
+// Used by the post-write integrity guard to roll back a write that would have
+// corrupted the config (e.g. dropped a non-managed MCP server), so a writer bug
+// can never leave a user's real config in a broken state. Writes via
+// atomicWriteFileFunc so tests can deterministically simulate a restore failure.
+func restoreConfigBackup(backupPath, path string) error {
+	data, err := os.ReadFile(backupPath)
+	if err != nil {
+		return fmt.Errorf("reading backup %s: %w", backupPath, err)
+	}
+	if err := atomicWriteFileFunc(path, data, 0600); err != nil {
+		return fmt.Errorf("restoring backup %s to %s: %w", backupPath, path, err)
+	}
+	return nil
+}
+
+// restoreAfterIntegrityFailure rolls back a write that failed its post-write
+// integrity check and returns an error that truthfully reflects the outcome.
+// It always returns a non-nil error so the command exits non-zero — the honesty
+// fix is worthless if a corrupted-but-unrestorable config quietly returns success.
+// Format-agnostic (pure file ops); the format-specific validation lives in each
+// writer's verify*Integrity.
+func restoreAfterIntegrityFailure(path, backupPath string, integrityErr error) error {
+	if backupPath == "" {
+		// Brand-new config (no prior file) — there is nothing to restore, and the
+		// just-written file may be invalid. Surface that rather than claim a restore.
+		return fmt.Errorf("config integrity check failed and no prior config existed to restore; the file at %s may be invalid: %w", path, integrityErr)
+	}
+	if rerr := restoreConfigBackup(backupPath, path); rerr != nil {
+		return fmt.Errorf("config integrity check failed (%w); AUTOMATIC RESTORE ALSO FAILED (%v) — recover manually from the backup at %s", integrityErr, rerr, backupPath)
+	}
+	return fmt.Errorf("config integrity check failed; restored previous config from %s: %w", backupPath, integrityErr)
+}
+
 // atomicWriteFileFunc is the write function used by writeJSONConfig /
 // writeCodexConfig. Overridable in tests to simulate write failures
 // that happen AFTER the backup has been taken — the specific ordering

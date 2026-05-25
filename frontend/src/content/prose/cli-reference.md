@@ -8,6 +8,17 @@ description: Tiddly CLI command reference — login, logout, auth status, status
 
 Authentication, tokens, export, configuration, and other CLI commands.
 
+## tiddly ai-instructions
+
+Prints Tiddly's CLI instructions for AI agents — the command an agent should run first. It fetches the latest hosted guidance (`https://tiddly.me/llms-cli-instructions.txt`) and prints it, so the instructions stay current without a CLI release.
+
+```
+tiddly ai-instructions
+```
+
+- **No login required** — it only fetches a public file, so an agent can call it before `tiddly login`.
+- **Offline-safe** — on any fetch failure it prints a minimal fallback that points at the URL and still exits 0, so it never breaks a workflow.
+
 ## Authentication
 
 ### tiddly login

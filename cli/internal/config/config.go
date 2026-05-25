@@ -9,7 +9,21 @@ import (
 
 const (
 	DefaultAPIURL = "https://api.tiddly.me"
+	// DefaultWebURL is the public web origin (distinct from the API host). It serves
+	// the static, agent-facing content files like /llms-cli-instructions.txt. Kept
+	// separate from DefaultAPIURL because those live at the web origin, not the API.
+	DefaultWebURL = "https://tiddly.me"
 )
+
+// WebURL returns the public web origin, overridable via TIDDLY_WEB_URL (used in tests).
+// Read directly from the environment (not viper) so it works in commands that skip
+// config initialization, mirroring the MCP URL resolvers.
+func WebURL() string {
+	if url := os.Getenv("TIDDLY_WEB_URL"); url != "" {
+		return url
+	}
+	return DefaultWebURL
+}
 
 // Dir returns the configuration directory path, respecting XDG_CONFIG_HOME.
 func Dir() string {

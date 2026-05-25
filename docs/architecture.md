@@ -129,7 +129,7 @@ Both deliberately **do not expose delete**. Destructive operations are web-UI-on
 
 A thin REST client plus an MCP-setup assistant.
 
-- Commands: `login`, `logout`, `auth`, `status`, `mcp configure|status|remove`, `skills configure|list`, `export`, `tokens`, `config`, `update`
+- Commands: `login`, `logout`, `auth`, `status`, `mcp configure|status|remove`, `skills configure|list`, `export`, `tokens`, `config`, `update`, `ai-instructions` (zero-auth; fetches the hosted `llms-cli-instructions.txt` and prints it — the command an agent should call first)
 - Auth: OAuth device-code flow (default) or `--token bm_...` for non-interactive use; credentials stored via `go-keyring` with a plaintext fallback at `~/.config/tiddly/credentials`
 - Config: `~/.config/tiddly/config.yaml` (Viper-managed), `TIDDLY_*` env overrides
 - **Primary non-obvious value:** `tiddly mcp configure` detects installed agentic tools on the host (by probing PATH and tool-specific config locations), generates scoped PATs, and writes the MCP server URLs into each tool's native config file (e.g. `claude_desktop_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.gemini/config/mcp_config.json`). This is the "connect my Claude apps to Tiddly" onramp.
