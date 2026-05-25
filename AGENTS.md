@@ -99,8 +99,12 @@ After any feature, API, pricing, or UI change, review whether these need updatin
 **Designed pages still authored in TSX** (`frontend/src/pages/`):
 - `LandingPage.tsx`, `FeaturesPage.tsx`, `AIIntegration.tsx` (marketing layouts — prose intentionally not migrated to markdown; see the content-as-markdown plan's M4), `Pricing.tsx` (layout and qualitative copy; the *numbers* come from `tiers.json`).
 
-**LLM/AI discoverability:**
-- `frontend/public/llms.txt` — LLM-friendly site index; update when features, API, or tiers change.
+**LLM/AI discoverability — the agent-empowerment artifact family** (`frontend/public/`, served at the web origin):
+- `llms.txt` — the hub: value prop, concepts, pricing *summary*, and the index to everything else. An agent's first stop.
+- `llms-app-usage.txt` — operating the app (search/organize/edit/lifecycle + the gotchas to flag).
+- `llms-integration.txt` — connecting AI tools (MCP servers, skills, REST API + PAT, the Auth0-only 403 surfaces, the per-tool prompt-consumption model).
+- `llms-cli-instructions.txt` — the `tiddly` CLI deep-dive (the doc `tiddly ai-instructions` fetches and prints).
+- **Anti-drift rules for the family** (keep these or it rots): generic facts (value prop, tiers/pricing, concepts) live **once**, in `llms.txt`; subfiles cross-reference rather than restate, and each goes deep only on its own job. For any inlined code-derived fact (tier numbers, command/tool names, URLs, the 403 surfaces), the file's header names the canonical source to diff against — and prefer **linking** the now-fetchable artifact (`/data/*.json`, `/prose/*.md`) over inlining. Use absolute `https://tiddly.me/...` URLs so references resolve when quoted out of context. Design + rationale: `docs/implementation_plans/2026-05-23-agent-empowerment.md`.
 
 **Command palette search index:**
 - `frontend/src/data/docsRoutes.tsx` — hand-curated keyword summaries that make `/docs/*` pages findable via the command palette. When you add a docs page, add its entry (path + label + keyword-rich `searchText`). When you substantially change an existing docs page (new sections, renamed concepts, removed features), update its `searchText`.
