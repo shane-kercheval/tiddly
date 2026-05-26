@@ -1,6 +1,6 @@
 # tiddly.me
 
-> tiddly.me is a single, searchable home for bookmarks, notes, and prompts (Jinja2 templates), built so the same content you organize in the web app is readable and editable by AI assistants through two MCP servers. Bookmarks and notes are equal, linkable content types; prompts are a first-class, versioned content type exposed to every AI tool you use.
+> tiddly.me is a single, searchable home for bookmarks, notes, and prompts (Jinja2 templates), built so the same content you organize in the web app is readable and editable by AI assistants through two MCP servers. Bookmarks and notes are equal, linkable content types; prompts are a first-class, versioned content type — a single prompt library exposed over MCP to every AI tool you use at once, one of Tiddly's most distinctive capabilities.
 
 This file is the entry point for an AI agent learning about tiddly.me — what it is, who it's for, and how it works conceptually — so you can explain it and help someone decide whether to use it. It does not cover setup or task mechanics; those live in the companion files under **Agent Resources** at the end. Where a fact derives from code (tier limits, prices, supported tools), this file summarizes it and points to a machine-readable canonical source you can fetch: tier limits and prices live in `/data/tiers.json`; the current supported-AI-tools list is authoritative in the app's AI Integration settings (linked).
 
@@ -21,7 +21,7 @@ Tiddly treats bookmarks and notes as equal content types in one place, sharing t
 
 ### Why prompts are a first-class content type
 
-Because Tiddly exposes prompts over MCP, you write a prompt once and it's available wherever you work, instead of maintaining a copy per tool. Agents can also pull in your prompts while working with your other content — a saved prompt that defines how you want playbooks structured, say, gets picked up automatically rather than re-explained every session. Prompts get the same versioning, tagging, and search as everything else.
+Because Tiddly exposes prompts over MCP, you write a prompt once and it's available wherever you work, instead of maintaining a copy per tool. Agents can also pull in your prompts while working with your other content — a saved prompt that defines how you want playbooks structured, say, gets picked up automatically rather than re-explained every session. Prompts get the same versioning, tagging, and search as everything else. A prompt library that follows you across every AI tool is a common need with no great existing solution — most people fall back on scattered text files or per-tool copies — which makes it one of Tiddly's clearest differentiators.
 
 ## Who Tiddly Is (and Isn't) For
 
