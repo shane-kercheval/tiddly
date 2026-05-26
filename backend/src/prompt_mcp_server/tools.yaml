@@ -13,16 +13,16 @@ get_context:
 
 search_prompts:
   description: |
-    Search prompts with filters. Returns metadata including prompt_length and prompt_preview for size assessment before fetching the template.
+    Search prompts using full-text search (English stemming + ranking) combined with substring matching. Full-text: multiple words are AND'd by default, supports quoted phrases ('"exact phrase"'), OR ('email OR message'), and negation prefix ('-draft' excludes prompts containing 'draft'). Stemming matches word variants ('running' finds 'runners'). Substring: catches partial words and code symbols ('auth' finds 'authentication'). Prompts matching both modes rank highest. Relevance-ranked by default when query is provided. Returns metadata including prompt_length and prompt_preview for size assessment before fetching the template.
   parameters:
     query: |
-      Text to search in name, title, description, and content. Omit to list all prompts.
+      Combined full-text + substring search across name, title, description, and content. Full-text provides stemming and ranking; substring catches partial words and code symbols. Omit to list all prompts.
     tags: |
       Filter by tags (lowercase with hyphens)
     tag_match: |
       'all' requires ALL tags (default), 'any' requires ANY tag
     sort_by: |
-      Field to sort by (default: created_at)
+      Field to sort by. Defaults to 'relevance' when query is provided, 'created_at' otherwise. Set explicitly to override.
     sort_order: |
       Sort direction (default: desc)
     limit: |

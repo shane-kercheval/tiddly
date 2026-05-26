@@ -189,10 +189,14 @@ Where the MCP server/tool descriptions can be *meaningfully improved*, an agent 
 - Hosted content is tool-usage workflows/examples — **not** restated tool schemas or concepts (cross-reference `llms.txt`).
 - The exact copy and the decision to create each file are finalized *within this milestone*.
 
-**Definition of Done** *(to be detailed after M0)*
-- For each server, an explicit decision recorded: hosted file created (with additive pointers wired into instructions + tool descriptions) or consciously skipped because inline guidance suffices.
-- `make backend-verify` passes. **Run the MCP evals** (`make evals`) against a recorded pre-change baseline. Because nothing is removed, regression risk is ~nil; the eval question is whether the additions *help* — a regression is still a blocker.
-- `AGENTS.md` sync list updated for any MCP artifact actually created, plus the instructions-pointer convention.
+**Decision (executed):** **Both hosted MCP files were consciously skipped — inline guidance suffices.** A full audit of both servers' `instructions.md` and per-tool descriptions (and the evals that exercise them) found the inline guidance already strong: the content server's `instructions.md` carries 10 worked workflows, full FTS-operator docs, optimistic-locking and full-replacement semantics, and the content-vs-item distinction; both servers' `edit_*`/`update_*` tool descriptions richly cover tool selection, atomic argument coordination, and omit-to-preserve. The candidate "depth" topics were either already inline (search operators, size-assessment, edit error-recovery) or speculative best-practice (tag hierarchies, multi-agent concurrency, Jinja2 deep-dives) that fail the "earns it" gate. Crucially, because single-shot agents can't fetch-then-act, any genuinely useful guidance is better added **inline** (helps every agent) than in a fetch-only hosted file — so a hosted file's audience is strictly smaller than the equivalent inline edit. No symmetry file created.
+
+**The one real gap found was fixed inline (additive):** the prompt server's `search_prompts` had no FTS-operator documentation while the content server's `search_items` did, despite both routing through the same `search_all_content()` (`websearch_to_tsquery` + ILIKE substring). Mirrored the content server's search guidance into `prompt_mcp_server/tools.yaml` (`search_prompts` description + `query` param), and corrected the `sort_by` note to match actual behavior (defaults to relevance when a query is provided). Purely additive; nothing trimmed.
+
+**Definition of Done**
+- ✅ For each server, an explicit decision recorded (above): both hosted files consciously skipped; the prompt-search operator gap closed inline.
+- `make backend-verify` passes. **Run the MCP evals** (`make evals`) against a recorded pre-change baseline (requires API + MCP servers running). Risk is ~nil — purely additive, and the existing evals exercise edit/update *selection*, not search-operator usage — but run them to confirm no regression.
+- `AGENTS.md` sync list: no MCP artifact created, so no new entry needed.
 
 ### Milestone 6 — Content consistency reconciliation (capstone)
 
