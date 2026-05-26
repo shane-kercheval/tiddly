@@ -28,7 +28,7 @@ Once you've read the guide — and before configuring anything — ask me:
 - Which AI tool(s) to set up — Claude Code, Claude Desktop, Codex, or Antigravity.
 - Whether to connect my bookmarks & notes, my prompts, or both — these are two separate MCP servers, so confirm which I want.
 
-If I choose Codex (or Antigravity), explain — as the instructions describe — that it can't consume MCP prompts the way Claude Code and Claude Desktop can, so Tiddly sets prompts up as skills there instead, and let me decide what to enable.
+If I choose Codex or Antigravity, explain — as the instructions describe — that they don't surface MCP prompts natively the way Claude Code and Claude Desktop do, and how each makes prompts available instead, so I can decide what to enable.
 
 Then walk me through the setup: if the Tiddly CLI isn't already installed, ask my permission before installing it; then help me log in and configure the servers I chose. Before running each command, tell me what it will do and any implications (tokens it creates, config files it changes), and run it only after I confirm.`
 
