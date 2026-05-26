@@ -87,4 +87,26 @@ describe('EmptyState', () => {
     )
     expect(screen.getByRole('button', { name: 'Solo' })).toBeInTheDocument()
   })
+
+  it('renders footer below the action row', () => {
+    // The footer hosts secondary affordances (e.g. the first-run orientation
+    // prompt) that must follow the primary "New …" action buttons.
+    const { container } = render(
+      <EmptyState
+        icon={<svg />}
+        title="No content"
+        actions={[{ label: 'Create', onClick: () => {} }]}
+        footer={<div data-testid="footer">Footer content</div>}
+      />,
+    )
+    expect(screen.getByTestId('footer')).toBeInTheDocument()
+
+    const root = container.firstElementChild!
+    const orderedRoles = Array.from(root.children).map((node) => {
+      if (node.getAttribute('data-testid') === 'footer') return 'footer'
+      if (node.querySelector('button')) return 'actions'
+      return 'other'
+    })
+    expect(orderedRoles.indexOf('actions')).toBeLessThan(orderedRoles.indexOf('footer'))
+  })
 })

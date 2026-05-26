@@ -4,22 +4,52 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-// codexConfig represents the Codex config.toml structure.
-// We only parse the mcp_servers section and preserve the rest as raw data.
+// codexConfig holds the entire parsed Codex config.toml as a raw tree. We keep
+// it raw (rather than a typed struct) so that servers we don't manage — HTTP
+// *and* stdio/command servers like Codex's built-in node_repl — round-trip
+// untouched. An earlier typed model only understood HTTP servers (url +
+// http_headers) and silently destroyed command/args/env on any stdio server it
+// rewrote; keeping everything raw is what prevents that.
 type codexConfig struct {
-	MCPServers map[string]codexMCPServer `toml:"mcp_servers"`
-	rest       map[string]any
+	raw map[string]any
 }
 
-// codexMCPServer represents a single MCP server in Codex config.
-type codexMCPServer struct {
-	URL         string            `toml:"url"`
-	HTTPHeaders map[string]string `toml:"http_headers,omitempty"`
+// servers returns the mcp_servers sub-table, creating it if absent.
+func (c *codexConfig) servers() map[string]any {
+	m, ok := c.raw["mcp_servers"].(map[string]any)
+	if !ok {
+		m = make(map[string]any)
+		c.raw["mcp_servers"] = m
+	}
+	return m
+}
+
+// codexServerURL / codexServerAuth read fields from a raw server entry without
+// assuming its shape (a stdio server has neither).
+func codexServerURL(server any) string {
+	if m, ok := server.(map[string]any); ok {
+		if u, ok := m["url"].(string); ok {
+			return u
+		}
+	}
+	return ""
+}
+
+func codexServerAuth(server any) string {
+	if m, ok := server.(map[string]any); ok {
+		if h, ok := m["http_headers"].(map[string]any); ok {
+			if a, ok := h["Authorization"].(string); ok {
+				return a
+			}
+		}
+	}
+	return ""
 }
 
 // resolveCodexPath returns the config file path based on scope.
@@ -43,24 +73,26 @@ func extractAllCodexTiddlyPATs(rc ResolvedConfig) []TiddlyPAT {
 	if err != nil {
 		return nil
 	}
+	servers := config.servers()
 
-	names := make([]string, 0, len(config.MCPServers))
-	for name := range config.MCPServers {
+	names := make([]string, 0, len(servers))
+	for name := range servers {
 		names = append(names, name)
 	}
 	sortCanonicalFirst(names)
 
 	var out []TiddlyPAT
 	for _, name := range names {
-		server := config.MCPServers[name]
-		pat := extractBearerToken(server.HTTPHeaders["Authorization"])
+		server := servers[name]
+		pat := extractBearerToken(codexServerAuth(server))
 		if pat == "" {
 			continue
 		}
+		url := codexServerURL(server)
 		switch {
-		case isTiddlyContentURL(server.URL):
+		case isTiddlyContentURL(url):
 			out = append(out, TiddlyPAT{ServerType: ServerContent, Name: name, PAT: pat})
-		case isTiddlyPromptURL(server.URL):
+		case isTiddlyPromptURL(url):
 			out = append(out, TiddlyPAT{ServerType: ServerPrompts, Name: name, PAT: pat})
 		}
 	}
@@ -72,33 +104,29 @@ func extractCodexPATs(rc ResolvedConfig) PATExtraction {
 	return canonicalEntryPATs(extractAllCodexTiddlyPATs(rc))
 }
 
-// buildCodexConfig reads the existing config (or creates empty) and writes
-// the CLI-managed entries under canonical names. Non-canonical entries
-// (including those pointing at Tiddly URLs under custom key names) are
-// preserved as-is.
+// buildCodexConfig reads the existing config (or creates empty) and sets the
+// CLI-managed entries under canonical names. Every other server entry —
+// including HTTP/stdio servers and tiddly entries under custom key names — is
+// left exactly as read (raw), so nothing of the user's is lost or rewritten.
 func buildCodexConfig(path, contentPAT, promptPAT string) (*codexConfig, error) {
 	config, err := readCodexConfig(path)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 
-	if config.MCPServers == nil {
-		config.MCPServers = make(map[string]codexMCPServer)
-	}
-
+	servers := config.servers()
 	if contentPAT != "" {
-		config.MCPServers[serverNameContent] = codexMCPServer{
-			URL:         ContentMCPURL(),
-			HTTPHeaders: map[string]string{"Authorization": "Bearer " + contentPAT},
+		servers[serverNameContent] = map[string]any{
+			"url":          ContentMCPURL(),
+			"http_headers": map[string]any{"Authorization": "Bearer " + contentPAT},
 		}
 	}
 	if promptPAT != "" {
-		config.MCPServers[serverNamePrompts] = codexMCPServer{
-			URL:         PromptMCPURL(),
-			HTTPHeaders: map[string]string{"Authorization": "Bearer " + promptPAT},
+		servers[serverNamePrompts] = map[string]any{
+			"url":          PromptMCPURL(),
+			"http_headers": map[string]any{"Authorization": "Bearer " + promptPAT},
 		}
 	}
-
 	return config, nil
 }
 
@@ -126,13 +154,10 @@ func removeCodex(rc ResolvedConfig, serverFilter []string) (*RemoveResult, error
 		return result, err
 	}
 
-	if config.MCPServers == nil {
-		return result, nil
-	}
-
+	servers := config.servers()
 	targetNames := canonicalNamesForServers(serverFilter)
 	var removed []string
-	for name := range config.MCPServers {
+	for name := range servers {
 		if targetNames[name] {
 			removed = append(removed, name)
 		}
@@ -142,7 +167,7 @@ func removeCodex(rc ResolvedConfig, serverFilter []string) (*RemoveResult, error
 	}
 	sort.Strings(removed)
 	for _, name := range removed {
-		delete(config.MCPServers, name)
+		delete(servers, name)
 	}
 
 	backupPath, werr := writeCodexConfig(rc.Path, config)
@@ -168,9 +193,14 @@ func statusCodex(rc ResolvedConfig) (StatusResult, error) {
 		return result, err
 	}
 
-	for name, server := range config.MCPServers {
-		// Codex only supports HTTP MCP servers, so transport is always "http".
-		if match, other := classifyServer(name, server.URL, "http"); match != nil {
+	for name, server := range config.servers() {
+		url := codexServerURL(server)
+		// HTTP servers have a url; stdio servers (e.g. node_repl) don't.
+		transport := "http"
+		if url == "" {
+			transport = "stdio"
+		}
+		if match, other := classifyServer(name, url, transport); match != nil {
 			result.Servers = append(result.Servers, *match)
 		} else {
 			result.OtherServers = append(result.OtherServers, *other)
@@ -184,28 +214,18 @@ func statusCodex(rc ResolvedConfig) (StatusResult, error) {
 
 // dryRunCodex returns the config that would be written without writing it.
 func dryRunCodex(rc ResolvedConfig, contentPAT, promptPAT string) (before, after string, err error) {
-	// Capture before state
 	existing, readErr := readCodexConfig(rc.Path)
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return "", "", readErr
 	}
-	beforeData, _ := toml.Marshal(existing.rest)
+	beforeData, _ := toml.Marshal(existing.raw)
 	before = string(beforeData)
 
-	// Build new config
 	config, err := buildCodexConfig(rc.Path, contentPAT, promptPAT)
 	if err != nil {
 		return "", "", err
 	}
-
-	// Merge mcp_servers back into rest for marshaling
-	afterMap := make(map[string]any)
-	for k, v := range config.rest {
-		afterMap[k] = v
-	}
-	afterMap["mcp_servers"] = config.MCPServers
-
-	afterData, _ := toml.Marshal(afterMap)
+	afterData, _ := toml.Marshal(config.raw)
 	after = string(afterData)
 
 	return before, after, nil
@@ -215,49 +235,26 @@ func readCodexConfig(path string) (*codexConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &codexConfig{rest: make(map[string]any)}, err
+			return &codexConfig{raw: map[string]any{}}, err
 		}
 		return nil, err
 	}
 
-	// Parse into raw map to preserve unknown sections
 	var raw map[string]any
 	if err := toml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
-
-	config := &codexConfig{rest: raw}
-
-	// Extract mcp_servers into typed struct
-	if mcpRaw, ok := raw["mcp_servers"]; ok {
-		if mcpMap, ok := mcpRaw.(map[string]any); ok {
-			config.MCPServers = make(map[string]codexMCPServer)
-			for name, serverRaw := range mcpMap {
-				if serverMap, ok := serverRaw.(map[string]any); ok {
-					server := codexMCPServer{}
-					if url, ok := serverMap["url"].(string); ok {
-						server.URL = url
-					}
-					if headers, ok := serverMap["http_headers"].(map[string]any); ok {
-						server.HTTPHeaders = make(map[string]string)
-						for k, v := range headers {
-							if s, ok := v.(string); ok {
-								server.HTTPHeaders[k] = s
-							}
-						}
-					}
-					config.MCPServers[name] = server
-				}
-			}
-		}
+	if raw == nil {
+		raw = map[string]any{}
 	}
-
-	return config, nil
+	return &codexConfig{raw: raw}, nil
 }
 
 // writeCodexConfig writes config to path atomically, creating a timestamped
-// backup of any existing file at path first. Returns the backup path (empty
-// if no prior file existed) so callers can surface it to the user.
+// backup first, then verifies the written file is valid and preserved every
+// non-managed server — restoring the backup and erroring out if not, so a
+// writer bug can't leave the user's config corrupted. Returns the backup path
+// (empty if no prior file existed).
 func writeCodexConfig(path string, config *codexConfig) (backupPath string, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return "", fmt.Errorf("creating config directory: %w", err)
@@ -268,19 +265,12 @@ func writeCodexConfig(path string, config *codexConfig) (backupPath string, err 
 		return "", err
 	}
 
-	// Merge mcp_servers back into the raw map
-	output := make(map[string]any)
-	for k, v := range config.rest {
-		if k == "mcp_servers" {
-			continue // replaced below
-		}
-		output[k] = v
-	}
-	if len(config.MCPServers) > 0 {
-		output["mcp_servers"] = config.MCPServers
+	// Drop an empty mcp_servers table so we never emit a bare `[mcp_servers]`.
+	if s, ok := config.raw["mcp_servers"].(map[string]any); ok && len(s) == 0 {
+		delete(config.raw, "mcp_servers")
 	}
 
-	data, err := toml.Marshal(output)
+	data, err := toml.Marshal(config.raw)
 	if err != nil {
 		return "", fmt.Errorf("encoding config: %w", err)
 	}
@@ -290,5 +280,83 @@ func writeCodexConfig(path string, config *codexConfig) (backupPath string, err 
 		// so callers can surface the recovery copy to the user.
 		return backupPath, err
 	}
+
+	if verr := verifyCodexIntegrity(path, backupPath); verr != nil {
+		return backupPath, restoreAfterIntegrityFailure(path, backupPath, verr)
+	}
 	return backupPath, nil
+}
+
+// validateCodexConfig parses bytes and checks every mcp_servers entry is a
+// usable Codex server: an HTTP server has a non-empty "url"; a stdio server has
+// a non-empty "command". An entry with neither (e.g. url = "" with no command)
+// is the corruption signature this guards against.
+func validateCodexConfig(data []byte) error {
+	var raw map[string]any
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("invalid TOML: %w", err)
+	}
+	servers, ok := raw["mcp_servers"].(map[string]any)
+	if !ok {
+		return nil // no servers section is valid
+	}
+	for name, s := range servers {
+		m, ok := s.(map[string]any)
+		if !ok {
+			return fmt.Errorf("mcp_servers.%s is not a table", name)
+		}
+		url, _ := m["url"].(string)
+		command, _ := m["command"].(string)
+		if url == "" && command == "" {
+			return fmt.Errorf("mcp_servers.%s has neither a url (HTTP) nor a command (stdio) — config looks corrupted", name)
+		}
+	}
+	return nil
+}
+
+// verifyCodexIntegrity re-reads the just-written file and asserts it (1) parses
+// and validates, and (2) preserved every non-CLI-managed server entry byte-for-
+// byte from the pre-write backup. CLI-managed (canonical) entries are allowed to
+// change. Returns an error describing the breach if either check fails.
+func verifyCodexIntegrity(path, backupPath string) error {
+	newData, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("re-reading written config: %w", err)
+	}
+	if err := validateCodexConfig(newData); err != nil {
+		return err
+	}
+	if backupPath == "" {
+		return nil // no prior file — nothing to preserve
+	}
+	oldData, err := os.ReadFile(backupPath)
+	if err != nil {
+		return nil // can't compare; validity already confirmed
+	}
+
+	canonical := map[string]bool{serverNameContent: true, serverNamePrompts: true}
+	oldServers := codexServersFromBytes(oldData)
+	newServers := codexServersFromBytes(newData)
+	for name, oldVal := range oldServers {
+		if canonical[name] {
+			continue // CLI-managed entries may be added/updated/removed
+		}
+		newVal, ok := newServers[name]
+		if !ok {
+			return fmt.Errorf("non-managed server %q was dropped", name)
+		}
+		if !reflect.DeepEqual(oldVal, newVal) {
+			return fmt.Errorf("non-managed server %q was modified", name)
+		}
+	}
+	return nil
+}
+
+func codexServersFromBytes(data []byte) map[string]any {
+	var raw map[string]any
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	s, _ := raw["mcp_servers"].(map[string]any)
+	return s
 }

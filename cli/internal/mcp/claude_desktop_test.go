@@ -630,3 +630,88 @@ func toStringSlice(v any) []string {
 	}
 	return result
 }
+
+// TestConfigureClaudeDesktop__preserves_foreign_stdio_server guards that
+// configuring Tiddly preserves a non-managed stdio (command-based) MCP server,
+// and that the integrity guard's preservation check accepts a faithful write.
+func TestConfigureClaudeDesktop__preserves_foreign_stdio_server(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude_desktop_config.json")
+	existing := `{
+  "mcpServers": {
+    "node_repl": {
+      "command": "/bin/node_repl",
+      "args": ["--flag"],
+      "env": { "FOO": "bar" }
+    }
+  }
+}`
+	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0600))
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	h := &ClaudeDesktopHandler{ConfigPathOverride: configPath}
+	_, _, err := h.Configure(rc, "bm_content", "bm_prompts", DetectedTool{Name: "claude-desktop"})
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	servers := cfg["mcpServers"].(map[string]any)
+
+	node := servers["node_repl"].(map[string]any)
+	assert.Equal(t, "/bin/node_repl", node["command"])
+	assert.Equal(t, []any{"--flag"}, node["args"])
+	assert.Equal(t, "bar", node["env"].(map[string]any)["FOO"])
+	assert.Contains(t, servers, "tiddly_notes_bookmarks")
+	assert.Contains(t, servers, "tiddly_prompts")
+}
+
+func TestValidateJSONConfig(t *testing.T) {
+	require.NoError(t, validateJSONConfig([]byte(`{"mcpServers":{"a":{"url":"x"}}}`)))
+	require.Error(t, validateJSONConfig([]byte(`{not json`)))
+	require.Error(t, validateJSONConfig([]byte(`{"mcpServers":{"a":"not-an-object"}}`)))
+}
+
+// TestWriteJSONConfig__restores_dropped_nested_server proves the JSON integrity
+// guard restores a non-managed server dropped by a corrupting write — and
+// specifically exercises claude-code's projects[*].mcpServers nesting, which the
+// codex guard has no analog for (so the passing codex test gives it no coverage).
+func TestWriteJSONConfig__restores_dropped_nested_server(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".claude.json")
+	original := `{
+  "projects": {
+    "/work/proj": {
+      "mcpServers": {
+        "node_repl": { "command": "/bin/node_repl", "args": ["--x"] }
+      }
+    }
+  }
+}`
+	require.NoError(t, os.WriteFile(configPath, []byte(original), 0600))
+
+	prev := AtomicWriteFileFunc()
+	t.Cleanup(func() { SetAtomicWriteFileFunc(prev) })
+	calls := 0
+	SetAtomicWriteFileFunc(func(path string, data []byte, perm os.FileMode) error {
+		calls++
+		if calls == 1 {
+			// Corrupt: drop the nested non-managed server.
+			return prev(path, []byte(`{"projects":{"/work/proj":{"mcpServers":{}}}}`), perm)
+		}
+		return prev(path, data, perm) // restore writes the real backup
+	})
+
+	_, err := writeJSONConfig(configPath, map[string]any{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "integrity check failed")
+
+	// The nested non-managed server was restored.
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	servers := cfg["projects"].(map[string]any)["/work/proj"].(map[string]any)["mcpServers"].(map[string]any)
+	assert.Contains(t, servers, "node_repl")
+}

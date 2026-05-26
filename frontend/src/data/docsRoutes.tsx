@@ -155,7 +155,8 @@ export const DOCS_ROUTES: DocsRoute[] = [
       + 'device code flow auth status keyring credentials file fallback xdg config '
       + 'token resolution priority env environment variable tiddly_token tokens list '
       + 'create delete export json backup include archived config api url update check '
-      + 'completions bash zsh fish tab completion status path',
+      + 'completions bash zsh fish tab completion status path '
+      + 'ai-instructions ai agent instructions llms first command',
   },
   {
     path: '/docs/extensions',

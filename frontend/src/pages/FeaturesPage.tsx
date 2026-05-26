@@ -4,6 +4,8 @@ import type { ComponentType, ReactNode } from 'react'
 import { isDevMode } from '../config'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { PublicHeader } from '../components/PublicHeader'
+import { AgentPromptButton } from '../components/AgentPromptButton'
+import { EVALUATION_PROMPT } from '../data/agentPrompts'
 import { Footer } from '../components/Footer'
 import { PromptMCPAnimation } from '../components/PromptMCPAnimation'
 import { NoteMCPAnimation } from '../components/NoteMCPAnimation'
@@ -108,6 +110,13 @@ function FeaturesContent({
         <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
           Features for modern content management.
         </p>
+        <div className="mt-6 flex justify-center">
+          <AgentPromptButton
+            buttonLabel="Evaluate Tiddly with your AI"
+            explanation="Paste this prompt into your AI agent."
+            prompt={EVALUATION_PROMPT}
+          />
+        </div>
       </section>
 
       {/* 2. AI Integration */}

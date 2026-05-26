@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -665,4 +666,158 @@ func readTestTOML(t *testing.T, path string) map[string]any {
 	var result map[string]any
 	require.NoError(t, toml.Unmarshal(data, &result))
 	return result
+}
+
+// TestConfigureCodex__preserves_stdio_server is the regression guard for the
+// data-loss bug: configuring Tiddly must not destroy a non-managed *stdio*
+// (command-based) MCP server like Codex's built-in node_repl. The earlier typed
+// writer rewrote it to `url = ''`, dropping command/args/env.
+func TestConfigureCodex__preserves_stdio_server(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	existing := `model = "gpt-5-codex"
+
+[mcp_servers.node_repl]
+command = "/Applications/Codex.app/Contents/Resources/node_repl"
+args = ["--flag"]
+startup_timeout_sec = 120
+
+[mcp_servers.node_repl.env]
+CODEX_HOME = "/Users/me/.codex"
+
+[mcp_servers.work_http]
+url = "https://work.example.com/mcp"
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(existing), 0600))
+
+	rc := ResolvedConfig{Path: configPath, Scope: "user"}
+	_, err := configureCodex(rc, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+
+	config := readTestTOML(t, configPath)
+	servers := config["mcp_servers"].(map[string]any)
+
+	// The stdio server survives intact — command/args/env all preserved.
+	node := servers["node_repl"].(map[string]any)
+	assert.Equal(t, "/Applications/Codex.app/Contents/Resources/node_repl", node["command"])
+	assert.Equal(t, []any{"--flag"}, node["args"])
+	assert.Equal(t, int64(120), node["startup_timeout_sec"])
+	assert.Equal(t, "/Users/me/.codex", node["env"].(map[string]any)["CODEX_HOME"])
+	assert.Nil(t, node["url"], "stdio server must not gain a bogus url")
+
+	// Foreign HTTP server preserved, and tiddly entries added.
+	assert.Equal(t, "https://work.example.com/mcp", servers["work_http"].(map[string]any)["url"])
+	assert.Contains(t, servers, "tiddly_notes_bookmarks")
+	assert.Contains(t, servers, "tiddly_prompts")
+}
+
+func TestValidateCodexConfig(t *testing.T) {
+	// Valid: an HTTP server (url) and a stdio server (command) side by side.
+	valid := []byte(`[mcp_servers.http_one]
+url = "https://x/mcp"
+
+[mcp_servers.stdio_one]
+command = "/bin/thing"
+`)
+	require.NoError(t, validateCodexConfig(valid))
+
+	// No servers section is fine.
+	require.NoError(t, validateCodexConfig([]byte(`model = "x"`)))
+
+	// Corrupt: a server with neither url nor command (the bug's signature).
+	corrupt := []byte(`[mcp_servers.broken]
+url = ""
+`)
+	err := validateCodexConfig(corrupt)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "broken")
+}
+
+// TestWriteCodexConfig__restores_backup_on_corrupting_write proves the runtime
+// guard: if the write step somehow produces a config that drops/corrupts a
+// non-managed server, writeCodexConfig restores the backup and errors instead of
+// leaving the user's config broken.
+func TestWriteCodexConfig__restores_backup_on_corrupting_write(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	original := `[mcp_servers.node_repl]
+command = "/bin/node_repl"
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(original), 0600))
+
+	// Hook the writer: corrupt the first write (node_repl reduced to url=''),
+	// pass the restore write (second call) through so the backup is actually written.
+	prev := AtomicWriteFileFunc()
+	t.Cleanup(func() { SetAtomicWriteFileFunc(prev) })
+	calls := 0
+	SetAtomicWriteFileFunc(func(path string, data []byte, perm os.FileMode) error {
+		calls++
+		if calls == 1 {
+			return prev(path, []byte("[mcp_servers.node_repl]\nurl = ''\n"), perm)
+		}
+		return prev(path, data, perm)
+	})
+
+	cfg, err := buildCodexConfig(configPath, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+	_, err = writeCodexConfig(configPath, cfg)
+
+	require.Error(t, err, "guard must reject the corrupting write")
+	assert.Contains(t, err.Error(), "integrity check failed")
+	assert.Contains(t, err.Error(), "restored previous config")
+
+	// The file on disk was restored to the original (node_repl intact).
+	restored := readTestTOML(t, configPath)
+	node := restored["mcp_servers"].(map[string]any)["node_repl"].(map[string]any)
+	assert.Equal(t, "/bin/node_repl", node["command"], "backup should have been restored")
+}
+
+// TestWriteCodexConfig__reports_when_restore_also_fails proves the guard tells
+// the truth in its worst case: corruption detected AND the rollback failed. It
+// must not claim a successful restore, and must still error (non-zero exit).
+func TestWriteCodexConfig__reports_when_restore_also_fails(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("[mcp_servers.node_repl]\ncommand = \"/bin/node_repl\"\n"), 0600))
+
+	prev := AtomicWriteFileFunc()
+	t.Cleanup(func() { SetAtomicWriteFileFunc(prev) })
+	calls := 0
+	SetAtomicWriteFileFunc(func(path string, data []byte, perm os.FileMode) error {
+		calls++
+		if calls == 1 {
+			return prev(path, []byte("[mcp_servers.node_repl]\nurl = ''\n"), perm) // corrupt write
+		}
+		return fmt.Errorf("simulated restore failure") // second call = the restore
+	})
+
+	cfg, err := buildCodexConfig(configPath, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+	_, err = writeCodexConfig(configPath, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "AUTOMATIC RESTORE ALSO FAILED")
+	assert.NotContains(t, err.Error(), "restored previous config", "must not claim a restore that failed")
+}
+
+// TestWriteCodexConfig__no_backup_when_new_file_corrupts covers the second
+// false-success path: a brand-new config (no prior file) that the writer
+// corrupts. There's nothing to restore, so the error must say so — not claim a
+// restore — and must still be non-nil.
+func TestWriteCodexConfig__no_backup_when_new_file_corrupts(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml") // does not exist → no backup taken
+
+	prev := AtomicWriteFileFunc()
+	t.Cleanup(func() { SetAtomicWriteFileFunc(prev) })
+	SetAtomicWriteFileFunc(func(path string, _ []byte, perm os.FileMode) error {
+		return prev(path, []byte("[mcp_servers.broken]\nurl = ''\n"), perm)
+	})
+
+	cfg, err := buildCodexConfig(configPath, "bm_content", "bm_prompts")
+	require.NoError(t, err)
+	_, err = writeCodexConfig(configPath, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no prior config existed")
 }

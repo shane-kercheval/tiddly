@@ -10,9 +10,9 @@ When changing the *shape* (adding/removing a limit field), update in lockstep:
 - frontend/src/types.ts (UserLimits interface)
 - backend/src/schemas/user_limits.py (UserLimitsResponse)
 
-Known still-hardcoded copy of tier values, deferred (see the content-as-markdown
-plan): frontend/public/llms.txt (Tier Limits section) → KAN-152. Rewire it to read
-tiers.json when that work runs.
+No hardcoded copies of tier *values* remain elsewhere: Pricing.tsx reads tiers.json,
+the FAQ links the pricing page, and llms.txt points agents to /data/tiers.json rather
+than inlining numbers. Keep it that way — link or read the file, don't re-inline values.
 """
 import json
 import logging
@@ -129,7 +129,8 @@ _TIERS_JSON_PATH = Path(
 )
 
 # Display-only / non-enforcement keys present in tiers.json that are not TierLimits fields.
-_NON_LIMIT_KEYS = {"unlimited_items"}
+# `price` is frontend/agent-facing pricing data (a nested object); the backend ignores it.
+_NON_LIMIT_KEYS = {"unlimited_items", "price"}
 
 
 def _build_tier_limits(entry: dict, tier_name: str) -> TierLimits:

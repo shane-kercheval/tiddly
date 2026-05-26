@@ -49,6 +49,7 @@ cd frontend && npx vitest run src/path/to/file.test.ts
 
 ### CLI (`cli/`)
 - Go + Cobra + Viper. OAuth device code flow + keyring credential storage.
+- `tiddly ai-instructions` is the zero-auth, agent-first command: it fetches the hosted `llms-cli-instructions.txt` from the web origin (`config.WebURL()`, default `https://tiddly.me`) and prints it, with a minimal `const` fallback on fetch failure (exits 0). It's excluded from the `PersistentPreRunE` init/update-check in `root.go` (no side effects).
 
 ### Chrome Extension (`chrome-extension/`)
 - Bookmark saver popup + background service worker. Manifest V3.
@@ -92,14 +93,20 @@ After any feature, API, pricing, or UI change, review whether these need updatin
 **Public content — edit the single source, not the renderer:**
 - Docs/legal prose: `frontend/src/content/prose/*.md`. The `docs/Docs*.tsx` pages and the legal pages (`PrivacyPolicy.tsx`/`TermsOfService.tsx`, which add only page chrome + the dynamic "Last Updated" date) are thin renderers of these — editing the `.tsx` won't change the content (or what's served at `/prose/*.md`).
 - FAQ: `frontend/src/content/data/faq.json` (one file feeds both `DocsFAQ` and `SettingsFAQ` via `components/FAQContent.tsx`). Known issues: `content/data/known-issues.json`. Tips: `content/data/tips.json`.
+- Changelog: `frontend/src/content/data/changelog.json`. Roadmap: `content/data/roadmap.json`. The `changelog/Changelog.tsx` and `roadmap/Roadmap.tsx` pages are thin renderers — editing the `.tsx` won't change the content (or what's served at `/data/*.json`); presentation-only bits (tag/accent colors) stay in the renderer.
 - Keyboard shortcuts: `frontend/src/shortcuts/shortcuts.json`.
 - Tier limits / pricing numbers: `frontend/src/content/data/tiers.json` — the single cross-stack source (backend enforcement + `Pricing.tsx` display + served `/data/tiers.json`). **Never re-hardcode tier numbers**; `Pricing.tsx` reads them from this file (a test guards against drift).
 
 **Designed pages still authored in TSX** (`frontend/src/pages/`):
-- `LandingPage.tsx`, `FeaturesPage.tsx`, `AIIntegration.tsx` (marketing layouts — prose intentionally not migrated to markdown; see the content-as-markdown plan's M4), `Pricing.tsx` (layout and qualitative copy; the *numbers* come from `tiers.json`), `changelog/Changelog.tsx`, `roadmap/Roadmap.tsx`.
+- `LandingPage.tsx`, `FeaturesPage.tsx` (marketing layouts — prose intentionally not migrated to markdown; see the content-as-markdown plan's M4), `Pricing.tsx` (layout and qualitative copy; the *numbers* come from `tiers.json`).
 
-**LLM/AI discoverability:**
-- `frontend/public/llms.txt` — LLM-friendly site index; update when features, API, or tiers change.
+**LLM/AI discoverability — the agent-empowerment artifact family** (`frontend/public/`, served at the web origin):
+- `llms.txt` — the hub: value prop, concepts, pricing *summary*, and the index to everything else. An agent's first stop.
+- `llms-app-usage.txt` — operating the app (search/organize/edit/lifecycle + the gotchas to flag).
+- `llms-integration.txt` — connecting AI tools (MCP servers, skills, REST API + PAT, the Auth0-only 403 surfaces, the per-tool prompt-consumption model).
+- `llms-cli-instructions.txt` — the `tiddly` CLI deep-dive (the doc `tiddly ai-instructions` fetches and prints).
+- **Anti-drift rules for the family** (keep these or it rots): generic facts (value prop, tiers/pricing, concepts) live **once**, in `llms.txt`; subfiles cross-reference rather than restate, and each goes deep only on its own job. For any inlined code-derived fact (tier numbers, command/tool names, URLs, the 403 surfaces), the file's header names the canonical source to diff against — and prefer **linking** the now-fetchable artifact (`/data/*.json`, `/prose/*.md`) over inlining. Use absolute `https://tiddly.me/...` URLs so references resolve when quoted out of context. Design + rationale: `docs/implementation_plans/2026-05-23-agent-empowerment.md`.
+- **In-app agent-prompt copy** lives in `frontend/src/data/agentPrompts.ts` (the ready-to-paste prompts behind the `AgentPromptButton`/`AgentPromptCard` CTAs on the landing/features pages, the AI-integration setup widget, and the first-run empty state). Same anti-drift rule: these prompts must **point at** the hosted artifacts (`llms.txt`, `llms-app-usage.txt`, `llms-cli-instructions.txt`) and tell the agent to read them — **not restate code-derived per-tool facts** (e.g. which tools use skills vs. tools-only; the canonical source is the CLI's `validSkillsTools` + `llms-integration.txt`). Restating such a fact here once drifted (Antigravity wrongly described as using skills); keep the copy deferential.
 
 **Command palette search index:**
 - `frontend/src/data/docsRoutes.tsx` — hand-curated keyword summaries that make `/docs/*` pages findable via the command palette. When you add a docs page, add its entry (path + label + keyword-rich `searchText`). When you substantially change an existing docs page (new sections, renamed concepts, removed features), update its `searchText`.

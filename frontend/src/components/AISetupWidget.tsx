@@ -7,6 +7,8 @@ import type { ReactNode, KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../services/api'
 import { useAuthStatus } from '../hooks/useAuthStatus'
+import { AgentPromptButton } from './AgentPromptButton'
+import { MCP_SETUP_PROMPT } from '../data/agentPrompts'
 import type { TagCount, TagListResponse } from '../types'
 
 
@@ -943,6 +945,19 @@ export function AISetupWidget(): ReactNode {
         You can also export your prompts as <strong>Agent Skills</strong> — reusable instruction
         files that AI assistants can auto-invoke based on context.
       </p>
+
+      <div className="mb-8 flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-gray-600">
+          <span className="font-semibold text-gray-900">Prefer an agent to do it?</span> Hand your
+          AI agent a prompt and it&rsquo;ll walk you through the setup below.
+        </p>
+        <AgentPromptButton
+          buttonLabel="Set up with your AI agent"
+          explanation="Paste this prompt into your AI agent."
+          prompt={MCP_SETUP_PROMPT}
+          buttonClassName="inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 transition-all hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+        />
+      </div>
 
       <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-2 border-b border-gray-200">
         Setup via CLI

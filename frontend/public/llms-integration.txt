@@ -1,0 +1,74 @@
+# Tiddly — Connecting to AI Tooling
+
+> How an AI agent should guide a person in *connecting* Tiddly to their AI tools — MCP servers, prompt/skills export, and the REST API — and the auth/security model that governs it. This is the "integration" companion to the hub (https://tiddly.me/llms.txt). For what Tiddly is, see https://tiddly.me/llms.txt; for operating the app, https://tiddly.me/llms-app-usage.txt; for the full `tiddly` CLI command reference, https://tiddly.me/llms-cli-instructions.txt.
+
+**Scope / cross-references.** This file owns the MCP / API / PAT integration model and per-tool connection notes. It does **not** restate the value prop or tiers (see https://tiddly.me/llms.txt), and it does **not** re-list CLI commands — it says "use the CLI" and points to https://tiddly.me/llms-cli-instructions.txt for command depth. Full setup mechanics live in the docs: https://tiddly.me/prose/cli-mcp.md, https://tiddly.me/prose/cli-skills.md, https://tiddly.me/prose/api.md, https://tiddly.me/prose/extensions-chrome.md. The **authoritative current list of supported tools** (and the exact configure command for each) is the AI Integration settings page: https://tiddly.me/app/settings/ai-integration. For the full index of fetchable data and docs, see **Agent Resources** in https://tiddly.me/llms.txt (links `/data/index.json` and `/prose/index.json`).
+
+## The two MCP servers
+
+Both are remote/hosted HTTP MCP servers (no local process). Both read **and** write your content; **neither exposes a delete tool** — deletion is web-UI-only by design.
+
+- **Content server** — bookmarks + notes. MCP entry name `tiddly_notes_bookmarks`, URL `https://content-mcp.tiddly.me/mcp`. Tools: `get_context` (a summary of the user's content landscape — a good first call), `search_items`, `get_item`, `search_in_content` (find text *inside* one item), `create_bookmark`, `create_note`, `update_item`, `edit_content` (surgical str-replace on the content field), `create_relationship`, `list_tags`, `list_filters`.
+- **Prompt server** — prompt templates. MCP entry name `tiddly_prompts`, URL `https://prompts-mcp.tiddly.me/mcp`. Tools: `search_prompts`, `get_prompt_metadata`, `get_prompt_content`, `create_prompt`, `update_prompt`, `edit_prompt_content`, `list_tags`, `list_filters` — **plus** the native MCP Prompts protocol (`list_prompts` / `get_prompt`) so capable clients can list and render templates directly.
+
+An MCP-connected agent should rely on each server's own `instructions` and per-tool descriptions (always in context) for how to use the tools well — that's the authoritative, always-current usage guidance.
+
+## Connecting a tool — use the CLI
+
+Recommended path: **`tiddly mcp configure`** auto-detects installed tools, mints a dedicated Personal Access Token per tool+server, and writes each tool's native MCP config (atomic write, backs up the prior file). One command covers detection, tokens, and config. Command reference: https://tiddly.me/llms-cli-instructions.txt; full mechanics: https://tiddly.me/prose/cli-mcp.md.
+
+Supported tools, their config files, and per-tool quirks:
+
+- **Claude Desktop** — full support (tools + native MCP Prompts as `/prompt-name` slash commands). Config: `claude_desktop_config.json` (OS-specific path). User scope only.
+- **Claude Code** — full support (tools + MCP Prompts). Config: `~/.claude.json`. User or per-directory scope.
+- **Codex** — **tools-only** (no native MCP Prompts). Bookmarks/notes/prompt *tools* work normally; to invoke a saved prompt directly, export it as a Codex **Skill** (below). Config: `~/.codex/config.toml`.
+- **Antigravity** (Google's successor to Gemini CLI; the `agy` CLI and the Antigravity IDE share `~/.gemini/config/mcp_config.json`) — **tools-only**, no Skills integration, so prompts are reached via the prompt server's tools (`search_prompts` / `get_prompt_content`). User scope only; restart the IDE after configuring.
+
+Manual fallback (no CLI): add each server's URL above to the tool's MCP config with an `Authorization: Bearer <PAT>` header. The CLI does exactly this for you and is strongly preferred.
+
+## How each tool reaches your prompts (where the tools differ most)
+
+Bookmarks and notes work the same everywhere — every connected client uses the content server's *tools* to search/read/edit them. **Prompts** are where clients diverge, because there are two delivery paths and not every tool supports both:
+
+- **Native MCP Prompts** — the prompt server exposes saved prompts via the MCP "prompts" capability, and supporting clients let the user invoke/render them directly:
+  - **Claude Code** — invoke as `/prompt-name` slash commands.
+  - **Claude Desktop** — available through its prompt picker.
+- **Skills (SKILL.md export)** — `tiddly skills configure` writes prompts tagged `skill` as agent skills the tool auto-selects by task context or you invoke by name:
+  - **Claude Code** — auto-invoked by context, or `/skill-name` (so Code can use prompts *either* way).
+  - **Codex** — **does not support native MCP Prompts**, so skills are the way to invoke a saved prompt: Codex auto-selects by context or you call `$skill-name`. Recommend `tiddly skills configure codex` whenever a Codex user wants to use their prompts.
+  - **Claude Desktop** — skills are invoked via natural language ("use my X skill") after uploading the exported file in Settings → Capabilities.
+- **Tools-only (no prompt-invocation surface)** — **Antigravity** supports neither native MCP Prompts nor Tiddly skills, so its prompts are reached only through the prompt server's *tools* (`search_prompts` → `get_prompt_content`): the agent fetches and applies the template itself rather than the user invoking it by name.
+
+Rule of thumb: **Claude Code / Claude Desktop** → connect the MCP servers and prompts work natively (skills optional); **Codex** → connect the servers *and* run `tiddly skills configure` so prompts are invocable; **Antigravity** → prompts come through tools only. Full mechanics: https://tiddly.me/prose/cli-skills.md and https://tiddly.me/prose/cli-mcp.md.
+
+## REST API + Personal Access Tokens
+
+For programmatic/custom access (the MCP servers are preferred for AI assistants):
+
+- **Base:** `https://api.tiddly.me`; interactive Swagger reference at `https://api.tiddly.me/docs`.
+- **Auth:** a Personal Access Token (`bm_…` prefix) sent as `Authorization: Bearer bm_…`. Create one in Settings → Personal Access Tokens (https://tiddly.me/app/settings/tokens) or via the CLI. Shown once — store it securely.
+- **Endpoint groups:** bookmarks, notes, prompts (+ a render endpoint), content (unified cross-type search, incl. in-content search), tags, filters, relationships, history (version diffs + restore).
+- **Conventions:** offset/limit pagination, sorting (created/updated/title/last-used), tag AND/OR filtering. Rate-limit headers (`X-RateLimit-*`) on every response; `Retry-After` on 429. Full overview: https://tiddly.me/prose/api.md.
+
+## What a PAT *cannot* do — the Auth0-only (403) surfaces
+
+Some endpoints reject PATs (HTTP 403) and require an interactive web/Auth0 login. This is deliberate defense-in-depth, not a bug — keep it in mind when scripting:
+
+- **All `/ai/*` endpoints** — tag/metadata/relationship/argument suggestions, plus `/ai/health`, `/ai/models`, `/ai/validate-key`. AI features aren't for programmatic automation (cost/abuse control).
+- **Token management (`/tokens/*`)** — a PAT can't mint or manage tokens.
+- **Account settings (`/settings/*`)** — a PAT can't change account configuration.
+- **URL metadata scraping (`/bookmarks/fetch-metadata`)** — the on-demand link preview (SSRF surface).
+
+Everything else — bookmarks, notes, prompts, content/search, tags, filters, relationships, history — works with a PAT.
+
+## Concurrent edits (optimistic locking)
+
+Writes are optimistically locked so a person and an agent don't silently clobber each other. MCP write tools (`update_item`, `update_prompt`) accept an `expected_updated_at` from the item's prior read; the REST API uses an `If-Unmodified-Since` header. On a stale write the server returns **409** with the **current server state** in the response, so you can merge and retry rather than overwrite. The surgical str-replace tools (`edit_content`, `edit_prompt_content`) instead serialize at the server and apply against fresh content. Always re-read before forcing an overwrite; in the web UI the user sees a conflict dialog (see https://tiddly.me/llms-app-usage.txt).
+
+## Chrome extension
+
+Saves the current page as a bookmark (pre-filled URL/title/description, tag autocomplete) and searches existing bookmarks, from a browser popup. Auth: paste a Personal Access Token (`bm_…`) into the extension's options. Open it with `Alt+Shift+S` (macOS: `Option+Shift+S`), rebindable in Chrome. Full setup: https://tiddly.me/prose/extensions-chrome.md.
+
+## In-app AI features (Pro) — setup
+
+The in-editor suggestions (tags, title/description, relationships) and their bring-your-own-key option are configured in Settings → AI Integration (https://tiddly.me/app/settings/ai-integration). What they are: https://tiddly.me/llms.txt (Pro). How they appear while editing: https://tiddly.me/llms-app-usage.txt.

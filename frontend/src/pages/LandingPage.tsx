@@ -6,6 +6,8 @@ import { usePageTitle } from '../hooks/usePageTitle'
 import { Footer } from '../components/Footer'
 import { AnimationCarousel } from '../components/AnimationCarousel'
 import { PublicHeader } from '../components/PublicHeader'
+import { AgentPromptButton } from '../components/AgentPromptButton'
+import { EVALUATION_PROMPT } from '../data/agentPrompts'
 import { LoadingSpinnerPage } from '../components/ui'
 import { FAQItem } from '../components/ui/FAQItem'
 import {
@@ -82,12 +84,19 @@ function LandingContent({
           <p className="mx-auto mb-4 max-w-3xl text-xl leading-relaxed text-gray-500 sm:mb-8 sm:text-2xl">
             Organize your knowledge. Connect it to your AI.
           </p>
-          <button
-            onClick={onSignup}
-            className="hidden rounded-full bg-gray-900 px-8 py-3 text-base font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 sm:inline-block"
-          >
-            Get Started
-          </button>
+          <div className="hidden items-center justify-center gap-3 sm:flex">
+            <button
+              onClick={onSignup}
+              className="rounded-lg bg-gray-900 px-5 py-1.5 text-sm font-medium text-white transition-all hover:bg-gray-800 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+            >
+              Get Started
+            </button>
+            <AgentPromptButton
+              buttonLabel="Evaluate Tiddly with your AI"
+              explanation="Paste this prompt into your AI agent."
+              prompt={EVALUATION_PROMPT}
+            />
+          </div>
         </div>
 
         <AnimationCarousel onSignup={onSignup} />
@@ -376,7 +385,7 @@ function LandingContent({
           </p>
           <button
             onClick={onSignup}
-            className="rounded-full bg-gray-900 px-10 py-4 text-lg font-medium text-white transition-all hover:bg-gray-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2"
+            className="rounded-lg bg-gray-900 px-5 py-1.5 text-sm font-medium text-white transition-all hover:bg-gray-800 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
           >
             Get Started
           </button>

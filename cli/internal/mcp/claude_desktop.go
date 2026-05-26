@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -325,6 +326,93 @@ func writeJSONConfig(path string, config map[string]any) (backupPath string, err
 		// specifically to cover this path.
 		return backupPath, err
 	}
+
+	if verr := verifyJSONIntegrity(path, backupPath); verr != nil {
+		return backupPath, restoreAfterIntegrityFailure(path, backupPath, verr)
+	}
 	return backupPath, nil
+}
+
+// validateJSONConfig parses bytes as JSON and checks every MCP server entry
+// (top-level mcpServers and any under projects[*]) is an object — guarding
+// against a write that produces malformed or structurally-broken config.
+func validateJSONConfig(data []byte) error {
+	var cfg map[string]any
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	for setName, servers := range collectMCPServerSets(cfg) {
+		for name, s := range servers {
+			if _, ok := s.(map[string]any); !ok {
+				return fmt.Errorf("%s.%s is not an object", setName, name)
+			}
+		}
+	}
+	return nil
+}
+
+// verifyJSONIntegrity re-reads the just-written file and asserts it parses,
+// validates, and preserved every non-CLI-managed server entry (in any scope)
+// byte-for-byte from the pre-write backup. CLI-managed (canonical) entries may
+// change. Returns an error describing the breach if either check fails.
+func verifyJSONIntegrity(path, backupPath string) error {
+	newData, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("re-reading written config: %w", err)
+	}
+	if err := validateJSONConfig(newData); err != nil {
+		return err
+	}
+	if backupPath == "" {
+		return nil
+	}
+	oldData, err := os.ReadFile(backupPath)
+	if err != nil {
+		return nil // can't compare; validity already confirmed
+	}
+
+	var oldCfg, newCfg map[string]any
+	if json.Unmarshal(oldData, &oldCfg) != nil || json.Unmarshal(newData, &newCfg) != nil {
+		return nil
+	}
+	canonical := map[string]bool{serverNameContent: true, serverNamePrompts: true}
+	oldSets, newSets := collectMCPServerSets(oldCfg), collectMCPServerSets(newCfg)
+	for setName, oldServers := range oldSets {
+		newServers := newSets[setName]
+		for name, oldVal := range oldServers {
+			if canonical[name] {
+				continue
+			}
+			newVal, ok := newServers[name]
+			if !ok {
+				return fmt.Errorf("non-managed server %q (%s) was dropped", name, setName)
+			}
+			if !reflect.DeepEqual(oldVal, newVal) {
+				return fmt.Errorf("non-managed server %q (%s) was modified", name, setName)
+			}
+		}
+	}
+	return nil
+}
+
+// collectMCPServerSets returns every mcpServers map in a config — the top-level
+// one and any nested under projects[*] (claude-code local/project scope) —
+// keyed by a scope-qualified name so identically-named servers in different
+// scopes don't collide.
+func collectMCPServerSets(cfg map[string]any) map[string]map[string]any {
+	out := map[string]map[string]any{}
+	if s, ok := cfg["mcpServers"].(map[string]any); ok {
+		out["mcpServers"] = s
+	}
+	if projects, ok := cfg["projects"].(map[string]any); ok {
+		for proj, pv := range projects {
+			if pm, ok := pv.(map[string]any); ok {
+				if s, ok := pm["mcpServers"].(map[string]any); ok {
+					out["projects/"+proj+"/mcpServers"] = s
+				}
+			}
+		}
+	}
+	return out
 }
 
