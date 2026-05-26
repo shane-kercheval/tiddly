@@ -218,10 +218,35 @@ Outcomes:
 - `AGENTS.md` sync-list coverage verified (and extended) for every affected file.
 - `make frontend-verify` / `make backend-verify` pass as appropriate to any files touched. (KAN-154 is already closeable independent of this milestone.)
 
+### Milestone 7 — Deployment (release the artifacts and the CLI)
+
+**Goal & Outcome**
+
+Get everything this effort produced in front of real users. There are **two independent deploys** with a required order:
+
+1. **Frontend deploy** — publishes the artifact family (`llms.txt` + the `llms-*.txt` files) and the `/data` / `/prose` static files to the web origin. This is the normal Railway frontend deploy (merge to `main`); no special step beyond confirming the new `.txt` files are actually served as `text/plain` at `https://tiddly.me/...` (not the SPA shell).
+2. **CLI release** — ships the new Go code (`ai-instructions` command + its SPA-shell fallback, and the config-write integrity fix) to users. The *content* `ai-instructions` prints is fetched live and needs no release, but the **command itself is binary code** and only reaches users via a versioned release.
+
+Outcomes:
+- The artifact files are fetchable at the web origin (verified, not assumed).
+- A new CLI version is published and installable; existing users see it via the built-in update check.
+
+**Implementation Outline**
+
+- **Order matters.** Deploy the frontend **before** tagging the CLI. If the CLI ships first, `ai-instructions` hits the not-yet-deployed path, gets the SPA shell, and prints the offline fallback — safe and exit-0, but degraded. Frontend-first closes that window.
+- **CLI release is tag-triggered and automated.** Pushing a `cli/vX.Y.Z` tag fires `.github/workflows/cli-release.yaml` → GoReleaser builds the cross-platform binaries with `cliVersion` injected via ldflags and publishes a GitHub release. There is no manual build/upload step.
+- **Target version: `cli/v0.3.2`** (current latest is `cli/v0.3.0`). Bundles the codex preservation/integrity bugfix and the `ai-instructions` feature.
+- Do not push the tag until the work is merged to `main` and the frontend artifact deploy is confirmed live.
+
+**Definition of Done**
+- `https://tiddly.me/llms.txt` and each `llms-*.txt` return `200 text/plain` with real content (curl the `content-type`, not just the status).
+- `cli/v0.3.2` tag pushed; the release workflow succeeds and the GitHub release lists the platform binaries.
+- A clean install (`install.sh`) yields a binary whose `tiddly --version` reports `0.3.2` and whose `tiddly ai-instructions` fetches the live doc (no fallback note) against prod.
+
 ## Cross-cutting concerns
 
 - **Anti-drift / single source of truth.** The hard principles (no restatement; `llms.txt` as hub; each artifact earns its existence) are the mitigation. Record them in `AGENTS.md` so future changes know which file owns which concept. Note the existing content homes that overlap (`docs/*`, skills `SKILL.md`, the MCP `instructions.md` files) and ensure artifacts cross-reference rather than copy them.
-- **Sequencing.** M0 gates everything and triggers the re-planning checkpoint. M1 (artifacts) must land before M3's prompt references them. M2 is independent of M1/M3 once its artifact exists. M4 depends on M3's reusable component. M5 depends on M0's artifact set and on its two hosted files existing (authored in M1 or within M5); it is otherwise independent and touches the backend + evals. M6 is the capstone — it runs throughout as a findings ledger and resolves everything in the final pass, so it depends on M1–M5 having surfaced the inconsistencies.
+- **Sequencing.** M0 gates everything and triggers the re-planning checkpoint. M1 (artifacts) must land before M3's prompt references them. M2 is independent of M1/M3 once its artifact exists. M4 depends on M3's reusable component. M5 depends on M0's artifact set and on its two hosted files existing (authored in M1 or within M5); it is otherwise independent and touches the backend + evals. M6 is the capstone — it runs throughout as a findings ledger and resolves everything in the final pass, so it depends on M1–M5 having surfaced the inconsistencies. M7 (deployment) runs last and depends on all prior milestones being merged: frontend deploy first, then the `cli/v0.3.2` tag.
 - **No commits until human approval at each milestone boundary.**
 
 ## Open items (resolved during execution, not blockers)
