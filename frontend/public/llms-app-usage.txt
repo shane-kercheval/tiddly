@@ -7,6 +7,7 @@
 - Granular how-to tips: https://tiddly.me/data/tips.json (human page https://tiddly.me/docs/tips).
 - Current known issues (authoritative): https://tiddly.me/data/known-issues.json.
 - Keyboard shortcuts (authoritative, full set): https://tiddly.me/data/shortcuts.json. Keys here are OS-agnostic — `Mod` is ⌘ on macOS, Ctrl elsewhere.
+- Full index of fetchable data and docs: see **Agent Resources** in https://tiddly.me/llms.txt (links `/data/index.json` and `/prose/index.json`).
 
 ## Orientation — the surfaces
 

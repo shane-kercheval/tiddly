@@ -7,6 +7,7 @@ import { Footer } from '../components/Footer'
 import { AnimationCarousel } from '../components/AnimationCarousel'
 import { PublicHeader } from '../components/PublicHeader'
 import { AgentPromptButton } from '../components/AgentPromptButton'
+import { EVALUATION_PROMPT } from '../data/agentPrompts'
 import { LoadingSpinnerPage } from '../components/ui'
 import { FAQItem } from '../components/ui/FAQItem'
 import {
@@ -22,12 +23,6 @@ import {
   SparklesIcon,
   TagIcon,
 } from '../components/icons'
-
-const EVALUATION_PROMPT = `You're helping me evaluate Tiddly (https://tiddly.me) — a tool for managing bookmarks, notes, and prompt templates and connecting them to AI tools via MCP.
-
-Start by reading https://tiddly.me/llms.txt — it's written for AI agents and is enough on its own for an overview. It links to deeper pages (app usage, AI integration, the CLI, pricing, and the FAQ); don't read them all up front — follow a link only when our conversation calls for that depth.
-
-Then give me an honest assessment: what Tiddly actually does, who it's a good fit for, who it's not for, how it compares to tools I might already use for this, and what trying it would involve. Ask me about my workflow and current tools if that would sharpen the recommendation. Keep it concise and skimmable — not an exhaustive writeup.`
 
 function FeatureCard({
   icon,

@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { DropdownPortal, type DropdownPortalHandle } from './ui/DropdownPortal'
-import { ChevronDownIcon, CopyIcon, CheckIcon } from './icons'
-import { useCopyFeedback } from '../hooks/useCopyFeedback'
+import { ChevronDownIcon } from './icons'
+import { AgentPromptCard } from './AgentPromptCard'
 
 interface AgentPromptButtonProps {
   /** Trigger button text. */
@@ -27,11 +27,11 @@ const DEFAULT_BUTTON_CLASS =
 const POPOVER_WIDTH = 384 // w-96
 
 /**
- * A button that opens an anchored popover containing a ready-to-paste prompt
- * for the user's AI agent: a short directive, the prompt in a scrollable
- * monospace body, and a labeled copy control. Reusable across surfaces
- * (landing-page evaluation CTA, in-app integration prompts) by varying the
- * label/explanation/prompt props.
+ * A button that opens an anchored popover containing an AgentPromptCard — a
+ * ready-to-paste prompt for the user's AI agent. Reusable across surfaces
+ * (landing/features evaluation CTA, in-app integration CTA) by varying the
+ * label/explanation/prompt props. Surfaces that want the card shown inline
+ * (no button) render AgentPromptCard directly instead.
  */
 export function AgentPromptButton({
   buttonLabel,
@@ -43,9 +43,6 @@ export function AgentPromptButton({
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
   const portalRef = useRef<DropdownPortalHandle>(null)
-  // Reuse the same clipboard-feedback plumbing CopyToClipboardButton uses; we
-  // render our own labeled "Copy prompt" button rather than the icon-only one.
-  const { state, setSuccess, setError } = useCopyFeedback()
 
   // Close on outside click (treating the portaled popover as "inside") and Escape.
   useEffect(() => {
@@ -66,16 +63,6 @@ export function AgentPromptButton({
       document.removeEventListener('keydown', onKeyDown)
     }
   }, [open])
-
-  async function copyPrompt(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(prompt)
-      setSuccess()
-    } catch (err) {
-      console.error('Failed to copy prompt:', err)
-      setError()
-    }
-  }
 
   return (
     <>
@@ -98,26 +85,11 @@ export function AgentPromptButton({
         open={open}
         dropdownWidth={POPOVER_WIDTH}
       >
-        <div className="mt-2 w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-gray-200 bg-white text-left shadow-2xl">
-          <p className="px-4 pb-2.5 pt-3 text-[13px] font-semibold leading-relaxed text-gray-700">{explanation}</p>
-          <div className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words border-t border-gray-100 px-4 py-3 font-mono text-xs leading-relaxed text-gray-700">
-            {prompt}
-          </div>
-          <div className="flex justify-end border-t border-gray-100 px-3 py-2">
-            <button
-              type="button"
-              onClick={copyPrompt}
-              className="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
-            >
-              {state === 'success' ? (
-                <CheckIcon className="h-4 w-4 text-green-600" />
-              ) : (
-                <CopyIcon className="h-4 w-4" />
-              )}
-              {state === 'success' ? 'Copied!' : 'Copy prompt'}
-            </button>
-          </div>
-        </div>
+        <AgentPromptCard
+          explanation={explanation}
+          prompt={prompt}
+          className="mt-2 w-96 max-w-[calc(100vw-2rem)] shadow-2xl"
+        />
       </DropdownPortal>
     </>
   )

@@ -98,7 +98,7 @@ After any feature, API, pricing, or UI change, review whether these need updatin
 - Tier limits / pricing numbers: `frontend/src/content/data/tiers.json` — the single cross-stack source (backend enforcement + `Pricing.tsx` display + served `/data/tiers.json`). **Never re-hardcode tier numbers**; `Pricing.tsx` reads them from this file (a test guards against drift).
 
 **Designed pages still authored in TSX** (`frontend/src/pages/`):
-- `LandingPage.tsx`, `FeaturesPage.tsx`, `AIIntegration.tsx` (marketing layouts — prose intentionally not migrated to markdown; see the content-as-markdown plan's M4), `Pricing.tsx` (layout and qualitative copy; the *numbers* come from `tiers.json`).
+- `LandingPage.tsx`, `FeaturesPage.tsx` (marketing layouts — prose intentionally not migrated to markdown; see the content-as-markdown plan's M4), `Pricing.tsx` (layout and qualitative copy; the *numbers* come from `tiers.json`).
 
 **LLM/AI discoverability — the agent-empowerment artifact family** (`frontend/public/`, served at the web origin):
 - `llms.txt` — the hub: value prop, concepts, pricing *summary*, and the index to everything else. An agent's first stop.

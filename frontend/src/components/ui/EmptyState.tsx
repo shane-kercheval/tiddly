@@ -26,6 +26,12 @@ interface EmptyStateProps {
    * above the action row so the explanatory copy precedes the buttons.
    */
   children?: ReactNode
+  /**
+   * Optional content rendered below the action row — for secondary affordances
+   * that should follow the primary actions (e.g. a first-run "get oriented"
+   * prompt beneath the "New …" buttons).
+   */
+  footer?: ReactNode
 }
 
 /**
@@ -38,6 +44,7 @@ export function EmptyState({
   action,
   actions,
   children,
+  footer,
 }: EmptyStateProps): ReactNode {
   const resolvedActions: EmptyStateAction[] = actions ?? (action ? [action] : [])
 
@@ -69,6 +76,7 @@ export function EmptyState({
           })}
         </div>
       )}
+      {footer}
     </div>
   )
 }

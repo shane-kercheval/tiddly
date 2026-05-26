@@ -5,9 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Tiddly - Your Personal Knowledge Base</title>
+    <meta
+      name="description"
+      content="Tiddly manages your bookmarks, notes, and prompt templates and connects them to your AI tools via MCP. AI agents: start at https://tiddly.me/llms.txt"
+    />
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <h1>Tiddly</h1>
+      <p>Tiddly manages your bookmarks, notes, and prompt templates and connects them to your AI tools via MCP.</p>
+      <p><strong>AI agents:</strong> Tiddly is a client-rendered app, so a plain page fetch won't show much. For an agent-readable overview and the index to all docs, data, and setup info, read <a href="https://tiddly.me/llms.txt">https://tiddly.me/llms.txt</a>.</p>
+      <p>Using a browser? Enable JavaScript to use the app, or read <a href="https://tiddly.me/docs">the docs</a>.</p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

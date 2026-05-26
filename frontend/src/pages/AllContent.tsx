@@ -54,6 +54,8 @@ import type { SortByOption } from '../constants/sortOptions'
 import { BookmarkCard } from '../components/BookmarkCard'
 import { NoteCard } from '../components/NoteCard'
 import { PromptCard } from '../components/PromptCard'
+import { AgentPromptCard } from '../components/AgentPromptCard'
+import { ORIENTATION_PROMPT } from '../data/agentPrompts'
 import {
   ContentAreaSpinner,
   ErrorState,
@@ -947,6 +949,16 @@ export function AllContent(): ReactNode {
           title={emptyStateTitle}
           description={emptyStateDescription}
           actions={emptyStateActions}
+          footer={
+            <div className="mx-auto mt-8 w-full max-w-md border-t border-gray-100 pt-6">
+              <p className="mb-3 text-sm text-gray-500">New to Tiddly? Have your AI agent show you around.</p>
+              <AgentPromptCard
+                explanation="Paste this prompt into your AI agent."
+                prompt={ORIENTATION_PROMPT}
+                className="shadow-sm"
+              />
+            </div>
+          }
         />
       )
     }

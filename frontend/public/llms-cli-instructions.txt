@@ -2,7 +2,7 @@
 
 > What the `tiddly` CLI does and how to drive it: the full command set, how auth/token resolution works, and the common workflows. This is the document the `tiddly ai-instructions` command prints, and the "CLI" companion to the hub (https://tiddly.me/llms.txt). It assumes the CLI is installed and you're driving it on a user's machine. For *why* you'd connect via MCP/skills/API, see https://tiddly.me/llms-integration.txt; for what Tiddly is, https://tiddly.me/llms.txt.
 
-**Scope / cross-references.** This file owns the CLI command reference and workflows. It does **not** restate the value prop or tiers (https://tiddly.me/llms.txt) or the integration model and per-tool quirks (https://tiddly.me/llms-integration.txt — go there for *why*; this file is *how*). Full doc pages: https://tiddly.me/prose/cli-reference.md, https://tiddly.me/prose/cli-mcp.md, https://tiddly.me/prose/cli-skills.md.
+**Scope / cross-references.** This file owns the CLI command reference and workflows. It does **not** restate the value prop or tiers (https://tiddly.me/llms.txt) or the integration model and per-tool quirks (https://tiddly.me/llms-integration.txt — go there for *why*; this file is *how*). Full doc pages: https://tiddly.me/prose/cli-reference.md, https://tiddly.me/prose/cli-mcp.md, https://tiddly.me/prose/cli-skills.md. For the full index of fetchable data and docs, see **Agent Resources** in https://tiddly.me/llms.txt (links `/data/index.json` and `/prose/index.json`).
 
 ## What the CLI is for
 
