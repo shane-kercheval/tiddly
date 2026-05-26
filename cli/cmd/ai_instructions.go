@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/shane-kercheval/tiddly/cli/internal/config"
@@ -37,7 +38,7 @@ Run "tiddly --help" for the full command list.`
 func newAIInstructionsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ai-instructions",
-		Short: "Print Tiddly's CLI instructions for AI agents (run this first)",
+		Short: "Print Tiddly's CLI instructions for AI agents (agents should run this first)",
 		Long: `Print Tiddly's CLI instructions for AI agents.
 
 If you are an AI agent working with Tiddly, run this first: it prints how to use the
@@ -81,6 +82,13 @@ func fetchAIInstructions(ctx context.Context, url string) (string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	// The instructions live at the web origin, where a missing/misdeployed path is
+	// served as the SPA's index.html (HTTP 200, text/html) rather than a 404. Reject
+	// an HTML response so we print the fallback instead of feeding an agent the app
+	// shell — the real .txt is served as text/plain.
+	if ct := resp.Header.Get("Content-Type"); strings.Contains(strings.ToLower(ct), "text/html") {
+		return "", fmt.Errorf("origin returned the SPA shell (content-type %q), not the instructions file", ct)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, aiInstructionsMaxBytes))
 	if err != nil {

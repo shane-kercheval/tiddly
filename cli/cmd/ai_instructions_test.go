@@ -88,3 +88,23 @@ func TestAIInstructions__skips_dep_init_and_needs_no_auth(t *testing.T) {
 	assert.Nil(t, appDeps, "ai-instructions must not initialize deps (no auth/config side effects)")
 	assert.Nil(t, updateCheckResult, "ai-instructions must not start a background update check")
 }
+
+// TestAIInstructions__falls_back_on_spa_html_shell guards the web-origin reality:
+// a missing/misdeployed path is served as the SPA index.html (HTTP 200 + text/html),
+// not a 404. The command must treat that as a failure and print the fallback rather
+// than feed an agent the app shell.
+func TestAIInstructions__falls_back_on_spa_html_shell(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<!doctype html><html><body>app shell</body></html>"))
+	}))
+	defer srv.Close()
+	t.Setenv("TIDDLY_WEB_URL", srv.URL)
+
+	result := testutil.ExecuteCmd(t, newRootCmd(), "ai-instructions")
+
+	require.NoError(t, result.Err)
+	assert.NotContains(t, result.Stdout, "app shell", "must not print the SPA HTML shell")
+	assert.Contains(t, result.Stdout, "offline fallback")
+	assert.Contains(t, result.Stderr, "could not fetch")
+}
