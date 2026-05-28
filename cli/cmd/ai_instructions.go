@@ -38,7 +38,7 @@ Run "tiddly --help" for the full command list.`
 func newAIInstructionsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ai-instructions",
-		Short: "Print Tiddly's CLI instructions for AI agents (agents should run this first)",
+		Short: "[AI AGENTS: RUN THIS FIRST] Print CLI instructions for AI agents",
 		Long: `Print Tiddly's CLI instructions for AI agents.
 
 If you are an AI agent working with Tiddly, run this first: it prints how to use the
