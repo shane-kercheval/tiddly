@@ -192,3 +192,4 @@ lid.176.ftz
 # CLI build output
 bin/
 cli/cli
+/.switchboard
