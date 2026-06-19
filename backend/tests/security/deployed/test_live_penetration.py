@@ -1210,6 +1210,21 @@ class TestRaceConditions:
         """Rapid duplicate POSTs don't create multiple bookmarks."""
         url = "https://race-condition-test-unique.example.com/"
 
+        async def delete_existing() -> None:
+            """Remove any bookmark matching this test's URL."""
+            async with httpx.AsyncClient() as client:
+                search = await client.get(
+                    f"{API_URL}/bookmarks/",
+                    headers=headers_user_a,
+                    params={"q": "race-condition-test-unique"},
+                )
+                for item in search.json().get("items", []):
+                    await client.delete(
+                        f"{API_URL}/bookmarks/{item['id']}",
+                        headers=headers_user_a,
+                        params={"permanent": "true"},
+                    )
+
         async def create_bookmark() -> httpx.Response:
             async with httpx.AsyncClient() as client:
                 return await client.post(
@@ -1218,35 +1233,30 @@ class TestRaceConditions:
                     json={"url": url},
                 )
 
-        # Fire 5 concurrent requests
-        results = await asyncio.gather(
-            *[create_bookmark() for _ in range(5)],
-            return_exceptions=True,
-        )
+        # Ensure a clean starting state: a leftover from a prior run would make every
+        # concurrent POST conflict (0 successes), failing the test spuriously.
+        await delete_existing()
 
-        # Expect exactly 1 success (201), rest should be 409 conflict
-        status_codes = [r.status_code for r in results if isinstance(r, httpx.Response)]
-        assert status_codes.count(201) == 1, (
-            f"Race condition: expected 1 success, got {status_codes.count(201)}! "
-            f"Statuses: {status_codes}"
-        )
-        assert all(code in (201, 409) for code in status_codes), (
-            f"Unexpected status codes: {status_codes}"
-        )
-
-        # Cleanup
-        async with httpx.AsyncClient() as client:
-            search = await client.get(
-                f"{API_URL}/bookmarks/",
-                headers=headers_user_a,
-                params={"q": "race-condition-test-unique"},
+        try:
+            # Fire 5 concurrent requests
+            results = await asyncio.gather(
+                *[create_bookmark() for _ in range(5)],
+                return_exceptions=True,
             )
-            for item in search.json().get("items", []):
-                await client.delete(
-                    f"{API_URL}/bookmarks/{item['id']}",
-                    headers=headers_user_a,
-                    params={"permanent": "true"},
-                )
+
+            # Expect exactly 1 success (201), rest should be 409 conflict
+            status_codes = [r.status_code for r in results if isinstance(r, httpx.Response)]
+            assert status_codes.count(201) == 1, (
+                f"Race condition: expected 1 success, got {status_codes.count(201)}! "
+                f"Statuses: {status_codes}"
+            )
+            assert all(code in (201, 409) for code in status_codes), (
+                f"Unexpected status codes: {status_codes}"
+            )
+        finally:
+            # Always clean up, even if an assertion fails — otherwise the created
+            # bookmark persists and breaks every subsequent run (the original bug).
+            await delete_existing()
 
 
 class TestConsentEnforcement:
