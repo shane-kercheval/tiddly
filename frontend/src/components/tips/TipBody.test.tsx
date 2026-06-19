@@ -125,6 +125,30 @@ describe('TipBody', () => {
       expect(kbds[0].textContent).toBe('⌘S')
     })
 
+    it('renders a CodeMirror editor chord token (editor.find) localized', () => {
+      mockPlatform('MacIntel')
+      const { container } = renderBody('Press `{{shortcut:editor.find}}` to search.')
+      const macKbds = container.querySelectorAll('kbd')
+      expect(macKbds.length).toBe(1)
+      expect(macKbds[0].textContent).toBe('⌘F')
+
+      mockPlatform('Win32')
+      const { container: winContainer } = renderBody('Press `{{shortcut:editor.find}}` to search.')
+      const winKbds = winContainer.querySelectorAll('kbd')
+      expect(winKbds.length).toBe(1)
+      expect(winKbds[0].textContent).toBe('Ctrl+F')
+    })
+
+    it('renders the modifier-only token (editor.openLinkModifier) as just ⌘ / Ctrl', () => {
+      // Used by the raw-editor link tip: "hold {{token}} and click" reads as
+      // "hold ⌘ and click" (Mac) / "hold Ctrl and click" (Windows).
+      mockPlatform('MacIntel')
+      const { container } = renderBody('Hold `{{shortcut:editor.openLinkModifier}}` and click.')
+      const kbds = container.querySelectorAll('kbd')
+      expect(kbds.length).toBe(1)
+      expect(kbds[0].textContent).toBe('⌘')
+    })
+
     it('renders a non-token inline code span as a default code element, not a Kbd', () => {
       const { container } = renderBody('Open `tips.ts` to edit.')
       const codes = container.querySelectorAll('code')

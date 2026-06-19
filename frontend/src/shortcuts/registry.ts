@@ -71,6 +71,7 @@ export const SHORTCUT_IDS = [
   'editor.commandMenu',
   'editor.openLinkInNewTab',
   'editor.selectNextOccurrence',
+  'editor.selectAllOccurrences',
 ] as const
 
 /** Compile-time-narrow id union — typos in selectors fail to compile. */

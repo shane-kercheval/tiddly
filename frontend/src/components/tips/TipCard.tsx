@@ -11,7 +11,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Tip, TipAudience } from '../../data/tips/types'
-import { resolveTipShortcut } from '../../data/tips/tipExtraShortcuts'
+import { resolveContentShortcut } from '../../data/tips/contentExtraShortcuts'
 import { localizeKey } from '../../utils/platform'
 import { Kbd } from '../ui/Kbd'
 import { TipBody } from './TipBody'
@@ -50,11 +50,11 @@ export function TipCard({ tip, variant }: TipCardProps): ReactNode {
 
   // Resolve the chip-row keys from `shortcutId` (registry-backed) or
   // `shortcut` (literal fallback). `validateTips` at module load enforces
-  // mutual exclusion and id validity; a render-time throw from `resolveTipShortcut`
+  // mutual exclusion and id validity; a render-time throw from `resolveContentShortcut`
   // would mean a validator bypass, which we want to surface loudly rather than
   // silently render nothing.
   const shortcutKeys: readonly string[] | undefined =
-    tip.shortcutId !== undefined ? resolveTipShortcut(tip.shortcutId) : tip.shortcut
+    tip.shortcutId !== undefined ? resolveContentShortcut(tip.shortcutId) : tip.shortcut
 
   return (
     <div

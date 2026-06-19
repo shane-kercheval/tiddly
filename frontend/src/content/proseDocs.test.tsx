@@ -8,7 +8,8 @@ import { parseProseFile } from './frontmatter'
 import { ProseDocPage } from '../pages/docs/ProseDocPage'
 import { collectProseContent } from '../../plugins/proseContent'
 import { KNOWN_ROUTE_PATHS, findMatchingRoute } from '../routePrefetch'
-import { resolveTipShortcut } from '../data/tips/tipExtraShortcuts'
+import { resolveContentShortcut } from '../data/tips/contentExtraShortcuts'
+import { assertNoLegacyGlyphsInText } from '../utils/platform'
 import { resolveInlineIcon } from '../components/markdown/inlineIcons'
 
 /**
@@ -124,7 +125,7 @@ describe('prose inline tokens resolve (build-time guard)', () => {
   it('every {{shortcut:id}} token in prose resolves to a real shortcut', () => {
     for (const doc of PROSE_DOCS) {
       for (const match of doc.body.matchAll(/\{\{shortcut:([^}]+)\}\}/g)) {
-        expect(() => resolveTipShortcut(match[1]), `${doc.slug}: {{shortcut:${match[1]}}}`).not.toThrow()
+        expect(() => resolveContentShortcut(match[1]), `${doc.slug}: {{shortcut:${match[1]}}}`).not.toThrow()
       }
     }
   })
@@ -134,6 +135,18 @@ describe('prose inline tokens resolve (build-time guard)', () => {
       for (const match of doc.body.matchAll(/\{\{icon:([^}]+)\}\}/g)) {
         expect(resolveInlineIcon(`{{icon:${match[1]}}}`), `${doc.slug}: {{icon:${match[1]}}}`).not.toBeNull()
       }
+    }
+  })
+
+  // Docs prose is a public, agent-readable surface like the tips corpus, and
+  // uses the same `{{shortcut:id}}` localization. A hardcoded ⌘/⌥/⇧/⌃ would
+  // render raw to Windows/Linux users — author shortcuts as tokens instead.
+  // This mirrors the tip title/body guard in `validateTips` (KAN-155). NB: this
+  // is scoped to prose; structured-data JSON (e.g. changelog.json) may
+  // legitimately discuss glyphs as subject matter and is intentionally excluded.
+  it('no prose body hardcodes a legacy Mac modifier glyph', () => {
+    for (const doc of PROSE_DOCS) {
+      expect(() => assertNoLegacyGlyphsInText(doc.body, `prose "${doc.slug}"`)).not.toThrow()
     }
   })
 })

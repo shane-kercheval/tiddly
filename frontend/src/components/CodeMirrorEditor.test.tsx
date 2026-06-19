@@ -180,6 +180,45 @@ describe('CodeMirrorEditor — upstream keymap presence (Cmd+D)', () => {
     const hasModD = allKeymaps.some((b) => b.key === 'Mod-d')
     expect(hasModD).toBe(true)
   })
+
+  // The tips corpus advertises these upstream editor chords via
+  // `{{shortcut:...}}` tokens (CONTENT_EXTRA_SHORTCUTS, plus
+  // editor.selectAllOccurrences in the registry). None are bound by our own
+  // keymap — they come from @codemirror/search's searchKeymap and
+  // @codemirror/commands' defaultKeymap. If basicSetup/search() stops shipping
+  // any of them, the matching tip becomes a lie; these assertions catch that.
+  it('binds every advertised find/go-to-line chord in the mounted keymap', () => {
+    const { container } = render(<CodeMirrorEditor value="hello" onChange={vi.fn()} />)
+    const contentDOM = container.querySelector('.cm-content') as HTMLElement
+    const view = EditorView.findFromDOM(contentDOM)
+    expect(view).toBeTruthy()
+    const bindings = view!.state.facet(keymapFacet).flat()
+    const hasKey = (key: string): boolean => bindings.some((b) => b.key === key)
+
+    // editor.find / editor.findNext / editor.goToLine / editor.selectAllOccurrences
+    expect(hasKey('Mod-f')).toBe(true)
+    expect(hasKey('Mod-g')).toBe(true)
+    expect(hasKey('Mod-Alt-g')).toBe(true)
+    expect(hasKey('Mod-Shift-l')).toBe(true)
+
+    // editor.findPrevious is NOT a standalone key — searchKeymap attaches it as
+    // the `shift` handler on the Mod-g binding. Assert that shape directly so a
+    // future change that drops shift-findPrevious is caught.
+    const modG = bindings.find((b) => b.key === 'Mod-g')
+    expect(modG?.shift).toBeTypeOf('function')
+  })
+
+  it('binds multi-cursor add-above/below in the mounted keymap', () => {
+    // editor.addCursorAboveBelow — defaultKeymap, the one chord that is NOT a
+    // @codemirror/search default, so it's the most likely to silently vanish.
+    const { container } = render(<CodeMirrorEditor value="a\nb\nc" onChange={vi.fn()} />)
+    const contentDOM = container.querySelector('.cm-content') as HTMLElement
+    const view = EditorView.findFromDOM(contentDOM)
+    expect(view).toBeTruthy()
+    const bindings = view!.state.facet(keymapFacet).flat()
+    expect(bindings.some((b) => b.key === 'Mod-Alt-ArrowUp')).toBe(true)
+    expect(bindings.some((b) => b.key === 'Mod-Alt-ArrowDown')).toBe(true)
+  })
 })
 
 // Note on the Mod+Shift+/ passthrough integration test:

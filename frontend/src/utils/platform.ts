@@ -40,6 +40,25 @@ export function assertNoLegacyShortcutGlyphs(tokens: readonly string[], context:
   }
 }
 
+/**
+ * Reject a legacy Mac glyph anywhere in a free-text string (tip title/body, docs
+ * prose). Where a hardcoded `⌘`/`⌥`/`⇧`/`⌃` renders raw to Windows/Linux users,
+ * authors must instead cite shortcuts via `{{shortcut:<id>}}` tokens, which
+ * localize at render. Companion to `assertNoLegacyShortcutGlyphs` (which guards
+ * authored token *arrays*); this guards prose. We deliberately scan only the
+ * four modifier glyphs, not English words like "Cmd"/"Option" — those would
+ * false-positive on legitimate prose ("command palette", "command menu").
+ */
+export function assertNoLegacyGlyphsInText(text: string, context: string): void {
+  for (const glyph of LEGACY_MODIFIER_GLYPHS) {
+    if (text.includes(glyph)) {
+      throw new Error(
+        `${context}: contains the Mac glyph "${glyph}" — cite shortcuts via {{shortcut:<id>}} tokens, which localize per-OS.`,
+      )
+    }
+  }
+}
+
 export function isMac(): boolean {
   if (typeof navigator === 'undefined') return false
   // iPhone/iPad/iPod with hardware keyboards use Cmd as the modifier, like Mac.

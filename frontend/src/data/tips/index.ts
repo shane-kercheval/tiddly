@@ -6,13 +6,16 @@
  * ad-hoc inputs without re-triggering module-load side effects.
  */
 import { matchPathPrefix } from '../../utils/matchPathPrefix'
-import { assertNoLegacyShortcutGlyphs } from '../../utils/platform'
+import {
+  assertNoLegacyGlyphsInText,
+  assertNoLegacyShortcutGlyphs,
+} from '../../utils/platform'
 import { ALL_CONTENT_TYPES, type ContentType } from '../../types'
 import tipsData from '../../content/data/tips.json'
 import {
-  resolveTipShortcut,
+  resolveContentShortcut,
   SHORTCUT_TOKEN_SCAN_RE,
-} from './tipExtraShortcuts'
+} from './contentExtraShortcuts'
 import {
   BODY_MAX_LENGTH,
   TITLE_MAX_LENGTH,
@@ -48,6 +51,13 @@ export function validateTips(tips: readonly Tip[]): void {
     }
     seenIds.add(tip.id)
 
+    // No hardcoded Mac glyphs in prose. The title can't carry `{{shortcut:id}}`
+    // tokens (it renders as plain text), so a glyph there must be reworded out;
+    // the body must cite shortcuts via tokens, which localize per-OS. This is
+    // the prose counterpart to the `tip.shortcut` array check below.
+    assertNoLegacyGlyphsInText(tip.title, `Tip "${tip.id}" title`)
+    assertNoLegacyGlyphsInText(tip.body, `Tip "${tip.id}" body`)
+
     if (tip.title.length > TITLE_MAX_LENGTH) {
       throw new Error(
         `Tip "${tip.id}" title exceeds ${TITLE_MAX_LENGTH} chars (${tip.title.length}).`,
@@ -74,7 +84,7 @@ export function validateTips(tips: readonly Tip[]): void {
     }
     if (tip.shortcutId !== undefined) {
       try {
-        resolveTipShortcut(tip.shortcutId)
+        resolveContentShortcut(tip.shortcutId)
       } catch {
         throw new Error(
           `Tip "${tip.id}" has unknown shortcutId "${tip.shortcutId}".`,
@@ -115,7 +125,7 @@ export function validateTips(tips: readonly Tip[]): void {
         )
       }
       try {
-        resolveTipShortcut(tokenId)
+        resolveContentShortcut(tokenId)
       } catch {
         throw new Error(
           `Tip "${tip.id}" references unknown shortcut token "{{shortcut:${tokenId}}}".`,
