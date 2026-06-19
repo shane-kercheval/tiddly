@@ -190,7 +190,8 @@ export const DOCS_ROUTES: DocsRoute[] = [
       + 'authentication bearer token personal access token pat bm_ swagger openapi '
       + 'try it out pagination offset limit sorting tag filtering optimistic locking '
       + 'if-unmodified-since archive trash relationships rate limits headers '
-      + 'x-ratelimit ai endpoints auth0 jwt programmatic',
+      + 'x-ratelimit x-request-source request source audit telemetry '
+      + 'ai endpoints auth0 jwt programmatic',
   },
   {
     path: '/docs/tips',

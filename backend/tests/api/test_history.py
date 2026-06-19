@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings, get_settings
-from models.content_history import ContentHistory
+from models.content_history import SOURCE_MAX_LENGTH, ContentHistory
 from models.user import User
 from core.tier_limits import Tier, get_tier_limits
 from schemas.token import TokenCreate
@@ -225,6 +225,55 @@ async def test_get_user_history_filter_by_source(client: AsyncClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 0
+
+
+async def test_history_source__x_request_source_header_maps_to_stored_source(
+    client: AsyncClient,
+) -> None:
+    """
+    End-to-end: the X-Request-Source HTTP header flows through FastAPI's Header
+    dependency into the stored audit source. Guards the parameter-name -> header
+    mapping (x_request_source -> X-Request-Source) that the unit tests (which call
+    get_request_source directly) and the OpenAPI schema test do not exercise.
+    """
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://header-source-test.com"},
+        headers={"X-Request-Source": "chrome-extension"},
+    )
+    assert response.status_code == 201
+
+    history = await client.get("/history/", params={"source": "chrome-extension"})
+    assert history.status_code == 200
+    data = history.json()
+    assert data["total"] == 1
+    assert data["items"][0]["source"] == "chrome-extension"
+
+
+async def test_history_source__over_length_header_is_truncated_not_500(
+    client: AsyncClient,
+) -> None:
+    """
+    An over-length X-Request-Source is truncated to SOURCE_MAX_LENGTH server-side
+    rather than overflowing the history column and failing the write with a 500.
+    """
+    long_source = "a-really-long-third-party-client-name"
+    assert len(long_source) > SOURCE_MAX_LENGTH
+
+    response = await client.post(
+        "/bookmarks/",
+        json={"url": "https://truncation-test.com"},
+        headers={"X-Request-Source": long_source},
+    )
+    assert response.status_code == 201
+
+    expected = long_source[:SOURCE_MAX_LENGTH]
+    history = await client.get("/history/", params={"source": expected})
+    assert history.status_code == 200
+    data = history.json()
+    assert data["total"] == 1
+    assert data["items"][0]["source"] == expected
+    assert len(data["items"][0]["source"]) == SOURCE_MAX_LENGTH
 
 
 async def test_get_user_history_filter_by_date_range(client: AsyncClient) -> None:

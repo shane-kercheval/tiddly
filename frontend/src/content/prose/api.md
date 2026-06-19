@@ -21,6 +21,20 @@ Create a token in [Settings → Personal Access Tokens](/app/settings/tokens). T
 > [!warning]
 > Treat tokens like passwords. Never commit them to version control or expose them in client-side code.
 
+## Request Headers
+
+Beyond `Authorization`, one optional header is worth knowing about:
+
+`X-Request-Source` — a free-form tag identifying your client (for example, your app's name). It is recorded on each item's version history so changes can be traced back to where they originated. It is **audit/telemetry only — not access control**, and has no effect on what a request is allowed to do.
+
+- Free-form: send any short identifier. There is no allowlist.
+- Keep it to **20 characters or fewer** — longer values are truncated.
+- Lowercased server-side; leading/trailing whitespace is trimmed.
+- Optional: if omitted, the source is recorded as `unknown`.
+
+> [!note]
+> The source is a **header**, not a body field — a `metadata.source` in the request body is ignored. Tiddly's own clients send values like `web`, `cli`, `chrome-extension`, `mcp-content`, `mcp-prompt`, and `ios`; a third-party integration should send its own identifier.
+
 ## Endpoints
 
 The API is organized around content types, with shared capabilities across all of them:

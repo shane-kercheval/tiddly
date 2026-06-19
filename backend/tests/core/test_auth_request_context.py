@@ -30,17 +30,6 @@ def mock_request() -> Request:
 
 
 @pytest.fixture
-def mock_request_with_source() -> callable:
-    """Factory fixture to create mock request with specific X-Request-Source header."""
-    def _create(source_value: str) -> Request:
-        request = MagicMock(spec=Request)
-        request.headers = {"x-request-source": source_value}
-        request.state = MagicMock()
-        return request
-    return _create
-
-
-@pytest.fixture
 async def test_user(db_session: AsyncSession) -> User:
     """Create a test user for auth tests."""
     user = User(
@@ -72,81 +61,65 @@ def mock_settings_dev_mode() -> "Settings":
 
 
 class TestGetRequestSource:
-    """Tests for _get_request_source function."""
+    """
+    Tests for the get_request_source Header dependency.
 
-    def test__get_request_source__web_header(
-        self,
-        mock_request_with_source: callable,
-    ) -> None:
-        """X-Request-Source: web sets source to WEB."""
-        request = mock_request_with_source("web")
-        from core.auth import _get_request_source  # noqa: PLC0415
-        source = _get_request_source(request)
-        assert source == "web"
+    get_request_source resolves the X-Request-Source header value (passed by
+    FastAPI from the declared Header parameter) into the stored source string.
+    The value is free-form (no allowlist), trimmed, and lowercased; a missing
+    or blank header resolves to 'unknown'.
+    """
 
-    def test__get_request_source__api_header(
-        self,
-        mock_request_with_source: callable,
-    ) -> None:
-        """X-Request-Source: api sets source to API."""
-        request = mock_request_with_source("api")
-        from core.auth import _get_request_source  # noqa: PLC0415
-        source = _get_request_source(request)
-        assert source == "api"
+    def test__get_request_source__web_header(self) -> None:
+        """X-Request-Source: web resolves to 'web'."""
+        from core.auth import get_request_source  # noqa: PLC0415
+        assert get_request_source("web") == "web"
 
-    def test__get_request_source__mcp_content_header(
-        self,
-        mock_request_with_source: callable,
-    ) -> None:
-        """X-Request-Source: mcp-content sets source to MCP_CONTENT."""
-        request = mock_request_with_source("mcp-content")
-        from core.auth import _get_request_source  # noqa: PLC0415
-        source = _get_request_source(request)
-        assert source == "mcp-content"
+    def test__get_request_source__ios_header(self) -> None:
+        """A first-party client value (ios) passes through as-is."""
+        from core.auth import get_request_source  # noqa: PLC0415
+        assert get_request_source("ios") == "ios"
 
-    def test__get_request_source__mcp_prompt_header(
-        self,
-        mock_request_with_source: callable,
-    ) -> None:
-        """X-Request-Source: mcp-prompt sets source to MCP_PROMPT."""
-        request = mock_request_with_source("mcp-prompt")
-        from core.auth import _get_request_source  # noqa: PLC0415
-        source = _get_request_source(request)
-        assert source == "mcp-prompt"
+    def test__get_request_source__mcp_content_header(self) -> None:
+        """X-Request-Source: mcp-content passes through as-is."""
+        from core.auth import get_request_source  # noqa: PLC0415
+        assert get_request_source("mcp-content") == "mcp-content"
 
-    def test__get_request_source__missing_header_defaults_to_unknown(
-        self,
-        mock_request: Request,
-    ) -> None:
-        """Missing X-Request-Source header defaults to UNKNOWN."""
-        from core.auth import _get_request_source  # noqa: PLC0415
-        source = _get_request_source(mock_request)
-        assert source == "unknown"
+    def test__get_request_source__mcp_prompt_header(self) -> None:
+        """X-Request-Source: mcp-prompt passes through as-is."""
+        from core.auth import get_request_source  # noqa: PLC0415
+        assert get_request_source("mcp-prompt") == "mcp-prompt"
 
-    def test__get_request_source__unrecognized_header_passes_through(
-        self,
-        mock_request_with_source: callable,
-    ) -> None:
-        """Unrecognized X-Request-Source header is passed through as-is."""
-        request = mock_request_with_source("iphone")
-        from core.auth import _get_request_source  # noqa: PLC0415
-        source = _get_request_source(request)
-        assert source == "iphone"
+    def test__get_request_source__missing_header_defaults_to_unknown(self) -> None:
+        """A missing (None) header defaults to 'unknown'."""
+        from core.auth import get_request_source  # noqa: PLC0415
+        assert get_request_source(None) == "unknown"
 
-    def test__get_request_source__case_insensitive(
-        self,
-        mock_request_with_source: callable,
-    ) -> None:
-        """X-Request-Source header is case-insensitive."""
-        request = mock_request_with_source("WEB")
-        from core.auth import _get_request_source  # noqa: PLC0415
-        source = _get_request_source(request)
-        assert source == "web"
+    def test__get_request_source__blank_header_defaults_to_unknown(self) -> None:
+        """A blank/whitespace-only header defaults to 'unknown'."""
+        from core.auth import get_request_source  # noqa: PLC0415
+        assert get_request_source("   ") == "unknown"
 
-        request = mock_request_with_source("MCP-Content")
-        from core.auth import _get_request_source  # noqa: PLC0415
-        source = _get_request_source(request)
-        assert source == "mcp-content"
+    def test__get_request_source__unrecognized_value_passes_through(self) -> None:
+        """No allowlist: any free-form client value passes through as-is."""
+        from core.auth import get_request_source  # noqa: PLC0415
+        assert get_request_source("some-custom-client") == "some-custom-client"
+
+    def test__get_request_source__case_and_whitespace_normalized(self) -> None:
+        """Header value is lowercased and trimmed."""
+        from core.auth import get_request_source  # noqa: PLC0415
+        assert get_request_source("WEB") == "web"
+        assert get_request_source("  MCP-Content  ") == "mcp-content"
+
+    def test__get_request_source__over_length_value_is_truncated(self) -> None:
+        """A value longer than the source column is truncated so it can never 500."""
+        from core.auth import get_request_source  # noqa: PLC0415
+        from models.content_history import SOURCE_MAX_LENGTH  # noqa: PLC0415
+
+        long_value = "a" * (SOURCE_MAX_LENGTH + 10)
+        result = get_request_source(long_value)
+        assert result == "a" * SOURCE_MAX_LENGTH
+        assert len(result) == SOURCE_MAX_LENGTH
 
 
 class TestRequestContextWithAuth0:
@@ -171,6 +144,7 @@ class TestRequestContextWithAuth0:
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
+                source="unknown",
             )
 
         # Check that request_context was set
@@ -178,17 +152,16 @@ class TestRequestContextWithAuth0:
         assert context.auth_type == AuthType.AUTH0
         assert context.token_prefix is None
 
-    async def test__auth0_jwt__sets_source_from_header(
+    async def test__auth0_jwt__sets_source_from_param(
         self,
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: "Settings",
-        mock_request_with_source: callable,
+        mock_request: Request,
     ) -> None:
-        """Auth0 JWT uses X-Request-Source header for source."""
+        """Auth0 JWT records the resolved request source on the context."""
         from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
-        request = mock_request_with_source("web")
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
             credentials="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid",
@@ -197,10 +170,11 @@ class TestRequestContextWithAuth0:
         mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             await _authenticate_user(
-                request, credentials, db_session, mock_settings_no_dev_mode,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
+                source="web",
             )
 
-        context = request.state.request_context
+        context = mock_request.state.request_context
         assert context.source == "web"
         assert context.auth_type == AuthType.AUTH0
 
@@ -230,6 +204,7 @@ class TestRequestContextWithPAT:
         ):
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
+                source="unknown",
             )
 
         context = mock_request.state.request_context
@@ -258,6 +233,7 @@ class TestRequestContextWithPAT:
         ):
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
+                source="unknown",
             )
 
         context = mock_request.state.request_context
@@ -288,22 +264,22 @@ class TestRequestContextWithPAT:
         ):
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
+                source="unknown",
             )
 
         context = mock_request.state.request_context
         assert context.token_prefix == "bm_short"
 
-    async def test__pat__sets_source_from_header(
+    async def test__pat__sets_source_from_param(
         self,
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: "Settings",
-        mock_request_with_source: callable,
+        mock_request: Request,
     ) -> None:
-        """PAT uses X-Request-Source header for source."""
+        """PAT records the resolved request source on the context."""
         from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
-        request = mock_request_with_source("mcp-content")
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
             credentials="bm_valid_token",
@@ -315,10 +291,11 @@ class TestRequestContextWithPAT:
             return_value=test_user,
         ):
             await _authenticate_user(
-                request, credentials, db_session, mock_settings_no_dev_mode,
+                mock_request, credentials, db_session, mock_settings_no_dev_mode,
+                source="mcp-content",
             )
 
-        context = request.state.request_context
+        context = mock_request.state.request_context
         assert context.source == "mcp-content"
         assert context.auth_type == AuthType.PAT
 
@@ -338,29 +315,67 @@ class TestRequestContextWithDevMode:
         # Credentials don't matter in dev mode
         await _authenticate_user(
             mock_request, None, db_session, mock_settings_dev_mode,
+            source="unknown",
         )
 
         context = mock_request.state.request_context
         assert context.auth_type == AuthType.DEV
         assert context.token_prefix is None
 
-    async def test__dev_mode__sets_source_from_header(
+    async def test__dev_mode__sets_source_from_param(
         self,
         db_session: AsyncSession,
         mock_settings_dev_mode: "Settings",
-        mock_request_with_source: callable,
+        mock_request: Request,
     ) -> None:
-        """DEV_MODE uses X-Request-Source header for source."""
+        """DEV_MODE records the resolved request source on the context."""
         from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
-        request = mock_request_with_source("web")
         await _authenticate_user(
-            request, None, db_session, mock_settings_dev_mode,
+            mock_request, None, db_session, mock_settings_dev_mode,
+            source="web",
         )
 
-        context = request.state.request_context
+        context = mock_request.state.request_context
         assert context.source == "web"
         assert context.auth_type == AuthType.DEV
+
+
+class TestRequestSourceOpenAPISchema:
+    """
+    Guards that X-Request-Source is discoverable in the generated OpenAPI schema.
+
+    The header is declared as a Header(...) dependency precisely so it shows up in
+    the Swagger reference for API integrators (KAN-157). If someone reverts it to a
+    raw request.headers read, it would vanish from the schema and this test fails.
+    """
+
+    # db_session is load-bearing despite being unused in the body: it transitively
+    # starts the Postgres container that sets DATABASE_URL, which importing
+    # api.main.app (below) requires for Settings validation. Don't remove it.
+    @pytest.mark.usefixtures("db_session")
+    async def test__x_request_source__declared_as_header_param_in_openapi(
+        self,
+    ) -> None:
+        """X-Request-Source appears as a header parameter on authenticated routes."""
+        from core.config import get_settings  # noqa: PLC0415
+        get_settings.cache_clear()
+        from api.main import app  # noqa: PLC0415
+
+        schema = app.openapi()
+
+        # Collect every header parameter name across all operations (case-insensitive:
+        # FastAPI emits the converted header name, e.g. 'x-request-source').
+        header_params: set[str] = set()
+        for path_item in schema["paths"].values():
+            for operation in path_item.values():
+                if not isinstance(operation, dict):
+                    continue
+                for param in operation.get("parameters", []):
+                    if param.get("in") == "header":
+                        header_params.add(param["name"].lower())
+
+        assert "x-request-source" in header_params
 
 
 class TestGetRequestContext:
