@@ -175,7 +175,10 @@ async def get_user_history(
     ),
     source: list[str] | None = Query(
         default=None,
-        description="Filter by source (e.g. web, api, mcp-content, mcp-prompt).",
+        description=(
+            "Filter by source (e.g. web, cli, chrome-extension, mcp-content, "
+            "mcp-prompt, ios)."
+        ),
     ),
     start_date: datetime | None = Query(
         default=None,
