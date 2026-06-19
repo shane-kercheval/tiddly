@@ -57,6 +57,10 @@ make frontend-run       # Frontend at http://localhost:5173
 
 With default `VITE_DEV_MODE=true`, authentication is bypassed for local development.
 
+### Running multiple worktrees concurrently
+
+Each git worktree needs its own isolated local stack — they can't share one Postgres/Redis when each is changing the backend. In each worktree's `.env`, set a distinct `POSTGRES_HOST_PORT` and `REDIS_HOST_PORT` (e.g. `5436`/`6380`); `DATABASE_URL` and `REDIS_URL` reference them automatically. Docker Compose already namespaces containers and volumes per worktree by directory name (override `COMPOSE_PROJECT_NAME` for a stable name). The defaults (`5435`/`6379`) are unchanged, so a single-worktree setup needs no edits.
+
 ### Testing with Auth0
 
 To test real authentication:
