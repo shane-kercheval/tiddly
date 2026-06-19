@@ -142,16 +142,7 @@ Every history record captures where the change originated.
 
 ### Request Source
 
-Determined by the `X-Request-Source` header. Any value is accepted and stored as-is (lowercased). If the header is missing, `unknown` is stored as a default.
-
-Currently used values:
-
-| Header Value | Description |
-|--------------|-------------|
-| `web` | Web UI |
-| `mcp-content` | Content MCP server |
-| `mcp-prompt` | Prompt MCP server |
-| `iphone` | iPhone mobile app |
+Determined by the `X-Request-Source` header. Any value is accepted, trimmed, lowercased, and truncated to a maximum length; a missing or blank header defaults to `unknown`. See [`architecture.md` § Request source](architecture.md#request-source) for the canonical description and the current first-party client values (`web`, `cli`, `chrome-extension`, `mcp-content`, `mcp-prompt`, `ios`).
 
 ### Authentication Type
 
