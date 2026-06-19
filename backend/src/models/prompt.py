@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,6 +28,25 @@ class Prompt(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
+        # Partial unique index: a published item's share token is unique within
+        # the table; unpublished items (token IS NULL) are exempt and may be many.
+        # This is the sole index for public_token lookups (the only access path is
+        # `public_token == token`, always non-NULL) — no separate plain index.
+        # The predicate intentionally omits `deleted_at IS NULL`: a soft-deleted
+        # row keeps its (random, unguessable) token claimed only until the 30-day
+        # cleanup cron hard-deletes it. Revisit only if user-chosen vanity slugs
+        # are ever added (then add `AND deleted_at IS NULL` to free names on trash).
+        Index(
+            "uq_prompt_public_token",
+            "public_token",
+            unique=True,
+            postgresql_where=text("public_token IS NOT NULL"),
+        ),
+        # A published item must always have a token (else it has no usable URL).
+        CheckConstraint(
+            "NOT is_public OR public_token IS NOT NULL",
+            name="ck_prompt_public_requires_token",
+        ),
     )
 
     # id provided by UUIDv7Mixin
@@ -47,6 +66,16 @@ class Prompt(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
         nullable=False,
         server_default="[]",
     )
+
+    # Public sharing. is_public toggles the share on/off; public_token is the
+    # stable, unguessable plaintext URL component, generated on first publish and
+    # changed only by an explicit rotate. See uq_prompt_public_token above.
+    is_public: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    public_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Trigger-maintained tsvector for full-text search (see migration for trigger definition)
     search_vector: Mapped[str | None] = mapped_column(
