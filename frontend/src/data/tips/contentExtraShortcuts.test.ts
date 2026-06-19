@@ -1,84 +1,109 @@
 import { describe, it, expect } from 'vitest'
 import {
-  isTipShortcutId,
-  resolveTipShortcut,
+  isContentShortcutId,
+  resolveContentShortcut,
   SHORTCUT_TOKEN_RE,
   SHORTCUT_TOKEN_SCAN_RE,
-  TIP_EXTRA_SHORTCUTS,
-} from './tipExtraShortcuts'
+  CONTENT_EXTRA_SHORTCUTS,
+} from './contentExtraShortcuts'
 import { PAGE_SCOPED_SAVE_KEYS, PAGE_SCOPED_SAVE_AND_CLOSE_KEYS } from '../../shortcuts/pageScoped'
 
-describe('resolveTipShortcut', () => {
+describe('resolveContentShortcut', () => {
   it('resolves a registry-backed id to its keys', () => {
     // app.commandPalette → ['Mod', 'Shift', 'P'] per registry.ts.
-    expect(resolveTipShortcut('app.commandPalette')).toEqual(['Mod', 'Shift', 'P'])
+    expect(resolveContentShortcut('app.commandPalette')).toEqual(['Mod', 'Shift', 'P'])
   })
 
   it('resolves an extras-backed page.save id from pageScoped constants', () => {
-    expect(resolveTipShortcut('page.save')).toEqual(PAGE_SCOPED_SAVE_KEYS)
+    expect(resolveContentShortcut('page.save')).toEqual(PAGE_SCOPED_SAVE_KEYS)
   })
 
   it('resolves page.saveAndClose from pageScoped constants', () => {
-    expect(resolveTipShortcut('page.saveAndClose')).toEqual(PAGE_SCOPED_SAVE_AND_CLOSE_KEYS)
+    expect(resolveContentShortcut('page.saveAndClose')).toEqual(PAGE_SCOPED_SAVE_AND_CLOSE_KEYS)
   })
 
   it('resolves the Chrome extension popup id', () => {
-    expect(resolveTipShortcut('extension.openPopup')).toEqual(['Alt', 'Shift', 'S'])
+    expect(resolveContentShortcut('extension.openPopup')).toEqual(['Alt', 'Shift', 'S'])
+  })
+
+  it('resolves the CodeMirror editor chords to OS-agnostic tokens', () => {
+    expect(resolveContentShortcut('editor.find')).toEqual(['Mod', 'F'])
+    expect(resolveContentShortcut('editor.findNext')).toEqual(['Mod', 'G'])
+    expect(resolveContentShortcut('editor.findPrevious')).toEqual(['Mod', 'Shift', 'G'])
+    expect(resolveContentShortcut('editor.goToLine')).toEqual(['Mod', 'Alt', 'G'])
+    expect(resolveContentShortcut('editor.addCursorAboveBelow')).toEqual(['Mod', 'Alt', '↑/↓'])
+    expect(resolveContentShortcut('editor.openLinkModifier')).toEqual(['Mod'])
+  })
+
+  it('resolves editor.selectAllOccurrences through the keyboard registry', () => {
+    // Lives in shortcuts.json (display-only), not the extras module — its sibling
+    // editor.selectNextOccurrence is in the help dialog, so this one is too.
+    expect(resolveContentShortcut('editor.selectAllOccurrences')).toEqual(['Mod', 'Shift', 'L'])
   })
 
   it('throws on an unknown id with the id in the message', () => {
-    expect(() => resolveTipShortcut('nope.notreal')).toThrow(/nope\.notreal/)
+    expect(() => resolveContentShortcut('nope.notreal')).toThrow(/nope\.notreal/)
   })
 
   it('throws on an empty string', () => {
-    expect(() => resolveTipShortcut('')).toThrow(/Unknown tip shortcut id/)
+    expect(() => resolveContentShortcut('')).toThrow(/Unknown content shortcut id/)
   })
 
   // Object.prototype defenses — `in` operator would walk the prototype chain
   // and accept these. `Object.hasOwn` rejects them.
   it('throws on inherited Object.prototype member "toString"', () => {
-    expect(() => resolveTipShortcut('toString')).toThrow(/Unknown tip shortcut id/)
+    expect(() => resolveContentShortcut('toString')).toThrow(/Unknown content shortcut id/)
   })
 
   it('throws on inherited Object.prototype member "constructor"', () => {
-    expect(() => resolveTipShortcut('constructor')).toThrow(/Unknown tip shortcut id/)
+    expect(() => resolveContentShortcut('constructor')).toThrow(/Unknown content shortcut id/)
   })
 
   it('throws on inherited Object.prototype member "hasOwnProperty"', () => {
-    expect(() => resolveTipShortcut('hasOwnProperty')).toThrow(/Unknown tip shortcut id/)
+    expect(() => resolveContentShortcut('hasOwnProperty')).toThrow(/Unknown content shortcut id/)
   })
 })
 
-describe('isTipShortcutId', () => {
+describe('isContentShortcutId', () => {
   it('returns true for a registry-backed id', () => {
-    expect(isTipShortcutId('editor.bold')).toBe(true)
+    expect(isContentShortcutId('editor.bold')).toBe(true)
   })
 
   it('returns true for an extras-backed id', () => {
-    expect(isTipShortcutId('page.save')).toBe(true)
-    expect(isTipShortcutId('extension.openPopup')).toBe(true)
+    expect(isContentShortcutId('page.save')).toBe(true)
+    expect(isContentShortcutId('extension.openPopup')).toBe(true)
   })
 
   it('returns false for an unknown id', () => {
-    expect(isTipShortcutId('definitely.notreal')).toBe(false)
+    expect(isContentShortcutId('definitely.notreal')).toBe(false)
   })
 
   it('returns false for the empty string', () => {
-    expect(isTipShortcutId('')).toBe(false)
+    expect(isContentShortcutId('')).toBe(false)
   })
 
-  // Same prototype-chain defense as `resolveTipShortcut`.
+  // Same prototype-chain defense as `resolveContentShortcut`.
   it('returns false for inherited Object.prototype members', () => {
-    expect(isTipShortcutId('toString')).toBe(false)
-    expect(isTipShortcutId('constructor')).toBe(false)
-    expect(isTipShortcutId('hasOwnProperty')).toBe(false)
+    expect(isContentShortcutId('toString')).toBe(false)
+    expect(isContentShortcutId('constructor')).toBe(false)
+    expect(isContentShortcutId('hasOwnProperty')).toBe(false)
   })
 })
 
-describe('TIP_EXTRA_SHORTCUTS', () => {
+describe('CONTENT_EXTRA_SHORTCUTS', () => {
   it('exposes exactly the documented entries', () => {
-    expect(Object.keys(TIP_EXTRA_SHORTCUTS).sort()).toEqual(
-      ['extension.openPopup', 'page.save', 'page.saveAndClose'],
+    expect(Object.keys(CONTENT_EXTRA_SHORTCUTS).sort()).toEqual(
+      [
+        'editor.addCursorAboveBelow',
+        'editor.find',
+        'editor.findNext',
+        'editor.findPrevious',
+        'editor.goToLine',
+        'editor.openLinkModifier',
+        'extension.openPopup',
+        'page.save',
+        'page.saveAndClose',
+      ],
     )
   })
 })

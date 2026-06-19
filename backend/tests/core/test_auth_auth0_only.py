@@ -107,7 +107,7 @@ class TestAuthenticateUserAllowPat:
         ):
             result = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                allow_pat=True,
+                source="unknown", allow_pat=True,
             )
 
         assert result.id == test_user.id
@@ -129,7 +129,7 @@ class TestAuthenticateUserAllowPat:
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                allow_pat=False,
+                source="unknown", allow_pat=False,
             )
 
         assert exc_info.value.status_code == 403
@@ -156,7 +156,7 @@ class TestAuthenticateUserAllowPat:
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             result = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                allow_pat=False,
+                source="unknown", allow_pat=False,
             )
 
         assert result.auth0_id == test_user.auth0_id
@@ -178,7 +178,7 @@ class TestAuthenticateUserAllowPat:
 
         result = await _authenticate_user(
             mock_request, credentials, db_session, mock_settings_dev_mode,
-            allow_pat=False,
+            source="unknown", allow_pat=False,
         )
 
         # Should return dev user, not raise 403
@@ -196,7 +196,7 @@ class TestAuthenticateUserAllowPat:
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
                 mock_request, None, db_session, mock_settings_no_dev_mode,
-                allow_pat=False,
+                source="unknown", allow_pat=False,
             )
 
         assert exc_info.value.status_code == 401
@@ -227,7 +227,7 @@ class TestGetCurrentUserAuth0Only:
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                allow_pat=False,
+                source="unknown", allow_pat=False,
             )
 
         assert exc_info.value.status_code == 403
@@ -254,7 +254,7 @@ class TestGetCurrentUserAuth0Only:
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             user = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                allow_pat=False,
+                source="unknown", allow_pat=False,
             )
 
         # Reload user with consent for check
@@ -285,7 +285,7 @@ class TestGetCurrentUserAuth0Only:
         with patch("core.auth.decode_jwt", return_value=mock_payload):
             user = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                allow_pat=False,
+                source="unknown", allow_pat=False,
             )
 
         # User has no consent
@@ -317,7 +317,7 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                allow_pat=False,
+                source="unknown", allow_pat=False,
             )
 
         assert exc_info.value.status_code == 403
@@ -343,7 +343,7 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
             # which calls _authenticate_user with allow_pat=False but no consent check
             user = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                allow_pat=False,
+                source="unknown", allow_pat=False,
             )
 
         # Should succeed even without consent
@@ -370,7 +370,7 @@ class TestErrorMessages:
         with pytest.raises(HTTPException) as exc_info:
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
-                allow_pat=False,
+                source="unknown", allow_pat=False,
             )
 
         error_message = exc_info.value.detail

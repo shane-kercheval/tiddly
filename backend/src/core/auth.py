@@ -1,9 +1,10 @@
 """Authentication module for Auth0 JWT validation and PAT support."""
 import logging
+from typing import Annotated
 
 import httpx
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 from sqlalchemy import select
@@ -23,6 +24,7 @@ from core.rate_limiter import check_rate_limit
 from core.request_context import AuthType, RequestContext
 from core.tier_limits import get_tier_safely
 from db.session import get_async_session
+from models.content_history import SOURCE_MAX_LENGTH
 from models.user import User
 from schemas.cached_user import CachedUser
 from services import token_service, user_service
@@ -361,22 +363,31 @@ async def _apply_rate_limit(
         raise RateLimitExceededError(result)
 
 
-def _get_request_source(request: Request) -> str:
+def get_request_source(
+    x_request_source: Annotated[
+        str | None,
+        Header(
+            description=(
+                "Free-form tag identifying the calling client, recorded on content "
+                "history audit rows for telemetry. Not access control (spoofable). "
+                "Lowercased server-side; no allowlist; a missing header resolves to "
+                f"'unknown'. Keep it to {SOURCE_MAX_LENGTH} characters or fewer — "
+                "longer values are truncated. Tiddly's own clients send: web, cli, "
+                "chrome-extension, mcp-content, mcp-prompt, ios."
+            ),
+        ),
+    ] = None,
+) -> str:
     """
-    Determine request source from X-Request-Source header.
+    Resolve the request source from the X-Request-Source header for the audit trail.
 
-    The header value is passed through as-is (lowercased). Known values:
-    - Frontend: 'web'
-    - MCP Content server: 'mcp-content'
-    - MCP Prompt server: 'mcp-prompt'
-    - CLI/scripts can optionally send 'api'
-    - Missing header defaults to 'unknown'
-
-    This is spoofable but acceptable - source tracking is for audit/telemetry,
-    not access control.
+    Declared as a FastAPI Header dependency (rather than read off the raw request)
+    so it appears in the generated OpenAPI/Swagger reference. Truncated to
+    SOURCE_MAX_LENGTH so an over-length header can never exceed the history column
+    and fail a write. See docs/architecture.md "Request source" for the canonical
+    behavior and first-party client values.
     """
-    source = request.headers.get("x-request-source", "").strip().lower()
-    return source or "unknown"
+    return (x_request_source or "").strip().lower()[:SOURCE_MAX_LENGTH] or "unknown"
 
 
 async def _authenticate_user(
@@ -385,6 +396,7 @@ async def _authenticate_user(
     db: AsyncSession,
     settings: Settings,
     *,
+    source: str,
     allow_pat: bool = True,
 ) -> User | CachedUser:
     """
@@ -404,6 +416,8 @@ async def _authenticate_user(
         credentials: HTTP Authorization header credentials.
         db: Database session.
         settings: Application settings.
+        source: Resolved X-Request-Source value (see get_request_source), recorded
+            on the request context for the content-versioning audit trail.
         allow_pat: If False, reject PAT tokens with 403 to help prevent unintended
             programmatic use. Note: does not block Auth0 JWTs used outside the browser.
     """
@@ -455,7 +469,6 @@ async def _authenticate_user(
             )
 
     # Set request context for content versioning audit trail
-    source = _get_request_source(request)
     request.state.request_context = RequestContext(
         source=source,
         auth_type=auth_type,
@@ -470,6 +483,7 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
+    source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
     Dependency that validates the token, applies rate limiting, checks consent,
@@ -482,7 +496,7 @@ async def get_current_user(
     Note: Rate limiting runs before consent check so all authenticated requests
     count against limits, even from users who haven't consented yet.
     """
-    user = await _authenticate_user(request, credentials, db, settings)
+    user = await _authenticate_user(request, credentials, db, settings, source=source)
     await _apply_rate_limit(user, request, settings)
     _check_consent(user, settings)
     return user
@@ -493,6 +507,7 @@ async def get_current_user_without_consent(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
+    source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
     Dependency that validates the token, applies rate limiting, and returns the user.
@@ -500,7 +515,7 @@ async def get_current_user_without_consent(
     Returns User ORM object on cache miss, CachedUser on cache hit.
     Auth + rate limiting, no consent check (for exempt routes like consent endpoints).
     """
-    user = await _authenticate_user(request, credentials, db, settings)
+    user = await _authenticate_user(request, credentials, db, settings, source=source)
     await _apply_rate_limit(user, request, settings)
     return user
 
@@ -510,6 +525,7 @@ async def get_current_user_auth0_only(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
+    source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
     Dependency: Auth0-only auth + rate limiting + consent check (blocks PAT access).
@@ -531,7 +547,9 @@ async def get_current_user_auth0_only(
     Returns 451 if user hasn't consented to privacy policy/terms.
     Use get_current_user_auth0_only_without_consent for consent-exempt routes.
     """
-    user = await _authenticate_user(request, credentials, db, settings, allow_pat=False)
+    user = await _authenticate_user(
+        request, credentials, db, settings, source=source, allow_pat=False,
+    )
     await _apply_rate_limit(user, request, settings)
     _check_consent(user, settings)
     return user
@@ -542,6 +560,7 @@ async def get_current_user_auth0_only_without_consent(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
+    source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
     Dependency: Auth0-only auth + rate limiting, no consent check (blocks PAT access).
@@ -551,7 +570,9 @@ async def get_current_user_auth0_only_without_consent(
 
     See get_current_user_auth0_only for details on what this does and doesn't prevent.
     """
-    user = await _authenticate_user(request, credentials, db, settings, allow_pat=False)
+    user = await _authenticate_user(
+        request, credentials, db, settings, source=source, allow_pat=False,
+    )
     await _apply_rate_limit(user, request, settings)
     return user
 
@@ -561,6 +582,7 @@ async def get_current_user_ai(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
     settings: Settings = Depends(get_settings),
+    source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
     Dependency: Auth0-only auth + consent check, NO global rate limiting.
@@ -572,6 +594,8 @@ async def get_current_user_ai(
     Returns 403 Forbidden for PAT tokens.
     Returns 451 if user hasn't consented to privacy policy/terms.
     """
-    user = await _authenticate_user(request, credentials, db, settings, allow_pat=False)
+    user = await _authenticate_user(
+        request, credentials, db, settings, source=source, allow_pat=False,
+    )
     _check_consent(user, settings)
     return user

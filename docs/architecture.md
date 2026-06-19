@@ -401,7 +401,14 @@ Registration order in `api/main.py` is the reverse of execution order (FastAPI `
 
 ### Request source
 
-All clients send `X-Request-Source`: `web`, `cli`, `chrome-extension`, `mcp-content`, `mcp-prompt`, `api` (fallback `unknown`). Recorded on `ContentHistory` rows so audit events can be traced to the originating surface.
+**Canonical description of `X-Request-Source`** (other docs cross-reference this section). A free-form HTTP header identifying the calling client, recorded on `ContentHistory` rows so audit events can be traced to the originating surface.
+
+- **Not access control** — spoofable, no allowlist. For audit/telemetry only.
+- **Normalized** — trimmed and lowercased server-side; a missing/blank header resolves to `unknown`.
+- **Bounded** — truncated to fit the `ContentHistory.source` column (`SOURCE_MAX_LENGTH`), so an over-length header can never fail a write.
+- **First-party values** — Tiddly's own clients send `web` (frontend), `cli`, `chrome-extension`, `mcp-content`, `mcp-prompt`, `ios` (iOS app). Third-party integrators may send their own identifier.
+
+Implementation: `get_request_source` in `core/auth.py`, declared as an optional `Header(...)` so it surfaces in the OpenAPI/Swagger reference; the length bound is `SOURCE_MAX_LENGTH` in `models/content_history.py`. The public-facing description for API integrators lives in `frontend/src/content/prose/api.md`.
 
 ### Security
 

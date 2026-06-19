@@ -192,11 +192,11 @@
   {
     "id": "editor-find-and-replace",
     "title": "Find, replace, and regex inside a note or prompt",
-    "body": "`⌘+F` opens an editor search panel with regex, case-sensitive, and replace toggles — enough to refactor a long note without leaving edit mode. Walk through matches with `⌘+G` (next) and `⌘+⇧+G` (previous).",
+    "body": "`{{shortcut:editor.find}}` opens an editor search panel with regex, case-sensitive, and replace toggles — enough to refactor a long note without leaving edit mode. Walk through matches with `{{shortcut:editor.findNext}}` (next) and `{{shortcut:editor.findPrevious}}` (previous).",
     "categories": ["editor", "notes", "prompts"],
     "audience": "beginner",
     "priority": 20,
-    "shortcut": ["Mod", "F"]
+    "shortcutId": "editor.find"
   },
   {
     "id": "export-to-json",
@@ -320,7 +320,7 @@
   {
     "id": "cmd-click-link-raw-editor",
     "title": "Follow a markdown link without switching to reading mode",
-    "body": "In the raw markdown editor, hold `⌘` and click a `[text](url)` link to open the URL. The editor explicitly suppresses Cmd+click-to-add-cursor over a link, so the link opens cleanly.",
+    "body": "In the raw markdown editor, hold `{{shortcut:editor.openLinkModifier}}` and click a `[text](url)` link to open the URL. The editor suppresses the usual add-cursor-over-a-link behavior, so the link opens cleanly.",
     "categories": ["editor", "notes", "prompts"],
     "audience": "beginner",
     "priority": 25
@@ -372,11 +372,11 @@
   {
     "id": "multi-cursor-above-below",
     "title": "Edit parallel lines at once with multi-cursors",
-    "body": "Hold `⌘+⌥` and press the up or down arrow to add a second (or third) cursor on the line above or below. Type once and the same edit lands on every cursor — useful for editing list items or import statements in lockstep.",
+    "body": "Press `{{shortcut:editor.addCursorAboveBelow}}` to add a second (or third) cursor on the line above or below. Type once and the same edit lands on every cursor — useful for editing list items or import statements in lockstep.",
     "categories": ["editor"],
     "audience": "power",
     "priority": 25,
-    "shortcut": ["Mod", "Alt", "↑/↓"]
+    "shortcutId": "editor.addCursorAboveBelow"
   },
   {
     "id": "per-directory-mcp-scope",
@@ -435,7 +435,7 @@
   {
     "id": "toc-jump-around",
     "title": "Open the Table of Contents to jump around long notes",
-    "body": "Press `{{shortcut:editor.toggleToc}}` to open the ToC sidebar. It lists every heading in the note — click one to scroll the editor to that line and place the cursor there. Combine with `⌘+⌥+G` for non-heading jumps.",
+    "body": "Press `{{shortcut:editor.toggleToc}}` to open the ToC sidebar. It lists every heading in the note — click one to scroll the editor to that line and place the cursor there. Combine with `{{shortcut:editor.goToLine}}` for non-heading jumps.",
     "categories": ["editor", "notes"],
     "audience": "power",
     "priority": 25,
@@ -525,7 +525,7 @@
   },
   {
     "id": "view-toggles",
-    "title": "Tune the editor view from the keyboard with `⌥+Z/L/M/T`",
+    "title": "Toggle word wrap, line numbers, monospace, and ToC from the keyboard",
     "body": "`{{shortcut:editor.toggleWordWrap}}` toggles word wrap, `{{shortcut:editor.toggleLineNumbers}}` toggles line numbers, `{{shortcut:editor.toggleMonoFont}}` toggles monospace font, and `{{shortcut:editor.toggleToc}}` opens the Table of Contents sidebar. Preferences persist across sessions.",
     "categories": ["editor"],
     "audience": "power",
@@ -552,11 +552,11 @@
   {
     "id": "jump-to-line",
     "title": "Jump to a specific line in the editor",
-    "body": "Press `⌘+⌥+G` to open a small \"go to line\" prompt. Pair with line numbers (`{{shortcut:editor.toggleLineNumbers}}`) on long notes to navigate quickly.",
+    "body": "Press `{{shortcut:editor.goToLine}}` to open a small \"go to line\" prompt. Pair with line numbers (`{{shortcut:editor.toggleLineNumbers}}`) on long notes to navigate quickly.",
     "categories": ["editor"],
     "audience": "power",
     "priority": 35,
-    "shortcut": ["Mod", "Alt", "G"]
+    "shortcutId": "editor.goToLine"
   },
   {
     "id": "shift-click-linked-chip",
@@ -581,7 +581,7 @@
   {
     "id": "shortcut-select-next-occurrence",
     "title": "Select the next match — or every match — to rename them together",
-    "body": "With your cursor on a word in a note or prompt, press `{{shortcut:editor.selectNextOccurrence}}` to extend the selection to the next match — repeat to add more, then type once and they all rename together. Use `⌘+⇧+L` instead to grab every match in one shot.",
+    "body": "With your cursor on a word in a note or prompt, press `{{shortcut:editor.selectNextOccurrence}}` to extend the selection to the next match — repeat to add more, then type once and they all rename together. Use `{{shortcut:editor.selectAllOccurrences}}` instead to grab every match in one shot.",
     "categories": ["shortcuts", "editor"],
     "audience": "power",
     "priority": 50,

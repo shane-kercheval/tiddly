@@ -62,6 +62,26 @@ describe('validateTips', () => {
     expect(() => validateTips([tip])).toThrow(/empty categories/)
   })
 
+  it('throws when the title hardcodes a Mac glyph', () => {
+    const tip = buildTip({ id: 'glyph-title', title: 'Toggle view with ⌥+Z' })
+    expect(() => validateTips([tip])).toThrow(/title/)
+    expect(() => validateTips([tip])).toThrow(/⌥/)
+  })
+
+  it('throws when the body hardcodes a Mac glyph instead of a token', () => {
+    const tip = buildTip({ id: 'glyph-body', body: 'Press ⌘+F to search.' })
+    expect(() => validateTips([tip])).toThrow(/body/)
+    expect(() => validateTips([tip])).toThrow(/⌘/)
+  })
+
+  it('accepts a body that cites a shortcut via a token (no raw glyph)', () => {
+    const tip = buildTip({
+      id: 'token-body',
+      body: 'Press `{{shortcut:editor.find}}` to search.',
+    })
+    expect(() => validateTips([tip])).not.toThrow()
+  })
+
   it('throws when starter=true but starterPriority is missing', () => {
     const tip = buildTip({ id: 'no-priority', starter: true })
     expect(() => validateTips([tip])).toThrow(/starterPriority/)

@@ -15,6 +15,13 @@ if TYPE_CHECKING:
     from models.user import User
 
 
+# Max length of the `source` column (the X-Request-Source value). Imported by
+# core.auth to truncate the resolved value so an over-length header can never
+# exceed the column and fail a history-writing mutation. See docs/architecture.md
+# "Request source".
+SOURCE_MAX_LENGTH = 20
+
+
 class ActionType(StrEnum):
     """Type of action that was performed on the entity."""
 
@@ -90,7 +97,7 @@ class ContentHistory(Base, UUIDv7Mixin):
     changed_fields: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     # Source tracking (who/what initiated this change)
-    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    source: Mapped[str] = mapped_column(String(SOURCE_MAX_LENGTH), nullable=False)
     auth_type: Mapped[str] = mapped_column(String(10), nullable=False)
     # Token prefix for PAT audit trail (e.g., "bm_a3f8...") - safe to display/log
     token_prefix: Mapped[str | None] = mapped_column(String(20), nullable=True)

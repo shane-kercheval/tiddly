@@ -214,5 +214,12 @@
     "section": "Markdown Editor",
     "display": ["Mod", "D"],
     "note": "Upstream-owned by @codemirror/search's searchKeymap (Mod-d). Display-only; a smoke test asserts the binding exists."
+  },
+  {
+    "id": "editor.selectAllOccurrences",
+    "label": "Select All Occurrences",
+    "section": "Markdown Editor",
+    "display": ["Mod", "Shift", "L"],
+    "note": "Upstream-owned by @codemirror/search's searchKeymap (Mod-Shift-l, selectSelectionMatches). Display-only; a smoke test asserts the binding exists. Sibling of editor.selectNextOccurrence."
   }
 ]

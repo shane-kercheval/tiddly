@@ -86,7 +86,7 @@ describe('DocsMarkdown', () => {
   })
 
   it('throws on an unknown shortcut token so typos fail loudly', () => {
-    expect(() => renderMarkdown('`{{shortcut:not.a.real.id}}`')).toThrow(/Unknown tip shortcut id/)
+    expect(() => renderMarkdown('`{{shortcut:not.a.real.id}}`')).toThrow(/Unknown content shortcut id/)
   })
 
   it('renders an all-bold-led ordered list as step cards', () => {
