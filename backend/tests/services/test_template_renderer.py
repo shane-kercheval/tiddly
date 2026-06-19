@@ -1,5 +1,7 @@
 """Tests for template renderer."""
 
+import logging
+
 import pytest
 
 from services.template_renderer import TemplateError, render_template
@@ -195,3 +197,76 @@ def test__render_template__nested_conditionals_and_loops() -> None:
     ]
     result = render_template(content, {"items": items}, args)
     assert result == "[A][C]"
+
+
+def test__render_template__blocks_attribute_traversal_escape() -> None:
+    """
+    SSTI escape via attribute traversal off a declared arg is blocked.
+
+    A non-sandboxed environment would let a template walk from an ordinary string
+    value to arbitrary Python via __class__/__mro__/__subclasses__. The sandbox must
+    reject this as a disallowed operation rather than render the object graph. The
+    arg is declared (and optional, defaulting to ""), so validation passes and the
+    render-time sandbox is the load-bearing defense.
+    """
+    content = "{{ x.__class__.__mro__[1].__subclasses__() }}"
+    args = [{"name": "x", "required": False}]
+
+    with pytest.raises(TemplateError, match="disallowed operation"):
+        render_template(content, {}, args)
+
+
+def test__render_template__blocks_dunder_access_on_builtin_global() -> None:
+    """
+    SSTI escape via a Jinja built-in global is also blocked.
+
+    Built-in globals like `cycler` are NOT flagged by argument-coverage validation,
+    so a template referencing one needs no declared argument at all — confirming the
+    render-time sandbox, not validation, is what closes the hole.
+    """
+    content = "{{ cycler.__init__.__globals__ }}"
+
+    with pytest.raises(TemplateError, match="disallowed operation"):
+        render_template(content, {}, [])
+
+
+def test__render_template__blocked_escape_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A blocked render emits a server-side WARNING for attack detection/triage."""
+    content = "{{ x.__class__ }}"
+    args = [{"name": "x", "required": False}]
+
+    with caplog.at_level(logging.WARNING, logger="services.template_renderer"):
+        with pytest.raises(TemplateError):
+            render_template(content, {}, args)
+
+    assert any(
+        record.levelno == logging.WARNING
+        and "Blocked sandboxed template render" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test__render_template__blocks_attr_filter_escape() -> None:
+    """
+    The |attr() filter is an alternate syntactic path to the escape; also blocked.
+
+    This is not testing Jinja2 internals — it confirms that *our* environment config
+    closes the |attr() door, not just dotted access. A future change to the sandbox
+    config could plausibly regress one path and not the other, so both are locked.
+    """
+    content = '{{ x|attr("__class__") }}'
+    args = [{"name": "x", "required": False}]
+
+    with pytest.raises(TemplateError, match="disallowed operation"):
+        render_template(content, {}, args)
+
+
+def test__render_template__blocks_str_format_escape() -> None:
+    """`str.format` is a historic SSTI bypass; the sandbox blocks it via our env too."""
+    content = '{{ "{0.__class__}".format(x) }}'
+    args = [{"name": "x", "required": False}]
+
+    with pytest.raises(TemplateError, match="disallowed operation"):
+        render_template(content, {}, args)

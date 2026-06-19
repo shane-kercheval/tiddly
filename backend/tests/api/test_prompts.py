@@ -1258,6 +1258,29 @@ async def test__render_prompt__unknown_argument(client: AsyncClient) -> None:
     assert "extra" in response.json()["detail"]
 
 
+async def test__render_prompt__sandbox_blocks_ssti_escape(client: AsyncClient) -> None:
+    """SSTI escape via attribute traversal returns 400, not 500 or a rendered escape."""
+    # Declares `x` (optional), so create-time validation passes; the render-time
+    # sandbox must block the attribute traversal.
+    create_response = await client.post(
+        "/prompts/",
+        json={
+            "name": "render-ssti-escape",
+            "content": "{{ x.__class__.__mro__[1].__subclasses__() }}",
+            "arguments": [{"name": "x", "required": False}],
+        },
+    )
+    assert create_response.status_code == 201
+    prompt_id = create_response.json()["id"]
+
+    response = await client.post(
+        f"/prompts/{prompt_id}/render",
+        json={"arguments": {}},
+    )
+    assert response.status_code == 400
+    assert "disallowed operation" in response.json()["detail"]
+
+
 async def test__render_prompt__optional_argument_omitted(client: AsyncClient) -> None:
     """Test that optional arguments default to empty string for conditionals."""
     # Create prompt with optional argument

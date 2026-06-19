@@ -1669,6 +1669,88 @@ class TestHistoryIDOR:
                 )
 
 
+class TestPromptSSTI:
+    """
+    Verify prompt template rendering is sandboxed against server-side template injection.
+
+    Prompt content is a user-authored Jinja2 template rendered server-side. A non-sandboxed
+    environment would let attribute traversal (__class__/__mro__/__subclasses__) escape to
+    arbitrary Python. The render path uses SandboxedEnvironment, which must reject the escape
+    as a 400 rather than rendering the object graph (or 500ing).
+    OWASP Reference: A03:2021 - Injection
+    """
+
+    async def test__render_attribute_traversal_escape__returns_400(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """An SSTI escape template renders as a 400, not a 500 or a leaked object graph."""
+        async with httpx.AsyncClient() as client:
+            payload = {
+                "name": "ssti-test-prompt-12345",
+                "content": "{{ x.__class__.__mro__[1].__subclasses__() }}",
+                "arguments": [{"name": "x", "required": False}],
+                "tags": ["ssti-test"],
+            }
+
+            create_response = await client.post(
+                f"{API_URL}/prompts/",
+                headers=headers_user_a,
+                json=payload,
+            )
+
+            # Handle case where name already exists (409 conflict): clean up and retry.
+            if create_response.status_code == 409:
+                list_response = await client.get(
+                    f"{API_URL}/prompts/",
+                    headers=headers_user_a,
+                    params={"q": "ssti-test-prompt-12345"},
+                )
+                if list_response.status_code == 200:
+                    for item in list_response.json().get("items", []):
+                        await client.delete(
+                            f"{API_URL}/prompts/{item['id']}",
+                            headers=headers_user_a,
+                            params={"permanent": "true"},
+                        )
+                create_response = await client.post(
+                    f"{API_URL}/prompts/",
+                    headers=headers_user_a,
+                    json=payload,
+                )
+
+            assert create_response.status_code == 201, f"Failed to create prompt: {create_response.text}"
+            prompt_id = create_response.json()["id"]
+
+            try:
+                render_response = await client.post(
+                    f"{API_URL}/prompts/{prompt_id}/render",
+                    headers=headers_user_a,
+                    json={"arguments": {}},
+                )
+
+                # The sandbox must block the escape: 400, not a 500 and not a 200 that
+                # leaked the Python object graph.
+                assert render_response.status_code == 400, (
+                    f"SECURITY VULNERABILITY: SSTI escape was not blocked! "
+                    f"Status: {render_response.status_code}, Body: {render_response.text}"
+                )
+                body = render_response.text
+                assert "__subclasses__" not in body, (
+                    f"SECURITY VULNERABILITY: render leaked the object graph! Body: {body}"
+                )
+                assert "<class" not in body, (
+                    f"SECURITY VULNERABILITY: render leaked the object graph! Body: {body}"
+                )
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/prompts/{prompt_id}",
+                    headers=headers_user_a,
+                    params={"permanent": "true"},
+                )
+
+
 if __name__ == "__main__":
     # Allow running directly: python test_live_penetration.py
     pytest.main([__file__, "-v"])
