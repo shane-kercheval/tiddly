@@ -222,6 +222,33 @@ async def test__get_prompt__not_found_error(
     assert "not found" in str(exc_info.value).lower()
 
 
+async def test__get_prompt__sandbox_blocks_ssti_escape(
+    mcp_integration_client: AsyncClient,
+) -> None:
+    """
+    SSTI escape template surfaces as INVALID_PARAMS over MCP, not an unhandled crash.
+
+    The render path is shared with the REST surface, so the renderer-level test covers
+    the genuinely-new behavior; this guards the MCP layer's TemplateError ->
+    INVALID_PARAMS translation for the sandbox SecurityError case (the second of the
+    two reachable surfaces).
+    """
+    create = await mcp_integration_client.post(
+        "/prompts/",
+        json={
+            "name": "mcp-ssti-escape",
+            "content": "{{ x.__class__ }}",
+            "arguments": [{"name": "x", "required": False}],
+        },
+    )
+    assert create.status_code == 201
+
+    with pytest.raises(McpError) as exc_info:
+        await handle_get_prompt("mcp-ssti-escape", {})
+
+    assert exc_info.value.error.code == types.INVALID_PARAMS
+
+
 async def test__list_prompts__pagination_with_real_data(
     mcp_integration_client: AsyncClient,
 ) -> None:

@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from jinja2 import Environment, TemplateSyntaxError, meta
+from jinja2 import TemplateSyntaxError, meta
+from jinja2.sandbox import SandboxedEnvironment
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,8 +25,11 @@ from services.tag_service import get_or_create_tags, update_prompt_tags
 
 logger = logging.getLogger(__name__)
 
-# Jinja2 environment for template validation
-_jinja_env = Environment()
+# Jinja2 environment for template validation (parse + meta-analysis only; this
+# instance never renders). Sandboxed for consistency with the render path and to
+# prevent future misuse if someone later calls .render() on it — not load-bearing
+# for security here, since validation does not execute the template.
+_jinja_env = SandboxedEnvironment()
 
 
 class NameConflictError(Exception):
@@ -49,11 +53,14 @@ def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> N
                     uses undefined variables, or has unused arguments.
 
     Note:
-        This validation uses meta.find_undeclared_variables() which also flags Jinja2
-        built-in globals (e.g., range, loop, cycler, namespace) as "undefined" if used.
-        Currently, templates should use simple {{ variable }} substitution. If control
-        structures with builtins are needed, add a JINJA_BUILTINS allowlist to exclude
-        from the undefined check.
+        This is an argument-coverage / ergonomics check, NOT a security control. It
+        verifies syntax and that the set of undeclared variables used in the template
+        matches the declared `arguments` (no undefined, no unused). It does not restrict
+        attribute access or otherwise sandbox the template — sandboxing happens at render
+        time via SandboxedEnvironment (see services/template_renderer.py). Jinja2's
+        built-in globals (e.g. range, cycler, namespace) are NOT reported by
+        meta.find_undeclared_variables(), so they pass validation without needing to be
+        declared as arguments.
     """
     # Content is required - a prompt without content is useless
     if not content or not content.strip():
@@ -67,10 +74,9 @@ def validate_template(content: str | None, arguments: list[dict[str, Any]]) -> N
     except TemplateSyntaxError as e:
         raise ValueError(f"Invalid Jinja2 syntax: {e.message}") from e
 
-    # Check for undefined variables
-    # Note: This will flag Jinja2 builtins (range, loop, etc.) as undefined.
-    # For simple variable substitution templates, this is fine. If builtins are
-    # needed in the future, add an allowlist here.
+    # Find variables referenced in the template but not bound within it. Jinja2's
+    # built-in globals (range, cycler, namespace, ...) are NOT reported here, so they
+    # pass without needing to be declared as arguments.
     template_vars = meta.find_undeclared_variables(ast)
 
     # Check for undefined variables (used in template but not in arguments)
