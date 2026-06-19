@@ -7,7 +7,7 @@
  * surfaces lives in renderers (M2), not extra fields.
  */
 import type { ShortcutId } from '../../shortcuts/registry'
-import type { TipExtraShortcutId } from './tipExtraShortcuts'
+import type { ContentExtraShortcutId } from './contentExtraShortcuts'
 
 export type TipCategory =
   | 'editor'
@@ -87,7 +87,7 @@ export interface Tip {
    * a binding moves, every display surface updates. Mutually exclusive with
    * `shortcut`; enforced by `validateTips`.
    */
-  shortcutId?: TipShortcutId
+  shortcutId?: ContentShortcutId
   /**
    * Literal display tokens — fallback for shortcuts no registry covers (none
    * currently). Author as OS-agnostic tokens (`['Mod', 'V']`); localization
@@ -119,8 +119,11 @@ export const TITLE_MAX_LENGTH = 80
 export const BODY_MAX_LENGTH = 500
 
 /**
- * Union of shortcut ids that tips can reference. `ShortcutId` covers the main
- * `frontend/src/shortcuts/registry.ts`; `TipExtraShortcutId` covers shortcuts
- * the main registry intentionally excludes (page-scoped saves, Chrome ext).
+ * Union of shortcut ids that authored content (tips + docs prose) can reference.
+ * `ShortcutId` covers the main `frontend/src/shortcuts/registry.ts`;
+ * `ContentExtraShortcutId` covers the content-scoped extras the main registry
+ * intentionally excludes (page-scoped saves, Chrome extension popup, upstream
+ * CodeMirror editor chords, and the raw-editor link modifier) — see
+ * `contentExtraShortcuts.ts` for the per-category rationale.
  */
-export type TipShortcutId = ShortcutId | TipExtraShortcutId
+export type ContentShortcutId = ShortcutId | ContentExtraShortcutId
