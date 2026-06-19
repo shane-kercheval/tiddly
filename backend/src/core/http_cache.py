@@ -37,6 +37,23 @@ CACHE_HEADERS = {
     "Vary": "Authorization",
 }
 
+# Headers for unauthenticated /public/* responses. Unlike CACHE_HEADERS these are
+# NOT private and do NOT Vary on Authorization (there is no auth on these paths).
+# `max-age=0, must-revalidate` forces every request to revalidate against the
+# ETag, so unpublish/rotate (M3) revoke access immediately while the ETag 304
+# path still saves bandwidth (a 304 carries no body). Do not relax to a positive
+# max-age without accepting a stale-serve window after revocation.
+PUBLIC_CACHE_HEADERS = {
+    "Cache-Control": "public, max-age=0, must-revalidate",
+}
+
+
+def headers_for(path: str) -> dict[str, str]:
+    """Return the cache headers appropriate for a request path."""
+    if path.startswith("/public/"):
+        return PUBLIC_CACHE_HEADERS
+    return CACHE_HEADERS
+
 
 def generate_etag(content: bytes) -> str:
     """
@@ -110,6 +127,11 @@ class ETagMiddleware(BaseHTTPMiddleware):
         body = b"".join([chunk async for chunk in response.body_iterator])
         etag = generate_etag(body)
 
+        # Public paths get public/no-Vary cache headers; everything else stays
+        # private. Applied to BOTH the 304 and 200 branches so a public path's
+        # revalidation response can't fall back to the private header set.
+        cache_headers = headers_for(request.url.path)
+
         # Check If-None-Match header (supports comma-separated lists and wildcard *)
         if_none_match = request.headers.get("if-none-match")
         if if_none_match:
@@ -118,14 +140,14 @@ class ETagMiddleware(BaseHTTPMiddleware):
                 # Return 304 with caching headers (security headers added by outer middleware)
                 return Response(
                     status_code=304,
-                    headers={"ETag": etag, **CACHE_HEADERS},
+                    headers={"ETag": etag, **cache_headers},
                 )
 
         # Build new response with ETag and caching headers
         # Preserve original headers (rate limit, etc.) and add our caching headers
         headers = dict(response.headers)
         headers["ETag"] = etag
-        headers.update(CACHE_HEADERS)
+        headers.update(cache_headers)
 
         return Response(
             content=body,

@@ -147,6 +147,32 @@ class BookmarkResponse(BookmarkListItem):
     relationships: list[RelationshipWithContentResponse] = Field(default_factory=list)
 
 
+class PublicBookmarkResponse(BaseModel):
+    """
+    Public, read-only view of a published bookmark (no authentication).
+
+    A standalone schema — deliberately NOT a subclass of BookmarkListItem — so
+    owner-only fields can never leak as the owner schemas evolve. Excludes tags,
+    relationships, user_id, is_public, public_token, summary, last_used_at, and
+    raw lifecycle timestamps. The internal `id` is also excluded: the public
+    surface is identified by the share token, not the database UUID. `url` IS
+    included: it is the bookmark's core content, not organizational metadata.
+    `is_archived` is the derived flag from ArchivableMixin (the raw archived_at
+    is internal lifecycle data, not exposed).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    url: str
+    title: str | None
+    description: str | None
+    content: str | None
+    content_metadata: ContentMetadata | None = None
+    is_archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class BookmarkListResponse(BaseModel):
     """Schema for paginated bookmark list responses with search/filter metadata."""
 

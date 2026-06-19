@@ -19,6 +19,7 @@ from api.routers import (
     mcp,
     notes,
     prompts,
+    public,
     relationships,
     settings,
     tags,
@@ -376,6 +377,7 @@ app.include_router(consent.router)
 app.include_router(bookmarks.router)
 app.include_router(notes.router)
 app.include_router(prompts.router)
+app.include_router(public.router)
 app.include_router(content.router)
 app.include_router(tags.router)
 app.include_router(tokens.router)

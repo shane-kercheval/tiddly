@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from core.rate_limit_config import (
+    PUBLIC_IP_RATE_LIMIT_PER_DAY,
+    PUBLIC_IP_RATE_LIMIT_PER_MINUTE,
     OperationType,
     RateLimitConfig,
     RateLimitResult,
@@ -143,6 +145,56 @@ async def check_rate_limit(
         return day_result
 
     # Both passed - return the per-minute result (more relevant for headers)
+    return minute_result
+
+
+async def check_ip_rate_limit(ip: str) -> RateLimitResult:
+    """
+    Rate-limit an unauthenticated request by client IP.
+
+    Used by the public /public/* share endpoints, which have no user context and
+    therefore can't use the tier-based per-user limits. Keyed on IP with a
+    per-minute sliding window and a per-day fixed window, mirroring the structure
+    of check_rate_limit but without a tier or operation type.
+
+    Falls back to allowing the request if Redis is unavailable, consistent with
+    the rest of this module.
+    """
+    redis_client = get_redis_client()
+    if redis_client is None or not redis_client.is_connected:
+        logger.warning("redis_unavailable", extra={"operation": "ip_rate_limit"})
+        return RateLimitResult(
+            allowed=True,
+            limit=PUBLIC_IP_RATE_LIMIT_PER_MINUTE,
+            remaining=PUBLIC_IP_RATE_LIMIT_PER_MINUTE,
+            reset=0,
+            retry_after=0,
+        )
+
+    now = int(time.time())
+
+    # Per-minute sliding window (precision matters for burst control).
+    minute_key = f"rate:ip:{ip}:public:min"
+    minute_result = await _check_sliding_window(
+        minute_key, PUBLIC_IP_RATE_LIMIT_PER_MINUTE, 60, now,
+    )
+    if not minute_result.allowed:
+        logger.warning(
+            "ip_rate_limit_exceeded", extra={"ip": ip, "limit_type": "per_minute"},
+        )
+        return minute_result
+
+    # Per-day fixed window (cheaper; slight boundary imprecision is fine).
+    day_key = f"rate:ip:{ip}:public:daily"
+    day_result = await _check_fixed_window(
+        day_key, PUBLIC_IP_RATE_LIMIT_PER_DAY, 86400, now,
+    )
+    if not day_result.allowed:
+        logger.warning(
+            "ip_rate_limit_exceeded", extra={"ip": ip, "limit_type": "daily"},
+        )
+        return day_result
+
     return minute_result
 
 

@@ -155,6 +155,30 @@ class NoteResponse(NoteListItem):
     relationships: list[RelationshipWithContentResponse] = Field(default_factory=list)
 
 
+class PublicNoteResponse(BaseModel):
+    """
+    Public, read-only view of a published note (no authentication).
+
+    A standalone schema — deliberately NOT a subclass of NoteListItem — so
+    owner-only fields can never leak as the owner schemas evolve. Excludes tags,
+    relationships, user_id, is_public, public_token, last_used_at, and raw
+    lifecycle timestamps. The internal `id` is also excluded: the public surface
+    is identified by the share token, not the database UUID. `is_archived` is the
+    derived flag from ArchivableMixin (the raw archived_at is internal lifecycle
+    data, not exposed).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    title: str
+    description: str | None
+    content: str | None
+    content_metadata: ContentMetadata | None = None
+    is_archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class NoteListResponse(BaseModel):
     """Schema for paginated note list responses with search/filter metadata."""
 

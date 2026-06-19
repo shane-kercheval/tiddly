@@ -7,6 +7,93 @@
 
 Allow users to publish individual bookmarks, notes, and prompts to a stable public URL, accessible by anyone without authentication. The public view is read-only, showing content and metadata but not the owner's organizational data (tags, relationships). Authenticated visitors can save a copy to their own account. The owner can unpublish at any time, or rotate the share token to invalidate the previous URL.
 
+## What the feature does, end to end
+
+A user can take any one of their bookmarks, notes, or prompts and **publish it to a stable public URL** that anyone can open without logging in. The public page is **read-only**: it shows the content and a few factual properties (title, description, body, created/updated dates, and an "archived" indicator if relevant), but it deliberately **hides the owner's organizational layer** — tags, relationships, and any owner-identity fields never appear publicly.
+
+A visitor who *is* logged in sees one action: **"Save a copy,"** which clones the item into their own account as a fresh, independent item. A visitor who *isn't* logged in sees a sign-in prompt instead.
+
+The owner stays in control of access through three operations: **publish, unpublish, and rotate.** Unpublishing immediately makes the URL stop working but keeps the token, so re-publishing restores the *same* URL. Rotating throws away the current token and issues a new one, permanently breaking the old link. Because public responses are set to revalidate on every request, revocation takes effect **immediately** — there's no window where a stale cached copy keeps serving revoked content.
+
+**How the public identity works:** the public URL is keyed on a separate random **`public_token`**, not the item's internal UUID. The token is generated from `secrets.token_urlsafe(32)` (256 bits of entropy — unguessable) and stored **as plaintext** in the item's row (unlike API tokens, which are hashed). Lookups are a plain equality match on that token. This means the public surface never exposes internal IDs, and access can be revoked by changing one column without touching the item itself.
+
+**One important design choice:** sharing is *not* treated as an edit. Publishing, unpublishing, and rotating go through **dedicated endpoints** that write only the sharing columns — they don't bump the item's "last updated" time and don't create a history entry. So sharing an item never makes it look freshly edited.
+
+---
+
+## Milestone-by-milestone functional outcomes
+
+### M1 — Database foundation
+**Tables changed:** the three existing content tables — `bookmarks`, `notes`, `prompts`. No new tables.
+
+**Fields added to each:**
+- `is_public` — boolean, defaults to `false`, never null. The on/off switch.
+- `public_token` — nullable text (max 64 chars). Holds the random token when published; null when the item has never been shared.
+
+**How uniqueness is tracked:** each table gets a **partial unique index** on `public_token` that only applies *where the token is not null*. This guarantees no two items in a table share a token, while still allowing unlimited unpublished items (which all have `null` and would otherwise collide). Tokens are unique *within* a type, not globally — that's fine because the URLs are type-scoped (`/public/bookmarks/...` vs `/public/notes/...`).
+
+**Functional outcome:** purely structural — the schema can now represent "is this shared, and by what token." No behavior changes yet.
+
+### M2 — The public read path (anonymous access)
+**Functional outcome:** the three public read URLs go live. Anyone, with no auth, can `GET /public/{type}/{token}` and receive the item's content.
+
+The rules that govern what comes back:
+- **Published + active** → 200 with the content.
+- **Archived but published** → still 200, but the response carries `is_archived: true` so the page can show an "archived" banner. (Archived content is still live content.) Whether something counts as archived reuses the existing logic that treats a *future-dated* archive as not-yet-archived.
+- **Soft-deleted** → 404, always. Deleted content must never surface publicly — this is the hard rule.
+- **Unknown token, or token belongs to an item that's been unpublished** → 404.
+
+The public response is a **separate, locked-down schema** — it can only ever contain `title`, `description`, `content`, line-count metadata, `is_archived`, `created_at`, `updated_at` (plus `url` for bookmarks and `name`/`arguments` for prompts). Owner fields (`user_id`, `tags`, `relationships`, the raw `archived_at`, `is_public`, `public_token`) and the internal `id` are structurally excluded — the public surface is identified by the share token, not the database UUID — so they can't leak even as the owner-facing schemas evolve.
+
+Two supporting behaviors land here:
+- **Abuse protection:** because there's no user to rate-limit, requests are limited **by client IP** using the existing Redis infrastructure (conservative per-minute and per-day caps). The real visitor IP is read from the proxy's forwarding header, not the raw socket address, so the limit actually distinguishes visitors in production.
+- **Caching:** public responses are marked publicly cacheable but **must revalidate every time**, so the bandwidth-saving "nothing changed → 304" path works while revocation stays instant.
+
+### M3 — Share management (owner controls)
+**Functional outcome:** owners get the publish/unpublish/rotate capability, exposed as **dedicated share endpoints** on the existing item routers (auth-required, owner-scoped).
+
+- **Publish** → if the item has no token yet, generate one; set `is_public = true`. First publish mints the token; the URL is now live.
+- **Unpublish** → set `is_public = false`, but **keep** the token. The URL stops resolving, but re-publishing later restores the identical URL.
+- **Rotate** → mint a brand-new token regardless of current state, which permanently invalidates the previous URL. (A user can even rotate while unpublished, to pre-empt a stale link before re-sharing.)
+
+**How sharing state is tracked / surfaced to the owner:**
+- The lightweight **list view** of items now carries `is_public` (a boolean) — just enough to show a "shared" indicator next to items, without an extra fetch.
+- The full **detail view** of an item additionally carries the actual `public_token`, so the detail page can build the shareable URL. The token deliberately does **not** appear in list responses — that keeps share tokens off bulk surfaces, including what the MCP servers serialize to AI agents.
+
+**Key guarantee:** none of these operations bump `updated_at` or write a history entry, because they're not content changes. This is verified to work simply by *not assigning* `updated_at` (the column updates only on explicit assignment — no DB trigger or `onupdate` touches it).
+
+### M4 — "Save a copy" (clone) endpoint
+**Functional outcome:** a logged-in visitor can clone a public item into their own account via `POST /public/{type}/{token}/save`.
+
+How the clone behaves:
+- It looks the source up **by token** (same visibility rules as M2 — 404 for missing/unpublished/deleted), then creates a **brand-new, independent item** owned by the cloning user.
+- **Copied:** `title`, `description`, `content` (plus `url` for bookmarks, and `name` and `arguments` for prompts).
+- **Not copied:** tags, relationships, archived/shared state. The copy starts clean — active, unshared, no organizational metadata from the source.
+- It reuses the normal create path, so the cloner's **quota, tier field-limits, and uniqueness rules all apply automatically**. If the source content is too large for the cloner's plan, or they're at their item quota, they get a descriptive error — not a crash.
+
+**Conflict handling (the interesting cases):**
+- **Prompts** must have unique names per user, so the clone tries the original name, then `{name}-copy`, then gives up with a clear 409 ("rename it before saving").
+- **Bookmarks** must have unique URLs, so cloning one you already have produces a descriptive "you already have this bookmark" error — covering both the case where you have it active *and* the case where you have it archived. (The decision was to show an error rather than silently redirect to your existing copy; a "take me to it" affordance could come later.)
+
+### M5 — The public-facing page (frontend read view)
+**Functional outcome:** the routes `/shared/{type}/{token}` render a clean, read-only view of a shared item using the **existing detail components in a new `readOnly` mode** — no edit toolbar, no action menus, no history sidebar, no mutation shortcuts.
+
+- An **anonymous** visitor sees the content plus a "Sign in to save a copy" prompt that, when clicked, sends them through login and returns them to the same shared URL.
+- A **logged-in** visitor sees a working "Save a copy" button that calls the M4 endpoint and, on success, navigates them to their new copy.
+- An **archived** shared item shows an "archived" banner.
+- An **invalid token** shows a sensible not-found state.
+
+Two notable mechanics: anonymous pages fetch through a **separate no-auth client** (the normal app client always tries to attach a login token, which would fail for logged-out visitors), and **prompts render through read-only CodeMirror** — which already has Jinja template highlighting — while notes/bookmarks render through the existing Milkdown read view.
+
+### M6 — The owner's share UI (frontend controls)
+**Functional outcome:** owners get a "Share" control on the item detail page that ties the whole feature together.
+
+- Unshared item → a control that, when clicked, **publishes** and reveals the shareable URL.
+- Shared item → shows the URL with a **copy button**, plus **"Stop sharing"** and **"Regenerate link."**
+- The shareable URL is built as `{origin}/shared/{type}/{token}` from the token in the item's detail data.
+- "Regenerate" asks for confirmation first ("anyone with the previous link will lose access"), then rotates.
+- Because publish/unpublish use the dedicated endpoints, **toggling sharing never changes the item's displayed "last updated" time** — a visible payoff of the M3 design choice.
+
 ## Guiding decisions (read before any milestone)
 
 **Public token, not item UUID.** The public URL is identified by a separate random token (`public_token`), not the item's UUID. This lets the owner revoke access by rotating or nullifying the token without touching the item itself, and avoids exposing internal IDs at a public surface. Token generation reuses `secrets.token_urlsafe(32)` for entropy (the same source `services/token_service.py` uses for PATs), **but the token is stored plaintext** — unlike PATs, which are hashed at rest and looked up by hash. The public token *is* the URL: an unguessable URL component, not a credential, and the lookup is a plaintext equality match (`public_token == token`). Do not mirror the PAT hashing path.
@@ -15,7 +102,7 @@ Allow users to publish individual bookmarks, notes, and prompts to a stable publ
 
 **Archived items are returned with an archived indicator.** An archived item is still live content. The public response includes `is_archived: bool` (derived server-side from `archived_at`) so the frontend can render an archived banner. The raw `archived_at` timestamp is not exposed — it is internal lifecycle data.
 
-**Public response schemas exclude tags, relationships, and owner identity.** Tags and relationships are personal organizational metadata that reveal the owner's private classification system and content structure — not content itself. `user_id`, `is_public`, and `public_token` are owner-only operational fields. The public schemas include: `id`, `title`, `description`, `content`, `content_metadata`, `is_archived`, `created_at`, `updated_at`, and for prompts: `name` and `arguments`. `created_at`/`updated_at` are included because they are factual content properties (analogous to an article's publish date), not personal data.
+**Public response schemas exclude tags, relationships, and owner identity.** Tags and relationships are personal organizational metadata that reveal the owner's private classification system and content structure — not content itself. `user_id`, `is_public`, and `public_token` are owner-only operational fields. The public schemas include: `title`, `description`, `content`, `content_metadata`, `is_archived`, `created_at`, `updated_at`, plus `url` for bookmarks (its core content) and `name`/`arguments` for prompts. The internal `id` is excluded — the public surface is identified by the share token, not the database UUID. `created_at`/`updated_at` are included because they are factual content properties (analogous to an article's publish date), not personal data.
 
 **Reuse existing detail components with a `readOnly` prop.** Rather than forking the detail pages, the existing components gain a `readOnly` prop that suppresses all mutation UI (edit toolbar, action menus, archive/delete buttons, right sidebar panels, mutation keyboard shortcuts). The read-side rendering and metadata display stay shared. This threads through two layers — the route targets `pages/*Detail.tsx` (the wrapper that resolves the route param and owns fetch), which delegates to the large render components (`components/Note.tsx`, `components/Prompt.tsx`, etc.); both layers take `readOnly`, and the render components must be audited for unconditional `user`/auth assumptions. See M5 for the full scope — this is real work, not a one-line flag.
 
@@ -23,7 +110,7 @@ Allow users to publish individual bookmarks, notes, and prompts to a stable publ
 
 **The only action on the public view is "Save a copy".** No other action icons are shown. The button is auth-aware: authenticated visitors see "Save a copy"; unauthenticated visitors see a login/signup prompt. `AuthProvider` already wraps the entire app tree (above all routes), so `useAuthStatus()` is safe to call from public route components. During Auth0's initialization (`isLoading: true`), render a neutral placeholder before branching.
 
-**"Save a copy" is a backend-driven clone endpoint.** `POST /public/{type}/{token}/save` (auth required) fetches the source item by token server-side and creates a new item in the authenticated user's account. This avoids re-POSTing potentially large content from the frontend. Fields copied: `title`, `description`, `content`; for prompts also `name` and `arguments`. Fields not copied: `tags`, `relationships`, `archived_at`, `is_public`, `public_token` — the clone is a fresh independent item with no organizational metadata from the source.
+**"Save a copy" is a backend-driven clone endpoint.** `POST /public/{type}/{token}/save` (auth required) fetches the source item by token server-side and creates a new item in the authenticated user's account. This avoids re-POSTing potentially large content from the frontend. Fields copied: `title`, `description`, `content`; for bookmarks also `url`; for prompts also `name` and `arguments`. Fields not copied: `tags`, `relationships`, `archived_at`, `is_public`, `public_token` — the clone is a fresh independent item with no organizational metadata from the source.
 
 **Prompt name conflict strategy on clone.** Prompt names must be unique per user. The clone endpoint first tries the original name; on conflict, tries `{name}-copy`; on second conflict, returns 409 with a descriptive message (e.g., "A prompt named '{name}-copy' already exists in your account. Rename it before saving this copy."). No further iteration. Bookmark URL conflicts and field-limit violations (tier-dependent) are surfaced as descriptive errors using the existing error patterns.
 
@@ -88,25 +175,25 @@ Anyone with a valid share token can fetch the full content of a published item, 
 - `GET /public/bookmarks/{token}`, `GET /public/notes/{token}`, `GET /public/prompts/{token}` return item content for published, non-deleted items.
 - Soft-deleted items return 404.
 - Archived items return 200 with `is_archived: true` in the response body.
-- Responses exclude tags, relationships, and all owner identity fields. They include `id`, `title`, `description`, `content`, `content_metadata`, `is_archived`, `created_at`, and `updated_at`. Prompts also include `name` and `arguments`.
+- Responses exclude tags, relationships, all owner identity fields, and the internal `id` (the share token is the public identifier). They include `title`, `description`, `content`, `content_metadata`, `is_archived`, `created_at`, and `updated_at`. Bookmarks also include `url`; prompts also include `name` and `arguments`.
 - Responses use `Cache-Control: public, max-age=0, must-revalidate` and no `Vary: Authorization`.
 - Requests are IP-rate-limited via existing Redis infrastructure.
 
 ### Implementation Outline
 
-**Public item service** (`services/public_item_service.py`): New module, not a subclass of `BaseEntityService`. Implement three async functions — one per content type — that accept `(db: AsyncSession, token: str)` and return the item or `None`. Each query filters on `public_token == token AND is_public IS TRUE AND deleted_at IS NULL`. Archived items are included — do not filter them out. Eager-load `tag_objects` is not needed (tags are not in the public response), but do call `_attach_content_length` the same way `BaseEntityService.get()` does.
+**Public item service** (`services/public_item_service.py`): New module, not a subclass of `BaseEntityService`. Implement three async functions — one per content type — that accept `(db: AsyncSession, token: str)` and return the item or `None`. Each query filters on `public_token == token AND is_public IS TRUE AND deleted_at IS NULL`. Archived items are included — do not filter them out. Eager-load `tag_objects` is not needed (tags are not in the public response). Populate `content_metadata` at the router by calling `apply_partial_read(resp, None, None)` (full content). `_attach_content_length` is *not* needed — the public schema exposes `content_metadata`, not `content_length`.
 
 **Public router** (`api/routers/public.py`): New `APIRouter(prefix="/public", tags=["public"])`. The three GET endpoints have no auth dependencies. Each resolves the real client IP via the shared helper (see below), calls `check_ip_rate_limit()`, calls the public item service, returns 404 on `None`, returns 200 with the appropriate public response schema on success.
 
 Register this router in `api/main.py` alongside the existing routers.
 
-**Client IP extraction** — do **not** use `request.client.host` directly. Behind Railway's proxy that is the proxy's address for every visitor, so all public traffic would collapse into a single rate-limit bucket. A correct helper already exists at `api/routers/consent.py:46-59` (prefers `X-Forwarded-For` first entry → `X-Real-IP` → `request.client.host`). Extract it to a shared util (e.g. `core/request_utils.py`) and reuse it here. Add a one-line comment noting `X-Forwarded-For` is client-spoofable, so this is best-effort abuse mitigation, not a hard control — still strictly better than a single shared bucket.
+**Client IP extraction** — do **not** use `request.client.host` directly. Behind Railway's proxy that is the proxy's address for every visitor, so all public traffic would collapse into a single rate-limit bucket. Extract the helper (originally in `consent.py`) into a shared util (`core/request_utils.py`) and reuse it here. Header precedence: **`X-Real-IP` first** — Railway's docs (Public Networking → Specs & Limits → Request Headers) document it as *the* client-IP header, and it is edge-set / not client-settable — then `X-Forwarded-For` (first entry) and `request.client.host` as fallbacks for local dev / non-Railway hosts. Only the `X-Real-IP` path is spoof-resistant; the `X-Forwarded-For` fallback is client-settable, so the per-IP limit is best-effort abuse mitigation, not a hard control. The `X-Real-IP` behavior (incl. the forum-reported CDN-active edge case) is **unverified against real production traffic** — confirm from an observed production request before relying on it (tracked follow-up).
 
-**IP rate limiting** (`core/rate_limiter.py`): Add `async def check_ip_rate_limit(ip: str) -> RateLimitResult`. Use the same Redis sliding-window logic as `check_rate_limit()` but keyed on `rate:ip:{ip}:public:min` (per-minute) and `rate:ip:{ip}:public:daily` (daily fixed window). Choose conservative limits (e.g., 30/min, 500/day) — the exact values can be tuned; document them in `rate_limit_config.py` alongside the existing tier limits. Fail-open on Redis unavailability, consistent with the rest of the module.
+**IP rate limiting** (`core/rate_limiter.py`): Add `async def check_ip_rate_limit(ip: str) -> RateLimitResult`. Use the same Redis sliding-window logic as `check_rate_limit()` but keyed on `rate:ip:{ip}:public:min` (per-minute) and `rate:ip:{ip}:public:daily` (daily fixed window). Limits are `60/min`, `2000/day` (documented in `rate_limit_config.py`). They're generous because the 256-bit token already defeats enumeration, so this is abuse/DoS protection, not enumeration defense. Note the per-minute cap is the binding constraint: public responses use `max-age=0, must-revalidate`, so every view — including 304 cache revalidations — runs the route and consumes one token (the ETag is computed after the handler executes). Fail-open on Redis unavailability, consistent with the rest of the module.
 
 **Cache headers** (`core/http_cache.py`): Add a `PUBLIC_CACHE_HEADERS` constant (`Cache-Control: public, max-age=0, must-revalidate`, no `Vary`). Introduce a small `headers_for(path)` helper that returns `PUBLIC_CACHE_HEADERS` when `path.startswith("/public/")` else `CACHE_HEADERS`, and use it in **both** branches of `ETagMiddleware.dispatch()` — the 304 branch and the final 200 response. The current 304 branch hardcodes `**CACHE_HEADERS` (`private, no-cache, Vary: Authorization`); leaving it "unchanged" would make a public path's revalidation response private and `Vary`-keyed, contradicting the 200 response — the helper fixes both consistently. `POST` requests are already skipped by the middleware so the clone endpoints added in M4 need no special handling here.
 
-**Public response schemas**: Add `PublicBookmarkResponse`, `PublicNoteResponse`, `PublicPromptResponse` in the respective schema files. Fields included: `id`, `title`, `description`, `content`, `content_metadata`, `is_archived` (bool, derived from `archived_at` server-side), `created_at`, `updated_at`. Prompts also include `name` and `arguments`. Fields explicitly excluded: `user_id`, `tags`, `relationships`, `archived_at` (raw timestamp), `is_public`, `public_token`, `deleted_at`, `last_used_at`, `summary`.
+**Public response schemas**: Add `PublicBookmarkResponse`, `PublicNoteResponse`, `PublicPromptResponse` in the respective schema files. Fields included: `title`, `description`, `content`, `content_metadata`, `is_archived` (bool, derived from `archived_at` server-side), `created_at`, `updated_at`. Bookmarks also include `url` (its core content); prompts also include `name` and `arguments`. Fields explicitly excluded: `id` (internal UUID — the token is the public identifier), `user_id`, `tags`, `relationships`, `archived_at` (raw timestamp), `is_public`, `public_token`, `deleted_at`, `last_used_at`, `summary`.
 
 `is_archived` is read from the existing `ArchivableMixin.is_archived` hybrid property (`models/base.py:93-120`), which already does the `archived_at <= now()` comparison (and correctly treats a future-dated `archived_at` as not-yet-archived). Set `is_archived = item.is_archived` when constructing the response — do not reimplement the comparison.
 
@@ -114,7 +201,7 @@ Register this router in `api/main.py` alongside the existing routers.
 
 ### Definition of Done
 
-Tests in `backend/tests/routers/test_public.py`:
+Tests in `backend/tests/api/test_public.py`:
 - `GET /public/bookmarks/{token}` returns 200 with content for a published, active item.
 - Returns 200 for a published, archived item; response has `is_archived: true`.
 - Returns 404 for an unknown token.
@@ -127,7 +214,7 @@ Tests in `backend/tests/routers/test_public.py`:
 - `ETagMiddleware` returns 304 on a second identical request with matching `If-None-Match`, **and that 304 response also carries `public, max-age=0, must-revalidate` with no `Vary`** (not the private header set).
 - Authenticated endpoints (`/bookmarks/{id}`) still return `Cache-Control: private, no-cache` on both 200 and 304 — regression guard.
 - An archived item returns `is_archived: true`; an item with a future-dated `archived_at` returns `is_archived: false`.
-- IP rate limit: a request that exceeds the per-minute limit returns 429. A request carrying `X-Forwarded-For` is keyed on the forwarded IP (two distinct forwarded IPs get independent buckets), not on `request.client.host`.
+- IP rate limit: a request that exceeds the per-minute limit returns 429. Keying uses the resolved client IP — `X-Real-IP` when present (a rotating spoofed `X-Forwarded-For` cannot mint fresh buckets), falling back to `X-Forwarded-For` first-entry (two distinct forwarded IPs get independent buckets), not `request.client.host`.
 
 ---
 
@@ -184,7 +271,7 @@ An authenticated user viewing a public item can save an independent copy to thei
 
 - `POST /public/bookmarks/{token}/save`, `/public/notes/{token}/save`, `/public/prompts/{token}/save` create a new item in the authenticated user's account, sourced from the public item at that token.
 - The clone is independent: it shares no state with the source item.
-- Fields copied: `title`, `description`, `content`; for prompts also `name` and `arguments`.
+- Fields copied: `title`, `description`, `content`; for bookmarks also `url`; for prompts also `name` and `arguments`.
 - Fields not copied: `tags`, `relationships`, `archived_at`, `is_public`, `public_token`. The clone starts as a fresh active item with no organizational metadata from the source.
 - Prompt name conflicts are handled with a two-step fallback: try original name, then `{name}-copy`, then fail with a descriptive 409.
 - Tier field-limit violations (source content exceeds cloner's plan limits) are surfaced as descriptive errors.
@@ -206,7 +293,7 @@ Each endpoint:
 
 ### Definition of Done
 
-Tests in `backend/tests/routers/test_public.py`:
+Tests in `backend/tests/api/test_public.py`:
 - `POST /public/notes/{token}/save` for an authenticated user creates a new note with the correct fields and returns it.
 - Cloned item has `tags: []`, no relationships, `archived_at: null`, `is_public: false`.
 - Cloning a prompt with a unique name creates it with the original name.
