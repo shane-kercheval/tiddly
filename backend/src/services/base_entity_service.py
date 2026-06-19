@@ -4,6 +4,7 @@ Base service class for entity CRUD operations.
 Provides shared logic for Bookmark, Note, and future entity types (Todo).
 Entity-specific behavior is defined via abstract methods and class attributes.
 """
+import secrets
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
@@ -31,6 +32,21 @@ if TYPE_CHECKING:
 CONTENT_PREVIEW_LENGTH = 500
 
 
+def _generate_public_token() -> str:
+    """
+    Generate an unguessable share token (256 bits of entropy), stored plaintext.
+
+    Unlike PATs (hashed at rest, see ``token_service``), the public token IS the
+    URL — an unguessable URL component, not a credential — so lookups are a
+    plaintext equality match on ``public_token`` (see ``public_item_service``).
+    ``token_urlsafe(32)`` yields a ~43-char url-safe string, well within the
+    column's 64-char limit. Lives here, beside the publish/rotate writers that
+    are its only callers, so the foundational base service needn't import the
+    public-read feature module.
+    """
+    return secrets.token_urlsafe(32)
+
+
 class TaggableEntity(Protocol):
     """Protocol defining the interface for entities that support tagging and soft-delete."""
 
@@ -41,6 +57,8 @@ class TaggableEntity(Protocol):
     last_used_at: datetime
     deleted_at: datetime | None
     archived_at: datetime | None
+    is_public: bool
+    public_token: str | None
     tag_objects: list
 
     @property
@@ -655,6 +673,88 @@ class BaseEntityService[T: TaggableEntity](ABC):
             )
 
         entity.archived_at = None
+        await db.flush()
+        await self._refresh_with_tags(db, entity)
+        return entity
+
+    async def set_share_state(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity_id: UUID,
+        *,
+        enabled: bool,
+    ) -> T | None:
+        """
+        Publish or unpublish an item, writing only the sharing columns.
+
+        Publishing mints a ``public_token`` if the item has none and sets
+        ``is_public = True``; a previously-shared item keeps its token, so
+        re-publishing restores the same URL. Unpublishing sets ``is_public =
+        False`` and leaves the token in place.
+
+        Sharing is NOT a content change: ``updated_at`` is never assigned and no
+        ``ContentHistory`` is recorded. ``updated_at`` is bumped only by explicit
+        assignment inside ``update()`` (no column-level ``onupdate``), so leaving
+        it unassigned preserves the prior value. Soft-deleted items are not
+        shareable (excluded by ``get()``); archived items are.
+
+        Args:
+            db: Database session.
+            user_id: User ID to scope the entity (owner only).
+            entity_id: ID of the entity to publish/unpublish.
+            enabled: True to publish, False to unpublish.
+
+        Returns:
+            The updated entity (tags eager-loaded), or None if not found.
+        """
+        entity = await self.get(db, user_id, entity_id, include_archived=True)
+        if entity is None:
+            return None
+
+        if enabled:
+            if entity.public_token is None:
+                entity.public_token = _generate_public_token()
+            entity.is_public = True
+        else:
+            entity.is_public = False
+
+        await db.flush()
+        await self._refresh_with_tags(db, entity)
+        return entity
+
+    async def rotate_share_token(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        entity_id: UUID,
+    ) -> T | None:
+        """
+        Issue a brand-new share token, permanently invalidating the previous URL.
+
+        Works regardless of ``is_public`` state — a user may pre-rotate while
+        unpublished to pre-empt a stale link before re-sharing. Only
+        ``public_token`` is written; ``is_public`` is left unchanged. Like
+        publish/unpublish, this does not bump ``updated_at`` or record history.
+
+        The partial unique index on ``public_token`` would surface a generated
+        collision as an ``IntegrityError``; at 256 bits of entropy this is
+        astronomically unlikely, so it is intentionally left to surface rather
+        than swallowed.
+
+        Args:
+            db: Database session.
+            user_id: User ID to scope the entity (owner only).
+            entity_id: ID of the entity to rotate.
+
+        Returns:
+            The updated entity (tags eager-loaded), or None if not found.
+        """
+        entity = await self.get(db, user_id, entity_id, include_archived=True)
+        if entity is None:
+            return None
+
+        entity.public_token = _generate_public_token()
         await db.flush()
         await self._refresh_with_tags(db, entity)
         return entity

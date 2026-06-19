@@ -311,6 +311,7 @@ class TestPromptListItem:
             last_used_at=datetime.now(UTC),
             deleted_at=None,
             archived_at=None,
+            is_public=False,
             tag_objects=[tag1, tag2],
         )
 
@@ -337,6 +338,7 @@ class TestPromptListItem:
             "last_used_at": datetime.now(UTC),
             "deleted_at": None,
             "archived_at": None,
+            "is_public": False,
         }
         item = PromptListItem.model_validate(data)
         assert item.id == test_id
@@ -378,6 +380,7 @@ class TestPromptResponse:
             "last_used_at": datetime.now(UTC),
             "deleted_at": None,
             "archived_at": None,
+            "is_public": False,
         }
         response = PromptResponse.model_validate(data)
         assert response.content == "Template content: {{ variable }}"
@@ -413,6 +416,7 @@ class TestPromptListResponse:
             "created_at": datetime.now(UTC),
             "updated_at": datetime.now(UTC),
             "last_used_at": datetime.now(UTC),
+            "is_public": False,
         }
         response = PromptListResponse(
             items=[PromptListItem.model_validate(item_data)],

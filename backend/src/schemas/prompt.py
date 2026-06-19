@@ -138,6 +138,9 @@ class PromptListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
+    is_public: bool = Field(
+        description="Whether this prompt is currently shared via a public URL.",
+    )
     content_length: int | None = Field(
         default=None,
         description="Total character count of content field.",
@@ -189,6 +192,13 @@ class PromptResponse(PromptListItem):
     content: str | None
     content_metadata: ContentMetadata | None = None
     relationships: list[RelationshipWithContentResponse] = Field(default_factory=list)
+    public_token: str | None = Field(
+        default=None,
+        description="The prompt's public share token (null if never shared). "
+                    "Used by the detail page to build the shareable URL. "
+                    "Deliberately absent from list responses to keep tokens off "
+                    "bulk/agent surfaces.",
+    )
 
 
 class PublicPromptResponse(BaseModel):

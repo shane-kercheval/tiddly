@@ -8,6 +8,10 @@ token is the authorization), and only a narrow read path is needed.
 A published item is one with ``is_public = TRUE`` and a matching ``public_token``
 that has not been soft-deleted. Archived items ARE returned — an archived item
 is still live content; the caller surfaces ``is_archived`` on the response.
+
+Token *generation* lives with the owner-side write path that uses it
+(``BaseEntityService._generate_public_token``), not here — this module only
+reads.
 """
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -182,6 +182,7 @@ def _row_to_content_item(row: Row, tags: list[str]) -> ContentListItem:
         last_used_at=row.last_used_at,
         deleted_at=row.deleted_at,
         archived_at=row.archived_at,
+        is_public=row.is_public,
         content_length=row.content_length,
         content_preview=row.content_preview,
         summary=row.summary if row.type == "bookmark" else None,
@@ -473,6 +474,7 @@ def _build_entity_subquery(
         model.last_used_at.label("last_used_at"),
         model.deleted_at.label("deleted_at"),
         model.archived_at.label("archived_at"),
+        model.is_public.label("is_public"),
         func.length(model.content).label("content_length"),
         func.left(model.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
     ]

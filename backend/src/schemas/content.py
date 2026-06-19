@@ -29,6 +29,9 @@ class ContentListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
+    is_public: bool = Field(
+        description="Whether this item is currently shared via a public URL.",
+    )
 
     # Content size metrics (available for all types)
     content_length: int | None = Field(
