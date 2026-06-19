@@ -2,12 +2,14 @@
 import time
 from uuid import uuid4
 
+import pytest
+
 from core.rate_limit_config import (
     OperationType,
     RateLimitResult,
     get_operation_type,
 )
-from core.rate_limiter import check_rate_limit
+from core.rate_limiter import check_ip_rate_limit, check_rate_limit
 from core.redis import RedisClient, set_redis_client
 from core.tier_limits import Tier, get_tier_limits
 
@@ -314,6 +316,32 @@ class TestDailyLimits:
             tier=Tier.FREE,
         )
         assert write_result.allowed is False, "WRITE should be blocked (general pool exhausted)"
+
+
+class TestCheckIpRateLimit:
+    """Tests for the unauthenticated per-IP limiter used by the /public/* reads."""
+
+    async def test__check_ip__allows_when_redis_unavailable(self) -> None:
+        """Fails open: public reads are served when Redis is unavailable."""
+        set_redis_client(None)
+
+        result = await check_ip_rate_limit("203.0.113.7")
+
+        assert result.allowed is True
+
+    async def test__check_ip__blocks_after_daily_cap(
+        self, redis_client: RedisClient, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The per-day fixed window blocks once the daily cap is exceeded."""
+        assert redis_client.is_connected  # fixture wires the global Redis the limiter uses
+        monkeypatch.setattr("core.rate_limiter.PUBLIC_IP_RATE_LIMIT_PER_DAY", 2)
+        ip = "203.0.113.8"
+
+        assert (await check_ip_rate_limit(ip)).allowed is True
+        assert (await check_ip_rate_limit(ip)).allowed is True
+        blocked = await check_ip_rate_limit(ip)
+        assert blocked.allowed is False
+        assert blocked.retry_after >= 0
 
 
 class TestRateLimiterFallback:

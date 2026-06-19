@@ -323,3 +323,36 @@ async def test_x_real_ip_takes_precedence_and_resists_xff_spoof(
     assert (await client.get(url, headers=headers("1.1.1.1"))).status_code == 200
     assert (await client.get(url, headers=headers("2.2.2.2"))).status_code == 200
     assert (await client.get(url, headers=headers("3.3.3.3"))).status_code == 429
+
+
+async def test_public_response_includes_content_metadata(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
+    """content_metadata reports the full line range for the returned content."""
+    user = await _make_user(db_session, "cmeta")
+    await _publish_note(db_session, user.id, "tok-cmeta", content="line1\nline2\nline3")
+
+    resp = await client.get("/public/notes/tok-cmeta")
+
+    assert resp.status_code == 200
+    meta = resp.json()["content_metadata"]
+    assert meta is not None
+    assert meta["total_lines"] == 3
+    assert meta["start_line"] == 1
+    assert meta["end_line"] == 3
+    assert meta["is_partial"] is False
+
+
+async def test_public_response_with_empty_content(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
+    """An item with no content returns content/content_metadata as null, not an error."""
+    user = await _make_user(db_session, "empty")
+    await _publish_note(db_session, user.id, "tok-empty", content=None)
+
+    resp = await client.get("/public/notes/tok-empty")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["content"] is None
+    assert data["content_metadata"] is None
