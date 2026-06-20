@@ -30,7 +30,11 @@ vi.mock('./MilkdownEditor', () => ({
 
 // Capture what entityId the stale check receives — it's the only path that would
 // fire an authed request (GET /{type}/{id}/metadata) from the reused component.
-const mockUseStaleCheck = vi.fn((_opts: unknown) => ({
+// Typed to accept the opts arg (so the call site below typechecks) while the
+// impl ignores it — the captured call args are what the assertions read.
+const mockUseStaleCheck = vi.fn<(opts: unknown) => {
+  isStale: boolean; isDeleted: boolean; serverUpdatedAt: string | null; dismiss: () => void
+}>(() => ({
   isStale: false, isDeleted: false, serverUpdatedAt: null, dismiss: vi.fn(),
 }))
 vi.mock('../hooks/useStaleCheck', () => ({

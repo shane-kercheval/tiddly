@@ -24,6 +24,7 @@ const PromptDetail = lazy(() => import('./pages/PromptDetail').then(m => ({ defa
 const PublicBookmark = lazy(() => import('./pages/PublicBookmark').then(m => ({ default: m.PublicBookmark })))
 const PublicNote = lazy(() => import('./pages/PublicNote').then(m => ({ default: m.PublicNote })))
 const PublicPrompt = lazy(() => import('./pages/PublicPrompt').then(m => ({ default: m.PublicPrompt })))
+const SaveSharedRedirect = lazy(() => import('./pages/SaveSharedRedirect').then(m => ({ default: m.SaveSharedRedirect })))
 
 // Lazy-loaded settings pages
 const SettingsGeneral = lazy(() => import('./pages/settings/SettingsGeneral').then(m => ({ default: m.SettingsGeneral })))
@@ -144,6 +145,10 @@ const router = createBrowserRouter([
           {
             element: <AppLayout />,
             children: [
+              // In-app save target for the public "Save to Tiddly" flow (M5.1).
+              // Sibling of Layout (not a child) so it runs under AppLayout's
+              // consent gate without the app shell's sidebar/filters/tags fetches.
+              { path: '/app/save-shared/:type/:token', element: <SaveSharedRedirect /> },
               {
                 element: <Layout />,
                 children: [
@@ -201,6 +206,7 @@ const router = createBrowserRouter([
  *
  * - App routes (authentication + consent required):
  *   - /app : Redirects to /app/content
+ *   - /app/save-shared/:type/:token : Save-a-copy target for the public share flow (consent-gated)
  *   - /app/content : Unified view - all content (bookmarks + notes + prompts)
  *   - /app/content/archived : Archived content
  *   - /app/content/trash : Deleted content

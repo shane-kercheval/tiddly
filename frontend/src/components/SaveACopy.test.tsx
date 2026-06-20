@@ -53,12 +53,14 @@ describe('SaveACopy', () => {
     expect(mockMutate).toHaveBeenCalledTimes(1)
   })
 
-  it('anonymous: shows sign-in and logs in returning to the current shared URL', async () => {
+  it('anonymous: shows sign-in and returns to the in-app save route after login', async () => {
+    // returnTo points at the in-app save route (not the shared URL) so the
+    // consent-gated clone can complete after sign-up. See M5.1.
     mockAuthStatus = { isAuthenticated: false, isLoading: false, error: null, userId: null }
     renderAt('/shared/notes/tok')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in to save' }))
     expect(mockLogin).toHaveBeenCalledWith(
-      expect.objectContaining({ appState: { returnTo: '/shared/notes/tok' } })
+      expect.objectContaining({ appState: { returnTo: '/app/save-shared/notes/tok' } })
     )
   })
 })
