@@ -1210,6 +1210,21 @@ class TestRaceConditions:
         """Rapid duplicate POSTs don't create multiple bookmarks."""
         url = "https://race-condition-test-unique.example.com/"
 
+        async def delete_existing() -> None:
+            """Remove any bookmark matching this test's URL."""
+            async with httpx.AsyncClient() as client:
+                search = await client.get(
+                    f"{API_URL}/bookmarks/",
+                    headers=headers_user_a,
+                    params={"q": "race-condition-test-unique"},
+                )
+                for item in search.json().get("items", []):
+                    await client.delete(
+                        f"{API_URL}/bookmarks/{item['id']}",
+                        headers=headers_user_a,
+                        params={"permanent": "true"},
+                    )
+
         async def create_bookmark() -> httpx.Response:
             async with httpx.AsyncClient() as client:
                 return await client.post(
@@ -1218,35 +1233,30 @@ class TestRaceConditions:
                     json={"url": url},
                 )
 
-        # Fire 5 concurrent requests
-        results = await asyncio.gather(
-            *[create_bookmark() for _ in range(5)],
-            return_exceptions=True,
-        )
+        # Ensure a clean starting state: a leftover from a prior run would make every
+        # concurrent POST conflict (0 successes), failing the test spuriously.
+        await delete_existing()
 
-        # Expect exactly 1 success (201), rest should be 409 conflict
-        status_codes = [r.status_code for r in results if isinstance(r, httpx.Response)]
-        assert status_codes.count(201) == 1, (
-            f"Race condition: expected 1 success, got {status_codes.count(201)}! "
-            f"Statuses: {status_codes}"
-        )
-        assert all(code in (201, 409) for code in status_codes), (
-            f"Unexpected status codes: {status_codes}"
-        )
-
-        # Cleanup
-        async with httpx.AsyncClient() as client:
-            search = await client.get(
-                f"{API_URL}/bookmarks/",
-                headers=headers_user_a,
-                params={"q": "race-condition-test-unique"},
+        try:
+            # Fire 5 concurrent requests
+            results = await asyncio.gather(
+                *[create_bookmark() for _ in range(5)],
+                return_exceptions=True,
             )
-            for item in search.json().get("items", []):
-                await client.delete(
-                    f"{API_URL}/bookmarks/{item['id']}",
-                    headers=headers_user_a,
-                    params={"permanent": "true"},
-                )
+
+            # Expect exactly 1 success (201), rest should be 409 conflict
+            status_codes = [r.status_code for r in results if isinstance(r, httpx.Response)]
+            assert status_codes.count(201) == 1, (
+                f"Race condition: expected 1 success, got {status_codes.count(201)}! "
+                f"Statuses: {status_codes}"
+            )
+            assert all(code in (201, 409) for code in status_codes), (
+                f"Unexpected status codes: {status_codes}"
+            )
+        finally:
+            # Always clean up, even if an assertion fails — otherwise the created
+            # bookmark persists and breaks every subsequent run (the original bug).
+            await delete_existing()
 
 
 class TestConsentEnforcement:
@@ -1664,6 +1674,88 @@ class TestHistoryIDOR:
             finally:
                 await client.delete(
                     f"{API_URL}/bookmarks/{bookmark_id}",
+                    headers=headers_user_a,
+                    params={"permanent": "true"},
+                )
+
+
+class TestPromptSSTI:
+    """
+    Verify prompt template rendering is sandboxed against server-side template injection.
+
+    Prompt content is a user-authored Jinja2 template rendered server-side. A non-sandboxed
+    environment would let attribute traversal (__class__/__mro__/__subclasses__) escape to
+    arbitrary Python. The render path uses SandboxedEnvironment, which must reject the escape
+    as a 400 rather than rendering the object graph (or 500ing).
+    OWASP Reference: A03:2021 - Injection
+    """
+
+    async def test__render_attribute_traversal_escape__returns_400(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """An SSTI escape template renders as a 400, not a 500 or a leaked object graph."""
+        async with httpx.AsyncClient() as client:
+            payload = {
+                "name": "ssti-test-prompt-12345",
+                "content": "{{ x.__class__.__mro__[1].__subclasses__() }}",
+                "arguments": [{"name": "x", "required": False}],
+                "tags": ["ssti-test"],
+            }
+
+            create_response = await client.post(
+                f"{API_URL}/prompts/",
+                headers=headers_user_a,
+                json=payload,
+            )
+
+            # Handle case where name already exists (409 conflict): clean up and retry.
+            if create_response.status_code == 409:
+                list_response = await client.get(
+                    f"{API_URL}/prompts/",
+                    headers=headers_user_a,
+                    params={"q": "ssti-test-prompt-12345"},
+                )
+                if list_response.status_code == 200:
+                    for item in list_response.json().get("items", []):
+                        await client.delete(
+                            f"{API_URL}/prompts/{item['id']}",
+                            headers=headers_user_a,
+                            params={"permanent": "true"},
+                        )
+                create_response = await client.post(
+                    f"{API_URL}/prompts/",
+                    headers=headers_user_a,
+                    json=payload,
+                )
+
+            assert create_response.status_code == 201, f"Failed to create prompt: {create_response.text}"
+            prompt_id = create_response.json()["id"]
+
+            try:
+                render_response = await client.post(
+                    f"{API_URL}/prompts/{prompt_id}/render",
+                    headers=headers_user_a,
+                    json={"arguments": {}},
+                )
+
+                # The sandbox must block the escape: 400, not a 500 and not a 200 that
+                # leaked the Python object graph.
+                assert render_response.status_code == 400, (
+                    f"SECURITY VULNERABILITY: SSTI escape was not blocked! "
+                    f"Status: {render_response.status_code}, Body: {render_response.text}"
+                )
+                body = render_response.text
+                assert "__subclasses__" not in body, (
+                    f"SECURITY VULNERABILITY: render leaked the object graph! Body: {body}"
+                )
+                assert "<class" not in body, (
+                    f"SECURITY VULNERABILITY: render leaked the object graph! Body: {body}"
+                )
+
+            finally:
+                await client.delete(
+                    f"{API_URL}/prompts/{prompt_id}",
                     headers=headers_user_a,
                     params={"permanent": "true"},
                 )
