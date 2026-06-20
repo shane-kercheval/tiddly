@@ -110,6 +110,14 @@ interface ContentEditorProps {
   disabled?: boolean
   /** Whether the editor is read-only (focusable but not editable, e.g. during save) */
   readOnly?: boolean
+  /**
+   * Reader mode (public share view): renders content read-only but selectable,
+   * hides the formatting toolbar and character counter, and keeps view-only
+   * controls. Overrides `disabled`/`readOnly` for the underlying editor.
+   */
+  readerMode?: boolean
+  /** In reader mode, default to the rendered reading view (prose) vs. raw source (prompts). */
+  defaultReadingMode?: boolean
   /** Whether there's an error */
   hasError?: boolean
   /** Minimum height for the editor */
@@ -167,6 +175,8 @@ export function ContentEditor({
   onChange,
   disabled = false,
   readOnly = false,
+  readerMode = false,
+  defaultReadingMode = false,
   hasError = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
@@ -220,7 +230,8 @@ export function ContentEditor({
   // Compute container border classes based on props
   // Three modes: no border, solid border, or subtle ring on focus
   const getContainerBorderClasses = (): string => {
-    if (!showBorder) {
+    // Reader mode (public view) shows no editor chrome — no box/ring around content.
+    if (readerMode || !showBorder) {
       return ''
     }
 
@@ -242,8 +253,10 @@ export function ContentEditor({
         {label && <label className="label">{label}</label>}
       </div>
 
-      {/* Top divider - hidden when focused since ring takes over */}
-      <div className="h-0.5 bg-gray-100 mx-2 group-focus-within/editor:opacity-0 transition-opacity" />
+      {/* Top divider — separates the metadata above from the content. In the
+          normal editor it hides on focus (the ring takes over); in reader mode
+          there's no ring, so it stays as the only separator. */}
+      <div className={`h-0.5 bg-gray-100 mx-2 transition-opacity ${readerMode ? '' : 'group-focus-within/editor:opacity-0'}`} />
 
       {/* Editor container - always CodeMirror with Reading/Wrap toggles in toolbar */}
       {/* overflow-hidden clips child content to rounded corners */}
@@ -251,8 +264,10 @@ export function ContentEditor({
         <CodeMirrorEditor
           value={value}
           onChange={onChange}
-          disabled={disabled}
-          readOnly={readOnly}
+          disabled={readerMode ? false : disabled}
+          readOnly={readerMode ? true : readOnly}
+          readerMode={readerMode}
+          defaultReadingMode={defaultReadingMode}
           minHeight={minHeight}
           placeholder={placeholder}
           wrapText={wrapText}
@@ -274,7 +289,8 @@ export function ContentEditor({
         />
       </div>
 
-      {/* Footer with helper text, error message, and character limit feedback */}
+      {/* Footer (helper text, error, char counter) — hidden in reader mode */}
+      {!readerMode && (
       <div className={`flex justify-between items-center mt-1 transition-opacity ${
         errorMessage || helperText || limit.showCounter ? 'opacity-100' : 'opacity-0 group-focus-within/editor:opacity-100'
       }`}>
@@ -293,6 +309,7 @@ export function ContentEditor({
           </span>
         )}
       </div>
+      )}
     </div>
   )
 }

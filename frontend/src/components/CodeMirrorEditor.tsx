@@ -87,6 +87,15 @@ interface CodeMirrorEditorProps {
   disabled?: boolean
   /** Whether the editor is read-only (focusable but not editable, e.g. during save) */
   readOnly?: boolean
+  /**
+   * Reader mode (public share view): hides the text-formatting toolbar entirely
+   * (those buttons mutate content) while keeping the view-only controls (wrap,
+   * line numbers, mono, reading, copy). Pair with readOnly + non-disabled so the
+   * content stays selectable/copyable but not editable.
+   */
+  readerMode?: boolean
+  /** Initial value for the reading-mode toggle (renders Milkdown preview by default). */
+  defaultReadingMode?: boolean
   /** Minimum height for the editor */
   minHeight?: string
   /** Placeholder text shown when empty */
@@ -236,6 +245,8 @@ export function CodeMirrorEditor({
   onChange,
   disabled = false,
   readOnly = false,
+  readerMode = false,
+  defaultReadingMode = false,
   minHeight = '200px',
   placeholder = 'Write your content in markdown...',
   wrapText = false,
@@ -265,8 +276,9 @@ export function CodeMirrorEditor({
   // Forward-declared ref for openCommandMenu (defined later, used by document-level keydown handler and CM keybinding)
   const openCommandMenuRef = useRef<() => void>(() => {})
 
-  // Reading mode state (local, not persisted)
-  const [readingMode, setReadingMode] = useState(false)
+  // Reading mode state (local, not persisted). Defaults on for reader mode so
+  // notes/bookmarks open in the rendered Milkdown view rather than raw source.
+  const [readingMode, setReadingMode] = useState(defaultReadingMode)
 
   // Store scroll position when toggling modes to preserve reading position
   const scrollPositionRef = useRef<number>(0)
@@ -653,9 +665,10 @@ export function CodeMirrorEditor({
       {/* Always render toolbar to prevent layout shift; buttons are disabled when editor is disabled */}
       {/* min-h and transform-gpu prevent Safari reflow issues during focus/blur transitions */}
       {/* Mobile: flex-wrap, all buttons visible. Desktop: no-wrap, buttons fade in on focus */}
-      <div className="flex items-center flex-wrap md:flex-nowrap gap-0.5 md:gap-0 md:justify-between px-2 py-1 min-h-[34px] transform-gpu border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50 transition-colors">
-        {/* Left: formatting buttons - visible on mobile, fade in on focus on desktop */}
+      <div className={`flex items-center flex-wrap md:flex-nowrap gap-0.5 md:gap-0 md:justify-between px-2 py-1 min-h-[34px] transform-gpu transition-colors ${readerMode ? '' : 'border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50'}`}>
+        {/* Left: formatting buttons — hidden entirely in reader mode (they mutate content) */}
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
+        {!readerMode && (
         <div className={`contents md:flex md:flex-nowrap md:items-center md:gap-0.5 md:opacity-0 md:pointer-events-none md:group-focus-within/editor:opacity-100 md:group-focus-within/editor:pointer-events-auto transition-opacity ${disabled || readOnly ? 'pointer-events-none' : ''}`}>
           {/* Text formatting */}
           <ToolbarButton onClick={() => runAction((v) => toggleWrapMarkers(v, MARKERS.bold.before, MARKERS.bold.after))} title={shortcutTooltipContent('editor.bold')}>
@@ -723,6 +736,7 @@ export function CodeMirrorEditor({
             </>
           )}
         </div>
+        )}
 
         {/* Right: Toggle icons (Wrap, Lines, Reading) and Copy */}
         {/* On mobile: 'contents' flattens structure so buttons flow with others. On desktop: stays at right */}

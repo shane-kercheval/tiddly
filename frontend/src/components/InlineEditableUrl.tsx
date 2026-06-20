@@ -27,6 +27,8 @@ interface InlineEditableUrlProps {
   required?: boolean
   /** Whether the input is disabled */
   disabled?: boolean
+  /** Read-only display: render the URL as a plain, selectable link (no input/ring/fetch button). */
+  readOnly?: boolean
   /** Error message to display */
   error?: string
   /** Called when Enter is pressed */
@@ -54,6 +56,7 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
       placeholder = 'https://example.com',
       required = false,
       disabled = false,
+      readOnly = false,
       error,
       onEnter,
       onFetchMetadata,
@@ -67,6 +70,23 @@ export const InlineEditableUrl = forwardRef<HTMLInputElement, InlineEditableUrlP
     const errorId = useId()
     const [isFocused, setIsFocused] = useState(false)
     const limit = useCharacterLimit(value.length, maxLength)
+
+    // Read-only display: the URL is the bookmark's core content — render it as a
+    // plain, selectable, clickable link (no input chrome, ring, or fetch button).
+    if (readOnly) {
+      return (
+        <div className="w-full">
+          <a
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-sm text-gray-700 hover:underline break-all"
+          >
+            {value}
+          </a>
+        </div>
+      )
+    }
 
     const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
       onChange(e.target.value)

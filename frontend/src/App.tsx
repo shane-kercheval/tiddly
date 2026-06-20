@@ -20,6 +20,11 @@ const BookmarkDetail = lazy(() => import('./pages/BookmarkDetail').then(m => ({ 
 const NoteDetail = lazy(() => import('./pages/NoteDetail').then(m => ({ default: m.NoteDetail })))
 const PromptDetail = lazy(() => import('./pages/PromptDetail').then(m => ({ default: m.PromptDetail })))
 
+// Lazy-loaded public read-only views (reuse the detail render components in readOnly mode)
+const PublicBookmark = lazy(() => import('./pages/PublicBookmark').then(m => ({ default: m.PublicBookmark })))
+const PublicNote = lazy(() => import('./pages/PublicNote').then(m => ({ default: m.PublicNote })))
+const PublicPrompt = lazy(() => import('./pages/PublicPrompt').then(m => ({ default: m.PublicPrompt })))
+
 // Lazy-loaded settings pages
 const SettingsGeneral = lazy(() => import('./pages/settings/SettingsGeneral').then(m => ({ default: m.SettingsGeneral })))
 const SettingsTokens = lazy(() => import('./pages/settings/SettingsTokens').then(m => ({ default: m.SettingsTokens })))
@@ -123,6 +128,12 @@ const router = createBrowserRouter([
           { path: '/changelog', element: <Changelog /> },
           { path: '/roadmap', element: <Roadmap /> },
           { path: '/pricing', element: <Pricing /> },
+
+          // Public read-only share views (no auth). The render components run in
+          // readOnly mode; the only action is the auth-aware "Save a copy".
+          { path: '/shared/bookmarks/:token', element: <PublicBookmark /> },
+          { path: '/shared/notes/:token', element: <PublicNote /> },
+          { path: '/shared/prompts/:token', element: <PublicPrompt /> },
         ],
       },
 

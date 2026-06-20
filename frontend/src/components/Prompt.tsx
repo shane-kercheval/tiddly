@@ -31,7 +31,7 @@ import { PreviewPromptModal } from './PreviewPromptModal'
 import { ArchiveIcon, RestoreIcon, TrashIcon, CloseIcon, CheckIcon, HistoryIcon, TagIcon, LinkIcon } from './icons'
 import { formatDate, TAG_PATTERN } from '../utils'
 import type { ArchivePreset } from '../utils'
-import { useLimits } from '../hooks/useLimits'
+import { useLimits, PUBLIC_VIEW_LIMITS } from '../hooks/useLimits'
 import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
@@ -162,6 +162,13 @@ interface PromptProps {
   fromCreate?: boolean
   /** Whether AI features are available for this user's tier */
   aiAvailable?: boolean
+  /**
+   * Public read-only mode: hides all owner UI (toolbars, tags, relationships,
+   * history, preview) and disables editing. Distinct from the deleted-item
+   * read-only state (viewState === 'deleted'), which disables editing but still
+   * shows the owner's organizational metadata.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -188,11 +195,15 @@ export function Prompt({
   showTocToggle = false,
   fromCreate = false,
   aiAvailable = false,
+  readOnly = false,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
   // Fetch tier limits
-  const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
+  const { limits: fetchedLimits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
+  // Public read-only view: limits aren't fetched (no auth) and aren't needed
+  // (editing is disabled). Fall back to permissive limits so we don't spin forever.
+  const limits = fetchedLimits ?? (readOnly ? PUBLIC_VIEW_LIMITS : undefined)
 
   // Stale check hook
   const { fetchPromptMetadata } = usePrompts()
@@ -361,8 +372,8 @@ export function Prompt({
   const scrollToLineRef = useRef<((line: number) => void) | null>(null)
   const showToc = useRightSidebarStore((state) => state.activePanel === 'toc')
 
-  // Read-only mode for deleted prompts
-  const isReadOnly = viewState === 'deleted'
+  // Read-only mode: deleted items (restore-to-edit) or the public share view.
+  const isReadOnly = readOnly || viewState === 'deleted'
 
   // Compute dirty state - optimized to avoid deep comparison overhead
   // Check lengths first for quick short-circuit on large content
@@ -887,7 +898,8 @@ export function Prompt({
     >
       <SaveOverlay isVisible={isSaving} />
 
-      {/* Sticky header - outer div extends wider to hide scrolling content borders */}
+      {/* Sticky header (owner controls) — hidden entirely in the public read view. */}
+      {!readOnly && (
       <div className="sticky top-0 z-10 shrink-0 bg-white -ml-2 pl-2 -mr-2 pr-2">
         <div className="flex items-center justify-between py-1.5 border-b border-gray-200">
           <div className="flex items-center gap-2">
@@ -1026,13 +1038,14 @@ export function Prompt({
           </div>
         </div>
       </div>
+      )}
 
       {/* Scrollable content - padding with negative margin gives room for focus rings to show */}
       <div className="flex-1 overflow-y-auto min-h-0 pr-2 pl-2 -ml-2 -mr-2 pt-5 -mt-1">
         {/* Header section: banners, name, title, description, metadata */}
         <div className="space-y-1">
-          {/* Read-only banner for deleted prompts */}
-          {isReadOnly && (
+          {/* Trash banner — deleted items only, never the public read view. */}
+          {viewState === 'deleted' && (
             <div className="alert-warning">
               <p className="text-sm">
                 This prompt is in trash and cannot be edited. Restore it to make changes.
@@ -1049,6 +1062,7 @@ export function Prompt({
             variant="name"
             required
             disabled={isSaving || isReadOnly}
+            readOnly={readOnly}
             error={errors.name}
             maxLength={limits.max_prompt_name_length}
             {...nameSuggestProps}
@@ -1060,6 +1074,7 @@ export function Prompt({
             onChange={handleTitleChange}
             placeholder="Display title (optional)"
             disabled={isSaving || isReadOnly}
+            readOnly={readOnly}
             error={errors.title}
             maxLength={limits.max_title_length}
             className="text-lg text-gray-600 placeholder:!text-[#b5bac2]"
@@ -1072,6 +1087,7 @@ export function Prompt({
             onChange={handleDescriptionChange}
             placeholder="Add a description. This description helps users/agents understand the purpose of the prompt and how to use it."
             disabled={isSaving || isReadOnly}
+            readOnly={readOnly}
             maxLength={limits.max_description_length}
             error={errors.description}
             {...descriptionSuggestProps}
@@ -1081,6 +1097,8 @@ export function Prompt({
           <div className="space-y-1.5 pb-1">
             {/* Row 1: action icons + auto-archive + timestamps */}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+              {/* Editing affordances (add tag / link / archive-schedule) — owner only. */}
+              {!readOnly && (<>
               {/* Add tag button */}
               <Tooltip content="Add tag" compact delay={500}>
                 <button
@@ -1120,10 +1138,11 @@ export function Prompt({
                 onPresetChange={handleArchivePresetChange}
                 disabled={isSaving || isReadOnly}
               />
+              </>)}
 
               {prompt && (
                 <>
-                  <span className="text-gray-300">·</span>
+                  {!readOnly && <span className="text-gray-300">·</span>}
                   <span>Created {formatDate(prompt.created_at)}</span>
                   {prompt.updated_at !== prompt.created_at && (
                     <>
@@ -1135,7 +1154,8 @@ export function Prompt({
               )}
             </div>
 
-            {/* Row 2: tag pills + linked content chips */}
+            {/* Row 2: tag pills + linked content chips — owner only; hidden in the public read view. */}
+            {!readOnly && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
               <InlineEditableTags
                 ref={tagInputRef}
@@ -1171,6 +1191,7 @@ export function Prompt({
                 onClose={handleLinkedContentClose}
               />
             </div>
+            )}
           </div>
         </div>
 
@@ -1180,6 +1201,7 @@ export function Prompt({
             arguments={current.arguments}
             onChange={handleArgumentsChange}
             disabled={isSaving || isReadOnly}
+            readOnly={readOnly}
             error={errors.arguments}
             maxNameLength={limits.max_argument_name_length}
             maxDescriptionLength={limits.max_argument_description_length}
@@ -1200,6 +1222,7 @@ export function Prompt({
             onChange={handleContentChange}
             disabled={isReadOnly}
             readOnly={isSaving}
+            readerMode={readOnly}
             hasError={!!errors.content}
             minHeight="300px"
             placeholder="Write your template in markdown with Jinja2 syntax..."

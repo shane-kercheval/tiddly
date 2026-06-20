@@ -491,6 +491,49 @@ export interface PromptListResponse {
   has_more: boolean
 }
 
+// =============================================================================
+// Public sharing types (read-only, no authentication)
+// =============================================================================
+//
+// Mirror the backend Public*Response schemas (GET /public/{type}/{token}). These
+// are the locked-down public surface: they deliberately exclude the internal id,
+// user_id, tags, relationships, is_public/public_token, and the raw archived_at
+// (only the derived `is_archived` flag is exposed). The share token in the URL —
+// not the database UUID — is the public identifier.
+
+/** Public, read-only view of a shared bookmark. */
+export interface PublicBookmark {
+  url: string
+  title: string | null
+  description: string | null
+  content: string | null
+  is_archived: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** Public, read-only view of a shared note. */
+export interface PublicNote {
+  title: string
+  description: string | null
+  content: string | null
+  is_archived: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** Public, read-only view of a shared prompt. */
+export interface PublicPrompt {
+  name: string
+  title: string | null
+  description: string | null
+  arguments: PromptArgument[]
+  content: string | null
+  is_archived: boolean
+  created_at: string
+  updated_at: string
+}
+
 /** Search and filter parameters for listing prompts */
 export interface PromptSearchParams {
   q?: string

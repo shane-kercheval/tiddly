@@ -491,21 +491,68 @@ body {
   @apply bg-blue-50 px-1.5 py-0.5 rounded text-sm text-blue-600 font-mono;
 }
 
-/* Code blocks */
+/* Code blocks — light theme to match the CodeMirror source view */
 .milkdown-wrapper .milkdown pre {
-  @apply bg-gray-900 text-gray-100 rounded-lg p-4 overflow-auto my-4 text-sm relative;
+  @apply bg-gray-50 text-gray-800 rounded-lg p-4 overflow-auto my-4 text-sm relative border border-gray-200;
 }
 
 .milkdown-wrapper .milkdown pre code {
-  @apply bg-transparent text-gray-100 p-0 text-sm font-mono;
+  @apply bg-transparent text-gray-800 p-0 text-sm font-mono;
+}
+
+/* Prism (refractor) syntax highlighting for reading-view code blocks.
+   Palette aligned with the source view: keywords purple, functions blue,
+   strings orange, numbers/constants deep blue, builtins/tags cyan. */
+.milkdown-wrapper .milkdown pre code .token.comment,
+.milkdown-wrapper .milkdown pre code .token.prolog,
+.milkdown-wrapper .milkdown pre code .token.doctype,
+.milkdown-wrapper .milkdown pre code .token.cdata {
+  @apply text-gray-500 italic;
+}
+.milkdown-wrapper .milkdown pre code .token.punctuation,
+.milkdown-wrapper .milkdown pre code .token.operator {
+  @apply text-gray-600;
+}
+.milkdown-wrapper .milkdown pre code .token.keyword,
+.milkdown-wrapper .milkdown pre code .token.atrule,
+.milkdown-wrapper .milkdown pre code .token.important {
+  color: #8250df;
+}
+.milkdown-wrapper .milkdown pre code .token.function,
+.milkdown-wrapper .milkdown pre code .token.class-name {
+  color: #2563eb;
+}
+.milkdown-wrapper .milkdown pre code .token.string,
+.milkdown-wrapper .milkdown pre code .token.char,
+.milkdown-wrapper .milkdown pre code .token.attr-value,
+.milkdown-wrapper .milkdown pre code .token.regex {
+  color: #c2410c;
+}
+.milkdown-wrapper .milkdown pre code .token.number,
+.milkdown-wrapper .milkdown pre code .token.boolean,
+.milkdown-wrapper .milkdown pre code .token.constant,
+.milkdown-wrapper .milkdown pre code .token.symbol {
+  color: #0550ae;
+}
+.milkdown-wrapper .milkdown pre code .token.builtin,
+.milkdown-wrapper .milkdown pre code .token.property,
+.milkdown-wrapper .milkdown pre code .token.tag,
+.milkdown-wrapper .milkdown pre code .token.selector,
+.milkdown-wrapper .milkdown pre code .token.attr-name {
+  color: #0e7490;
+}
+.milkdown-wrapper .milkdown pre code .token.deleted {
+  color: #b91c1c;
+}
+.milkdown-wrapper .milkdown pre code .token.inserted {
+  color: #15803d;
 }
 
 /* Code block copy button (only shown when code block has content) */
 .milkdown-wrapper .milkdown .code-block-copy-btn {
   @apply absolute top-2 right-2 p-1.5 rounded z-10;
   @apply flex items-center justify-center;
-  @apply bg-gray-700/90 text-gray-400 opacity-0 transition-opacity cursor-pointer;
-  border: none;
+  @apply bg-white/80 text-gray-500 opacity-0 transition-opacity cursor-pointer border border-gray-200;
   font-size: 0;
   line-height: 0;
 }
@@ -515,7 +562,7 @@ body {
 }
 
 .milkdown-wrapper .milkdown .code-block-copy-btn:hover {
-  @apply bg-gray-600 text-gray-200;
+  @apply bg-gray-100 text-gray-700 border-gray-300;
 }
 
 .milkdown-wrapper .milkdown .code-block-copy-btn .copy-icon {
@@ -523,7 +570,7 @@ body {
 }
 
 .milkdown-wrapper .milkdown .code-block-copy-btn .check-icon {
-  @apply hidden text-green-400;
+  @apply hidden text-green-600;
 }
 
 .milkdown-wrapper .milkdown .code-block-copy-btn.copied .copy-icon {

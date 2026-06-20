@@ -109,6 +109,37 @@ const remarkCleanMarkdown = $remark('remarkCleanMarkdown', () => () => (tree: un
 })
 
 import { gfm } from '@milkdown/kit/preset/gfm'
+import { prism, prismConfig } from '@milkdown/plugin-prism'
+// Syntax highlighting for code blocks in the rendered (reading) view. refractor
+// is Prism's grammar set; dependent languages self-register their deps (e.g.
+// tsx -> jsx + typescript -> javascript + clike + markup), so registering the
+// leaf languages below covers js/ts/jsx/tsx too. Curated to common languages to
+// keep the (lazy-loaded) Milkdown chunk reasonable.
+import refractorBash from 'refractor/bash'
+import refractorC from 'refractor/c'
+import refractorCpp from 'refractor/cpp'
+import refractorCsharp from 'refractor/csharp'
+import refractorCss from 'refractor/css'
+import refractorGo from 'refractor/go'
+import refractorJava from 'refractor/java'
+import refractorJson from 'refractor/json'
+import refractorMarkdownLang from 'refractor/markdown'
+import refractorMarkup from 'refractor/markup'
+import refractorPhp from 'refractor/php'
+import refractorPython from 'refractor/python'
+import refractorRuby from 'refractor/ruby'
+import refractorRust from 'refractor/rust'
+import refractorSql from 'refractor/sql'
+import refractorTsx from 'refractor/tsx'
+import refractorTypescript from 'refractor/typescript'
+import refractorYaml from 'refractor/yaml'
+
+const REFRACTOR_LANGUAGES = [
+  refractorBash, refractorC, refractorCpp, refractorCsharp, refractorCss,
+  refractorGo, refractorJava, refractorJson, refractorMarkdownLang, refractorMarkup,
+  refractorPhp, refractorPython, refractorRuby, refractorRust, refractorSql,
+  refractorTsx, refractorTypescript, refractorYaml,
+]
 import { history } from '@milkdown/kit/plugin/history'
 import { listener, listenerCtx } from '@milkdown/plugin-listener'
 import { clipboard } from '@milkdown/kit/plugin/clipboard'
@@ -886,9 +917,17 @@ function MilkdownEditorInner({
           ...prev,
           editable: () => !readOnlyRef.current,
         }))
+
+        // Register the languages Prism should highlight in code blocks.
+        ctx.set(prismConfig.key, {
+          configureRefractor: (refractor) => {
+            REFRACTOR_LANGUAGES.forEach((lang) => refractor.register(lang))
+          },
+        })
       })
       .use(customCommonmark)
       .use(gfm)
+      .use(prism)
       .use(history)
       .use(clipboard)
       .use(listener)

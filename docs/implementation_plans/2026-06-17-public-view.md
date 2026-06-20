@@ -371,6 +371,75 @@ These lazy-load the same detail components as authenticated routes — no *new p
 - Authenticated users visiting a public URL see the read-only view (no redirect to `/app`).
 - Existing authenticated routes are unaffected — regression: edit mode still works on `/app/notes/:id`.
 
+### As-built refinements (delivered during M5 implementation + review)
+
+Beyond the original outline above, M5 shipped a polished read-only experience. Captured here so reviewers can distinguish intended scope from drift:
+
+- **Dedicated public page wrappers** (`PublicBookmark`/`PublicNote`/`PublicPrompt`) reuse the detail render components via a `readOnly` prop, rather than dual-moding the authed `*Detail` pages (approved deviation from the "no new page components" guideline — the wrappers stay thin; all reuse is in the render components).
+- **True reader mode** in the editor stack (`ContentEditor` → `CodeMirrorEditor`): content is read-only **but selectable/copyable**; the formatting toolbar is hidden while view-only controls (wrap/lines/mono/reading/copy) stay; the character counter and focus chrome (outer ring + toolbar background/border) are suppressed.
+- **Rendered "reading" view (Milkdown) is the default** for notes/bookmarks; prompts stay in CodeMirror source (Jinja). Reading-view **code blocks gained syntax highlighting** via `@milkdown/plugin-prism` + refractor (pinned to 7.18.0 to match the kit), restyled dark→light to match the source view.
+- **Plain-text read-only rendering** for title/description (`InlineEditableTitle`/`Text`), bookmark URL as an external link (`InlineEditableUrl`), and prompt arguments (`ArgumentsBuilder` hides +/×/↑↓ and renders name/description/required as text).
+- **"Save to Tiddly"** control (renamed from "Save a copy"), secondary/white style, placed above the title, with a logged-out "what is Tiddly" blurb linking to `/features` in a new tab.
+- **Auth `returnTo`:** `AuthProvider` gained an `onRedirectCallback` that returns the user to the originating URL after login, sanitized to a same-origin relative path via `toSafeReturnTo` (open-redirect guard).
+- **Logged-out limits fix:** `useLimits` is auth-gated, so the reused components spun forever for logged-out visitors; reader mode now falls back to a permissive `PUBLIC_VIEW_LIMITS` (only surfaced once dev mode was turned off — invisible in dev).
+
+---
+
+## Milestone 5.1: Consent-aware "Save to Tiddly" (new-user first-save smoothing)
+
+**Status:** Planned (not yet implemented). Follow-up to M5; independent of M6 and can land in any order relative to it.
+
+### Context / problem
+
+The public clone endpoint (`POST /public/{type}/{token}/save`, M4) is auth **and consent** gated — it depends on `get_current_user`, which raises **451 (consent_required)** for any user who has not accepted the current Terms/Privacy versions (`core/auth.py` `_check_consent`).
+
+A brand-new user who **signs up from a share link** is returned — via Auth0 `appState.returnTo` (M5) — directly back to the public share page, **bypassing the normal `/app` consent gate**. So their *first authenticated action is the save itself*, which 451s. Two problems follow:
+
+1. **Spurious error toast.** `useSavePublicItem`'s `onError` toasts a generic "Failed to save a copy" for the 451 (451 is not in `GLOBALLY_TOASTED_STATUSES`), shown *alongside* the consent dialog the API interceptor raises (`api.tsx` → `useConsentStore.handleConsentRequired()`). Confusing.
+2. **Lost action.** After the user accepts terms, the original (already-rejected) save does not retry, so they must click "Save to Tiddly" a **second time**.
+
+This friction is specific to the sign-up-from-share-link flow that Public View itself creates. Users who consented earlier never see it; consent is one-time, so every subsequent save is single-click regardless.
+
+### Goal & Outcome
+
+A logged-out / brand-new visitor clicks "Save to Tiddly" **once** and — after completing sign-in/sign-up and accepting Terms — has the copy saved automatically and lands on it, with no spurious error and no second click.
+
+- **Part A (toast suppression):** a 451 from the clone save no longer produces a "Failed to save" toast; the consent dialog is the only surfaced UI.
+- **Part B (scoped auto-retry):** once consent is granted, the pending save re-fires exactly once and, on success, navigates to the new item.
+
+### Implementation Outline (scoped approach — preferred)
+
+Keep all new behavior in the public save flow. Do **not** modify the shared `stores/consentStore.ts` or the global API interceptor — that store backs *every* authenticated mutation app-wide, so changing it has a broad regression surface. The consent store already exposes the only signal needed.
+
+- **Signal:** `consentStore.needsConsent` transitions `null → true` (on 451, via `handleConsentRequired`) → `false` (when `recordConsent()` succeeds, called by the existing `ConsentDialog`). The **`true → false` transition is the "consent just granted" signal.** No store change required.
+- **`useSavePublicItem` / `SaveACopy`:**
+  - On `onError` with HTTP **451**: suppress the toast (treat like the already-suppressed 402/429) and set a local "pending save" flag/ref. (The interceptor already shows the dialog — unchanged.)
+  - Subscribe to `needsConsent`; on a `true → false` transition **with** the pending flag set, clear the flag and re-invoke the save **exactly once**.
+  - On a *repeat* 451 (should not happen — consent now satisfied), do **not** loop: fall back to the normal error path.
+  - Clear the pending flag on unmount / if the dialog is dismissed without consent, so no stray retry fires later.
+
+### Alternatives considered
+
+- **Do nothing** — accept the one-time two-click. Rejected: cheap to fix, and it's the feature's own new-user happy path.
+- **Suppress toast only** — removes the confusing error but keeps the second click. **Adopted as Part A** (nearly free); the auto-retry (Part B) is the polish on top.
+- **Pre-empt consent on landing** — check consent when an authed-but-unconsented user opens a share page and prompt first. Rejected for now: adds an API call to the public page and nags before the user has chosen to save.
+- **Generalize a `pendingAction` in `consentStore`** so *any* mutation auto-retries after consent. **Deferred:** most powerful (helps every new user's first action app-wide) but touches the shared store + interceptor (broad regression surface). Revisit if new-user first-action friction becomes a cross-feature theme.
+
+### Risks
+
+- **Retry loop / double-fire** → guard to fire once; fall back to the normal error on a repeat 451.
+- **Dialog cancelled without consent** → clear the pending intent (unmount/dismiss) so nothing fires later.
+- **Consent granted via another path** → benign (the user's intent was to save); unmount-clear covers stray cases.
+
+### Definition of Done
+
+- A 451 from `POST /public/{type}/{token}/save` shows the consent dialog and **no** "Failed to save" toast.
+- After consent is granted with a pending save, the save re-fires **once** and navigates to the new item.
+- A repeated 451 does **not** loop (falls back to the normal error).
+- Cancelling the consent dialog leaves no pending retry.
+- Tests: 451 toast suppressed; auto-retry fires on `needsConsent` `true → false` only when a save is pending (and not otherwise); no double-fire; existing save tests still pass.
+- No changes to `stores/consentStore.ts` or the global API interceptor (scoped approach) — or, if the engineer chooses the generalized approach during review, that decision and its broader test coverage are recorded here.
+
 ---
 
 ## Milestone 6: Frontend share UI

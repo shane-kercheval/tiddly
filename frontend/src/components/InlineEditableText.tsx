@@ -29,6 +29,8 @@ interface InlineEditableTextProps {
   placeholder?: string
   /** Whether the input is disabled */
   disabled?: boolean
+  /** Read-only display: render plain, selectable text (no input chrome, no hover ring). */
+  readOnly?: boolean
   /** Whether to allow multiple lines (enables auto-resize) */
   multiline?: boolean
   /** Maximum character length */
@@ -57,6 +59,7 @@ export function InlineEditableText({
   onChange,
   placeholder = 'Add a description...',
   disabled = false,
+  readOnly = false,
   multiline = true,
   maxLength,
   className = '',
@@ -82,6 +85,18 @@ export function InlineEditableText({
 
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
     onChange(e.target.value)
+  }
+
+  // Read-only display: plain selectable text, no textarea/ring/suggest icon.
+  if (readOnly) {
+    const textClasses = variant === 'description'
+      ? 'text-sm text-gray-600 italic'
+      : 'text-sm text-gray-900'
+    return (
+      <div className="w-full">
+        <div className={`${textClasses} ${className} whitespace-pre-wrap break-words`.trim()}>{value}</div>
+      </div>
+    )
   }
 
   // When a suggest icon is present, ring styling moves to the group wrapper
