@@ -1340,6 +1340,14 @@ function MilkdownEditorInner({
   // Using mousedown instead of click to prevent focus flash (blur/refocus cycle)
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      // Reader mode (e.g. the public reading view): this handler only performs
+      // editing actions — toggling a checklist checkbox and placing the cursor on
+      // empty-space clicks — both of which dispatch ProseMirror transactions that
+      // bypass the `editable` gate. Skip them entirely so read-only is truly
+      // read-only. Text selection/copy and link clicks are unaffected (they're
+      // browser default / handled by a separate plugin, not here).
+      if (readOnlyRef.current) return
+
       const target = e.target as HTMLElement
 
       // Don't interfere with clicks on any content elements (let ProseMirror handle them)

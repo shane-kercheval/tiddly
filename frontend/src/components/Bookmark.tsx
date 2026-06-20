@@ -200,7 +200,10 @@ export function Bookmark({
     return metadata.updated_at
   }, [fetchBookmarkMetadata])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
-    entityId: bookmark?.id,
+    // Public read-only view: disable the stale check by intent (it would fire an
+    // authed `GET /bookmarks/{id}/metadata`). Passing undefined expresses "read-only ⇒
+    // no stale check" rather than relying on the adapter's synthetic empty id.
+    entityId: readOnly ? undefined : bookmark?.id,
     loadedUpdatedAt: bookmark?.updated_at,
     fetchUpdatedAt,
   })

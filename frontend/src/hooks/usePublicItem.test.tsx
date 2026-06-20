@@ -22,7 +22,9 @@ const mockPublicGet = publicApi.get as Mock
 const mockApiGet = api.get as Mock
 
 function createWrapper(): ({ children }: { children: ReactNode }) => ReactNode {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // retryDelay 0 so the transient-retry test doesn't wait on backoff. The hook
+  // sets its own per-query `retry` function (overriding the `retry: false` here).
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } })
   return ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   )
@@ -61,13 +63,22 @@ describe('usePublicItem hooks', () => {
     expect(mockPublicGet).toHaveBeenCalledWith('/public/prompts/tok-3')
   })
 
-  it('surfaces a 404 as the error state (not-found path) without retrying', async () => {
-    mockPublicGet.mockRejectedValueOnce(new Error('Not found'))
+  it('does not retry a 404 (deterministic not-found)', async () => {
+    mockPublicGet.mockRejectedValue({ isAxiosError: true, response: { status: 404 } })
 
     const { result } = renderHook(() => usePublicNote('missing'), { wrapper: createWrapper() })
 
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(mockPublicGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a transient (non-404) failure before surfacing the error', async () => {
+    mockPublicGet.mockRejectedValue({ isAxiosError: true, response: { status: 500 } })
+
+    const { result } = renderHook(() => usePublicNote('flaky'), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(mockPublicGet.mock.calls.length).toBeGreaterThan(1)
   })
 
   it('does not fetch when the token is undefined', () => {

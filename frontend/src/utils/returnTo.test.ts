@@ -11,6 +11,12 @@ describe('toSafeReturnTo', () => {
     expect(toSafeReturnTo('//evil.example.com')).toBe('/')
   })
 
+  it('rejects backslash paths (browsers normalize \\ to /, so these are off-origin)', () => {
+    expect(toSafeReturnTo('/\\evil.example.com')).toBe('/')
+    expect(toSafeReturnTo('/\\/evil.example.com')).toBe('/')
+    expect(toSafeReturnTo('/app\\..\\evil')).toBe('/')
+  })
+
   it('rejects absolute URLs', () => {
     expect(toSafeReturnTo('https://evil.example.com')).toBe('/')
     expect(toSafeReturnTo('http://evil.example.com/path')).toBe('/')

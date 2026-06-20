@@ -164,7 +164,10 @@ export function Note({
     return metadata.updated_at
   }, [fetchNoteMetadata])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
-    entityId: note?.id,
+    // Public read-only view: disable the stale check by intent (it would fire an
+    // authed `GET /notes/{id}/metadata`). Passing undefined expresses "read-only ⇒
+    // no stale check" rather than relying on the adapter's synthetic empty id.
+    entityId: readOnly ? undefined : note?.id,
     loadedUpdatedAt: note?.updated_at,
     fetchUpdatedAt,
   })

@@ -42,7 +42,7 @@ function toPrompt(data: PublicPromptType): PromptType {
 
 export function PublicPrompt(): ReactNode {
   const { token } = useParams<{ token: string }>()
-  const { data, isLoading, isError } = usePublicPrompt(token)
+  const { data, isLoading, isError, error, refetch } = usePublicPrompt(token)
 
   return (
     <PublicItemShell
@@ -50,6 +50,8 @@ export function PublicPrompt(): ReactNode {
       token={token ?? ''}
       isLoading={isLoading}
       isError={isError}
+      error={error}
+      onRetry={() => { void refetch() }}
       isArchived={data?.is_archived ?? false}
     >
       {data && (

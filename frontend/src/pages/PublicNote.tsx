@@ -39,7 +39,7 @@ function toNote(data: PublicNoteType): NoteType {
 
 export function PublicNote(): ReactNode {
   const { token } = useParams<{ token: string }>()
-  const { data, isLoading, isError } = usePublicNote(token)
+  const { data, isLoading, isError, error, refetch } = usePublicNote(token)
 
   return (
     <PublicItemShell
@@ -47,6 +47,8 @@ export function PublicNote(): ReactNode {
       token={token ?? ''}
       isLoading={isLoading}
       isError={isError}
+      error={error}
+      onRetry={() => { void refetch() }}
       isArchived={data?.is_archived ?? false}
     >
       {data && (

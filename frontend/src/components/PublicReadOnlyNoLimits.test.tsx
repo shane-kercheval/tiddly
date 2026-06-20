@@ -28,6 +28,15 @@ vi.mock('./MilkdownEditor', () => ({
   MilkdownEditor: ({ value }: { value: string }) => <div>{value}</div>,
 }))
 
+// Capture what entityId the stale check receives — it's the only path that would
+// fire an authed request (GET /{type}/{id}/metadata) from the reused component.
+const mockUseStaleCheck = vi.fn((_opts: unknown) => ({
+  isStale: false, isDeleted: false, serverUpdatedAt: null, dismiss: vi.fn(),
+}))
+vi.mock('../hooks/useStaleCheck', () => ({
+  useStaleCheck: (opts: unknown) => mockUseStaleCheck(opts),
+}))
+
 const note: NoteType = {
   id: 'n1', title: 'Public Note', description: null, tags: [],
   created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
@@ -44,5 +53,19 @@ describe('readOnly render with no limits (logged-out visitor)', () => {
     expect(screen.getByText('Public Note')).toBeInTheDocument()
     expect(screen.getByTestId('content-editor')).toHaveValue('Body text')
     expect(screen.queryByText('Loading note...')).toBeNull()
+  })
+
+  it('disables the authed stale check in readOnly (passes entityId undefined)', () => {
+    mockUseStaleCheck.mockClear()
+    renderWithRouter(
+      <Note note={note} tagSuggestions={[]} onSave={vi.fn()} onClose={vi.fn()} readOnly
+        viewState="active" aiAvailable={false} showTocToggle={false} />
+    )
+    // note.id is 'n1' (truthy) — readOnly must still pass `undefined` so the
+    // stale check's authed `GET /notes/{id}/metadata` never fires for a public
+    // visitor. This fails if the readOnly gate on entityId is removed.
+    expect(mockUseStaleCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ entityId: undefined })
+    )
   })
 })

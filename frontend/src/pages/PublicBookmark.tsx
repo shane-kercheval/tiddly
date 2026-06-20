@@ -40,7 +40,7 @@ function toBookmark(data: PublicBookmarkType): BookmarkType {
 
 export function PublicBookmark(): ReactNode {
   const { token } = useParams<{ token: string }>()
-  const { data, isLoading, isError } = usePublicBookmark(token)
+  const { data, isLoading, isError, error, refetch } = usePublicBookmark(token)
 
   return (
     <PublicItemShell
@@ -48,6 +48,8 @@ export function PublicBookmark(): ReactNode {
       token={token ?? ''}
       isLoading={isLoading}
       isError={isError}
+      error={error}
+      onRetry={() => { void refetch() }}
       isArchived={data?.is_archived ?? false}
     >
       {data && (

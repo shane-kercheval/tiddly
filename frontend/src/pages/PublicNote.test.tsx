@@ -83,10 +83,15 @@ describe('PublicNote page', () => {
     expect(screen.getByText('Loading shared item...')).toBeInTheDocument()
   })
 
-  it('shows a not-found state for an invalid/unpublished token', () => {
-    mockNoteQuery = { data: undefined, isLoading: false, isError: true }
+  it('shows a not-found state for an invalid/unpublished token (404)', () => {
+    mockNoteQuery = {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: { isAxiosError: true, response: { status: 404 } } as unknown as Error,
+    }
     renderPage()
-    expect(screen.getByText(/available/i)).toBeInTheDocument()
+    expect(screen.getByText(/isn’t available/i)).toBeInTheDocument()
     expect(screen.queryByTestId('content-editor')).toBeNull()
   })
 })

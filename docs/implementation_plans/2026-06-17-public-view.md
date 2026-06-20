@@ -385,60 +385,65 @@ Beyond the original outline above, M5 shipped a polished read-only experience. C
 
 ---
 
-## Milestone 5.1: Consent-aware "Save to Tiddly" (new-user first-save smoothing)
+## Milestone 5.1: Complete the new-user save through an in-app save route
 
-**Status:** Planned (not yet implemented). Follow-up to M5; independent of M6 and can land in any order relative to it.
+**Status:** Planned (not yet implemented). **Severity:** without this, a brand-new user who signs up from a share link **cannot save at all** — their first authenticated action is the save, which is consent-gated, and there is no consent UI on the public page. So this is not "smoothing"; it's what makes new-user save from a share link work. Consider prioritizing **before M6**, since converting share-link newcomers is the point of Public View. Independent of M6.
+
+> **Approach changed after M5 review.** An earlier draft recreated the consent dialog on the public `/shared/*` page. That reintroduced the same reuse-mismatch the feature exists to avoid — the app's `ConsentDialog` is an accept-only, no-exit modal, wrong for a read-first public page — and contradicted itself on dismiss behavior. This version instead **routes the post-sign-up save through the authenticated app, where consent already works**, removing the need for any consent UI (or dismiss behavior) on the public page.
 
 ### Context / problem
 
-The public clone endpoint (`POST /public/{type}/{token}/save`, M4) is auth **and consent** gated — it depends on `get_current_user`, which raises **451 (consent_required)** for any user who has not accepted the current Terms/Privacy versions (`core/auth.py` `_check_consent`).
+The public clone endpoint (`POST /public/{type}/{token}/save`, M4) is auth **and consent** gated — `get_current_user` raises **451 (consent_required)** for any user who hasn't accepted the current Terms/Privacy (`core/auth.py` `_check_consent`).
 
-A brand-new user who **signs up from a share link** is returned — via Auth0 `appState.returnTo` (M5) — directly back to the public share page, **bypassing the normal `/app` consent gate**. So their *first authenticated action is the save itself*, which 451s. Two problems follow:
+A brand-new user who **signs up from a share link** is returned via Auth0 `appState.returnTo` (M5) — and M5 points that at the public share page. So their *first authenticated action is the save itself*, which 451s. The blocker: the consent dialog is mounted **only** by the authenticated `AppLayout` (`AppLayout.tsx:75` — `if (needsConsent === true) return <ConsentDialog/>`); `/shared/*` uses `PublicPageLayout`, which never mounts it, and the 451 interceptor (`api.tsx:215`) only sets a store flag — it renders nothing. So on the public page the new user gets a 451 with **no way to accept Terms** and is stuck.
 
-1. **Spurious error toast.** `useSavePublicItem`'s `onError` toasts a generic "Failed to save a copy" for the 451 (451 is not in `GLOBALLY_TOASTED_STATUSES`), shown *alongside* the consent dialog the API interceptor raises (`api.tsx` → `useConsentStore.handleConsentRequired()`). Confusing.
-2. **Lost action.** After the user accepts terms, the original (already-rejected) save does not retry, so they must click "Save to Tiddly" a **second time**.
-
-This friction is specific to the sign-up-from-share-link flow that Public View itself creates. Users who consented earlier never see it; consent is one-time, so every subsequent save is single-click regardless.
+This only affects the sign-up-from-share-link flow Public View creates. Already-consented users never see it (consent is one-time). But for the brand-new visitor — the exact person sharing is meant to convert — the first save is currently **non-functional**.
 
 ### Goal & Outcome
 
-A logged-out / brand-new visitor clicks "Save to Tiddly" **once** and — after completing sign-in/sign-up and accepting Terms — has the copy saved automatically and lands on it, with no spurious error and no second click.
+A logged-out / brand-new visitor clicks "Save to Tiddly" **once**, signs up, accepts Terms via the **existing in-app dialog**, and lands on their saved copy — no second click, and **no consent UI added to the public page**.
 
-- **Part A (toast suppression):** a 451 from the clone save no longer produces a "Failed to save" toast; the consent dialog is the only surfaced UI.
-- **Part B (scoped auto-retry):** once consent is granted, the pending save re-fires exactly once and, on success, navigates to the new item.
+The new-user path becomes: read (no auth) → click Save → sign up → land in the app → accept Terms (existing `ConsentDialog`, unchanged) → the shared item is saved → navigate to the new copy at `/app/{type}/{new-id}`.
 
-### Implementation Outline (scoped approach — preferred)
+### Implementation Outline
 
-Keep all new behavior in the public save flow. Do **not** modify the shared `stores/consentStore.ts` or the global API interceptor — that store backs *every* authenticated mutation app-wide, so changing it has a broad regression surface. The consent store already exposes the only signal needed.
+Move the post-sign-up save **into the authenticated app**, where the consent gate already lives. Reuse the existing clone endpoint and `ConsentDialog` as-is; do **not** add consent UI to public routes, and do **not** touch `consentStore` or the global interceptor.
 
-- **Signal:** `consentStore.needsConsent` transitions `null → true` (on 451, via `handleConsentRequired`) → `false` (when `recordConsent()` succeeds, called by the existing `ConsentDialog`). The **`true → false` transition is the "consent just granted" signal.** No store change required.
-- **`useSavePublicItem` / `SaveACopy`:**
-  - On `onError` with HTTP **451**: suppress the toast (treat like the already-suppressed 402/429) and set a local "pending save" flag/ref. (The interceptor already shows the dialog — unchanged.)
-  - Subscribe to `needsConsent`; on a `true → false` transition **with** the pending flag set, clear the flag and re-invoke the save **exactly once**.
-  - On a *repeat* 451 (should not happen — consent now satisfied), do **not** loop: fall back to the normal error path.
-  - Clear the pending flag on unmount / if the dialog is dismissed without consent, so no stray retry fires later.
+- **Repoint the sign-in `returnTo` (SaveACopy, anonymous branch).** Today the anonymous "Sign in to save" sets Auth0 `appState.returnTo` to the current shared URL. Change it to an **in-app save route that encodes the token**, e.g. `/app/save-shared/{type}/{token}`. `toSafeReturnTo` already permits this (same-origin relative path). The token is the entire payload needed — it identifies the item; the endpoint does the rest.
+- **Add the in-app save route/component** (e.g. `SaveSharedRedirect`), registered under `ProtectedRoute → AppLayout` but **outside the normal `Layout` app chrome** — so it shows a focused saving/failed state without kicking off the sidebar/filters/tags fetches the app shell does. Because it's an app route, `AppLayout` **automatically enforces consent** (shows the existing dialog for a new user before rendering the route — no new consent UI). The component:
+  - **Waits until consent is ready** before doing anything — using the same condition the app shell uses (`Layout.tsx:52`): `isDevMode || needsConsent === false`. (Plain `needsConsent === false` is wrong: `AppLayout` bypasses consent entirely in dev mode, leaving `needsConsent` at `null` → the route would spin on "Saving…" forever.) The wait is necessary because `AppLayout` optimistically renders children *during* the consent check (`AppLayout.tsx:47`), so firing on raw mount could send a premature 451.
+  - Fires the save **exactly once** — guard the POST with a ref so a re-render, React StrictMode double-invoke, or `needsConsent` simply staying `false` across renders can't clone the item twice.
+  - Then calls the existing clone endpoint (`POST /public/{type}/{token}/save`, via the existing save hook) and, on success, navigates to `/app/{type}/{new-id}`.
+  - Reuses the existing clone error handling (prompt name conflict → `{name}-copy`/409, bookmark URL conflict, quota/field-limit). On a hard failure it lands the user somewhere sensible (e.g. their content list) with a descriptive toast — not a dead-end blank route. Shows a brief "Saving…" state while in flight, with a **timeout fallback** (land on the content list with a message) so a consent check that hangs without resolving can't leave the user spinning. (`AppLayout` already renders its own error screen if the consent check *errors*; the fallback covers the rarer no-error hang.)
+- **Already-authenticated in-place save, with one addition for unconsented users.** When a logged-in user clicks Save on the public page, `useSavePublicItem` saves immediately and navigates to the copy (as today). The one change: if that in-place save returns **451** (logged in but not consented — see the re-consent population in Risks), `onError` **redirects to the same `/app/save-shared/{type}/{token}` route** instead of toasting. This unifies *both* consent paths through the one new route — the anonymous branch reaches it via `returnTo`, the authed-unconsented branch via redirect-on-451.
+
+This retires the earlier draft's "suppress the 451 toast" and "auto-retry after consent" machinery: the **anonymous** save never fires on the public page (it runs once in the app, after consent), and the **authed-unconsented** 451 is handled by *redirecting* to the app save route rather than toasting. So a 451 branch still exists in `useSavePublicItem.onError` — it just redirects instead of showing a spurious failure; do **not** drop 451 handling.
 
 ### Alternatives considered
 
-- **Do nothing** — accept the one-time two-click. Rejected: cheap to fix, and it's the feature's own new-user happy path.
-- **Suppress toast only** — removes the confusing error but keeps the second click. **Adopted as Part A** (nearly free); the auto-retry (Part B) is the polish on top.
-- **Pre-empt consent on landing** — check consent when an authed-but-unconsented user opens a share page and prompt first. Rejected for now: adds an API call to the public page and nags before the user has chosen to save.
-- **Generalize a `pendingAction` in `consentStore`** so *any* mutation auto-retries after consent. **Deferred:** most powerful (helps every new user's first action app-wide) but touches the shared store + interceptor (broad regression surface). Revisit if new-user first-action friction becomes a cross-feature theme.
+- **Recreate consent on the public page (the earlier M5.1 draft).** Render `ConsentDialog` on `/shared/*`, suppress the 451 toast, auto-retry after consent. Rejected: the app dialog is accept-only/no-exit (wrong on a read-first page), making it dismissable reintroduces the app-vs-public mismatch, and it duplicates consent UI plus retry machinery — all to avoid a redirect into the app that is actually the better destination.
+- **Keep them on the share page and auto-retry the in-place save.** Same blocker — consent isn't reachable on the public page without recreating it.
+- **Route the save through the app (this plan).** Reuses the existing consent gate and save endpoint; smallest new surface; lands the new user in their account looking at their copy.
 
 ### Risks
 
-- **Retry loop / double-fire** → guard to fire once; fall back to the normal error on a repeat 451.
-- **Dialog cancelled without consent** → clear the pending intent (unmount/dismiss) so nothing fires later.
-- **Consent granted via another path** → benign (the user's intent was to save); unmount-clear covers stray cases.
+- **Save fires before consent resolves → premature 451.** Mitigation: gate the save on `isDevMode || needsConsent === false` (dev mode bypasses consent, so `needsConsent` stays `null`; mirror `Layout.tsx:52`), plus the fire-once ref guard.
+- **Double-clone** from a re-render / StrictMode double-invoke / `needsConsent` staying `false`. Mitigation: the ref-guarded single fire above.
+- **Consent check hangs (no error, no resolution).** Mitigation: the "Saving…" timeout fallback above. (`AppLayout` already covers the *error* case with its own retry screen.)
+- **Save failure on the app route** (name/URL conflict, quota): surface a clear message and a sensible landing page, not a blank or looping route.
+- **`returnTo` integrity:** the app save route is a same-origin relative path; keep the `toSafeReturnTo` guard (and its review hardening).
+- **Logged-in but unconsented user saving in-place — the re-consent population (resolved above, not deferred).** This is *not* a rare anomaly: every time the Terms/Privacy version is bumped, **all** existing users become `needsConsent === true` until they re-accept, and any of them who opens a share link and clicks Save before re-consenting would otherwise hit the same 451-with-no-consent-UI dead-end. Resolved by the redirect-on-451 in the in-place save path (above), which routes them through the consent-enabled app save route — so this milestone covers both new signups *and* the re-consent population.
 
 ### Definition of Done
 
-- A 451 from `POST /public/{type}/{token}/save` shows the consent dialog and **no** "Failed to save" toast.
-- After consent is granted with a pending save, the save re-fires **once** and navigates to the new item.
-- A repeated 451 does **not** loop (falls back to the normal error).
-- Cancelling the consent dialog leaves no pending retry.
-- Tests: 451 toast suppressed; auto-retry fires on `needsConsent` `true → false` only when a save is pending (and not otherwise); no double-fire; existing save tests still pass.
-- No changes to `stores/consentStore.ts` or the global API interceptor (scoped approach) — or, if the engineer chooses the generalized approach during review, that decision and its broader test coverage are recorded here.
+- A logged-out visitor clicks Save → signs up → accepts Terms in the **existing in-app dialog** → the item is saved and they land on `/app/{type}/{new-id}`, with **no second click and no consent UI on the public page**.
+- A logged-out visitor who already has an account (already consented) clicks Save → signs in → item saved → lands on the copy, with **no** consent dialog.
+- A **logged-in but unconsented** user (e.g. after a Terms-version bump) who clicks Save on the public page is routed to the app save route, accepts Terms, and the save completes — no dead-end 451.
+- The in-app save route does **not** fire until consent is ready (`isDevMode || needsConsent === false`), fires **exactly once** (ref-guarded), and has a timeout fallback so a hung consent check can't spin "Saving…" indefinitely.
+- A save failure (name/URL conflict, quota) lands the user on a sensible page with a descriptive message, not a dead-end.
+- The authed in-place save is unchanged **except** it redirects to the app save route on 451 (no spurious toast).
+- **No** changes to `stores/consentStore.ts`, `ConsentDialog`, or the global API interceptor.
+- Tests: the anonymous "Sign in to save" sets `returnTo` to the in-app save route (with token); an in-place 451 redirects to that route (no toast); the save route waits for readiness, fires once, saves, and redirects; the error and timeout paths land sensibly; existing save tests still pass.
 
 ---
 

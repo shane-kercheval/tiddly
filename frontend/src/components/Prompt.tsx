@@ -212,7 +212,10 @@ export function Prompt({
     return metadata.updated_at
   }, [fetchPromptMetadata])
   const { isStale, isDeleted, serverUpdatedAt, dismiss: dismissStale } = useStaleCheck({
-    entityId: prompt?.id,
+    // Public read-only view: disable the stale check by intent (it would fire an
+    // authed `GET /prompts/{id}/metadata`). Passing undefined expresses "read-only ⇒
+    // no stale check" rather than relying on the adapter's synthetic empty id.
+    entityId: readOnly ? undefined : prompt?.id,
     loadedUpdatedAt: prompt?.updated_at,
     fetchUpdatedAt,
   })

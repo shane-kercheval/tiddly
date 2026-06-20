@@ -7,6 +7,7 @@
  * so the per-type page wrappers stay thin (fetch + adapt + render).
  */
 import type { ReactNode } from 'react'
+import axios from 'axios'
 import { Link } from 'react-router-dom'
 import { LoadingSpinner } from './ui'
 import { SaveACopy } from './SaveACopy'
@@ -19,6 +20,10 @@ interface PublicItemShellProps {
   token: string
   isLoading: boolean
   isError: boolean
+  /** The query error (used to distinguish a real 404 from transient failures). */
+  error?: unknown
+  /** Retry the fetch (shown for transient errors). */
+  onRetry?: () => void
   isArchived: boolean
   children: ReactNode
 }
@@ -28,6 +33,8 @@ export function PublicItemShell({
   token,
   isLoading,
   isError,
+  error,
+  onRetry,
   isArchived,
   children,
 }: PublicItemShellProps): ReactNode {
@@ -45,15 +52,37 @@ export function PublicItemShell({
   }
 
   if (isError) {
+    const status = axios.isAxiosError(error) ? error.response?.status : undefined
+
+    // A real 404 means the token is unknown / unpublished / deleted — i.e. gone.
+    if (status === 404) {
+      return (
+        <div className="mx-auto max-w-md py-24 text-center">
+          <h1 className="text-lg font-semibold text-gray-900">This shared item isn’t available</h1>
+          <p className="mt-2 text-sm text-gray-500">
+            The link may be incorrect, or its owner may have stopped sharing it.
+          </p>
+          <Link to="/" className="mt-6 inline-block text-sm font-medium text-gray-900 underline">
+            Go to Tiddly
+          </Link>
+        </div>
+      )
+    }
+
+    // Anything else (rate limit, server error, network) is transient — don't
+    // imply the owner revoked access.
+    const message = status === 429
+      ? 'You’re loading shared items too quickly. Please wait a moment and try again.'
+      : 'We couldn’t load this shared item. Please check your connection and try again.'
     return (
       <div className="mx-auto max-w-md py-24 text-center">
-        <h1 className="text-lg font-semibold text-gray-900">This shared item isn’t available</h1>
-        <p className="mt-2 text-sm text-gray-500">
-          The link may be incorrect, or its owner may have stopped sharing it.
-        </p>
-        <Link to="/" className="mt-6 inline-block text-sm font-medium text-gray-900 underline">
-          Go to Tiddly
-        </Link>
+        <h1 className="text-lg font-semibold text-gray-900">Couldn’t load this item</h1>
+        <p className="mt-2 text-sm text-gray-500">{message}</p>
+        {onRetry && (
+          <button type="button" onClick={onRetry} className="btn-secondary mt-6">
+            Try again
+          </button>
+        )}
       </div>
     )
   }
