@@ -544,6 +544,33 @@ class PromptService(BaseEntityService[Prompt]):
         self._attach_content_length(prompt)
         return prompt
 
+    async def name_exists(
+        self,
+        db: AsyncSession,
+        user_id: UUID,
+        name: str,
+    ) -> bool:
+        """
+        Whether the user already has a prompt with this name under the uniqueness scope.
+
+        Matches the partial unique index ``uq_prompt_user_name_active`` (unique
+        per user on non-deleted rows — archived rows still count). This is
+        deliberately broader than ``get_by_name``, which also excludes archived
+        prompts: callers resolving a create-time name collision (e.g. the public
+        clone endpoint) must mirror the constraint exactly, or they'd pick a name
+        that then trips an ``IntegrityError``.
+        """
+        result = await db.execute(
+            select(Prompt.id)
+            .where(
+                Prompt.user_id == user_id,
+                Prompt.name == name,
+                Prompt.deleted_at.is_(None),
+            )
+            .limit(1),
+        )
+        return result.scalar_one_or_none() is not None
+
     async def get_by_name_for_update(
         self,
         db: AsyncSession,

@@ -15,13 +15,8 @@ Items are created via the API as the dev user, so the owner-scoped share
 endpoints resolve them. The behaviour is identical across types, so each case is
 parametrized over the three URL segments.
 """
-from collections.abc import AsyncGenerator
-
 import pytest
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from core.config import Settings, get_settings
+from httpx import AsyncClient
 
 _SEGMENTS = ["bookmarks", "notes", "prompts"]
 
@@ -277,38 +272,6 @@ async def test_etag_revalidation_reflects_share_change(
     assert revalidated.status_code == 200
     assert revalidated.json()["is_public"] is True
     assert revalidated.json()["public_token"] is not None
-
-
-@pytest.fixture
-async def auth_required_client(
-    async_engine: object,  # noqa: ARG001 - ensures the schema is created
-    db_session: AsyncSession,
-    database_url: str,
-) -> AsyncGenerator[AsyncClient]:
-    """A client with auth enforced (dev_mode disabled, no credentials attached)."""
-    from api.main import app  # noqa: PLC0415
-    from db.session import get_async_session  # noqa: PLC0415
-
-    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
-        yield db_session
-
-    def override_get_settings() -> Settings:
-        return Settings(
-            database_url=database_url,
-            dev_mode=False,
-            auth0_domain="test.auth0.com",
-            auth0_audience="https://test-api",
-            auth0_client_id="test-client-id",
-            auth0_custom_claim_namespace="https://test.example.com",
-        )
-
-    app.dependency_overrides[get_async_session] = override_get_async_session
-    app.dependency_overrides[get_settings] = override_get_settings
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test",
-    ) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
 
 
 @pytest.mark.parametrize("segment", _SEGMENTS)
