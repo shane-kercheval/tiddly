@@ -171,6 +171,7 @@ export function NoteCard({
                     showArchivedIndicator={showArchivedIndicator}
                   />
                 )}
+                <ContentCard.PublicStatus isPublic={note.is_public} />
               </div>
             </div>
           )}
@@ -201,6 +202,7 @@ export function NoteCard({
               sortBy={sortBy}
               showDate={showDate}
               showArchivedIndicator={showArchivedIndicator}
+              isPublic={note.is_public}
               onTagClick={onTagClick}
               onTagRemove={onTagRemove ? (tag) => onTagRemove(note, tag) : undefined}
               onCancelScheduledArchive={onCancelScheduledArchive ? () => onCancelScheduledArchive(note) : undefined}

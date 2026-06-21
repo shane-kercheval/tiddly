@@ -630,6 +630,7 @@ export function AllContent(): ReactNode {
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
     content_preview: item.content_preview,
+    is_public: item.is_public,
   })
 
   const toNoteListItem = (item: ContentListItem): NoteListItem => ({
@@ -643,6 +644,7 @@ export function AllContent(): ReactNode {
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
     content_preview: item.content_preview,
+    is_public: item.is_public,
   })
 
   const toPromptListItem = (item: ContentListItem): PromptListItem => ({
@@ -658,6 +660,7 @@ export function AllContent(): ReactNode {
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
     content_preview: item.content_preview,
+    is_public: item.is_public,
   })
 
   // Pagination calculations

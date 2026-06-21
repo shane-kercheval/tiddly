@@ -28,6 +28,7 @@ const mockBookmark: BookmarkListItem = {
   deleted_at: null,
   archived_at: null,
   content_preview: null,
+  is_public: false,
 }
 
 describe('BookmarkCard', () => {

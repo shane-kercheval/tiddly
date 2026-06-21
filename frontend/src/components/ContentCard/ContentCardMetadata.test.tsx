@@ -21,6 +21,7 @@ const baseProps = {
   sortBy: 'created_at' as const,
   showDate: true,
   showArchivedIndicator: false,
+  isPublic: false,
 }
 
 function renderInCard(node: ReactNode): ReturnType<typeof render> {
@@ -117,6 +118,18 @@ describe('ContentCardMetadata', () => {
 
       await user.click(screen.getByLabelText('Cancel scheduled archive'))
       expect(onCancel).toHaveBeenCalledOnce()
+    })
+  })
+
+  describe('public indicator', () => {
+    it('renders the public indicator when isPublic is true', () => {
+      renderInCard(<ContentCardMetadata {...baseProps} tags={[]} isPublic={true} />)
+      expect(screen.getByLabelText('Public')).toBeInTheDocument()
+    })
+
+    it('does not render the public indicator when isPublic is false', () => {
+      renderInCard(<ContentCardMetadata {...baseProps} tags={[]} isPublic={false} />)
+      expect(screen.queryByLabelText('Public')).not.toBeInTheDocument()
     })
   })
 

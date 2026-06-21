@@ -180,6 +180,7 @@ export function PromptCard({
                     showArchivedIndicator={showArchivedIndicator}
                   />
                 )}
+                <ContentCard.PublicStatus isPublic={prompt.is_public} />
               </div>
             </div>
           )}
@@ -210,6 +211,7 @@ export function PromptCard({
               sortBy={sortBy}
               showDate={showDate}
               showArchivedIndicator={showArchivedIndicator}
+              isPublic={prompt.is_public}
               onTagClick={onTagClick}
               onTagRemove={onTagRemove ? (tag) => onTagRemove(prompt, tag) : undefined}
               onCancelScheduledArchive={onCancelScheduledArchive ? () => onCancelScheduledArchive(prompt) : undefined}

@@ -10,6 +10,7 @@ import type { ReactNode } from 'react'
 import type { SortByOption } from '../../constants/sortOptions'
 import { ContentCardTags } from './ContentCardTags'
 import { ContentCardArchiveStatus } from './ContentCardArchiveStatus'
+import { ContentCardPublicStatus } from './ContentCardPublicStatus'
 import { ContentCardDateDisplay } from './ContentCardDateDisplay'
 
 interface ContentCardMetadataProps {
@@ -24,6 +25,8 @@ interface ContentCardMetadataProps {
   showDate: boolean
   /** Whether to render an amber archived-indicator badge for effectively-archived items. */
   showArchivedIndicator: boolean
+  /** Whether the item is published to a public share link (renders a muted globe). */
+  isPublic: boolean
   onTagClick?: (tag: string) => void
   /** Pre-bound at the call site so this component stays untyped on the item. */
   onTagRemove?: (tag: string) => void
@@ -41,6 +44,7 @@ export function ContentCardMetadata({
   sortBy,
   showDate,
   showArchivedIndicator,
+  isPublic,
   onTagClick,
   onTagRemove,
   onCancelScheduledArchive,
@@ -63,6 +67,13 @@ export function ContentCardMetadata({
             onCancel={onCancelScheduledArchive}
             showArchivedIndicator={showArchivedIndicator}
           />
+        </div>
+      )}
+      {isPublic && (
+        // The component self-guards on isPublic; the wrapper exists only so the
+        // globe gets the same no-tags alignment shim as the date/archive cluster.
+        <div className={noTagsNudge}>
+          <ContentCardPublicStatus isPublic={isPublic} />
         </div>
       )}
       {/* flex prevents Tooltip's inline-flex wrapper from inflating height via inherited line-height */}

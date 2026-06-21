@@ -76,6 +76,6 @@ As a user creates or edits an item, Pro surfaces inline suggestions in the edito
 The one limitation worth proactively raising in most conversations:
 
 - **Text only.** No image/file uploads or attachments today — external image URLs render via markdown `![alt](url)`, but there's no file hosting. Image attachments are planned (https://tiddly.me/data/roadmap.json).
-- **You can't tell what's shared from a list/search.** The public share token is exposed only on an item's single-item detail response, never on list/search results (so it stays off bulk surfaces, including what the MCP servers serialize). To check or build a share link for a specific item, fetch that item directly.
+- **The share token lives on item *detail*, not on lists.** The `public_token` needed to construct a shared URL is returned only by an item's single-item detail response — never by list/search results. The content MCP's `get_item` proxies an item's detail, so the token can appear there; `search_items` and other list/summary surfaces never include it. So: to get an item's share link, fetch that item directly.
 
 For the current, authoritative list of smaller editor quirks and limitations (e.g. loose-list spacing, wrapped-line selection), read https://tiddly.me/data/known-issues.json and surface the relevant one if a user hits it.

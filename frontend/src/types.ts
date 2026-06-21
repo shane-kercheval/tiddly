@@ -21,6 +21,11 @@ export interface BookmarkListItem {
   deleted_at: string | null
   archived_at: string | null
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
+  // `is_public` is the source of truth for "is this shared" — the token is
+  // retained on unpublish (so re-publishing restores the same URL), so its
+  // presence does NOT mean shared. It's on the list item so the "shared"
+  // indicator can render without a detail fetch.
+  is_public: boolean
 }
 
 /**
@@ -31,13 +36,8 @@ export interface BookmarkListItem {
 export interface Bookmark extends BookmarkListItem {
   content: string | null
   relationships?: RelationshipWithContent[]
-  // Public sharing. `is_public` is the source of truth for "is this shared" — the
-  // token is retained on unpublish (so re-publishing restores the same URL), so
-  // its presence does NOT mean shared. The token lives only on the detail
-  // response, keeping it off bulk surfaces (incl. what the MCP servers serialize
-  // to agents). The backend also exposes `is_public` on list items (for a
-  // "shared" indicator); it's added to the list-item type when that UI lands.
-  is_public: boolean
+  // Detail-only: the share token. Kept off list/bulk surfaces (incl. what the
+  // MCP servers serialize to agents). See `is_public` on the list item.
   public_token: string | null
 }
 
@@ -104,6 +104,7 @@ export interface NoteListItem {
   deleted_at: string | null
   archived_at: string | null
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
+  is_public: boolean  // Source of truth for "is this shared" (see Bookmark).
 }
 
 /**
@@ -114,8 +115,7 @@ export interface NoteListItem {
 export interface Note extends NoteListItem {
   content: string | null
   relationships?: RelationshipWithContent[]
-  // Public sharing (detail-only). See Bookmark for the full rationale.
-  is_public: boolean
+  // Detail-only share token (see Bookmark).
   public_token: string | null
 }
 
@@ -222,6 +222,7 @@ export interface ContentListItem {
   deleted_at: string | null
   archived_at: string | null
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
+  is_public: boolean  // Whether a public share URL is currently active (drives the "shared" indicator).
   // Bookmark-specific (null for notes/prompts)
   url: string | null
   // Prompt-specific (null for bookmarks/notes)
@@ -457,6 +458,7 @@ export interface PromptListItem {
   deleted_at: string | null
   archived_at: string | null
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
+  is_public: boolean  // Source of truth for "is this shared" (see Bookmark).
 }
 
 /**
@@ -466,8 +468,7 @@ export interface PromptListItem {
 export interface Prompt extends PromptListItem {
   content: string | null
   relationships?: RelationshipWithContent[]
-  // Public sharing (detail-only). See Bookmark for the full rationale.
-  is_public: boolean
+  // Detail-only share token (see Bookmark).
   public_token: string | null
 }
 

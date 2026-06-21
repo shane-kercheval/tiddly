@@ -293,6 +293,7 @@ export function BookmarkCard({
                     showArchivedIndicator={showArchivedIndicator}
                   />
                 )}
+                <ContentCard.PublicStatus isPublic={bookmark.is_public} />
               </div>
             </div>
           )}
@@ -348,6 +349,7 @@ export function BookmarkCard({
               sortBy={sortBy}
               showDate={showDate}
               showArchivedIndicator={showArchivedIndicator}
+              isPublic={bookmark.is_public}
               onTagClick={onTagClick}
               onTagRemove={onTagRemove ? (tag) => onTagRemove(bookmark, tag) : undefined}
               onCancelScheduledArchive={onCancelScheduledArchive ? () => onCancelScheduledArchive(bookmark) : undefined}
