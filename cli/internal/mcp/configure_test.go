@@ -1444,7 +1444,7 @@ func TestRunConfigure__no_existing_file_does_not_create_backup(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Additive-configure (M1) tests — URL-mismatch detection, --force, preserved
+// Additive-configure tests — URL-mismatch detection, --force, preserved
 // entries. Exhaustively covers the preflight and commit paths introduced when
 // the consolidation gate was removed.
 // ---------------------------------------------------------------------------

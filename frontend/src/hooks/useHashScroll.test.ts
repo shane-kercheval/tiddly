@@ -51,7 +51,7 @@ describe('useHashScroll', () => {
     expect(scrollIntoView).not.toHaveBeenCalled()
   })
 
-  it('uses the prefixed `tip-<id>` form locked in M2 (does not re-strip a prefix)', () => {
+  it('uses the prefixed `tip-<id>` form (does not re-strip a prefix)', () => {
     // Sanity check: the hook strips the leading "#" only — it does not
     // additionally strip "tip-". So `#tip-foo` matches `id="tip-foo"`.
     const prefixed = document.createElement('div')

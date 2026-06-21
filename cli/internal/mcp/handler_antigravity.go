@@ -14,7 +14,7 @@ type AntigravityHandler struct {
 func (h *AntigravityHandler) Name() string { return "antigravity" }
 
 // SupportedScopes is user-only. agy 1.0.0 reads MCP config solely from the
-// user-level ~/.gemini/config/mcp_config.json; M1 verification found no
+// user-level ~/.gemini/config/mcp_config.json; verification found no
 // directory/project-scoped config path. Re-evaluate if a future agy release
 // adds one.
 func (h *AntigravityHandler) SupportedScopes() []string { return []string{"user"} }
@@ -69,7 +69,7 @@ func (h *AntigravityHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT 
 	}
 	warnings := []string{
 		fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path),
-		// Antigravity reads mcp_config.json at startup, not live (M1 verified
+		// Antigravity reads mcp_config.json at startup, not live (verified:
 		// the IDE only picks up new entries after a restart). The agy CLI
 		// re-reads per invocation, so it needs no restart.
 		"Antigravity reads its config at startup. Restart the Antigravity IDE to apply changes (the agy CLI picks them up on its next run).",

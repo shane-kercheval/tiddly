@@ -1,8 +1,8 @@
 /**
  * Tests for editorCommands: command list building, Jinja toggling, callbacks.
  *
- * After M5, command ids that have a registry shortcut are renamed to use
- * the registry id (e.g., `'bold'` → `'editor.bold'`). Entries without a
+ * Command ids that have a registry shortcut use the registry id
+ * (e.g., `'bold'` → `'editor.bold'`). Entries without a
  * registry shortcut (Jinja, headings, save-and-close, discard) keep local
  * ids. The inline `shortcut:` field is gone — consumers look up keys via
  * `isShortcutId(cmd.id) ? getShortcut(cmd.id).keys : undefined` at render
@@ -206,7 +206,7 @@ describe('buildEditorCommands', () => {
       icons: stubIcons,
     })
 
-    // After M5: command ids ARE the registry ids. Render-time lookup yields keys.
+    // Command ids ARE the registry ids. Render-time lookup yields keys.
     const bold = commands.find((c) => c.id === 'editor.bold')
     expect(bold).toBeDefined()
     expect(isShortcutId(bold!.id)).toBe(true)
@@ -303,7 +303,7 @@ describe('buildEditorCommands', () => {
     const cmd = commands.find((c) => c.id === 'app.toggleHistorySidebar')
     expect(cmd).toBeDefined()
     // Menu label intentionally differs from the registry label ("Toggle History Sidebar").
-    // M5 framing: labels are surface-local; keys come from the registry.
+    // Labels are surface-local; keys come from the registry.
     expect(cmd!.label).toBe('Version History')
     expect(cmd!.section).toBe('Actions')
     expect(getShortcut(cmd!.id as 'app.toggleHistorySidebar').keys).toEqual(['Mod', 'Shift', '\\'])

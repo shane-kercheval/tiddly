@@ -100,7 +100,7 @@ describe('ShortcutsDialog — View section sourced from registry', () => {
     }
   })
 
-  it('includes the M3 capture-phase additions (toggleToc, toggleWordWrap, etc.)', () => {
+  it('includes the capture-phase shortcut additions (toggleToc, toggleWordWrap, etc.)', () => {
     render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
 
     expect(screen.getByText('Toggle Word Wrap')).toBeInTheDocument()
@@ -126,7 +126,7 @@ describe('ShortcutsDialog — Markdown Editor section sourced from registry', ()
   it('uses the registry label as the displayed text (Title Case canonical)', () => {
     render(<ShortcutsDialog isOpen={true} onClose={vi.fn()} />)
 
-    // Title Case is the canonical form per the M2 decision — toolbar tooltips
+    // Title Case is the canonical form — toolbar tooltips
     // and the dialog row both use the registry label.
     expect(screen.getByText('Inline Code')).toBeInTheDocument()
     expect(screen.getByText('Code Block')).toBeInTheDocument()

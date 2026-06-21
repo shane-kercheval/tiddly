@@ -505,7 +505,7 @@ export const GeminiIcon = ({ className = 'h-5 w-5' }: IconProps): ReactNode => {
   )
 }
 
-/** Lightbulb icon — used to distinguish tip entries in the command palette (M8). */
+/** Lightbulb icon — used to distinguish tip entries in the command palette. */
 export const LightbulbIcon = ({ className = 'h-4 w-4' }: IconProps): ReactNode => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
     <path

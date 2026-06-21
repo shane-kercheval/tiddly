@@ -77,10 +77,10 @@ describe('dispatchRegistryShortcut', () => {
 })
 
 // The next three throw-paths are guarded against the registry shape, which
-// in M2 doesn't yet have any display-only or code-based entries. We mock
-// the registry / capturePhase modules to inject test fixtures and verify the
-// guards fire. M3 will exercise these with real entries; until then, the
-// guards are real load-bearing checks and deserve test coverage.
+// currently has no display-only or code-based entries. We mock the registry /
+// capturePhase modules to inject test fixtures and verify the guards fire.
+// Real entries will exercise these later; until then, the guards are real
+// load-bearing checks and deserve test coverage.
 describe('dispatchRegistryShortcut — throw paths (mocked fixtures)', () => {
   it('throws on display-only entry (no match)', async () => {
     vi.resetModules()

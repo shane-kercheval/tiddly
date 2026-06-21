@@ -1,6 +1,6 @@
 /**
  * Tests for the in-app save route that completes the public "Save to Tiddly"
- * flow after consent (M5.1).
+ * flow after consent.
  *
  * The route must: wait for consent to be ready before firing the clone, fire it
  * exactly once, treat a 451 as the consent detour (not a hard failure), land

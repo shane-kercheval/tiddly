@@ -445,7 +445,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
     expect(Array.from(document.getElementById('description').value).length).toBe(VALID_LIMITS.max_description_length);
   });
 
-  // Regression guard for the M3 keyboard-only flow: if Save ever ends up disabled
+  // Regression guard for the keyboard-only flow: if Save ever ends up disabled
   // after truncating scraped values, auto-focus on Save would land on a disabled button
   // and Enter would do nothing.
   it('keeps Save enabled after truncating over-limit scraped values', async () => {
@@ -675,7 +675,7 @@ describe('initSaveForm — fresh fetch (no cache)', () => {
     expect(document.getElementById('url').value).toBe('https://example.com/page#hash');
   });
 
-  // M3: focus lands on the Save button after the form reveals so the user can press
+  // Focus lands on the Save button after the form reveals so the user can press
   // Enter to save without reaching for the mouse. The manual Chrome smoke test gate
   // is the real proof — jsdom does not simulate Chrome's popup-paint focus race.
   it('focuses the Save button after the form reveals', async () => {
@@ -726,9 +726,9 @@ describe('initSaveForm — cache hit', () => {
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
   });
 
-  // Guards two real-world scenarios after M2:
+  // Guards two real-world scenarios:
   //   1. Intentional user-typed over-limit drafts (existing "warn at >100%, disable Save" UX preserved).
-  //   2. Legacy cached drafts produced by pre-M2 (0.3.0) versions that wrote untrimmed
+  //   2. Legacy cached drafts produced by 0.3.0 versions that wrote untrimmed
   //      scraped values into DRAFT_KEY. Truncating on cache restore would silently alter
   //      user state. Both will exist in real-world installs after 0.4.0 ships.
   it('does not truncate over-limit values restored from cache', async () => {
@@ -760,7 +760,7 @@ describe('initSaveForm — cache hit', () => {
     expect(document.getElementById('save-form').hidden).toBe(false);
   });
 
-  // M3: focus lands on the Save button on the cache-hit path too. Both paths share
+  // Focus lands on the Save button on the cache-hit path too. Both paths share
   // the same form-reveal site, but a separate test guards against future refactors
   // that diverge them.
   it('focuses the Save button after restoring from cache', async () => {
@@ -775,7 +775,7 @@ describe('initSaveForm — cache hit', () => {
     expect(document.activeElement).toBe(document.getElementById('save-btn'));
   });
 
-  // M3 + M2 interaction: cached over-limit drafts (M2's accepted trade-off — both
+  // Cached over-limit drafts (an accepted trade-off — both
   // legacy 0.3.0 untrimmed scrapes and intentional user-typed over-limit content)
   // disable the Save button, so focusing it would land on a no-op control. Route
   // focus to the offending field so editing it down re-enables Save naturally.
@@ -1379,7 +1379,7 @@ describe('initSearchView', () => {
     expect(saveView.hidden).toBe(true);
   });
 
-  // M4: focus lands on the search input so the user can type immediately. The manual
+  // Focus lands on the search input so the user can type immediately. The manual
   // Chrome smoke test gate is the real proof — jsdom does not simulate Chrome's
   // popup-paint focus race.
   // The focus call is the last synchronous statement of initSearchView; if a future

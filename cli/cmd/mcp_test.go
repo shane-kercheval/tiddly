@@ -468,7 +468,7 @@ func TestMCPRemove__delete_tokens_revokes_canonical_only(t *testing.T) {
 }
 
 func TestMCPRemove__delete_tokens_dedups_shared_pat(t *testing.T) {
-	// Two canonical entries, one shared PAT. The important post-M2 behavior
+	// Two canonical entries, one shared PAT. The important behavior
 	// is "one server-side delete, N per-entry outcomes": the cmd layer must
 	// NOT pre-dedupe the TokenRevokeRequests — doing so would collapse two
 	// canonical entries into a single request and drop one entry's share
@@ -1238,7 +1238,7 @@ func TestMCPConfigure__mismatch_error_has_no_double_error_prefix(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Milestone 2: canonical-name-only remove + structured --delete-tokens.
+// canonical-name-only remove + structured --delete-tokens.
 // ---------------------------------------------------------------------------
 
 func TestMCPRemove__reports_nothing_removed_when_no_canonical_entries_present(t *testing.T) {

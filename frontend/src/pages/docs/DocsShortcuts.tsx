@@ -65,7 +65,7 @@ export function DocsShortcuts(): ReactNode {
 
       {/* Actions — registry rows + inline page-scoped save rows in a single
           table. The two save rows (⌘S / ⌘⇧S in Note/Bookmark/Prompt) are
-          page-scoped and stay inline per the M5 carve-out (registry doesn't
+          page-scoped and stay inline as a deliberate carve-out (registry doesn't
           model page-scope binding context). */}
       <h2 className="text-lg font-bold text-gray-900 mt-8 mb-3">Actions</h2>
       <table className="w-full">

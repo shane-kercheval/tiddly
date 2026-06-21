@@ -72,13 +72,13 @@ describe('findMatchingRoute', () => {
     expect(findMatchingRoute('/docs/api/unknown-endpoint')).toBe('/docs/api')
   })
 
-  it('should resolve /docs/tips to its prefetch entry (regression guard for M3)', () => {
+  it('should resolve /docs/tips to its prefetch entry (regression guard for the Tips route)', () => {
     expect(findMatchingRoute('/docs/tips')).toBe('/docs/tips')
   })
 
   it('should resolve a /docs/tips deep-link with a tip-prefixed hash', () => {
-    // /docs/tips#tip-bookmark-paste-url is the canonical deep-link form locked
-    // in M2. The hash is stripped before matching, so the route still resolves.
+    // /docs/tips#tip-bookmark-paste-url is the canonical deep-link form. The
+    // hash is stripped before matching, so the route still resolves.
     expect(findMatchingRoute('/docs/tips#tip-bookmark-paste-url')).toBe('/docs/tips')
   })
 })

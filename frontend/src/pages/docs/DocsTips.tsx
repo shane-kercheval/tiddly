@@ -170,7 +170,7 @@ function filterTips(
   selectedCategories: ReadonlySet<TipCategory>,
   audience: AudienceFilter,
 ): Tip[] {
-  // Search uses the M1 helper so docs/tips and any future surface (palette,
+  // Search uses the shared searchTips helper so docs/tips and any future surface (palette,
   // ambient callouts) stay in lockstep on what "matches" means. An empty
   // query means "no search filter," not "match nothing."
   const searchPool = query.trim().length > 0 ? searchTips(query) : tips

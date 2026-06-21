@@ -21,8 +21,8 @@ type antigravityHTTPEntry struct {
 }
 
 // readAntigravityConfig reads mcp_config.json. A missing OR empty/whitespace
-// file yields an empty config: agy creates empty mcp_config.json files (M1
-// observed this), so an empty file is a valid "no servers configured yet"
+// file yields an empty config: agy creates empty mcp_config.json files
+// (observed in practice), so an empty file is a valid "no servers configured yet"
 // state, not an error. This is a deliberate asymmetry from the Claude handlers,
 // which hard-fail on unreadable files — they don't create empty ones, so the
 // tolerance isn't warranted there. Non-empty malformed JSON still returns a
@@ -47,8 +47,8 @@ func readAntigravityConfig(path string) (map[string]any, error) {
 }
 
 // extractAntigravityServerURL returns the HTTP URL agy actually loads from an
-// entry. agy 1.0.0 reads only the "serverUrl" field for HTTP MCP servers (M1
-// confirmed it silently ignores "url"/"httpUrl"). Reading serverUrl-only keeps
+// entry. agy 1.0.0 reads only the "serverUrl" field for HTTP MCP servers
+// (confirmed: it silently ignores "url"/"httpUrl"). Reading serverUrl-only keeps
 // status and PAT extraction honest about what Antigravity will use, instead of
 // over-reporting a mis-keyed entry agy won't load.
 func extractAntigravityServerURL(serverMap map[string]any) string {

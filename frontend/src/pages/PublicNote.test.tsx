@@ -1,6 +1,6 @@
 /**
  * Integration tests for the public note read page (the thin wrapper + shared
- * shell + reused Note render component, end to end). Covers the M5 outcomes:
+ * shell + reused Note render component, end to end). Covers the public-view outcomes:
  * content renders read-only, the archived banner, the not-found state, the
  * loading state, and the auth-aware Save-a-copy control (authenticated via the
  * global useAuthStatus mock).

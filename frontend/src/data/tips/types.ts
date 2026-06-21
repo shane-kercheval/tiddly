@@ -4,7 +4,7 @@
  * Tips are small, self-contained pieces of guidance shown across the app:
  * the /docs/tips page, command palette, new-user empty states, and ambient
  * callouts. The schema is deliberately minimal — visual divergence between
- * surfaces lives in renderers (M2), not extra fields.
+ * surfaces lives in renderers, not extra fields.
  */
 import type { ShortcutId } from '../../shortcuts/registry'
 import type { ContentExtraShortcutId } from './contentExtraShortcuts'

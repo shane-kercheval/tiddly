@@ -58,7 +58,7 @@ class RateLimitExceededError(Exception):
 
 SENSITIVE_ENDPOINTS: set[tuple[str, str]] = {
     ("GET", "/bookmarks/fetch-metadata"),
-    # Future: bulk import/export (AI/LLM has its own rate limit types in Milestone 1b)
+    # Future: bulk import/export (AI/LLM endpoints already have their own rate limit types)
 }
 
 

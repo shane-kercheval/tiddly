@@ -71,7 +71,7 @@ describe('popup controller — setup state', () => {
     expect(chrome.scripting.executeScript).not.toHaveBeenCalled();
   });
 
-  // M3 sub-task: keyboard-only first-run flow — Enter on the setup view should
+  // Keyboard-only first-run flow — Enter on the setup view should
   // open the options page without requiring the user to mouse to the CTA.
   it('no token: focuses the Open Settings button so Enter opens options', async () => {
     setStorage({});
@@ -103,9 +103,8 @@ describe('popup controller — default tab selection', () => {
     expect(document.getElementById('save-view').hidden).toBe(true);
   });
 
-  // M4: restricted URL → Search auto-route → focus lands on the search input.
-  // Originally listed under M3 testing in earlier plan revisions; moved here so the
-  // assertion exercises M4's searchInput.focus() instead of being skipped during M3.
+  // Restricted URL → Search auto-route → focus lands on the search input. This
+  // assertion exercises searchInput.focus() on the auto-route path.
   it('restricted URL: focuses the search input after auto-routing to Search', async () => {
     setStorage({ token: 'bm_abc' });
     setTab({ id: 1, url: 'chrome://newtab/', title: 'New Tab' });
@@ -135,7 +134,7 @@ describe('popup controller — default tab selection', () => {
     expect(document.getElementById('save-view').hidden).toBe(false);
   });
 
-  // M3: regular URL → Save default → focus lands on the Save button. Controller-level
+  // Regular URL → Save default → focus lands on the Save button. Controller-level
   // counterpart of the popup-core.test.js focus tests; this one exercises the full
   // popup.js boot path including token check and default-tab routing.
   it('regular URL: focuses the Save button after default-tab routing settles', async () => {
@@ -208,7 +207,7 @@ describe('popup controller — lazy init idempotency', () => {
     expect(limitsCalls()).toBe(1);
   });
 
-  // M4 + accessibility fix: arrow-key navigation between tabs must preserve focus
+  // Accessibility fix: arrow-key navigation between tabs must preserve focus
   // on the tab button (WAI-ARIA roving-tabindex pattern), not steal it into the
   // panel input/button. Without the stealFocus: false plumb-through, initSearchView
   // / initSaveForm would focus the panel, breaking subsequent Left/Right arrow
@@ -264,7 +263,7 @@ describe('popup controller — lazy init idempotency', () => {
     expect(document.activeElement).toBe(document.getElementById('tab-save'));
   });
 
-  // M4: tab switching back to Search after first init must not re-focus the search
+  // Tab switching back to Search after first init must not re-focus the search
   // input. Once the user has touched the mouse to switch tabs mid-session, focus
   // belongs to them. The searchInitialized guard in popup.js prevents initSearchView
   // from running again, which is what stops the focus call from re-firing.

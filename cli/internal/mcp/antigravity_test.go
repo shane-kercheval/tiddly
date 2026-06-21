@@ -459,7 +459,7 @@ func TestAntigravity__user_scope_only(t *testing.T) {
 }
 
 // Configure must warn that the IDE needs a restart — Antigravity reads its
-// config at startup (M1), so without this warning a configure looks like it
+// config at startup, so without this warning a configure looks like it
 // did nothing inside a running IDE.
 func TestAntigravityHandler__configure_warns_plaintext_and_restart(t *testing.T) {
 	dir := t.TempDir()

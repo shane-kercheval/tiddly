@@ -229,7 +229,7 @@ describe('CodeMirrorEditor — upstream keymap presence (Cmd+D)', () => {
 //   - `shortcuts/adapters/codemirror.test.ts` verifies the adapter installs
 //     the Mod-Shift-/ binding into a real EditorView and it fires.
 //
-// Two spike investigations (M2 + M3) confirmed: round-tripping Mod+Shift+/
+// Two spike investigations confirmed: round-tripping Mod+Shift+/
 // through a React-mounted CodeMirrorEditor + basicSetup environment in jsdom
 // doesn't reach the keymap binding. Tried: dispatchEvent with key='/',
 // key='?' (the real US Shift+/ output), `userEvent.keyboard()` with proper

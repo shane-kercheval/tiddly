@@ -1306,9 +1306,9 @@ describe('MilkdownEditor link improvements', () => {
 })
 
 /**
- * M4 — Read-only Milkdown verification.
+ * Read-only Milkdown verification.
  *
- * After the M4 audit, MilkdownEditor's editing infrastructure (keydown
+ * After the read-only audit, MilkdownEditor's editing infrastructure (keydown
  * handler, toolbar) is recognized as dead code — the editor is only used as
  * a read-only preview in production (see ContentEditor.tsx:1-17). The only
  * live editing-adjacent binding is ⌘Click on a link via `createLinkClickPlugin`.
