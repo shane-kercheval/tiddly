@@ -582,6 +582,14 @@ The `ai_usage_analytics` view and the `pgcrypto` extension it depends on are cre
 
 ---
 
+## Deploy-environment invariants
+
+These hold for the current Railway topology. If you change the edge/proxy setup (custom CDN, an added reverse proxy, Railway networking changes), re-verify them — nothing fails a test if they break.
+
+- **Public endpoint rate-limiting depends on the edge setting `X-Real-IP`.** The unauthenticated `/public/*` routes have no user context, so their only abuse control is a per-IP rate limiter. It keys on `X-Real-IP` (edge-set, spoof-resistant), falling back to the client-settable `X-Forwarded-For` — so if the edge ever stops setting `X-Real-IP`, the limit silently degrades to a forgeable header. After deploy, confirm the limiter resolves the true client IP from `X-Real-IP` (the post-deploy verification tracked in the public-view plan and `docs/architecture.md` §17). See `core/request_utils.py` for the resolution order.
+
+---
+
 ## Customizing Domain URLs
 
 Railway generates random subdomains like `frontend-production-fb79.up.railway.app`. To customize:

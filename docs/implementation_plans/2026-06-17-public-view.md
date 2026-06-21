@@ -1,7 +1,7 @@
 # Public View: Shareable Read-Only URLs for Bookmarks, Notes, and Prompts
 
 **Date:** 2026-06-17
-**Status:** Draft (reviewed)
+**Status:** Implemented (M1–M8). M7 is post-deploy verification — see that section.
 
 ## Summary
 
@@ -58,7 +58,7 @@ Two supporting behaviors land here:
 
 **How sharing state is tracked / surfaced to the owner:**
 - The lightweight **list view** of items now carries `is_public` (a boolean) — just enough to show a "shared" indicator next to items, without an extra fetch.
-- The full **detail view** of an item additionally carries the actual `public_token`, so the detail page can build the shareable URL. The token deliberately does **not** appear in list responses — that keeps share tokens off bulk surfaces, including what the MCP servers serialize to AI agents.
+- The full **detail view** of an item additionally carries the actual `public_token`, so the detail page can build the shareable URL. The token deliberately does **not** appear in list/search responses — that keeps share tokens off bulk surfaces (and the MCP list/search tools). One nuance: the content MCP's `get_item` proxies raw bookmark/note **detail**, so the token can reach the *owner's own authorized agent* there (not a leak — it's the owner's data, returned to the owner's agent). The prompt MCP, by contrast, field-whitelists its responses, so the prompt token never reaches an agent.
 
 **Key guarantee:** none of these operations bump `updated_at` or write a history entry, because they're not content changes. This is verified to work simply by *not assigning* `updated_at` (the column updates only on explicit assignment — no DB trigger or `onupdate` touches it).
 
@@ -246,7 +246,7 @@ Owners can publish, unpublish, and rotate the share token for any of their items
 
 **Owner response schemas** (#10 — minimize token surface):
 - Add `is_public: bool` to `BookmarkListItem`, `NoteListItem`, `PromptListItem` — the boolean is all the list view needs for a "shared" indicator.
-- Add `public_token: str | None` **only** to the detail schemas `BookmarkResponse`, `NoteResponse`, `PromptResponse` (not the list items). The list view never constructs the share URL — the detail page does — so the token has no reason to appear in bulk list responses, which are also what the Content/Prompt MCP servers serialize to AI agents. Keeping the token off the list item avoids handing share tokens to every agent surface for no functional gain.
+- Add `public_token: str | None` **only** to the detail schemas `BookmarkResponse`, `NoteResponse`, `PromptResponse` (not the list items). The list view never constructs the share URL — the detail page does — so the token has no reason to appear in bulk list responses, which are also what the Content/Prompt MCP **list/search** tools serialize to AI agents. Keeping the token off the list item avoids handing share tokens to every bulk surface for no functional gain. (Note the asymmetry on the *detail* path: the content MCP's `get_item` proxies the raw bookmark/note detail dict, so it does carry the token to the owner's own authorized agent; the prompt MCP field-whitelists its detail responses, so the prompt token never reaches an agent. Neither is a leak — both are the owner's data returned to the owner's agent.)
 
 **Caching / conditional-request implication (deliberately deferred).** Because share operations change `is_public`/`public_token` in the detail/metadata response body *without* bumping `updated_at`, the `Last-Modified`/`If-Modified-Since` fast path on the owner detail and metadata GETs is an *incomplete* validator for those fields: a client revalidating with `If-Modified-Since` **alone** (no `If-None-Match`) can receive `304 Not Modified` and keep showing stale share state (e.g. a copied-but-rotated-away link). This is **not new to sharing** — archive and delete already change their response bodies (`archived_at`/`deleted_at`) without bumping `updated_at`, so they share the identical characteristic. The ETag (computed from the full body) *does* change and is correct for all of these, so every conformant client — the web app (browsers send `If-None-Match`; the share UI also refetches) — is unaffected. The gap only reaches a client that revalidates on `Last-Modified` alone (e.g. a future iOS/native client or a caching proxy). Decision: **do not** bump `updated_at` on share (that would make sharing look freshly edited and break consistency with archive/delete), and **do not** delete the `Last-Modified` fast path (it is a load-bearing, ~18-test optimization used across content/relationship reads). Instead this is documented for API consumers (the OpenAPI "Caching & conditional requests" overview + the detail-GET descriptions advise revalidating with the ETag) and tracked here. **Systemic fix, if/when a real `Last-Modified`-only consumer needs it** (e.g. the iOS app adds sharing on a `Last-Modified`-based networking layer): split the single `updated_at` into two signals — a displayed "content last edited" timestamp that stays stable across status changes, and a cache-validator timestamp/version that advances on share/archive/delete — applied uniformly to all three status operations, not just sharing.
 
@@ -387,7 +387,7 @@ Beyond the original outline above, M5 shipped a polished read-only experience. C
 
 ## Milestone 5.1: Complete the new-user save through an in-app save route
 
-**Status:** Planned (not yet implemented). **Severity:** without this, a brand-new user who signs up from a share link **cannot save at all** — their first authenticated action is the save, which is consent-gated, and there is no consent UI on the public page. So this is not "smoothing"; it's what makes new-user save from a share link work. Consider prioritizing **before M6**, since converting share-link newcomers is the point of Public View. Independent of M6.
+**Status:** Implemented. **Severity (as originally scoped):** without this, a brand-new user who signed up from a share link **could not save at all** — their first authenticated action is the save, which is consent-gated, and there was no consent UI on the public page. So this was not "smoothing"; it's what makes new-user save from a share link work. It was prioritized **before M6**, since converting share-link newcomers is the point of Public View. Independent of M6.
 
 > **Approach changed after M5 review.** An earlier draft recreated the consent dialog on the public `/shared/*` page. That reintroduced the same reuse-mismatch the feature exists to avoid — the app's `ConsentDialog` is an accept-only, no-exit modal, wrong for a read-first public page — and contradicted itself on dismiss behavior. This version instead **routes the post-sign-up save through the authenticated app, where consent already works**, removing the need for any consent UI (or dismiss behavior) on the public page.
 
@@ -397,7 +397,7 @@ The public clone endpoint (`POST /public/{type}/{token}/save`, M4) is auth **and
 
 A brand-new user who **signs up from a share link** is returned via Auth0 `appState.returnTo` (M5) — and M5 points that at the public share page. So their *first authenticated action is the save itself*, which 451s. The blocker: the consent dialog is mounted **only** by the authenticated `AppLayout` (`AppLayout.tsx:75` — `if (needsConsent === true) return <ConsentDialog/>`); `/shared/*` uses `PublicPageLayout`, which never mounts it, and the 451 interceptor (`api.tsx:215`) only sets a store flag — it renders nothing. So on the public page the new user gets a 451 with **no way to accept Terms** and is stuck.
 
-This only affects the sign-up-from-share-link flow Public View creates. Already-consented users never see it (consent is one-time). But for the brand-new visitor — the exact person sharing is meant to convert — the first save is currently **non-functional**.
+This only affected the sign-up-from-share-link flow Public View creates. Already-consented users never saw it (consent is one-time). But for the brand-new visitor — the exact person sharing is meant to convert — the first save was **non-functional** before this milestone landed.
 
 ### Goal & Outcome
 
@@ -461,11 +461,11 @@ Item owners can publish, unpublish, and rotate the share token from within the i
 
 **Share control placement**: Add a share control to the item detail action area alongside archive/delete/etc. The control has two states: unpublished (clicking publishes and reveals the URL) and published (shows URL + copy button + "Stop sharing" + "Regenerate link"). Exact visual treatment is implementation's judgment call — match the surrounding design language.
 
-**Publish/unpublish**: Calls the dedicated share endpoints — `POST /{type}/{id}/share` to publish, `DELETE /{type}/{id}/share` to unpublish (**not** `PATCH /{type}/{id}` with `is_public` — that path is intentionally gone, see M3). On success, invalidates the query cache so `public_token` and `is_public` are reflected immediately. Because these endpoints don't bump `updated_at`, the detail page's "last updated" display won't shift when the user merely shares an item.
+**Publish/unpublish**: Calls the dedicated share endpoints — `POST /{type}/{id}/share` to publish, `DELETE /{type}/{id}/share` to unpublish (**not** `PATCH /{type}/{id}` with `is_public` — that path is intentionally gone, see M3). On success, the share-mutation response is reflected in two steps: **(1)** merge only `is_public` and `public_token` from the response into the detail page's **local** item state (`applyShareFields`), then **(2)** invalidate the list/content query keys so indicators elsewhere refresh. Step (1) is required because the detail page holds its item in local component state, **not** the query cache — invalidation alone would not update the open detail view, leaving a stale share button / copy-URL. The merge is field-scoped (only the two share fields) so it can't clobber `content_metadata` or other locally-edited detail state. Because these endpoints don't bump `updated_at`, the detail page's "last updated" display won't shift when the user merely shares an item.
 
 **Copy URL**: Constructs the shareable URL as `${window.location.origin}/shared/{type}/{token}` from `public_token` in the current item's **detail** data (the token is on the detail `*Response`, not the list item). Uses the clipboard API; shows a toast on success.
 
-**Regenerate link**: Calls `POST /{type}/{id}/rotate-share-token`. Shows a confirmation before proceeding ("Anyone with the previous link will lose access. Continue?"). On success, invalidates the cache and displays the new URL.
+**Regenerate link**: Calls `POST /{type}/{id}/rotate-share-token`. Shows a confirmation before proceeding ("Anyone with the previous link will lose access. Continue?"). On success, applies the same two-step refresh as publish/unpublish (merge the new `public_token` into local detail state, then invalidate list/content keys) and displays the new URL.
 
 **State source**: Sharing state comes from the item data already fetched by the detail page — `is_public` (also on the list item, for indicators) and `public_token` (detail response only) — no separate sharing-state endpoint needed.
 

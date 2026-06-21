@@ -36,8 +36,10 @@ export interface BookmarkListItem {
 export interface Bookmark extends BookmarkListItem {
   content: string | null
   relationships?: RelationshipWithContent[]
-  // Detail-only: the share token. Kept off list/bulk surfaces (incl. what the
-  // MCP servers serialize to agents). See `is_public` on the list item.
+  // Detail-only: the share token. Kept off list/search/bulk responses (and the
+  // MCP list/search tools). The content MCP's `get_item` proxies item detail, so
+  // the token can reach the owner's own authorized agent there — not a leak, but
+  // it is not "off all agent surfaces." See `is_public` on the list item.
   public_token: string | null
 }
 

@@ -160,8 +160,10 @@ class NoteResponse(NoteListItem):
         default=None,
         description="The note's public share token (null if never shared). "
                     "Used by the detail page to build the shareable URL. "
-                    "Deliberately absent from list responses to keep tokens off "
-                    "bulk/agent surfaces.",
+                    "Deliberately absent from list/search responses to keep tokens "
+                    "off bulk surfaces (and the MCP list/search tools). The content "
+                    "MCP's get_item proxies item detail, so the token can reach the "
+                    "owner's own authorized agent there.",
     )
 
 
