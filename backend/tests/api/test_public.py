@@ -544,6 +544,7 @@ async def test_clone_bookmark_active_url_conflict_returns_409(
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["error_code"] == "ACTIVE_URL_EXISTS"
+    assert resp.json()["detail"]["message"] == "You already have this bookmark."
 
 
 async def test_clone_bookmark_archived_url_conflict_returns_409(
@@ -562,6 +563,7 @@ async def test_clone_bookmark_archived_url_conflict_returns_409(
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["error_code"] == "ARCHIVED_URL_EXISTS"
+    assert resp.json()["detail"]["message"] == "You already have this bookmark — it's in your archive."
 
 
 async def test_clone_exceeding_field_limit_returns_400(

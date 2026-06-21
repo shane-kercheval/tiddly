@@ -29,7 +29,7 @@ export function isNotFoundError(error: unknown): boolean {
 export function getApiErrorMessage(error: unknown, fallback: string = 'An error occurred'): string {
   // Handle axios errors with response data
   if (error && typeof error === 'object' && 'response' in error) {
-    const axiosError = error as AxiosError<{ detail?: string | { msg: string }[] }>
+    const axiosError = error as AxiosError<{ detail?: string | { msg: string }[] | { message?: string } }>
     const detail = axiosError.response?.data?.detail
     if (typeof detail === 'string') {
       return detail
@@ -37,6 +37,12 @@ export function getApiErrorMessage(error: unknown, fallback: string = 'An error 
     // Handle validation errors (array of {msg: string})
     if (Array.isArray(detail) && detail.length > 0 && detail[0].msg) {
       return detail.map(d => d.msg).join('. ')
+    }
+    // Handle structured app errors: detail is an object carrying a `message`
+    // (e.g. clone conflicts → {message, error_code}). Without this they fall
+    // through to the generic "Request failed with status code N".
+    if (detail && typeof detail === 'object' && !Array.isArray(detail) && typeof detail.message === 'string') {
+      return detail.message
     }
   }
 

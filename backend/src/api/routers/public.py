@@ -183,15 +183,18 @@ async def clone_public_bookmark(
         raise HTTPException(
             status_code=409,
             detail={
-                "message": str(e),
+                "message": "You already have this bookmark — it's in your archive.",
                 "error_code": "ARCHIVED_URL_EXISTS",
                 "existing_bookmark_id": str(e.existing_bookmark_id),
             },
         )
-    except DuplicateUrlError as e:
+    except DuplicateUrlError:
         raise HTTPException(
             status_code=409,
-            detail={"message": str(e), "error_code": "ACTIVE_URL_EXISTS"},
+            detail={
+                "message": "You already have this bookmark.",
+                "error_code": "ACTIVE_URL_EXISTS",
+            },
         )
     return BookmarkResponse.model_validate(bookmark)
 
