@@ -45,12 +45,12 @@ const SINGULAR: Record<ShareableType, string> = {
   prompts: 'prompt',
 }
 
-/** Per-type brand color, used to flag the trigger when the item is shared. */
-const ACTIVE_COLOR: Record<ShareableType, string> = {
-  bookmarks: 'text-brand-bookmark',
-  notes: 'text-brand-note',
-  prompts: 'text-brand-prompt',
-}
+/**
+ * Color flagging the trigger when an item is shared — the same dark orange for
+ * every type (not the per-type brand color). Orange catches the eye to signal
+ * "this is public" without red's stronger warning, which we reserve for delete.
+ */
+const SHARED_COLOR = 'text-[#d6540c]'
 
 export function ShareControl<K extends ShareableType>({
   type,
@@ -143,7 +143,7 @@ export function ShareControl<K extends ShareableType>({
         aria-label={fields.is_public ? 'Shared' : 'Share'}
         aria-expanded={isOpen}
         aria-haspopup="true"
-        className={`btn-ghost flex items-center gap-2 ${fields.is_public ? ACTIVE_COLOR[type] : ''}`}
+        className={`btn-ghost flex items-center gap-2 ${fields.is_public ? SHARED_COLOR : ''}`}
       >
         <ShareActionIcon className="h-4 w-4" />
         <span className="hidden md:inline">{fields.is_public ? 'Shared' : 'Share'}</span>

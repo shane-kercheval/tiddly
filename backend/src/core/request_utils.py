@@ -45,10 +45,11 @@ def get_client_ip(request: Request) -> str | None:
     Spoofability boundary: only the ``X-Real-IP`` path is spoof-resistant. The
     ``X-Forwarded-For`` fallback is client-settable, so callers using this for
     abuse mitigation get a hard guarantee only when ``X-Real-IP`` is present.
-    Railway's edge is expected to always set it, but that has NOT been confirmed
-    against real production traffic (forum reports suggest it can misbehave when
-    Railway's CDN feature is active) — verify from an observed production request
-    before treating the per-IP limit as more than coarse protection.
+    Confirmed against production (2026-06-21): Railway's edge sets ``X-Real-IP``
+    to the true client IP and overwrites any client-supplied value (an observed
+    ``/public/*`` request resolved ``ip_source=x-real-ip`` to the real IP, and a
+    forged ``X-Real-IP`` was overwritten — the 429 log recorded the real IP, not
+    the forged value), so the per-IP limit keys on a trustworthy address.
 
     Returns:
         Client IP address, or None if it cannot be determined.
