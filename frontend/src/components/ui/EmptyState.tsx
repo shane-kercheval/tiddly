@@ -22,7 +22,7 @@ interface EmptyStateProps {
   actions?: EmptyStateAction[]
   /**
    * Optional content rendered between description and actions — used for
-   * actionable hints (M6) or contextual tip cards (M7 starter tips). Sits
+   * actionable hints or contextual tip cards (starter tips). Sits
    * above the action row so the explanatory copy precedes the buttons.
    */
   children?: ReactNode

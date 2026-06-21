@@ -38,9 +38,10 @@ export function toCodeMirrorKeymap<Ids extends readonly ShortcutId[]>(
   for (const id of ids) {
     const shortcut = getShortcut(id)
     if (!shortcut.match) {
-      // Display-only entry (upstream-owned or non-keyboard). Test for this
-      // throw lands in M3 once Cmd+D (upstream-owned, no match) becomes a
-      // real registry entry that could accidentally end up in CM_KEYMAP_IDS.
+      // Display-only entry (upstream-owned or non-keyboard). A direct test for
+      // this throw will be possible once an upstream-owned, no-match entry (e.g.
+      // Cmd+D) becomes a real registry entry that could accidentally end up in
+      // CM_KEYMAP_IDS.
       throw new Error(
         `toCodeMirrorKeymap: shortcut '${shortcut.id}' has no match (display-only entry); ` +
         `CM keymap tuples must contain only actionable bindings.`,

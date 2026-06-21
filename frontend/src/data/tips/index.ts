@@ -217,7 +217,7 @@ export function getStarterTips(category?: TipCategory): Tip[] {
  *
  * When a requested type has fewer starters than its share of the limit, the
  * remaining slots are filled from other types' remaining starters (rather than
- * under-filling). The single source of truth for this rule is M1's contract:
+ * under-filling). The contract for this rule is:
  * "Empty starter set for a type → that type contributes zero tips, others
  * fill the limit."
  */

@@ -51,6 +51,7 @@ const routeImports: Record<string, () => Promise<unknown>> = {
   '/app/settings/tags': () => import('./pages/settings/SettingsTags'),
   '/app/settings/faq': () => import('./pages/settings/SettingsFAQ'),
   '/app/settings/history': () => import('./pages/settings/SettingsVersionHistory'),
+  '/app/settings/shared': () => import('./pages/settings/SettingsSharedContent'),
 }
 
 const routePrefixes = Object.keys(routeImports)

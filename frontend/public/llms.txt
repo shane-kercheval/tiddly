@@ -29,7 +29,7 @@ A good fit if you want one searchable home for bookmarks, notes, and prompts tha
 
 Probably **not** the right tool if you need:
 
-- **Sharing or real-time collaboration.** Content is isolated per account; there's no sharing between users.
+- **Multi-user or real-time collaboration.** Content is single-owner. You can publish an individual item to a read-only public link (and signed-in visitors can save their own copy), but there's no shared editing, comments, or multi-user workspaces.
 - **Files or rich media (today).** Content is text/markdown only — external image URLs render in markdown, but there's no file hosting or attachments yet. Image attachments for bookmarks and notes are planned (see the roadmap data at https://tiddly.me/data/roadmap.json).
 - **End-to-end encryption.** Content is encrypted at rest but readable server-side — a requirement for full-text search. Self-hosting is the path to full privacy.
 
@@ -54,6 +54,10 @@ These are summarized for evaluation; for how to actually use them, see `llms-app
 
 Every change to any content — from the web UI, MCP, or API — is recorded with a full diff, timestamp, and source (which surface, and the auth method used). If an agent rewrites a note, you can see exactly which lines changed, restore any previous version, or undelete anything; deletes, archives, and restores are themselves audit events. This is what makes giving an agent write access reasonable: you always know what changed and can undo it.
 
+## Sharing
+
+Any single bookmark, note, or prompt can be published to a stable, read-only public URL that anyone can open without an account. The public view shows only the content and its dates — the owner's tags, relationships, and identity are never exposed. The owner controls access: publish, unpublish (instantly revokes the link), or regenerate (issues a new link, permanently breaking the old one). Publishing is not an edit — it never changes the item's "last updated" time. A signed-in visitor can save their own independent copy. Mechanics are in the app-usage guide (Agent Resources, below).
+
 ## AI Integration
 
 The core of Tiddly, summarized here conceptually:
@@ -77,7 +81,7 @@ When reading `tiers.json`, note that Pro's item counts carry an `unlimited_items
 - **Self-hostable and open source** — the codebase is public at https://github.com/shane-kercheval/tiddly and can be self-hosted with no tier limits and full data control.
 - **Infrastructure** — FastAPI backend, React frontend, PostgreSQL (encrypted at rest), Redis. Hosted on Railway's Pro tier (SOC 2, DDoS protection, daily backups).
 - **Auth** — Auth0.
-- **Multi-tenant** — content is isolated per user; there is no sharing.
+- **Multi-tenant** — content is isolated per user. Items can be individually published to read-only public links (unguessable per-item token, instantly revocable), but there's no cross-user shared editing.
 - **Privacy** — no end-to-end encryption (it would prevent full-text search); a database administrator could technically access data. Self-host for complete privacy. Full policy: https://tiddly.me/prose/privacy.md.
 
 ## Use Cases

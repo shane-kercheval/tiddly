@@ -1,4 +1,5 @@
 """Service layer for unified content operations across bookmarks, notes, and prompts."""
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -182,6 +183,8 @@ def _row_to_content_item(row: Row, tags: list[str]) -> ContentListItem:
         last_used_at=row.last_used_at,
         deleted_at=row.deleted_at,
         archived_at=row.archived_at,
+        is_public=row.is_public,
+        shared_at=row.shared_at,
         content_length=row.content_length,
         content_preview=row.content_preview,
         summary=row.summary if row.type == "bookmark" else None,
@@ -199,7 +202,7 @@ async def search_all_content(
     tag_match: Literal["all", "any"] = "all",
     sort_by: Literal[
         "created_at", "updated_at", "last_used_at", "title",
-        "archived_at", "deleted_at", "relevance",
+        "archived_at", "deleted_at", "shared_at", "relevance",
     ] = "created_at",
     sort_order: Literal["asc", "desc"] = "desc",
     offset: int = 0,
@@ -207,6 +210,9 @@ async def search_all_content(
     view: set[ViewOption] = frozenset({"active"}),
     filter_expression: dict[str, Any] | None = None,
     content_types: list[str] | None = None,
+    is_public: bool | None = None,
+    shared_after: datetime | None = None,
+    shared_before: datetime | None = None,
 ) -> tuple[list[ContentListItem], int]:
     """
     Search all content (bookmarks, notes, and prompts) with unified pagination.
@@ -230,6 +236,10 @@ async def search_all_content(
         filter_expression: Optional filter expression from a content list.
         content_types: Optional list of content types to include ("bookmark", "note", "prompt").
             If None, includes all. Used by content lists to filter entity types.
+        is_public: If set, restrict to items with this share state (True = only
+            publicly shared, False = only private). None includes all.
+        shared_after: If set, only items with shared_at at or after this time.
+        shared_before: If set, only items with shared_at at or before this time.
 
     Returns:
         Tuple of (list of ContentListItems, total count).
@@ -276,6 +286,9 @@ async def search_all_content(
         'tsquery': tsquery, 'normalized_tags': normalized_tags,
         'tag_match': tag_match, 'user_id': user_id,
         'filter_expression': filter_expression,
+        'is_public': is_public,
+        'shared_after': shared_after,
+        'shared_before': shared_before,
     }
 
     subqueries: list[Any] = []
@@ -425,6 +438,9 @@ def _build_entity_subquery(
     tag_match: Literal["all", "any"],
     user_id: UUID,
     filter_expression: dict[str, Any] | None,
+    is_public: bool | None,
+    shared_after: datetime | None,
+    shared_before: datetime | None,
 ) -> tuple[Any, Any]:
     """
     Build main and count subqueries for one entity type.
@@ -447,6 +463,9 @@ def _build_entity_subquery(
         tag_match=tag_match,
         user_id=user_id,
         filter_expression=filter_expression,
+        is_public=is_public,
+        shared_after=shared_after,
+        shared_before=shared_before,
     )
     rank_col = _build_search_rank(
         query=query,
@@ -473,6 +492,8 @@ def _build_entity_subquery(
         model.last_used_at.label("last_used_at"),
         model.deleted_at.label("deleted_at"),
         model.archived_at.label("archived_at"),
+        model.is_public.label("is_public"),
+        model.shared_at.label("shared_at"),
         func.length(model.content).label("content_length"),
         func.left(model.content, CONTENT_PREVIEW_LENGTH).label("content_preview"),
     ]
@@ -554,6 +575,9 @@ def _apply_entity_filters(
     tag_match: Literal["all", "any"],
     user_id: UUID,
     filter_expression: dict[str, Any] | None,
+    is_public: bool | None,
+    shared_after: datetime | None,
+    shared_before: datetime | None,
 ) -> list:
     """
     Apply view, search, tag, and filter expression filters for any entity type.
@@ -577,6 +601,10 @@ def _apply_entity_filters(
         tag_match: Tag matching mode ("all" or "any").
         user_id: User ID for scoping.
         filter_expression: Optional filter expression from content list.
+        is_public: If set, restrict to items with this share state (True = only
+            publicly shared, False = only private). None includes all.
+        shared_after: If set, only items with shared_at at or after this time.
+        shared_before: If set, only items with shared_at at or before this time.
 
     Returns:
         Extended filter list.
@@ -591,6 +619,16 @@ def _apply_entity_filters(
         view_conditions.append(model.deleted_at.is_not(None))
     if view_conditions:
         filters.append(or_(*view_conditions))
+
+    # Sharing filter — restrict to public (or private) items when requested.
+    if is_public is not None:
+        filters.append(model.is_public.is_(is_public))
+
+    # Share-date range filter (powers the shared-content view's date filter).
+    if shared_after is not None:
+        filters.append(model.shared_at >= shared_after)
+    if shared_before is not None:
+        filters.append(model.shared_at <= shared_before)
 
     # Combined FTS + ILIKE text search filter
     if query and tsquery is not None and search_pattern is not None:

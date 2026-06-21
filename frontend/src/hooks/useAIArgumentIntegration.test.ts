@@ -75,7 +75,7 @@ describe('useAIArgumentIntegration', () => {
   })
 
   // -------------------------------------------------------------------------
-  // suggestAllDisabled (preserved from pre-M3)
+  // suggestAllDisabled (preserved pre-existing behavior)
   // -------------------------------------------------------------------------
 
   describe('suggestAllDisabled', () => {
@@ -105,7 +105,7 @@ describe('useAIArgumentIntegration', () => {
   })
 
   // -------------------------------------------------------------------------
-  // handleSuggestAll (preserved from pre-M3)
+  // handleSuggestAll (preserved pre-existing behavior)
   // -------------------------------------------------------------------------
 
   it('handleSuggestAll appends suggested arguments to state', async () => {

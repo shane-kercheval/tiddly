@@ -21,7 +21,7 @@ describe('EmptyState', () => {
   })
 
   it('omits the description paragraph when description is empty or undefined', () => {
-    // M6's describe utilities frequently return empty descriptions because
+    // The filter describe utilities frequently return empty descriptions because
     // the descriptive copy lives in the title. The empty <p> would add
     // unwanted vertical whitespace between title and actions.
     const { container, rerender } = render(<EmptyState icon={<svg />} title="No description" />)
@@ -32,8 +32,8 @@ describe('EmptyState', () => {
 
   it('renders children between description and actions', () => {
     // Pinned ordering: title → description → children → actions. This is
-    // load-bearing for M6 (actionable hints sit above CTAs) and M7 (starter
-    // tip cards inform the user before they pick an action).
+    // load-bearing for actionable hints (which sit above CTAs) and starter
+    // tip cards (which inform the user before they pick an action).
     const { container } = render(
       <EmptyState
         icon={<svg />}

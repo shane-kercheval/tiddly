@@ -15,6 +15,7 @@ import {
   TAG_PATTERN,
   addMonthsWithClamp,
   calculateArchivePresetDate,
+  getApiErrorMessage,
 } from './utils'
 import type { ContentFilter, TagCount } from './types'
 
@@ -686,5 +687,30 @@ describe('calculateArchivePresetDate', () => {
   it('should return valid ISO string', () => {
     const result = calculateArchivePresetDate('1-week', referenceDate)
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/)
+  })
+})
+
+describe('getApiErrorMessage', () => {
+  const axiosErrorWith = (detail: unknown): unknown => ({
+    response: { data: { detail } },
+    message: 'Request failed with status code 409',
+  })
+
+  it('returns a string detail directly', () => {
+    expect(getApiErrorMessage(axiosErrorWith('Plain detail'), 'fallback')).toBe('Plain detail')
+  })
+
+  it('joins FastAPI validation arrays', () => {
+    expect(getApiErrorMessage(axiosErrorWith([{ msg: 'too long' }, { msg: 'required' }]), 'fallback'))
+      .toBe('too long. required')
+  })
+
+  it('surfaces message from a structured object detail (e.g. clone conflict)', () => {
+    const err = axiosErrorWith({ message: 'You already have this bookmark.', error_code: 'ACTIVE_URL_EXISTS' })
+    expect(getApiErrorMessage(err, 'fallback')).toBe('You already have this bookmark.')
+  })
+
+  it('falls back when an object detail has no message', () => {
+    expect(getApiErrorMessage(axiosErrorWith({ error_code: 'X' }), 'fallback')).toBe('fallback')
   })
 })

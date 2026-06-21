@@ -469,7 +469,7 @@ export async function initSaveForm(tab, { focus = true } = {}) {
   updateSaveButtonState();
 
   // Keyboard-first contract: focus where the user needs to act. Save is the usual
-  // target, but cache-hit can restore over-limit drafts that disable Save (M2's
+  // target, but cache-hit can restore over-limit drafts that disable Save (an
   // accepted trade-off); in that state, route the user to the offending field
   // so editing it down re-enables Save and Tab+Enter completes the save.
   // The `focus` option is opt-out so callers like the arrow-key tablist handler

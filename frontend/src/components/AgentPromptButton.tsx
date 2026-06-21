@@ -13,8 +13,8 @@ interface AgentPromptButtonProps {
   prompt: string
   /**
    * Full className for the trigger button. Defaults to an outlined secondary
-   * style matching the public header buttons; callers (e.g. Milestone 4
-   * surfaces) can override to fit their context.
+   * style matching the public header buttons; callers (e.g. the landing/features
+   * marketing surfaces) can override to fit their context.
    */
   buttonClassName?: string
   /** Show the dropdown caret on the trigger (default true). */

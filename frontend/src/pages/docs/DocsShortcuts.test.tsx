@@ -1,7 +1,7 @@
 /**
  * Tests for the DocsShortcuts page.
  *
- * Covers the M2 migration: the Markdown Editor table reads from the registry.
+ * Covers the registry migration: the Markdown Editor table reads from the registry.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
@@ -54,7 +54,7 @@ describe('DocsShortcuts', () => {
     expect(screen.getByText('Horizontal Rule')).toBeInTheDocument()
   })
 
-  it('View table sources every row from the registry (M3 migration)', () => {
+  it('View table sources every row from the registry', () => {
     renderPage()
 
     const expected = getShortcutsBySection('View')
@@ -91,7 +91,7 @@ describe('DocsShortcuts', () => {
     expect(within(boldRow).getByText('⌘')).toBeInTheDocument()
   })
 
-  it('Navigation table sources every row from the registry (M3 migration)', () => {
+  it('Navigation table sources every row from the registry', () => {
     renderPage()
     const expected = getShortcutsBySection('Navigation')
     expect(expected.length).toBeGreaterThan(0)

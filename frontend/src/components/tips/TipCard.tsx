@@ -1,10 +1,10 @@
 /**
  * Render a tip in any context. Two variants:
  *
- * - `full` — list-row style for the /docs/tips page (M3). Title with audience
+ * - `full` — list-row style for the /docs/tips page. Title with audience
  *   badge + one badge per category, shortcut keys when present, body, optional
  *   media, related-doc links.
- * - `compact` — small standalone card for use inside an empty state (M7).
+ * - `compact` — small standalone card for use inside an empty state.
  *   Title and body only; badges/shortcut/media/related-docs are intentionally
  *   omitted to keep the card lean inside a centered empty state.
  */
@@ -42,8 +42,9 @@ export function TipCard({ tip, variant }: TipCardProps): ReactNode {
   }
 
   // Anchor convention: DOM id is `tip-<id>` (kebab-slug ids could otherwise
-  // collide with unrelated page elements). Deep-link URLs from M3/M8/M9 must
-  // generate `/docs/tips#tip-<id>` to match — keep these in sync.
+  // collide with unrelated page elements). Deep-link URLs from every surface
+  // (docs/tips page, command palette, tip detail) must generate
+  // `/docs/tips#tip-<id>` to match — keep these in sync.
   //
   // `scroll-mt-20` reserves space for the sticky public header so deep-link
   // scroll-into-view doesn't land behind it.

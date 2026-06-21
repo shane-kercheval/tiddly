@@ -20,6 +20,12 @@ const BookmarkDetail = lazy(() => import('./pages/BookmarkDetail').then(m => ({ 
 const NoteDetail = lazy(() => import('./pages/NoteDetail').then(m => ({ default: m.NoteDetail })))
 const PromptDetail = lazy(() => import('./pages/PromptDetail').then(m => ({ default: m.PromptDetail })))
 
+// Lazy-loaded public read-only views (reuse the detail render components in readOnly mode)
+const PublicBookmark = lazy(() => import('./pages/PublicBookmark').then(m => ({ default: m.PublicBookmark })))
+const PublicNote = lazy(() => import('./pages/PublicNote').then(m => ({ default: m.PublicNote })))
+const PublicPrompt = lazy(() => import('./pages/PublicPrompt').then(m => ({ default: m.PublicPrompt })))
+const SaveSharedRedirect = lazy(() => import('./pages/SaveSharedRedirect').then(m => ({ default: m.SaveSharedRedirect })))
+
 // Lazy-loaded settings pages
 const SettingsGeneral = lazy(() => import('./pages/settings/SettingsGeneral').then(m => ({ default: m.SettingsGeneral })))
 const SettingsTokens = lazy(() => import('./pages/settings/SettingsTokens').then(m => ({ default: m.SettingsTokens })))
@@ -28,6 +34,7 @@ const SettingsMCP = lazy(() => import('./pages/settings/SettingsMCP').then(m => 
 const SettingsTags = lazy(() => import('./pages/settings/SettingsTags').then(m => ({ default: m.SettingsTags })))
 const SettingsFAQ = lazy(() => import('./pages/settings/SettingsFAQ').then(m => ({ default: m.SettingsFAQ })))
 const SettingsVersionHistory = lazy(() => import('./pages/settings/SettingsVersionHistory').then(m => ({ default: m.SettingsVersionHistory })))
+const SettingsSharedContent = lazy(() => import('./pages/settings/SettingsSharedContent').then(m => ({ default: m.SettingsSharedContent })))
 
 // Lazy-loaded docs pages
 const DocsOverview = lazy(() => import('./pages/docs/DocsOverview').then(m => ({ default: m.DocsOverview })))
@@ -123,6 +130,12 @@ const router = createBrowserRouter([
           { path: '/changelog', element: <Changelog /> },
           { path: '/roadmap', element: <Roadmap /> },
           { path: '/pricing', element: <Pricing /> },
+
+          // Public read-only share views (no auth). The render components run in
+          // readOnly mode; the only action is the auth-aware "Save a copy".
+          { path: '/shared/bookmarks/:token', element: <PublicBookmark /> },
+          { path: '/shared/notes/:token', element: <PublicNote /> },
+          { path: '/shared/prompts/:token', element: <PublicPrompt /> },
         ],
       },
 
@@ -133,6 +146,10 @@ const router = createBrowserRouter([
           {
             element: <AppLayout />,
             children: [
+              // In-app save target for the public "Save to Tiddly" flow.
+              // Sibling of Layout (not a child) so it runs under AppLayout's
+              // consent gate without the app shell's sidebar/filters/tags fetches.
+              { path: '/app/save-shared/:type/:token', element: <SaveSharedRedirect /> },
               {
                 element: <Layout />,
                 children: [
@@ -165,6 +182,7 @@ const router = createBrowserRouter([
                   { path: '/app/settings/ai-integration', element: <SettingsMCP /> },
                   { path: '/app/settings/tags', element: <SettingsTags /> },
                   { path: '/app/settings/history', element: <SettingsVersionHistory /> },
+                  { path: '/app/settings/shared', element: <SettingsSharedContent /> },
                   { path: '/app/settings/faq', element: <SettingsFAQ /> },
                 ],
               },
@@ -190,6 +208,7 @@ const router = createBrowserRouter([
  *
  * - App routes (authentication + consent required):
  *   - /app : Redirects to /app/content
+ *   - /app/save-shared/:type/:token : Save-a-copy target for the public share flow (consent-gated)
  *   - /app/content : Unified view - all content (bookmarks + notes + prompts)
  *   - /app/content/archived : Archived content
  *   - /app/content/trash : Deleted content

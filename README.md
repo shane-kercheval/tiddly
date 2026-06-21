@@ -12,6 +12,7 @@ Notes, Bookmarks, and Prompt management system; + Remote MCP Servers.
 - **Full-text search** - Search across title, description, URL, and content
 - **Keyboard shortcuts** - Quick actions for power users
 - **Version history** - Track all changes to bookmarks, notes, and prompts. View diffs, see what made changes (e.g. agents via MCP), and restore any previous version
+- **Public sharing** - Publish any bookmark, note, or prompt to a stable, read-only public URL (no auth required). Owners control access via publish/unpublish/regenerate; tags and relationships stay private. Signed-in visitors can save their own copy
 - **Personal Access Tokens** - Programmatic API access for CLI tools and scripts
 
 For signup/login, go to [tiddly.me](https://tiddly.me/)

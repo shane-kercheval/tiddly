@@ -283,6 +283,7 @@ def _content_to_prompt_list_item(item: ContentListItem) -> PromptListItem:
         last_used_at=item.last_used_at,
         deleted_at=item.deleted_at,
         archived_at=item.archived_at,
+        is_public=item.is_public,
         content_length=item.content_length,
         content_preview=item.content_preview,
     )
@@ -396,6 +397,11 @@ async def get_prompt_by_name(
     Supports partial reads via start_line and end_line parameters.
     When line params are provided, only the specified line range is returned
     in the content field, with content_metadata indicating the range and total lines.
+
+    Caching: revalidate via the `ETag` (`If-None-Match`), not `Last-Modified`
+    alone. Sharing and archive/delete change this response without bumping
+    `updated_at`, so a `Last-Modified`-only request can wrongly get `304`. See
+    "Caching & conditional requests" in the API overview.
     """
     # Quick check: can we return 304?
     updated_at = await prompt_service.get_updated_at_by_name(db, current_user.id, name)
@@ -441,6 +447,11 @@ async def get_prompt_metadata_by_name(
 
     Returns only active prompts (excludes deleted and archived).
     This endpoint is primarily used by the MCP server for prompt metadata lookups.
+
+    Caching: revalidate via the `ETag` (`If-None-Match`), not `Last-Modified`
+    alone. Sharing and archive/delete change this response (e.g. `is_public`)
+    without bumping `updated_at`, so a `Last-Modified`-only request can wrongly
+    get `304`. See "Caching & conditional requests" in the API overview.
     """
     if "start_line" in request.query_params or "end_line" in request.query_params:
         raise HTTPException(
@@ -706,6 +717,11 @@ async def get_prompt(
     Supports partial reads via start_line and end_line parameters.
     When line params are provided, only the specified line range is returned
     in the content field, with content_metadata indicating the range and total lines.
+
+    Caching: revalidate via the `ETag` (`If-None-Match`), not `Last-Modified`
+    alone. Sharing and archive/delete change this response without bumping
+    `updated_at`, so a `Last-Modified`-only request can wrongly get `304`. See
+    "Caching & conditional requests" in the API overview.
     """
     # Quick check: can we return 304?
     updated_at = await prompt_service.get_updated_at(
@@ -757,6 +773,11 @@ async def get_prompt_metadata(
     - Checking content size before deciding to load full content
     - Getting quick context via the preview without full content transfer
     - Lightweight status checks
+
+    Caching: revalidate via the `ETag` (`If-None-Match`), not `Last-Modified`
+    alone. Sharing and archive/delete change this response (e.g. `is_public`)
+    without bumping `updated_at`, so a `Last-Modified`-only request can wrongly
+    get `304`. See "Caching & conditional requests" in the API overview.
     """
     if "start_line" in request.query_params or "end_line" in request.query_params:
         raise HTTPException(
@@ -1073,6 +1094,69 @@ async def unarchive_prompt(
     except InvalidStateError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return PromptResponse.model_validate(prompt)
+
+
+@router.post("/{prompt_id}/share", response_model=PromptResponse)
+async def share_prompt(
+    prompt_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> PromptResponse:
+    """
+    Publish a prompt to a public share URL.
+
+    Mints a public_token on first publish (re-publishing a previously-unshared
+    prompt restores the same token, hence the same URL) and sets is_public=true.
+    Sharing is not a content edit: this does NOT bump updated_at or write a
+    history entry.
+    """
+    prompt = await prompt_service.set_share_state(
+        db, current_user.id, prompt_id, enabled=True,
+    )
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return PromptResponse.model_validate(prompt)
+
+
+@router.delete("/{prompt_id}/share", response_model=PromptResponse)
+async def unshare_prompt(
+    prompt_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> PromptResponse:
+    """
+    Stop sharing a prompt.
+
+    Sets is_public=false but keeps the public_token, so re-publishing restores
+    the same URL. Does not bump updated_at or write history.
+    """
+    prompt = await prompt_service.set_share_state(
+        db, current_user.id, prompt_id, enabled=False,
+    )
+    if prompt is None:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return PromptResponse.model_validate(prompt)
+
+
+@router.post("/{prompt_id}/rotate-share-token", response_model=PromptResponse)
+async def rotate_prompt_share_token(
+    prompt_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> PromptResponse:
+    """
+    Rotate a prompt's share token, permanently invalidating the previous URL.
+
+    Generates a new public_token regardless of current sharing state (a user may
+    pre-rotate while unpublished). Does not change is_public, bump updated_at, or
+    write history.
+    """
+    prompt = await prompt_service.rotate_share_token(
+        db, current_user.id, prompt_id,
+    )
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt not found")
     return PromptResponse.model_validate(prompt)

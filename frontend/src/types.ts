@@ -21,6 +21,11 @@ export interface BookmarkListItem {
   deleted_at: string | null
   archived_at: string | null
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
+  // `is_public` is the source of truth for "is this shared" — the token is
+  // retained on unpublish (so re-publishing restores the same URL), so its
+  // presence does NOT mean shared. It's on the list item so the "shared"
+  // indicator can render without a detail fetch.
+  is_public: boolean
 }
 
 /**
@@ -31,6 +36,11 @@ export interface BookmarkListItem {
 export interface Bookmark extends BookmarkListItem {
   content: string | null
   relationships?: RelationshipWithContent[]
+  // Detail-only: the share token. Kept off list/search/bulk responses (and the
+  // MCP list/search tools). The content MCP's `get_item` proxies item detail, so
+  // the token can reach the owner's own authorized agent there — not a leak, but
+  // it is not "off all agent surfaces." See `is_public` on the list item.
+  public_token: string | null
 }
 
 /** Data for creating a new bookmark */
@@ -96,6 +106,7 @@ export interface NoteListItem {
   deleted_at: string | null
   archived_at: string | null
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
+  is_public: boolean  // Source of truth for "is this shared" (see Bookmark).
 }
 
 /**
@@ -106,6 +117,8 @@ export interface NoteListItem {
 export interface Note extends NoteListItem {
   content: string | null
   relationships?: RelationshipWithContent[]
+  // Detail-only share token (see Bookmark).
+  public_token: string | null
 }
 
 /** Data for creating a new note */
@@ -211,6 +224,8 @@ export interface ContentListItem {
   deleted_at: string | null
   archived_at: string | null
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
+  is_public: boolean  // Whether a public share URL is currently active (drives the "shared" indicator).
+  shared_at: string | null  // When last published (set on publish, retained on unpublish). For the shared-content view.
   // Bookmark-specific (null for notes/prompts)
   url: string | null
   // Prompt-specific (null for bookmarks/notes)
@@ -446,6 +461,7 @@ export interface PromptListItem {
   deleted_at: string | null
   archived_at: string | null
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
+  is_public: boolean  // Source of truth for "is this shared" (see Bookmark).
 }
 
 /**
@@ -455,6 +471,8 @@ export interface PromptListItem {
 export interface Prompt extends PromptListItem {
   content: string | null
   relationships?: RelationshipWithContent[]
+  // Detail-only share token (see Bookmark).
+  public_token: string | null
 }
 
 /** Data for creating a new prompt */
@@ -489,6 +507,49 @@ export interface PromptListResponse {
   offset: number
   limit: number
   has_more: boolean
+}
+
+// =============================================================================
+// Public sharing types (read-only, no authentication)
+// =============================================================================
+//
+// Mirror the backend Public*Response schemas (GET /public/{type}/{token}). These
+// are the locked-down public surface: they deliberately exclude the internal id,
+// user_id, tags, relationships, is_public/public_token, and the raw archived_at
+// (only the derived `is_archived` flag is exposed). The share token in the URL —
+// not the database UUID — is the public identifier.
+
+/** Public, read-only view of a shared bookmark. */
+export interface PublicBookmark {
+  url: string
+  title: string | null
+  description: string | null
+  content: string | null
+  is_archived: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** Public, read-only view of a shared note. */
+export interface PublicNote {
+  title: string
+  description: string | null
+  content: string | null
+  is_archived: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** Public, read-only view of a shared prompt. */
+export interface PublicPrompt {
+  name: string
+  title: string | null
+  description: string | null
+  arguments: PromptArgument[]
+  content: string | null
+  is_archived: boolean
+  created_at: string
+  updated_at: string
 }
 
 /** Search and filter parameters for listing prompts */

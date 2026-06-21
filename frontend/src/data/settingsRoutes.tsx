@@ -22,6 +22,7 @@ import {
   KeyIcon,
   SparklesIcon,
   HistoryIcon,
+  GlobeIcon,
   HelpIcon,
 } from '../components/icons'
 
@@ -99,6 +100,15 @@ export const SETTINGS_ROUTES: SettingsRoute[] = [
       + 'unarchive source web api mcp iphone date range last 7 days 30 days '
       + 'custom range diff version v1 v2 timeline pagination all items recent '
       + 'changes',
+  },
+  {
+    path: '/app/settings/shared',
+    label: 'Settings: Shared Content',
+    icon: <GlobeIcon className="h-4 w-4" />,
+    searchText:
+      'shared content public links manage unshare stop sharing what have i shared '
+      + 'publicly shared items audit bookmarks notes prompts public url share token '
+      + 'revoke regenerate visibility privacy who can see',
   },
   {
     path: '/app/settings/faq',

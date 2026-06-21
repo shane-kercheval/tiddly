@@ -13,11 +13,11 @@ import { assertNoLegacyGlyphsInText } from '../utils/platform'
 import { resolveInlineIcon } from '../components/markdown/inlineIcons'
 
 /**
- * Public-content routes M1 is responsible for: every `/docs/*` page plus the
- * public legal pages. Anchored to the app's real route list (`KNOWN_ROUTE_PATHS`)
+ * Public-content routes covered by the prose-coverage guard: every `/docs/*` page
+ * plus the public legal pages. Anchored to the app's real route list (`KNOWN_ROUTE_PATHS`)
  * so a newly-added docs route can't escape the prose-coverage check by being
  * absent from a separate hand-list. Marketing pages (`/features`, `/pricing`, …)
- * are intentionally outside this guard — lower-priority prose, deferred to M4.
+ * are intentionally outside this guard — they are authored directly in TSX, not markdown.
  */
 const LEGAL_ROUTES = ['/privacy', '/terms']
 const PUBLIC_CONTENT_ROUTES = [
@@ -38,11 +38,11 @@ const EXCLUDED_FROM_PROSE: Record<string, string> = {
   '/docs/features': 'navigation hub (card-grid index UI)',
   '/docs/extensions': 'navigation hub (card-grid index UI)',
   '/docs/cli': 'navigation hub (card-grid index UI + quick-start widget)',
-  // Structured-data views (M2): rendered from canonical JSON, not prose.
-  '/docs/features/shortcuts': 'structured-data view → shortcuts.json (M2)',
-  '/docs/tips': 'structured-data view → tips.json (M2)',
-  '/docs/faq': 'structured data → /data/faq.json (M2)',
-  '/docs/known-issues': 'structured data → known-issues.json (M2)',
+  // Structured-data views: rendered from canonical JSON, not prose.
+  '/docs/features/shortcuts': 'structured-data view → shortcuts.json',
+  '/docs/tips': 'structured-data view → tips.json',
+  '/docs/faq': 'structured data → /data/faq.json',
+  '/docs/known-issues': 'structured data → known-issues.json',
   // Interactive widget / placeholder UI pages (not content prose).
   '/docs/ai': 'interactive AI-setup widget (owned by KAN-152)',
   '/docs/extensions/safari': 'placeholder "coming soon" UI page (not prose)',

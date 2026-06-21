@@ -1,9 +1,11 @@
-import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
+import { Auth0Provider, useAuth0, type AppState } from '@auth0/auth0-react'
 import { useEffect, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { config, isDevMode } from '../config'
 import { setupAuthInterceptor } from '../services/api'
 import { useConsentStore } from '../stores/consentStore'
 import { queryClient } from '../queryClient'
+import { toSafeReturnTo } from '../utils/returnTo'
 import { AuthStatusProvider } from './AuthStatusProvider'
 
 interface AuthProviderProps {
@@ -66,9 +68,21 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
  * a 401, forcing a fresh token fetch instead of using a cached expired token.
  */
 export function AuthProvider({ children }: AuthProviderProps): ReactNode {
+  // Called unconditionally (before the dev-mode branch) to satisfy the rules of
+  // hooks; only used by the Auth0 redirect callback below in production.
+  const navigate = useNavigate()
+
   // In dev mode, skip Auth0 entirely
   if (isDevMode) {
     return <AuthStatusProviderDev>{children}</AuthStatusProviderDev>
+  }
+
+  // After Auth0 completes a login redirect, return the user to where they
+  // started (e.g. the shared URL a logged-out visitor signed in from). The
+  // target is sanitized to a same-origin relative path to avoid open redirects;
+  // absent/invalid values fall back to the app root, preserving prior behavior.
+  const handleRedirectCallback = (appState?: AppState): void => {
+    navigate(toSafeReturnTo(appState?.returnTo))
   }
 
   return (
@@ -82,6 +96,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       }}
       cacheLocation="localstorage"
       useRefreshTokens={true}
+      onRedirectCallback={handleRedirectCallback}
     >
       <AuthInterceptorSetup>
         <AuthStatusProviderProd>{children}</AuthStatusProviderProd>

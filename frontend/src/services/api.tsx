@@ -15,6 +15,23 @@ export const api = axios.create({
 })
 
 /**
+ * Axios instance for unauthenticated public endpoints (GET /public/{type}/{token}).
+ *
+ * Deliberately has NO auth interceptor: the shared `api` instance attaches an
+ * Auth0 token on every request, which rejects with `login_required` for a
+ * logged-out visitor — so a public share page (built for logged-out visitors)
+ * could never fetch through `api`. This instance just carries the base URL and
+ * source header. The authed clone endpoint (POST .../save) still uses `api`,
+ * since it requires a token.
+ */
+export const publicApi = axios.create({
+  baseURL: config.apiUrl,
+  headers: {
+    'X-Request-Source': 'web',
+  },
+})
+
+/**
  * HTTP statuses that the response interceptor below already toasts on.
  * Callers (notably AI-suggestion hooks surfacing errors via toast) should
  * short-circuit for these to avoid double-toasting. Keep in sync with the

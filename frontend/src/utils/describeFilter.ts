@@ -1,5 +1,5 @@
 /**
- * Filter empty-state copy utilities (M6).
+ * Filter empty-state copy utilities.
  *
  * Produces human-readable empty-state copy for saved-filter routes and for
  * transient tag-chip filters. Used by `AllContent.tsx`. Search-query and

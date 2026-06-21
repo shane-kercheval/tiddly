@@ -2,7 +2,7 @@
  * Tests for the Tips docs page.
  *
  * Tests run against the live `allTips` seed corpus (the same pinning approach
- * M1 uses for selectors) so reorderings or content changes are caught here.
+ * the selector code uses) so reorderings or content changes are caught here.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'

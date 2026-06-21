@@ -611,7 +611,7 @@ describe('searchTips', () => {
   })
 })
 
-describe('corpus invariants (M5)', () => {
+describe('corpus invariants', () => {
   // Each content type's empty-state needs at least one starter to surface in
   // the new-user empty state — without this guarantee, a fresh user landing
   // on (say) the bookmarks view would see no starter tips at all.

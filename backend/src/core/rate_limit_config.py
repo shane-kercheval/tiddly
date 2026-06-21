@@ -58,8 +58,27 @@ class RateLimitExceededError(Exception):
 
 SENSITIVE_ENDPOINTS: set[tuple[str, str]] = {
     ("GET", "/bookmarks/fetch-metadata"),
-    # Future: bulk import/export (AI/LLM has its own rate limit types in Milestone 1b)
+    # Future: bulk import/export (AI/LLM endpoints already have their own rate limit types)
 }
+
+
+# ---------------------------------------------------------------------------
+# Public (unauthenticated) endpoints
+# ---------------------------------------------------------------------------
+# The /public/* share endpoints have no user context, so they can't use the
+# tier-based per-user limits above; they're rate-limited per client IP instead.
+# These are abuse/DoS protection only — the 256-bit share token already makes
+# enumeration infeasible, so the caps are generous to avoid throttling
+# legitimate viewers behind a shared egress IP (corporate NAT, campus gateway)
+# who all hit the same popular link.
+#
+# Note: public responses use `max-age=0, must-revalidate`, so every view —
+# including 304 cache revalidations — runs the route and consumes one token
+# (ETagMiddleware computes the ETag after executing the handler). The per-minute
+# cap is therefore the binding constraint for a burst of NAT'd viewers, which is
+# why it is set higher than a naive "humans per minute" estimate.
+PUBLIC_IP_RATE_LIMIT_PER_MINUTE = 60
+PUBLIC_IP_RATE_LIMIT_PER_DAY = 2000
 
 
 def get_operation_type(method: str, path: str) -> OperationType:

@@ -1,5 +1,27 @@
 [
   {
+    "month": "June 2026",
+    "theme": "Public Sharing",
+    "categories": [
+      {
+        "label": "New",
+        "emoji": "🚀",
+        "entries": [
+          {
+            "title": "Share bookmarks, notes, and prompts with a public link",
+            "description": "Publish any item to a stable, read-only public URL that anyone can open — no account needed. Use the Share control on the item's detail page to create the link, copy it, stop sharing, or regenerate it (which invalidates the old link). Sharing never changes the item's \"last updated\" time, and your tags and relationships stay private — the public view shows only the content and its dates.",
+            "tag": "web"
+          },
+          {
+            "title": "Save a copy of a shared item",
+            "description": "Signed in and viewing someone's shared link? Save your own independent copy to your account with one click — it lands in your library as a fresh, unshared item. Sign up straight from a shared link and your copy is waiting once you're in.",
+            "tag": "web"
+          }
+        ]
+      }
+    ]
+  },
+  {
     "month": "May 2026",
     "theme": "Tips, Discoverability, and Polish",
     "categories": [

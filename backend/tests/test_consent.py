@@ -390,11 +390,38 @@ class TestConsentCascadeDelete:
 class TestIPDetection:
     """Tests for IP address detection logic."""
 
-    async def test__ip_detection__prefers_x_forwarded_for(
+    async def test__ip_detection__prefers_x_real_ip(
         self,
         client: AsyncClient,
     ) -> None:
-        """Prefers X-Forwarded-For header (for proxied requests)."""
+        """
+        Prefers X-Real-IP — Railway's documented, edge-set client-IP header.
+
+        X-Forwarded-For is client-settable (spoofable), so when both are present
+        the trusted X-Real-IP wins.
+        """
+        consent_data = {
+            "privacy_policy_version": PRIVACY_POLICY_VERSION,
+            "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
+        }
+
+        response = await client.post(
+            "/consent/me",
+            json=consent_data,
+            headers={
+                "X-Forwarded-For": "10.0.0.1, 192.168.1.1",  # spoofable, ignored when X-Real-IP set
+                "X-Real-IP": "172.16.0.1",
+            },
+        )
+
+        data = response.json()
+        assert data["ip_address"] == "172.16.0.1"
+
+    async def test__ip_detection__falls_back_to_x_forwarded_for(
+        self,
+        client: AsyncClient,
+    ) -> None:
+        """Falls back to X-Forwarded-For (first entry) when X-Real-IP is absent."""
         consent_data = {
             "privacy_policy_version": PRIVACY_POLICY_VERSION,
             "terms_of_service_version": TERMS_OF_SERVICE_VERSION,
@@ -405,19 +432,17 @@ class TestIPDetection:
             json=consent_data,
             headers={
                 "X-Forwarded-For": "10.0.0.1, 192.168.1.1",
-                "X-Real-IP": "172.16.0.1",  # Should be ignored
             },
         )
 
         data = response.json()
-        # Should use first IP from X-Forwarded-For
         assert data["ip_address"] == "10.0.0.1"
 
-    async def test__ip_detection__falls_back_to_x_real_ip(
+    async def test__ip_detection__uses_x_real_ip_when_only_header(
         self,
         client: AsyncClient,
     ) -> None:
-        """Falls back to X-Real-IP when X-Forwarded-For not present."""
+        """Uses X-Real-IP when it is the only IP header present."""
         consent_data = {
             "privacy_policy_version": PRIVACY_POLICY_VERSION,
             "terms_of_service_version": TERMS_OF_SERVICE_VERSION,

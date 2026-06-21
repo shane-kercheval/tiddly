@@ -358,9 +358,9 @@ describe('CommandPalette', () => {
     })
   })
 
-  describe('tips integration (M8)', () => {
+  describe('tips integration', () => {
     // Tip-related assertions exercise the real `allTips` corpus, not a mock —
-    // the integration we care about is "tips authored in M5 surface here." If
+    // the integration we care about is "tips in the corpus surface here." If
     // a referenced tip is ever removed from the corpus, the test will fail
     // visibly so we know to update it.
 

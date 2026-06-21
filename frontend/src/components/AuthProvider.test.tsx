@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { AuthProvider } from './AuthProvider'
 import { setupAuthInterceptor } from '../services/api'
@@ -45,10 +46,14 @@ describe('AuthProvider', () => {
   })
 
   it('passes cache options through to getAccessTokenSilently', async () => {
+    // AuthProvider lives inside the data router in production (it uses
+    // useNavigate for the post-login returnTo redirect), so provide Router context.
     render(
-      <AuthProvider>
-        <div>child</div>
-      </AuthProvider>
+      <MemoryRouter>
+        <AuthProvider>
+          <div>child</div>
+        </AuthProvider>
+      </MemoryRouter>
     )
 
     await waitFor(() => expect(setupAuthInterceptor).toHaveBeenCalledTimes(1))

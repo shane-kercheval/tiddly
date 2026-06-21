@@ -67,6 +67,8 @@ interface ArgumentRowProps {
   arg: PromptArgument
   index: number
   disabled: boolean
+  /** Read-only display: render the argument as plain text (no inputs/controls). */
+  readOnly?: boolean
   maxNameLength?: number
   maxDescriptionLength?: number
   onUpdate: (index: number, field: keyof PromptArgument, value: string | boolean | null) => void
@@ -89,6 +91,7 @@ function ArgumentRow({
   arg,
   index,
   disabled,
+  readOnly = false,
   maxNameLength,
   maxDescriptionLength,
   onUpdate,
@@ -102,6 +105,28 @@ function ArgumentRow({
 }: ArgumentRowProps): ReactNode {
   const nameLimit = useCharacterLimit(arg.name.length, maxNameLength)
   const descLimit = useCharacterLimit(arg.description?.length ?? 0, maxDescriptionLength)
+
+  // Read-only display: plain text, no inputs/checkbox/remove control.
+  if (readOnly) {
+    return (
+      <div className="flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          {/* Fixed-width name column so descriptions align across rows. */}
+          <span className="w-36 shrink-0 break-words font-mono text-sm text-gray-900">{arg.name}</span>
+          {arg.description
+            ? <span className="min-w-[180px] flex-1 text-sm text-gray-600">{arg.description}</span>
+            : <span className="min-w-[180px] flex-1 text-sm italic text-gray-400">No description</span>}
+          <span
+            className={`shrink-0 self-center inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+              arg.required ? 'bg-gray-100 text-gray-600' : 'text-gray-400'
+            }`}
+          >
+            {arg.required ? 'Required' : 'Optional'}
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   const namePatternError = arg.name && !ARG_NAME_PATTERN.test(arg.name)
     ? 'Must start with a letter, use only lowercase letters, numbers, and underscores'
@@ -212,6 +237,8 @@ interface ArgumentsBuilderProps {
   onChange: (args: PromptArgument[]) => void
   /** Whether the form is disabled */
   disabled?: boolean
+  /** Read-only display (public view): render arguments as text, hide all edit controls. */
+  readOnly?: boolean
   /** Error message to display */
   error?: string
   /** Maximum length for argument names */
@@ -260,6 +287,7 @@ export function ArgumentsBuilder({
   arguments: args,
   onChange,
   disabled = false,
+  readOnly = false,
   error,
   maxNameLength,
   maxDescriptionLength,
@@ -273,6 +301,11 @@ export function ArgumentsBuilder({
   rowSuggestDisabled,
   rowSuggestTooltip,
 }: ArgumentsBuilderProps): ReactNode {
+  // Public read-only view with no arguments → render nothing (no empty box).
+  if (readOnly && args.length === 0) {
+    return null
+  }
+
   const addArgument = (): void => {
     onChange([...args, { name: '', description: null, required: false }])
   }
@@ -331,15 +364,17 @@ export function ArgumentsBuilder({
               </button>
             </MaybeTooltip>
           )}
-          <button
-            type="button"
-            onClick={addArgument}
-            disabled={disabled}
-            className="btn-icon"
-            aria-label="Add argument"
-          >
-            <PlusIcon className="h-4 w-4" />
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={addArgument}
+              disabled={disabled}
+              className="btn-icon"
+              aria-label="Add argument"
+            >
+              <PlusIcon className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -354,32 +389,35 @@ export function ArgumentsBuilder({
           {args.map((arg, index) => (
             <div key={index}>
               <div className="flex items-start gap-3">
-                {/* Reorder buttons */}
-                <div className="flex flex-col gap-0.5 -mt-0.5">
-                  <button
-                    type="button"
-                    onClick={() => moveArgument(index, 'up')}
-                    disabled={index === 0 || disabled}
-                    className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                    aria-label={`Move argument ${index + 1} up`}
-                  >
-                    <ChevronUpIcon className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveArgument(index, 'down')}
-                    disabled={index === args.length - 1 || disabled}
-                    className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
-                    aria-label={`Move argument ${index + 1} down`}
-                  >
-                    <ChevronDownIcon className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                {/* Reorder buttons — owner only; hidden in the public read view. */}
+                {!readOnly && (
+                  <div className="flex flex-col gap-0.5 -mt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => moveArgument(index, 'up')}
+                      disabled={index === 0 || disabled}
+                      className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                      aria-label={`Move argument ${index + 1} up`}
+                    >
+                      <ChevronUpIcon className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveArgument(index, 'down')}
+                      disabled={index === args.length - 1 || disabled}
+                      className="p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                      aria-label={`Move argument ${index + 1} down`}
+                    >
+                      <ChevronDownIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
 
                 <ArgumentRow
                   arg={arg}
                   index={index}
                   disabled={disabled}
+                  readOnly={readOnly}
                   maxNameLength={maxNameLength}
                   maxDescriptionLength={maxDescriptionLength}
                   onUpdate={updateArgument}

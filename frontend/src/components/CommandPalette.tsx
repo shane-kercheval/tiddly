@@ -133,6 +133,7 @@ function toBookmarkListItem(item: ContentListItem): BookmarkListItem {
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
     content_preview: item.content_preview,
+    is_public: item.is_public,
   }
 }
 
@@ -148,6 +149,7 @@ function toNoteListItem(item: ContentListItem): NoteListItem {
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
     content_preview: item.content_preview,
+    is_public: item.is_public,
   }
 }
 
@@ -165,6 +167,7 @@ function toPromptListItem(item: ContentListItem): PromptListItem {
     deleted_at: item.deleted_at,
     archived_at: item.archived_at,
     content_preview: item.content_preview,
+    is_public: item.is_public,
   }
 }
 

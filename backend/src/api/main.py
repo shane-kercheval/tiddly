@@ -19,6 +19,7 @@ from api.routers import (
     mcp,
     notes,
     prompts,
+    public,
     relationships,
     settings,
     tags,
@@ -191,9 +192,33 @@ _OPENAPI_TAGS = [
 ]
 
 
+_API_DESCRIPTION = """\
+A content management system with tagging and search capabilities.
+
+### Caching & conditional requests
+
+Item reads (`GET /{type}/{id}` and `GET /{type}/{id}/metadata`) return **both** an
+`ETag` and a `Last-Modified` header. **Revalidate with the `ETag` (`If-None-Match`) —
+do not rely on `Last-Modified` / `If-Modified-Since` alone.**
+
+Status changes — sharing (`POST`/`DELETE /{type}/{id}/share`,
+`POST /{type}/{id}/rotate-share-token`) and lifecycle (archive, delete) —
+intentionally do **not** bump `updated_at`, because they are not content edits
+(it keeps the displayed "last updated" date honest). Consequently a
+`Last-Modified`-only conditional request can return `304 Not Modified` even
+though `is_public` / `public_token` (or `archived_at` / `deleted_at`) changed.
+The `ETag` is computed from the full response body and always reflects these
+changes, so an `If-None-Match` revalidation is correct in every case.
+
+Note: this only affects how a *client caches its own reads*. Public-link access
+control is always enforced live server-side — unpublishing or rotating a token
+revokes the old URL immediately, regardless of any client or proxy cache.
+"""
+
+
 app = FastAPI(
     title="Tiddly API",
-    description="A content management system with tagging and search capabilities.",
+    description=_API_DESCRIPTION,
     version="0.1.0",
     lifespan=lifespan,
     openapi_tags=_OPENAPI_TAGS,
@@ -376,6 +401,7 @@ app.include_router(consent.router)
 app.include_router(bookmarks.router)
 app.include_router(notes.router)
 app.include_router(prompts.router)
+app.include_router(public.router)
 app.include_router(content.router)
 app.include_router(tags.router)
 app.include_router(tokens.router)

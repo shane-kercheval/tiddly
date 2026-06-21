@@ -25,6 +25,8 @@ interface InlineEditableTitleProps {
   required?: boolean
   /** Whether the input is disabled */
   disabled?: boolean
+  /** Read-only display: render plain, selectable text (no input chrome, no hover ring). */
+  readOnly?: boolean
   /** Typography variant: 'title' for large bold, 'name' for monospace */
   variant?: 'title' | 'name'
   /** Additional CSS classes */
@@ -56,6 +58,7 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
       placeholder = 'Title',
       required = false,
       disabled = false,
+      readOnly = false,
       variant = 'title',
       className = '',
       onEnter,
@@ -70,6 +73,18 @@ export const InlineEditableTitle = forwardRef<HTMLInputElement, InlineEditableTi
   ): ReactNode {
     const errorId = useId()
     const limit = useCharacterLimit(value.length, maxLength)
+
+    // Read-only display: plain selectable text, no input/ring/suggest icon.
+    if (readOnly) {
+      const textClasses = variant === 'name'
+        ? 'font-mono text-lg text-gray-900'
+        : 'text-2xl font-bold text-gray-900'
+      return (
+        <div className="w-full">
+          <div className={`${textClasses} ${className} break-words`.trim()}>{value}</div>
+        </div>
+      )
+    }
 
     const handleChange = (e: ChangeEvent<HTMLInputElement>): void => {
       onChange(e.target.value)

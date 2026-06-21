@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_async_session, get_current_user_without_consent
 from core.auth_cache import get_auth_cache
 from core.policy_versions import PRIVACY_POLICY_VERSION, TERMS_OF_SERVICE_VERSION
+from core.request_utils import get_client_ip
 from models.user import User
 from models.user_consent import UserConsent
 from schemas.cached_user import CachedUser
@@ -28,37 +29,6 @@ async def get_policy_versions() -> PolicyVersions:
         privacy_policy_version=PRIVACY_POLICY_VERSION,
         terms_of_service_version=TERMS_OF_SERVICE_VERSION,
     )
-
-
-def get_client_ip(request: Request) -> str | None:
-    """
-    Extract client IP address from request headers.
-
-    Checks forwarded headers first (for proxy/load balancer scenarios),
-    then falls back to direct client IP.
-
-    Args:
-        request: FastAPI request object
-
-    Returns:
-        Client IP address or None if unable to determine
-    """
-    # Check X-Forwarded-For header (proxy/load balancer)
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # X-Forwarded-For can be comma-separated list, take first (client IP)
-        return forwarded_for.split(",")[0].strip()
-
-    # Check X-Real-IP header (alternative proxy header)
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip.strip()
-
-    # Fall back to direct client IP
-    if request.client:
-        return request.client.host
-
-    return None
 
 
 @router.get("/status", response_model=ConsentStatus)

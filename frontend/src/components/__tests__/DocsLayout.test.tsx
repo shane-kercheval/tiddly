@@ -61,7 +61,7 @@ describe('DocsLayout', () => {
   })
 
   it('should expose the Tips entry pointing at /docs/tips', () => {
-    // Regression guard for M3: the Tips page is registered in App.tsx, the
+    // Regression guard: the Tips page is registered in App.tsx, the
     // route prefetcher, and the sidebar — three duplicated sources of truth.
     // Pin the sidebar entry so a future drift on any of them surfaces here.
     renderDocsLayout('/docs')

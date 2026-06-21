@@ -23,6 +23,46 @@ export const limitsKeys = {
 }
 
 /**
+ * Permissive limits for the public read-only view.
+ *
+ * `useLimits` only fetches for authenticated users (gated on auth below), and
+ * tier limits only constrain *editing* — which the public view disables. Without
+ * a fallback, the reused detail components (which block rendering until `limits`
+ * is present) would spin forever for a logged-out visitor. They use this instead.
+ */
+const UNBOUNDED = Number.MAX_SAFE_INTEGER
+export const PUBLIC_VIEW_LIMITS: UserLimits = {
+  tier: 'public',
+  max_bookmarks: UNBOUNDED,
+  max_notes: UNBOUNDED,
+  max_prompts: UNBOUNDED,
+  max_pats: UNBOUNDED,
+  max_title_length: UNBOUNDED,
+  max_description_length: UNBOUNDED,
+  max_tag_name_length: UNBOUNDED,
+  max_bookmark_content_length: UNBOUNDED,
+  max_note_content_length: UNBOUNDED,
+  max_prompt_content_length: UNBOUNDED,
+  max_url_length: UNBOUNDED,
+  max_prompt_name_length: UNBOUNDED,
+  max_argument_name_length: UNBOUNDED,
+  max_argument_description_length: UNBOUNDED,
+  rate_read_per_minute: UNBOUNDED,
+  rate_read_per_day: UNBOUNDED,
+  rate_write_per_minute: UNBOUNDED,
+  rate_write_per_day: UNBOUNDED,
+  rate_sensitive_per_minute: UNBOUNDED,
+  rate_sensitive_per_day: UNBOUNDED,
+  rate_ai_per_minute: UNBOUNDED,
+  rate_ai_per_day: UNBOUNDED,
+  rate_ai_byok_per_minute: UNBOUNDED,
+  rate_ai_byok_per_day: UNBOUNDED,
+  max_relationships_per_entity: UNBOUNDED,
+  history_retention_days: UNBOUNDED,
+  max_history_per_entity: UNBOUNDED,
+}
+
+/**
  * Fetch user limits from API.
  */
 async function fetchLimits(): Promise<UserLimits> {

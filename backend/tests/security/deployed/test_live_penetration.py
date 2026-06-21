@@ -1761,6 +1761,122 @@ class TestPromptSSTI:
                 )
 
 
+class TestPublicShareSurface:
+    """
+    Verify the unauthenticated public-share surface in production.
+
+    Public reads must work without auth yet leak no owner fields; the clone
+    endpoint must require auth; and share management must stay owner-scoped.
+    These run against prod (the only place Railway's edge + real auth exist).
+    """
+
+    async def _create_and_publish(
+        self,
+        client: httpx.AsyncClient,
+        headers: dict[str, str],
+        url: str,
+        title: str,
+    ) -> tuple[str, str]:
+        """Create a bookmark as the given user and publish it; return (id, public_token)."""
+        payload = {"url": url, "title": title, "tags": ["pubshare-test"]}
+        create = await client.post(f"{API_URL}/bookmarks/", headers=headers, json=payload)
+        if create.status_code == 409:
+            listing = await client.get(
+                f"{API_URL}/bookmarks/", headers=headers, params={"q": "pubshare-test"},
+            )
+            for item in listing.json().get("items", []):
+                await client.delete(
+                    f"{API_URL}/bookmarks/{item['id']}",
+                    headers=headers, params={"permanent": "true"},
+                )
+            create = await client.post(f"{API_URL}/bookmarks/", headers=headers, json=payload)
+        assert create.status_code == 201, f"Failed to create bookmark: {create.text}"
+        item_id = create.json()["id"]
+        published = await client.post(f"{API_URL}/bookmarks/{item_id}/share", headers=headers)
+        assert published.status_code == 200, published.text
+        return item_id, published.json()["public_token"]
+
+    async def test__public_read__no_auth_required_and_excludes_owner_fields(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """Anyone can read a published item, but owner-only fields never appear."""
+        async with httpx.AsyncClient() as client:
+            item_id, token = await self._create_and_publish(
+                client, headers_user_a,
+                "https://pubshare-test-read.example.com/", "Public Read Target",
+            )
+            try:
+                # No Authorization header at all.
+                resp = await client.get(f"{API_URL}/public/bookmarks/{token}")
+                assert resp.status_code == 200, resp.text
+                body = resp.json()
+                for leaked in ("user_id", "public_token", "is_public", "tags", "id", "archived_at"):
+                    assert leaked not in body, (
+                        f"SECURITY VULNERABILITY: public response leaked '{leaked}': {body}"
+                    )
+            finally:
+                await client.delete(
+                    f"{API_URL}/bookmarks/{item_id}",
+                    headers=headers_user_a, params={"permanent": "true"},
+                )
+
+    async def test__public_read__unknown_token_returns_404(self) -> None:
+        """An unknown/invalid token returns 404 (no owner-field or 403 oracle)."""
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{API_URL}/public/bookmarks/this-token-does-not-exist-000000000000",
+            )
+            assert resp.status_code == 404
+
+    async def test__clone__requires_authentication(
+        self,
+        headers_user_a: dict[str, str],
+    ) -> None:
+        """The clone ('Save a copy') endpoint rejects unauthenticated callers."""
+        async with httpx.AsyncClient() as client:
+            item_id, token = await self._create_and_publish(
+                client, headers_user_a,
+                "https://pubshare-test-clone.example.com/", "Public Clone Target",
+            )
+            try:
+                resp = await client.post(f"{API_URL}/public/bookmarks/{token}/save")
+                assert resp.status_code == 401, (
+                    f"SECURITY VULNERABILITY: clone allowed without auth! {resp.status_code}"
+                )
+            finally:
+                await client.delete(
+                    f"{API_URL}/bookmarks/{item_id}",
+                    headers=headers_user_a, params={"permanent": "true"},
+                )
+
+    async def test__rotate_share_token__returns_404_for_other_users_item(
+        self,
+        headers_user_a: dict[str, str],
+        headers_user_b: dict[str, str],
+    ) -> None:
+        """User B cannot rotate the share token on User A's bookmark."""
+        async with httpx.AsyncClient() as client:
+            item_id, _ = await self._create_and_publish(
+                client, headers_user_a,
+                "https://pubshare-test-rotate.example.com/", "Public Rotate Target",
+            )
+            try:
+                resp = await client.post(
+                    f"{API_URL}/bookmarks/{item_id}/rotate-share-token",
+                    headers=headers_user_b,
+                )
+                assert resp.status_code == 404, (
+                    f"SECURITY VULNERABILITY: User B rotated User A's share token! "
+                    f"Status: {resp.status_code}, Body: {resp.text}"
+                )
+            finally:
+                await client.delete(
+                    f"{API_URL}/bookmarks/{item_id}",
+                    headers=headers_user_a, params={"permanent": "true"},
+                )
+
+
 if __name__ == "__main__":
     # Allow running directly: python test_live_penetration.py
     pytest.main([__file__, "-v"])

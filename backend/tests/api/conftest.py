@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,3 +88,35 @@ async def create_user2_client(
 
 # Constant for non-existent entity ID
 FAKE_UUID = "00000000-0000-0000-0000-000000000000"
+
+
+@pytest.fixture
+async def auth_required_client(
+    async_engine: object,  # noqa: ARG001 - ensures the schema is created
+    db_session: AsyncSession,
+    database_url: str,
+) -> AsyncGenerator[AsyncClient]:
+    """A client with auth enforced (dev_mode disabled, no credentials attached)."""
+    from api.main import app  # noqa: PLC0415
+    from db.session import get_async_session  # noqa: PLC0415
+
+    async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
+        yield db_session
+
+    def override_get_settings() -> Settings:
+        return Settings(
+            database_url=database_url,
+            dev_mode=False,
+            auth0_domain="test.auth0.com",
+            auth0_audience="https://test-api",
+            auth0_client_id="test-client-id",
+            auth0_custom_claim_namespace="https://test.example.com",
+        )
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    app.dependency_overrides[get_settings] = override_get_settings
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test",
+    ) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()

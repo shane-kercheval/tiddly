@@ -93,6 +93,9 @@ class BookmarkListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
+    is_public: bool = Field(
+        description="Whether this bookmark is currently shared via a public URL.",
+    )
     content_length: int | None = Field(
         default=None,
         description="Total character count of content field.",
@@ -145,6 +148,41 @@ class BookmarkResponse(BookmarkListItem):
     content: str | None
     content_metadata: ContentMetadata | None = None
     relationships: list[RelationshipWithContentResponse] = Field(default_factory=list)
+    public_token: str | None = Field(
+        default=None,
+        description="The bookmark's public share token (null if never shared). "
+                    "Used by the detail page to build the shareable URL. "
+                    "Deliberately absent from list/search responses to keep tokens "
+                    "off bulk surfaces (and the MCP list/search tools). The content "
+                    "MCP's get_item proxies item detail, so the token can reach the "
+                    "owner's own authorized agent there.",
+    )
+
+
+class PublicBookmarkResponse(BaseModel):
+    """
+    Public, read-only view of a published bookmark (no authentication).
+
+    A standalone schema — deliberately NOT a subclass of BookmarkListItem — so
+    owner-only fields can never leak as the owner schemas evolve. Excludes tags,
+    relationships, user_id, is_public, public_token, summary, last_used_at, and
+    raw lifecycle timestamps. The internal `id` is also excluded: the public
+    surface is identified by the share token, not the database UUID. `url` IS
+    included: it is the bookmark's core content, not organizational metadata.
+    `is_archived` is the derived flag from ArchivableMixin (the raw archived_at
+    is internal lifecycle data, not exposed).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    url: str
+    title: str | None
+    description: str | None
+    content: str | None
+    content_metadata: ContentMetadata | None = None
+    is_archived: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class BookmarkListResponse(BaseModel):

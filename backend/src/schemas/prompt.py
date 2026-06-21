@@ -138,6 +138,9 @@ class PromptListItem(BaseModel):
     last_used_at: datetime
     deleted_at: datetime | None = None
     archived_at: datetime | None = None
+    is_public: bool = Field(
+        description="Whether this prompt is currently shared via a public URL.",
+    )
     content_length: int | None = Field(
         default=None,
         description="Total character count of content field.",
@@ -189,6 +192,43 @@ class PromptResponse(PromptListItem):
     content: str | None
     content_metadata: ContentMetadata | None = None
     relationships: list[RelationshipWithContentResponse] = Field(default_factory=list)
+    public_token: str | None = Field(
+        default=None,
+        description="The prompt's public share token (null if never shared). "
+                    "Used by the detail page to build the shareable URL. "
+                    "Deliberately absent from list/search responses to keep tokens "
+                    "off bulk surfaces. The prompt MCP tools field-whitelist their "
+                    "responses, so the token is never serialized to an agent (unlike "
+                    "the content MCP's get_item, which proxies raw bookmark/note "
+                    "detail).",
+    )
+
+
+class PublicPromptResponse(BaseModel):
+    """
+    Public, read-only view of a published prompt (no authentication).
+
+    A standalone schema — deliberately NOT a subclass of PromptListItem — so
+    owner-only fields can never leak as the owner schemas evolve. Excludes tags,
+    relationships, user_id, is_public, public_token, last_used_at, and raw
+    lifecycle timestamps. The internal `id` is also excluded: the public surface
+    is identified by the share token, not the database UUID. `name` and
+    `arguments` ARE included: they are the prompt's functional content.
+    `is_archived` is the derived flag from ArchivableMixin (the raw archived_at
+    is internal lifecycle data, not exposed).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    title: str | None
+    description: str | None
+    arguments: list[PromptArgument]
+    content: str | None
+    content_metadata: ContentMetadata | None = None
+    is_archived: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class PromptListResponse(BaseModel):

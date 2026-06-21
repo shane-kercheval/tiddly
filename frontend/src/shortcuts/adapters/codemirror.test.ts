@@ -23,7 +23,7 @@ describe('matchToKeyString — translation table', () => {
     })
   }
 
-  // Plan §M1: explicit guard against a naive `parts.join('-')` regression.
+  // Explicit guard against a naive `parts.join('-')` regression.
   // Two trailing dashes is the correct CM form for a literal-dash key with
   // a Shift modifier (used by the Horizontal Rule binding).
   it("Mod + Shift + literal dash emits 'Mod-Shift--' (two dashes)", () => {
@@ -49,10 +49,10 @@ describe('toCodeMirrorKeymap', () => {
     expect(bindings[0].key).toBe('Mod-\\')
   })
 
-  // The full "code-only id throws via public API" case lands in M3 once a
-  // capture-phase entry (Alt+Z, Alt+L, etc.) exists in the registry.
-  // M1 covers it at the helper level via matchToKeyString throwing on
-  // missing key (above).
+  // The full "code-only id throws via public API" case will be covered once a
+  // capture-phase entry (Alt+Z, Alt+L, etc.) exists in the registry. For now it
+  // is covered at the helper level via matchToKeyString throwing on missing key
+  // (above).
 })
 
 describe('toCodeMirrorKeymap — runtime fires inside EditorView', () => {

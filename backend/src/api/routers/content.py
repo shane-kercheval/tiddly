@@ -4,6 +4,7 @@ Router for unified content endpoints.
 Provides endpoints for searching across all content types (bookmarks, notes, prompts)
 with unified pagination and sorting.
 """
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -31,7 +32,7 @@ async def list_all_content(
     ),
     sort_by: Literal[
         "created_at", "updated_at", "last_used_at", "title",
-        "archived_at", "deleted_at", "relevance",
+        "archived_at", "deleted_at", "shared_at", "relevance",
     ] | None = Query(
         default=None,
         description="Sort field. Defaults to 'relevance' when q is provided, "
@@ -51,6 +52,18 @@ async def list_all_content(
     content_types: list[Literal["bookmark", "note", "prompt"]] | None = Query(
         default=None,
         description="Filter by content types (bookmark, note, prompt). If not specified, all types are included.",  # noqa: E501
+    ),
+    is_public: bool | None = Query(
+        default=None,
+        description="Filter by share state. true = only publicly shared items, false = only private. Omit for all.",  # noqa: E501
+    ),
+    shared_after: datetime | None = Query(
+        default=None,
+        description="Only items published at or after this time (filters on shared_at).",
+    ),
+    shared_before: datetime | None = Query(
+        default=None,
+        description="Only items published at or before this time (filters on shared_at).",
     ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_session),
@@ -105,6 +118,9 @@ async def list_all_content(
         view=view_set,
         filter_expression=resolved.filter_expression,
         content_types=effective_content_types,
+        is_public=is_public,
+        shared_after=shared_after,
+        shared_before=shared_before,
     )
 
     return ContentListResponse(
