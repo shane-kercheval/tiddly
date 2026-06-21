@@ -90,7 +90,9 @@ export function PublicItemShell({
   const showBlurb = !authLoading && !isAuthenticated
 
   return (
-    <div>
+    // Pull up on mobile to trim the layout's generous top padding, which is too
+    // much above the share content on small screens (desktop unchanged).
+    <div className="-mt-6 sm:mt-0">
       {isArchived && (
         <div className="mb-3">
           <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
@@ -101,7 +103,7 @@ export function PublicItemShell({
 
       {/* Primary action, left-aligned above the content so it's obvious. The
           blurb explains the product to logged-out visitors who land here cold. */}
-      <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="mb-3 sm:mb-5 flex flex-wrap items-center gap-x-4 gap-y-2">
         <SaveACopy type={type} token={token} />
         {showBlurb && (
           <p className="text-sm text-gray-500">

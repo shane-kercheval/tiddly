@@ -665,7 +665,9 @@ export function CodeMirrorEditor({
       {/* Always render toolbar to prevent layout shift; buttons are disabled when editor is disabled */}
       {/* min-h and transform-gpu prevent Safari reflow issues during focus/blur transitions */}
       {/* Mobile: flex-wrap, all buttons visible. Desktop: no-wrap, buttons fade in on focus */}
-      <div className={`flex items-center flex-wrap md:flex-nowrap gap-0.5 md:gap-0 md:justify-between px-2 py-1 min-h-[34px] transform-gpu transition-colors ${readerMode ? '' : 'border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50'}`}>
+      {/* In reader mode the left formatting group is gone, so right-align the
+          remaining toggles on mobile (they're already ml-auto at md+). */}
+      <div className={`flex items-center flex-wrap md:flex-nowrap gap-0.5 md:gap-0 md:justify-between px-2 py-1 min-h-[34px] transform-gpu transition-colors ${readerMode ? 'justify-end' : 'border-b border-solid border-transparent group-focus-within/editor:border-gray-200 bg-transparent group-focus-within/editor:bg-gray-50/50'}`}>
         {/* Left: formatting buttons — hidden entirely in reader mode (they mutate content) */}
         {/* On mobile: 'contents' flattens structure so all buttons wrap together as siblings */}
         {!readerMode && (
@@ -741,8 +743,10 @@ export function CodeMirrorEditor({
         {/* Right: Toggle icons (Wrap, Lines, Reading) and Copy */}
         {/* On mobile: 'contents' flattens structure so buttons flow with others. On desktop: stays at right */}
         <div className="contents md:flex md:items-center md:gap-0.5 md:ml-auto">
-          {/* Separator only on mobile (other separators are hidden on mobile) */}
-          <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />
+          {/* Separator only on mobile (other separators are hidden on mobile).
+              Skip it in reader mode, where the left formatting group it would
+              divide from doesn't render — otherwise it's a stray leading divider. */}
+          {!readerMode && <div className="w-px h-5 bg-gray-200 mx-1 md:hidden" />}
           {/* Wrap toggle - always visible, only shown when not in reading mode */}
           {onWrapTextChange && !effectiveReadingMode && (
             <Tooltip content={shortcutTooltipContent('editor.toggleWordWrap')} compact>
