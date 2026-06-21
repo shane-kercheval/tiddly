@@ -31,6 +31,12 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
   }
 })
 
+// Mock ShareControl — it uses react-query mutations (its own tests cover it);
+// stub it out so these page tests don't need a real QueryClient context.
+vi.mock('../components/ShareControl', () => ({
+  ShareControl: () => null,
+}))
+
 // Mock AI availability (avoids QueryClient dependency)
 vi.mock('../hooks/useAIAvailability', () => ({
   useAIAvailability: () => ({ available: false, remainingPerDay: 0, limitPerDay: 0, resetsAt: null, isLoading: false, error: null }),
@@ -54,6 +60,8 @@ const mockPrompt: Prompt = {
   deleted_at: null,
   archived_at: null,
   content_preview: null,
+  is_public: false,
+  public_token: null,
 }
 
 // Mock hooks

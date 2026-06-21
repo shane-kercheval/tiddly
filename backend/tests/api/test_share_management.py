@@ -111,6 +111,8 @@ async def test_unpublish_keeps_token(
     unshared = resp.json()
     assert unshared["is_public"] is False
     assert unshared["public_token"] == token
+    # Unsharing is not a content change — updated_at must not move.
+    assert unshared["updated_at"] == item["updated_at"]
 
 
 @pytest.mark.parametrize("segment", _SEGMENTS)
@@ -144,6 +146,8 @@ async def test_rotate_invalidates_old_public_url(
     new_token = resp.json()["public_token"]
     assert new_token != old_token
     assert resp.json()["is_public"] is True  # rotate leaves sharing state alone
+    # Rotating is not a content change — updated_at must not move.
+    assert resp.json()["updated_at"] == item["updated_at"]
 
     assert (await client.get(f"/public/{segment}/{old_token}")).status_code == 404
     assert (await client.get(f"/public/{segment}/{new_token}")).status_code == 200

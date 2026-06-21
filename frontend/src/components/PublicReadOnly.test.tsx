@@ -40,19 +40,21 @@ const TS = '2026-01-01T00:00:00Z'
 const note: NoteType = {
   id: 'n1', title: 'My Note', description: 'A description', tags: ['keep-private'],
   created_at: TS, updated_at: TS, last_used_at: TS, deleted_at: null, archived_at: null,
-  content_preview: null, content: 'Note body text',
+  content_preview: null, content: 'Note body text', is_public: false, public_token: null,
 }
 
 const bookmark: BookmarkType = {
   id: 'b1', url: 'https://example.com', title: 'My Bookmark', description: 'A description',
   summary: null, tags: ['keep-private'], created_at: TS, updated_at: TS, last_used_at: TS,
   deleted_at: null, archived_at: null, content_preview: null, content: 'Bookmark body',
+  is_public: false, public_token: null,
 }
 
 const prompt: PromptType = {
   id: 'p1', name: 'my-prompt', title: 'My Prompt', description: 'A description',
   arguments: [], tags: ['keep-private'], created_at: TS, updated_at: TS, last_used_at: TS,
   deleted_at: null, archived_at: null, content_preview: null, content: 'Hello {{ name }}',
+  is_public: false, public_token: null,
 }
 
 describe('readOnly (public share) mode', () => {

@@ -37,6 +37,10 @@ function toPrompt(data: PublicPromptType): PromptType {
     archived_at: data.is_archived ? data.created_at : null,
     content_preview: null,
     content: data.content,
+    // Owner-only sharing fields are absent from the public payload and unused in
+    // readOnly (no share toolbar); synthesize the unshared default.
+    is_public: false,
+    public_token: null,
   }
 }
 

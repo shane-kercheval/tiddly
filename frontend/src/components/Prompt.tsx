@@ -169,6 +169,8 @@ interface PromptProps {
    * shows the owner's organizational metadata.
    */
   readOnly?: boolean
+  /** Owner share control, rendered in the action toolbar. Omitted in create/readOnly. */
+  shareControl?: ReactNode
 }
 
 /**
@@ -196,6 +198,7 @@ export function Prompt({
   fromCreate = false,
   aiAvailable = false,
   readOnly = false,
+  shareControl,
 }: PromptProps): ReactNode {
   const isCreate = !prompt
 
@@ -967,6 +970,9 @@ export function Prompt({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Share control - existing items only (omitted in create/readOnly/trash) */}
+          {shareControl}
+
           {/* History button - existing prompts only */}
           {!isCreate && onShowHistory && (
             <button

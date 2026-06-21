@@ -2,6 +2,35 @@
 from fastapi import Request
 
 
+def resolve_client_ip(request: Request) -> tuple[str | None, str]:
+    """
+    Resolve the client IP *and* report which signal it came from.
+
+    Same precedence and spoofability rules as :func:`get_client_ip` (see its
+    docstring); this variant additionally returns the source so abuse logging can
+    record whether the spoof-resistant ``X-Real-IP`` was actually present on a
+    throttled request.
+
+    Returns:
+        ``(ip, source)`` where ``source`` is one of ``"x-real-ip"``,
+        ``"x-forwarded-for"``, ``"socket"``, or ``"none"`` (nothing resolved).
+    """
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip and real_ip.strip():
+        return real_ip.strip(), "x-real-ip"
+
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        first = forwarded_for.split(",")[0].strip()
+        if first:
+            return first, "x-forwarded-for"
+
+    if request.client:
+        return request.client.host, "socket"
+
+    return None, "none"
+
+
 def get_client_ip(request: Request) -> str | None:
     """
     Extract the client IP address from request headers.
@@ -24,20 +53,4 @@ def get_client_ip(request: Request) -> str | None:
     Returns:
         Client IP address, or None if it cannot be determined.
     """
-    # X-Real-IP: Railway's documented client-IP header (edge-set, not client-settable).
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip and real_ip.strip():
-        return real_ip.strip()
-
-    # X-Forwarded-For fallback (first entry). Client-settable, so spoofable.
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        first = forwarded_for.split(",")[0].strip()
-        if first:
-            return first
-
-    # Direct connection (local dev / no proxy in front).
-    if request.client:
-        return request.client.host
-
-    return None
+    return resolve_client_ip(request)[0]

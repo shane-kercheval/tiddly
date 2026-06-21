@@ -53,6 +53,14 @@ Link any item to any other across types (bookmark ↔ note ↔ prompt) — e.g. 
 - **Delete** moves an item to **Trash**, where it's recoverable for **30 days**, then permanently purged. Restore from Trash before then. Items in Trash are read-only.
 - Every state change (and edit) is versioned — see "transparency" in https://tiddly.me/llms.txt; full mechanics in https://tiddly.me/prose/versioning.md.
 
+## Sharing (public links)
+
+- **Publish** from an item's detail page: the **Share** control → **Create share link** makes the item public and reveals a stable URL of the form `https://tiddly.me/shared/{bookmarks|notes|prompts}/{token}`. The token is an unguessable per-item value; the URL *is* the credential.
+- **The public view is read-only and minimal**: it shows the content, title/description, and created/updated dates — and an "archived" banner if the item is archived. It deliberately **never** shows the owner's tags, relationships, identity, or internal IDs. A **soft-deleted (trashed) item's link returns 404** — deleting always revokes public access.
+- **Owner controls** (all on the Share control): **Stop sharing** unpublishes — the link stops resolving *immediately*, but the token is kept, so re-publishing restores the *same* URL. **Regenerate link** issues a new token (permanently breaking the old URL) behind a confirm step. Sharing for trashed items isn't offered.
+- **Publishing is not an edit.** Publish/unpublish/regenerate never bump the item's "last updated" time and write no version-history entry — sharing an item never makes it look freshly edited.
+- **Save a copy**: a *signed-in* visitor viewing a shared item sees **Save to Tiddly**, which clones it into their own account as a fresh, independent item — no tags, relationships, or shared state carried over. A logged-out visitor is prompted to sign in first; after signup the copy is saved automatically. The clone respects the saver's plan limits and uniqueness rules (e.g. a prompt-name clash becomes `{name}-copy`, or a clear error).
+
 ## When an agent and a person edit the same item (conflict)
 
 Tiddly uses **optimistic locking**. If an item changed since it was loaded, the save is rejected as a conflict (HTTP 409 over the API). In the web UI the user gets a **"Save Conflict"** dialog — "Your changes could not be saved because the server has a newer version." — with four choices: **Copy My Content** (to clipboard), **Load Latest Version** (discard local), **Save My Version** (overwrite — requires a two-click confirm), or **Do Nothing**. The dialog can't be dismissed by Escape/backdrop; the user must choose.
@@ -68,5 +76,6 @@ As a user creates or edits an item, Pro surfaces inline suggestions in the edito
 The one limitation worth proactively raising in most conversations:
 
 - **Text only.** No image/file uploads or attachments today — external image URLs render via markdown `![alt](url)`, but there's no file hosting. Image attachments are planned (https://tiddly.me/data/roadmap.json).
+- **You can't tell what's shared from a list/search.** The public share token is exposed only on an item's single-item detail response, never on list/search results (so it stays off bulk surfaces, including what the MCP servers serialize). To check or build a share link for a specific item, fetch that item directly.
 
 For the current, authoritative list of smaller editor quirks and limitations (e.g. loose-list spacing, wrapped-line selection), read https://tiddly.me/data/known-issues.json and surface the relevant one if a user hits it.

@@ -11,6 +11,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { Note as NoteComponent } from '../components/Note'
+import { ShareControl } from '../components/ShareControl'
+import { applyShareFields } from '../hooks/useShareMutations'
 import { HistorySidebar } from '../components/HistorySidebar'
 import { ContentAreaSpinner, ErrorState } from '../components/ui'
 import { useNotes } from '../hooks/useNotes'
@@ -275,6 +277,19 @@ export function NoteDetail(): ReactNode {
     return <ErrorState message="Note not found" />
   }
 
+  // Share control: existing, non-trashed items only (a soft-deleted item 404s
+  // publicly, so sharing it would mint a dead link; a new item has no id).
+  const shareControl = effectiveNote && !isCreate && viewState !== 'deleted'
+    ? (
+      <ShareControl
+        type="notes"
+        item={effectiveNote}
+        onShareStateChanged={(updated) => setNote((prev) => applyShareFields(prev ?? effectiveNote, updated))}
+        disabled={createMutation.isPending || updateMutation.isPending}
+      />
+    )
+    : undefined
+
   // Single render path for both create and edit modes.
   // No key prop — the component stays mounted across the create→edit transition
   // (when onSave navigates from /notes/new to /notes/:id), preserving CodeMirror
@@ -284,6 +299,7 @@ export function NoteDetail(): ReactNode {
     <>
       <NoteComponent
         note={effectiveNote ?? undefined}
+        shareControl={shareControl}
         tagSuggestions={tagSuggestions}
         onSave={handleSave}
         onClose={handleBack}

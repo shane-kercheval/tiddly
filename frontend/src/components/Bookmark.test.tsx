@@ -119,6 +119,8 @@ const mockBookmark: BookmarkType = {
   deleted_at: null,
   archived_at: null,
   content_preview: null,
+  is_public: false,
+  public_token: null,
 }
 
 const mockDeletedBookmark: BookmarkType = {

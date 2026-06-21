@@ -146,6 +146,8 @@ interface BookmarkProps {
    * owner's organizational metadata.
    */
   readOnly?: boolean
+  /** Owner share control, rendered in the action toolbar. Omitted in create/readOnly. */
+  shareControl?: ReactNode
 }
 
 /**
@@ -184,6 +186,7 @@ export function Bookmark({
   initialLinkedItems,
   aiAvailable = false,
   readOnly = false,
+  shareControl,
 }: BookmarkProps): ReactNode {
   const isCreate = !bookmark
 
@@ -874,6 +877,9 @@ export function Bookmark({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Share control - existing items only (omitted in create/readOnly/trash) */}
+          {shareControl}
+
           {/* History button - existing bookmarks only */}
           {!isCreate && onShowHistory && (
             <button

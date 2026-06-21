@@ -10,6 +10,8 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Prompt as PromptComponent, SaveError } from '../components/Prompt'
+import { ShareControl } from '../components/ShareControl'
+import { applyShareFields } from '../hooks/useShareMutations'
 import { HistorySidebar } from '../components/HistorySidebar'
 import { ContentAreaSpinner, ErrorState } from '../components/ui'
 import { usePrompts } from '../hooks/usePrompts'
@@ -306,6 +308,19 @@ export function PromptDetail(): ReactNode {
     return <ErrorState message="Prompt not found" />
   }
 
+  // Share control: existing, non-trashed items only (a soft-deleted item 404s
+  // publicly, so sharing it would mint a dead link; a new item has no id).
+  const shareControl = effectivePrompt && !isCreate && viewState !== 'deleted'
+    ? (
+      <ShareControl
+        type="prompts"
+        item={effectivePrompt}
+        onShareStateChanged={(updated) => setPrompt((prev) => applyShareFields(prev ?? effectivePrompt, updated))}
+        disabled={createMutation.isPending || updateMutation.isPending}
+      />
+    )
+    : undefined
+
   // Single render path for both create and edit modes.
   // No key prop — the component stays mounted across the create→edit transition
   // (when onSave navigates from /prompts/new to /prompts/:id), preserving CodeMirror
@@ -315,6 +330,7 @@ export function PromptDetail(): ReactNode {
     <>
       <PromptComponent
         prompt={effectivePrompt ?? undefined}
+        shareControl={shareControl}
         tagSuggestions={tagSuggestions}
         onSave={handleSave}
         onClose={handleBack}

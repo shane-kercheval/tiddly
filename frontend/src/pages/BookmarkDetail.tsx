@@ -11,6 +11,8 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Bookmark as BookmarkComponent } from '../components/Bookmark'
+import { ShareControl } from '../components/ShareControl'
+import { applyShareFields } from '../hooks/useShareMutations'
 import { HistorySidebar } from '../components/HistorySidebar'
 import { ContentAreaSpinner, ErrorState } from '../components/ui'
 import { useBookmarks } from '../hooks/useBookmarks'
@@ -297,11 +299,26 @@ export function BookmarkDetail(): ReactNode {
     return <ErrorState message={error} onRetry={() => navigate(0)} />
   }
 
+  // Share control: existing, non-trashed items only. A soft-deleted item 404s
+  // publicly (sharing it would mint a dead link), and a not-yet-saved item has
+  // no id to share.
+  const shareControl = bookmark && !isCreate && viewState !== 'deleted'
+    ? (
+      <ShareControl
+        type="bookmarks"
+        item={bookmark}
+        onShareStateChanged={(updated) => setBookmark((prev) => applyShareFields(prev ?? bookmark, updated))}
+        disabled={createMutation.isPending || updateMutation.isPending}
+      />
+    )
+    : undefined
+
   return (
     <>
       <BookmarkComponent
         key={bookmark?.id ?? 'new'}
         bookmark={bookmark ?? undefined}
+        shareControl={shareControl}
         tagSuggestions={tagSuggestions}
         onSave={handleSave}
         onClose={handleClose}

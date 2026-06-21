@@ -10,6 +10,8 @@ Caching is handled by ``ETagMiddleware``, which applies the public cache headers
 to ``/public/*`` paths. Each read is rate-limited per client IP (these endpoints
 have no user context for the tier-based limits).
 """
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_async_session, get_current_limits, get_current_user
 from core.auth import get_request_context
 from core.rate_limiter import check_ip_rate_limit
-from core.request_utils import get_client_ip
+from core.request_utils import resolve_client_ip
 from core.tier_limits import TierLimits
 from models.user import User
 from schemas.bookmark import BookmarkCreate, BookmarkResponse, PublicBookmarkResponse
@@ -32,6 +34,8 @@ from services.bookmark_service import (
 from services.content_lines import apply_partial_read
 from services.note_service import NoteService
 from services.prompt_service import NameConflictError, PromptService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -50,9 +54,21 @@ prompt_service = PromptService()
 # limiting, not per-IP. Keep IP limiting scoped to the GET reads.
 async def enforce_public_ip_rate_limit(request: Request) -> None:
     """Rate-limit an unauthenticated public request by client IP; 429 on exceed."""
-    ip = get_client_ip(request) or "unknown"
-    result = await check_ip_rate_limit(ip)
+    ip, ip_source = resolve_client_ip(request)
+    result = await check_ip_rate_limit(ip or "unknown")
     if not result.allowed:
+        # Abuse-audit log for this unauthenticated surface. `ip_source` tells us
+        # whether the spoof-resistant X-Real-IP was actually present (vs. the
+        # client-settable X-Forwarded-For fallback) — both for incident triage
+        # and to confirm the per-IP limit is keying on a trustworthy value in
+        # production. IPs are PII, so we log them only on rejection, never on the
+        # (far more frequent) allowed path.
+        logger.warning(
+            "Public rate limit exceeded for %s (ip_source=%s, path=%s)",
+            ip or "unknown",
+            ip_source,
+            request.url.path,
+        )
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded. Please try again later.",

@@ -45,7 +45,7 @@ const note: NoteType = {
   id: 'n1', title: 'Public Note', description: null, tags: [],
   created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
   last_used_at: '2026-01-01T00:00:00Z', deleted_at: null, archived_at: null,
-  content_preview: null, content: 'Body text',
+  content_preview: null, content: 'Body text', is_public: false, public_token: null,
 }
 
 describe('readOnly render with no limits (logged-out visitor)', () => {

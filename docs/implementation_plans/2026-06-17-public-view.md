@@ -478,3 +478,28 @@ Item owners can publish, unpublish, and rotate the share token from within the i
 - Regenerate shows a confirmation, calls the rotate endpoint, and updates the displayed URL.
 - All three content types have the share UI.
 - Unauthenticated users visiting the public URL see the read-only view (handled by routing — no conditional rendering needed in the share UI itself).
+
+---
+
+## Milestone 7 (post-deployment): verify the public surface against production
+
+**Status:** Pending deploy. Not a code milestone — these checks **cannot** be done locally or before merge, because the subject is **Railway's edge behavior** and the public surface does not exist in production until this feature ships (prod runs `main`, which has no `/public/*`). Do **not** block the M1–M6 merge on this: the per-IP limiter is fail-open and the 256-bit token already defeats enumeration, so this is coarse DoS mitigation, not access control. The "unverified" hedge is documented in `core/request_utils.py` and `docs/architecture.md` §17 precisely so it can ship and be confirmed afterward.
+
+### Goal & Outcome
+
+Confirm the unauthenticated public surface behaves safely in production, and either remove the `X-Real-IP` hedge or fix the header precedence based on what's actually observed.
+
+### Tasks
+
+**1. Verify `X-Real-IP` resolution (the per-IP limiter rests on it).** `get_client_ip`/`resolve_client_ip` (`core/request_utils.py`) trust `X-Real-IP` first as the spoof-resistant, edge-set client IP, falling back to the client-settable `X-Forwarded-For`. This is the assumption to confirm against a real prod request:
+- After deploy, exercise a `/public/*` request from a known external IP (a bogus token works — the IP limiter at `public.py:enforce_public_ip_rate_limit` runs *before* the 404 lookup).
+- Observe what the server resolved. The **permanent 429-rejection log** (added in this work — logs the resolved IP + `ip_source`) covers the throttled path; for the *allowed* path, add a **temporary** debug log of `resolve_client_ip(...)`, observe via `railway logs`, then revert it (do **not** leave per-request IP logging in prod — PII).
+- Confirm three things: (a) `X-Real-IP` is present (`ip_source == "x-real-ip"`); (b) it equals the real client IP, not Railway's proxy; (c) it is **not** client-settable — send a forged `X-Real-IP` and confirm the edge overwrites it. Test with Railway's CDN feature in whatever state production runs (the reported failure case).
+- **Outcome:** if confirmed, drop the "unverified" hedge in `request_utils.py` and §17. If it misbehaves, switch the primary source to whatever header carries the true client IP at the edge.
+
+**2. Security pass on the new unauthenticated surface.** Per `AGENTS.md` "Security Tests" (changes to auth / API endpoints / input validation): review and extend `backend/tests/security/` and the live `deployed/test_live_penetration.py` for the public surface — random/invalid token → 404 (no owner-field leak, no 404-vs-403 oracle), soft-deleted token → 404, and the clone endpoint's auth/quota gates. Then run the deployed pen tests against production (**engineer-triggered**, per the usual).
+
+### Notes
+
+- **Ownership:** the verification + hedge removal can be done with Railway CLI access (read `railway logs`, exercise prod). Triggering the production **deploy** and the **deployed pen-test run** are the engineer's actions.
+- **Permanent 429 IP log (already added):** logs the resolved client IP + source on public rate-limit *rejections only* (not the allowed path) — useful for abuse triage on an unauthenticated surface and fills the "Security Audit Logging" gap noted in `README.md`. IPs are PII; this is rejection-scoped and should be reflected in the privacy policy if not already covered.

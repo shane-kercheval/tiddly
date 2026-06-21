@@ -1,7 +1,7 @@
-"""Unit tests for get_client_ip header-precedence and fallback logic."""
+"""Unit tests for client-IP header-precedence, fallback, and source attribution."""
 from fastapi import Request
 
-from core.request_utils import get_client_ip
+from core.request_utils import get_client_ip, resolve_client_ip
 
 
 def _request(
@@ -47,3 +47,27 @@ def test__returns_none_when_no_signal() -> None:
     """No headers and no client peer yields None."""
     request = _request(client=None)
     assert get_client_ip(request) is None
+
+
+def test__resolve_reports_x_real_ip_source() -> None:
+    """resolve_client_ip flags X-Real-IP as the source when present."""
+    request = _request({"X-Real-IP": "1.1.1.1", "X-Forwarded-For": "2.2.2.2"})
+    assert resolve_client_ip(request) == ("1.1.1.1", "x-real-ip")
+
+
+def test__resolve_reports_forwarded_for_source() -> None:
+    """Without X-Real-IP, the source is the (spoofable) X-Forwarded-For fallback."""
+    request = _request({"X-Forwarded-For": "2.2.2.2, 3.3.3.3"})
+    assert resolve_client_ip(request) == ("2.2.2.2", "x-forwarded-for")
+
+
+def test__resolve_reports_socket_source() -> None:
+    """With no proxy headers, the source is the direct connection peer."""
+    request = _request(client=("9.9.9.9", 5000))
+    assert resolve_client_ip(request) == ("9.9.9.9", "socket")
+
+
+def test__resolve_reports_none_source_when_no_signal() -> None:
+    """No headers and no peer yields (None, "none")."""
+    request = _request(client=None)
+    assert resolve_client_ip(request) == (None, "none")
