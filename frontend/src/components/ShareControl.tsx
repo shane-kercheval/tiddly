@@ -17,7 +17,7 @@
 import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
-import { SharedIcon, LinkIcon, ArrowPathIcon } from './icons'
+import { ShareActionIcon, LinkIcon, ArrowPathIcon } from './icons'
 import { CopyToClipboardButton } from './ui/CopyToClipboardButton'
 import { getApiErrorMessage } from '../utils'
 import { GLOBALLY_TOASTED_STATUSES } from '../services/api'
@@ -145,7 +145,7 @@ export function ShareControl<K extends ShareableType>({
         aria-haspopup="true"
         className={`btn-ghost flex items-center gap-2 ${fields.is_public ? ACTIVE_COLOR[type] : ''}`}
       >
-        <SharedIcon className="h-4 w-4" />
+        <ShareActionIcon className="h-4 w-4" />
         <span className="hidden md:inline">Share</span>
       </button>
 
