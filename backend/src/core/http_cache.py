@@ -40,7 +40,7 @@ CACHE_HEADERS = {
 # Headers for unauthenticated /public/* responses. Unlike CACHE_HEADERS these are
 # NOT private and do NOT Vary on Authorization (there is no auth on these paths).
 # `max-age=0, must-revalidate` forces every request to revalidate against the
-# ETag, so unpublish/rotate (M3) revoke access immediately while the ETag 304
+# ETag, so unpublish/rotate revoke access immediately while the ETag 304
 # path still saves bandwidth (a 304 carries no body). Do not relax to a positive
 # max-age without accepting a stale-serve window after revocation.
 PUBLIC_CACHE_HEADERS = {

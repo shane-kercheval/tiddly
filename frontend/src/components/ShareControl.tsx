@@ -140,13 +140,13 @@ export function ShareControl<K extends ShareableType>({
         type="button"
         onClick={() => (isOpen ? closePanel() : setIsOpen(true))}
         disabled={disabled}
-        aria-label="Share"
+        aria-label={fields.is_public ? 'Shared' : 'Share'}
         aria-expanded={isOpen}
         aria-haspopup="true"
         className={`btn-ghost flex items-center gap-2 ${fields.is_public ? ACTIVE_COLOR[type] : ''}`}
       >
         <ShareActionIcon className="h-4 w-4" />
-        <span className="hidden md:inline">Share</span>
+        <span className="hidden md:inline">{fields.is_public ? 'Shared' : 'Share'}</span>
       </button>
 
       {isOpen && (

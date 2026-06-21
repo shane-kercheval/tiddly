@@ -1,5 +1,5 @@
 /**
- * In-app save route for the public "Save to Tiddly" flow (M5.1).
+ * In-app save route for the public "Save to Tiddly" flow.
  *
  * Reached two ways, both of which need consent collected before the clone runs:
  * - A logged-out visitor clicks "Sign in to save" on a shared page; Auth0

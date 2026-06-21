@@ -360,7 +360,7 @@ async def test_public_response_with_empty_content(
 
 
 # =============================================================================
-# M4: clone ("Save a copy") endpoints
+# Clone ("Save a copy") endpoints
 # =============================================================================
 #
 # The `client` fixture authenticates as the dev user; sources are published by a

@@ -1,5 +1,5 @@
 """
-Tests for the owner share-management endpoints (Milestone 3).
+Tests for the owner share-management endpoints.
 
 These cover the dedicated publish/unpublish/rotate endpoints on the three
 type-specific routers and the invariants the feature relies on:
@@ -32,6 +32,19 @@ async def _create_item(client: AsyncClient, segment: str) -> dict:
         payload = {"title": "Shareable Note", "content": "note body"}
     else:
         payload = {"name": "shareable-prompt", "content": "Summarize the text."}
+    resp = await client.post(f"/{segment}/", json=payload)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def _create_named_item(client: AsyncClient, segment: str, suffix: str) -> dict:
+    """Create one item with a unique URL/name/title (so multiple coexist in a test)."""
+    if segment == "bookmarks":
+        payload: dict = {"url": f"https://example.com/{suffix}", "title": f"Item {suffix}"}
+    elif segment == "notes":
+        payload = {"title": f"Note {suffix}", "content": "note body"}
+    else:
+        payload = {"name": f"prompt-{suffix}", "content": "Summarize the text."}
     resp = await client.post(f"/{segment}/", json=payload)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -287,3 +300,121 @@ async def test_share_endpoints_require_auth(
     assert (await auth_required_client.post(f"{base}/share")).status_code == 401
     assert (await auth_required_client.delete(f"{base}/share")).status_code == 401
     assert (await auth_required_client.post(f"{base}/rotate-share-token")).status_code == 401
+
+
+# =============================================================================
+# shared_at + the "Shared content" filter (powers the owner's shared-content view)
+# =============================================================================
+
+
+@pytest.mark.parametrize("segment", _SEGMENTS)
+async def test_publish_stamps_shared_at_without_bumping_updated_at(
+    client: AsyncClient, segment: str,
+) -> None:
+    """Publishing sets shared_at (surfaced on the unified list) but not updated_at."""
+    item = await _create_item(client, segment)
+    before = next(
+        r for r in (await client.get("/content/")).json()["items"] if r["id"] == item["id"]
+    )
+    assert before["is_public"] is False
+    assert before["shared_at"] is None
+
+    await client.post(f"/{segment}/{item['id']}/share")
+
+    after = next(
+        r for r in (await client.get("/content/?is_public=true")).json()["items"]
+        if r["id"] == item["id"]
+    )
+    assert after["shared_at"] is not None
+    # Sharing is not a content change — the displayed "last updated" must not move.
+    assert after["updated_at"] == before["updated_at"]
+
+
+@pytest.mark.parametrize("segment", _SEGMENTS)
+async def test_shared_content_filter_partitions_public_and_private(
+    client: AsyncClient, segment: str,
+) -> None:
+    """is_public=true returns only shared items; is_public=false only private ones."""
+    shared = await _create_named_item(client, segment, "shared-a")
+    private = await _create_named_item(client, segment, "private-b")
+    await client.post(f"/{segment}/{shared['id']}/share")
+
+    public_ids = {r["id"] for r in (await client.get("/content/?is_public=true")).json()["items"]}
+    assert shared["id"] in public_ids
+    assert private["id"] not in public_ids
+
+    private_ids = {r["id"] for r in (await client.get("/content/?is_public=false")).json()["items"]}
+    assert private["id"] in private_ids
+    assert shared["id"] not in private_ids
+
+
+@pytest.mark.parametrize("segment", _SEGMENTS)
+async def test_shared_content_filter_includes_archived_excludes_deleted(
+    client: AsyncClient, segment: str,
+) -> None:
+    """The shared view (active+archived) includes an archived-but-shared item, never a trashed one."""
+    archived = await _create_named_item(client, segment, "arch")
+    trashed = await _create_named_item(client, segment, "del")
+    await client.post(f"/{segment}/{archived['id']}/share")
+    await client.post(f"/{segment}/{trashed['id']}/share")
+    assert (await client.post(f"/{segment}/{archived['id']}/archive")).status_code == 200
+    assert (await client.delete(f"/{segment}/{trashed['id']}")).status_code == 204
+
+    resp = await client.get("/content/?is_public=true&view=active&view=archived")
+    ids = {r["id"] for r in resp.json()["items"]}
+    assert archived["id"] in ids   # archived content is still public
+    assert trashed["id"] not in ids  # a soft-deleted item is never publicly visible
+
+
+@pytest.mark.parametrize("segment", _SEGMENTS)
+async def test_public_token_absent_from_unified_content(
+    client: AsyncClient, segment: str,
+) -> None:
+    """The unified /content/ list exposes is_public + shared_at, never the raw token."""
+    item = await _create_item(client, segment)
+    await client.post(f"/{segment}/{item['id']}/share")
+
+    row = next(
+        r for r in (await client.get("/content/?is_public=true")).json()["items"]
+        if r["id"] == item["id"]
+    )
+    assert row["is_public"] is True
+    assert row["shared_at"] is not None
+    assert "public_token" not in row
+
+
+@pytest.mark.parametrize("segment", _SEGMENTS)
+async def test_content_sort_by_shared_at_orders_most_recent_first(
+    client: AsyncClient, segment: str,
+) -> None:
+    """sort_by=shared_at orders by publish time (server-side, for the shared view)."""
+    first = await _create_named_item(client, segment, "first")
+    second = await _create_named_item(client, segment, "second")
+    await client.post(f"/{segment}/{first['id']}/share")
+    await client.post(f"/{segment}/{second['id']}/share")  # published later
+
+    resp = await client.get(
+        "/content/?is_public=true&view=active&view=archived&sort_by=shared_at&sort_order=desc",
+    )
+    ids = [r["id"] for r in resp.json()["items"]]
+    assert ids.index(second["id"]) < ids.index(first["id"])  # most-recently shared first
+
+
+@pytest.mark.parametrize("segment", _SEGMENTS)
+async def test_shared_date_range_filter(
+    client: AsyncClient, segment: str,
+) -> None:
+    """shared_after/shared_before filter the list by publish time."""
+    item = await _create_named_item(client, segment, "ranged")
+    await client.post(f"/{segment}/{item['id']}/share")
+    base = "/content/?is_public=true&view=active&view=archived"
+
+    def _ids(resp) -> set[str]:
+        return {r["id"] for r in resp.json()["items"]}
+
+    # A future lower bound excludes it; a past lower bound includes it.
+    assert item["id"] not in _ids(await client.get(f"{base}&shared_after=2999-01-01T00:00:00Z"))
+    assert item["id"] in _ids(await client.get(f"{base}&shared_after=2000-01-01T00:00:00Z"))
+    # A past upper bound excludes it; a future upper bound includes it.
+    assert item["id"] not in _ids(await client.get(f"{base}&shared_before=2000-01-01T00:00:00Z"))
+    assert item["id"] in _ids(await client.get(f"{base}&shared_before=2999-01-01T00:00:00Z"))

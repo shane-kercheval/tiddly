@@ -1,5 +1,5 @@
 """
-Model-layer tests for the public-sharing schema invariants (Milestone 1).
+Model-layer tests for the public-sharing schema invariants.
 
 These guard the two database guarantees the sharing feature relies on, on every
 content table:

@@ -3,9 +3,9 @@
  *
  * Three states, driven by Auth0 init status:
  * - initializing  → neutral placeholder (avoids a flash of the wrong button)
- * - authenticated → "Save a copy" (clones via the M4 endpoint, then navigates)
+ * - authenticated → "Save a copy" (clones via the clone endpoint, then navigates)
  * - anonymous     → "Sign in to save a copy" (Auth0 login, returning to the
- *                    in-app save route so consent can be collected — see M5.1)
+ *                    in-app save route so consent can be collected)
  *
  * Safe on public routes: `AuthProvider` wraps the whole app tree, so
  * `useAuthStatus()` resolves everywhere. `useAuth0()` is only ever called from
@@ -33,7 +33,7 @@ interface SaveACopyProps {
  * first authenticated action is the clone, which is consent-gated (451). The
  * public page mounts no consent UI, so the save would dead-end here. The in-app
  * save route lives under `AppLayout`, where the existing `ConsentDialog`
- * collects consent before the save runs. See M5.1.
+ * collects consent before the save runs.
  */
 function SignInToSave({ type, token }: SaveACopyProps): ReactNode {
   const { loginWithRedirect } = useAuth0()

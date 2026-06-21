@@ -49,9 +49,9 @@ prompt_service = PromptService()
 
 
 # NOTE: this is attached per-GET-endpoint (via each route's `dependencies=[...]`),
-# NOT hoisted to a router-level dependency. M4 adds authenticated POST
-# `.../save` clone endpoints to this same router that must use per-USER rate
-# limiting, not per-IP. Keep IP limiting scoped to the GET reads.
+# NOT hoisted to a router-level dependency. The authenticated POST `.../save`
+# clone endpoints on this same router must use per-USER rate limiting, not
+# per-IP. Keep IP limiting scoped to the GET reads.
 async def enforce_public_ip_rate_limit(request: Request) -> None:
     """Rate-limit an unauthenticated public request by client IP; 429 on exceed."""
     ip, ip_source = resolve_client_ip(request)

@@ -34,6 +34,7 @@ const mockBookmark: ContentListItem = {
   archived_at: null,
   content_preview: null,
   is_public: false,
+  shared_at: null,
 }
 
 const mockNote: ContentListItem = {
@@ -52,6 +53,7 @@ const mockNote: ContentListItem = {
   archived_at: null,
   content_preview: null,
   is_public: false,
+  shared_at: null,
 }
 
 const mockArchivedBookmark: ContentListItem = {
@@ -84,6 +86,7 @@ const mockPrompt: ContentListItem = {
   archived_at: null,
   content_preview: null,
   is_public: false,
+  shared_at: null,
 }
 
 // Mock response builders

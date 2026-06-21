@@ -59,6 +59,7 @@ class TaggableEntity(Protocol):
     archived_at: datetime | None
     is_public: bool
     public_token: str | None
+    shared_at: datetime | None
     tag_objects: list
 
     @property
@@ -716,6 +717,10 @@ class BaseEntityService[T: TaggableEntity](ABC):
             if entity.public_token is None:
                 entity.public_token = _generate_public_token()
             entity.is_public = True
+            # "Shared since" timestamp for the owner's shared-content view. Stamped
+            # on each publish; left in place on unpublish. A distinct column from
+            # updated_at, so this does not make the item look freshly edited.
+            entity.shared_at = func.now()
         else:
             entity.is_public = False
 

@@ -70,6 +70,12 @@ class Bookmark(Base, UUIDv7Mixin, TimestampMixin, ArchivableMixin):
         server_default=text("false"),
     )
     public_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Stamped with the publish time on each publish, left in place on unpublish.
+    # Powers the owner's "Shared content" view (sort by when shared). Writing it
+    # does NOT bump updated_at — sharing is not a content change.
+    shared_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None,
+    )
 
     # Trigger-maintained tsvector for full-text search (see migration for trigger definition)
     search_vector: Mapped[str | None] = mapped_column(

@@ -81,6 +81,41 @@ class TestBookmarkIDOR:
         assert response.status_code == 404
         assert response.json()["detail"] == "Bookmark not found"
 
+    async def test__publish_bookmark__returns_404_for_other_users_bookmark(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_bookmark: Bookmark,
+    ) -> None:
+        """User B cannot publish (share) User A's bookmark — share is owner-scoped."""
+        response = await client_as_user_b.post(f"/bookmarks/{user_a_bookmark.id}/share")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
+    async def test__unpublish_bookmark__returns_404_for_other_users_bookmark(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_bookmark: Bookmark,
+    ) -> None:
+        """User B cannot unpublish User A's bookmark."""
+        response = await client_as_user_b.delete(f"/bookmarks/{user_a_bookmark.id}/share")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
+    async def test__rotate_share_token__returns_404_for_other_users_bookmark(
+        self,
+        client_as_user_b: AsyncClient,
+        user_a_bookmark: Bookmark,
+    ) -> None:
+        """User B cannot rotate the share token on User A's bookmark."""
+        response = await client_as_user_b.post(
+            f"/bookmarks/{user_a_bookmark.id}/rotate-share-token",
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Bookmark not found"
+
     async def test__list_bookmarks__excludes_other_users_data(
         self,
         client_as_user_b: AsyncClient,

@@ -34,6 +34,7 @@ const SettingsMCP = lazy(() => import('./pages/settings/SettingsMCP').then(m => 
 const SettingsTags = lazy(() => import('./pages/settings/SettingsTags').then(m => ({ default: m.SettingsTags })))
 const SettingsFAQ = lazy(() => import('./pages/settings/SettingsFAQ').then(m => ({ default: m.SettingsFAQ })))
 const SettingsVersionHistory = lazy(() => import('./pages/settings/SettingsVersionHistory').then(m => ({ default: m.SettingsVersionHistory })))
+const SettingsSharedContent = lazy(() => import('./pages/settings/SettingsSharedContent').then(m => ({ default: m.SettingsSharedContent })))
 
 // Lazy-loaded docs pages
 const DocsOverview = lazy(() => import('./pages/docs/DocsOverview').then(m => ({ default: m.DocsOverview })))
@@ -145,7 +146,7 @@ const router = createBrowserRouter([
           {
             element: <AppLayout />,
             children: [
-              // In-app save target for the public "Save to Tiddly" flow (M5.1).
+              // In-app save target for the public "Save to Tiddly" flow.
               // Sibling of Layout (not a child) so it runs under AppLayout's
               // consent gate without the app shell's sidebar/filters/tags fetches.
               { path: '/app/save-shared/:type/:token', element: <SaveSharedRedirect /> },
@@ -181,6 +182,7 @@ const router = createBrowserRouter([
                   { path: '/app/settings/ai-integration', element: <SettingsMCP /> },
                   { path: '/app/settings/tags', element: <SettingsTags /> },
                   { path: '/app/settings/history', element: <SettingsVersionHistory /> },
+                  { path: '/app/settings/shared', element: <SettingsSharedContent /> },
                   { path: '/app/settings/faq', element: <SettingsFAQ /> },
                 ],
               },

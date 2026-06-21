@@ -223,6 +223,7 @@ export interface ContentListItem {
   archived_at: string | null
   content_preview: string | null  // First 500 chars of content (whitespace normalized)
   is_public: boolean  // Whether a public share URL is currently active (drives the "shared" indicator).
+  shared_at: string | null  // When last published (set on publish, retained on unpublish). For the shared-content view.
   // Bookmark-specific (null for notes/prompts)
   url: string | null
   // Prompt-specific (null for bookmarks/notes)

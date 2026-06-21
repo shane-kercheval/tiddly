@@ -36,7 +36,8 @@ function Harness({ initial }: { initial: ShareState }): ReactNode {
 }
 
 async function openPanel(): Promise<void> {
-  await userEvent.click(screen.getByRole('button', { name: 'Share' }))
+  // The trigger's label tracks state: "Share" when private, "Shared" when public.
+  await userEvent.click(screen.getByRole('button', { name: /^Shared?$/ }))
 }
 
 describe('ShareControl', () => {

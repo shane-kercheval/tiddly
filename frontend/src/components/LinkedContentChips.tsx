@@ -264,6 +264,7 @@ export const LinkedContentChips = forwardRef(function LinkedContentChips(
       tags: [],
       content_preview: null,
       is_public: false,
+      shared_at: null,
       created_at: '',
       updated_at: '',
       last_used_at: '',

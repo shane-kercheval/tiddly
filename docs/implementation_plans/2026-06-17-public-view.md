@@ -503,3 +503,33 @@ Confirm the unauthenticated public surface behaves safely in production, and eit
 
 - **Ownership:** the verification + hedge removal can be done with Railway CLI access (read `railway logs`, exercise prod). Triggering the production **deploy** and the **deployed pen-test run** are the engineer's actions.
 - **Permanent 429 IP log (already added):** logs the resolved client IP + source on public rate-limit *rejections only* (not the allowed path) — useful for abuse triage on an unauthenticated surface and fills the "Security Audit Logging" gap noted in `README.md`. IPs are PII; this is rejection-scoped and should be reflected in the privacy policy if not already covered.
+
+---
+
+## Milestone 8: "Shared content" settings page
+
+### Goal & Outcome
+
+Owners get one place to audit what they've made public and stop sharing — a `/app/settings/shared` page listing every currently-public item, filterable by type, with inline unshare.
+
+### Implementation
+
+The page is **server-driven** (pagination + sort + filters all applied by the API), mirroring the Version History settings page, so it stays correct at any number of shared items — a client-side "fetch first 100, filter in the browser" version was rejected because its filters/sort would silently cover only the fetched page.
+
+- **Backend:**
+  - New nullable `shared_at` column on all three content tables (migration `77ccf8214c82`). Stamped with the publish time on each publish (in `set_share_state`), left in place on unpublish. Writing it does **not** bump `updated_at` (a distinct column), preserving the "sharing is not a content edit" invariant.
+  - The unified content list endpoint (`GET /content/`) gains: an `is_public` filter (`true` = only shared, `false` = only private, omit = all); a `shared_at` date-range filter (`shared_after`/`shared_before`); and `shared_at` as a `sort_by` option. All threaded through `search_all_content` → `_apply_entity_filters`; `shared_at` is projected onto `ContentListItem`. Sort by `shared_at` reuses the existing `created_at`+UUIDv7-`id` tiebreakers, so offset pagination is stable.
+- **Frontend:**
+  - `SettingsSharedContent` page + `useSharedContent(params)` hook — server-side pagination (`offset`/`limit`), server-side sort by `shared_at` (desc), and server-side type (`content_types`) + date-range filters; `keepPreviousData` for smooth paging. Keyed under `contentKeys.lists()` so the share mutations' existing invalidation refreshes it. A `shared_at` date column, an All time / Last 7 / Last 30 / Custom date preset, and a type filter mirror Version History. Rows link to the item detail (to copy/regenerate the link — the token stays off list responses) and unshare in place via `useShareMutations(type).unpublish`; unsharing the last row on a non-first page steps back a page. **No search** (deliberately omitted). `shared_at` is "last published" (re-stamped on each publish), not "first shared."
+  - Wired into the settings sidebar (globe icon), `App.tsx` route, `routePrefetch.ts`, and `settingsRoutes.tsx` (command palette). The Shared Content page is also noted in `llms-app-usage.txt`.
+
+### Security note (handled)
+
+- **Token stays off the new surface.** The shared-content list uses `ContentListItem`, which carries `is_public`/`shared_at` but **never** `public_token` — so this audit view cannot leak a working share URL. Copying a link requires opening the item detail.
+- **Filter is owner-scoped.** `GET /content/` is `user_id`-scoped like every list query; the `is_public` filter narrows within the owner's own items only.
+
+### Tests
+
+- Backend: `is_public` filter partitions public/private; the shared view includes archived-but-shared and excludes trashed; publish stamps `shared_at` without bumping `updated_at`; `public_token` absent from `/content/`; `sort_by=shared_at` orders by publish time; `shared_after`/`shared_before` bound the range.
+- Security: cross-user publish/unpublish/rotate → 404 (`test_idor.py`); deployed pen tests for the public surface (no-auth read excludes owner fields, unknown token 404, clone requires auth, cross-user rotate 404).
+- Frontend: page lists items, unshares in place, empty + loading states, server params (date preset → `sharedAfter`, Next → `offset`), and stepping back off an emptied last page.

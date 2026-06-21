@@ -57,6 +57,7 @@ import {
   AdjustmentsIcon,
   SparklesIcon,
   HistoryIcon,
+  GlobeIcon,
   HelpIcon,
   ExternalLinkIcon,
   ChevronDownIcon,
@@ -672,6 +673,13 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
                   isCollapsed={isCollapsed}
                   onClick={onNavClick}
                   icon={<HistoryIcon className="h-[18px] w-[18px] text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/shared"
+                  label="Shared Content"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<GlobeIcon className="h-[18px] w-[18px] text-gray-500" />}
                 />
                 <SidebarNavItem
                   to="/app/settings/faq"
