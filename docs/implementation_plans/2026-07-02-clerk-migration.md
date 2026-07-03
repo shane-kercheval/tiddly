@@ -2,7 +2,7 @@
 
 **Status**: Planned
 **Date**: 2026-07-02
-**Scope**: Web app, FastAPI backend, Postgres, Go CLI, MCP servers (adds OAuth — resolves [KAN-57](https://tiddly.atlassian.net/browse/KAN-57)). Out of scope: billing (Clerk Billing evaluated separately — open VAT/refunds questions), iOS app (separate repo; migrates on its own timeline after the M6a cutover — the M6b decommission is explicitly gated on it), Chrome extension (PAT-only today; no changes required).
+**Scope**: Web app, FastAPI backend, Postgres, Go CLI, MCP servers (adds OAuth — background and requirements in Appendix A; tracked internally as KAN-57). Out of scope: billing (Clerk Billing evaluated separately — open VAT/refunds questions), iOS app (separate repo; migrates on its own timeline after the M6a cutover — the M6b decommission is explicitly gated on it), Chrome extension (PAT-only today; no changes required).
 
 ## Context & Goals
 
@@ -12,7 +12,7 @@ Goals, in priority order:
 
 1. Migrate all users (email/password + Google social) to Clerk with zero data loss and passwords preserved.
 2. End state looks as if Clerk had been implemented from the start — **no Auth0 residue in code, config, or schema**, and provider-specific shape contained to a narrow seam (see Architecture Decisions).
-3. Ship MCP OAuth (KAN-57) as part of the migration — unlocks ChatGPT and Claude Desktop native connectors.
+3. Ship MCP OAuth (Appendix A) as part of the migration — unlocks ChatGPT and Claude Desktop native connectors.
 4. Maintain a capability ledger documenting Auth0↔Clerk functional differences discovered during the work.
 
 ## Architecture Decisions (locked — do not relitigate during implementation)
@@ -37,7 +37,7 @@ These decisions came out of design discussion and cannot be recovered from the c
 
 **AD9 — CLI: device flow → authorization code + PKCE with loopback callback; PATs are the headless story.** Clerk does not support RFC 8628 device authorization (verified against OAuth server metadata, Clerk's own CLI-auth blog, and their public roadmap where it is backlog-only). The replacement is the `gh auth login` pattern: ephemeral listener on `127.0.0.1`, browser to Clerk's `/oauth/authorize` with PKCE (S256), code exchange at `/oauth/token`, tokens in the OS keyring. This loses true remote/SSH interactive login (browser must run on the same machine as the CLI); the documented fallback is `tiddly login --token bm_...`, which already works and does not change.
 
-**AD10 — MCP servers stay thin bearer-passthrough proxies.** KAN-57 is implemented exactly as the ticket sketches, with Clerk substituted for Auth0 as the authorization server: each MCP server adds one static discovery endpoint (`/.well-known/oauth-protected-resource`) pointing at Clerk; Clerk handles DCR, login, consent, and token issuance; the MCP servers keep forwarding whatever bearer arrives; the **backend API** is the only component that verifies tokens. Bearer/PAT auth remains supported (backward compatibility is a must-have in the ticket).
+**AD10 — MCP servers stay thin bearer-passthrough proxies.** MCP OAuth is implemented exactly as sketched in Appendix A, with Clerk substituted for Auth0 as the authorization server: each MCP server adds one static discovery endpoint (`/.well-known/oauth-protected-resource`) pointing at Clerk; Clerk handles DCR, login, consent, and token issuance; the MCP servers keep forwarding whatever bearer arrives; the **backend API** is the only component that verifies tokens. Bearer/PAT auth remains supported (a must-have requirement — Appendix A).
 
 **AD11 — Capability ledger.** `docs/auth0-clerk-ledger.md` is a living document, seeded in M0 and updated in every milestone's Definition of Done. Entry shape: capability · how Auth0 does it · how Clerk does it · what migrating took · gained/lost/neutral · gotchas (including "possible on both, but…" nuances and divergences from Clerk's own guides, per AD3/AD4). This is the raw material for a later external writeup; be blunt in it.
 
@@ -51,7 +51,7 @@ These decisions came out of design discussion and cannot be recovered from the c
 - MCP auth: https://modelcontextprotocol.io/specification/draft/basic/authorization (RFC 9728 protected-resource metadata) · https://clerk.com/docs/nextjs/guides/ai/mcp/build-mcp-server (Node reference — we port the *shape*, not the code)
 - React SPA & production deploy: https://clerk.com/docs (React quickstart) · https://clerk.com/docs/guides/development/deployment/production · https://clerk.com/docs/guides/development/managing-environments
 - Python SDK (M2 import script only, per AD7): https://pypi.org/project/clerk-backend-api/
-- KAN-57: https://tiddly.atlassian.net/browse/KAN-57
+- MCP OAuth background, platform matrix, and requirements: Appendix A (self-contained; no internal-tracker access needed)
 
 ## Operator (human) steps — the agent cannot do these
 
@@ -83,7 +83,7 @@ There is no dev/staging Railway environment, and none needs to be created. Day-t
 De-risk the medium-confidence findings from research before any production code changes, and start the ledger.
 
 - A Clerk dev instance exists and a throwaway script proves: FastAPI can verify a real Clerk session token via PyJWT+JWKS with an `azp` check; a custom email + email-verified claim appears in the session token; a Clerk OAuth app issues JWT access tokens verifiable against the same JWKS.
-- Open questions answered and recorded: exact claim names/shortcodes for email + verification status; OAuth access-token default lifetime and whether refresh tokens require a scope to be issued; how Clerk meters/limits DCR-registered clients (Auth0's free tier caps at 10 applications — KAN-57 flags DCR spam risk; confirm Clerk's equivalent posture); shape differences between session-token claims and OAuth access-token claims (`sub` present in both? email present in OAuth tokens?); **whether OAuth access tokens arrive JWT-formatted for both operator-created OAuth apps and DCR-registered clients, and where the JWT-vs-opaque format setting lives (per-app vs instance)** — the backend's issuer-routed dispatch requires JWTs (Clerk supports an opaque format, which would 401; see M1 step 3 and the M4/M5 operator steps). Do not build an opaque-token verification path — it would reintroduce the Backend-API-on-the-hot-path dependency AD7 rejects; JWT format is a configuration requirement.
+- Open questions answered and recorded: exact claim names/shortcodes for email + verification status; OAuth access-token default lifetime and whether refresh tokens require a scope to be issued; how Clerk meters/limits DCR-registered clients (Auth0's free tier caps at 10 applications — Appendix A flags DCR spam risk; confirm Clerk's equivalent posture); shape differences between session-token claims and OAuth access-token claims (`sub` present in both? email present in OAuth tokens?); **whether OAuth access tokens arrive JWT-formatted for both operator-created OAuth apps and DCR-registered clients, and where the JWT-vs-opaque format setting lives (per-app vs instance)** — the backend's issuer-routed dispatch requires JWTs (Clerk supports an opaque format, which would 401; see M1 step 3 and the M4/M5 operator steps). Do not build an opaque-token verification path — it would reintroduce the Backend-API-on-the-hot-path dependency AD7 rejects; JWT format is a configuration requirement.
 - `docs/auth0-clerk-ledger.md` created and seeded with the already-known entries (device-flow absence, no custom OAuth scopes, no client_credentials, hash-export-by-ticket vs Clerk self-serve export, session-token model differences, account-linking behavior, AD3/AD4 divergences, `future-identities.md` obsolescence).
 
 ### Implementation Outline
@@ -228,7 +228,7 @@ Edge case from discussion to verify explicitly: laptop-sleep / long-idle tab fol
 
 ---
 
-## Milestone 5 — MCP OAuth (KAN-57)
+## Milestone 5 — MCP OAuth (Appendix A)
 
 ### Goal & Outcome
 
@@ -240,7 +240,7 @@ MCP clients that require OAuth can connect to Tiddly's MCP servers with a paste-
 
 ### Implementation Outline
 
-Per AD10, the servers stay proxies; the ticket's own checklist is the shape. For each MCP server:
+Per AD10, the servers stay proxies; Appendix A's requirements are the shape. For each MCP server:
 
 1. Serve the protected-resource metadata (static JSON: `resource` = that server's public URL, `authorization_servers` = [Clerk domain], `bearer_methods_supported: ["header"]`). Each server states its own `resource` — config-driven, since the two servers have different domains. Serve **`GET` and `OPTIONS` with permissive CORS** (browser-based clients preflight), at **both** the root well-known path (`/.well-known/oauth-protected-resource`) and the path-suffixed variant (`/.well-known/oauth-protected-resource/mcp`) — client implementations differ on which they request.
 2. **This is new HTTP-layer auth gating, not a realignment — and it is the riskiest piece of M5.** Neither server rejects unauthenticated requests at the HTTP layer today: the content server fails at tool-invocation time (`_get_token` → FastMCP `ToolError`), and the prompt server's `AuthMiddleware` only *stages* the token into a contextvar, rejecting nothing. Add ASGI-level, pre-dispatch bearer checks to both: a missing `Authorization` header on the MCP endpoint → HTTP 401 with `WWW-Authenticate: Bearer resource_metadata="<metadata-url>"` (RFC 9728 §5 — this is what triggers client OAuth bootstrap) *before* any MCP/JSON-RPC handling. **Presence-only at the proxy**: a present-but-invalid bearer flows through and fails at the backend API, which remains the only verifier (AD10) — state this boundary in code. Existing bearer clients send the header on every request and never hit the gate; regression-test that explicitly rather than assuming it.
@@ -252,7 +252,7 @@ Per AD10, the servers stay proxies; the ticket's own checklist is the shape. For
 ### Definition of Done
 
 - Tests, per server: no-bearer request → 401 with the correct `WWW-Authenticate` header before MCP dispatch; bearer-present request (valid or invalid) passes the gate and reaches the proxy path unchanged; metadata content + CORS headers on GET/OPTIONS for both path variants. Regression: existing bearer-extraction tests untouched and passing, plus an explicit end-to-end check that a `tiddly mcp configure`-style bearer config works from the first request.
-- Manual verification ladder from the ticket: MCP Inspector → Claude Desktop connector → ChatGPT (operator accounts) → Codex OAuth. Record results in the ticket and mark KAN-57 accordingly.
+- Manual verification ladder (Appendix A's platform matrix): MCP Inspector → Claude Desktop connector → ChatGPT (operator accounts) → Codex OAuth. Record results against the matrix; operator updates the internal tracking ticket.
 - `llms-integration.txt` updated (it documents the auth surfaces; the "Auth0-only 403 surfaces" phrasing also needs the M6-era rename, but the MCP-OAuth capability is added now, pointing at canonical sources per the anti-drift rules).
 - Ledger updated (DCR/entity-limit comparison vs Auth0's 10-app free-tier cap — the entry this project was partly motivated by).
 
@@ -298,7 +298,7 @@ Two separately shipped halves. **M6a** puts web, CLI, and MCP on Clerk in produc
 - `make tests` (full suite) clean; deployed security tests green against production (operator-run, results reported).
 - Grep-level assertion: no case-insensitive `auth0` matches in code/config outside `docs/` history (implementation plans and the ledger legitimately reference it) and historical migration files (which are immutable — never edit old Alembic migrations; the *new* drop-column migration is the change).
 - All sync-listed docs updated; ledger finalized.
-- KAN-57 closed.
+- Appendix A's platform matrix fully verified; operator closes the internal tracking ticket.
 
 ---
 
@@ -308,3 +308,48 @@ Two separately shipped halves. **M6a** puts web, CLI, and MCP on Clerk in produc
 - MCP OAuth grants are all-or-nothing (Clerk has no custom OAuth scopes yet) — parity with today's unscoped PATs, no regression.
 - One forced re-login per client at its own cutover (web/CLI at M6a; iOS when its update ships). During the M6a→M6b window: Auth0-side password changes do not propagate to Clerk, and users who sign up during the window cannot use the iOS app until it ships.
 - Clerk reliability posture: sign-ins depend on Clerk uptime (as with Auth0); networkless JWT verification means existing tokens keep verifying during a Clerk outage, but with ~60s session tokens the practical grace window for web sessions is about a minute. Accepted at current scale; revisit (e.g., tolerating slightly-stale tokens during incidents) only if it bites.
+
+---
+
+## Appendix A — MCP OAuth: background and requirements
+
+Self-contained rewrite of an internal tracking ticket (KAN-57) so this public document doesn't depend on private-tracker access. The ticket was originally authored with Auth0 as the authorization server; M5 supersedes those specifics — Clerk plays the authorization-server role. The problem statement, platform facts, and requirements below are unchanged.
+
+### Problem
+
+Tiddly's MCP servers authenticate with bearer tokens (PATs). That works for clients that let users configure headers, but two major platforms cannot use bearer tokens at all — OAuth is their only supported auth for remote MCP servers. Until the servers speak OAuth, those integrations are impossible (ChatGPT) or require a proxy workaround (Claude Desktop via `mcp-remote`).
+
+### Platform compatibility target
+
+| Platform | Auth method |
+| --- | --- |
+| Claude Desktop / Claude web (native Connectors UI) | OAuth (required for the paste-a-URL experience) |
+| ChatGPT | OAuth (mandatory — no bearer option) |
+| Claude Code | OAuth or bearer token (`--header`) |
+| Codex CLI | OAuth or bearer token (`bearer_token_env_var` / `http_headers`) |
+
+### Requirements
+
+1. Each MCP server serves `/.well-known/oauth-protected-resource` (RFC 9728) — **the only OAuth endpoint we implement**. The identity provider serves everything else: authorization-server metadata (RFC 8414), dynamic client registration (RFC 7591), the authorize and token endpoints.
+2. Dynamic client registration is enabled at the identity provider, so MCP clients register themselves — no pre-provisioned client IDs or callback URLs per platform.
+3. Existing bearer/PAT auth keeps working unchanged (must-have — Claude Code, Codex, and all current configs rely on it).
+
+### How the OAuth bootstrap works (per the MCP authorization spec)
+
+1. Client sends an unauthenticated request to the MCP server and receives HTTP 401 with a pointer to the resource metadata.
+2. Client reads `/.well-known/oauth-protected-resource` from the MCP server, learning where the authorization server is.
+3. Client reads the authorization server's metadata, registers itself via DCR (obtaining a `client_id`), and sends the user through browser login/consent.
+4. Client attaches the issued token as a bearer on every MCP request; token verification happens server-side exactly as for any other bearer (in Tiddly's architecture: at the backend API, not the MCP proxy — see AD10).
+
+### DCR considerations
+
+- **Pros**: universal client compatibility; best UX (users paste one URL); clients manage their own callback URLs; no manual per-platform client creation.
+- **Cons**: open registration (anyone can register a client — spam/abuse surface; this motivated the original concern about Auth0's 10-application free-tier entity limit, and is why M0 verifies how Clerk meters DCR-registered clients); no control over client names/logos; harder to revoke a specific platform; the spec area is still evolving (e.g., Client ID Metadata Documents).
+
+### References (public)
+
+- MCP authorization spec: https://modelcontextprotocol.io/specification/draft/basic/authorization
+- RFC 9728 (OAuth 2.0 Protected Resource Metadata) · RFC 7591 (Dynamic Client Registration) · RFC 8414 (Authorization Server Metadata)
+- Claude custom connectors: https://support.claude.com/en/articles/11503834-building-custom-connectors-via-remote-mcp-servers
+- ChatGPT MCP authentication: https://developers.openai.com/apps-sdk/build/auth/
+- Codex MCP configuration: https://developers.openai.com/codex/mcp/
