@@ -2,7 +2,7 @@
 
 **Status**: Planned
 **Date**: 2026-07-02
-**Scope**: Web app, FastAPI backend, Postgres, Go CLI, MCP servers (adds OAuth — resolves [KAN-57](https://tiddly.atlassian.net/browse/KAN-57)). Out of scope: billing (Clerk Billing evaluated separately — open VAT/refunds questions), iOS app (separate repo; follows once the backend accepts Clerk tokens), Chrome extension (PAT-only today; no changes required).
+**Scope**: Web app, FastAPI backend, Postgres, Go CLI, MCP servers (adds OAuth — resolves [KAN-57](https://tiddly.atlassian.net/browse/KAN-57)). Out of scope: billing (Clerk Billing evaluated separately — open VAT/refunds questions), iOS app (separate repo; migrates on its own timeline after the M6a cutover — the M6b decommission is explicitly gated on it), Chrome extension (PAT-only today; no changes required).
 
 ## Context & Goals
 
@@ -27,7 +27,7 @@ These decisions came out of design discussion and cannot be recovered from the c
 
 **AD4 — Divergence from Clerk's migration guide: no trickle migration.** Clerk documents running both providers in parallel and migrating users on activity. At our scale this is machinery without payoff. We do: bulk import → backend dual-accept window → single coordinated client flip → soak → decommission.
 
-**AD5 — Cutover = backend dual-accept, single frontend/CLI flip.** During the transition window the backend verifies JWTs from *both* issuers (routing on the token's `iss` claim); both paths resolve to the same `users.id` row (Auth0 tokens via `auth0_id`, Clerk tokens via `external_auth_id`), so a user mid-transition (web on Clerk, CLI on a lingering Auth0 refresh token) sees one consistent account. The two columns coexist **only** during this window; the decommission milestone drops `auth0_id`.
+**AD5 — Cutover = backend dual-accept, single frontend/CLI flip.** During the transition window the backend verifies JWTs from *both* issuers (routing on the token's `iss` claim); both paths resolve to the same `users.id` row (Auth0 tokens via `auth0_id`, Clerk tokens via `external_auth_id`), so a user mid-transition (web on Clerk, CLI on a lingering Auth0 refresh token) sees one consistent account. The two columns coexist **only** during this window; the decommission (M6b) drops `auth0_id`. The window deliberately spans the iOS app's independent migration: M6a flips web/CLI/MCP to Clerk in production while iOS keeps authenticating via Auth0; M6b is gated on the iOS update shipping. Two window rules follow: (1) the production import must be complete before the first production Clerk login — an unimported user would JIT into a fresh, empty account; (2) no new Auth0 identities may be created once sign-up moves to Clerk — otherwise the same person can end up with two unlinked accounts (one per provider).
 
 **AD6 — Neutral naming at the small leaks.** `AuthType.AUTH0` → `AuthType.SESSION` (mechanism-descriptive, covers both issuers during dual-accept; a future provider swap doesn't touch it). Redis auth-cache key segment `auth:vN:user:auth0:{id}` → `auth:vN:user:ext:{id}` with a schema-version bump. Historical `content_history.auth_type` rows keep the literal `"auth0"` — audit rows describe what was true at the time; do not backfill.
 
@@ -62,7 +62,8 @@ Flagged inline per milestone, collected here so nothing blocks silently:
 - **M3**: Activate the Clerk production instance (of the M0 application; `clerk deploy` clones the dev-instance config); DNS CNAME records on tiddly.me (DNS-only, not proxied; up to 48h propagation); reuse the existing Google OAuth credentials with Clerk's redirect URI (prod instance requires real credentials — the dev instance used Clerk's shared ones); set Railway env vars. **The step-by-step operator walkthrough for all of this is an M3 deliverable**: the README_DEPLOY.md "Step 6: Configure Auth0" section gets a Clerk replacement (drafted in M3 while fresh, finalized in M6's docs sweep) — this plan intentionally does not duplicate that walkthrough. Calibration for the replacement: **exhaustively specific about WHAT must exist in Clerk** (every setting, value, and which instance it belongs to), with general dashboard direction only ("Dashboard → Sessions → Customize session token"-level) — not click-by-click UI paths, which rot as the dashboard changes (parts of the old Auth0 Step 6 demonstrate this).
 - **M4**: Create the Clerk OAuth application for the CLI (public client, PKCE) — **with JWT access-token format enabled** (the backend's networkless verification, AD7, depends on it; opaque tokens 401 with the M1 warning log). Create it on **both instances**: dev for milestone testing, prod for cutover (the prod app has a different client_id — the CLI's hardcoded default config points at prod, env overrides point at dev, mirroring today's `TIDDLY_AUTH0_*` pattern).
 - **M5**: Enable dynamic client registration and **confirm DCR-registered clients issue JWT access tokens** (per the M0 spike finding on where the format setting lives) — on both instances, same dev/prod split as M4; test connectors from Claude Desktop / ChatGPT accounts.
-- **M6**: Send the user cutover email; run the deployed security tests against production; decommission **both Auth0 tenants** (dev and prod).
+- **M6a**: Send the cutover email (web/CLI re-login required; iOS unaffected for now; note that password changes made on the Auth0/iOS side won't carry to Clerk during the window). Close Auth0 sign-ups: turn off sign-ups on the Auth0 DB connection and block first-time social sign-ins with a small post-login Action — the requirement is that no new Auth0 identity can be created after the flip.
+- **M6b** (gated on the iOS app update shipping): run the deployed security tests against production; decommission **both Auth0 tenants** (dev and prod).
 
 ## Environment & testing strategy (Railway hosts production only — no permanent staging)
 
@@ -71,7 +72,7 @@ There is no dev/staging Railway environment, and none needs to be created. Day-t
 - **M0–M4: full stack locally with real auth.** Same local real-auth setup as today, pointed at the Clerk **dev instance** (`pk_test_`/`sk_test_` keys; Clerk dev instances work on localhost with no DNS records). M1's dual-accept is testable entirely locally by configuring the dev Auth0 tenant and the Clerk dev instance side by side — verify a dev-tenant Auth0 token and a Clerk token resolve to the same local user row. Required non-dev settings (`AUTH0_CUSTOM_CLAIM_NAMESPACE` until M6, Clerk settings from M1) stay set in the local env as today. The CLI's loopback OAuth (M4) is inherently localhost-friendly (`TIDDLY_AUTH0_*`-style env overrides already exist for pointing the CLI at a non-prod tenant; the Clerk equivalents replace them in M4).
 - **M2: rehearse the import against a restored production backup.** Restore a prod Postgres backup into local Postgres and run the import (dry-run first) against the Clerk dev instance. This is the data-risk rehearsal; the production run in M6 must not be the first full-fidelity run.
 - **M5: connector testing needs a public HTTPS URL** (ChatGPT/Claude Desktop cannot reach localhost). Default: tunnel the locally-running MCP servers (e.g. cloudflared/ngrok). Fallback if a connector client rejects tunnel domains: temporarily duplicate the Railway environment (Railway supports isolated environment copies within a project) and tear it down after.
-- **M6 has no staging rehearsal — by design.** The mitigations are the dual-accept window (backend accepts both issuers, so the old frontend keeps working), Railway deployment rollback (re-deploy the prior frontend build to revert the flip), and soak-before-decommission (the Auth0 code path is only deleted after production has proven the Clerk path). The production Clerk instance and its DNS records (M3 prep) are additive and can be created/verified without touching the running app.
+- **M6a has no staging rehearsal — by design.** The mitigations are the dual-accept window (backend accepts both issuers, so the old frontend keeps working), Railway deployment rollback (re-deploy the prior frontend build to revert the flip), and soak-before-decommission (the Auth0 code path is only deleted after production has proven the Clerk path). The production Clerk instance and its DNS records (M3 prep) are additive and can be created/verified without touching the running app.
 
 ---
 
@@ -103,7 +104,7 @@ The backend verifies both Auth0 and Clerk JWTs, resolving both to the same user 
 
 - A request bearing a valid Clerk session token authenticates, JIT-provisions a user on first sight (same semantics as today's Auth0 path), and passes consent/rate-limit checks identically.
 - All existing Auth0-token and PAT behavior is unchanged and all existing tests pass.
-- Every Auth0-path authentication emits a log line (the M6 "is the Auth0 path quiet yet?" signal).
+- Every Auth0-path authentication emits a log line that includes the resolved request source (the cutover signal — during the M6a→M6b window, `ios` is expected to be the only remaining Auth0 source, so the log must distinguish clients).
 - The schema has a nullable unique `users.external_auth_id` column, empty for now.
 
 ### Implementation Outline
@@ -151,7 +152,7 @@ Contract and edge cases decided in discussion:
 - Backfill: match each `users.auth0_id` row to its created Clerk user, write `external_auth_id`. Any Postgres row without a match, or Clerk user without a row, is a **hard failure** printed in the report — never guess-match by email at write time.
 - `--dry-run` prints the full intended mapping without writing to Clerk or Postgres. Idempotency: re-runs must not duplicate (look up by `external_id`/email before create). Handle Clerk 429s with backoff (rate limits are generous relative to our user count, but don't crash mid-import).
 
-Run order: dry-run against dev instance → real run against dev instance with a test export → (M6 cutover) real run against production instance.
+Run order: dry-run against dev instance → real run against dev instance with a test export → (M6a cutover) real run against production instance.
 
 ### Definition of Done
 
@@ -257,24 +258,34 @@ Per AD10, the servers stay proxies; the ticket's own checklist is the shape. For
 
 ---
 
-## Milestone 6 — Cutover, soak, decommission
+## Milestone 6 — Production cutover (M6a), then decommission (M6b)
+
+Two separately shipped halves. **M6a** puts web, CLI, and MCP on Clerk in production while the iOS app keeps using Auth0 through the dual-accept window. **M6b** — gated on the iOS app update shipping (separate repo, independent timeline) — removes Auth0 entirely. The split exists so the cutover (and the MCP OAuth win) is not blocked on the iOS developer.
 
 ### Goal & Outcome
 
-Production runs entirely on Clerk; Auth0 is gone from code, config, schema, and vendor accounts. The system reads as if Clerk were there from day one.
+**M6a — cutover.** Production runs web, CLI, and MCP on Clerk; iOS users notice nothing.
 
-- Production import executed; all users sign in via Clerk (one forced re-login, announced in advance — all Auth0 sessions, CLI keyring refresh tokens, and web sessions die at flip).
-- After soak: no `auth0_id` column, no Auth0 verification path, no `AUTH0_*`/`VITE_AUTH0_*` env vars, no `@auth0/auth0-react`, no Auth0-specific validator (including the cron-service `AUTH0_CUSTOM_CLAIM_NAMESPACE` requirement — cron Settings validation now keys on the Clerk equivalent), no Auth0 tenant.
+- Production import executed and reconciled; web and CLI users sign in via Clerk (one forced re-login per client, announced in advance).
+- iOS keeps working against Auth0, resolving to the **same** accounts (dual-accept).
+- New sign-ups happen exclusively in Clerk; no new Auth0 identity can be created for the remainder of the window.
+- Window caveats, accepted and stated in the cutover email: an Auth0-side password change does not carry to Clerk, and users who sign up during the window cannot use the iOS app until its update ships. The window is bounded by the iOS timeline — keep it moving.
+
+**M6b — decommission.** Auth0 is gone from code, config, schema, and vendor accounts; the system reads as if Clerk were there from day one.
+
+- After iOS ships and soak completes: no `auth0_id` column, no Auth0 verification path, no `AUTH0_*`/`VITE_AUTH0_*` env vars, no `@auth0/auth0-react`, no Auth0-specific validator (including the cron-service `AUTH0_CUSTOM_CLAIM_NAMESPACE` requirement — cron Settings validation now keys on the Clerk equivalent), no Auth0 tenant.
 - Security tests updated and run against production.
 - All docs-to-keep-in-sync updated.
 
 ### Implementation Outline
 
-Sequenced — order is load-bearing:
+**M6a — cutover** (order is load-bearing):
 
-1. **Pre-flip**: operator sends the heads-up email; production Clerk instance + DNS verified live (from M3 prep); run the M2 import against production (dry-run, review report, real run, review report).
-2. **Flip**: deploy frontend (Clerk env vars) + backend (dual-accept already live since M1). Verify login, CLI login, MCP connector, Chrome extension (PAT — should be unaffected; verify anyway).
-3. **Soak**: watch the M1 Auth0-path log line until it has been quiet for the agreed window (at our user count: days, not weeks; operator's call). Fix-forward anything that surfaces.
+1. **Pre-flip**: operator sends the heads-up email; production Clerk instance + DNS verified live (from M3 prep); **close Auth0 sign-ups** (per the operator step — no new Auth0 identity creatable from here on); run the M2 import against production (dry-run, review report, real run, review report). The import must be complete and reconciled **before** the flip — a production Clerk login by an unimported user would JIT-create a fresh, empty account.
+2. **Flip**: deploy frontend (Clerk env vars) + backend (dual-accept already live since M1). Verify login, CLI login, MCP connector, Chrome extension (PAT — should be unaffected; verify anyway), **and that an iOS (Auth0) login and a web (Clerk) login by the same user land on the same account**.
+3. **Soak**: the Auth0-path log will *not* go quiet while iOS traffic continues — watch for Auth0-path authentications from any source other than `ios` (the M1 log line includes the request source for exactly this reason). Fix-forward anything that surfaces.
+
+**M6b — decommission.** Gate: the iOS app update is shipped and adopted, **and** the Auth0-path log is quiet including `ios` (operator's call on the wait; at our user count, days once iOS is out). Then:
 4. **Decommission change-set**: remove Auth0 verification branch + issuer routing's Auth0 arm (unknown issuer → 401 remains); remove Auth0 config/validators, replacing the "namespace required in non-dev" safety check with the Clerk-settings equivalent introduced in M1; migration to drop `users.auth0_id`, drop the M1 transitional identity CHECK constraint, and set `external_auth_id` NOT NULL; drop the transitional cache key/fallback from M1 and bump the cache schema version again; remove `CachedUser.auth0_id`; delete `TIDDLY_AUTH0_*` handling remnants in the CLI; remove `.env.example` Auth0 vars.
 5. **Dev-mode synthetic user**: currently `auth0_id="dev|local-development-user"` — becomes an `external_auth_id` sentinel; keep the same shape/semantics, update `docs/architecture.md`'s mention.
 6. **Security tests** (AGENTS.md obligation): update `backend/tests/security/` and `tests/security/deployed/` for the Clerk world (the deployed tests use PATs and should need little; anything asserting Auth0-specific 401/403 text or claims gets updated). Operator runs `test_live_penetration.py` against production.
@@ -283,6 +294,7 @@ Sequenced — order is load-bearing:
 
 ### Definition of Done
 
+- M6a done: import reconciled to zero discrepancy; flip verified across web, CLI, MCP, and extension; iOS-on-Auth0 verified against the same accounts; Auth0 sign-ups closed. M6b done means everything below:
 - `make tests` (full suite) clean; deployed security tests green against production (operator-run, results reported).
 - Grep-level assertion: no case-insensitive `auth0` matches in code/config outside `docs/` history (implementation plans and the ledger legitimately reference it) and historical migration files (which are immutable — never edit old Alembic migrations; the *new* drop-column migration is the change).
 - All sync-listed docs updated; ledger finalized.
@@ -294,5 +306,5 @@ Sequenced — order is load-bearing:
 
 - Interactive CLI login requires a browser on the CLI's machine; SSH/headless uses PATs (AD9).
 - MCP OAuth grants are all-or-nothing (Clerk has no custom OAuth scopes yet) — parity with today's unscoped PATs, no regression.
-- One forced re-login for all users and clients at cutover.
+- One forced re-login per client at its own cutover (web/CLI at M6a; iOS when its update ships). During the M6a→M6b window: Auth0-side password changes do not propagate to Clerk, and users who sign up during the window cannot use the iOS app until it ships.
 - Clerk reliability posture: sign-ins depend on Clerk uptime (as with Auth0); networkless JWT verification means existing tokens keep verifying during a Clerk outage, but with ~60s session tokens the practical grace window for web sessions is about a minute. Accepted at current scale; revisit (e.g., tolerating slightly-stale tokens during incidents) only if it bites.
