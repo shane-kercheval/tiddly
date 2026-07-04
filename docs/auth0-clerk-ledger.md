@@ -146,3 +146,4 @@ A living record of the functional differences between Auth0 and Clerk as discove
 | 8 | Does Clerk API-key verification require a live Clerk call, support per-user caps, and expose enough for our audit trail? | Post-migration spike (AD1); owner: Shane | [OPEN] |
 | 9 | Does the iOS app send `X-Request-Source: ios`? | M6a operator confirmation (cross-repo) | [OPEN] |
 | 10 | Can a user created with no password (`skip_password_requirement`) set their *first* password through the forgot-password flow, or must email-code sign-in be enabled for them? | M0 spike | [OPEN] |
+| 11 | How do session tokens minted by Clerk's native iOS SDK present `azp` (an iOS app has no web origin) — what must the backend's authorized-parties allowlist include? | M0 spike / M1 verification; feeds `ios-clerk-migration-guide.md` | [OPEN] |
