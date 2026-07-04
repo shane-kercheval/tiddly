@@ -308,6 +308,7 @@ Two separately shipped halves. **M6a** puts web, CLI, and MCP on Clerk in produc
 - M6a done: import reconciled to zero discrepancy; flip verified across web, CLI, MCP, and extension; iOS-on-Auth0 verified against the same accounts; Auth0 sign-ups closed **and the freeze verified by attempting to create a new Auth0 identity via both the DB connection and the social path (both must fail)**; deployed security tests run against production immediately post-flip (M6a is when production auth actually changes — don't wait for M6b's run). M6b done means everything below:
 - `make tests` (full suite) clean; deployed security tests green against production (operator-run, results reported).
 - Grep-level assertion: no case-insensitive `auth0` matches in code/config outside `docs/` history (implementation plans and the ledger legitimately reference it) and historical migration files (which are immutable — never edit old Alembic migrations; the *new* drop-column migration is the change).
+- Ledger open-questions assertion: `grep '\[OPEN\]' docs/auth0-clerk-ledger.md` returns no marker pointing at a migration milestone — every such question is `[ANSWERED]` with its answer folded into the relevant entry. Only items explicitly scoped post-migration (e.g. the Clerk API-Keys spike, AD1) may remain open, each with a named owner.
 - All sync-listed docs updated; ledger finalized.
 - Appendix A's platform matrix fully verified; operator closes the internal tracking ticket.
 

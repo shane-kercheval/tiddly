@@ -12,7 +12,7 @@ A living record of the functional differences between Auth0 and Clerk as discove
 - **What**: To move users to a new auth provider without forcing everyone to reset their password, you need the password *hashes* (the one-way-encrypted form providers store) exported from the old provider. How hard a provider makes that export determines how painful it is to leave them.
 - **Auth0**: Everything about your users exports self-serve *except* password hashes. Those require a support ticket (the magic words are "I would like to obtain an export of my tenant password hashes"), the turnaround is roughly a week, and support may require a paid tenant before releasing them.
 - **Clerk**: The equivalent export, hashes included, is self-serve. If we ever leave Clerk, this step won't exist.
-- **Alternative — skip the hashes entirely**: Clerk's user-creation API accepts `skip_password_requirement: true`, creating the user with no password at all (allowed as long as password isn't the instance's *only* sign-in method). Each affected user then sets a new password or uses a passwordless/social method on their first login. The trade is one reset event per password user versus a week of waiting on the ticket: with few password users the skip path usually wins; at scale the ticket earns its cost. In every no-password path, first-login identity is verified by proof of inbox ownership — Clerk emails a one-time code automatically (through the forgot-password flow, or through email-code sign-in if enabled); the application sends nothing. One inference worth noting: Clerk forbids the skip flag when password is the instance's *only* sign-in method, which suggests the forgot-password flow does not serve accounts that never had a password (otherwise that guardrail would be unnecessary) — this is open question 10 below. (Which path Tiddly chose, and why, lives in the plan — M0 operator steps and M2.)
+- **Alternative — skip the hashes entirely**: Clerk's user-creation API accepts `skip_password_requirement: true`, creating the user with no password at all (allowed as long as password isn't the instance's *only* sign-in method). Each affected user then sets a new password or uses a passwordless/social method on their first login. The trade is one reset event per password user versus a week of waiting on the ticket: with few password users the skip path usually wins; at scale the ticket earns its cost. In every no-password path, first-login identity is verified by proof of inbox ownership — Clerk emails a one-time code automatically (through the forgot-password flow, or through email-code sign-in if enabled); the application sends nothing. One inference worth noting: Clerk forbids the skip flag when password is the instance's *only* sign-in method, which suggests the forgot-password flow does not serve accounts that never had a password (otherwise that guardrail would be unnecessary) — open question 10 [OPEN]. (Which path Tiddly chose, and why, lives in the plan — M0 operator steps and M2.)
 - **Verdict**: Gained — Clerk's self-serve export means a future exit from Clerk would be easier than an exit from Auth0.
 - **Gotcha**: Whichever path a migration chooses, it must be decided before the import work is scheduled, because the ticket path inserts a week-long external wait that nothing else can absorb. If a ticket is filed at all, file it on day one so the wait overlaps with other work.
 
@@ -35,7 +35,7 @@ A living record of the functional differences between Auth0 and Clerk as discove
 - **Verdict**: Gained — an entire planned migration was deleted from our roadmap because the provider absorbs the problem. Probably the most underrated win of the switch.
 
 ### Divergences from Clerk's own migration guide (deliberate)
-- **What**: Clerk publishes a recommended Auth0-to-Clerk migration path. We deviated from it in two places, and the reasons matter: the vendor's guide optimizes for large customers, and following it blindly would have left us with worse architecture.
+- **What**: Clerk publishes a recommended Auth0-to-Clerk migration path (https://clerk.com/docs/deployments/migrate-overview). We deviated from it in two places, and the reasons matter: the vendor's guide optimizes for large customers, and following it blindly would have left us with worse architecture.
 1. **We skipped the `external_id` session-token aliasing.** The guide suggests configuring the session token to emit `{{user.external_id || user.id}}` so a backend can keep keying on legacy Auth0 IDs indefinitely. That exists for teams with large userbases and backend code they can't safely change. We control our backend and have a handful of users, so we do a clean swap of the lookup column instead. The old Auth0 ID is still stored in Clerk's `external_id` field, but purely as an audit breadcrumb — the application never reads it.
 2. **We skipped trickle migration.** The guide describes running both providers in parallel and migrating each user when they happen to log in. That machinery pays off for big fleets. At our scale the right shape is: bulk import, a window where the backend accepts tokens from both providers, one coordinated client flip, a soak period, then decommission.
 
@@ -97,7 +97,7 @@ A living record of the functional differences between Auth0 and Clerk as discove
 ### MCP servers / AI-agent auth
 - **What**: Tiddly runs two MCP servers so AI tools (Claude, ChatGPT, coding agents) can manage a user's content. ChatGPT and Claude Desktop's native connectors *require* OAuth — they have no way to accept a pasted bearer token — so whether the provider can act as the OAuth server for MCP determines whether those integrations are possible at all. Background and requirements live in the plan's Appendix A.
 - **Both providers can do this** (the pattern is: a discovery endpoint on our servers plus dynamic client registration at the provider). An Auth0 version was fully designed before the migration. MCP OAuth alone is therefore not a reason to switch providers.
-- **Clerk's deltas**: OAuth access tokens are JWTs by default (locally verifiable), the consent screen is customizable and self-hostable, and Clerk actively invests in the MCP auth spec. One open comparison point: Auth0's free tier caps total applications at 10, which open client registration could exhaust; how Clerk meters registered clients is an open question for the M0 spike.
+- **Clerk's deltas**: OAuth access tokens are JWTs by default (locally verifiable), the consent screen is customizable and self-hostable, and Clerk actively invests in the MCP auth spec. One open comparison point: Auth0's free tier caps total applications at 10, which open client registration could exhaust; how Clerk meters registered clients is open question 4 [OPEN].
 - **Verdict**: Gained in ergonomics; honest entry for "possible on both."
 
 ## Platform & operations
@@ -132,15 +132,17 @@ A living record of the functional differences between Auth0 and Clerk as discove
 
 ## Open questions (resolve and fold into entries above)
 
-| # | Question | Where it resolves |
-|---|----------|-------------------|
-| 1 | Exact session-token claim shortcodes for email + verification status | M0 spike |
-| 2 | OAuth access-token default lifetime; does refresh-token issuance require a scope? | M0 spike |
-| 3 | Where the JWT-vs-opaque token format setting lives; do DCR clients inherit it? | M0 spike (blocks M5) |
-| 4 | How Clerk meters/limits DCR-registered clients (vs Auth0's 10-app free-tier cap) | M0 spike |
-| 5 | Claim-shape differences: session tokens vs OAuth access tokens (`sub`, email presence) | M0 spike (blocks M4) |
-| 6 | Do extension-context session tokens carry `azp = chrome-extension://<id>`? | M7 step 4 |
-| 7 | Does Clerk ship a framework-agnostic extension bundle, or is esbuild required? | M7 step 0 pre-check |
-| 8 | Does Clerk API-key verification require a live Clerk call, support per-user caps, and expose enough for our audit trail? | Post-migration spike (AD1) |
-| 9 | Does the iOS app send `X-Request-Source: ios`? | M6a operator confirmation (cross-repo) |
-| 10 | Can a user created with no password (`skip_password_requirement`) set their *first* password through the forgot-password flow, or must email-code sign-in be enabled for them? | M0 spike |
+**Convention**: every unresolved question carries the literal marker `[OPEN]` — in this table and at every inline reference in the entries above — so `grep -n '\[OPEN\]' docs/auth0-clerk-ledger.md` lists exactly what's unanswered. Resolving a question means three things: write the answer into the relevant entry, replace the row's marker with `[ANSWERED <date>]` plus a one-line answer (keep the row — the question-and-answer history is part of the record), and delete the inline markers. The migration is not finished while any `[OPEN]` marker points at a migration milestone; only items explicitly scoped post-migration may remain open at decommission, and each must name an owner (enforced by the plan's M6b Definition of Done).
+
+| # | Question | Resolves in | Status |
+|---|----------|-------------|--------|
+| 1 | Exact session-token claim shortcodes for email + verification status | M0 spike | [OPEN] |
+| 2 | OAuth access-token default lifetime; does refresh-token issuance require a scope? | M0 spike | [OPEN] |
+| 3 | Where the JWT-vs-opaque token format setting lives; do DCR clients inherit it? | M0 spike (blocks M5) | [OPEN] |
+| 4 | How Clerk meters/limits DCR-registered clients (vs Auth0's 10-app free-tier cap) | M0 spike | [OPEN] |
+| 5 | Claim-shape differences: session tokens vs OAuth access tokens (`sub`, email presence) | M0 spike (blocks M4) | [OPEN] |
+| 6 | Do extension-context session tokens carry `azp = chrome-extension://<id>`? | M7 step 4 | [OPEN] |
+| 7 | Does Clerk ship a framework-agnostic extension bundle, or is esbuild required? | M7 step 0 pre-check | [OPEN] |
+| 8 | Does Clerk API-key verification require a live Clerk call, support per-user caps, and expose enough for our audit trail? | Post-migration spike (AD1); owner: Shane | [OPEN] |
+| 9 | Does the iOS app send `X-Request-Source: ios`? | M6a operator confirmation (cross-repo) | [OPEN] |
+| 10 | Can a user created with no password (`skip_password_requirement`) set their *first* password through the forgot-password flow, or must email-code sign-in be enabled for them? | M0 spike | [OPEN] |
