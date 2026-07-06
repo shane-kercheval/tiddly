@@ -2,7 +2,9 @@
 
 A living record of the functional differences between Auth0 and Clerk as discovered during Tiddly's migration ([plan](implementation_plans/2026-07-02-clerk-migration.md)). Each entry opens with **What** — plain-language context explaining what the capability is and why it matters here — followed by how each provider handles it, what migrating took, a **gained / lost / neutral** verdict, and any gotchas. Entries also record "possible on both providers, but…" nuances and the places we deliberately diverged from Clerk's own migration guidance. This is the blunt raw record; polished writeups get distilled from it, not the other way around.
 
-**Status**: seeded 2026-07-02, before implementation started. Migration-effort notes are estimates until the relevant milestone completes; every milestone's Definition of Done includes updating this file. Claims about either provider follow the plan's external-claims rule: they are verified against primary sources or listed under Open Questions — never asserted from memory or from secondhand summaries.
+**Status**: seeded 2026-07-02, before implementation started. Migration-effort notes are estimates until the relevant milestone completes.
+
+**When to update this file** (for whoever — human or agent — is working the migration): update it whenever a finding surfaces or a claim changes, not only at milestone boundaries. Concretely: each milestone's Definition of Done requires updating it; any new fact, correction, or "possible on both, but…" nuance discovered mid-work gets folded into the relevant entry as it's learned; and when an item in the Open Questions table below gets answered, write the answer into the entry and flip its row per the marker convention documented there. Claims about either provider follow the plan's external-claims rule: verified against primary sources or listed under Open Questions — never asserted from memory or from secondhand summaries.
 
 ---
 
@@ -147,13 +149,6 @@ A living record of the functional differences between Auth0 and Clerk as discove
 - **What**: What the provider costs as the user base grows.
 - **Clerk** (verified against clerk.com/pricing, 2026-07): The free (Hobby) tier covers 50,000 monthly *retained* users and is production-ready, but excludes MFA and passkeys, shows "Secured by Clerk" branding, and **fixes session lifetime at 7 days** (weekly forced re-login). Pro is $25/month and lifts all four. Basic organizations (up to 20 members) are free on all plans; the enhanced B2B add-on is $100/month. Still cheaper than Auth0 at any scale Tiddly will see soon, and "retained users" is a friendlier billing metric than Auth0's monthly-actives.
 - **Gotcha**: a third-party pricing survey claimed MFA and passkeys were free-tier; the primary pricing page says otherwise. Tier-gating claims age fast and vary by source — verify against clerk.com/pricing, dated. One gating fact the pricing page *doesn't* state: which tier the OAuth Applications feature needs — open question 14 [OPEN].
-
-## Process notes (how this ledger stays honest)
-
-- **What**: Mistakes made *while researching this migration* that changed how we verify claims. They're kept because they're findings about how to evaluate a provider, not just about the provider itself.
-1. **Unverified-summary claims.** A research summary asserted that the extension's Sync Host feature could only be tested in production. Fetching the primary documentation killed the claim — development instances are fully supported. Lesson: verify claims about external systems against primary sources, not summaries.
-2. **Transcription error.** The production `syncHost` value was written down wrong *even though the correct documentation had been fetched earlier in the same session*. Fetching the source isn't enough; written values have to be re-checked against the quoted text.
-3. **First-pass vendor-evaluation bias.** The initial analysis of Clerk's API Keys product reached for availability and cost objections that didn't survive basic arithmetic; the objections that held up were about sequencing and lock-in. Instinctive objections to a vendor product deserve the same scrutiny as the product's claims.
 
 ## Open questions (resolve and fold into entries above)
 
