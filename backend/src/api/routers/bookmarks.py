@@ -12,7 +12,7 @@ from api.dependencies import (
     get_async_session,
     get_current_limits,
     get_current_user,
-    get_current_user_auth0_only,
+    get_current_user_session_only,
 )
 from api.helpers import check_optimistic_lock, resolve_filter_and_sorting, validate_view
 from core.auth import get_request_context
@@ -69,12 +69,12 @@ bookmark_service = BookmarkService()
 async def fetch_metadata(
     url: HttpUrl = Query(..., description="URL to fetch metadata from"),
     include_content: bool = Query(default=False, description="Also extract page content"),
-    _current_user: User = Depends(get_current_user_auth0_only),
+    _current_user: User = Depends(get_current_user_session_only),
 ) -> MetadataPreviewResponse:
     """
     Fetch metadata from a URL without saving a bookmark.
 
-    **Authentication: Auth0 only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs not accepted - returns 403)**
 
     Use this endpoint to preview title and description before creating a bookmark.
     The frontend can call this when the user enters a URL, then populate the form
@@ -83,7 +83,7 @@ async def fetch_metadata(
     Set include_content=true to also extract the main page content (useful for
     previewing before save).
 
-    Rate limited: 30 requests per minute (Auth0), 250 per day (sensitive operation).
+    Rate limited: 30 requests per minute (session), 250 per day (sensitive operation).
     """
     url_str = str(url)
     scraped = await scrape_url(url_str)

@@ -91,7 +91,7 @@ async def test__get_or_create_user__handles_integrity_error_from_race_condition(
             # This should NOT raise - it should handle the IntegrityError
             # and return the existing user
             try:
-                user = await get_or_create_user(session, auth0_id, email)
+                user = await get_or_create_user(session, auth0_id=auth0_id, email=email)
                 # If we get here, the fix is in place - verify it returned the right user
                 assert user.id == existing_user_id, (
                     f"Expected user ID {existing_user_id}, got {user.id}"
@@ -129,13 +129,13 @@ async def test__get_or_create_user__sequential_calls_work(
 
     # First call - creates user
     async with independent_session_factory() as session:
-        user1 = await get_or_create_user(session, auth0_id, email)
+        user1 = await get_or_create_user(session, auth0_id=auth0_id, email=email)
         await session.commit()
         user1_id = user1.id
 
     # Second call - returns existing user
     async with independent_session_factory() as session:
-        user2 = await get_or_create_user(session, auth0_id, email)
+        user2 = await get_or_create_user(session, auth0_id=auth0_id, email=email)
         await session.commit()
         user2_id = user2.id
 

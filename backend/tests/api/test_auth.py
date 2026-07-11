@@ -18,6 +18,8 @@ def non_dev_settings(database_url: str) -> Settings:
         auth0_audience="https://test-api",
         auth0_client_id="test-client-id",
         auth0_custom_claim_namespace="https://test.example.com",
+        clerk_frontend_api="test-instance.clerk.accounts.dev",
+        clerk_authorized_parties_str="http://localhost:5173",
     )
 
 

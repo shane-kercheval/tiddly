@@ -123,9 +123,15 @@ async def record_my_consent(
     await session.commit()
     await session.refresh(consent)
 
-    # Invalidate auth cache after consent update
+    # Invalidate auth cache after consent update — every segment the user can
+    # be cached under, or the stale entry re-serves the consent dialog until
+    # the TTL expires (the first-session experience of every new user).
     auth_cache = get_auth_cache()
     if auth_cache:
-        await auth_cache.invalidate(current_user.id, current_user.auth0_id)
+        await auth_cache.invalidate(
+            current_user.id,
+            auth0_id=current_user.auth0_id,
+            external_auth_id=current_user.external_auth_id,
+        )
 
     return consent

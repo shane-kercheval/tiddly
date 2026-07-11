@@ -134,7 +134,7 @@ _OPENAPI_TAGS = [
             "suggestions, plus supporting config endpoints (`/ai/health`, "
             "`/ai/models`, `/ai/validate-key`).\n\n"
             "### Authentication\n\n"
-            "Auth0 JWT required. Personal Access Tokens (`bm_*`) are rejected "
+            "Session JWT (browser sign-in) required. Personal Access Tokens (`bm_*`) are rejected "
             "with 403 — AI features are deliberately not available to PATs as "
             "a cost-safety guard against automated scripts.\n\n"
             "### Bring-Your-Own-Key (BYOK)\n\n"

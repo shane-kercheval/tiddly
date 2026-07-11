@@ -67,7 +67,7 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 _BASE_AI_ERROR_RESPONSES: dict[int, dict] = {
     401: {
         "model": AIErrorResponse,
-        "description": "Missing or invalid Auth0 JWT (no `Authorization` header or bad token).",
+        "description": "Missing or invalid session JWT (no `Authorization` header or bad token).",
         "content": {
             "application/json": {
                 "example": {
@@ -80,7 +80,7 @@ _BASE_AI_ERROR_RESPONSES: dict[int, dict] = {
         "model": AIErrorResponse,
         "description": (
             "Authenticated but not allowed. Most commonly: the caller supplied a "
-            "Personal Access Token (`bm_*`). AI endpoints are Auth0-only — PATs "
+            "Personal Access Token (`bm_*`). AI endpoints are session-only — PATs "
             "are rejected as a defense-in-depth signal that these endpoints are "
             "not intended for automated / programmatic use."
         ),
@@ -117,7 +117,7 @@ _BASE_AI_ERROR_RESPONSES: dict[int, dict] = {
     503: {
         "model": AIErrorResponse,
         "description": (
-            "Auth infrastructure unavailable (JWKS fetch from Auth0 failed). "
+            "Auth infrastructure unavailable (JWKS fetch from the identity provider failed). "
             "`detail` is `\"Could not validate credentials\"`; no "
             "`error_code` is set for this path. Retry with backoff. "
             "Suggestion endpoints can also return 503 for LLM-provider "
@@ -234,7 +234,7 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
         "model": AIErrorResponse,
         "description": (
             "Two sources. (1) **Auth infrastructure unavailable** — JWKS "
-            "fetch from Auth0 failed. `detail` is `\"Could not validate "
+            "fetch from the identity provider failed. `detail` is `\"Could not validate "
             "credentials\"`; no `error_code`. (2) **Unclassified LLM "
             "provider failure** — `error_code: llm_unavailable`. Both are "
             "safe to retry with backoff."
@@ -243,7 +243,7 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
             "application/json": {
                 "examples": {
                     "jwks_unavailable": {
-                        "summary": "Auth0 JWKS fetch failed during token validation",
+                        "summary": "JWKS fetch failed during token validation",
                         "value": {
                             "detail": "Could not validate credentials",
                         },

@@ -50,7 +50,7 @@ def create_history_record(
         content_snapshot=f"Content v{version}",
         metadata_snapshot={"title": f"Test v{version}"},
         source="web",
-        auth_type=AuthType.AUTH0.value,
+        auth_type=AuthType.SESSION.value,
         created_at=created_at,
     )
 
@@ -83,7 +83,7 @@ def create_versioned_history_record(
         content_diff=content_diff,
         metadata_snapshot=metadata or {"title": f"Test v{version}"},
         source="web",
-        auth_type=AuthType.AUTH0.value,
+        auth_type=AuthType.SESSION.value,
         created_at=created_at,
     )
 
@@ -106,7 +106,7 @@ def create_audit_history_record(
         content_diff=None,
         metadata_snapshot={"title": "Audit marker"},
         source="web",
-        auth_type=AuthType.AUTH0.value,
+        auth_type=AuthType.SESSION.value,
         created_at=created_at,
     )
 

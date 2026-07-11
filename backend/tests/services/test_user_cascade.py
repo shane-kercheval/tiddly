@@ -109,7 +109,7 @@ async def test__user_delete__cascades_to_all_user_data(
         content_snapshot="Initial snapshot content",
         metadata_snapshot={"title": "Active Note"},
         source="web",
-        auth_type="auth0",
+        auth_type="session",
     )
     db_session.add(content_history)
     await db_session.flush()

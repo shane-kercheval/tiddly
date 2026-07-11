@@ -158,7 +158,8 @@ Each cron runs as its own Railway service with its own schedule and failure mode
 
 ### External dependencies
 
-- **Auth0** — JWT issuer for web login (RS256, custom email claim namespace `https://tiddly.me` matching the Post-Login Action); also the device-code endpoint for CLI login.
+- **Auth0** — JWT issuer for web login (RS256, custom email claim namespace `https://tiddly.me` matching the Post-Login Action); also the device-code endpoint for CLI login. Being replaced by Clerk (decommissioned at M6b of the migration plan).
+- **Clerk** — second accepted JWT issuer during the Auth0 → Clerk dual-accept window (see §5); production clients don't send Clerk tokens until the M6a cutover.
 - **OpenAI / Google Gemini / Anthropic** — LLM providers accessed via LiteLLM. Only `OPENAI_API_KEY` is required today (platform default for suggestions is `openai/gpt-5.4-nano`). Gemini/Anthropic keys are optional until more AI use cases ship.
 - **External URLs** — the api scrapes target URLs for bookmark metadata (`services/url_scraper.py`), wrapped in SSRF protection (see §10).
 
@@ -170,7 +171,7 @@ A realistic happy-path walkthrough touching most of the moving parts:
 
 1. **Browser → Frontend.** React SPA loads. Auth0 session supplies a JWT.
 2. **Browser → api: `POST /bookmarks/`** with bearer JWT and `X-Request-Source: web`.
-3. **Auth layer** (`core/auth.py`): verifies the JWT signature against cached JWKS (1-hour TTL), resolves `auth0_id` → user via the Redis auth cache (5-min TTL) with DB fallback, attaches a `RequestContext` to `request.state` for audit, checks that the user has accepted current policy versions (else HTTP 451).
+3. **Auth layer** (`core/auth.py`): routes the JWT by issuer and verifies its signature against that issuer's cached JWKS (1-hour TTL), resolves the token `sub` → user via the Redis auth cache (5-min TTL) with DB fallback, attaches a `RequestContext` to `request.state` for audit, checks that the user has accepted current policy versions (else HTTP 451).
 4. **Rate limiter** (`core/rate_limiter.py`): looks up the user's tier → `WRITE` limits; consults Redis sliding-window + daily Lua script; rejects with 429 + `Retry-After` if over. Redis-backed; fails open on Redis outage.
 5. **BookmarkService.create**: validates URL uniqueness (partial unique index on `(user_id, url)` for non-deleted rows), enforces tier quota + field-length limits, inserts the row with a UUIDv7 PK. A DB trigger updates the `search_vector` tsvector for FTS.
 6. **Optional: URL scrape.** If the client requested metadata fetch, `services/url_scraper.py` validates the target (`validate_url_not_private()` blocks RFC1918, loopback, link-local; resolves hostnames to prevent DNS rebinding) and fetches title/description.
@@ -189,7 +190,7 @@ All inherit `UUIDv7Mixin` (time-sortable PK), `TimestampMixin` (`created_at`, `u
 
 | Model | Notes |
 |---|---|
-| `User` | Auth0 `auth0_id` + email + `tier`. One-to-many cascade to bookmarks, notes, prompts, api_tokens. |
+| `User` | Provider identity (`auth0_id` and/or `external_auth_id` — at least one, enforced by CHECK; see §5) + email + `tier`. One-to-many cascade to bookmarks, notes, prompts, api_tokens. |
 | `Bookmark` | URL + title/description/summary/content. Trigger-maintained `search_vector`. Partial unique index on `(user_id, url)` for non-deleted rows. |
 | `Note` | Title + markdown content/description. Trigger-maintained `search_vector`. |
 | `Prompt` | Jinja2 template `name` + title/description/content + JSONB `arguments`. Trigger-maintained `search_vector`. Partial unique index on `(user_id, name)` for active prompts. |
@@ -239,29 +240,35 @@ Relationships are bidirectional with canonical ordering (no duplicate "A → B" 
 
 ## 5. Authentication, consent, and request identity
 
-**Two authentication flows** converge in `core/auth.py`:
+**Two authentication mechanisms** converge in `core/auth.py`:
 
-1. **Auth0 JWT** for the web SPA. RS256 verification against cached JWKS (1-hour TTL). `auth0_id`, `email`, `email_verified` read from the token, with custom email claims under the `AUTH0_CUSTOM_CLAIM_NAMESPACE` prefix (set by the Auth0 Post-Login Action — see README_DEPLOY.md Step 6d).
-2. **Personal Access Tokens (PAT)** for CLI, MCP servers, Chrome extension, and scripts. Format: `bm_<random>`. Validated by `TokenService` against `api_tokens.token_hash` (SHA-256). A 12-char plaintext `token_prefix` is stored for UI display and audit.
+1. **IdP-issued JWTs (dual-accept — Auth0 → Clerk migration window).** The token's `iss` claim is read *unverified for dispatch only* and routes to the matching verifier; the selected verifier then enforces signature (RS256 against that issuer's cached JWKS, 1-hour TTL), issuer, expiry, and per-issuer claims from scratch. Both paths resolve to the same `users` rows:
+   - **Auth0**: verifies audience + issuer; `auth0_id` (= `sub`), `email`, `email_verified` read with custom email claims under the `AUTH0_CUSTOM_CLAIM_NAMESPACE` prefix (Auth0 Post-Login Action — see README_DEPLOY.md Step 6d). Looks up/creates users by `users.auth0_id`. Every Auth0-path authentication logs `auth0_path_authentication source=<client>` — the cutover signal watched during M6a→M6b. **Removed at decommission (M6b).**
+   - **Clerk**: no audience claim exists; the equivalent check is `azp` (authorized party) against `CLERK_AUTHORIZED_PARTIES` — present → must match, absent → tolerated (non-browser tokens carry none). Verified with an explicit 5s clock-skew leeway (~60s token lifetime). Plain `email`/`email_verified` claims (instance session-token customization). Looks up/creates users by `users.external_auth_id` (= `sub`).
+   - **Per-issuer JIT-create flags** (`CLERK_JIT_CREATE_ENABLED`, default off; `AUTH0_JIT_CREATE_ENABLED`, default on): lookup always works; *creation* of a first-seen identity is gated per issuer. A denied create is a generic 401 plus a warning log naming the identity — the backend-enforced version of the migration window rules (no pre-import Clerk accounts, no post-flip Auth0 accounts). Removed in M6b.
+   - A non-PAT bearer that isn't parseable as a JWT at all → generic 401 plus a warning log naming the cause (the observable symptom of an OAuth app misconfigured to issue opaque tokens).
+2. **Personal Access Tokens (PAT)** for CLI, MCP servers, Chrome extension, and scripts. Format: `bm_<random>`. Validated by `TokenService` against `api_tokens.token_hash` (SHA-256). A 12-char plaintext `token_prefix` is stored for UI display and audit. Untouched by the migration (AD1).
 
 **Request identity resolution** (per request):
 
 1. Parse `Authorization: Bearer <token>`.
-2. If prefixed `bm_`, route to PAT validation. Otherwise treat as Auth0 JWT.
-3. Resolve to a `User` row via the Redis auth cache (5-min TTL), falling back to DB and repopulating cache.
-4. Attach a `RequestContext(source, auth_type, token_prefix)` to `request.state` for downstream audit logging.
-5. Enforce **consent**: authenticated routes (except the consent endpoints themselves and `/health`) check that the user has accepted current privacy-policy and terms versions. Mismatch returns HTTP 451 with instructions; the frontend opens a consent dialog. Skipped in `DEV_MODE`.
+2. If prefixed `bm_`, route to PAT validation. Otherwise dispatch by the JWT's issuer (above); unknown or missing issuer → 401.
+3. Resolve to a `User` row via the Redis auth cache (5-min TTL; segment per identifier — see §8), falling back to DB and repopulating cache.
+4. Attach a `RequestContext(source, auth_type, token_prefix)` to `request.state` for downstream audit logging. `auth_type` is `session` for any IdP JWT (provider-neutral; historical `content_history` rows persisted the pre-rename value `auth0` and are never backfilled), `pat`, or `dev`.
+5. Enforce **consent**: authenticated routes (except the consent endpoints themselves and `/health`) check that the user has accepted current privacy-policy and terms versions. Mismatch returns HTTP 451 with instructions; the frontend opens a consent dialog. Skipped in `DEV_MODE`. The consent-accept flow invalidates **every** cache segment the user can be cached under (`id`, `auth0`, `ext`).
 6. Apply the matching **rate limit** bucket (see §6).
 
-**DEV_MODE bypass**: set `VITE_DEV_MODE=true` locally. Creates a synthetic user (`auth0_id="dev|local-development-user"`) without any auth header. Settings validation refuses to let DEV_MODE coexist with a non-local database as a safety guard.
+**Identity columns during the window**: `users.auth0_id` and `users.external_auth_id` are both nullable-unique; the DB CHECK constraint `ck_user_has_identity` guarantees at least one is present. M6b drops `auth0_id` + the constraint and makes `external_auth_id` NOT NULL.
+
+**DEV_MODE bypass**: set `VITE_DEV_MODE=true` locally. Creates a synthetic user (`auth0_id="dev|local-development-user"`) without any auth header and is exempt from the JIT-create gates. Settings validation refuses to let DEV_MODE coexist with a non-local database as a safety guard.
 
 **Auth variants exported from `core/auth.py`:**
 
 - `get_current_user` — full flow: auth + rate limit + consent
 - `get_current_user_without_consent` — for the consent-accept endpoint itself
-- `get_current_user_auth0_only` — rejects PATs (403). Used where Auth0 session is semantically required.
-- `get_current_user_auth0_only_without_consent` — Auth0-only AND skips the consent gate. Used on the consent-accept endpoint when PATs must also be rejected (a user accepting the policy cannot do so via a CLI token).
-- `get_current_user_ai` — Auth0-only, no *global* rate limit. AI endpoints apply a separate `AI_PLATFORM`/`AI_BYOK` bucket.
+- `get_current_user_session_only` — rejects PATs (403). Used where an interactive session is semantically required.
+- `get_current_user_session_only_without_consent` — session-only AND skips the consent gate. Used on the consent-accept endpoint when PATs must also be rejected (a user accepting the policy cannot do so via a CLI token).
+- `get_current_user_ai` — session-only, no *global* rate limit. AI endpoints apply a separate `AI_PLATFORM`/`AI_BYOK` bucket.
 
 ### Public sharing surface (unauthenticated)
 
@@ -354,7 +361,7 @@ One Redis instance, three independent uses. All fail-open.
 |---|---|---|
 | **Rate limiting** | Per-user sliding-window sorted sets + daily counters | Enforced via Lua for daily atomic increment. Fail-open logs a warning and permits the request. |
 | **Public IP rate limiting** | `rate:ip:{ip}:public:min` (sorted set) + `rate:ip:{ip}:public:daily` (counter) | Per-IP cap for unauthenticated `/public/*` reads (§6). Fail-open. |
-| **Auth cache** | User-by-auth0-id and user-by-token-hash hashes | 5-minute TTL. Invalidated on email/consent-version change; falls through to Postgres. |
+| **Auth cache** | User cached per identifier segment: `id:{user_id}`, `ext:{external_auth_id}`, and transitional `auth0:{auth0_id}` (removed M6b); keys carry a schema version (`auth:v6:...`) | 5-minute TTL. Invalidated on email/consent-version change (every segment); falls through to Postgres. |
 | **AI cost buckets** | `ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}` hashes | Written by `LLMService` after each call; flushed to `ai_usage` hourly by cron. ~7-day TTL. |
 
 **What gets lost if Redis restarts:** current-minute rate-limit quotas reset (users briefly un-throttled), auth cache cold-starts (slightly slower requests for 5 minutes), and any AI cost bucket written since the last successful flush. None of these are catastrophic; they're operational annoyances, not data-correctness events.
@@ -492,7 +499,7 @@ Not a complete list — just the migrations that defined the shape of the system
 
 - **Real dependencies, not mocks.** `backend/tests/conftest.py` spins up session-scoped Postgres 17 (`pgvector/pgvector:pg17`) and Redis 7 via `testcontainers`. Every integration test runs against live Docker instances. This catches driver quirks, migration drift, Redis pipeline semantics, and `ON CONFLICT` behavior that mocks mask.
 - **`asyncio_mode = "auto"`** in `pyproject.toml` — don't add `@pytest.mark.asyncio`.
-- **Dev-mode bypass** in the test env (`VITE_DEV_MODE=true`) skips Auth0 signature verification.
+- **Dev-mode bypass** in the test env (`VITE_DEV_MODE=true`) skips IdP signature verification.
 - **Scoped verify commands**: `make backend-verify`, `make frontend-verify`, `make cli-verify`. Full suite: `make tests`.
 
 Security-specific: see `backend/tests/security/` (SSRF, IDOR, input validation) and the deployed penetration tests in `tests/security/deployed/`.
@@ -529,14 +536,14 @@ A grab-bag of non-obvious invariants and constraints — if you're about to chan
 
 - Multi-tenant scoping is **not** enforced at the DB layer. If a new query forgets `.where(Model.user_id == current_user.id)`, the DB will happily return another user's data. Every service method filters explicitly.
 - `content_relationships` has **no** foreign key to entity tables (polymorphic). If you add a new entity type, update `MODEL_MAP` in `services/relationship_service.py` *and* `backend/src/tasks/orphan_relationships.py`, or new-type relationships will neither be cleaned up on delete nor detected by the orphan sweep.
-- `Settings` validation (`core/config.py`) hard-requires `AUTH0_CUSTOM_CLAIM_NAMESPACE` in non-dev mode to prevent silent Auth0 misconfiguration. This applies to *every* service that imports `db.session` — including crons that never touch auth.
+- `Settings` validation (`core/config.py`) hard-requires `AUTH0_CUSTOM_CLAIM_NAMESPACE`, `CLERK_FRONTEND_API`, and `CLERK_AUTHORIZED_PARTIES` in non-dev mode to prevent silent IdP misconfiguration. This applies to *every* service that imports `db.session` — including crons that never touch auth (so all three env vars must exist on the api and cron Railway services).
 - AI platform callers are locked to the use-case default model by design. Don't "helpfully" allow platform users to pick their own model — that's a cost-control invariant.
 - Cost tracking uses LiteLLM's **public** `completion_cost()` API. `_hidden_params` is private and unstable.
 - Soft-deleted entities are **not** orphans. The orphan-relationship detector must exclude them — and it does.
 - MCP servers intentionally **do not** expose delete. If you're tempted to add it for symmetry, don't.
 - Rate limiting is single-instance. If the API ever scales horizontally, the Redis-backed path must be the only path — the in-memory fallback permits per-instance quota.
 - Middleware order matters (§10). `RateLimitHeadersMiddleware` depends on state populated by the auth/rate-limit dependency and must remain innermost. Reordering the middleware stack will silently break rate-limit headers in any short-circuit path.
-- AI endpoints are **Auth0-only** (PATs → 403). This is deliberate defense-in-depth against accidental automation of cost-incurring calls; don't "helpfully" flip `allow_pat=True` on `get_current_user_ai` without considering the abuse/cost model.
+- AI endpoints are **session-only** (PATs → 403). This is deliberate defense-in-depth against accidental automation of cost-incurring calls; don't "helpfully" flip `allow_pat=True` on `get_current_user_ai` without considering the abuse/cost model.
 - `/ai/validate-key`'s missing-BYOK 400 path does **not** consume rate-limit quota. The `apply_ai_rate_limit_byok` dependency short-circuits when no header is present, so the handler's "missing key" 400 fires without charging the bucket. All other AI endpoints charge the bucket in a pre-handler `Depends`, even on short-circuit paths that skip the LLM call.
 - `/ai/validate-key` returns `200 {"valid": false}` for a provider-rejected key — not a 422. That's the endpoint's explicit purpose; suggestion endpoints surface the same condition as 422 with `error_code: llm_auth_failed`.
 - 429 responses carry a `Retry-After` header only when the Tiddly rate limiter produces them. Provider-side 429s (`error_code: llm_rate_limited`) do not — use exponential backoff.

@@ -237,7 +237,16 @@ VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 VITE_FRONTEND_URL=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 AUTH0_CUSTOM_CLAIM_NAMESPACE=https://tiddly.me
+CLERK_FRONTEND_API=clerk.tiddly.me
+CLERK_AUTHORIZED_PARTIES=https://tiddly.me
 API_WORKERS=4
+```
+
+**Clerk (dual-accept window — Auth0 → Clerk migration):** `CLERK_FRONTEND_API` (the production instance's Frontend API domain) and `CLERK_AUTHORIZED_PARTIES` (comma-separated web origins accepted as the `azp` claim) are **required** — Settings validation refuses to start without them in non-dev mode, same as `AUTH0_CUSTOM_CLAIM_NAMESPACE`. They are inert until Clerk tokens actually reach production (M6a). Two optional flags gate just-in-time user *creation* per issuer and are flipped at the M6a cutover; the defaults are production-safe, so omit them until then:
+
+```
+# CLERK_JIT_CREATE_ENABLED=false   # default; set true at M6a once the import reconciles
+# AUTH0_JIT_CREATE_ENABLED=true    # default; set false at the M6a flip
 ```
 
 **Note:** `VITE_API_URL` and `VITE_FRONTEND_URL` are used by the backend to generate helpful error messages (e.g., consent enforcement instructions).
@@ -295,11 +304,13 @@ LLM_MODEL_CHAT=openai/gpt-5.4-mini
 DATABASE_URL=postgresql+asyncpg://<same value as api service>
 REDIS_URL=${{Redis.REDIS_URL}}
 AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service, e.g. https://tiddly.me>
+CLERK_FRONTEND_API=<same value as api service>
+CLERK_AUTHORIZED_PARTIES=<same value as api service>
 ```
 
 Follow the same `postgresql+asyncpg://` rule as the API service (manually copy the Postgres URL and replace the `postgresql://` prefix — do NOT use `${{Postgres.DATABASE_URL}}` directly).
 
-**Why `AUTH0_CUSTOM_CLAIM_NAMESPACE` is required even for a cron:** the cron imports `db.session`, which instantiates `Settings()` at module load. The Settings validator (`core/config.py`) hard-requires this variable in non-dev mode as a safety check against silent Auth0 misconfiguration on the API. Cron tasks don't touch auth, but they share the same Settings class. Without this var, the container crashes at import.
+**Why `AUTH0_CUSTOM_CLAIM_NAMESPACE`, `CLERK_FRONTEND_API`, and `CLERK_AUTHORIZED_PARTIES` are required even for a cron:** the cron imports `db.session`, which instantiates `Settings()` at module load. The Settings validator (`core/config.py`) hard-requires all three in non-dev mode as a safety check against silent identity-provider misconfiguration on the API. Cron tasks don't touch auth, but they share the same Settings class. Without these vars, the container crashes at import.
 
 #### Cleanup Service Variables
 
@@ -308,9 +319,11 @@ DB-only; no Redis needed.
 ```
 DATABASE_URL=postgresql+asyncpg://<same value as api service>
 AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service>
+CLERK_FRONTEND_API=<same value as api service>
+CLERK_AUTHORIZED_PARTIES=<same value as api service>
 ```
 
-Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE` is required for the same reason as above — Settings validation.
+Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE`, `CLERK_FRONTEND_API`, and `CLERK_AUTHORIZED_PARTIES` are required for the same reason as above — Settings validation.
 
 #### Orphan Relationships Service Variables
 
@@ -319,9 +332,11 @@ DB-only; no Redis needed.
 ```
 DATABASE_URL=postgresql+asyncpg://<same value as api service>
 AUTH0_CUSTOM_CLAIM_NAMESPACE=<same value as api service>
+CLERK_FRONTEND_API=<same value as api service>
+CLERK_AUTHORIZED_PARTIES=<same value as api service>
 ```
 
-Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE` is required for the same reason as above — Settings validation.
+Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE`, `CLERK_FRONTEND_API`, and `CLERK_AUTHORIZED_PARTIES` are required for the same reason as above — Settings validation.
 
 #### Content MCP Service Variables
 

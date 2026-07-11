@@ -4,9 +4,16 @@ from enum import StrEnum
 
 
 class AuthType(StrEnum):
-    """Authentication method used for the request."""
+    """
+    Authentication method used for the request.
 
-    AUTH0 = "auth0"
+    SESSION covers IdP-issued JWTs regardless of issuer (mechanism-descriptive,
+    provider-neutral — during the Auth0 → Clerk dual-accept window it spans both
+    issuers). Historical content_history rows persisted the pre-rename value
+    "auth0"; those are audit facts and are never backfilled.
+    """
+
+    SESSION = "session"
     PAT = "pat"
     DEV = "dev"
 

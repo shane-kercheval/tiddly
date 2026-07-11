@@ -9,6 +9,7 @@ isn't set until the test session fixtures run.
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import jwt
 import pytest
 from fastapi import Request
 from fastapi.security import HTTPAuthorizationCredentials
@@ -42,6 +43,19 @@ async def test_user(db_session: AsyncSession) -> User:
     return user
 
 
+TEST_AUTH0_ISSUER = "https://test-tenant.auth0.com/"
+
+
+def auth0_dispatch_token(sub: str) -> str:
+    """
+    Build a JWT whose (unverified) `iss` routes it to the Auth0 verifier.
+
+    Signature is irrelevant: these tests patch decode_jwt, so only the
+    dispatch peek reads this token.
+    """
+    return jwt.encode({"iss": TEST_AUTH0_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
+
+
 @pytest.fixture
 def mock_settings_no_dev_mode() -> "Settings":
     """Create mock settings with dev_mode=False."""
@@ -49,6 +63,9 @@ def mock_settings_no_dev_mode() -> "Settings":
     settings.dev_mode = False
     settings.frontend_url = "http://localhost:5173"
     settings.api_url = "http://localhost:8000"
+    settings.auth0_issuer = TEST_AUTH0_ISSUER
+    settings.auth0_jit_create_enabled = True
+    settings.clerk_frontend_api = ""
     return settings
 
 
@@ -125,19 +142,19 @@ class TestGetRequestSource:
 class TestRequestContextWithAuth0:
     """Tests for RequestContext being set correctly with Auth0 JWT."""
 
-    async def test__auth0_jwt__sets_auth_type_auth0(
+    async def test__auth0_jwt__sets_auth_type_session(
         self,
         db_session: AsyncSession,
         test_user: User,
         mock_settings_no_dev_mode: "Settings",
         mock_request: Request,
     ) -> None:
-        """Auth0 JWT sets auth_type to AUTH0."""
+        """Auth0 JWT sets auth_type to SESSION (provider-neutral)."""
         from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid",
+            credentials=auth0_dispatch_token(test_user.auth0_id),
         )
 
         mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
@@ -149,7 +166,7 @@ class TestRequestContextWithAuth0:
 
         # Check that request_context was set
         context = mock_request.state.request_context
-        assert context.auth_type == AuthType.AUTH0
+        assert context.auth_type == AuthType.SESSION
         assert context.token_prefix is None
 
     async def test__auth0_jwt__sets_source_from_param(
@@ -164,7 +181,7 @@ class TestRequestContextWithAuth0:
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid",
+            credentials=auth0_dispatch_token(test_user.auth0_id),
         )
 
         mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
@@ -176,7 +193,7 @@ class TestRequestContextWithAuth0:
 
         context = mock_request.state.request_context
         assert context.source == "web"
-        assert context.auth_type == AuthType.AUTH0
+        assert context.auth_type == AuthType.SESSION
 
 
 class TestRequestContextWithPAT:
@@ -390,7 +407,7 @@ class TestGetRequestContext:
 
         expected_context = RequestContext(
             source="web",
-            auth_type=AuthType.AUTH0,
+            auth_type=AuthType.SESSION,
             token_prefix=None,
         )
         mock_request.state.request_context = expected_context

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_async_session, get_current_user_auth0_only
+from api.dependencies import get_async_session, get_current_user_session_only
 from models.user import User
 from schemas.sidebar import SidebarOrder, SidebarOrderComputed
 from services import content_filter_service, sidebar_service
@@ -13,13 +13,13 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 @router.get("/sidebar", response_model=SidebarOrderComputed)
 async def get_sidebar(
-    current_user: User = Depends(get_current_user_auth0_only),
+    current_user: User = Depends(get_current_user_session_only),
     db: AsyncSession = Depends(get_async_session),
 ) -> SidebarOrderComputed:
     """
     Get the computed sidebar structure with resolved filter names.
 
-    **Authentication: Auth0 only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs not accepted - returns 403)**
 
     Returns the sidebar structure with:
     - Built-in items (All, Archived, Trash) with display names
@@ -39,13 +39,13 @@ async def get_sidebar(
 @router.put("/sidebar", response_model=SidebarOrderComputed)
 async def update_sidebar(
     sidebar: SidebarOrder,
-    current_user: User = Depends(get_current_user_auth0_only),
+    current_user: User = Depends(get_current_user_session_only),
     db: AsyncSession = Depends(get_async_session),
 ) -> SidebarOrderComputed:
     """
     Update the sidebar structure.
 
-    **Authentication: Auth0 only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs not accepted - returns 403)**
 
     Validates the structure:
     - All filter IDs must exist and belong to the user

@@ -264,10 +264,10 @@ class TestRateLimitAppliedToAllEndpoints:
         POST /tokens/ is rate limited and consumes only 1 slot per request.
 
         This also serves as a regression test: prior to the
-        get_current_limits_auth0_only dependency, the token creation
-        endpoint ran both get_current_user_auth0_only and get_current_user
+        get_current_limits_session_only dependency, the token creation
+        endpoint ran both get_current_user_session_only and get_current_user
         (via get_current_limits), consuming 2 rate limit slots per request.
-        With the fix, both dependencies share get_current_user_auth0_only,
+        With the fix, both dependencies share get_current_user_session_only,
         so only 1 slot is consumed.
         """
         # Make 2 requests (allowed — write limit is 2/min)
