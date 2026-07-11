@@ -204,6 +204,7 @@ eval-viewer:  ## Start eval results viewer
 backend-lint:  ## Run ruff linter on backend
 	uv run ruff check backend/src --fix --unsafe-fixes
 	uv run ruff check backend/tests --fix --unsafe-fixes
+	uv run ruff check backend/scripts --fix --unsafe-fixes
 
 backend-tests:  ## Run backend unit tests with coverage (excludes deployed security tests)
 	uv run coverage run -m pytest --durations=20 backend/tests --ignore=backend/tests/security/deployed
