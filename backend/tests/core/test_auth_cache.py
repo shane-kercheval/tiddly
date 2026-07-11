@@ -109,7 +109,7 @@ class TestAuthCache:
         """User can be cached and retrieved by Auth0 ID."""
         cache = AuthCache(redis_client)
 
-        await cache.set(test_user, auth0_id=test_user.auth0_id)
+        await cache.set(test_user)
         result = await cache.get_by_auth0_id(test_user.auth0_id)
 
         assert result is not None
@@ -125,7 +125,7 @@ class TestAuthCache:
         """Cached user includes consent version fields."""
         cache = AuthCache(redis_client)
 
-        await cache.set(test_user_with_consent, auth0_id=test_user_with_consent.auth0_id)
+        await cache.set(test_user_with_consent)
         result = await cache.get_by_auth0_id(test_user_with_consent.auth0_id)
 
         assert result is not None
@@ -141,7 +141,7 @@ class TestAuthCache:
         cache = AuthCache(redis_client)
 
         test_user.email_verified = True
-        await cache.set(test_user, auth0_id=test_user.auth0_id)
+        await cache.set(test_user)
         result = await cache.get_by_auth0_id(test_user.auth0_id)
 
         assert result is not None
@@ -155,7 +155,7 @@ class TestAuthCache:
         """User without email_verified has None in cache."""
         cache = AuthCache(redis_client)
 
-        await cache.set(test_user, auth0_id=test_user.auth0_id)
+        await cache.set(test_user)
         result = await cache.get_by_auth0_id(test_user.auth0_id)
 
         assert result is not None
@@ -169,7 +169,7 @@ class TestAuthCache:
         """User without consent has None consent versions."""
         cache = AuthCache(redis_client)
 
-        await cache.set(test_user, auth0_id=test_user.auth0_id)
+        await cache.set(test_user)
         result = await cache.get_by_auth0_id(test_user.auth0_id)
 
         assert result is not None
@@ -198,7 +198,7 @@ class TestAuthCache:
         """Invalidate removes cache entry by Auth0 ID when provided."""
         cache = AuthCache(redis_client)
 
-        await cache.set(test_user, auth0_id=test_user.auth0_id)
+        await cache.set(test_user)
         await cache.invalidate(test_user.id, auth0_id=test_user.auth0_id)
         result = await cache.get_by_auth0_id(test_user.auth0_id)
 
@@ -216,6 +216,92 @@ class TestAuthCache:
 
         assert f"v{CACHE_SCHEMA_VERSION}" in auth0_key
         assert f"v{CACHE_SCHEMA_VERSION}" in user_id_key
+
+
+class TestAuthCacheExternalAuthId:
+    """Tests for the external_auth_id (Clerk) cache segment."""
+
+    async def test__set__caches_user_by_external_auth_id(
+        self,
+        redis_client: RedisClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """A Clerk-only user (no auth0_id) is cached and retrievable by ext segment."""
+        user = User(
+            external_auth_id="user_clerk_cache_test",
+            email="clerkcache@example.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add(user)
+        await db_session.flush()
+        result = await db_session.execute(
+            select(User).options(joinedload(User.consent)).where(User.id == user.id),
+        )
+        user = result.scalar_one()
+        cache = AuthCache(redis_client)
+
+        await cache.set(user)
+        cached = await cache.get_by_external_auth_id("user_clerk_cache_test")
+
+        assert cached is not None
+        assert cached.id == user.id
+        assert cached.auth0_id is None
+        assert cached.external_auth_id == "user_clerk_cache_test"
+
+    async def test__set__caches_dual_identity_user_under_all_segments(
+        self,
+        redis_client: RedisClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """A user with both identifiers is retrievable via every segment."""
+        user = User(
+            auth0_id="auth0|dual-identity",
+            external_auth_id="user_dual_identity",
+            email="dual@example.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add(user)
+        await db_session.flush()
+        result = await db_session.execute(
+            select(User).options(joinedload(User.consent)).where(User.id == user.id),
+        )
+        user = result.scalar_one()
+        cache = AuthCache(redis_client)
+
+        await cache.set(user)
+
+        by_id = await cache.get_by_user_id(user.id)
+        by_auth0 = await cache.get_by_auth0_id("auth0|dual-identity")
+        by_ext = await cache.get_by_external_auth_id("user_dual_identity")
+        assert by_id is not None
+        assert by_auth0 is not None
+        assert by_ext is not None
+        assert by_id.id == by_auth0.id == by_ext.id == user.id
+
+    async def test__invalidate__removes_external_segment(
+        self,
+        redis_client: RedisClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """Invalidate with external_auth_id removes the ext segment entry."""
+        user = User(
+            external_auth_id="user_clerk_invalidate",
+            email="clerkinv@example.com",
+            tier=Tier.FREE.value,
+        )
+        db_session.add(user)
+        await db_session.flush()
+        result = await db_session.execute(
+            select(User).options(joinedload(User.consent)).where(User.id == user.id),
+        )
+        user = result.scalar_one()
+        cache = AuthCache(redis_client)
+        await cache.set(user)
+
+        await cache.invalidate(user.id, external_auth_id="user_clerk_invalidate")
+
+        assert await cache.get_by_user_id(user.id) is None
+        assert await cache.get_by_external_auth_id("user_clerk_invalidate") is None
 
 
 class TestAuthCacheSchemaVersioning:

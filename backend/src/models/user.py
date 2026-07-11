@@ -1,7 +1,7 @@
 """User model for storing authenticated users."""
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String
+from sqlalchemy import CheckConstraint, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import Base, TimestampMixin, UUIDv7Mixin
@@ -19,16 +19,42 @@ if TYPE_CHECKING:
 
 
 class User(Base, UUIDv7Mixin, TimestampMixin):
-    """User model - stores Auth0 user info for foreign key relationships."""
+    """
+    User model - stores identity-provider linkage for foreign key relationships.
+
+    Dual-accept window (Auth0 → Clerk migration): a user row is keyed by
+    `auth0_id`, `external_auth_id`, or both. At least one must be present —
+    enforced by the DB CHECK constraint below, not only by the service layer.
+    M6b (decommission) drops `auth0_id` and the constraint and makes
+    `external_auth_id` NOT NULL.
+    """
 
     __tablename__ = "users"
+    __table_args__ = (
+        # Transitional identity invariant for the dual-accept window; dropped in M6b.
+        CheckConstraint(
+            "(auth0_id IS NOT NULL) OR (external_auth_id IS NOT NULL)",
+            name="ck_user_has_identity",
+        ),
+    )
 
     # id provided by UUIDv7Mixin
-    auth0_id: Mapped[str] = mapped_column(
+    auth0_id: Mapped[str | None] = mapped_column(
         String(255),
         unique=True,
         index=True,
-        comment="Auth0 'sub' claim - unique identifier from Auth0",
+        nullable=True,
+        comment="Auth0 'sub' claim - NULL for users created via Clerk (dropped in M6b)",
+    )
+    external_auth_id: Mapped[str | None] = mapped_column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=True,
+        comment=(
+            "The 'sub' claim of verified IdP tokens (currently the Clerk user ID). "
+            "Provider-neutral name, provider-specific value - never parse its format."
+        ),
     )
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email_verified: Mapped[bool | None] = mapped_column(nullable=True, default=None)

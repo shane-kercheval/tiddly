@@ -1660,12 +1660,12 @@ async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> No
     """Test that fetch-metadata endpoint rejects PAT tokens with 403."""
     # Deferred imports: these trigger module-level get_settings() which requires
     # DATABASE_URL, only available at runtime via the database_url fixture.
-    from api.dependencies import get_current_user_auth0_only  # noqa: PLC0415
+    from api.dependencies import get_current_user_session_only  # noqa: PLC0415
     from api.main import app  # noqa: PLC0415
     from db.session import get_async_session  # noqa: PLC0415
 
-    # Override get_current_user_auth0_only to simulate PAT rejection
-    async def mock_auth0_only_reject_pat() -> None:
+    # Override get_current_user_session_only to simulate PAT rejection
+    async def mock_session_only_reject_pat() -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This endpoint is not available for API tokens. Please use the web interface.",
@@ -1674,7 +1674,7 @@ async def test_fetch_metadata_rejects_pat_tokens(db_session: AsyncSession) -> No
     async def override_get_async_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
 
-    app.dependency_overrides[get_current_user_auth0_only] = mock_auth0_only_reject_pat
+    app.dependency_overrides[get_current_user_session_only] = mock_session_only_reject_pat
     app.dependency_overrides[get_async_session] = override_get_async_session
 
     try:

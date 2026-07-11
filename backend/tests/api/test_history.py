@@ -1034,6 +1034,8 @@ async def test_user_cannot_access_another_users_history(
             database_url="postgresql://test",
             dev_mode=False,
             auth0_custom_claim_namespace="https://test.example.com",
+            clerk_frontend_api="test-instance.clerk.accounts.dev",
+            clerk_authorized_parties_str="http://localhost:5173",
         )
 
     app.dependency_overrides[get_async_session] = override_get_async_session
@@ -1115,6 +1117,8 @@ async def test_pat_can_access_history(
             database_url="postgresql://test",
             dev_mode=False,
             auth0_custom_claim_namespace="https://test.example.com",
+            clerk_frontend_api="test-instance.clerk.accounts.dev",
+            clerk_authorized_parties_str="http://localhost:5173",
         )
 
     app.dependency_overrides[get_async_session] = override_get_async_session
@@ -2442,6 +2446,8 @@ async def test_get_version_diff__cross_user_isolation(
             database_url="postgresql://test",
             dev_mode=False,
             auth0_custom_claim_namespace="https://test.example.com",
+            clerk_frontend_api="test-instance.clerk.accounts.dev",
+            clerk_authorized_parties_str="http://localhost:5173",
         )
 
     app.dependency_overrides[get_async_session] = override_get_async_session

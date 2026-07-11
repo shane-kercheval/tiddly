@@ -38,7 +38,7 @@ def request_context() -> RequestContext:
     """Create a test request context."""
     return RequestContext(
         source="web",
-        auth_type=AuthType.AUTH0,
+        auth_type=AuthType.SESSION,
         token_prefix=None,
     )
 
@@ -1290,7 +1290,7 @@ class TestEmptyDiffHandling:
             content_diff="",  # Empty string
             metadata_snapshot=metadata,
             source="web",
-            auth_type=AuthType.AUTH0.value,
+            auth_type=AuthType.SESSION.value,
         )
         db_session.add(history)
         await db_session.flush()
@@ -1374,7 +1374,7 @@ class TestCorruptedDiffHandling:
             content_diff="this_is_not_valid_patch_text!!!",  # Corrupted
             metadata_snapshot=metadata,
             source="web",
-            auth_type=AuthType.AUTH0.value,
+            auth_type=AuthType.SESSION.value,
         )
         db_session.add(history)
         await db_session.flush()
@@ -1461,7 +1461,7 @@ class TestCorruptedDiffHandling:
             content_diff="CORRUPTED_GARBAGE_DATA",
             metadata_snapshot=metadata,
             source="web",
-            auth_type=AuthType.AUTH0.value,
+            auth_type=AuthType.SESSION.value,
         )
         db_session.add(history_v3)
         await db_session.flush()
@@ -1485,7 +1485,7 @@ class TestCorruptedDiffHandling:
             content_diff=valid_diff,
             metadata_snapshot=metadata,
             source="web",
-            auth_type=AuthType.AUTH0.value,
+            auth_type=AuthType.SESSION.value,
         )
         db_session.add(history_v4)
         await db_session.flush()

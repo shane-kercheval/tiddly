@@ -45,7 +45,7 @@ class TestContentHistoryModel:
             content_diff=None,
             metadata_snapshot={"title": "Test Note", "tags": ["test"]},
             source="web",
-            auth_type="auth0",
+            auth_type="session",
             token_prefix=None,
         )
         db_session.add(history)
@@ -62,7 +62,7 @@ class TestContentHistoryModel:
         assert history.content_diff is None
         assert history.metadata_snapshot == {"title": "Test Note", "tags": ["test"]}
         assert history.source == "web"
-        assert history.auth_type == "auth0"
+        assert history.auth_type == "session"
         assert history.token_prefix is None
         assert history.created_at is not None
 
@@ -111,7 +111,7 @@ class TestContentHistoryModel:
             content_diff=None,
             metadata_snapshot={"title": "Archived Prompt", "archived_at": "2024-01-01T00:00:00Z"},
             source="web",
-            auth_type="auth0",
+            auth_type="session",
         )
         db_session.add(history)
         await db_session.commit()
@@ -175,7 +175,7 @@ class TestContentHistoryJsonb:
             content_snapshot="Content",
             metadata_snapshot=complex_metadata,
             source="web",
-            auth_type="auth0",
+            auth_type="session",
         )
         db_session.add(history)
         await db_session.commit()
@@ -206,7 +206,7 @@ class TestContentHistoryRelationships:
             content_snapshot="Content",
             metadata_snapshot={"title": "Test"},
             source="web",
-            auth_type="auth0",
+            auth_type="session",
         )
         db_session.add(history)
         await db_session.commit()
@@ -241,7 +241,7 @@ class TestContentHistoryRelationships:
                 content_diff="diff" if version > 1 else None,
                 metadata_snapshot={"title": f"Version {version}"},
                 source="web",
-                auth_type="auth0",
+                auth_type="session",
             )
             db_session.add(history)
 
@@ -272,7 +272,7 @@ class TestContentHistoryUniqueConstraint:
             content_snapshot="Content",
             metadata_snapshot={"title": "Test"},
             source="web",
-            auth_type="auth0",
+            auth_type="session",
         )
         db_session.add(history1)
         await db_session.commit()
@@ -288,7 +288,7 @@ class TestContentHistoryUniqueConstraint:
             content_diff="diff",
             metadata_snapshot={"title": "Duplicate"},
             source="web",
-            auth_type="auth0",
+            auth_type="session",
         )
         db_session.add(history2)
 
@@ -314,7 +314,7 @@ class TestContentHistoryUniqueConstraint:
             content_snapshot="Content 1",
             metadata_snapshot={"title": "Note 1"},
             source="web",
-            auth_type="auth0",
+            auth_type="session",
         )
         db_session.add(history1)
 
@@ -328,7 +328,7 @@ class TestContentHistoryUniqueConstraint:
             content_snapshot="Content 2",
             metadata_snapshot={"title": "Note 2"},
             source="web",
-            auth_type="auth0",
+            auth_type="session",
         )
         db_session.add(history2)
 
@@ -359,7 +359,7 @@ class TestContentHistoryUniqueConstraint:
             content_snapshot="Note content",
             metadata_snapshot={"title": "Note"},
             source="web",
-            auth_type="auth0",
+            auth_type="session",
         )
         db_session.add(history1)
 
@@ -373,7 +373,7 @@ class TestContentHistoryUniqueConstraint:
             content_snapshot="Bookmark content",
             metadata_snapshot={"title": "Bookmark"},
             source="web",
-            auth_type="auth0",
+            auth_type="session",
         )
         db_session.add(history2)
 

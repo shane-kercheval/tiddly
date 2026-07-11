@@ -4,8 +4,8 @@ from fastapi import Depends
 from core.auth import (
     get_current_user,
     get_current_user_ai,
-    get_current_user_auth0_only,
-    get_current_user_auth0_only_without_consent,
+    get_current_user_session_only,
+    get_current_user_session_only_without_consent,
     get_current_user_without_consent,
 )
 from core.config import Settings, get_settings
@@ -35,11 +35,11 @@ def get_current_limits(
     return resolve_tier_limits(current_user.tier, dev_mode=settings.dev_mode)
 
 
-def get_current_limits_auth0_only(
-    current_user: CachedUser = Depends(get_current_user_auth0_only),
+def get_current_limits_session_only(
+    current_user: CachedUser = Depends(get_current_user_session_only),
     settings: Settings = Depends(get_settings),
 ) -> TierLimits:
-    """Get tier limits for the current user (Auth0 only — rejects PATs)."""
+    """Get tier limits for the current user (session only — rejects PATs)."""
     return resolve_tier_limits(current_user.tier, dev_mode=settings.dev_mode)
 
 
@@ -55,11 +55,11 @@ __all__ = [
     "get_async_session",
     "get_current_limits",
     "get_current_limits_ai",
-    "get_current_limits_auth0_only",
+    "get_current_limits_session_only",
     "get_current_user",
     "get_current_user_ai",
-    "get_current_user_auth0_only",
-    "get_current_user_auth0_only_without_consent",
+    "get_current_user_session_only",
+    "get_current_user_session_only_without_consent",
     "get_current_user_without_consent",
     "get_settings",
     "resolve_tier_limits",

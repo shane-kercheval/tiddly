@@ -1,7 +1,8 @@
-"""Tests for Auth0-only authentication dependencies."""
+"""Tests for session-only (PAT-blocking) authentication dependencies."""
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import jwt
 import pytest
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
@@ -62,6 +63,19 @@ async def test_user_with_consent(db_session: AsyncSession) -> User:
     return user
 
 
+TEST_AUTH0_ISSUER = "https://test-tenant.auth0.com/"
+
+
+def auth0_dispatch_token(sub: str) -> str:
+    """
+    Build a JWT whose (unverified) `iss` routes it to the Auth0 verifier.
+
+    Signature is irrelevant: these tests patch decode_jwt, so only the
+    dispatch peek reads this token.
+    """
+    return jwt.encode({"iss": TEST_AUTH0_ISSUER, "sub": sub}, "unused-test-key-0123456789abcdef", algorithm="HS256")
+
+
 @pytest.fixture
 def mock_settings_no_dev_mode() -> Settings:
     """Create mock settings with dev_mode=False."""
@@ -70,6 +84,9 @@ def mock_settings_no_dev_mode() -> Settings:
     settings.frontend_url = "http://localhost:5173"
     settings.api_url = "http://localhost:8000"
     settings.auth0_custom_claim_namespace = "https://test.example.com"
+    settings.auth0_issuer = TEST_AUTH0_ISSUER
+    settings.auth0_jit_create_enabled = True
+    settings.clerk_frontend_api = ""
     return settings
 
 
@@ -148,7 +165,7 @@ class TestAuthenticateUserAllowPat:
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid_jwt",
+            credentials=auth0_dispatch_token(test_user.auth0_id),
         )
 
         # Mock decode_jwt to return valid payload
@@ -203,8 +220,8 @@ class TestAuthenticateUserAllowPat:
         assert exc_info.value.detail == "Not authenticated"
 
 
-class TestGetCurrentUserAuth0Only:
-    """Tests for get_current_user_auth0_only dependency."""
+class TestGetCurrentUserSessionOnly:
+    """Tests for get_current_user_session_only dependency."""
 
     async def test__with_pat__returns_403(
         self,
@@ -244,7 +261,7 @@ class TestGetCurrentUserAuth0Only:
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid",
+            credentials=auth0_dispatch_token(test_user_with_consent.auth0_id),
         )
 
         mock_payload = {
@@ -278,7 +295,7 @@ class TestGetCurrentUserAuth0Only:
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid",
+            credentials=auth0_dispatch_token(test_user.auth0_id),
         )
 
         mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
@@ -297,8 +314,8 @@ class TestGetCurrentUserAuth0Only:
         assert exc_info.value.status_code == 451
 
 
-class TestGetCurrentUserAuth0OnlyWithoutConsent:
-    """Tests for get_current_user_auth0_only_without_consent dependency."""
+class TestGetCurrentUserSessionOnlyWithoutConsent:
+    """Tests for get_current_user_session_only_without_consent dependency."""
 
     async def test__with_pat__returns_403(
         self,
@@ -334,12 +351,12 @@ class TestGetCurrentUserAuth0OnlyWithoutConsent:
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
-            credentials="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.valid",
+            credentials=auth0_dispatch_token(test_user.auth0_id),
         )
 
         mock_payload = {"sub": test_user.auth0_id, "email": test_user.email}
         with patch("core.auth.decode_jwt", return_value=mock_payload):
-            # This simulates get_current_user_auth0_only_without_consent
+            # This simulates get_current_user_session_only_without_consent
             # which calls _authenticate_user with allow_pat=False but no consent check
             user = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,

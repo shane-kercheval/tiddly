@@ -34,6 +34,33 @@ class Settings(BaseSettings):
         validation_alias="AUTH0_CUSTOM_CLAIM_NAMESPACE",
     )
 
+    # Clerk (dual-accept window, Auth0 → Clerk migration)
+    # Frontend API domain of the Clerk instance (e.g. "clerk.tiddly.me" in
+    # production, "<slug>.clerk.accounts.dev" for the dev instance); issuer and
+    # JWKS URL are derived from it, mirroring the auth0_domain pattern.
+    clerk_frontend_api: str = Field(default="", validation_alias="CLERK_FRONTEND_API")
+    # Comma-separated web origins accepted as the `azp` (authorized party) claim
+    # on Clerk session tokens. Clerk session tokens carry no audience; azp is
+    # the equivalent check. Tokens without azp (non-browser clients) are
+    # tolerated - see core/auth.py.
+    clerk_authorized_parties_str: str = Field(
+        default="",
+        validation_alias="CLERK_AUTHORIZED_PARTIES",
+    )
+    # Per-issuer JIT user-creation flags (AD5 window rules, enforced in the
+    # backend). Lookup is always allowed; these gate only *creation* of new
+    # user rows. Clerk-create stays off in production until M6a's import
+    # reconciles (local dev turns it on); Auth0-create is turned off at M6a's
+    # flip. Both flags (and this comment) are removed in M6b.
+    clerk_jit_create_enabled: bool = Field(
+        default=False,
+        validation_alias="CLERK_JIT_CREATE_ENABLED",
+    )
+    auth0_jit_create_enabled: bool = Field(
+        default=True,
+        validation_alias="AUTH0_JIT_CREATE_ENABLED",
+    )
+
     # Development mode - bypasses auth for local development (shared with frontend)
     dev_mode: bool = Field(default=False, validation_alias="VITE_DEV_MODE")
 
@@ -108,6 +135,21 @@ class Settings(BaseSettings):
                     "AUTH0_CUSTOM_CLAIM_NAMESPACE is required when DEV_MODE is disabled. "
                     "Without it, email cannot be read from Auth0 access tokens.",
                 )
+            # Same safety check for the Clerk side of dual-accept: fail loudly at
+            # startup instead of silently rejecting every Clerk token. (Railway env
+            # vars must be set before the M1 merge - see the migration plan's M1
+            # operator step.)
+            if not self.clerk_frontend_api:
+                raise ValueError(
+                    "CLERK_FRONTEND_API is required when DEV_MODE is disabled. "
+                    "Without it, Clerk session tokens cannot be verified.",
+                )
+            if not self.clerk_authorized_parties:
+                raise ValueError(
+                    "CLERK_AUTHORIZED_PARTIES is required when DEV_MODE is disabled. "
+                    "With an empty allowlist, every browser-issued Clerk token "
+                    "(azp present) would be rejected.",
+                )
             return self
 
         # Parse database URL to extract hostname
@@ -162,6 +204,25 @@ class Settings(BaseSettings):
     def auth0_jwks_url(self) -> str:
         """Get the Auth0 JWKS URL for fetching public keys."""
         return f"https://{self.auth0_domain}/.well-known/jwks.json"
+
+    @property
+    def clerk_issuer(self) -> str:
+        """Get the Clerk issuer URL (no trailing slash, unlike Auth0's)."""
+        return f"https://{self.clerk_frontend_api}"
+
+    @property
+    def clerk_jwks_url(self) -> str:
+        """Get the Clerk JWKS URL for fetching public keys."""
+        return f"https://{self.clerk_frontend_api}/.well-known/jwks.json"
+
+    @property
+    def clerk_authorized_parties(self) -> list[str]:
+        """Parse comma-separated authorized-party origins into a list."""
+        return [
+            party.strip()
+            for party in self.clerk_authorized_parties_str.split(",")
+            if party.strip()
+        ]
 
 
 def _get_local_ips() -> list[str]:

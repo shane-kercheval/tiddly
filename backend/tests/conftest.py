@@ -436,6 +436,8 @@ async def concurrent_client(
             database_url="postgresql://test",
             dev_mode=False,
             auth0_custom_claim_namespace="https://test.example.com",
+            clerk_frontend_api="test-instance.clerk.accounts.dev",
+            clerk_authorized_parties_str="http://localhost:5173",
         )
 
     app.dependency_overrides[get_async_session] = override_get_async_session

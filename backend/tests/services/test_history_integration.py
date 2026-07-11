@@ -40,7 +40,7 @@ async def test_user(db_session: AsyncSession) -> User:
 
 def make_context(
     source: str = "web",
-    auth_type: AuthType = AuthType.AUTH0,
+    auth_type: AuthType = AuthType.SESSION,
     token_prefix: str | None = None,
 ) -> RequestContext:
     """Create a RequestContext for testing."""
@@ -112,7 +112,7 @@ class TestBookmarkHistoryIntegration:
         assert record.metadata_snapshot["tags"][0]["name"] == "test"
         assert "id" in record.metadata_snapshot["tags"][0]
         assert record.source == "web"
-        assert record.auth_type == AuthType.AUTH0.value
+        assert record.auth_type == AuthType.SESSION.value
 
     async def test__update__records_history_on_content_change(
         self,
@@ -344,7 +344,7 @@ class TestContextPropagation:
         test_user: User,
     ) -> None:
         """Web + Auth0 context is recorded."""
-        context = make_context(source="web", auth_type=AuthType.AUTH0)
+        context = make_context(source="web", auth_type=AuthType.SESSION)
         service = BookmarkService()
         limits = get_tier_limits("free")
 
@@ -354,7 +354,7 @@ class TestContextPropagation:
         history = await get_entity_history(db_session, test_user.id, EntityType.BOOKMARK, bookmark.id)
 
         assert history[0].source == "web"
-        assert history[0].auth_type == "auth0"
+        assert history[0].auth_type == "session"
         assert history[0].token_prefix is None
 
     async def test__context_api_pat(
@@ -446,7 +446,7 @@ class TestNoteHistoryIntegration:
         assert record.metadata_snapshot["tags"][0]["name"] == "test"
         assert "id" in record.metadata_snapshot["tags"][0]
         assert record.source == "web"
-        assert record.auth_type == AuthType.AUTH0.value
+        assert record.auth_type == AuthType.SESSION.value
 
     async def test__update__records_history_on_content_change(
         self,
@@ -1760,7 +1760,7 @@ class TestCleanupPreservationServicePathRegression:
                     "tags": [],
                 },
                 source="web",
-                auth_type=AuthType.AUTH0.value,
+                auth_type=AuthType.SESSION.value,
                 created_at=aged_at,
             ))
             seeded_v2_metadata = {
@@ -1787,7 +1787,7 @@ class TestCleanupPreservationServicePathRegression:
                 content_diff=v2_reverse_diff,
                 metadata_snapshot=seeded_v2_metadata,
                 source="web",
-                auth_type=AuthType.AUTH0.value,
+                auth_type=AuthType.SESSION.value,
                 created_at=aged_at,
             ))
         else:  # audit-only-aged
@@ -1802,7 +1802,7 @@ class TestCleanupPreservationServicePathRegression:
                     content_diff=None,
                     metadata_snapshot={"title": "audit"},
                     source="web",
-                    auth_type=AuthType.AUTH0.value,
+                    auth_type=AuthType.SESSION.value,
                     created_at=aged_at,
                 ))
         await db_session.commit()

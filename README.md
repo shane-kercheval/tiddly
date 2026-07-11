@@ -77,6 +77,12 @@ To test real authentication:
    VITE_AUTH0_DOMAIN=your-tenant.auth0.com
    VITE_AUTH0_CLIENT_ID=your-spa-client-id
    VITE_AUTH0_AUDIENCE=https://bookmarks-api
+   # Clerk (dual-accept migration window) — required whenever VITE_DEV_MODE=false;
+   # the backend refuses to start without these. Use a Clerk dev instance's
+   # Frontend API domain (Dashboard -> API Keys).
+   CLERK_FRONTEND_API=your-instance.clerk.accounts.dev
+   CLERK_AUTHORIZED_PARTIES=http://localhost:5173
+   CLERK_JIT_CREATE_ENABLED=true
    ```
 
 3. **Test backend** (get a test token from Auth0 Dashboard → APIs → Test tab):
@@ -93,6 +99,7 @@ See `.env.example` for all options. Key settings:
 
 - `VITE_DEV_MODE=true` - Bypasses auth (local dev)
 - `VITE_AUTH0_*` - Auth0 config (used by both backend and frontend, empty = dev mode)
+- `CLERK_*` - Clerk config for the dual-accept migration window (required when `VITE_DEV_MODE=false`)
 
 ## Commands
 

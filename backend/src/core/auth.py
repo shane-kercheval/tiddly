@@ -1,8 +1,21 @@
-"""Authentication module for Auth0 JWT validation and PAT support."""
+"""
+Authentication module: IdP JWT verification (dual-accept) and PAT support.
+
+Provider seam containment (architecture-level intent — keep it this way): every
+provider-specific shape in the backend lives in this module plus its immediate
+collaborators (`core/config.py`, `core/auth_cache.py`, `core/request_context.py`,
+`schemas/cached_user.py`). Nothing outside the seam may parse tokens, read
+provider claims, or know which IdP issued a credential.
+
+Dual-accept window (Auth0 → Clerk migration, see
+docs/implementation_plans/2026-07-02-clerk-migration.md): JWTs are routed by
+their `iss` claim to the Auth0 or Clerk verifier; both resolve to the same user
+rows (Auth0 tokens via users.auth0_id, Clerk tokens via users.external_auth_id).
+The Auth0 path is removed at decommission (M6b).
+"""
 import logging
 from typing import Annotated
 
-import httpx
 import jwt
 from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -37,11 +50,18 @@ __all__ = [
     "RequestContext",
     "get_current_user",
     "get_current_user_ai",
-    "get_current_user_auth0_only",
-    "get_current_user_auth0_only_without_consent",
+    "get_current_user_session_only",
+    "get_current_user_session_only_without_consent",
     "get_current_user_without_consent",
     "get_request_context",
 ]
+
+# Clock-skew leeway for verifying Clerk session tokens. PyJWT defaults to 0;
+# with ~60-second tokens, a slightly-fast client clock would cause spurious
+# 401s that present as random logouts. 5s matches the Clerk instance's
+# session.allowed_clock_skew (clerk/config.dev.json) — but the value is our
+# own: Clerk's setting governs Clerk's servers, not our verification.
+CLERK_CLOCK_SKEW_LEEWAY_SECONDS = 5
 
 
 def get_request_context(request: Request) -> RequestContext | None:
@@ -72,26 +92,45 @@ CONSENT_INSTRUCTIONS = (
 )
 
 
-def get_jwks_client(settings: Settings) -> PyJWKClient:
-    """Get or create a cached JWKS client for the given settings."""
-    if settings.auth0_jwks_url not in _jwks_clients:
-        _jwks_clients[settings.auth0_jwks_url] = PyJWKClient(
-            settings.auth0_jwks_url,
+def get_jwks_client(jwks_url: str) -> PyJWKClient:
+    """Get or create a cached JWKS client for the given JWKS URL."""
+    if jwks_url not in _jwks_clients:
+        _jwks_clients[jwks_url] = PyJWKClient(
+            jwks_url,
             cache_jwk_set=True,
             lifespan=3600,  # Cache keys for 1 hour
         )
-    return _jwks_clients[settings.auth0_jwks_url]
+    return _jwks_clients[jwks_url]
+
+
+def _jwt_error_to_http(e: jwt.PyJWTError) -> HTTPException:
+    """Map a PyJWT verification failure to the corresponding 401."""
+    if isinstance(e, jwt.ExpiredSignatureError):
+        detail = "Token has expired"
+    elif isinstance(e, jwt.InvalidAudienceError):
+        detail = "Invalid audience"
+    elif isinstance(e, jwt.InvalidIssuerError):
+        detail = "Invalid issuer"
+    else:
+        # Log full details for debugging (server-side only)
+        logger.warning("JWT validation failed: %s", e, exc_info=True)
+        detail = "Invalid token"
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def decode_jwt(token: str, settings: Settings) -> dict:
     """
-    Decode and validate a JWT token from Auth0.
+    Decode and validate a JWT token from Auth0. (Removed in M6b.).
 
     Raises:
         HTTPException: If token is invalid, expired, or has wrong audience/issuer.
     """
     try:
-        jwks_client = get_jwks_client(settings)
+        jwks_client = get_jwks_client(settings.auth0_jwks_url)
         signing_key = jwks_client.get_signing_key_from_jwt(token)
 
         return jwt.decode(
@@ -102,55 +141,131 @@ def decode_jwt(token: str, settings: Settings) -> dict:
             issuer=settings.auth0_issuer,
         )
 
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except jwt.InvalidAudienceError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid audience",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except jwt.InvalidIssuerError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid issuer",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except jwt.PyJWTError as e:
-        # Log full details for debugging (server-side only)
-        logger.warning("JWT validation failed: %s", e, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except httpx.HTTPError as e:
+    # Order matters: PyJWKClientConnectionError IS a PyJWTError, so the
+    # provider-unreachable case must be caught first — it's an outage (503,
+    # retryable), not a bad token (401, which would sign the user out).
+    except jwt.PyJWKClientConnectionError as e:
         # Log full details for debugging (server-side only)
         logger.error("Failed to fetch JWKS from Auth0: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Could not validate credentials",
         )
+    except jwt.PyJWTError as e:
+        raise _jwt_error_to_http(e)
+
+
+def decode_clerk_jwt(token: str, settings: Settings) -> dict:
+    """
+    Decode and validate a Clerk session token.
+
+    Differences from the Auth0 path, per the migration plan's M1 (each verified
+    against the live dev instance in the M0 spike):
+    - No audience claim exists; the equivalent check is `azp` (authorized
+      party) below.
+    - `azp` rule: if present it must be in the configured allowlist; if absent
+      it is tolerated. Browser-origin tokens carry `azp`; Backend-API-minted
+      tokens carry none (M0 spike), and other non-browser token types (native
+      iOS, OAuth) are expected to match. Absence can't be forged onto a
+      browser token — the token is signed — so present→check/absent→tolerate
+      is safe regardless.
+    - Explicit clock-skew leeway (~60s tokens; see the constant's comment).
+
+    Raises:
+        HTTPException: If token is invalid, expired, or has wrong issuer/azp.
+    """
+    try:
+        jwks_client = get_jwks_client(settings.clerk_jwks_url)
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            issuer=settings.clerk_issuer,
+            leeway=CLERK_CLOCK_SKEW_LEEWAY_SECONDS,
+            options={
+                "verify_aud": False,  # no audience on Clerk session tokens
+                "require": ["exp", "iss", "sub"],
+            },
+        )
+    # Order matters: PyJWKClientConnectionError IS a PyJWTError, so the
+    # provider-unreachable case must be caught first — it's an outage (503,
+    # retryable), not a bad token (401, which would sign the user out).
+    except jwt.PyJWKClientConnectionError as e:
+        # Log full details for debugging (server-side only)
+        logger.error("Failed to fetch JWKS from Clerk: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not validate credentials",
+        )
+    except jwt.PyJWTError as e:
+        raise _jwt_error_to_http(e)
+
+    azp = payload.get("azp")
+    if azp is not None and azp not in settings.clerk_authorized_parties:
+        logger.warning("Clerk token rejected: azp %r not in authorized parties", azp)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return payload
+
+
+def _peek_issuer(token: str) -> str | None:
+    """
+    Read a JWT's `iss` claim WITHOUT verifying it — for dispatch only.
+
+    This looks alarming but is safe: the value is used solely to select which
+    verifier runs; the selected verifier then enforces signature, issuer, and
+    every other claim from scratch. A forged `iss` merely routes the token to
+    a verifier whose keys will reject it.
+
+    Raises:
+        HTTPException 401: if the bearer isn't parseable as a JWT at all. The
+        warning log names the cause — this is the observable symptom of a
+        Clerk OAuth app misconfigured to issue opaque tokens (M4/M5), and the
+        log is what makes that misconfiguration diagnosable instead of a
+        silent 401.
+    """
+    try:
+        payload = jwt.decode(token, options={"verify_signature": False})
+    except jwt.PyJWTError as e:
+        logger.warning(
+            "Bearer token is not a PAT and not parseable as a JWT "
+            "(opaque token from a misconfigured OAuth app?): %s",
+            e,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload.get("iss")
 
 
 async def get_or_create_user(
     db: AsyncSession,
-    auth0_id: str,
+    *,
+    auth0_id: str | None = None,
+    external_auth_id: str | None = None,
     email: str | None = None,
     email_verified: bool | None = None,
+    jit_create_allowed: bool = True,
 ) -> User | CachedUser:
     """
-    Get user from cache or database.
+    Get user from cache or database, keyed by whichever provider identifier
+    the verified token supplied (exactly one required — the users table CHECK
+    constraint backstops this).
 
     Returns CachedUser on cache hit, User ORM object on cache miss.
 
     Safe attributes (available on both types):
     - id: UUID
-    - auth0_id: str
+    - auth0_id: str | None
+    - external_auth_id: str | None
     - email: str | None
     - email_verified: bool | None
 
@@ -161,39 +276,56 @@ async def get_or_create_user(
     WARNING: Do NOT access ORM relationships like .bookmarks, .tokens on the return value.
     Those only exist on User, not CachedUser.
 
+    JIT-create gating (dual-accept window rule, AD5): lookup is always allowed;
+    when `jit_create_allowed` is False an unknown identity is rejected with a
+    generic 401 plus a warning log naming the identity — the loud, observable
+    failure mode for identities leaking past a provider-side sign-up control.
+
     Handles race conditions where multiple concurrent requests may try to create
-    the same user simultaneously. If an IntegrityError occurs (due to unique
-    constraint on auth0_id), the function rolls back and fetches the existing user.
+    the same user simultaneously. If an IntegrityError occurs (due to the unique
+    constraint on the identifier column), the function rolls back and fetches
+    the existing user.
 
     Note: Uses flush(), not commit. Session generator handles commit at request end.
     """
+    if (auth0_id is None) == (external_auth_id is None):
+        raise ValueError(
+            "Exactly one of auth0_id or external_auth_id is required.",
+        )
+    lookup_column = User.auth0_id if auth0_id else User.external_auth_id
+    identifier = auth0_id if auth0_id else external_auth_id
+
     # Try cache first
-    auth_cache = get_auth_cache()
-    if auth_cache:
-        cached = await auth_cache.get_by_auth0_id(auth0_id)
-        if cached:
-            # Fall through to DB if email changed (can't update cache directly).
-            # Note: email_verified is intentionally NOT checked here. It's an
-            # informational field not used for access control, so staleness up to
-            # cache TTL (5 min) is acceptable. Avoiding a DB hit on every request
-            # for a rarely-changing field is the right tradeoff.
-            if email and cached.email != email:
-                logger.debug("auth_cache email_mismatch, falling through to DB")
-            else:
-                return cached
+    cached = await _cache_lookup(auth0_id, external_auth_id)
+    if cached:
+        # Fall through to DB if email changed (can't update cache directly).
+        # Note: email_verified is intentionally NOT checked here. It's an
+        # informational field not used for access control, so staleness up to
+        # cache TTL (5 min) is acceptable. Avoiding a DB hit on every request
+        # for a rarely-changing field is the right tradeoff.
+        if email and cached.email != email:
+            logger.debug("auth_cache email_mismatch, falling through to DB")
+        else:
+            return cached
 
     # Cache miss or email update needed - hit DB
     result = await db.execute(
         select(User)
         .options(joinedload(User.consent))
-        .where(User.auth0_id == auth0_id),
+        .where(lookup_column == identifier),
     )
     user = result.scalar_one_or_none()
 
     if user is None:
+        if not jit_create_allowed:
+            _reject_jit_create(auth0_id, identifier)
         try:
             user = await user_service.create_user_with_defaults(
-                db, auth0_id, email, email_verified=email_verified,
+                db,
+                auth0_id=auth0_id,
+                external_auth_id=external_auth_id,
+                email=email,
+                email_verified=email_verified,
             )
         except IntegrityError:
             # Race condition: another request created the user between our SELECT
@@ -202,11 +334,11 @@ async def get_or_create_user(
             result = await db.execute(
                 select(User)
                 .options(joinedload(User.consent))
-                .where(User.auth0_id == auth0_id),
+                .where(lookup_column == identifier),
             )
             user = result.scalar_one()
 
-    # Update email/email_verified if changed in Auth0 (applies to both existing
+    # Update email/email_verified if changed at the IdP (applies to both existing
     # users and users fetched after race condition recovery)
     if email and user.email != email:
         user.email = email
@@ -215,14 +347,52 @@ async def get_or_create_user(
     await db.flush()
 
     # Populate cache
+    auth_cache = get_auth_cache()
     if auth_cache:
-        await auth_cache.set(user, auth0_id)
+        await auth_cache.set(user)
 
     return user
 
 
+async def _cache_lookup(
+    auth0_id: str | None,
+    external_auth_id: str | None,
+) -> CachedUser | None:
+    """Look up the auth-cache segment matching the supplied identifier."""
+    auth_cache = get_auth_cache()
+    if not auth_cache:
+        return None
+    if auth0_id:
+        return await auth_cache.get_by_auth0_id(auth0_id)
+    return await auth_cache.get_by_external_auth_id(external_auth_id)
+
+
+def _reject_jit_create(auth0_id: str | None, identifier: str | None) -> None:
+    """
+    Reject a gated JIT creation: generic 401 + a warning log naming the
+    identity and issuer (the loud, observable failure mode for identities
+    leaking past a provider-side sign-up control — AD5 window rules).
+    """
+    issuer_name = "auth0" if auth0_id else "clerk"
+    logger.warning(
+        "JIT user creation rejected (disabled for issuer=%s): sub=%s",
+        issuer_name,
+        identifier,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 async def get_or_create_dev_user(db: AsyncSession) -> User:
-    """Get or create a development user for DEV_MODE."""
+    """
+    Get or create a development user for DEV_MODE.
+
+    Deliberately not subject to the JIT-create gate — dev mode bypasses auth
+    entirely. (The sentinel moves to external_auth_id in M6b.)
+    """
     dev_auth0_id = "dev|local-development-user"
     return await get_or_create_user(
         db,
@@ -402,8 +572,8 @@ async def _authenticate_user(
     """
     Internal: authenticate user without consent check.
 
-    Supports both:
-    - Auth0 JWTs (for web UI)
+    Supports:
+    - IdP-issued JWTs, routed by issuer (Auth0 or Clerk — dual-accept window)
     - Personal Access Tokens (PATs) starting with 'bm_' (for CLI/MCP/scripts)
 
     In DEV_MODE, bypasses auth and returns a test user.
@@ -419,7 +589,7 @@ async def _authenticate_user(
         source: Resolved X-Request-Source value (see get_request_source), recorded
             on the request context for the content-versioning audit trail.
         allow_pat: If False, reject PAT tokens with 403 to help prevent unintended
-            programmatic use. Note: does not block Auth0 JWTs used outside the browser.
+            programmatic use. Note: does not block IdP JWTs used outside the browser.
     """
     token_prefix: str | None = None
 
@@ -448,25 +618,64 @@ async def _authenticate_user(
             token_prefix = token[:15] if len(token) > 15 else token
             user = await validate_pat(db, token)
         else:
-            # Auth0 JWT validation
-            auth_type = AuthType.AUTH0
-            payload = decode_jwt(token, settings)
+            # IdP JWT: dispatch on the (unverified) `iss` claim — see _peek_issuer
+            # for why that is safe. The selected verifier enforces everything.
+            auth_type = AuthType.SESSION
+            issuer = _peek_issuer(token)
 
-            # Extract user info from JWT claims
-            auth0_id = payload.get("sub")
-            if not auth0_id:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid token: missing sub claim",
-                    headers={"WWW-Authenticate": "Bearer"},
+            if issuer == settings.auth0_issuer:
+                payload = decode_jwt(token, settings)
+
+                # Extract user info from JWT claims
+                auth0_id = payload.get("sub")
+                if not auth0_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid token: missing sub claim",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+
+                # The cutover signal (M6a→M6b): during the window, `ios` should be
+                # the only source still authenticating via Auth0. Decommission is
+                # gated on this log going quiet.
+                logger.info(
+                    "auth0_path_authentication source=%s sub=%s", source, auth0_id,
                 )
 
-            namespace = settings.auth0_custom_claim_namespace
-            email = payload.get(f"{namespace}/email") if namespace else payload.get("email")
-            email_verified = payload.get(f"{namespace}/email_verified") if namespace else None
-            user = await get_or_create_user(
-                db, auth0_id=auth0_id, email=email, email_verified=email_verified,
-            )
+                namespace = settings.auth0_custom_claim_namespace
+                email = payload.get(f"{namespace}/email") if namespace else payload.get("email")
+                email_verified = payload.get(f"{namespace}/email_verified") if namespace else None
+                user = await get_or_create_user(
+                    db,
+                    auth0_id=auth0_id,
+                    email=email,
+                    email_verified=email_verified,
+                    jit_create_allowed=settings.auth0_jit_create_enabled,
+                )
+            # Clerk config is optional in dev; guard before comparing
+            # clerk_issuer so an unset Frontend API doesn't route tokens into
+            # a malformed Clerk verifier. Auth0 needs no equivalent guard —
+            # its settings are startup-required for the dual-accept window.
+            elif settings.clerk_frontend_api and issuer == settings.clerk_issuer:
+                payload = decode_clerk_jwt(token, settings)
+
+                # `sub` presence is enforced by decode_clerk_jwt's require list.
+                # Email claims are the plain (non-namespaced) custom session-token
+                # claims configured on the Clerk instance.
+                user = await get_or_create_user(
+                    db,
+                    external_auth_id=payload["sub"],
+                    email=payload.get("email"),
+                    email_verified=payload.get("email_verified"),
+                    jit_create_allowed=settings.clerk_jit_create_enabled,
+                )
+            else:
+                logger.warning("JWT rejected: unknown or missing issuer %r", issuer)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
     # Set request context for content versioning audit trail
     request.state.request_context = RequestContext(
@@ -520,7 +729,7 @@ async def get_current_user_without_consent(
     return user
 
 
-async def get_current_user_auth0_only(
+async def get_current_user_session_only(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
@@ -528,9 +737,10 @@ async def get_current_user_auth0_only(
     source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
-    Dependency: Auth0-only auth + rate limiting + consent check (blocks PAT access).
+    Dependency: session-only auth + rate limiting + consent check (blocks PAT access).
 
-    Returns User ORM object on cache miss, CachedUser on cache hit.
+    "Session" = an IdP-issued JWT (either issuer during dual-accept), as opposed
+    to a PAT. Returns User ORM object on cache miss, CachedUser on cache hit.
     Use this to block PAT access and help prevent unintended programmatic use.
 
     Examples:
@@ -539,13 +749,13 @@ async def get_current_user_auth0_only(
         - /settings/* (account management)
 
     Note: This does NOT prevent all programmatic access. Users can still extract
-    their Auth0 JWT from browser DevTools and use it in scripts. Rate limiting
+    their session JWT from browser DevTools and use it in scripts. Rate limiting
     provides the additional layer to cap any abuse.
 
     Returns 403 Forbidden for PAT tokens.
     Returns 429 if rate limit exceeded.
     Returns 451 if user hasn't consented to privacy policy/terms.
-    Use get_current_user_auth0_only_without_consent for consent-exempt routes.
+    Use get_current_user_session_only_without_consent for consent-exempt routes.
     """
     user = await _authenticate_user(
         request, credentials, db, settings, source=source, allow_pat=False,
@@ -555,7 +765,7 @@ async def get_current_user_auth0_only(
     return user
 
 
-async def get_current_user_auth0_only_without_consent(
+async def get_current_user_session_only_without_consent(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_async_session),
@@ -563,12 +773,12 @@ async def get_current_user_auth0_only_without_consent(
     source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
-    Dependency: Auth0-only auth + rate limiting, no consent check (blocks PAT access).
+    Dependency: session-only auth + rate limiting, no consent check (blocks PAT access).
 
     Use to block PAT access on routes that must be accessible without consent
     (e.g., consent/settings pages).
 
-    See get_current_user_auth0_only for details on what this does and doesn't prevent.
+    See get_current_user_session_only for details on what this does and doesn't prevent.
     """
     user = await _authenticate_user(
         request, credentials, db, settings, source=source, allow_pat=False,
@@ -585,7 +795,7 @@ async def get_current_user_ai(
     source: str = Depends(get_request_source),
 ) -> User | CachedUser:
     """
-    Dependency: Auth0-only auth + consent check, NO global rate limiting.
+    Dependency: session-only auth + consent check, NO global rate limiting.
 
     Used by /ai/* endpoints. Skips _apply_rate_limit() to avoid consuming
     READ/WRITE quota — AI endpoints have their own rate limit buckets

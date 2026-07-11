@@ -193,3 +193,7 @@ lid.176.ftz
 bin/
 cli/cli
 /.switchboard
+
+# Clerk CLI / local secrets (never commit)
+.env.local
+.env.*.local
