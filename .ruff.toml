@@ -23,6 +23,11 @@ ignore = [
 "backend/src/services/llm_service.py" = ["ASYNC109"]
 "backend/src/services/suggestion_service.py" = ["ASYNC109"]
 
+# Dev-data seed file: the long lines are bookmark/note content strings, where
+# wrapping would only obscure the data. Predates backend/scripts lint coverage
+# (added with the M2 import script).
+"backend/scripts/seed_data.py" = ["E501"]
+
 "*/tests/*" = [
     # ignore same warnings as above
     "ANN001", "ANN101", "ANN204", "ANN206",

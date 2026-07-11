@@ -323,6 +323,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "clerk-backend-api" },
     { name = "coverage" },
     { name = "flex-evals" },
     { name = "ipykernel" },
@@ -371,6 +372,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "clerk-backend-api", specifier = ">=6.0.1" },
     { name = "coverage", specifier = ">=7.13.4" },
     { name = "flex-evals", specifier = ">=0.4.0" },
     { name = "ipykernel", specifier = ">=7.2.0" },
@@ -493,6 +495,22 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c4/26/b9924fa27db384bdcd97ab83b4f0a8058d96ad9626ead570674d5e737d90/charset_normalizer-3.4.4-cp313-cp313-win_amd64.whl", hash = "sha256:b435cba5f4f750aa6c0a0d92c541fb79f69a387c91e61f1795227e4ed9cece14", size = 107092, upload-time = "2025-10-14T04:41:31.188Z" },
     { url = "https://files.pythonhosted.org/packages/af/8f/3ed4bfa0c0c72a7ca17f0380cd9e4dd842b09f664e780c13cff1dcf2ef1b/charset_normalizer-3.4.4-cp313-cp313-win_arm64.whl", hash = "sha256:542d2cee80be6f80247095cc36c418f7bddd14f4a6de45af91dfad36d817bba2", size = 100408, upload-time = "2025-10-14T04:41:32.624Z" },
     { url = "https://files.pythonhosted.org/packages/0a/4c/925909008ed5a988ccbb72dcc897407e5d6d3bd72410d69e051fc0c14647/charset_normalizer-3.4.4-py3-none-any.whl", hash = "sha256:7a32c560861a02ff789ad905a2fe94e3f840803362c84fecf1851cb4cf3dc37f", size = 53402, upload-time = "2025-10-14T04:42:31.76Z" },
+]
+
+[[package]]
+name = "clerk-backend-api"
+version = "6.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "httpcore" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pyjwt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/32/d36c81878090f4451df4d3cd6b831a92c7b7d42d81f32811a75fe786dfca/clerk_backend_api-6.0.1.tar.gz", hash = "sha256:27a52507ac9c82752e58b02a26daa7374d94268406ff40981872f8e4d2ca70bd", size = 276013, upload-time = "2026-06-12T16:00:02.694Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/62/b8/8ea910c05c3e8b37294267cfad863d626ba2fcc4462ecea1573885382814/clerk_backend_api-6.0.1-py3-none-any.whl", hash = "sha256:a76c006ec8082d2a0d903c131ecd195400635a4cf3834fe8683688a598296e84", size = 566645, upload-time = "2026-06-12T16:00:01.353Z" },
 ]
 
 [[package]]
