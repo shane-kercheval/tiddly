@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
-import { useAuth0 } from '@auth0/auth0-react'
 import { useAuthStatus } from '../hooks/useAuthStatus'
+import { useAuthActions } from '../hooks/useAuthActions'
 import { isDevMode } from '../config'
 import { PrefetchLink } from './PrefetchLink'
 import { BookmarkIcon } from './icons'
@@ -20,23 +20,22 @@ const productItems: DropdownItem[] = [
 ]
 
 /**
- * Auth buttons that use Auth0's loginWithRedirect.
- * Isolated into a sub-component so useAuth0() is only called in production
- * (where Auth0Provider is mounted). In dev mode, PublicHeader renders "Open App" instead.
+ * Log In / Sign Up buttons for unauthenticated visitors. In dev mode,
+ * PublicHeader renders "Open App" instead of these.
  */
 function AuthButtons(): ReactNode {
-  const { loginWithRedirect } = useAuth0()
+  const { login } = useAuthActions()
 
   return (
     <>
       <button
-        onClick={() => loginWithRedirect({ authorizationParams: { screen_hint: 'login' } })}
+        onClick={() => login({ mode: 'login' })}
         className="rounded-lg px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
       >
         Log In
       </button>
       <button
-        onClick={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
+        onClick={() => login({ mode: 'signup' })}
         className="rounded-lg bg-gray-900 px-5 py-1.5 text-sm font-medium text-white transition-all hover:bg-gray-700 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
       >
         Sign Up
@@ -50,7 +49,7 @@ function AuthButtons(): ReactNode {
  * Nav: Logo(Tiddly) | Product (dropdown) | Docs | Pricing ... Log In | Sign Up
  *
  * In dev mode, shows "Open App" link (no auth buttons). In production, unauthenticated
- * users see Log In / Sign Up buttons rendered by AuthButtons (which calls useAuth0).
+ * users see Log In / Sign Up buttons rendered by AuthButtons.
  */
 export function PublicHeader(): ReactNode {
   const { isAuthenticated } = useAuthStatus()

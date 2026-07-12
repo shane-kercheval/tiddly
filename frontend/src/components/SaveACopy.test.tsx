@@ -16,7 +16,8 @@ let mockAuthStatus: {
   isLoading: boolean
   error: Error | null
   userId: string | null
-} = { isAuthenticated: true, isLoading: false, error: null, userId: 'u' }
+  userEmail: string | null
+} = { isAuthenticated: true, isLoading: false, error: null, userId: 'u', userEmail: null }
 vi.mock('../hooks/useAuthStatus', () => ({ useAuthStatus: () => mockAuthStatus }))
 
 const mockMutate = vi.fn()
@@ -25,7 +26,9 @@ vi.mock('../hooks/useSavePublicItem', () => ({
 }))
 
 const mockLogin = vi.fn()
-vi.mock('@auth0/auth0-react', () => ({ useAuth0: () => ({ loginWithRedirect: mockLogin }) }))
+vi.mock('../hooks/useAuthActions', () => ({
+  useAuthActions: () => ({ login: mockLogin, logout: vi.fn() }),
+}))
 
 function renderAt(path: string): void {
   render(
@@ -38,11 +41,11 @@ function renderAt(path: string): void {
 describe('SaveACopy', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockAuthStatus = { isAuthenticated: true, isLoading: false, error: null, userId: 'u' }
+    mockAuthStatus = { isAuthenticated: true, isLoading: false, error: null, userId: 'u', userEmail: null }
   })
 
   it('renders a neutral placeholder (no button) while auth is initializing', () => {
-    mockAuthStatus = { isAuthenticated: false, isLoading: true, error: null, userId: null }
+    mockAuthStatus = { isAuthenticated: false, isLoading: true, error: null, userId: null, userEmail: null }
     renderAt('/shared/notes/tok')
     expect(screen.queryByRole('button')).toBeNull()
   })
@@ -58,11 +61,12 @@ describe('SaveACopy', () => {
     // consent-gated clone can complete after sign-up: a brand-new user has no
     // consent UI on the public page, so the save is routed through the app where
     // the consent dialog lives.
-    mockAuthStatus = { isAuthenticated: false, isLoading: false, error: null, userId: null }
+    mockAuthStatus = { isAuthenticated: false, isLoading: false, error: null, userId: null, userEmail: null }
     renderAt('/shared/notes/tok')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in to save' }))
-    expect(mockLogin).toHaveBeenCalledWith(
-      expect.objectContaining({ appState: { returnTo: '/app/save-shared/notes/tok' } })
-    )
+    expect(mockLogin).toHaveBeenCalledWith({
+      mode: 'login',
+      returnTo: '/app/save-shared/notes/tok',
+    })
   })
 })

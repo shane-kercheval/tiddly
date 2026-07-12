@@ -4,7 +4,7 @@
  * Allows users to configure layout and display options.
  */
 import type { ReactNode } from 'react'
-import { useAuth0 } from '@auth0/auth0-react'
+import { useAuthStatus } from '../../hooks/useAuthStatus'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { useLimits } from '../../hooks/useLimits'
@@ -26,7 +26,7 @@ function formatItemCount(count: number): string {
 export function SettingsGeneral(): ReactNode {
   usePageTitle('Settings')
   const { fullWidthLayout, toggleFullWidthLayout } = useUIPreferencesStore()
-  const { user } = useAuth0()
+  const { userEmail } = useAuthStatus()
   const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
 
   return (
@@ -99,7 +99,7 @@ export function SettingsGeneral(): ReactNode {
               {isDevMode ? (
                 <p className="text-sm text-yellow-700 font-medium">Dev User</p>
               ) : (
-                <p className="text-sm text-gray-500">{user?.email}</p>
+                <p className="text-sm text-gray-500">{userEmail}</p>
               )}
             </div>
           </div>

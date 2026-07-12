@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAuth0 } from '@auth0/auth0-react'
+import { useAuthActions } from '../hooks/useAuthActions'
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
@@ -40,19 +40,19 @@ function FeatureItem({ children }: { children: ReactNode }): ReactNode {
 }
 
 /**
- * Auth0 signup button — only rendered in production mode (when Auth0Provider exists).
+ * Signup button for unauthenticated visitors on the pricing page.
  */
-function Auth0SignupButton({
+function SignupButton({
   className,
   children,
 }: {
   className: string
   children: ReactNode
 }): ReactNode {
-  const { loginWithRedirect } = useAuth0()
+  const { login } = useAuthActions()
   return (
     <button
-      onClick={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
+      onClick={() => login({ mode: 'signup' })}
       className={className}
     >
       {children}
@@ -98,9 +98,9 @@ function CTAButton({
   }
 
   return (
-    <Auth0SignupButton className={className}>
+    <SignupButton className={className}>
       Get Started
-    </Auth0SignupButton>
+    </SignupButton>
   )
 }
 

@@ -1,7 +1,6 @@
-import { useAuth0 } from '@auth0/auth0-react'
+import { useAuthActions } from '../hooks/useAuthActions'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
-import { isDevMode } from '../config'
 import { usePageTitle } from '../hooks/usePageTitle'
 import { PublicHeader } from '../components/PublicHeader'
 import { AgentPromptButton } from '../components/AgentPromptButton'
@@ -376,24 +375,9 @@ function FeaturesContent({
   )
 }
 
-/**
- * Auth0 wrapper — only rendered in production mode (when Auth0Provider exists).
- */
-function Auth0FeaturesPage(): ReactNode {
-  usePageTitle('Features')
-  const { loginWithRedirect } = useAuth0()
-
-  return (
-    <FeaturesContent
-      onSignup={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
-    />
-  )
-}
-
 export function FeaturesPage(): ReactNode {
-  if (isDevMode) {
-    return <FeaturesContent onSignup={() => {}} />
-  }
+  usePageTitle('Features')
+  const { login } = useAuthActions()
 
-  return <Auth0FeaturesPage />
+  return <FeaturesContent onSignup={() => login({ mode: 'signup' })} />
 }

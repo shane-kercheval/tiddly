@@ -1,31 +1,70 @@
 import { Auth0Provider, useAuth0, type AppState } from '@auth0/auth0-react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { config, isDevMode } from '../config'
 import { setupAuthInterceptor } from '../services/api'
 import { useConsentStore } from '../stores/consentStore'
 import { queryClient } from '../queryClient'
 import { toSafeReturnTo } from '../utils/returnTo'
-import { AuthStatusProvider } from './AuthStatusProvider'
+import { AuthSeamProvider } from './AuthSeamProvider'
+import type { AuthActions } from '../hooks/useAuthActions'
 
 interface AuthProviderProps {
   children: ReactNode
 }
 
-function AuthStatusProviderDev({ children }: AuthProviderProps): ReactNode {
-  return (
-    <AuthStatusProvider value={{ isAuthenticated: true, isLoading: false, error: null, userId: 'dev-user' }}>
-      {children}
-    </AuthStatusProvider>
-  )
+// Stable no-op actions for dev mode: the app never renders login/logout
+// controls there, but the seam must still resolve everywhere.
+const DEV_ACTIONS: AuthActions = {
+  login: () => console.warn('[auth] login() is a no-op in dev mode'),
+  logout: () => console.warn('[auth] logout() is a no-op in dev mode'),
 }
 
-function AuthStatusProviderProd({ children }: AuthProviderProps): ReactNode {
-  const { isAuthenticated, isLoading, error, user } = useAuth0()
+const DEV_STATUS = {
+  isAuthenticated: true,
+  isLoading: false,
+  error: null,
+  userId: 'dev-user',
+  userEmail: null,
+} as const
+
+/**
+ * Bridges the provider SDK onto the seam: status (isAuthenticated/loading/
+ * error/userId/userEmail) and actions (login/logout). This component is the
+ * only place SDK hooks are read for seam purposes — call sites consume
+ * useAuthStatus()/useAuthActions() and never the SDK (lint-enforced).
+ */
+function AuthSeamProviderProd({ children }: AuthProviderProps): ReactNode {
+  const { isAuthenticated, isLoading, error, user, loginWithRedirect, logout } = useAuth0()
+
+  const actions = useMemo<AuthActions>(
+    () => ({
+      login: ({ mode = 'login', returnTo } = {}) => {
+        void loginWithRedirect({
+          ...(returnTo ? { appState: { returnTo } } : {}),
+          authorizationParams: { screen_hint: mode },
+        })
+      },
+      logout: () => {
+        void logout({ logoutParams: { returnTo: window.location.origin } })
+      },
+    }),
+    [loginWithRedirect, logout],
+  )
+
   return (
-    <AuthStatusProvider value={{ isAuthenticated, isLoading, error: error ?? null, userId: user?.sub ?? null }}>
+    <AuthSeamProvider
+      status={{
+        isAuthenticated,
+        isLoading,
+        error: error ?? null,
+        userId: user?.sub ?? null,
+        userEmail: user?.email ?? null,
+      }}
+      actions={actions}
+    >
       {children}
-    </AuthStatusProvider>
+    </AuthSeamProvider>
   )
 }
 
@@ -74,7 +113,11 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
 
   // In dev mode, skip Auth0 entirely
   if (isDevMode) {
-    return <AuthStatusProviderDev>{children}</AuthStatusProviderDev>
+    return (
+      <AuthSeamProvider status={DEV_STATUS} actions={DEV_ACTIONS}>
+        {children}
+      </AuthSeamProvider>
+    )
   }
 
   // After Auth0 completes a login redirect, return the user to where they
@@ -99,7 +142,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       onRedirectCallback={handleRedirectCallback}
     >
       <AuthInterceptorSetup>
-        <AuthStatusProviderProd>{children}</AuthStatusProviderProd>
+        <AuthSeamProviderProd>{children}</AuthSeamProviderProd>
       </AuthInterceptorSetup>
     </Auth0Provider>
   )
