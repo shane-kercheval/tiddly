@@ -1,7 +1,7 @@
 /**
  * User section at the bottom of the sidebar with logout and collapse buttons.
  */
-import { useAuth0 } from '@auth0/auth0-react'
+import { useAuthActions } from '../../hooks/useAuthActions'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../../config'
 import { CollapseIcon } from '../icons'
@@ -74,10 +74,10 @@ export function SidebarUserSection({ isCollapsed, onToggleCollapse }: SidebarUse
 }
 
 function LogoutButton({ isCollapsed, onToggleCollapse }: SidebarUserSectionProps): ReactNode {
-  const { logout } = useAuth0()
+  const { logout } = useAuthActions()
 
   const handleLogout = (): void => {
-    logout({ logoutParams: { returnTo: window.location.origin } })
+    logout()
   }
 
   const logoutButton = (

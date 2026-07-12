@@ -4,8 +4,10 @@ export interface AuthStatus {
   isAuthenticated: boolean
   isLoading: boolean
   error: Error | null
-  /** User ID (Auth0 sub claim). Used to scope user-specific query caches. */
+  /** IdP user ID (the token's `sub` claim). Used to scope user-specific query caches. */
   userId: string | null
+  /** Authenticated user's email, when the provider exposes one. Null in dev mode. */
+  userEmail: string | null
 }
 
 export const AuthStatusContext = createContext<AuthStatus | null>(null)
@@ -13,7 +15,7 @@ export const AuthStatusContext = createContext<AuthStatus | null>(null)
 export function useAuthStatus(): AuthStatus {
   const context = useContext(AuthStatusContext)
   if (!context) {
-    throw new Error('useAuthStatus must be used within AuthStatusProvider')
+    throw new Error('useAuthStatus must be used within AuthProvider')
   }
   return context
 }

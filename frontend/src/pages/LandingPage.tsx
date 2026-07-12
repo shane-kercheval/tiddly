@@ -1,4 +1,5 @@
-import { useAuth0 } from '@auth0/auth0-react'
+import { useAuthStatus } from '../hooks/useAuthStatus'
+import { useAuthActions } from '../hooks/useAuthActions'
 import { Navigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { isDevMode } from '../config'
@@ -398,10 +399,12 @@ function LandingContent({
 }
 
 /**
- * Landing page with Auth0 authentication (production mode).
+ * Landing page for production mode: waits for auth status, redirects
+ * signed-in users into the app, and offers signup to everyone else.
  */
-function AuthenticatedLandingPage(): ReactNode {
-  const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
+function ProductionLandingPage(): ReactNode {
+  const { isAuthenticated, isLoading } = useAuthStatus()
+  const { login } = useAuthActions()
   usePageTitle(undefined)
 
   if (isLoading) {
@@ -415,7 +418,7 @@ function AuthenticatedLandingPage(): ReactNode {
 
   return (
     <LandingContent
-      onSignup={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
+      onSignup={() => login({ mode: 'signup' })}
     />
   )
 }
@@ -431,5 +434,5 @@ export function LandingPage(): ReactNode {
     return <Navigate to="/app/content" replace />
   }
 
-  return <AuthenticatedLandingPage />
+  return <ProductionLandingPage />
 }

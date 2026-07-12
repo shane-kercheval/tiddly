@@ -67,8 +67,21 @@ vi.mock('../hooks/useAuthStatus', () => ({
     isLoading: false,
     error: null,
     userId: 'test-user-id',
+    userEmail: 'test-user@example.com',
   }),
   AuthStatusContext: {
+    Provider: ({ children }: { children: ReactNode }) => children,
+  },
+}))
+
+// Global mock for useAuthActions hook - no-op actions; tests exercising login/
+// logout behavior override this per file.
+vi.mock('../hooks/useAuthActions', () => ({
+  useAuthActions: () => ({
+    login: () => {},
+    logout: () => {},
+  }),
+  AuthActionsContext: {
     Provider: ({ children }: { children: ReactNode }) => children,
   },
 }))
