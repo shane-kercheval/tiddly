@@ -190,7 +190,7 @@ func TestResolveToken__store_error_propagates(t *testing.T) {
 	assert.NotContains(t, err.Error(), "not logged in")
 }
 
-func TestResolveToken__expired_oauth_nil_device_flow(t *testing.T) {
+func TestResolveToken__expired_oauth_nil_flow(t *testing.T) {
 	expiredJWT := makeJWT(time.Now().Add(-1 * time.Hour))
 	t.Setenv("TIDDLY_TOKEN", "")
 
@@ -228,12 +228,12 @@ func TestResolveToken__expired_oauth_triggers_refresh(t *testing.T) {
 	require.NoError(t, store.Set(AccountOAuthAccess, expiredJWT))
 	require.NoError(t, store.Set(AccountOAuthRefresh, "old-refresh-token"))
 
-	df := &DeviceFlow{
-		Auth0Config: Auth0Config{ClientID: "test-client"},
-		BaseURL:     server.URL,
-		HTTPClient:  &http.Client{},
+	flow := &PKCEFlow{
+		Config:     OAuthConfig{ClientID: "test-client"},
+		BaseURL:    server.URL,
+		HTTPClient: &http.Client{},
 	}
-	tm := NewTokenManager(store, df)
+	tm := NewTokenManager(store, flow)
 	t.Setenv("TIDDLY_TOKEN", "")
 
 	result, err := tm.ResolveToken("", false)
@@ -269,12 +269,12 @@ func TestResolveToken__refresh_failure_propagates(t *testing.T) {
 	require.NoError(t, store.Set(AccountOAuthAccess, expiredJWT))
 	require.NoError(t, store.Set(AccountOAuthRefresh, "revoked-token"))
 
-	df := &DeviceFlow{
-		Auth0Config: Auth0Config{ClientID: "test-client"},
-		BaseURL:     server.URL,
-		HTTPClient:  &http.Client{},
+	flow := &PKCEFlow{
+		Config:     OAuthConfig{ClientID: "test-client"},
+		BaseURL:    server.URL,
+		HTTPClient: &http.Client{},
 	}
-	tm := NewTokenManager(store, df)
+	tm := NewTokenManager(store, flow)
 	t.Setenv("TIDDLY_TOKEN", "")
 
 	_, err := tm.ResolveToken("", false)
@@ -303,12 +303,12 @@ func TestResolveToken__refresh_store_failure_returns_actionable_error(t *testing
 	require.NoError(t, store.Set(AccountOAuthRefresh, "old-refresh-token"))
 	store.setMultipleErr = fmt.Errorf("disk full")
 
-	df := &DeviceFlow{
-		Auth0Config: Auth0Config{ClientID: "test-client"},
-		BaseURL:     server.URL,
-		HTTPClient:  &http.Client{},
+	flow := &PKCEFlow{
+		Config:     OAuthConfig{ClientID: "test-client"},
+		BaseURL:    server.URL,
+		HTTPClient: &http.Client{},
 	}
-	tm := NewTokenManager(store, df)
+	tm := NewTokenManager(store, flow)
 	t.Setenv("TIDDLY_TOKEN", "")
 
 	_, err := tm.ResolveToken("", false)

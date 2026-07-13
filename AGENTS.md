@@ -48,7 +48,7 @@ cd frontend && npx vitest run src/path/to/file.test.ts
 - Both proxy through the backend API (require API server on port 8000).
 
 ### CLI (`cli/`)
-- Go + Cobra + Viper. OAuth device code flow + keyring credential storage.
+- Go + Cobra + Viper. Browser-based OAuth login (authorization code + PKCE, loopback listener) + keyring credential storage; PATs for headless use.
 - `tiddly ai-instructions` is the zero-auth, agent-first command: it fetches the hosted `llms-cli-instructions.txt` from the web origin (`config.WebURL()`, default `https://tiddly.me`) and prints it, with a minimal `const` fallback on fetch failure (exits 0). It's excluded from the `PersistentPreRunE` init/update-check in `root.go` (no side effects).
 
 ### Chrome Extension (`chrome-extension/`)

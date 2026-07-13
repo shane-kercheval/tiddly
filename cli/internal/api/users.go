@@ -4,9 +4,8 @@ import "context"
 
 // UserInfo represents the response from GET /users/me.
 type UserInfo struct {
-	ID      string `json:"id"`
-	Auth0ID string `json:"auth0_id"`
-	Email   string `json:"email"`
+	ID    string `json:"id"`
+	Email string `json:"email"`
 }
 
 // HealthResponse represents the response from GET /health.
