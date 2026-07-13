@@ -99,6 +99,40 @@ def mint_clerk_token(
     return jwt.encode(claims, signing_key, algorithm="RS256")
 
 
+def mint_clerk_oauth_token(
+    signing_key: "RSAPrivateKey",
+    sub: str = "user_test_clerk_id",
+    *,
+    client_id: str | None = "zTESTclientid123",
+    azp: str | None = None,
+    issuer: str = TEST_CLERK_ISSUER,
+    lifetime_seconds: int = 86400,
+    typ: str = "at+jwt",
+) -> str:
+    """
+    Mint a real RS256 OAuth access token shaped like Clerk's.
+
+    Claim shape is the fixture from the M4 opening probe (ledger Q5, decoded
+    from a real dev-instance token 2026-07-13): header `typ: "at+jwt"`; claims
+    `sub`/`client_id`/`scope`/`jti`/`nbf`; no email, no azp, 24h lifetime.
+    """
+    now = int(time.time())
+    claims: dict = {
+        "iss": issuer,
+        "sub": sub,
+        "iat": now,
+        "nbf": now - 10,
+        "exp": now + lifetime_seconds,
+        "scope": "openid profile email offline_access",
+        "jti": "oat_TESTTESTTESTTEST",
+    }
+    if client_id is not None:
+        claims["client_id"] = client_id
+    if azp is not None:
+        claims["azp"] = azp
+    return jwt.encode(claims, signing_key, algorithm="RS256", headers={"typ": typ})
+
+
 class _FakeJWKSClient:
     """Stands in for PyJWKClient; serves the test public key for any token."""
 
@@ -270,6 +304,195 @@ class TestDecodeClerkJwt:
             decode_clerk_jwt(token, clerk_settings)
 
         assert exc_info.value.status_code == 401
+
+
+class TestClerkOAuthAccessTokens:
+    """
+    M4: the OAuth-access-token (`at+jwt`) parameterization of decode_clerk_jwt.
+
+    The discriminator is the JWT header `typ` (signature-covered, read after
+    verification) — deliberately NOT azp-absence, which would have made the
+    azp check optional across the board. Session-token rules must be provably
+    unchanged; the same-user test is the M4 Definition-of-Done requirement.
+    """
+
+    def test__valid_oauth_token__returns_payload(
+        self,
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        """A validly signed at+jwt with client_id decodes; no email expected."""
+        from core.auth import decode_clerk_jwt  # noqa: PLC0415
+
+        token = mint_clerk_oauth_token(clerk_signing_key)
+        payload = decode_clerk_jwt(token, clerk_settings)
+
+        assert payload["sub"] == "user_test_clerk_id"
+        assert payload["client_id"] == "zTESTclientid123"
+        assert "email" not in payload
+        assert "azp" not in payload
+
+    def test__oauth_token_missing_client_id__rejected_401(
+        self,
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An at+jwt without client_id → 401 with a diagnosable warning."""
+        from core.auth import decode_clerk_jwt  # noqa: PLC0415
+
+        token = mint_clerk_oauth_token(clerk_signing_key, client_id=None)
+        with caplog.at_level(logging.WARNING), pytest.raises(HTTPException) as exc_info:
+            decode_clerk_jwt(token, clerk_settings)
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "Invalid token"
+        assert "missing client_id" in caplog.text
+
+    def test__typ_comparison_is_case_insensitive(
+        self,
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        """RFC 7515: `typ` compares case-insensitively — AT+JWT gets OAuth rules."""
+        from core.auth import decode_clerk_jwt  # noqa: PLC0415
+
+        token = mint_clerk_oauth_token(clerk_signing_key, client_id=None, typ="AT+JWT")
+        with pytest.raises(HTTPException) as exc_info:
+            decode_clerk_jwt(token, clerk_settings)
+
+        assert exc_info.value.status_code == 401
+
+    def test__full_media_type_typ_gets_oauth_rules(
+        self,
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        """
+        RFC 9068 §4 registers both `at+jwt` and `application/at+jwt`; the full
+        form must also engage OAuth rules — otherwise a legal provider-side
+        spelling change would silently reroute OAuth tokens to session rules,
+        dropping the client_id requirement.
+        """
+        from core.auth import decode_clerk_jwt  # noqa: PLC0415
+
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, client_id=None, typ="application/at+jwt",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            decode_clerk_jwt(token, clerk_settings)
+
+        assert exc_info.value.status_code == 401
+
+    def test__azp_rule_still_applies_to_oauth_tokens(
+        self,
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        """
+        The present→check/absent→tolerate azp rule spans both token kinds:
+        Clerk never sets azp on at+jwt, but if one arrives with a wrong azp it
+        is rejected — the discriminator added OAuth rules without exempting
+        OAuth tokens from session rules.
+        """
+        from core.auth import decode_clerk_jwt  # noqa: PLC0415
+
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, azp="https://evil.example.com",
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            decode_clerk_jwt(token, clerk_settings)
+
+        assert exc_info.value.status_code == 401
+
+    def test__session_token_unaffected_by_oauth_rules(
+        self,
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        """A typ:JWT session token without client_id still verifies (M1 rules)."""
+        from core.auth import decode_clerk_jwt  # noqa: PLC0415
+
+        token = mint_clerk_token(clerk_signing_key, azp=TEST_AUTHORIZED_PARTY)
+        payload = decode_clerk_jwt(token, clerk_settings)
+
+        assert "client_id" not in payload
+
+    async def test__oauth_token_accepted_on_pat_blocked_surfaces(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """
+        Pins the M4 security-review policy decision (recorded in
+        _authenticate_user's docstring): Clerk OAuth access tokens count as
+        session auth where PATs are blocked (allow_pat=False — /tokens/*,
+        fetch-metadata, AI endpoints), matching the Auth0 device-flow JWTs
+        they replace (test_auth_session_only.py has that twin). If a future
+        tightening of programmatic auth breaks this, `tiddly tokens` breaks
+        with it — this test is the tripwire.
+        """
+        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
+
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=mint_clerk_oauth_token(
+                clerk_signing_key, sub="user_clerk_pat_blocked_surface",
+            ),
+        )
+
+        user = await _authenticate_user(
+            mock_request, credentials, db_session, clerk_settings,
+            source="cli", allow_pat=False,
+        )
+
+        assert user.external_auth_id == "user_clerk_pat_blocked_surface"
+        assert mock_request.state.request_context.auth_type == AuthType.SESSION
+
+    async def test__session_and_oauth_tokens_resolve_to_same_user(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """
+        M4 Definition of Done: a session-shaped and an OAuth-shaped token with
+        the same `sub` land on the same user row (same external_auth_id
+        lookup; the email-less OAuth token neither blocks resolution nor
+        clears the stored email).
+        """
+        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
+
+        sub = "user_clerk_same_across_kinds"
+        session_credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=mint_clerk_token(
+                clerk_signing_key, sub=sub, email="cli@test.com", email_verified=True,
+            ),
+        )
+        session_user = await _authenticate_user(
+            mock_request, session_credentials, db_session, clerk_settings, source="web",
+        )
+
+        oauth_credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=mint_clerk_oauth_token(clerk_signing_key, sub=sub),
+        )
+        oauth_user = await _authenticate_user(
+            mock_request, oauth_credentials, db_session, clerk_settings, source="cli",
+        )
+
+        assert oauth_user.id == session_user.id
+        assert oauth_user.external_auth_id == sub
+        assert oauth_user.email == "cli@test.com"  # null email did not clobber
+        context = mock_request.state.request_context
+        assert context.auth_type == AuthType.SESSION
+        assert context.source == "cli"
 
 
 class TestIssuerDispatch:
