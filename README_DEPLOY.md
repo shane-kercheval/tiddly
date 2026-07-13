@@ -370,7 +370,7 @@ Clerk provides authentication for the web app (embedded sign-in components, no h
 
 This section is deliberately specific about WHAT must exist in Clerk and gives only general dashboard direction — dashboard click-paths rot; settings do not. Nearly everything below is scriptable through the Clerk CLI (`clerk auth login` once, then `clerk apps create`, `clerk config pull/patch/put`, `clerk deploy`, `clerk env pull`); the committed `clerk/config.dev.json` is the reviewable source of truth for instance configuration (see `clerk/README.md`).
 
-> **Migration-window note (until M6a of `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the production *frontend deploy* is pinned to the last pre-Clerk build; the backend dual-accepts Auth0 and Clerk tokens. The legacy Auth0 tenant keeps serving already-issued sessions until decommission (M6b) — its backend env var (`AUTH0_CUSTOM_CLAIM_NAMESPACE`) stays set. To recreate the Auth0 side from scratch mid-window, see this file's pre-M3 version in git history.
+> **Migration-window note (until M6a of `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the Clerk frontend lives on a held, unmerged branch (the M3 flip PR); `main`'s frontend is still the pre-Clerk (Auth0) build and deploys normally — no Railway configuration is changed. Merging that PR IS the frontend cutover (M6a flip step); do not merge it early. The backend dual-accepts Auth0 and Clerk tokens. The legacy Auth0 tenant keeps serving already-issued sessions until decommission (M6b) — its backend env var (`AUTH0_CUSTOM_CLAIM_NAMESPACE`) stays set. To recreate the Auth0 side from scratch mid-window, see this file's pre-M3 version in git history.
 
 #### 6a. Application and instances
 
