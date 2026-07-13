@@ -26,6 +26,7 @@ flowchart LR
 
     subgraph ExternalDeps["External dependencies"]
         Auth0[(Auth0)]
+        Clerk[(Clerk)]
         LLMs[(OpenAI / Gemini / Anthropic)]
         Scrape[External URLs\nSSRF-protected scraping]
     end
@@ -47,8 +48,8 @@ flowchart LR
     Browser -->|"loads SPA"| Frontend
     Browser -->|"OAuth login"| Auth0
     Browser -->|"JWT"| API
-    CLITerm -->|"OAuth device code / PAT"| API
-    CLITerm -->|"device code flow"| Auth0
+    CLITerm -->|"OAuth access token / PAT"| API
+    CLITerm -->|"PKCE loopback flow"| Clerk
     ChromeBrowser -->|"PAT"| API
 
     %% CLI configures agentic tools (one-time setup, writes local config files)
@@ -130,7 +131,7 @@ Both deliberately **do not expose delete**. Destructive operations are web-UI-on
 A thin REST client plus an MCP-setup assistant.
 
 - Commands: `login`, `logout`, `auth`, `status`, `mcp configure|status|remove`, `skills configure|list`, `export`, `tokens`, `config`, `update`, `ai-instructions` (zero-auth; fetches the hosted `llms-cli-instructions.txt` and prints it — the command an agent should call first)
-- Auth: OAuth device-code flow (default) or `--token bm_...` for non-interactive use; credentials stored via `go-keyring` with a plaintext fallback at `~/.config/tiddly/credentials`
+- Auth: browser-based OAuth login (authorization code + PKCE with a loopback listener on `127.0.0.1`, against the Clerk instance; `TIDDLY_OAUTH_*` env overrides point it at non-prod) or `--token bm_...` for non-interactive/headless use; credentials stored via `go-keyring` with a plaintext fallback at `~/.config/tiddly/credentials`. Refresh tokens rotate — the CLI stores every returned pair.
 - Config: `~/.config/tiddly/config.yaml` (Viper-managed), `TIDDLY_*` env overrides
 - **Primary non-obvious value:** `tiddly mcp configure` detects installed agentic tools on the host (by probing PATH and tool-specific config locations), generates scoped PATs, and writes the MCP server URLs into each tool's native config file (e.g. `claude_desktop_config.json`, `~/.claude.json`, `~/.codex/config.toml`, `~/.gemini/config/mcp_config.json`). This is the "connect my Claude apps to Tiddly" onramp.
 - Sends `X-Request-Source: cli` on every request
@@ -158,7 +159,7 @@ Each cron runs as its own Railway service with its own schedule and failure mode
 
 ### External dependencies
 
-- **Auth0** — JWT issuer for web login (RS256, custom email claim namespace `https://tiddly.me` matching the Post-Login Action); also the device-code endpoint for CLI login. Being replaced by Clerk (decommissioned at M6b of the migration plan).
+- **Auth0** — JWT issuer for web login (RS256, custom email claim namespace `https://tiddly.me` matching the Post-Login Action). Being replaced by Clerk (decommissioned at M6b of the migration plan); the CLI's login already targets Clerk's OAuth endpoints as of the M4 rewrite (released at M6a).
 - **Clerk** — second accepted JWT issuer during the Auth0 → Clerk dual-accept window (see §5); production clients don't send Clerk tokens until the M6a cutover.
 - **OpenAI / Google Gemini / Anthropic** — LLM providers accessed via LiteLLM. Only `OPENAI_API_KEY` is required today (platform default for suggestions is `openai/gpt-5.4-nano`). Gemini/Anthropic keys are optional until more AI use cases ship.
 - **External URLs** — the api scrapes target URLs for bookmark metadata (`services/url_scraper.py`), wrapped in SSRF protection (see §10).
@@ -244,7 +245,7 @@ Relationships are bidirectional with canonical ordering (no duplicate "A → B" 
 
 1. **IdP-issued JWTs (dual-accept — Auth0 → Clerk migration window).** The token's `iss` claim is read *unverified for dispatch only* and routes to the matching verifier; the selected verifier then enforces signature (RS256 against that issuer's cached JWKS, 1-hour TTL), issuer, expiry, and per-issuer claims from scratch. Both paths resolve to the same `users` rows:
    - **Auth0**: verifies audience + issuer; `auth0_id` (= `sub`), `email`, `email_verified` read with custom email claims under the `AUTH0_CUSTOM_CLAIM_NAMESPACE` prefix (Auth0 Post-Login Action — see README_DEPLOY.md Step 6d). Looks up/creates users by `users.auth0_id`. Every Auth0-path authentication logs `auth0_path_authentication source=<client>` — the cutover signal watched during M6a→M6b. **Removed at decommission (M6b).**
-   - **Clerk**: no audience claim exists; the equivalent check is `azp` (authorized party) against `CLERK_AUTHORIZED_PARTIES` — present → must match, absent → tolerated (non-browser tokens carry none). Verified with an explicit 5s clock-skew leeway (~60s token lifetime). Plain `email`/`email_verified` claims (instance session-token customization). Looks up/creates users by `users.external_auth_id` (= `sub`).
+   - **Clerk**: one verifier, two token kinds, discriminated by the signature-covered JWT header `typ` (see `decode_clerk_jwt`). *Session tokens* (`typ: JWT`, ~60s lifetime): no audience claim exists; the equivalent check is `azp` (authorized party) against `CLERK_AUTHORIZED_PARTIES` — present → must match, absent → tolerated (non-browser tokens carry none); plain `email`/`email_verified` claims (instance session-token customization). *OAuth access tokens* (`typ: at+jwt` per RFC 9068, 24h lifetime — the CLI's tokens, and MCP's later): same issuer and JWKS; `client_id` must be present (logged, deliberately not allowlisted — rationale in code); no email claims (null-email-tolerant resolution). The azp rule applies to both kinds. Verified with an explicit 5s clock-skew leeway. Both kinds look up/create users by `users.external_auth_id` (= `sub`).
    - **Per-issuer JIT-create flags** (`CLERK_JIT_CREATE_ENABLED`, default off; `AUTH0_JIT_CREATE_ENABLED`, default on): lookup always works; *creation* of a first-seen identity is gated per issuer. A denied create is a generic 401 plus a warning log naming the identity — the backend-enforced version of the migration window rules (no pre-import Clerk accounts, no post-flip Auth0 accounts). Removed in M6b.
    - A non-PAT bearer that isn't parseable as a JWT at all → generic 401 plus a warning log naming the cause (the observable symptom of an OAuth app misconfigured to issue opaque tokens).
 2. **Personal Access Tokens (PAT)** for CLI, MCP servers, Chrome extension, and scripts. Format: `bm_<random>`. Validated by `TokenService` against `api_tokens.token_hash` (SHA-256). A 12-char plaintext `token_prefix` is stored for UI display and audit. Untouched by the migration (AD1).

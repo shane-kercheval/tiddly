@@ -18,9 +18,9 @@ func newLoginCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Authenticate with Tiddly",
-		Long: `Authenticate with Tiddly using OAuth device flow or a Personal Access Token.
+		Long: `Authenticate with Tiddly by signing in through your browser, or with a Personal Access Token.
 
-Without --token, starts an OAuth device-code flow: opens a browser with a verification code and polls until you approve. Press Ctrl+C to cancel.
+Without --token, opens your browser to sign in (OAuth with PKCE): approve in the browser and the CLI receives its credentials via a temporary local callback. Press Ctrl+C to cancel. This requires a browser on this machine - on headless machines (SSH, containers), use --token instead.
 
 With --token, validates the PAT format (must start with "bm_"), verifies it against the API, and stores it. Leading/trailing whitespace is trimmed.
 
@@ -86,19 +86,19 @@ func loginWithOAuth(cmd *cobra.Command) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 	defer stop()
 
-	// Shallow copy the DeviceFlow from appDeps to preserve HTTPClient, BaseURL, etc.
+	// Shallow copy the PKCEFlow from appDeps to preserve HTTPClient, BaseURL, etc.
 	// Only override Output for command-specific stderr routing.
-	var df *auth.DeviceFlow
-	if appDeps.TokenManager.DeviceFlow != nil {
-		dfCopy := *appDeps.TokenManager.DeviceFlow
-		dfCopy.Output = cmd.ErrOrStderr()
-		df = &dfCopy
+	var flow *auth.PKCEFlow
+	if appDeps.TokenManager.Flow != nil {
+		flowCopy := *appDeps.TokenManager.Flow
+		flowCopy.Output = cmd.ErrOrStderr()
+		flow = &flowCopy
 	} else {
-		df = auth.NewDeviceFlow(auth.DefaultAuth0Config())
-		df.Output = cmd.ErrOrStderr()
+		flow = auth.NewPKCEFlow(auth.DefaultOAuthConfig())
+		flow.Output = cmd.ErrOrStderr()
 	}
 
-	tokens, err := df.Login(ctx)
+	tokens, err := flow.Login(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
 			fmt.Fprintln(cmd.OutOrStdout(), "Login cancelled.")
