@@ -2,7 +2,7 @@
 
 **Audience**: the developer of the Tiddly iOS app (separate repository). You maintain the app's auth layer; you don't need access to this backend repo — everything you need is (or will be) in this document.
 
-**Status**: stub, started 2026-07-04. The backend migration ([plan](implementation_plans/2026-07-02-clerk-migration.md)) is in progress, and several facts below don't exist yet — those carry a literal `[OPEN]` marker, following the same convention as the [capability ledger](auth0-clerk-ledger.md): `grep '\[OPEN\]'` on this file lists exactly what's still unknown. This guide is scheduled to be complete (all M3-resolvable markers filled) by the end of the backend's Milestone 3, before your work needs to start.
+**Status**: deliverable, updated 2026-07-12 (backend M3). All facts resolvable before your work starts are filled in; the two remaining `[OPEN]` markers are confirmations that need artifacts only you can produce (a real ClerkKit token; the request-source header check), following the [capability ledger](auth0-clerk-ledger.md)'s convention — `grep '\[OPEN\]'` lists exactly what's pending.
 
 ---
 
@@ -12,7 +12,7 @@ Tiddly is replacing Auth0 with Clerk as its identity provider. For the iOS app t
 
 ## Timeline and coordination (please read this even if you skim the rest)
 
-- **You can start any time after the backend's M0/M1 land** (Clerk dev instance exists; backend accepts Clerk tokens). Develop and test against the Clerk **development instance** — credentials below `[OPEN: dev-instance publishable key — available after backend M0]`.
+- **You can start any time after the backend's M0/M1 land** (Clerk dev instance exists; backend accepts Clerk tokens). Develop and test against the Clerk **development instance** — see "Configuration values" below for how keys are handed over.
 - **You must not ship before the production cutover ("M6a")** — the moment the web app flips to Clerk and all users are imported. Before that, production users have no Clerk accounts for your app to sign into. You'll get an explicit go-ahead.
 - **During the window between the cutover and your release, the current app keeps working** — the backend deliberately accepts both Auth0 and Clerk tokens during this period. There is no hard deadline, but the window is open-ended in your hands: Auth0 cannot be decommissioned until your update has shipped *and* Auth0-token traffic from iOS has stopped. Please keep it moving.
 - **Your release logs every iOS user out once** (their Auth0 session dies; they sign in via Clerk). One-time, expected, will be pre-announced to users.
@@ -30,21 +30,19 @@ Today the app (presumably via Auth0.swift) manages: an access token that expires
 
 - **SDK**: Clerk iOS (ClerkKit), v1 GA since February 2026 — https://clerk.com/docs/reference/ios/overview and https://github.com/clerk/clerk-ios
 - **Sign-in methods to support**: email/password and native Google Sign-In (both configured on the Clerk instance already). Clerk ships prebuilt `AuthView` / `UserProfileView` components if you want the least-code path; custom UI is also supported.
-- **Configuration values**:
-  - Development instance publishable key: `[OPEN — after backend M0]`
-  - Production instance publishable key: `[OPEN — after backend M3]`
+- **Configuration values**: both instances exist (dev since M0, production since M3). Publishable keys (`pk_test_...` / `pk_live_...`) are not secrets, but this repo's policy keeps environment identifiers out of public docs — request them from the backend maintainer, who pulls them with `clerk env pull [--instance prod]`. Use the dev key for all development; the production key ships only in the release you publish after the M6a go-ahead.
 - **Attaching auth to API calls**: unchanged in shape — get a token from the SDK, send `Authorization: Bearer <token>` plus `X-Request-Source: ios`. The API base URL and all endpoints are unchanged.
 
 ## The backend contract (what our side guarantees and expects)
 
-- The backend verifies Clerk session tokens by signature, expiry, and authorized-party (`azp`) checks. **Open item on our side, not yours**: how tokens minted by the native SDK present `azp` (an iOS app has no web origin), and what our allowlist must include for you — `[OPEN — ledger question 11, resolved during backend M0/M1; the answer and any required app-side configuration will be written here]`.
+- The backend verifies Clerk session tokens by signature, expiry, and authorized-party (`azp`) checks. The `azp` rule is **"present → must be allowlisted; absent → tolerated"**, and non-browser tokens are expected to carry no `azp` at all (verified for Backend-API-minted tokens in M0; a native app has no web origin) — so **no app-side configuration is expected for you, and no allowlist entry should be needed**. One confirmation remains: `[OPEN — when you mint your first real ClerkKit token in development, send us its decoded claims (ledger question 11); if it unexpectedly carries an azp, we allowlist that value on our side — still nothing for you to change]`.
 - Error semantics are unchanged: `401` means your token was missing/invalid/expired (with the SDK managing freshness, this should only mean signed-out); `451` means the user hasn't accepted the current privacy policy / terms and must do so (same consent flow as today); `429` is rate limiting.
 - Personal Access Tokens (`bm_...`) are unaffected by the migration and continue to work — not that the iOS app uses them, but for completeness.
 
 ## What happens to the users
 
 - Every existing user is imported into Clerk before the cutover, keyed to the same account — **no data moves, nothing is lost**, and email addresses are imported pre-verified so "Sign in with Google" attaches seamlessly on first use.
-- Password users: passwords are **not** migrated (a deliberate decision — see the plan's M0/M2). On first Clerk sign-in, a password user sets a new password via the forgot-password flow or signs in with an emailed code `[OPEN — exact first-login path confirmed by backend M0 spike, ledger question 10]`. This is handled/communicated by the backend team; it affects your app only in that the sign-in UI should not surprise-block a user with no password (Clerk's prebuilt components handle it).
+- Password users: passwords are **not** migrated (a deliberate decision — see the plan's M0/M2). Confirmed empirically (backend M2 rehearsal, ledger question 10): Clerk's sign-in flow never shows a passwordless account a password prompt — entering their email goes straight to an emailed six-digit code; they're signed in after entering it, and setting a password afterwards is optional. Clerk's prebuilt components (including `AuthView` on iOS) handle this automatically — nothing for your app to special-case.
 
 ## References
 
