@@ -32,26 +32,23 @@ export function SettingsAccount(): ReactNode {
 
   // No page header: <UserProfile /> renders its own "Account / Manage your
   // account info" heading, and duplicating it read as repetitive.
+  if (isDevMode) {
+    return (
+      <p className="pt-3 text-sm text-yellow-700">
+        Dev mode: authentication is bypassed, so there is no account to manage.
+      </p>
+    )
+  }
+
+  // The wrapper class scopes the cl-* CSS overrides in index.css that stretch
+  // and flatten the component — Clerk's appearance element keys proved
+  // unreliable for <UserProfile />, so the stable cl-* classes (Clerk's
+  // documented CSS escape hatch) do the styling instead. The negative margins
+  // cancel the Layout content wrapper's px-4 md:px-5 / pb-4 so the component
+  // is a full-bleed pane, not a padded card like the other settings pages.
   return (
-    <div className="pt-3">
-      {isDevMode ? (
-        <p className="text-sm text-yellow-700">
-          Dev mode: authentication is bypassed, so there is no account to manage.
-        </p>
-      ) : (
-        <UserProfile
-          routing="hash"
-          // Stretch to fill the settings column (merged with the global
-          // appearance): Clerk's default fixed-width floating card read as an
-          // embedded widget rather than a settings page.
-          appearance={{
-            elements: {
-              rootBox: 'w-full',
-              cardBox: 'w-full max-w-none',
-            },
-          }}
-        />
-      )}
+    <div className="clerk-user-profile -mx-4 md:-mx-5 -mb-4">
+      <UserProfile routing="hash" />
     </div>
   )
 }

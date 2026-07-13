@@ -759,3 +759,38 @@ body {
     opacity: 0 !important;
   }
 }
+
+/* Make the mounted <UserProfile /> (Settings -> Account) read as page
+   structure rather than an embedded widget: fill the settings column and the
+   remaining viewport height, and strip the card chrome (shadow, border,
+   rounding) so the gray navbar column reads as a native two-pane settings
+   layout. Targets Clerk's stable cl-* classes (their documented CSS escape
+   hatch).
+   MUST live OUTSIDE the Tailwind @layer blocks: Clerk injects its stylesheet
+   unlayered at runtime, and unlayered CSS beats layered CSS regardless of
+   specificity - inside @layer components these rules silently lose. The
+   !important guards against Clerk's higher-specificity internal selectors. */
+.clerk-user-profile .cl-rootBox,
+.clerk-user-profile .cl-userProfile-root {
+  width: 100% !important;
+}
+.clerk-user-profile .cl-cardBox {
+  width: 100% !important;
+  max-width: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  /* 100dvh minus the settings footer (h-12 + 1px border-t, Footer.tsx) — the
+     page cancels the content wrapper's padding with negative margins, so the
+     footer is the only other thing in the column. */
+  min-height: calc(100dvh - 49px);
+}
+/* The navbar and the white content pane keep their own rounding even with the
+   cardBox squared — zero both or their corners peek through as notches. */
+.clerk-user-profile .cl-navbar,
+.clerk-user-profile .cl-scrollBox {
+  border-radius: 0 !important;
+}
+.clerk-user-profile .cl-card {
+  box-shadow: none !important;
+}
