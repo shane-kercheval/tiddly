@@ -157,7 +157,35 @@ def decode_jwt(token: str, settings: Settings) -> dict:
 
 def decode_clerk_jwt(token: str, settings: Settings) -> dict:
     """
-    Decode and validate a Clerk session token.
+    Decode and validate a Clerk-issued JWT — session token OR OAuth access token.
+
+    One verifier, two token kinds (the M4 parameterization of the M1 function,
+    per the migration plan — deliberately not a third implementation). Both
+    kinds share the instance's issuer and JWKS (confirmed empirically, ledger
+    Q5), so signature/issuer/expiry/leeway verification is identical; only the
+    post-verification claim rules differ, discriminated by the JWT header
+    `typ`:
+
+    - `typ: "JWT"` — session token (browser/native). Claims: `sub`, custom
+      `email`/`email_verified`, `azp` on browser-origin tokens.
+    - `typ: "at+jwt"` or `"application/at+jwt"` (both registered by RFC 9068
+      §4) — OAuth access token (CLI M4, MCP M5). Claims: `sub` (same Clerk
+      user id), `client_id`, `scope`; NO email, NO `azp`. The `client_id`
+      must be present or the token is rejected.
+
+    The header `typ` is a safe discriminator because the header is covered by
+    the signature — it is read only after verification succeeds. Deliberately
+    NOT discriminating on `azp` absence: that would quietly make the `azp`
+    check optional across the board (the exact trap the plan's M4 step 1
+    flags). Instead the `azp` rule below applies to BOTH kinds unchanged.
+
+    `client_id` policy (decided at M4, recorded here per the security review):
+    presence is required for `at+jwt`, but there is no client-id allowlist.
+    Trust anchor: only OAuth apps on OUR Clerk instance can mint tokens our
+    JWKS verifies, and creating such an app requires the instance secret key —
+    an allowlist adds no barrier an attacker with that key couldn't clear, and
+    a static list would break M5's dynamically-registered MCP clients. The
+    client_id is logged for observability instead.
 
     Differences from the Auth0 path, per the migration plan's M1 (each verified
     against the live dev instance in the M0 spike):
@@ -165,14 +193,15 @@ def decode_clerk_jwt(token: str, settings: Settings) -> dict:
       party) below.
     - `azp` rule: if present it must be in the configured allowlist; if absent
       it is tolerated. Browser-origin tokens carry `azp`; Backend-API-minted
-      tokens carry none (M0 spike), and other non-browser token types (native
-      iOS, OAuth) are expected to match. Absence can't be forged onto a
-      browser token — the token is signed — so present→check/absent→tolerate
-      is safe regardless.
-    - Explicit clock-skew leeway (~60s tokens; see the constant's comment).
+      tokens carry none (M0 spike), and OAuth access tokens carry none (M4
+      probe). Absence can't be forged onto a browser token — the token is
+      signed — so present→check/absent→tolerate is safe regardless.
+    - Explicit clock-skew leeway (~60s session tokens; see the constant's
+      comment). Harmless for 24h OAuth tokens.
 
     Raises:
-        HTTPException: If token is invalid, expired, or has wrong issuer/azp.
+        HTTPException: If token is invalid, expired, has wrong issuer/azp, or
+        is an OAuth access token missing `client_id`.
     """
     try:
         jwks_client = get_jwks_client(settings.clerk_jwks_url)
@@ -209,6 +238,32 @@ def decode_clerk_jwt(token: str, settings: Settings) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Header read AFTER verification — the signature covers the header, so the
+    # value is authentic here. RFC 9068 §4: resource servers must recognize
+    # BOTH the short form ("at+jwt") and the full media type
+    # ("application/at+jwt"); compare case-insensitively per RFC 7515's
+    # definition of `typ`. Clerk emits the short form today (M4 probe), but
+    # recognizing only that spelling would let a legal provider-side change
+    # silently reroute OAuth tokens to session rules.
+    header_typ = jwt.get_unverified_header(token).get("typ")
+    if isinstance(header_typ, str) and header_typ.lower() in ("at+jwt", "application/at+jwt"):
+        client_id = payload.get("client_id")
+        if not client_id:
+            logger.warning(
+                "Clerk OAuth access token rejected: missing client_id (sub=%s)",
+                payload.get("sub"),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        logger.info(
+            "clerk_oauth_token_accepted client_id=%s sub=%s",
+            client_id,
+            payload.get("sub"),
         )
 
     return payload
@@ -590,6 +645,13 @@ async def _authenticate_user(
             on the request context for the content-versioning audit trail.
         allow_pat: If False, reject PAT tokens with 403 to help prevent unintended
             programmatic use. Note: does not block IdP JWTs used outside the browser.
+            Policy decision (M4 security review, deliberate): Clerk OAuth access
+            tokens (`at+jwt` — day-lived, programmatic) DO count as session auth
+            on PAT-blocked surfaces (/tokens/*, fetch-metadata, AI endpoints).
+            This is parity with today: the CLI's Auth0 device-flow JWTs already
+            pass these checks, and the PAT block's purpose is limiting leaked
+            long-lived static credentials, not interactive-grade OAuth grants
+            (which require a browser sign-in and expire daily).
     """
     token_prefix: str | None = None
 
