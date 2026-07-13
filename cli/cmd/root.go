@@ -89,8 +89,9 @@ Authenticate, configure MCP servers, sync skills, export data, and manage tokens
 				}
 
 				store, fileFallback := auth.NewCredentialStore(keyringMode, configDir)
-				df := auth.NewDeviceFlow(auth.DefaultAuth0Config())
-				tm := auth.NewTokenManager(store, df)
+				flow := auth.NewPKCEFlow(auth.DefaultOAuthConfig())
+				flow.UserAgent = "tiddly-cli/" + cliVersion
+				tm := auth.NewTokenManager(store, flow)
 
 				appDeps = &AppDeps{
 					CredStore:         store,

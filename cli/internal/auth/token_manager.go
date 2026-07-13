@@ -18,15 +18,15 @@ type TokenResult struct {
 
 // TokenManager resolves and manages authentication tokens.
 type TokenManager struct {
-	Store       CredentialStore
-	DeviceFlow  *DeviceFlow
+	Store CredentialStore
+	Flow  *PKCEFlow
 }
 
 // NewTokenManager creates a TokenManager.
-func NewTokenManager(store CredentialStore, df *DeviceFlow) *TokenManager {
+func NewTokenManager(store CredentialStore, flow *PKCEFlow) *TokenManager {
 	return &TokenManager{
-		Store:      store,
-		DeviceFlow: df,
+		Store: store,
+		Flow:  flow,
 	}
 }
 
@@ -116,16 +116,16 @@ func (tm *TokenManager) refreshOAuthToken() (string, error) {
 		return "", fmt.Errorf("no refresh token available: %w", err)
 	}
 
-	if tm.DeviceFlow == nil {
+	if tm.Flow == nil {
 		return "", fmt.Errorf("session expired. Run 'tiddly login' to re-authenticate")
 	}
 
-	result, err := tm.DeviceFlow.RefreshAccessToken(refreshToken)
+	result, err := tm.Flow.RefreshAccessToken(refreshToken)
 	if err != nil {
 		return "", err
 	}
 
-	// Store BOTH new tokens atomically (Auth0 rotation invalidates old refresh token).
+	// Store BOTH new tokens atomically (Clerk rotates refresh tokens on every refresh).
 	// Using SetMultiple ensures fileStore does a single read-modify-write,
 	// preventing a state where the new access token is stored but the old
 	// (now-invalidated) refresh token remains.
