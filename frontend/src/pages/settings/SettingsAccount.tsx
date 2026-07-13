@@ -39,7 +39,18 @@ export function SettingsAccount(): ReactNode {
           Dev mode: authentication is bypassed, so there is no account to manage.
         </p>
       ) : (
-        <UserProfile routing="hash" />
+        <UserProfile
+          routing="hash"
+          // Stretch to fill the settings column (merged with the global
+          // appearance): Clerk's default fixed-width floating card read as an
+          // embedded widget rather than a settings page.
+          appearance={{
+            elements: {
+              rootBox: 'w-full',
+              cardBox: 'w-full max-w-none',
+            },
+          }}
+        />
       )}
     </div>
   )
