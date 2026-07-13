@@ -18,6 +18,7 @@
 import type { ReactNode } from 'react'
 import {
   AdjustmentsIcon,
+  UserIcon,
   TagIcon,
   KeyIcon,
   SparklesIcon,
@@ -48,6 +49,15 @@ export const SETTINGS_ROUTES: SettingsRoute[] = [
       + 'theme keyboard shortcuts limits usage quota item limits bookmarks notes '
       + 'prompts content length characters version history retention days personal '
       + 'access tokens pat rate limits read write per minute per day requests',
+  },
+  {
+    path: '/app/settings/account',
+    label: 'Settings: Account',
+    icon: <UserIcon className="h-4 w-4" />,
+    searchText:
+      'account security password change update sessions devices sign out active '
+      + 'sessions manage login sign-in methods email google social connected '
+      + 'accounts profile clerk authentication two factor security settings',
   },
   {
     path: '/app/settings/tags',

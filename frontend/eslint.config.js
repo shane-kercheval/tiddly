@@ -21,21 +21,35 @@ export default defineConfig([
     },
   },
   {
-    // Auth-provider seam boundary: the IdP SDK may only be imported in
+    // Auth-provider seam boundary: SDK hooks/logic live ONLY in
     // AuthProvider.tsx (and its test, which mocks the SDK to test the seam
-    // wiring itself). Everything else consumes useAuthStatus()/useAuthActions(),
-    // so swapping the provider touches exactly one module.
+    // wiring itself); everything else consumes useAuthStatus()/useAuthActions(),
+    // so swapping the provider touches one module. Two deliberate exceptions
+    // for prebuilt provider UI that cannot be expressed through the seam:
+    // SessionExpiredDialog (mounts <SignIn> for in-place re-auth) and
+    // SettingsAccount (mounts <UserProfile />).
     files: ['**/*.{ts,tsx}'],
-    ignores: ['src/components/AuthProvider.tsx', 'src/components/AuthProvider.test.tsx'],
+    ignores: [
+      'src/components/AuthProvider.tsx',
+      'src/components/AuthProvider.test.tsx',
+      'src/components/SessionExpiredDialog.tsx',
+      'src/components/SessionExpiredDialog.test.tsx',
+      'src/pages/settings/SettingsAccount.tsx',
+    ],
     rules: {
       'no-restricted-imports': [
         'error',
         {
           paths: [
             {
+              name: '@clerk/clerk-react',
+              message:
+                'Import the auth seam (hooks/useAuthStatus, hooks/useAuthActions) instead — only AuthProvider.tsx (and the two prebuilt-UI mounts) may touch the provider SDK.',
+            },
+            {
               name: '@auth0/auth0-react',
               message:
-                'Import the auth seam (hooks/useAuthStatus, hooks/useAuthActions) instead — only AuthProvider.tsx may touch the provider SDK.',
+                'Auth0 was removed in the Clerk migration (M3) — use the auth seam.',
             },
           ],
         },

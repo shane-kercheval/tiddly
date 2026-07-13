@@ -1,13 +1,25 @@
-import { Auth0Provider, useAuth0, type AppState } from '@auth0/auth0-react'
+import { ClerkProvider, useAuth, useClerk, useUser } from '@clerk/clerk-react'
 import { useEffect, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { config, isDevMode } from '../config'
 import { setupAuthInterceptor } from '../services/api'
 import { useConsentStore } from '../stores/consentStore'
+import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 import { queryClient } from '../queryClient'
 import { toSafeReturnTo } from '../utils/returnTo'
 import { AuthSeamProvider } from './AuthSeamProvider'
 import type { AuthActions } from '../hooks/useAuthActions'
+
+/** Clerk may hand the router an absolute URL; compare and navigate path-relative. */
+function stripOrigin(to: string): string {
+  return to.startsWith(window.location.origin)
+    ? to.slice(window.location.origin.length) || '/'
+    : to
+}
+
+function isSameLocation(to: string): boolean {
+  return stripOrigin(to) === window.location.pathname + window.location.search
+}
 
 interface AuthProviderProps {
   children: ReactNode
@@ -28,38 +40,90 @@ const DEV_STATUS = {
   userEmail: null,
 } as const
 
+// Applied to every prebuilt Clerk surface (sign-in/sign-up modals, the
+// session-expiry dialog's <SignIn>, <UserProfile />): brand-align with
+// Tiddly's UI (gray-900 primary actions, rounded-lg) and center modals
+// vertically — Clerk's default floats them near the top, unlike our own
+// dialogs (consent, session expiry), which center.
+const CLERK_APPEARANCE = {
+  variables: {
+    colorPrimary: '#111827', // Tailwind gray-900, matching our primary buttons
+    colorText: '#111827', // gray-900 — our heading/body text color
+    colorTextSecondary: '#6b7280', // gray-500 — our secondary text
+    borderRadius: '0.5rem', // rounded-lg
+    fontFamily: 'inherit', // use the app's font stack, not Clerk's default
+  },
+  elements: {
+    modalBackdrop: { alignItems: 'center' },
+    // Flatten the component card to match our settings cards (bordered, no
+    // drop shadow) so <UserProfile /> reads as part of the page, not an embed.
+    cardBox: 'shadow-none border border-gray-200',
+  },
+}
+
 /**
- * Bridges the provider SDK onto the seam: status (isAuthenticated/loading/
+ * Bridges the Clerk SDK onto the seam: status (isAuthenticated/loading/
  * error/userId/userEmail) and actions (login/logout). This component is the
  * only place SDK hooks are read for seam purposes — call sites consume
  * useAuthStatus()/useAuthActions() and never the SDK (lint-enforced).
+ *
+ * Login opens Clerk's prebuilt modal (no hosted-page redirect). Without an
+ * explicit returnTo, Clerk's default post-login destination is `/`, where the
+ * landing page redirects signed-in users into the app — preserving the
+ * Auth0-era "log in, land in the app" behavior. A returnTo (sanitized here,
+ * where it becomes a navigation target) overrides that.
+ *
+ * Deliberate logout owns ALL teardown (consent reset, query-cache clear,
+ * session-expiry state) — the session-expiry path must never do any of it
+ * (plan M3 step 7: expiry may not destroy page state).
  */
 function AuthSeamProviderProd({ children }: AuthProviderProps): ReactNode {
-  const { isAuthenticated, isLoading, error, user, loginWithRedirect, logout } = useAuth0()
+  const { isLoaded, isSignedIn, userId } = useAuth()
+  const { user } = useUser()
+  const clerk = useClerk()
+  const resetConsent = useConsentStore((state) => state.reset)
 
   const actions = useMemo<AuthActions>(
     () => ({
       login: ({ mode = 'login', returnTo } = {}) => {
-        void loginWithRedirect({
-          ...(returnTo ? { appState: { returnTo } } : {}),
-          authorizationParams: { screen_hint: mode },
-        })
+        const redirect = returnTo ? { forceRedirectUrl: toSafeReturnTo(returnTo) } : {}
+        if (mode === 'signup') {
+          void clerk.openSignUp(redirect)
+        } else {
+          void clerk.openSignIn(redirect)
+        }
       },
       logout: () => {
-        void logout({ logoutParams: { returnTo: window.location.origin } })
+        resetConsent()
+        queryClient.clear()
+        useSessionExpiryStore.getState().reset()
+        // AFTER reset (which clears it): tells ProtectedRoute the coming
+        // signed-out transition is deliberate, so it navigates instead of
+        // raising the expiry dialog.
+        useSessionExpiryStore.getState().beginDeliberateLogout()
+        void clerk.signOut({ redirectUrl: window.location.origin })
       },
     }),
-    [loginWithRedirect, logout],
+    [clerk, resetConsent],
   )
+
+  // Only a hard init failure ('error': clerk-js failed to load) blocks auth
+  // and surfaces ProtectedRoute's recovery screen; 'degraded' means partially
+  // operational — the app still functions, so it is deliberately not fatal.
+  // isLoading must drop when errored, or the loading branch would mask the
+  // error screen forever (isLoaded never becomes true on a failed init).
+  const initFailed = clerk.status === 'error'
 
   return (
     <AuthSeamProvider
       status={{
-        isAuthenticated,
-        isLoading,
-        error: error ?? null,
-        userId: user?.sub ?? null,
-        userEmail: user?.email ?? null,
+        isAuthenticated: isSignedIn ?? false,
+        isLoading: !isLoaded && !initFailed,
+        error: initFailed
+          ? new Error('Authentication service failed to load. Please try again.')
+          : null,
+        userId: userId ?? null,
+        userEmail: user?.primaryEmailAddress?.emailAddress ?? null,
       }}
       actions={actions}
     >
@@ -69,49 +133,35 @@ function AuthSeamProviderProd({ children }: AuthProviderProps): ReactNode {
 }
 
 /**
- * Inner component that sets up the API interceptors once Auth0 is available.
+ * Inner component that sets up the API interceptors once Clerk is available.
+ *
+ * getToken() returns clerk-js's cached ~60s session token (refreshed in the
+ * background — this replaces the Auth0 refresh-token machinery; there is no
+ * client-held refresh token anymore). The interceptor passes
+ * `{ skipCache: true }` on its one 401 retry to force a fresh mint.
  */
 function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
-  const { getAccessTokenSilently, logout } = useAuth0()
-  const resetConsent = useConsentStore((state) => state.reset)
+  const { getToken } = useAuth()
 
   useEffect(() => {
     if (!isDevMode) {
-      setupAuthInterceptor(
-        (options) => getAccessTokenSilently(options),
-        () => {
-          resetConsent()
-          queryClient.clear()
-          logout({ logoutParams: { returnTo: window.location.origin } })
-        }
-      )
+      setupAuthInterceptor((options) => getToken(options))
     }
-  }, [getAccessTokenSilently, logout, resetConsent])
+  }, [getToken])
 
   return children
 }
 
 /**
- * Auth provider component that wraps the app with Auth0 context.
- * In dev mode, Auth0Provider is skipped and no authentication is required.
- *
- * IMPORTANT - Refresh Token Configuration:
- * The `offline_access` scope is required for Auth0 to issue refresh tokens.
- * Without it, users are logged out when the access token expires (~24 hours),
- * even with `useRefreshTokens={true}` set. Both are required:
- *   1. `scope: 'offline_access'` here in the frontend
- *   2. "Allow Offline Access" enabled in Auth0 API settings (see README_DEPLOY.md)
- *
- * The options passthrough in AuthInterceptorSetup allows the API interceptor
- * to call `getAccessTokenSilently({ cacheMode: 'off' })` when retrying after
- * a 401, forcing a fresh token fetch instead of using a cached expired token.
+ * Auth provider component that wraps the app with the Clerk context.
+ * In dev mode, ClerkProvider is skipped and no authentication is required.
  */
 export function AuthProvider({ children }: AuthProviderProps): ReactNode {
-  // Called unconditionally (before the dev-mode branch) to satisfy the rules of
-  // hooks; only used by the Auth0 redirect callback below in production.
+  // Called unconditionally (before the dev-mode branch) to satisfy the rules
+  // of hooks; only used to wire Clerk's navigation into React Router below.
   const navigate = useNavigate()
 
-  // In dev mode, skip Auth0 entirely
+  // In dev mode, skip Clerk entirely
   if (isDevMode) {
     return (
       <AuthSeamProvider status={DEV_STATUS} actions={DEV_ACTIONS}>
@@ -120,30 +170,28 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
     )
   }
 
-  // After Auth0 completes a login redirect, return the user to where they
-  // started (e.g. the shared URL a logged-out visitor signed in from). The
-  // target is sanitized to a same-origin relative path to avoid open redirects;
-  // absent/invalid values fall back to the app root, preserving prior behavior.
-  const handleRedirectCallback = (appState?: AppState): void => {
-    navigate(toSafeReturnTo(appState?.returnTo))
-  }
-
   return (
-    <Auth0Provider
-      domain={config.auth0.domain}
-      clientId={config.auth0.clientId}
-      authorizationParams={{
-        redirect_uri: window.location.origin,
-        audience: config.auth0.audience,
-        scope: 'openid profile email offline_access',
+    <ClerkProvider
+      publishableKey={config.clerk.publishableKey}
+      appearance={CLERK_APPEARANCE}
+      // Route Clerk-driven navigation through React Router so post-login
+      // redirects are client-side transitions, not full page loads. A
+      // same-location target is a no-op: the expiry dialog pins its post-
+      // re-auth redirect to the current URL precisely so nothing moves, and
+      // an actual navigate() there would needlessly trip the unsaved-changes
+      // blocker (caught live in the M3 rehearsal). Note: these functions are
+      // registered inside clerk-js once at initialization — changes here need
+      // a full page reload, not just HMR.
+      routerPush={(to: string) => {
+        if (!isSameLocation(to)) navigate(stripOrigin(to))
       }}
-      cacheLocation="localstorage"
-      useRefreshTokens={true}
-      onRedirectCallback={handleRedirectCallback}
+      routerReplace={(to: string) => {
+        if (!isSameLocation(to)) navigate(stripOrigin(to), { replace: true })
+      }}
     >
       <AuthInterceptorSetup>
         <AuthSeamProviderProd>{children}</AuthSeamProviderProd>
       </AuthInterceptorSetup>
-    </Auth0Provider>
+    </ClerkProvider>
   )
 }

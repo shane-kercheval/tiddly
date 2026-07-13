@@ -28,7 +28,7 @@ Deploy Tiddly services to Railway using Docker.
    npm install -g @railway/cli
    railway login
    ```
-3. Auth0 account configured (see main README)
+3. Clerk account with the Tiddly application (see Step 6; the legacy Auth0 tenant persists only through the migration window)
 
 ---
 
@@ -63,7 +63,7 @@ Railway automatically creates these variables on the Redis service:
 - `REDISHOST`, `REDISPORT`, `REDISUSER`, `REDISPASSWORD`
 
 Redis is used for:
-- **Rate limiting**: Tiered limits by auth type (PAT vs Auth0) and operation type
+- **Rate limiting**: Tiered limits by auth type (PAT vs IdP session) and operation type
 - **Auth caching**: 5-minute TTL cache for user lookups to reduce database load
 - **Fail-open mode**: If Redis is unavailable, requests are allowed (degraded mode)
 
@@ -231,9 +231,6 @@ Click **New Variable** or use **RAW Editor** to add:
 DATABASE_URL=postgresql+asyncpg://<manually-set-see-below>
 REDIS_URL=${{Redis.REDIS_URL}}
 CORS_ORIGINS=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
-VITE_AUTH0_DOMAIN=<your-auth0-domain>
-VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
-VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 VITE_FRONTEND_URL=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 AUTH0_CUSTOM_CLAIM_NAMESPACE=https://tiddly.me
@@ -362,159 +359,61 @@ VITE_API_URL=http://api.railway.internal:8080
 VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 VITE_MCP_URL=https://${{content-mcp.RAILWAY_PUBLIC_DOMAIN}}
 VITE_PROMPT_MCP_URL=https://${{prompt-mcp.RAILWAY_PUBLIC_DOMAIN}}
-VITE_AUTH0_DOMAIN=<your-auth0-domain>
-VITE_AUTH0_CLIENT_ID=<your-auth0-client-id>
-VITE_AUTH0_AUDIENCE=<your-auth0-api-identifier>
+VITE_CLERK_PUBLISHABLE_KEY=<pk_live_... from the production Clerk instance>
 ```
 
 **Note:** Railway may warn about egress fees for `VITE_API_URL` and `VITE_MCP_URL` referencing public endpoints. You can ignore this - the frontend is a static SPA, so all API calls happen from the user's browser, not between Railway services.
 
-### Step 6: Configure Auth0
+### Step 6: Configure Clerk
 
-After generating your frontend domain (Step 4), configure Auth0 for authentication and refresh tokens.
+Clerk provides authentication for the web app (embedded sign-in components, no hosted redirect page) and token verification material for the backend. One Clerk **application** carries two paired **instances**: development (`pk_test_`/`sk_test_`, works on localhost with no DNS) and production (`pk_live_`/`sk_live_`, requires DNS on your domain). Users and secrets never transfer between instances; configuration is promoted dev → prod with `clerk deploy`.
 
-#### 6a. Create Auth0 Tenant
+This section is deliberately specific about WHAT must exist in Clerk and gives only general dashboard direction — dashboard click-paths rot; settings do not. Nearly everything below is scriptable through the Clerk CLI (`clerk auth login` once, then `clerk apps create`, `clerk config pull/patch/put`, `clerk deploy`, `clerk env pull`); the committed `clerk/config.dev.json` is the reviewable source of truth for instance configuration (see `clerk/README.md`).
 
-1. Go to [Auth0 Dashboard](https://manage.auth0.com/)
-2. Click your tenant name (top-left) → **+ Create tenant**
-3. Tenant name: e.g., `tiddly` (cannot be changed later)
-4. Region: Pick closest to your users
-5. Environment Tag: select **Production**
+> **Migration-window note (until M6a of `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the production *frontend deploy* is pinned to the last pre-Clerk build; the backend dual-accepts Auth0 and Clerk tokens. The legacy Auth0 tenant keeps serving already-issued sessions until decommission (M6b) — its backend env var (`AUTH0_CUSTOM_CLAIM_NAMESPACE`) stays set. To recreate the Auth0 side from scratch mid-window, see this file's pre-M3 version in git history.
 
-**Important:** Production environment tag ensures proper rate limits for your tenant.
+#### 6a. Application and instances
 
-#### 6b. Create & Configure SPA Application
+What must exist: a Clerk application (ours: "Tiddly") with its development instance, and a production instance bound to the apex domain (`tiddly.me`).
 
-1. Go to **Applications** → **Applications** → **+ Create Application**
-2. Name: e.g., "Tiddly"
-3. Select: **Single Page Application**
-4. Click **Create**
+1. `clerk apps create "Tiddly"` creates the application + development instance.
+2. `clerk deploy` (interactive, human terminal) creates the production instance, registers the domain, clones the dev configuration to production, and prints the DNS records and OAuth to-dos. `clerk deploy status` (read-only) reports pending records and validation state at any time.
 
-**In the Settings tab**:
+#### 6b. DNS records (production instance only)
 
-5. Note the **Domain** and **Client ID** for Railway environment variables:
-   - `VITE_AUTH0_DOMAIN` = Domain (e.g., `tiddly.us.auth0.com`)
-   - `VITE_AUTH0_CLIENT_ID` = Client ID
+Five CNAME records on the domain, values printed by `clerk deploy` (the mail values are instance-specific):
 
-6. Add your frontend URLs (use placeholder for now, update after Railway generates domain):
+| Host | Purpose |
+|---|---|
+| `clerk.<domain>` | Frontend API — serving Clerk from your own subdomain keeps the session cookie first-party (load-bearing for the ~60s token refresh as browsers phase out third-party cookies) |
+| `accounts.<domain>` | Hosted Account Portal |
+| `clkmail.<domain>` | Transactional email (sign-in codes, resets) from your domain |
+| `clk._domainkey.<domain>`, `clk2._domainkey.<domain>` | DKIM for the above |
 
-   **Allowed Callback URLs:**
-   ```
-   https://frontend-production-XXXX.up.railway.app, https://tiddly.me
-   ```
+Records must be **DNS-only (not proxied)** or Clerk's validation fails. Propagation + SSL issuance can take up to 48h (typically minutes). Monitor via `clerk deploy status` or Dashboard → Domains.
 
-   **Allowed Logout URLs:**
-   ```
-   https://frontend-production-XXXX.up.railway.app, https://tiddly.me
-   ```
+#### 6c. Instance configuration (both instances — promoted from the committed dev config)
 
-   **Allowed Web Origins:**
-   ```
-   https://frontend-production-XXXX.up.railway.app, https://tiddly.me
-   ```
+What must exist (all present in `clerk/config.dev.json`; apply to prod via `clerk deploy` or `clerk config put --instance prod --file clerk/config.dev.json`):
 
-7. Scroll down to **Refresh Token Rotation**:
-   - Toggle ON **Allow Refresh Token Rotation** (invalidates old tokens after use to prevent replay attacks)
-   - Leave **Rotation Overlap Period** at `0` seconds (default)
+- **Auth strategies**: email/password enabled; `email_code` enabled as a sign-in strategy (this is what gives passwordless-imported users their first sign-in path); Google social connection enabled.
+- **Session token custom claims** (`session.claims`): `email` = `{{user.primary_email_address}}`, `email_verified` = `{{user.email_verified}}` — the backend reads these plain (non-namespaced) claims.
+- **Session clock skew** (`session.allowed_clock_skew`): 5s (default) — the backend independently applies `leeway=5` in its own verification; the two are set to match.
+- **Sign-up mode** (`auth_access_control.sign_up_mode`): `restricted` on production from instance activation until the M6a cutover reconciles the user import, then `public`. (Dev stays `public`.)
+- **MFA and passkeys**: off (deferred with the Pro-plan decision; see the migration plan's adoption register).
 
-8. Scroll to **Advanced Settings** → **Grant Types** tab:
-   - Check the box for **Implicit** (optional, but typically enabled for SPAs)
-   - Check the box for **Authorization Code**
-   - Check the box for **Refresh Token**
+#### 6d. Google social connection (production credentials)
 
-9. Click **Save Changes**
+Dev instances use Clerk's shared Google credentials; production requires your own:
 
-#### 6c. Create & Configure API
+1. Google Cloud Console → your existing OAuth **Web application** client (the same one may serve multiple IdPs) → add Clerk's **authorized redirect URI** for the production instance — copy the exact value from Dashboard → SSO connections → Google (it is served from your Frontend API domain, e.g. `https://clerk.<domain>/v1/oauth_callback`; always paste what Clerk displays).
+2. Provide the Client ID + Client Secret to the production instance's Google connection (via re-running `clerk deploy`, or the dashboard's Google connection settings). Use **custom credentials**, not Clerk's development-shared ones.
 
-1. Go to **Applications** → **APIs** → **+ Create API**
-2. Name: e.g., "Tiddly API"
-3. Identifier: e.g., `https://api.tiddly.me` (this becomes the "audience" - doesn't need to be a real URL)
-4. Click **Create**
+#### 6e. Environment variables recap
 
-Go to the **Settings** tab of your new API:
-
-5. Note the **Identifier** for Railway environment variables:
-   - `VITE_AUTH0_AUDIENCE` = Identifier
-
-6. In the **Settings** tab, under **Access Settings**:
-   - Toggle ON **Allow Offline Access** (required for refresh tokens to be issued)
-
-7. Click **Save**
-
-**Why Allow Offline Access matters:** The frontend requests the `offline_access` scope to get refresh tokens. Without this enabled, Auth0 silently ignores the scope and users get logged out when their access token expires (~24 hours).
-
-#### 6d. Post-Login Action (Email Claims)
-
-Auth0 access tokens for custom APIs don't include profile claims like `email` by default. A Post-Login Action adds them as namespaced custom claims so the backend can read them.
-
-1. Go to **Actions** → **Triggers** → **post-login**
-2. Click **+** (Add Action) → **Create Custom Action**
-    - Name: "Add email claims to access token"
-    - Trigger: Login / Post Login (default)
-    - Runtime: Node 22 (default)
-3. Click **Create**
-4. Replace the `onExecutePostLogin` function with:
-
-```javascript
-exports.onExecutePostLogin = async (event, api) => {
-    const namespace = 'https://tiddly.me';
-    if (event.authorization) {
-    api.accessToken.setCustomClaim(
-        `${namespace}/email`,
-        event.user.email ?? null
-    );
-    api.accessToken.setCustomClaim(
-        `${namespace}/email_verified`,
-        event.user.email_verified ?? false
-    );
-    }
-};
-```
-
-5. Click **Deploy**
-6. Click **Back to Triggers** → **post-login**
-7. **Drag** the new action from the right panel into the flow (between **Start** and **Complete**)
-8. Click **Apply**
-
-**To verify:** Log in, grab the access token from browser dev tools (Network tab → any API request → `Authorization: Bearer <token>` header), paste it into [jwt.io](https://jwt.io), and confirm the payload contains `https://tiddly.me/email` and `https://tiddly.me/email_verified`.
-
-**Note:** The namespace URL (`https://tiddly.me`) doesn't need to resolve — it's just a unique prefix required by Auth0 for custom claims. The backend reads these claims using the `AUTH0_CUSTOM_CLAIM_NAMESPACE` env var.
-
-#### 6e. Google Social Connection (Optional)
-
-To enable "Sign in with Google":
-
-**Step 1: Create Google OAuth Credentials**
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Select your project (or create one)
-3. Navigate to **Branding** (configure consent screen first):
-   - App name, support email, developer contact (required fields)
-   - **Authorized domains**: Add `auth0.com`
-4. Navigate to **Audience**:
-   - User Type: **External** (unless you have Google Workspace)
-   - If in testing mode, add your email as a test user
-5. Navigate to **Clients**
-6. Click **+ Create client**:
-   - Application type: **Web application**
-   - Name: e.g., "Tiddly"
-   - **Authorized JavaScript origins**: Leave empty (not required for Auth0)
-   - **Authorized redirect URIs**: Add your Auth0 callback URL:
-     ```
-     https://YOUR-AUTH0-TENANT.us.auth0.com/login/callback
-     ```
-
-7. Click **Create** and copy the **Client ID** and **Client Secret**
-
-**Note:** Changes to Google OAuth credentials may take 5 minutes to a few hours to propagate.
-
-**Step 2: Configure Auth0**
-
-1. Go to [Auth0 Dashboard](https://manage.auth0.com/) → **Authentication** → **Social**
-2. Click **+ Create Connection** → **Google / Gmail**
-3. Paste your **Client ID** and **Client Secret** from Google
-4. Click **Create**
-5. Go to the **Applications** tab and enable the connection for your SPA application
+- Frontend service: `VITE_CLERK_PUBLISHABLE_KEY` (`pk_live_...`; `clerk env pull --instance prod` fetches it). An empty key makes the frontend fall back to dev mode (auth bypassed) — the same fail-safe semantic the Auth0 domain had.
+- API + cron services: `CLERK_FRONTEND_API`, `CLERK_AUTHORIZED_PARTIES`, and the optional JIT-create flags — see the API Service Variables section above.
+- The Clerk **secret key** is not deployed anywhere: the backend verifies tokens against the public JWKS (networkless); the secret key is used only by the one-off M2 import script, run from an operator machine.
 
 ### Step 7: Deploy
 
@@ -578,7 +477,7 @@ The `ai_usage_analytics` view and the `pgcrypto` extension it depends on are cre
    - `ai_usage_flush: complete` — buckets were flushed, logged with `keys_processed` and `total_cost_flushed`
 6. **Cleanup cron:** Railway dashboard → `cleanup` service → **Deployments** tab. After the first `0 3 * * *` UTC run, logs start with `Starting cleanup task` and end with `Cleanup complete: {...}` containing `soft_deleted_expired`, `expired_deleted`, `orphaned_deleted`. Any exceptions are surfaced via Railway's deployment failure indicator.
 7. **Orphan Relationships cron:** Railway dashboard → `orphan-relationships` service → **Deployments** tab. After the first `0 4 * * *` UTC run, logs start with `Starting orphan relationship cleanup (delete=...)` and end with `Orphan relationship cleanup complete: {...}` containing `orphaned_source`, `orphaned_target`, `total_deleted`. Expect all zeros on a healthy system. **Before switching to `--delete`:** confirm `orphaned_source + orphaned_target = 0` for at least one scheduled run in report-only mode.
-8. **AI endpoints** (requires an Auth0 token):
+8. **AI endpoints** (requires a session token — PATs are blocked on these surfaces):
    ```bash
    curl -H "Authorization: Bearer <token>" https://<api>/ai/health
    # → {"available": true, "byok": false,
@@ -618,18 +517,18 @@ Railway generates random subdomains like `frontend-production-fb79.up.railway.ap
 
 ### Use a Custom Domain
 
-See [docs/custom-domain-setup.md](docs/custom-domain-setup.md) for detailed instructions on configuring a custom domain with DNS and Auth0.
+See [docs/custom-domain-setup.md](docs/custom-domain-setup.md) for detailed instructions on configuring a custom domain with DNS (written for the Auth0 era; the Clerk equivalents are the DNS records in Step 6b and the origin settings below).
 
 Quick summary:
 1. Add custom domain in Railway (each service → **Settings** → **Networking** → **+ Custom Domain**)
 2. Add CNAME records at your DNS provider
 3. Update Railway environment variables (`CORS_ORIGINS`, `VITE_API_URL`, etc.)
-4. Update Auth0 Allowed URLs
+4. Update `CLERK_AUTHORIZED_PARTIES` on the api/cron services to the new origin
 5. Redeploy all services
 
 **Important:** After changing any domain, update:
 - `CORS_ORIGINS` on the **api** service (must include `https://`)
-- Auth0's Allowed Callback/Logout/Web Origins URLs
+- `CLERK_AUTHORIZED_PARTIES` (api + cron services) and the Clerk instance's domain/DNS records (Step 6b)
 - **Redeploy the frontend** if you changed the API URL - Vite bakes `VITE_API_URL` at build time, so a rebuild is required for changes to take effect
 
 ---

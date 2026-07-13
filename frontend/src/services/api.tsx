@@ -2,6 +2,7 @@ import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import toast from 'react-hot-toast'
 import { config, isDevMode } from '../config'
 import { useConsentStore } from '../stores/consentStore'
+import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 
 /**
  * Axios instance configured with the API base URL.
@@ -39,18 +40,15 @@ export const publicApi = axios.create({
  */
 export const GLOBALLY_TOASTED_STATUSES = [402, 429] as const
 
-let isLoggingOut = false
-let refreshPromise: Promise<string> | null = null
+let refreshPromise: Promise<string | null> | null = null
 
 /**
- * Token getter function type - provided by Auth0 context.
+ * Token getter function type - provided by the Clerk context. clerk-js serves
+ * a cached ~60s session token and refreshes it in the background; `skipCache`
+ * forces a fresh mint (used on the one 401 retry). Resolves null when there is
+ * no active session.
  */
-type GetAccessTokenFn = (options?: { cacheMode?: 'on' | 'off' | 'cache-only' }) => Promise<string>
-
-/**
- * Auth error handler function type - called when 401 is received.
- */
-type OnAuthErrorFn = () => void
+type GetAccessTokenFn = (options?: { skipCache?: boolean }) => Promise<string | null>
 
 /**
  * Consent API types
@@ -84,30 +82,28 @@ export interface PolicyVersions {
 
 /**
  * Sets up auth interceptors on the API instance.
- * Should be called once when the Auth0 context is available.
+ * Should be called once when the Clerk context is available.
  *
- * 401 Retry Strategy:
- * When a request fails with 401, we retry once with `cacheMode: 'off'` to force
- * a fresh token fetch (using the refresh token) instead of returning a cached
- * expired access token. This handles the case where the access token expired
- * but the refresh token is still valid. Only if the retry also fails do we
- * trigger logout.
+ * 401 Retry Strategy (the observable contract — one retry, then the expiry path):
+ * When a request fails with 401, we retry once with `skipCache: true` to force
+ * a freshly-minted session token instead of the ~60s cached one — this covers
+ * a token that expired in flight. If the retry also 401s (or no token can be
+ * minted at all), the session itself is gone.
  *
- * The shared `refreshPromise` prevents multiple concurrent requests from each
- * triggering their own token refresh - they all await the same refresh operation.
- * This avoids race conditions with refresh token rotation.
+ * Session expiry does NOT log the user out (plan M3 step 7): the request is
+ * parked in the session-expiry store, the in-place re-auth dialog opens, and
+ * on successful sign-in the parked request retries automatically — the save
+ * the user attempted completes with nothing to redo. No navigation, no
+ * queryClient.clear(); those happen only on deliberate logout.
+ *
+ * The shared `refreshPromise` prevents concurrent 401s from each forcing their
+ * own server-side token mint - they all await the same refresh.
  *
  * Logging prefixed with [Auth] helps debug token expiration issues in production.
- * Enable "Preserve log" in browser DevTools to capture logs across redirects.
  *
- * @param getAccessToken - Function to get the current access token (must accept options)
- * @param onAuthError - Function to call when authentication fails (e.g., logout)
+ * @param getAccessToken - Function to get the current session token (null = no session)
  */
-export function setupAuthInterceptor(
-  getAccessToken: GetAccessTokenFn,
-  onAuthError: OnAuthErrorFn
-): void {
-  isLoggingOut = false
+export function setupAuthInterceptor(getAccessToken: GetAccessTokenFn): void {
   refreshPromise = null
 
   // Request interceptor - add auth token (production only)
@@ -116,10 +112,12 @@ export function setupAuthInterceptor(
       if (!isDevMode) {
         try {
           const token = await getAccessToken()
-          requestConfig.headers.Authorization = `Bearer ${token}`
+          if (token) {
+            requestConfig.headers.Authorization = `Bearer ${token}`
+          }
+          // No token (signed out / session expired): send the request bare and
+          // let the 401 path below decide - it owns the expiry UX.
         } catch (error) {
-          // Token fetch failed - log for debugging, then let request proceed
-          // The 401 response interceptor will handle retry with cache bypass
           console.error('[Auth] Initial token fetch failed:', {
             error: error instanceof Error ? error.message : String(error),
             errorName: error instanceof Error ? error.name : 'unknown',
@@ -144,30 +142,41 @@ export function setupAuthInterceptor(
           requestConfig._retryAuth = true
           try {
             if (!refreshPromise) {
-              refreshPromise = getAccessToken({ cacheMode: 'off' }).finally(() => {
+              refreshPromise = getAccessToken({ skipCache: true }).finally(() => {
                 refreshPromise = null
               })
             }
             const token = await refreshPromise
-            requestConfig.headers = requestConfig.headers ?? {}
-            requestConfig.headers.Authorization = `Bearer ${token}`
-            return api.request(requestConfig)
+            if (token) {
+              requestConfig.headers = requestConfig.headers ?? {}
+              requestConfig.headers.Authorization = `Bearer ${token}`
+              return api.request(requestConfig)
+            }
+            // null token: no session to mint from - fall through to the expiry path
           } catch (error) {
-            // Token refresh failed - log for debugging before triggering logout
-            console.error('[Auth] Token refresh failed, logging out:', {
+            console.error('[Auth] Token refresh failed:', {
               error: error instanceof Error ? error.message : String(error),
               errorName: error instanceof Error ? error.name : 'unknown',
               url: requestConfig.url,
               timestamp: new Date().toISOString(),
             })
-            // Fall through to logout handling below
+            // Fall through to the expiry path below
           }
         }
 
-        // Token expired or invalid - trigger logout/re-login
-        if (!isLoggingOut) {
-          isLoggingOut = true
-          onAuthError()
+        // Session expired: park the request for automatic retry after in-place
+        // re-auth. Never navigate, never clear state here (plan M3 step 7).
+        if (requestConfig) {
+          return useSessionExpiryStore.getState().parkRequest(
+            () => {
+              // Re-auth minted a new session; clear the retry marker so the
+              // replayed request gets one fresh 401-retry cycle of its own.
+              requestConfig._retryAuth = false
+              delete requestConfig.headers?.Authorization
+              return api.request(requestConfig)
+            },
+            error,
+          )
         }
       }
       if (error.response?.status === 402) {

@@ -74,9 +74,7 @@ To test real authentication:
 2. **Configure `.env`**:
    ```bash
    VITE_DEV_MODE=false
-   VITE_AUTH0_DOMAIN=your-tenant.auth0.com
-   VITE_AUTH0_CLIENT_ID=your-spa-client-id
-   VITE_AUTH0_AUDIENCE=https://bookmarks-api
+   VITE_CLERK_PUBLISHABLE_KEY=pk_test_your-dev-instance-key
    # Clerk (dual-accept migration window) — required whenever VITE_DEV_MODE=false;
    # the backend refuses to start without these. Use a Clerk dev instance's
    # Frontend API domain (Dashboard -> API Keys).
@@ -98,7 +96,7 @@ To test real authentication:
 See `.env.example` for all options. Key settings:
 
 - `VITE_DEV_MODE=true` - Bypasses auth (local dev)
-- `VITE_AUTH0_*` - Auth0 config (used by both backend and frontend, empty = dev mode)
+- `VITE_CLERK_PUBLISHABLE_KEY` - Clerk publishable key for the frontend (empty = dev mode); `CLERK_FRONTEND_API`/`CLERK_AUTHORIZED_PARTIES` for the backend (see `.env.example`)
 - `CLERK_*` - Clerk config for the dual-accept migration window (required when `VITE_DEV_MODE=false`)
 
 ## Commands

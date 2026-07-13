@@ -46,6 +46,7 @@ import { getFilterRoute } from './routes'
 import { FilterModal } from '../FilterModal'
 import { CollectionModal } from '../CollectionModal'
 import {
+  UserIcon,
   MenuIcon,
   CollapseIcon,
   PlusIcon,
@@ -638,6 +639,13 @@ function SidebarContent({ isCollapsed, onNavClick, onOpenPalette }: SidebarConte
                   isCollapsed={isCollapsed}
                   onClick={onNavClick}
                   icon={<AdjustmentsIcon className="h-[18px] w-[18px] text-gray-500" />}
+                />
+                <SidebarNavItem
+                  to="/app/settings/account"
+                  label="Account"
+                  isCollapsed={isCollapsed}
+                  onClick={onNavClick}
+                  icon={<UserIcon className="h-[18px] w-[18px] text-gray-500" />}
                 />
                 <SidebarNavItem
                   to="/app/settings/tags"

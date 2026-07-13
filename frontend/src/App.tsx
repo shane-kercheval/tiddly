@@ -3,6 +3,7 @@ import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-rou
 import type { ReactNode } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './components/AuthProvider'
+import { SessionExpiryGuard } from './components/SessionExpiredDialog'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppLayout } from './components/AppLayout'
 import { Layout } from './components/Layout'
@@ -28,6 +29,7 @@ const SaveSharedRedirect = lazy(() => import('./pages/SaveSharedRedirect').then(
 
 // Lazy-loaded settings pages
 const SettingsGeneral = lazy(() => import('./pages/settings/SettingsGeneral').then(m => ({ default: m.SettingsGeneral })))
+const SettingsAccount = lazy(() => import('./pages/settings/SettingsAccount').then(m => ({ default: m.SettingsAccount })))
 const SettingsTokens = lazy(() => import('./pages/settings/SettingsTokens').then(m => ({ default: m.SettingsTokens })))
 const SettingsAI = lazy(() => import('./pages/settings/SettingsAI').then(m => ({ default: m.SettingsAI })))
 const SettingsMCP = lazy(() => import('./pages/settings/SettingsMCP').then(m => ({ default: m.SettingsMCP })))
@@ -74,6 +76,7 @@ function RootLayout(): ReactNode {
   return (
     <AuthProvider>
       <Toaster position="top-right" />
+      <SessionExpiryGuard />
       <Suspense fallback={<LoadingSpinnerPage />}>
         <Outlet />
       </Suspense>
@@ -177,6 +180,7 @@ const router = createBrowserRouter([
                   // Settings routes
                   { path: '/app/settings', element: <Navigate to="/app/settings/general" replace /> },
                   { path: '/app/settings/general', element: <SettingsGeneral /> },
+                  { path: '/app/settings/account', element: <SettingsAccount /> },
                   { path: '/app/settings/tokens', element: <SettingsTokens /> },
                   { path: '/app/settings/ai', element: <SettingsAI /> },
                   { path: '/app/settings/ai-integration', element: <SettingsMCP /> },

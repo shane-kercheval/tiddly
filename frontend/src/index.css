@@ -144,6 +144,15 @@ body {
     @apply border-red-200 bg-red-50/50 focus:border-red-300 focus:ring-red-500/10;
   }
 
+  /* While the session is expired (re-auth dialog or banner up), the page
+     behind is inert: parked requests hold widgets in their loading state, and
+     an animated spinner back there reads as breakage rather than waiting.
+     Hidden, not unmounted - layout stays put and everything resumes on
+     re-auth. The body class is toggled by SessionExpiredDialog. */
+  body.session-expired :is(.animate-spin, .spinner, .spinner-xs, .spinner-sm, .spinner-md, .spinner-lg, .spinner-ai) {
+    visibility: hidden;
+  }
+
   /* Loading spinner */
   .spinner {
     @apply animate-spin rounded-full border-2 border-gray-200 border-t-gray-900;

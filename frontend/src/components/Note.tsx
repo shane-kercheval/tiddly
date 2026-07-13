@@ -30,6 +30,8 @@ import type { ArchivePreset } from '../utils'
 import { useLimits, PUBLIC_VIEW_LIMITS } from '../hooks/useLimits'
 import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
+import { useDraftAutosave } from '../hooks/useDraftAutosave'
+import { DraftRestorePrompt } from './DraftRestorePrompt'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -342,6 +344,26 @@ export function Note({
     [current, original]
   )
 
+  // Draft autosave (plan M3 step 8): protects unsaved work against tab close,
+  // crash, power loss, and expired sessions. Keyed per item; 'new' covers a
+  // not-yet-created one. Cleared automatically when a save lands (isDirty
+  // falls false); a lingering draft surfaces as the restore prompt below.
+  const { pendingDraft, restoreDraft, discardDraft, clearDraft } = useDraftAutosave<NoteState>({
+    storageKey: `tiddly:draft:note:${note?.id ?? 'new'}`,
+    current,
+    isDirty,
+    disabled: isReadOnly,
+  })
+
+  const handleRestoreDraft = (): void => {
+    const draft = restoreDraft()
+    if (draft) {
+      setCurrent(draft)
+      // Remount the editor so it picks up the restored content.
+      setContentKey((prev) => prev + 1)
+    }
+  }
+
   // Compute validity for save button (doesn't show error messages, just checks if saveable)
   const isValid = useMemo(
     () =>
@@ -576,6 +598,9 @@ export function Note({
 
       // Update original to match current (form is now clean)
       setOriginal({ ...current, tags: tagsToSubmit })
+      // Immediately after a successful save, while the closure still holds the
+      // pre-save storage key (':new' for creates, before navigation re-keys it).
+      clearDraft()
 
       // Close if requested (Cmd+Shift+S)
       if (checkAndClose()) return
@@ -832,6 +857,14 @@ export function Note({
             <div className="alert-warning">
               <p className="text-sm">This note is in trash and cannot be edited. Restore it to make changes.</p>
             </div>
+          )}
+
+          {pendingDraft && (
+            <DraftRestorePrompt
+              savedAt={pendingDraft.savedAt}
+              onRestore={handleRestoreDraft}
+              onDiscard={discardDraft}
+            />
           )}
 
           {/* Title */}

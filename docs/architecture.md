@@ -105,7 +105,7 @@ flowchart LR
 - Data fetching: TanStack React Query v5 with a shared `queryClient`; hooks grouped by domain (`useBookmarksQuery`, `useBookmarkMutations`, ...)
 - Routing: React Router v7 with `createBrowserRouter`; top-level regions include the content views (`/bookmarks`, `/notes`, `/prompts`), settings, docs hub, and public marketing pages
 - Editor: Milkdown (markdown) for notes/descriptions; CodeMirror with Nunjucks highlighting for prompt templates
-- Auth: `@auth0/auth0-react` with offline-access refresh tokens; localStorage-backed; axios interceptor auto-retries on 401 with `cacheMode: 'off'`
+- Auth: `@clerk/clerk-react` (modal sign-in/sign-up; ~60s session tokens auto-refreshed by clerk-js — no client-held refresh token); axios interceptor fetches `getToken()` per request, retries a 401 once with `skipCache: true`, then parks the request in the session-expiry store for in-place re-auth (never logout/navigation on expiry — teardown happens only on deliberate logout). The auth-provider SDK is lint-restricted to `AuthProvider.tsx` plus the two prebuilt-UI mounts (`SessionExpiredDialog`, `SettingsAccount`).
 - Error handling: axios response interceptor centralizes 401 (re-auth), 402 (quota), 429 (rate limit), 451 (consent required)
 - Every request sends `X-Request-Source: web` for server-side audit/source detection
 
