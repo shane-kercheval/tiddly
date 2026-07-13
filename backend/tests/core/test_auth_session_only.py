@@ -160,7 +160,13 @@ class TestAuthenticateUserAllowPat:
         mock_settings_no_dev_mode: Settings,
         mock_request: Request,
     ) -> None:
-        """When allow_pat=False, Auth0 JWTs are still accepted."""
+        """
+        When allow_pat=False, Auth0 JWTs are still accepted.
+
+        The Clerk OAuth (at+jwt) twin of this policy test lives in
+        test_auth_clerk.py::TestClerkOAuthAccessTokens — it needs that
+        module's real-signature JWKS infrastructure.
+        """
         from core.auth import _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
