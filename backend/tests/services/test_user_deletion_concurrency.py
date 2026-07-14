@@ -107,6 +107,7 @@ async def test__deletion_commits_between_db_read_and_cache_write__no_stale_entry
     assert fired, "the injected deletion never ran — the test lost its premise"
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "This account was deleted"
+    assert exc_info.value.error_code == "account_deleted"
     auth_cache = get_auth_cache()
     assert auth_cache is not None
     assert await auth_cache.get_by_external_auth_id(sub) is None
@@ -158,6 +159,7 @@ async def test__jit_create_racing_unknown_identity_deletion__no_user_row(
     assert fired
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "This account was deleted"
+    assert exc_info.value.error_code == "account_deleted"
 
     async with concurrent_session_factory() as check:
         from sqlalchemy import select  # noqa: PLC0415

@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "AUTH_DEPENDENCIES",
     "AuthType",
+    "DeletedIdentityError",
     "RequestContext",
     "get_current_user",
     "get_current_user_ai",
@@ -64,6 +65,41 @@ __all__ = [
 # session.allowed_clock_skew (clerk/config.dev.json) — but the value is our
 # own: Clerk's setting governs Clerk's servers, not our verification.
 CLERK_CLOCK_SKEW_LEEWAY_SECONDS = 5
+
+# Terminal "account deleted" 401 contract (M8 anti-resurrection guard).
+#
+# When a validly-signed token is presented for a tombstoned identity, the
+# response carries the stable machine-readable ``error_code`` below alongside
+# the human-readable ``detail``. Clients (web, CLI, and iOS when it ships) bind
+# to the ``error_code`` — NOT the prose — to tell this *terminal* 401 apart
+# from an ordinary expired-session 401: re-authenticating can never succeed for
+# a deleted identity, so clients must show a terminal state, not a re-auth loop.
+# The public envelope is produced by the DeletedIdentityError handler in
+# api/main.py (see that handler and docs/ios-clerk-migration-guide.md).
+ACCOUNT_DELETED_DETAIL = "This account was deleted"
+ACCOUNT_DELETED_ERROR_CODE = "account_deleted"
+
+
+class DeletedIdentityError(HTTPException):
+    """
+    Raised when a validly-signed token is presented for a tombstoned identity.
+
+    Subclasses HTTPException so it propagates through the auth dependency chain
+    exactly like the path's other 401s. The app registers a *more specific*
+    handler for this type (api/main.py) that emits the standard
+    ``{detail, error_code}`` envelope, adding the stable ``account_deleted``
+    code the plain-HTTPException handler would not. The ``error_code`` is a
+    class attribute so callers/tests can assert it without parsing prose.
+    """
+
+    error_code = ACCOUNT_DELETED_ERROR_CODE
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ACCOUNT_DELETED_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def get_request_context(request: Request) -> RequestContext | None:
@@ -539,11 +575,7 @@ def _raise_deleted_identity(auth0_id: str | None, identifier: str | None) -> Non
         "auth0" if auth0_id else "clerk",
         identifier,
     )
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="This account was deleted",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    raise DeletedIdentityError()
 
 
 async def _reject_deleted_identity(

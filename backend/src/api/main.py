@@ -36,6 +36,7 @@ from litellm.exceptions import (
     Timeout as LiteLLMTimeout,
 )
 
+from core.auth import DeletedIdentityError
 from core.auth_cache import AuthCache, set_auth_cache
 from core.config import get_settings
 from core.http_cache import ETagMiddleware
@@ -196,6 +197,17 @@ _OPENAPI_TAGS = [
 _API_DESCRIPTION = """\
 A content management system with tagging and search capabilities.
 
+### Authentication
+
+Every authenticated endpoint accepts a bearer token (an IdP session/OAuth JWT,
+or a `bm_` Personal Access Token). Most auth failures are ordinary `401`s —
+refresh or re-authenticate. **One `401` is terminal: `error_code:
+"account_deleted"`** (in the standard `{detail, error_code}` envelope). The token
+is valid but its account was deleted, so re-authenticating can never succeed (it
+loops). Clients must match the machine-readable `error_code` — **not** the
+human-readable `detail`, which may change — then clear local state and show a
+deleted-account end state.
+
 ### Caching & conditional requests
 
 Item reads (`GET /{type}/{id}` and `GET /{type}/{id}/metadata`) return **both** an
@@ -257,6 +269,26 @@ async def quota_exceeded_exception_handler(
             "current": exc.current,
             "limit": exc.limit,
         },
+    )
+
+
+@app.exception_handler(DeletedIdentityError)
+async def deleted_identity_exception_handler(
+    _request: Request, exc: DeletedIdentityError,
+) -> JSONResponse:
+    """
+    Terminal deleted-account 401 (M8 anti-resurrection guard).
+
+    Adds the stable ``account_deleted`` error_code to the standard
+    ``{detail, error_code}`` envelope so clients distinguish this terminal 401
+    from an ordinary expired-session 401, and preserves the exception's
+    ``WWW-Authenticate`` header (a bare JSONResponse would otherwise drop it).
+    Contract: core.auth.DeletedIdentityError, docs/ios-clerk-migration-guide.md.
+    """
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "error_code": exc.error_code},
+        headers=exc.headers,
     )
 
 
