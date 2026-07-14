@@ -36,7 +36,7 @@ func TestClient__error_handling(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "401 returns session expired message",
+			name:       "401 without account_deleted keeps session-expired login instruction",
 			status:     401,
 			body:       map[string]string{"detail": "invalid token"},
 			wantMsg:    "Session expired. Run 'tiddly login' to re-authenticate.",
@@ -88,6 +88,53 @@ func TestClient__error_handling(t *testing.T) {
 			require.True(t, ok, "expected APIError, got %T", err)
 			assert.Equal(t, tt.wantStatus, apiErr.StatusCode)
 			assert.Contains(t, apiErr.Message, tt.wantMsg)
+		})
+	}
+}
+
+func TestClient__account_deleted_401_is_terminal_and_preserves_code(t *testing.T) {
+	// Only the account_deleted code changes behavior: it yields the terminal
+	// message AND preserves the machine code on the error so higher CLI layers
+	// (e.g. credential cleanup) can discriminate without matching prose. Any
+	// other 401 code keeps the ordinary session-expired login instruction and
+	// carries no terminal code.
+	tests := []struct {
+		name          string
+		errorCode     string
+		wantErrorCode string
+		wantMsgSub    string
+	}{
+		{
+			name:          "account_deleted is terminal and keeps the code",
+			errorCode:     "account_deleted",
+			wantErrorCode: "account_deleted",
+			wantMsgSub:    "This account has been deleted",
+		},
+		{
+			name:          "unrelated 401 code keeps session-expired and no terminal code",
+			errorCode:     "some_other_code",
+			wantErrorCode: "",
+			wantMsgSub:    "Session expired. Run 'tiddly login'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := testutil.NewMockAPI(t)
+			mock.On("GET", "/test").RespondJSON(401, map[string]any{
+				"detail":     "This account was deleted",
+				"error_code": tt.errorCode,
+			})
+
+			client := NewClient(mock.URL(), "token", "pat")
+			err := client.Do(context.Background(), "GET", "/test", nil, nil)
+			require.Error(t, err)
+
+			apiErr, ok := err.(*APIError)
+			require.True(t, ok, "expected APIError, got %T", err)
+			assert.Equal(t, 401, apiErr.StatusCode)
+			assert.Equal(t, tt.wantErrorCode, apiErr.ErrorCode)
+			assert.Contains(t, apiErr.Message, tt.wantMsgSub)
 		})
 	}
 }
