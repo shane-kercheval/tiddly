@@ -157,14 +157,26 @@ class TestSignatureVerification:
         clerk_user: User,
     ) -> None:
         """Without CLERK_WEBHOOK_SIGNING_SECRET the endpoint refuses everything."""
-        payload = deletion_event(clerk_user.external_auth_id)
-        response = await client.post(
-            "/webhooks/clerk",
-            content=payload,
-            headers=signed_headers(payload),
+        from api.main import app  # noqa: PLC0415
+
+        # Force an empty secret rather than relying on the ambient env — a
+        # developer running the M8 manual drill sets a real secret in .env,
+        # which the plain `client` fixture would otherwise pick up.
+        settings_no_secret = get_settings().model_copy(
+            update={"clerk_webhook_signing_secret": ""},
         )
-        assert response.status_code == 503
-        assert await _user_exists(db_session, clerk_user.external_auth_id)
+        app.dependency_overrides[get_settings] = lambda: settings_no_secret
+        try:
+            payload = deletion_event(clerk_user.external_auth_id)
+            response = await client.post(
+                "/webhooks/clerk",
+                content=payload,
+                headers=signed_headers(payload),
+            )
+            assert response.status_code == 503
+            assert await _user_exists(db_session, clerk_user.external_auth_id)
+        finally:
+            app.dependency_overrides.pop(get_settings, None)
 
 
 class TestUserDeletedHandling:

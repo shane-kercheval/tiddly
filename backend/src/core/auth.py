@@ -395,6 +395,7 @@ async def get_or_create_user(
         )
         user = result.scalar_one_or_none()
 
+    created = False
     if user is None:
         # Tombstone check first: a deleted identity gets the explicit 401
         # regardless of whether JIT creation is currently enabled.
@@ -409,9 +410,11 @@ async def get_or_create_user(
                 email=email,
                 email_verified=email_verified,
             )
+            created = True
         except IntegrityError:
             # Race condition: another request created the user between our SELECT
-            # and INSERT. Rollback and fetch the existing user.
+            # and INSERT. Rollback and fetch the existing user (now committed by
+            # that other transaction — safe to cache, so `created` stays False).
             await db.rollback()
             result = await db.execute(
                 select(User)
@@ -428,7 +431,19 @@ async def get_or_create_user(
         user.email_verified = email_verified
     await db.flush()
 
-    # Populate cache
+    if created:
+        # Do NOT cache a user created in THIS request: the row is only flushed,
+        # not committed, and this request can still roll back (e.g. the consent
+        # gate 451s a brand-new user's first-ever request — the user row never
+        # commits). A cached entry would then outlive the phantom row for the
+        # 5-min TTL, serving foreign-key-violating reads. The next request is a
+        # cache miss that reads a now-committed row and caches it then. The
+        # tombstone recheck is likewise unneeded here: the pre-create tombstone
+        # check ran under the identity advisory lock we still hold, so no
+        # deletion can have committed a tombstone for this identity since.
+        return user
+
+    # Populate cache (existing or race-recovered user — its row is committed)
     auth_cache = get_auth_cache()
     if auth_cache:
         await auth_cache.set(user)

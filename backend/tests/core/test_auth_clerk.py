@@ -858,7 +858,12 @@ class TestClerkUserResolution:
         db_session: AsyncSession,
         redis_client: object,  # noqa: ARG002
     ) -> None:
-        """Second Clerk-path resolution is served from the ext cache segment."""
+        """
+        Resolution is served from the ext cache segment once a *committed* row
+        has been read. A freshly-created user is deliberately not cached (see
+        test__freshly_created_user_not_cached_until_committed), so the cache is
+        populated on the first post-commit read and served on the next.
+        """
         from core.auth import get_or_create_user  # noqa: PLC0415
         from schemas.cached_user import CachedUser  # noqa: PLC0415
 
@@ -866,12 +871,55 @@ class TestClerkUserResolution:
         await get_or_create_user(db_session, external_auth_id=ext_id, email="c@test.com")
         await db_session.commit()
 
+        # First post-commit resolution reads the committed row and caches it
+        first = await get_or_create_user(
+            db_session, external_auth_id=ext_id, email="c@test.com",
+        )
+        assert isinstance(first, User)
+
+        # The next resolution is served from cache
         result = await get_or_create_user(
             db_session, external_auth_id=ext_id, email="c@test.com",
         )
-
         assert isinstance(result, CachedUser)
         assert result.external_auth_id == ext_id
+
+    async def test__freshly_created_user_not_cached_until_committed(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+    ) -> None:
+        """
+        A user created in THIS request must not be cached: the row is only
+        flushed, not committed, so if the request rolls back (the exact drill
+        scenario — the consent gate 451s a brand-new user's first-ever request,
+        rolling back the user row) a cached entry would serve a phantom user
+        for the 5-min TTL, and the next consent-accept would 500 on a
+        foreign-key violation. Regression for that observed 500.
+        """
+        from core.auth import get_or_create_user  # noqa: PLC0415
+        from core.auth_cache import get_auth_cache  # noqa: PLC0415
+
+        ext_id = "user_phantom_cache"
+        user = await get_or_create_user(
+            db_session, external_auth_id=ext_id, email="p@test.com",
+        )
+        assert user.external_auth_id == ext_id
+
+        # The just-created, still-uncommitted user is NOT cached
+        auth_cache = get_auth_cache()
+        assert auth_cache is not None
+        assert await auth_cache.get_by_external_auth_id(ext_id) is None
+
+        # The request fails after creation (consent gate 451 → rollback)
+        await db_session.rollback()
+
+        # No phantom survives: neither a committed row nor a cache entry
+        assert await auth_cache.get_by_external_auth_id(ext_id) is None
+        result = await db_session.execute(
+            select(User).where(User.external_auth_id == ext_id),
+        )
+        assert result.scalar_one_or_none() is None
 
     async def test__requires_exactly_one_identifier(
         self,
@@ -1226,10 +1274,12 @@ class TestDeletedIdentityResurrection:
         token = mint_clerk_token(clerk_signing_key, sub=sub, lifetime_seconds=3600)
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
-        # First request JIT-creates and caches the user
-        await _authenticate_user(
-            mock_request, credentials, db_session, clerk_settings, source="web",
-        )
+        # First request JIT-creates the user (freshly-created users are not
+        # cached); the second reads the now-existing row and caches it.
+        for _ in range(2):
+            await _authenticate_user(
+                mock_request, credentials, db_session, clerk_settings, source="web",
+            )
         auth_cache = get_auth_cache()
         assert auth_cache is not None
         assert await auth_cache.get_by_external_auth_id(sub) is not None

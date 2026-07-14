@@ -32,7 +32,9 @@ class TestAuthCachePopulation:
         redis_client: RedisClient,
     ) -> None:
         """Cache entry exists in Redis after authenticated request."""
-        # Make an authenticated request (dev mode auto-authenticates)
+        # First request creates+commits the dev user (a freshly-created user is
+        # not cached); the second reads the committed row and caches it.
+        assert (await client.get("/users/me")).status_code == 200
         response = await client.get("/users/me")
         assert response.status_code == 200
 
@@ -55,7 +57,8 @@ class TestAuthCachePopulation:
         redis_client: RedisClient,
     ) -> None:
         """Cached data contains correct user information."""
-        # Make an authenticated request
+        # First request creates+commits the dev user; the second caches it.
+        await client.get("/users/me")
         response = await client.get("/users/me")
         user_data = response.json()
 
@@ -78,9 +81,10 @@ class TestAuthCacheInvalidation:
         redis_client: RedisClient,
     ) -> None:
         """POST /consent/me clears cache entry."""
-        # First, make a request to populate cache
-        response = await client.get("/users/me")
-        assert response.status_code == 200
+        # First request creates+commits the dev user (not cached); the second
+        # reads the committed row and populates the cache.
+        assert (await client.get("/users/me")).status_code == 200
+        assert (await client.get("/users/me")).status_code == 200
 
         # Verify cache is populated
         auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{DEV_AUTH0_ID}"

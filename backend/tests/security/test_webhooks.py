@@ -184,21 +184,33 @@ class TestWebhookForgeryPrevention:
         No signing secret configured (misdeployment) must not degrade to
         accepting unverified events — the endpoint refuses with 503.
         """
-        payload = forged_deletion(target_user.external_auth_id)
-        timestamp = datetime.now(UTC)
-        signature = Webhook(TEST_WEBHOOK_SECRET).sign("msg_x", timestamp, payload)
-        response = await client.post(
-            "/webhooks/clerk",
-            content=payload,
-            headers={
-                "svix-id": "msg_x",
-                "svix-timestamp": str(int(timestamp.timestamp())),
-                "svix-signature": signature,
-                "content-type": "application/json",
-            },
+        from api.main import app  # noqa: PLC0415
+
+        # Force an empty secret rather than relying on the ambient env — a
+        # developer running the M8 manual drill sets a real secret in .env,
+        # which the plain `client` fixture would otherwise pick up.
+        settings_no_secret = get_settings().model_copy(
+            update={"clerk_webhook_signing_secret": ""},
         )
-        assert response.status_code == 503
-        assert await _user_exists(db_session, "user_attack_target")
+        app.dependency_overrides[get_settings] = lambda: settings_no_secret
+        try:
+            payload = forged_deletion(target_user.external_auth_id)
+            timestamp = datetime.now(UTC)
+            signature = Webhook(TEST_WEBHOOK_SECRET).sign("msg_x", timestamp, payload)
+            response = await client.post(
+                "/webhooks/clerk",
+                content=payload,
+                headers={
+                    "svix-id": "msg_x",
+                    "svix-timestamp": str(int(timestamp.timestamp())),
+                    "svix-signature": signature,
+                    "content-type": "application/json",
+                },
+            )
+            assert response.status_code == 503
+            assert await _user_exists(db_session, "user_attack_target")
+        finally:
+            app.dependency_overrides.pop(get_settings, None)
 
 
 class TestSignedMalformedPayloads:
