@@ -647,8 +647,23 @@ async def test__update_filter__updates_timestamp_even_with_no_field_changes(
 async def test__user_delete__cascades_to_filters(
     db_session: AsyncSession,
 ) -> None:
-    """Test that deleting a user cascades to delete their filters."""
-    user = User(auth0_id="cascade-filter-user", email="cascade@example.com", tier=Tier.FREE.value)
+    """
+    Deleting a user removes their filters — via the account-deletion service,
+    which is the only sanctioned user-deletion path: it bulk-deletes the
+    filter chain before the user row, because a bare user delete would trip
+    the filter_group_tags.tag_id RESTRICT constraint when a filter group
+    references a tag (see models/user.py passive_deletes notes).
+    """
+    from services.user_service import (  # noqa: PLC0415
+        delete_user_by_external_auth_id,
+    )
+
+    user = User(
+        auth0_id="cascade-filter-user",
+        external_auth_id="user_cascade_filter",
+        email="cascade@example.com",
+        tier=Tier.FREE.value,
+    )
     db_session.add(user)
     await db_session.flush()
 
@@ -659,9 +674,8 @@ async def test__user_delete__cascades_to_filters(
     created = await create_filter(db_session, user.id, data)
     filter_id = created.id
 
-    # Delete user
-    await db_session.delete(user)
-    await db_session.flush()
+    result = await delete_user_by_external_auth_id(db_session, "user_cascade_filter")
+    assert result.deleted is True
 
     # Filter should be gone (use raw query to check without user scope)
     query = select(ContentFilter).where(ContentFilter.id == filter_id)

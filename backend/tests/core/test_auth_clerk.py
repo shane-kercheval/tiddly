@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings
+from models.deleted_identity import DeletedIdentity
 from models.user import User
 
 if TYPE_CHECKING:
@@ -857,7 +858,12 @@ class TestClerkUserResolution:
         db_session: AsyncSession,
         redis_client: object,  # noqa: ARG002
     ) -> None:
-        """Second Clerk-path resolution is served from the ext cache segment."""
+        """
+        Resolution is served from the ext cache segment once a *committed* row
+        has been read. A freshly-created user is deliberately not cached (see
+        test__freshly_created_user_not_cached_until_committed), so the cache is
+        populated on the first post-commit read and served on the next.
+        """
         from core.auth import get_or_create_user  # noqa: PLC0415
         from schemas.cached_user import CachedUser  # noqa: PLC0415
 
@@ -865,12 +871,55 @@ class TestClerkUserResolution:
         await get_or_create_user(db_session, external_auth_id=ext_id, email="c@test.com")
         await db_session.commit()
 
+        # First post-commit resolution reads the committed row and caches it
+        first = await get_or_create_user(
+            db_session, external_auth_id=ext_id, email="c@test.com",
+        )
+        assert isinstance(first, User)
+
+        # The next resolution is served from cache
         result = await get_or_create_user(
             db_session, external_auth_id=ext_id, email="c@test.com",
         )
-
         assert isinstance(result, CachedUser)
         assert result.external_auth_id == ext_id
+
+    async def test__freshly_created_user_not_cached_until_committed(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+    ) -> None:
+        """
+        A user created in THIS request must not be cached: the row is only
+        flushed, not committed, so if the request rolls back (the exact drill
+        scenario — the consent gate 451s a brand-new user's first-ever request,
+        rolling back the user row) a cached entry would serve a phantom user
+        for the 5-min TTL, and the next consent-accept would 500 on a
+        foreign-key violation. Regression for that observed 500.
+        """
+        from core.auth import get_or_create_user  # noqa: PLC0415
+        from core.auth_cache import get_auth_cache  # noqa: PLC0415
+
+        ext_id = "user_phantom_cache"
+        user = await get_or_create_user(
+            db_session, external_auth_id=ext_id, email="p@test.com",
+        )
+        assert user.external_auth_id == ext_id
+
+        # The just-created, still-uncommitted user is NOT cached
+        auth_cache = get_auth_cache()
+        assert auth_cache is not None
+        assert await auth_cache.get_by_external_auth_id(ext_id) is None
+
+        # The request fails after creation (consent gate 451 → rollback)
+        await db_session.rollback()
+
+        # No phantom survives: neither a committed row nor a cache entry
+        assert await auth_cache.get_by_external_auth_id(ext_id) is None
+        result = await db_session.execute(
+            select(User).where(User.external_auth_id == ext_id),
+        )
+        assert result.scalar_one_or_none() is None
 
     async def test__requires_exactly_one_identifier(
         self,
@@ -1106,3 +1155,231 @@ class TestJwksUnavailable:
 
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "Invalid token"
+
+
+class TestDeletedIdentityResurrection:
+    """
+    M8 anti-resurrection guard: tombstoned identities cannot JIT-recreate
+    users, on either provider path, with the explicit deleted-account 401.
+    """
+
+    async def test__stale_clerk_jwt_after_deletion__explicit_401_no_resurrection(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """A still-valid Clerk JWT after deletion gets 401, not a fresh row."""
+        from core.auth import _authenticate_user  # noqa: PLC0415
+        from services.user_service import (  # noqa: PLC0415
+            delete_user_by_external_auth_id,
+        )
+
+        sub = "user_deleted_but_token_lives"
+        user = User(external_auth_id=sub, email="stale@test.com")
+        db_session.add(user)
+        await db_session.flush()
+        # Token minted while the account existed, still hours from expiry
+        token = mint_clerk_token(clerk_signing_key, sub=sub, lifetime_seconds=3600)
+
+        assert (await delete_user_by_external_auth_id(db_session, sub)).deleted is True
+
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        with pytest.raises(HTTPException) as exc_info:
+            await _authenticate_user(
+                mock_request, credentials, db_session, clerk_settings, source="web",
+            )
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "This account was deleted"
+        result = await db_session.execute(
+            select(User).where(User.external_auth_id == sub),
+        )
+        assert result.scalar_one_or_none() is None
+
+    async def test__live_auth0_token_after_deletion__cannot_recreate_user(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """
+        The iOS scenario: an Auth0 session outliving a Clerk-side deletion
+        (Auth0 never learns about it; refresh tokens keep it alive) must not
+        resurrect the user through the Auth0 JIT path.
+        """
+        from core.auth import _authenticate_user  # noqa: PLC0415
+        from services.user_service import (  # noqa: PLC0415
+            delete_user_by_external_auth_id,
+        )
+
+        auth0_sub = "auth0|ios-session-alive"
+        clerk_sub = "user_imported_then_deleted"
+        user = User(
+            auth0_id=auth0_sub,
+            external_auth_id=clerk_sub,
+            email="ios-alive@test.com",
+        )
+        db_session.add(user)
+        await db_session.flush()
+
+        assert (await delete_user_by_external_auth_id(db_session, clerk_sub)).deleted is True
+
+        token = jwt.encode(
+            {"iss": TEST_AUTH0_ISSUER, "sub": auth0_sub},
+            "unused-test-key-0123456789abcdef",
+            algorithm="HS256",
+        )
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        with (
+            patch("core.auth.decode_jwt", return_value={"sub": auth0_sub}),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await _authenticate_user(
+                mock_request, credentials, db_session, clerk_settings, source="ios",
+            )
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "This account was deleted"
+        result = await db_session.execute(
+            select(User).where(User.auth0_id == auth0_sub),
+        )
+        assert result.scalar_one_or_none() is None
+
+    async def test__cached_then_deleted__next_call_clean_401_not_500(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """
+        A user cached by a recent request, then deleted: the next call misses
+        the (invalidated) cache, misses the DB, hits the tombstone — a clean
+        401 instead of authenticating into foreign-key 500s. Invalidation
+        happens caller-side after commit (the webhook route's semantics),
+        not inside the service — mirrored here.
+        """
+        from core.auth import _authenticate_user  # noqa: PLC0415
+        from core.auth_cache import get_auth_cache  # noqa: PLC0415
+        from services.user_service import (  # noqa: PLC0415
+            delete_user_by_external_auth_id,
+        )
+
+        sub = "user_cached_then_deleted"
+        token = mint_clerk_token(clerk_signing_key, sub=sub, lifetime_seconds=3600)
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+
+        # First request JIT-creates the user (freshly-created users are not
+        # cached); the second reads the now-existing row and caches it.
+        for _ in range(2):
+            await _authenticate_user(
+                mock_request, credentials, db_session, clerk_settings, source="web",
+            )
+        auth_cache = get_auth_cache()
+        assert auth_cache is not None
+        assert await auth_cache.get_by_external_auth_id(sub) is not None
+
+        deletion = await delete_user_by_external_auth_id(db_session, sub)
+        assert deletion.deleted is True
+        await auth_cache.invalidate(  # the route does this after commit
+            deletion.user_id,
+            auth0_id=deletion.auth0_id,
+            external_auth_id=deletion.external_auth_id,
+        )
+        assert await auth_cache.get_by_external_auth_id(sub) is None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _authenticate_user(
+                mock_request, credentials, db_session, clerk_settings, source="web",
+            )
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "This account was deleted"
+
+    async def test__tombstone_does_not_block_new_identities(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """
+        Tombstones block dead credentials, not people: a deleted user who
+        signs up again arrives with a brand-new Clerk ID that no tombstone
+        matches, and JIT provisioning works normally.
+        """
+        from core.auth import _authenticate_user  # noqa: PLC0415
+        from services.user_service import (  # noqa: PLC0415
+            delete_user_by_external_auth_id,
+        )
+
+        old_sub = "user_first_account"
+        user = User(external_auth_id=old_sub, email="comeback@test.com")
+        db_session.add(user)
+        await db_session.flush()
+        assert (await delete_user_by_external_auth_id(db_session, old_sub)).deleted is True
+
+        new_sub = "user_second_account"
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=mint_clerk_token(
+                clerk_signing_key, sub=new_sub, email="comeback@test.com",
+            ),
+        )
+        recreated = await _authenticate_user(
+            mock_request, credentials, db_session, clerk_settings, source="web",
+        )
+        assert recreated.external_auth_id == new_sub
+
+    async def test__recheck_eviction_failure__still_401_and_logged(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """
+        Redis fails open: if the post-population recheck detects a tombstone
+        but cannot evict the entry it just wrote, the request must still be
+        rejected with the deleted-account 401 and the failure logged loudly
+        (the documented TTL-bounded residual).
+        """
+        from core.auth import _authenticate_user  # noqa: PLC0415
+        from core.redis import RedisClient  # noqa: PLC0415
+
+        # Artificial coexistence: user row AND tombstone both present — the
+        # mid-race state the recheck exists to catch on the lookup path.
+        sub = "user_recheck_evict_fails"
+        user = User(external_auth_id=sub, email="evict@test.com")
+        db_session.add(user)
+        db_session.add(DeletedIdentity(external_auth_id=sub))
+        await db_session.flush()
+
+        async def failing_delete(self: RedisClient, *keys: str) -> bool:  # noqa: ARG001
+            return False
+
+        monkeypatch.setattr(RedisClient, "delete", failing_delete)
+
+        token = mint_clerk_token(clerk_signing_key, sub=sub)
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        with (
+            caplog.at_level(logging.ERROR, logger="core.auth"),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await _authenticate_user(
+                mock_request, credentials, db_session, clerk_settings, source="web",
+            )
+
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.detail == "This account was deleted"
+        assert any(
+            "tombstone_recheck_eviction_failed" in r.message for r in caplog.records
+        )

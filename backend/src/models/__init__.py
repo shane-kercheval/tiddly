@@ -6,6 +6,7 @@ from models.bookmark import Bookmark
 from models.content_filter import ContentFilter
 from models.content_history import ActionType, ContentHistory, EntityType
 from models.content_relationship import ContentRelationship
+from models.deleted_identity import DeletedIdentity
 from models.filter_group import FilterGroup
 from models.note import Note
 from models.prompt import Prompt
@@ -24,6 +25,7 @@ __all__ = [
     "ContentFilter",
     "ContentHistory",
     "ContentRelationship",
+    "DeletedIdentity",
     "EntityType",
     "FilterGroup",
     "Note",

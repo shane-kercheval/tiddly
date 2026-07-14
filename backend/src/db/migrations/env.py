@@ -14,6 +14,7 @@ from models.base import Base
 from models.bookmark import Bookmark  # noqa: F401 - imported for Alembic autogenerate
 from models.content_filter import ContentFilter  # noqa: F401 - imported for Alembic autogenerate
 from models.content_relationship import ContentRelationship  # noqa: F401 - imported for Alembic autogenerate
+from models.deleted_identity import DeletedIdentity  # noqa: F401 - imported for Alembic autogenerate
 from models.filter_group import FilterGroup  # noqa: F401 - imported for Alembic autogenerate
 from models.note import Note  # noqa: F401 - imported for Alembic autogenerate
 from models.prompt import Prompt  # noqa: F401 - imported for Alembic autogenerate

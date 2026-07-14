@@ -104,6 +104,13 @@ filter_group_tags = Table(
     Column(
         "tag_id",
         PG_UUID(as_uuid=True),
+        # RESTRICT makes a single-statement DB cascade of a user delete
+        # impossible: it is checked per internal cascade statement, so
+        # users -> tags can trip it before users -> content_filters ->
+        # filter_groups has removed these rows. Account deletion therefore
+        # bulk-deletes content_filters as its own statement first (whose
+        # cascades clear these rows without touching tags) — see the
+        # passive_deletes notes on models/user.py.
         ForeignKey("tags.id", ondelete="RESTRICT"),
         primary_key=True,
     ),

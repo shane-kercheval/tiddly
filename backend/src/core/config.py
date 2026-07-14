@@ -60,6 +60,14 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="AUTH0_JIT_CREATE_ENABLED",
     )
+    # Svix signing secret ("whsec_...") for the Clerk webhook endpoint
+    # (POST /webhooks/clerk), per environment - each Clerk instance's webhook
+    # endpoint has its own secret (Dashboard -> Webhooks -> endpoint). Empty
+    # means webhooks are unconfigured: the endpoint fails closed with 503.
+    clerk_webhook_signing_secret: str = Field(
+        default="",
+        validation_alias="CLERK_WEBHOOK_SIGNING_SECRET",
+    )
 
     # Development mode - bypasses auth for local development (shared with frontend)
     dev_mode: bool = Field(default=False, validation_alias="VITE_DEV_MODE")
