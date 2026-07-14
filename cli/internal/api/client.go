@@ -112,10 +112,7 @@ func (c *Client) handleError(ctx context.Context, resp *http.Response, respBody 
 func (c *Client) classifyError(resp *http.Response, respBody []byte) error {
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
-		return &APIError{
-			StatusCode: 401,
-			Message:    "Session expired. Run 'tiddly login' to re-authenticate.",
-		}
+		return c.handle401(respBody)
 
 	case 402:
 		return c.handle402(respBody)
@@ -142,6 +139,30 @@ func (c *Client) classifyError(resp *http.Response, respBody []byte) error {
 			StatusCode: resp.StatusCode,
 			Message:    fmt.Sprintf("API error (%d): %s", resp.StatusCode, msg),
 		}
+	}
+}
+
+// handle401 distinguishes the terminal account-deleted 401 (the token is valid,
+// but its account was deleted, so re-login can never succeed) from an ordinary
+// expired session. Clients bind to the stable machine-readable error_code, not
+// the human-readable detail. Credential removal is deliberately NOT done here —
+// it belongs to the keyring/auth layer (`tiddly logout`), which the message
+// directs the user to; the API client must not own credential storage.
+func (c *Client) handle401(body []byte) error {
+	var errResp struct {
+		ErrorCode string `json:"error_code"`
+	}
+	if json.Unmarshal(body, &errResp) == nil && errResp.ErrorCode == "account_deleted" {
+		return &APIError{
+			StatusCode: 401,
+			ErrorCode:  errResp.ErrorCode,
+			Message: "This account has been deleted; logging in again will not restore it. " +
+				"Run 'tiddly logout' to clear the stored credentials.",
+		}
+	}
+	return &APIError{
+		StatusCode: 401,
+		Message:    "Session expired. Run 'tiddly login' to re-authenticate.",
 	}
 }
 

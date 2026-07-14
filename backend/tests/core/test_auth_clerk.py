@@ -1194,6 +1194,7 @@ class TestDeletedIdentityResurrection:
 
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "This account was deleted"
+        assert exc_info.value.error_code == "account_deleted"
         result = await db_session.execute(
             select(User).where(User.external_auth_id == sub),
         )
@@ -1244,6 +1245,7 @@ class TestDeletedIdentityResurrection:
 
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "This account was deleted"
+        assert exc_info.value.error_code == "account_deleted"
         result = await db_session.execute(
             select(User).where(User.auth0_id == auth0_sub),
         )
@@ -1299,6 +1301,7 @@ class TestDeletedIdentityResurrection:
             )
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "This account was deleted"
+        assert exc_info.value.error_code == "account_deleted"
 
     async def test__tombstone_does_not_block_new_identities(
         self,
@@ -1380,6 +1383,7 @@ class TestDeletedIdentityResurrection:
 
         assert exc_info.value.status_code == 401
         assert exc_info.value.detail == "This account was deleted"
+        assert exc_info.value.error_code == "account_deleted"
         assert any(
             "tombstone_recheck_eviction_failed" in r.message for r in caplog.records
         )
