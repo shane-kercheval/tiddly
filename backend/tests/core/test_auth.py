@@ -18,6 +18,22 @@ from models.user import User
 from schemas.cached_user import CachedUser
 
 
+async def _prime_cache(db: AsyncSession, **identity: object) -> None:
+    """
+    Resolve a committed user once so its row lands in the auth cache.
+
+    A freshly-created user is deliberately NOT cached — its row is only flushed
+    and the request can still roll back (see get_or_create_user's phantom-cache
+    guard). The cache is populated on the first *post-commit* read. Tests that
+    assert cache state right after creating a user call this to perform that
+    read (pass the same identity + email so it's a plain cache-populating
+    lookup, not an email-change fallthrough).
+    """
+    from core.auth import get_or_create_user  # noqa: PLC0415
+
+    await get_or_create_user(db, **identity)
+
+
 class TestGetOrCreateUserNullEmail:
     """Tests for get_or_create_user with null email."""
 
@@ -139,6 +155,7 @@ class TestAuthCacheNullEmail:
         # Create user without email
         await get_or_create_user(db_session, auth0_id=auth0_id)
         await db_session.commit()
+        await _prime_cache(db_session, auth0_id=auth0_id)  # post-commit read caches
 
         # Get cached data
         auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{auth0_id}"
@@ -158,9 +175,10 @@ class TestAuthCacheNullEmail:
 
         auth0_id = "auth0|cache-null-email-2"
 
-        # Create user without email (populates cache)
+        # Create user without email, then a post-commit read populates cache
         user1 = await get_or_create_user(db_session, auth0_id=auth0_id)
         await db_session.commit()
+        await _prime_cache(db_session, auth0_id=auth0_id)
 
         # Get from cache
         auth_cache = get_auth_cache()
@@ -180,11 +198,12 @@ class TestAuthCacheNullEmail:
 
         auth0_id = "auth0|cache-null-email-3"
 
-        # First request creates user and populates cache
+        # First request creates the user; a post-commit read then caches it
         await get_or_create_user(db_session, auth0_id=auth0_id)
         await db_session.commit()
+        await _prime_cache(db_session, auth0_id=auth0_id)
 
-        # Second request should return CachedUser (not User ORM)
+        # Next request should return CachedUser (not User ORM)
         result = await get_or_create_user(db_session, auth0_id=auth0_id)
 
         # Should be CachedUser on cache hit
@@ -209,11 +228,12 @@ class TestEmailMismatchCacheFallthrough:
 
         auth0_id = "auth0|email-mismatch-test"
 
-        # Create user with old email (populates cache)
+        # Create user with old email, then a post-commit read caches it
         user1 = await get_or_create_user(
             db_session, auth0_id=auth0_id, email="old@test.com",
         )
         await db_session.commit()
+        await _prime_cache(db_session, auth0_id=auth0_id, email="old@test.com")
 
         # Verify cache has old email
         auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{auth0_id}"
@@ -246,9 +266,10 @@ class TestEmailMismatchCacheFallthrough:
 
         auth0_id = "auth0|null-to-email-test"
 
-        # Create user without email (populates cache with null email)
+        # Create user without email, then a post-commit read caches null email
         await get_or_create_user(db_session, auth0_id=auth0_id)
         await db_session.commit()
+        await _prime_cache(db_session, auth0_id=auth0_id)
 
         # Verify cache has null email
         auth0_key = f"auth:v{CACHE_SCHEMA_VERSION}:user:auth0:{auth0_id}"
@@ -425,12 +446,15 @@ class TestGetOrCreateUserEmailVerified:
 
         auth0_id = "auth0|ev-test-stale"
 
-        # Create user with email_verified=False (populates cache)
+        # Create user with email_verified=False, then a post-commit read caches
         user1 = await get_or_create_user(
             db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=False,
         )
         await db_session.commit()
         assert user1.email_verified is False
+        await _prime_cache(
+            db_session, auth0_id=auth0_id, email="ev@test.com", email_verified=False,
+        )
 
         # Second call with email_verified=True but same email — cache hit
         result = await get_or_create_user(

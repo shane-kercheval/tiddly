@@ -26,6 +26,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "redis>=7.2.0",
     "sqlalchemy[asyncio]>=2.0.46",
+    "svix>=1.96.1",
     "testcontainers[redis]>=4.14.1",
     "trafilatura>=2.0.0",
     "uuid6>=2025.0.1",

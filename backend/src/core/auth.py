@@ -38,6 +38,7 @@ from core.request_context import AuthType, RequestContext
 from core.tier_limits import get_tier_safely
 from db.session import get_async_session
 from models.content_history import SOURCE_MAX_LENGTH
+from models.deleted_identity import DeletedIdentity
 from models.user import User
 from schemas.cached_user import CachedUser
 from services import token_service, user_service
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Re-export for backward compatibility
 __all__ = [
+    "AUTH_DEPENDENCIES",
     "AuthType",
     "RequestContext",
     "get_current_user",
@@ -336,6 +338,11 @@ async def get_or_create_user(
     generic 401 plus a warning log naming the identity — the loud, observable
     failure mode for identities leaking past a provider-side sign-up control.
 
+    Anti-resurrection gating (M8): before any create, the identity is checked
+    against the `deleted_identities` tombstones — a still-valid token for a
+    deleted account must not re-create an empty user row. Rejected with an
+    explicit "this account was deleted" 401 (see _reject_deleted_identity).
+
     Handles race conditions where multiple concurrent requests may try to create
     the same user simultaneously. If an IntegrityError occurs (due to the unique
     constraint on the identifier column), the function rolls back and fetches
@@ -372,6 +379,28 @@ async def get_or_create_user(
     user = result.scalar_one_or_none()
 
     if user is None:
+        # Serialize against a concurrent deletion for this identity — without
+        # the lock, an unknown-identity deletion webhook and this first-ever
+        # request can each pass the other's existence check and commit both a
+        # tombstone and a fresh user row. Lock, then RE-READ: whichever
+        # transaction held the lock first is committed and visible now.
+        await user_service.acquire_identity_lock(
+            db,
+            "auth0" if auth0_id else "clerk",
+            identifier,
+        )
+        result = await db.execute(
+            select(User)
+            .options(joinedload(User.consent))
+            .where(lookup_column == identifier),
+        )
+        user = result.scalar_one_or_none()
+
+    created = False
+    if user is None:
+        # Tombstone check first: a deleted identity gets the explicit 401
+        # regardless of whether JIT creation is currently enabled.
+        await _reject_deleted_identity(db, auth0_id, external_auth_id)
         if not jit_create_allowed:
             _reject_jit_create(auth0_id, identifier)
         try:
@@ -382,9 +411,11 @@ async def get_or_create_user(
                 email=email,
                 email_verified=email_verified,
             )
+            created = True
         except IntegrityError:
             # Race condition: another request created the user between our SELECT
-            # and INSERT. Rollback and fetch the existing user.
+            # and INSERT. Rollback and fetch the existing user (now committed by
+            # that other transaction — safe to cache, so `created` stays False).
             await db.rollback()
             result = await db.execute(
                 select(User)
@@ -401,12 +432,67 @@ async def get_or_create_user(
         user.email_verified = email_verified
     await db.flush()
 
-    # Populate cache
+    if created:
+        # Do NOT cache a user created in THIS request: the row is only flushed,
+        # not committed, and this request can still roll back (e.g. the consent
+        # gate 451s a brand-new user's first-ever request — the user row never
+        # commits). A cached entry would then outlive the phantom row for the
+        # 5-min TTL, serving foreign-key-violating reads. The next request is a
+        # cache miss that reads a now-committed row and caches it then. The
+        # tombstone recheck is likewise unneeded here: the pre-create tombstone
+        # check ran under the identity advisory lock we still hold, so no
+        # deletion can have committed a tombstone for this identity since.
+        return user
+
+    # Populate cache (existing or race-recovered user — its row is committed)
     auth_cache = get_auth_cache()
     if auth_cache:
         await auth_cache.set(user)
 
+    await _recheck_tombstone_after_cache_populate(db, user, auth0_id, external_auth_id)
+
     return user
+
+
+async def _recheck_tombstone_after_cache_populate(
+    db: AsyncSession,
+    user: User,
+    auth0_id: str | None,
+    external_auth_id: str | None,
+) -> None:
+    """
+    Post-population tombstone recheck — closes the deletion/cache-miss race
+    lock-free: if the deletion committed between the user read and the cache
+    write, this fresh statement (READ COMMITTED: new snapshot per statement)
+    sees its tombstone and we evict our own stale entry; if the deletion
+    commits after this check instead, its own post-commit invalidation
+    (api/routers/webhooks.py) deletes the entry. No interleaving leaves a
+    deleted identity cached. Cache HITS deliberately skip this — the hot path
+    stays untouched; a hit can only exist inside the 5-min TTL of an entry
+    that survived this check or predates the deletion, and the deletion's
+    invalidation covers the latter.
+    """
+    if not await _is_identity_tombstoned(db, auth0_id, external_auth_id):
+        return
+    auth_cache = get_auth_cache()
+    if auth_cache:
+        evicted = await auth_cache.invalidate(
+            user.id,
+            auth0_id=user.auth0_id,
+            external_auth_id=user.external_auth_id,
+        )
+        if not evicted:
+            # Redis fail-open: this request still 401s, but the entry written
+            # above may serve the identity for up to one TTL. Accepted,
+            # documented residual (architecture.md §16): it requires a partial
+            # Redis failure in this exact window; a full outage degrades safe
+            # (cache reads fail too -> DB path -> tombstone 401).
+            logger.error(
+                "tombstone_recheck_eviction_failed sub=%s: stale cache entry "
+                "may persist for up to one TTL",
+                auth0_id or external_auth_id,
+            )
+    _raise_deleted_identity(auth0_id, auth0_id or external_auth_id)
 
 
 async def _cache_lookup(
@@ -420,6 +506,62 @@ async def _cache_lookup(
     if auth0_id:
         return await auth_cache.get_by_auth0_id(auth0_id)
     return await auth_cache.get_by_external_auth_id(external_auth_id)
+
+
+async def _is_identity_tombstoned(
+    db: AsyncSession,
+    auth0_id: str | None,
+    external_auth_id: str | None,
+) -> bool:
+    """Check the supplied identity against the deleted_identities tombstones."""
+    lookup_column = (
+        DeletedIdentity.auth0_id if auth0_id else DeletedIdentity.external_auth_id
+    )
+    identifier = auth0_id if auth0_id else external_auth_id
+    result = await db.execute(
+        select(DeletedIdentity.id).where(lookup_column == identifier).limit(1),
+    )
+    return result.scalar_one_or_none() is not None
+
+
+def _raise_deleted_identity(auth0_id: str | None, identifier: str | None) -> None:
+    """
+    Reject a tombstoned identity (M8 anti-resurrection guard).
+
+    The 401 detail is deliberately explicit — a recorded exception to the
+    generic-401 policy: only a holder of a validly-signed token for that exact
+    identity can ever see it (M4's friendly invalid_grant message is the
+    precedent), and it stops a deleted user's devices looping on an
+    unexplained sign-in failure.
+    """
+    logger.warning(
+        "Authentication rejected (identity tombstoned): issuer=%s sub=%s",
+        "auth0" if auth0_id else "clerk",
+        identifier,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="This account was deleted",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def _reject_deleted_identity(
+    db: AsyncSession,
+    auth0_id: str | None,
+    external_auth_id: str | None,
+) -> None:
+    """
+    Block JIT resurrection of a deleted account (M8 anti-resurrection guard).
+
+    A deleted user's tokens can outlive the deletion — a not-yet-expired Clerk
+    JWT, or an Auth0 session kept alive by refresh tokens (iOS) for the whole
+    dual-accept window. Without this check, the next validly-signed token
+    would JIT-create an empty resurrected row. The tombstone is written by the
+    deletion path (services/user_service.delete_user_by_external_auth_id).
+    """
+    if await _is_identity_tombstoned(db, auth0_id, external_auth_id):
+        _raise_deleted_identity(auth0_id, auth0_id or external_auth_id)
 
 
 def _reject_jit_create(auth0_id: str | None, identifier: str | None) -> None:
@@ -871,3 +1013,22 @@ async def get_current_user_ai(
     )
     _check_consent(user, settings)
     return user
+
+
+# The authoritative set of authentication dependencies — every route entry
+# point that resolves the current user. This is the single source of truth for
+# "what counts as an auth dependency"; the invariant guard
+# (tests/core/test_auth_dependency_invariant.py) iterates it to prove no route
+# executes authentication more than once per request (the phantom-cache fix in
+# get_or_create_user relies on that — see its comments). A completeness test
+# there asserts this tuple equals every `get_current_user*` callable in this
+# module, so a new variant that follows the naming convention cannot silently
+# escape the guard; a differently-named auth dependency still must be added
+# here by hand.
+AUTH_DEPENDENCIES = (
+    get_current_user,
+    get_current_user_without_consent,
+    get_current_user_session_only,
+    get_current_user_session_only_without_consent,
+    get_current_user_ai,
+)
