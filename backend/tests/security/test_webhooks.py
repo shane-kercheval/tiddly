@@ -11,6 +11,7 @@ OWASP References:
 - A01:2021 - Broken Access Control
 - A08:2021 - Software and Data Integrity Failures (webhook forgery)
 """
+import base64
 import json
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -24,7 +25,11 @@ from svix.webhooks import Webhook
 from core.config import get_settings
 from models.user import User
 
-TEST_WEBHOOK_SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+# Runtime-constructed fake (format: "whsec_" + base64, per Svix docs) so
+# secret scanners don't flag a literal — this is NOT a real secret.
+TEST_WEBHOOK_SECRET = "whsec_" + base64.b64encode(
+    b"tiddly-test-signing-secret-not-real",
+).decode()
 
 
 @pytest.fixture
@@ -103,7 +108,8 @@ class TestWebhookForgeryPrevention:
         """A structurally-valid Svix signature from a secret we don't hold."""
         payload = forged_deletion(target_user.external_auth_id)
         timestamp = datetime.now(UTC)
-        attacker_sig = Webhook("whsec_attackerattackerattackerXX").sign(
+        attacker_secret = "whsec_" + base64.b64encode(b"attacker-owned-secret-00").decode()
+        attacker_sig = Webhook(attacker_secret).sign(
             "msg_forged", timestamp, payload,
         )
         response = await webhook_client.post(

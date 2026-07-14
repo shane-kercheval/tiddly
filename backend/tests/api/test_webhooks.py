@@ -6,6 +6,7 @@ secret — the endpoint's verification is exercised for real, not mocked. The
 settings override injects the secret; the plain `client` fixture (no secret
 configured) exercises the fail-closed path.
 """
+import base64
 import json
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -22,7 +23,11 @@ from models.bookmark import Bookmark
 from models.deleted_identity import DeletedIdentity
 from models.user import User
 
-TEST_WEBHOOK_SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+# Runtime-constructed fake (format: "whsec_" + base64, per Svix docs) so
+# secret scanners don't flag a literal — this is NOT a real secret.
+TEST_WEBHOOK_SECRET = "whsec_" + base64.b64encode(
+    b"tiddly-test-signing-secret-not-real",
+).decode()
 
 
 def signed_headers(
@@ -117,7 +122,7 @@ class TestSignatureVerification:
         payload = deletion_event(clerk_user.external_auth_id)
         headers = signed_headers(
             payload,
-            secret="whsec_wrongwrongwrongwrongwrongwrong",
+            secret="whsec_" + base64.b64encode(b"the-wrong-secret-000000").decode(),
         )
         response = await webhook_client.post(
             "/webhooks/clerk",
