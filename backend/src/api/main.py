@@ -25,6 +25,7 @@ from api.routers import (
     tags,
     tokens,
     users,
+    webhooks,
 )
 from litellm.exceptions import (
     APIConnectionError as LiteLLMAPIConnectionError,
@@ -410,3 +411,4 @@ app.include_router(settings.router)
 app.include_router(history.router)
 app.include_router(relationships.router)
 app.include_router(mcp.router)
+app.include_router(webhooks.router)

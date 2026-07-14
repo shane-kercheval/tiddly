@@ -66,41 +66,62 @@ class User(Base, UUIDv7Mixin, TimestampMixin):
         comment="User subscription tier (e.g., 'free', 'standard', 'pro')",
     )
 
+    # passive_deletes=True on every collection: account deletion
+    # (services/user_service.delete_user_by_external_auth_id) must not scale
+    # with account size — the DB's ON DELETE CASCADE FKs do the work instead
+    # of the ORM loading rows, and NO collection here is actually bounded
+    # (filters/groups have no quota either — review-round finding). The one
+    # cascade the DB cannot do in a single user-delete statement is the
+    # filter chain (filter_group_tags.tag_id is ondelete=RESTRICT and trips
+    # per internal cascade statement — see models/tag.py), so the deletion
+    # service bulk-deletes content_filters FIRST as its own set-based
+    # statement (its cascades stop at the association rows), then deletes the
+    # user. Two constant statements; the statement-count test in
+    # tests/services/test_user_deletion.py guards this in both dimensions.
     bookmarks: Mapped[list["Bookmark"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     notes: Mapped[list["Note"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     prompts: Mapped[list["Prompt"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     api_tokens: Mapped[list["ApiToken"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     settings: Mapped["UserSettings | None"] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         uselist=False,
+        passive_deletes=True,
     )
     content_filters: Mapped[list["ContentFilter"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     tags: Mapped[list["Tag"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     consent: Mapped["UserConsent | None"] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         uselist=False,
+        passive_deletes=True,
     )
     content_history: Mapped[list["ContentHistory"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )

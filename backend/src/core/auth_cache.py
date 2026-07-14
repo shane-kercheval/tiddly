@@ -182,7 +182,7 @@ class AuthCache:
         user_id: UUID,
         auth0_id: str | None = None,
         external_auth_id: str | None = None,
-    ) -> None:
+    ) -> bool:
         """
         Invalidate cached user data.
 
@@ -196,19 +196,28 @@ class AuthCache:
             user_id: The database user ID.
             auth0_id: Auth0 ID to also invalidate, if the user has one.
             external_auth_id: External auth ID to also invalidate, if the user has one.
+
+        Returns:
+            False if Redis was unavailable and the keys may still be cached —
+            the underlying client fails open, so callers for whom staleness is
+            unacceptable (account deletion) must check this and fail loudly;
+            best-effort callers (consent) may ignore it (staleness there is
+            bounded by the TTL and self-corrects).
         """
         keys = [self._cache_key_user_id(user_id)]
         if auth0_id:
             keys.append(self._cache_key_auth0(auth0_id))
         if external_auth_id:
             keys.append(self._cache_key_external(external_auth_id))
-        await self._redis.delete(*keys)
+        deleted = await self._redis.delete(*keys)
         logger.debug(
-            "auth_cache_invalidate user_id=%s auth0_id=%s external_auth_id=%s",
+            "auth_cache_invalidate user_id=%s auth0_id=%s external_auth_id=%s ok=%s",
             user_id,
             auth0_id,
             external_auth_id,
+            deleted,
         )
+        return deleted
 
     def _deserialize(self, data: bytes) -> CachedUser:
         """Deserialize cached data to CachedUser."""

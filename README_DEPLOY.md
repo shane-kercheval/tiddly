@@ -246,6 +246,8 @@ API_WORKERS=4
 # AUTH0_JIT_CREATE_ENABLED=true    # default; set false at the M6a flip
 ```
 
+**Account-deletion webhook:** `CLERK_WEBHOOK_SIGNING_SECRET` (the `whsec_...` secret of the production instance's webhook endpoint — see Step 6f). API service only. Unset, `POST /webhooks/clerk` fails closed with 503; Svix retries on a finite ~28-hour schedule and then marks deliveries Failed (manual replay only — see the Step 6f runbook).
+
 **Note:** `VITE_API_URL` and `VITE_FRONTEND_URL` are used by the backend to generate helpful error messages (e.g., consent enforcement instructions).
 
 **Important: DATABASE_URL must be set manually.** Railway's Postgres provides `postgresql://` but this app requires `postgresql+asyncpg://` for async SQLAlchemy. Do NOT use `${{Postgres.DATABASE_URL}}`.
@@ -414,6 +416,31 @@ Dev instances use Clerk's shared Google credentials; production requires your ow
 - Frontend service: `VITE_CLERK_PUBLISHABLE_KEY` (`pk_live_...`; `clerk env pull --instance prod` fetches it). An empty key makes the frontend fall back to dev mode (auth bypassed) — the same fail-safe semantic the Auth0 domain had.
 - API + cron services: `CLERK_FRONTEND_API`, `CLERK_AUTHORIZED_PARTIES`, and the optional JIT-create flags — see the API Service Variables section above.
 - The Clerk **secret key** is not deployed anywhere: the backend verifies tokens against the public JWKS (networkless); the secret key is used only by the one-off M2 import script, run from an operator machine.
+- API service additionally: `CLERK_WEBHOOK_SIGNING_SECRET` (see 6f). Not required by Settings validation (crons don't need it); without it the webhook endpoint fails closed with 503.
+
+#### 6f. Webhook endpoint — account deletion (both instances)
+
+The backend exposes `POST /webhooks/clerk` (Svix-verified), subscribed to `user.deleted`: a Clerk-side account deletion cascade-deletes the user's Tiddly data and tombstones the identity against JIT resurrection. What must exist, per instance (webhook endpoints and their secrets do not transfer between instances):
+
+1. Dashboard → Webhooks → Add endpoint, URL `https://<api-host>/webhooks/clerk`, subscribed to the `user.deleted` event only. (Dev instance: the endpoint URL is a tunnel to locally-running code — cloudflared/ngrok — recreated per test session, not permanent.)
+2. Copy that endpoint's **signing secret** (`whsec_...`) into the API service's `CLERK_WEBHOOK_SIGNING_SECRET`.
+3. Only after 1–2 are verified (Dashboard → Webhooks → endpoint → send a test `user.deleted` event → 200) **and the delivery-failure detection below has a named owner**, enable user-initiated deletion: `user_settings.actions.delete_self` (Dashboard → User & authentication → User model — dashboard-only, not in the config CLI schema). This one switch governs the deletion section in both the embedded `<UserProfile />` and the hosted Account Portal. It stays OFF until the webhook is live — a deletion with no webhook handler orphans the user's data.
+
+Ordering note: the production webhook endpoint + secret must be configured **before** users exist in the production instance (an M6a pre-flip requirement — the hosted Account Portal is a Clerk-rendered surface the app cannot gate).
+
+**Delivery-failure detection and replay (runbook).** Svix delivery is finite: 8 attempts over ~28 hours (immediate, 5s, 5m, 30m, 2h, 5h, 10h, 10h; a 2xx must arrive within 15s), then the message is marked **Failed** — after which nothing deletes the user's Tiddly data until an operator acts. Because deletion is self-service, an exhausted `user.deleted` delivery is a **privacy-affecting incident the operator won't otherwise know about** ("check when a deletion is expected" doesn't work — nobody expects a self-service deletion). Requirements:
+
+- **Detection — named owner and cadence**: the operator (Shane) reviews Dashboard → Webhooks → endpoint attempt/failure list **weekly, and after any API outage longer than an hour**. (If Clerk exposes endpoint-failure email notifications, enable them and the cadence becomes a backstop. Svix also fires a `message.attempt.exhausted` operational webhook on exhaustion — the ready-made trigger if automated alerting is built later; deliberately not built at current scale.)
+- **Replay**: Dashboard → Webhooks → endpoint → the failed message → Resend (or "recover failed messages since date"). The handler is idempotent — replaying an already-processed deletion is always safe.
+- **Verify the postcondition**: the user's row is gone (`SELECT 1 FROM users WHERE external_auth_id = '<clerk user id>'` → no row) and a tombstone exists in `deleted_identities`.
+
+**Auth0-side cleanup during the dual-accept window (until M6b).** A Tiddly deletion does not touch the legacy Auth0 tenant — the user's email and password hash live on there until removed. Per the migration plan, every production deletion requires deleting the same person in Auth0. Run this as an idempotent **reconciliation**, using the tombstone table as the durable work list (rows persist until M6b, so re-running is always safe):
+
+1. Work list: `SELECT auth0_id FROM deleted_identities WHERE auth0_id IS NOT NULL;`
+2. For each, check the identity in the Auth0 dashboard (User Management → Users, search by the `auth0|...` id or email).
+3. Present → delete it. Already absent → success, move on.
+
+Fold this into the same weekly cadence as the delivery-failure check. This whole subsection retires at M6b (Auth0 decommission + tombstone sweep).
 
 ### Step 7: Deploy
 
