@@ -454,6 +454,16 @@ Per the adoption register: capabilities a from-scratch Clerk build would have, a
 - Manual dev pass: full delete-account flow (webhook delivery to locally-running code needs a tunnel — reuse M5's cloudflared/ngrok pattern; local dev has no public URL). (MFA testing deferred with the Pro decision; ledger question 15 becomes relevant when the upgrade happens.)
 - Docs: `docs/architecture.md` (new webhook surface), `.env.example` (signing secret), README_DEPLOY (webhook configuration step). Ledger updated.
 
+### Status (2026-07-14): implemented and verified
+
+Delivered on `clerk-m8-deletion`. In place: the webhook endpoint (`POST /webhooks/clerk`), the `deleted_identities` tombstone table + migration, the delete-user service wrapping the tested cascade, and the JIT anti-resurrection guard. Full backend suite passes (3385 tests). Two review rounds hardened it (branch history): transaction/cache-ordering races (commit-before-invalidate, provider-namespaced identity advisory locks, a post-populate tombstone recheck), constant-statement deletion regardless of account size (`passive_deletes` on every User collection + a set-based `content_filters` pre-delete, because `filter_group_tags.tag_id`'s `RESTRICT` trips a single-statement cascade), a bounded unauthenticated body read, malformed-payload/`ValueError` 400s, and the finite-Svix-retry operational runbook (README_DEPLOY 6f).
+
+Manual dev pass completed 2026-07-14 on the dev instance: a real Clerk deletion of a provisioned, content-bearing user delivered the webhook (200), cascade-deleted the row and its content, wrote the tombstone (both identity columns as applicable), invalidated the auth cache, and — replaying a session token minted seconds before the deletion — returned the explicit "This account was deleted" 401 instead of resurrecting the account. Provisioning through a real Clerk session token was clean. `user_settings.actions.delete_self` was enabled on the dev instance for the pass.
+
+Two findings from the pass, both handled. (a) A pre-existing phantom-cache bug surfaced live: a brand-new user whose first request rolled back (the 451 consent gate) left an uncommitted user cached for the TTL, 500ing the next consent-accept; fixed by not caching a user created in the current request (commit `d6a5761`), with the fuller "only cache committed rows" invariant recorded as a focused follow-up. (b) The dev instance's hosted Account Portal `/sign-in` bounces an unauthenticated visitor to the app landing page, which is still the Auth0 build, so the hosted-portal delete button couldn't be exercised there — not a code issue and not our production surface (users delete via the `<UserProfile />` mounted in-app at Settings → Account, step 3 on the held flip branch); the deletion pipeline itself is proven by the CLI pass above.
+
+Correction to step 3's wording: the deletion section needs no app-side "unhide" — M3 did not app-gate it. Visibility is governed instance-wide by `user_settings.actions.delete_self` (ledger question 12); the flip branch's `SettingsAccount.tsx` guard-rail comment gets refreshed when M8 merges. Deferred within M8's scope, unchanged: the tombstone-retention sweep lands in M6b (step 4); step 4's iOS line ships with the held flip branch.
+
 ---
 
 ## Known limitations accepted (recorded, not to be "fixed" in this project)
