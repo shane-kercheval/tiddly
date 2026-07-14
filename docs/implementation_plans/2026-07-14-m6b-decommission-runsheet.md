@@ -1,7 +1,7 @@
 # M6b decommission run sheet (remove Auth0 entirely)
 
 **Date**: 2026-07-14
-**Status**: Draft v1 — companion to [`2026-07-14-m6a-cutover-runsheet.md`](2026-07-14-m6a-cutover-runsheet.md). **Reviewed now, executed later.** M6b runs only after the dual-accept window closes (gated on the iOS app shipping). It is written now so the one-way-door half is planned before M6a is considered fully planned.
+**Status**: Proposed operational contract — in **PR #155** (companion to [`2026-07-14-m6a-cutover-runsheet.md`](2026-07-14-m6a-cutover-runsheet.md)). Reviewed now, **executed later** — M6b runs only after the dual-accept window closes (gated on the iOS app shipping); it is planned now so the one-way-door half is settled before M6a is considered fully planned.
 **Governs**: Milestone 6, half B of [`2026-07-02-clerk-migration.md`](2026-07-02-clerk-migration.md) (Implementation Outline "M6b — decommission", steps 4–8).
 
 ---

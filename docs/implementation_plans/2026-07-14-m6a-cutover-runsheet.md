@@ -1,8 +1,8 @@
 # M6a cutover run sheet (Auth0 → Clerk, production)
 
 **Date**: 2026-07-14
-**Status**: Draft v2 — incorporates three rounds of reviewer feedback. **Not to be executed** past the read-only pre-checks until this sheet (and its companion [`2026-07-14-m6b-decommission-runsheet.md`](2026-07-14-m6b-decommission-runsheet.md)) receive a final review pass.
-**Governs**: the production cutover step of [`2026-07-02-clerk-migration.md`](2026-07-02-clerk-migration.md) (Milestone 6, half A). This is the operational run sheet; the plan is the design source of truth. Where this sheet's ordering diverges from the plan's prose, see **"Plan-sync required"** at the end — those plan edits are pending approval and must land so the two documents do not contradict each other.
+**Status**: Proposed operational contract — this sheet, its companion [`2026-07-14-m6b-decommission-runsheet.md`](2026-07-14-m6b-decommission-runsheet.md), and the matching migration-plan edits are all in **PR #155**. **Executable only after #155 is approved/merged** and the held M3 flip PR (#150) is reviewed; nothing past the read-only A1 pre-check runs before then.
+**Governs**: the production cutover step of [`2026-07-02-clerk-migration.md`](2026-07-02-clerk-migration.md) (Milestone 6, half A). This is the operational run sheet; the plan is the design source of truth. The matching plan edits are **included in the same PR (#155)** so the two documents stay consistent — see "Plan-sync (landed in this PR)" at the end.
 
 ---
 
@@ -38,7 +38,7 @@ So the M6a verification bar for MCP is **"existing bearer/PAT integrations still
 
 | # | Step | Who |
 |---|------|-----|
-| P1 | **Refresh `clerk-m3-flip`** onto current `main` (the M8 merge), run `make frontend-verify`, review the diff. Do not do branch reconciliation during the live cutover window. *(Local merge done 2026-07-14, clean, no conflicts; `make frontend-verify` **passed** — 3602 tests, lint + typecheck clean. Only the push + PR review remain.)* | **[C→S]** |
+| P1 | **Refresh `clerk-m3-flip`** onto current `main` (the M8 merge), run `make frontend-verify`, review the diff. Do not do branch reconciliation during the live cutover window. *(Done 2026-07-14: merged onto `main` clean, `make frontend-verify` **passed** — 3602 tests, lint + typecheck clean, and **pushed** — reflected in the held PR #150. Only its normal review remains.)* | **[C→S]** |
 | P2 | **Determine the CLI release version** and run `make cli-release-check` green on the intended commit. The tag is pushed later (E4) against the post-flip `main` commit. | **[C→S]** |
 | P3 | **Approve this run sheet** — rollback commands and go/no-go criteria agreed before any mutation. | **[S]** |
 | P4 | **Confirm the iOS app actually sends `X-Request-Source: ios`** (coordinate with the iOS developer) **before** relying on it. If it's wrong, iOS traffic logs as `unknown`, and the soak signal (F5) and M6b's quiet-gate become unreadable — and nobody would notice until M6b. This is the open `[OPEN]` item in the iOS guide; close it now. | **[S]** |
@@ -210,9 +210,9 @@ Rollback action taken (if any):    ____
 
 ---
 
-## Plan-sync required (pending approval — apply to `2026-07-02-clerk-migration.md`)
+## Plan-sync (landed in this PR — applied to `2026-07-02-clerk-migration.md`)
 
-These edits keep the plan and this run sheet from contradicting each other. **Not yet applied** — awaiting the go-ahead.
+These edits keep the plan and this run sheet consistent; they are **included in PR #155** alongside this sheet (the pre-flip smoke step, the M6b expand/contract summary, and the M5→post-cutover execution-order note were added in the final consistency pass). Sites updated:
 
 1. **Line 47 (AD5)** — "M6a flips web/CLI/MCP to Clerk in production" → clarify: M6a flips **web/CLI**; **existing MCP access remains on Tiddly's own PAT system** (it is *not* "MCP on Clerk"); **MCP OAuth connectors ship in M5, post-cutover**.
 2. **Lines 355 & 359 (M6a intro + goal)** — same MCP rescope ("web, CLI, and MCP on Clerk" → "web and CLI on Clerk; existing MCP bearer/PAT integrations unchanged; MCP OAuth connectors in M5").
