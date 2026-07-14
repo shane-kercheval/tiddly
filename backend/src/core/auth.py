@@ -1020,8 +1020,11 @@ async def get_current_user_ai(
 # "what counts as an auth dependency"; the invariant guard
 # (tests/core/test_auth_dependency_invariant.py) iterates it to prove no route
 # executes authentication more than once per request (the phantom-cache fix in
-# get_or_create_user relies on that — see its comments). When you add a new
-# auth variant above, add it here or the guard silently stops covering it.
+# get_or_create_user relies on that — see its comments). A completeness test
+# there asserts this tuple equals every `get_current_user*` callable in this
+# module, so a new variant that follows the naming convention cannot silently
+# escape the guard; a differently-named auth dependency still must be added
+# here by hand.
 AUTH_DEPENDENCIES = (
     get_current_user,
     get_current_user_without_consent,

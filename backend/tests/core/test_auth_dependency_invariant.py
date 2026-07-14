@@ -70,6 +70,30 @@ def _checked_paths(app: FastAPI, targets: set[Callable]) -> set[str]:
     }
 
 
+def test__auth_dependencies_tuple_is_complete() -> None:
+    """
+    AUTH_DEPENDENCIES lists every `get_current_user*` callable in core.auth.
+
+    So a new auth variant following the naming convention can't be added
+    without also entering the guard's coverage. (A differently-named auth
+    dependency still needs manual registration — the tuple comment says so.)
+    """
+    import core.auth as auth_mod  # noqa: PLC0415
+    from core.auth import AUTH_DEPENDENCIES  # noqa: PLC0415
+
+    discovered = {
+        obj
+        for name, obj in vars(auth_mod).items()
+        if name.startswith("get_current_user") and callable(obj)
+    }
+    assert discovered == set(AUTH_DEPENDENCIES), (
+        "core.auth.AUTH_DEPENDENCIES is out of sync with the get_current_user* "
+        "callables in the module — a new auth variant must be added to the "
+        f"tuple.\n  in tuple, not discovered: {set(AUTH_DEPENDENCIES) - discovered}"
+        f"\n  discovered, not in tuple: {discovered - set(AUTH_DEPENDENCIES)}"
+    )
+
+
 def test__no_route_executes_auth_more_than_once() -> None:
     """
     Every route's auth dependencies collapse to a single execution: all
