@@ -15,19 +15,23 @@ SAFETY: the forged event targets a GENERATED, NONEXISTENT Clerk-style id, never
 a real or persistent test user. Even in the (tested-against) impossible case
 that signature verification were bypassed, there is no such user to delete.
 
-SETUP: reuses `SECURITY_TEST_API_URL` from .env (no PAT needed — the whole
-point is that this endpoint takes no auth).
+SETUP: this file needs only `SECURITY_TEST_API_URL` (the endpoint takes no
+auth). Note `make pen_tests` runs the *whole* deployed suite, whose sibling
+module additionally requires `SECURITY_TEST_USER_A_PAT`/`_B_PAT`. To run only
+this file (needs only the API URL):
 
-RUN:
-    make pen_tests
+    SECURITY_TEST_API_URL=https://... uv run pytest backend/tests/security/deployed/test_webhook_penetration.py
 """
 import json
 import os
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
 from dotenv import load_dotenv
+from svix.webhooks import Webhook
 
 _project_root = Path(__file__).parent.parent.parent.parent.parent
 load_dotenv(_project_root / ".env")
@@ -39,8 +43,13 @@ pytestmark = pytest.mark.skipif(
     reason="SECURITY_TEST_API_URL not set (deployed webhook pen test)",
 )
 
-# A generated, nonexistent Clerk-style user id — never a real/persistent user.
-NONEXISTENT_CLERK_ID = "user_PENTESTdoesnotexist000000"
+# A generated, per-run, nonexistent Clerk-style user id — never a real user.
+NONEXISTENT_CLERK_ID = f"user_pentest{uuid.uuid4().hex}"
+
+# A secret we do NOT hold — used to produce a well-formed but invalid signature
+# with a *current* timestamp, so verification fails at the signature comparison
+# rather than being short-circuited by svix's replay-window (timestamp) check.
+_ATTACKER_SECRET = "whsec_pentestNotTheRealSigningSecret00"
 
 
 def _forged_deletion(clerk_user_id: str) -> str:
@@ -66,6 +75,15 @@ def _assert_rejected(response: httpx.Response) -> None:
     )
 
 
+def _current_ts() -> str:
+    """
+    A fresh unix timestamp — passes svix's replay window so verification
+    proceeds to the signature check (a stale timestamp would short-circuit
+    there, leaving the signature paths untested).
+    """
+    return str(int(datetime.now(UTC).timestamp()))
+
+
 class TestWebhookForgeryRejectedInProduction:
     """An unsigned or mis-signed user.deleted must be rejected with 400."""
 
@@ -79,23 +97,35 @@ class TestWebhookForgeryRejectedInProduction:
             )
         _assert_rejected(response)
 
-    async def test__bogus_svix_signature__rejected(self) -> None:
-        """Well-formed-looking svix headers with an attacker-chosen signature."""
+    async def test__wrong_secret_signature__rejected(self) -> None:
+        """
+        A genuine, well-formed signature from a secret we don't hold, with a
+        CURRENT timestamp — so it clears the replay window and is rejected at
+        the signature comparison itself (the path that actually matters).
+        """
+        payload = _forged_deletion(NONEXISTENT_CLERK_ID)
+        ts = datetime.now(UTC)
+        signature = Webhook(_ATTACKER_SECRET).sign("msg_pentest", ts, payload)
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{API_URL}/webhooks/clerk",
-                content=_forged_deletion(NONEXISTENT_CLERK_ID),
+                content=payload,
                 headers={
                     "content-type": "application/json",
                     "svix-id": "msg_pentest",
-                    "svix-timestamp": "1700000000",
-                    "svix-signature": "v1,Ym9ndXNzaWduYXR1cmU=",
+                    "svix-timestamp": str(int(ts.timestamp())),
+                    "svix-signature": signature,
                 },
             )
         _assert_rejected(response)
 
     async def test__malformed_svix_signature_header__no_500(self) -> None:
-        """A malformed signature header must not crash the endpoint."""
+        """
+        A malformed signature header with a CURRENT timestamp must not crash
+        the endpoint — this reaches the header-parsing path (a stale timestamp
+        would be rejected before parsing, so its ValueError→400 would go
+        untested).
+        """
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{API_URL}/webhooks/clerk",
@@ -103,7 +133,7 @@ class TestWebhookForgeryRejectedInProduction:
                 headers={
                     "content-type": "application/json",
                     "svix-id": "msg_pentest",
-                    "svix-timestamp": "1700000000",
+                    "svix-timestamp": _current_ts(),
                     "svix-signature": "x",
                 },
             )

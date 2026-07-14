@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Re-export for backward compatibility
 __all__ = [
+    "AUTH_DEPENDENCIES",
     "AuthType",
     "RequestContext",
     "get_current_user",
@@ -1012,3 +1013,19 @@ async def get_current_user_ai(
     )
     _check_consent(user, settings)
     return user
+
+
+# The authoritative set of authentication dependencies — every route entry
+# point that resolves the current user. This is the single source of truth for
+# "what counts as an auth dependency"; the invariant guard
+# (tests/core/test_auth_dependency_invariant.py) iterates it to prove no route
+# executes authentication more than once per request (the phantom-cache fix in
+# get_or_create_user relies on that — see its comments). When you add a new
+# auth variant above, add it here or the guard silently stops covering it.
+AUTH_DEPENDENCIES = (
+    get_current_user,
+    get_current_user_without_consent,
+    get_current_user_session_only,
+    get_current_user_session_only_without_consent,
+    get_current_user_ai,
+)
