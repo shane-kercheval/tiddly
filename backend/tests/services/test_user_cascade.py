@@ -13,11 +13,17 @@ from models.api_token import ApiToken
 from models.bookmark import Bookmark
 from models.content_filter import ContentFilter
 from models.content_history import ActionType, ContentHistory, EntityType
+from models.content_relationship import ContentRelationship
+from models.deleted_identity import DeletedIdentity
+from models.filter_group import FilterGroup
 from models.note import Note
-from models.tag import Tag, bookmark_tags, note_tags
+from models.prompt import Prompt
+from models.tag import Tag, bookmark_tags, filter_group_tags, note_tags, prompt_tags
 from models.user import User
 from core.tier_limits import Tier
+from models.user_consent import UserConsent
 from models.user_settings import UserSettings
+from services.user_service import delete_user_by_external_auth_id
 
 
 async def test__user_delete__cascades_to_all_user_data(
@@ -26,23 +32,31 @@ async def test__user_delete__cascades_to_all_user_data(
     """
     Comprehensive test: deleting a user removes ALL associated data.
 
-    This test creates a user with:
-    - Multiple bookmarks (active, archived, deleted)
-    - Multiple notes (active, archived, deleted)
-    - Multiple tags associated with bookmarks and notes
-    - Content history records (for testing cascade)
-    - API tokens
-    - User settings
-    - Content filters
+    Exercises the production deletion path — `delete_user_by_external_auth_id`
+    (the webhook's service call), not a bare `session.delete(user)` — against a
+    user with data across **every** owned table:
+    - Multiple bookmarks (active, archived, deleted) with tags
+    - Multiple notes (active, archived, deleted) with tags
+    - A prompt with tags (prompt_tags junction)
+    - Tags associated with bookmarks, notes, prompts, and a filter group
+    - A content filter with a group referencing a tag (the filter_group_tags
+      RESTRICT edge — the one FK a single-statement cascade can't resolve)
+    - A content relationship
+    - Content history, API tokens, user settings, user consent
 
-    Then verifies that deleting the user removes ALL of this data,
-    including junction table entries (bookmark_tags, note_tags).
+    Then verifies the user, all data, and every junction entry are gone, and a
+    tombstone was written.
     """
     # ==========================================================================
     # Setup: Create a user with data across all tables
     # ==========================================================================
 
-    user = User(auth0_id="cascade-test-user", email="cascade@example.com", tier=Tier.FREE.value)
+    user = User(
+        auth0_id="cascade-test-user",
+        external_auth_id="user_cascade_all",
+        email="cascade@example.com",
+        tier=Tier.FREE.value,
+    )
     db_session.add(user)
     await db_session.flush()
     user_id = user.id
@@ -157,6 +171,45 @@ async def test__user_delete__cascades_to_all_user_data(
     await db_session.flush()
     filter_ids = [list1.id, list2.id]
 
+    # Filter group referencing a tag — the filter_group_tags.tag_id RESTRICT
+    # edge that a single-statement DB cascade can't resolve (the service's
+    # set-based content_filters pre-delete is what makes this deletable).
+    filter_group = FilterGroup(filter_id=list1.id, position=0)
+    filter_group.tag_objects = [tag1]
+    db_session.add(filter_group)
+    await db_session.flush()
+    filter_group_id = filter_group.id
+
+    # Prompt with tags (prompt_tags junction)
+    prompt = Prompt(user_id=user_id, name="test-prompt", content="Hello {{ name }}")
+    prompt.tag_objects = [tag1, tag3]
+    db_session.add(prompt)
+    await db_session.flush()
+    prompt_id = prompt.id
+
+    # Content relationship (bookmark -> note)
+    relationship = ContentRelationship(
+        user_id=user_id,
+        source_type="bookmark",
+        source_id=bookmark_active.id,
+        target_type="note",
+        target_id=note_active.id,
+        relationship_type="related",
+    )
+    db_session.add(relationship)
+    await db_session.flush()
+    relationship_id = relationship.id
+
+    # User consent
+    consent = UserConsent(
+        user_id=user_id,
+        consented_at=datetime.now(UTC),
+        privacy_policy_version="2025-01-01",
+        terms_of_service_version="2025-01-01",
+    )
+    db_session.add(consent)
+    await db_session.flush()
+
     # ==========================================================================
     # Verify: All data exists before deletion
     # ==========================================================================
@@ -216,10 +269,11 @@ async def test__user_delete__cascades_to_all_user_data(
     assert len(result.scalars().all()) == 2
 
     # ==========================================================================
-    # Action: Delete the user
+    # Action: Delete the user via the production service path
     # ==========================================================================
 
-    await db_session.delete(user)
+    deletion = await delete_user_by_external_auth_id(db_session, "user_cascade_all")
+    assert deletion.deleted is True
     await db_session.flush()
 
     # ==========================================================================
@@ -231,6 +285,14 @@ async def test__user_delete__cascades_to_all_user_data(
         select(User).where(User.id == user_id),
     )
     assert result.scalar_one_or_none() is None
+
+    # A tombstone was written carrying both identity columns
+    tombstone = (await db_session.execute(
+        select(DeletedIdentity).where(
+            DeletedIdentity.external_auth_id == "user_cascade_all",
+        ),
+    )).scalar_one()
+    assert tombstone.auth0_id == "cascade-test-user"
 
     # Bookmarks should be gone
     result = await db_session.execute(
@@ -285,6 +347,40 @@ async def test__user_delete__cascades_to_all_user_data(
         select(ContentFilter).where(ContentFilter.id.in_(filter_ids)),
     )
     assert len(result.scalars().all()) == 0
+
+    # Filter group and its tag junction should be gone (the RESTRICT edge)
+    result = await db_session.execute(
+        select(FilterGroup).where(FilterGroup.id == filter_group_id),
+    )
+    assert result.scalar_one_or_none() is None
+    result = await db_session.execute(
+        select(filter_group_tags).where(
+            filter_group_tags.c.group_id == filter_group_id,
+        ),
+    )
+    assert len(result.fetchall()) == 0
+
+    # Prompt and its tag junction should be gone
+    result = await db_session.execute(
+        select(Prompt).where(Prompt.id == prompt_id),
+    )
+    assert result.scalar_one_or_none() is None
+    result = await db_session.execute(
+        select(prompt_tags).where(prompt_tags.c.prompt_id == prompt_id),
+    )
+    assert len(result.fetchall()) == 0
+
+    # Content relationship should be gone
+    result = await db_session.execute(
+        select(ContentRelationship).where(ContentRelationship.id == relationship_id),
+    )
+    assert result.scalar_one_or_none() is None
+
+    # User consent should be gone
+    result = await db_session.execute(
+        select(UserConsent).where(UserConsent.user_id == user_id),
+    )
+    assert result.scalar_one_or_none() is None
 
 
 async def test__user_delete__does_not_affect_other_users_data(
