@@ -8,6 +8,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppLayout } from './components/AppLayout'
 import { Layout } from './components/Layout'
 import { LandingPage } from './pages/LandingPage'
+import { AccountDeleted } from './pages/AccountDeleted'
 import { AllContent } from './pages/AllContent'
 import { LoadingSpinnerPage } from './components/ui'
 
@@ -97,6 +98,8 @@ const router = createBrowserRouter([
       { path: '/features', element: <FeaturesPage /> },
       { path: '/privacy', element: <PrivacyPolicy /> },
       { path: '/terms', element: <TermsOfService /> },
+      // Terminal screen after account deletion (signed-out; no re-auth path).
+      { path: '/account-deleted', element: <AccountDeleted /> },
 
       // Public docs routes
       {

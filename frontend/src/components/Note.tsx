@@ -31,6 +31,7 @@ import { useLimits, PUBLIC_VIEW_LIMITS } from '../hooks/useLimits'
 import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useDraftAutosave } from '../hooks/useDraftAutosave'
+import { draftKey } from '../utils/drafts'
 import { DraftRestorePrompt } from './DraftRestorePrompt'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
@@ -349,7 +350,7 @@ export function Note({
   // not-yet-created one. Cleared automatically when a save lands (isDirty
   // falls false); a lingering draft surfaces as the restore prompt below.
   const { pendingDraft, restoreDraft, discardDraft, clearDraft } = useDraftAutosave<NoteState>({
-    storageKey: `tiddly:draft:note:${note?.id ?? 'new'}`,
+    storageKey: draftKey('note', note?.id ?? 'new'),
     current,
     isDirty,
     disabled: isReadOnly,

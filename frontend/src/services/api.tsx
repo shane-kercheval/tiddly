@@ -101,13 +101,28 @@ export interface PolicyVersions {
  *
  * Logging prefixed with [Auth] helps debug token expiration issues in production.
  *
+ * A terminal `account_deleted` 401 is the exception to all of the above: the
+ * account is gone, so there is nothing to refresh or re-auth into. It skips the
+ * retry/park path entirely and hands off to `onAccountDeleted` (fired once, even
+ * under concurrent 401s).
+ *
+ * Returns a cleanup that ejects both interceptors, so an effect re-run (Strict
+ * Mode, a `getToken` identity change) replaces rather than stacks handlers.
+ *
  * @param getAccessToken - Function to get the current session token (null = no session)
+ * @param onAccountDeleted - Seam-provided terminal teardown for a deleted account
  */
-export function setupAuthInterceptor(getAccessToken: GetAccessTokenFn): void {
+export function setupAuthInterceptor(
+  getAccessToken: GetAccessTokenFn,
+  onAccountDeleted: () => void,
+): () => void {
   refreshPromise = null
+  // Closure-scoped (fresh per installation): fires the terminal deleted-account
+  // teardown at most once, even under concurrent 401s.
+  let accountDeletedHandling: Promise<void> | null = null
 
   // Request interceptor - add auth token (production only)
-  api.interceptors.request.use(
+  const requestInterceptorId = api.interceptors.request.use(
     async (requestConfig: InternalAxiosRequestConfig) => {
       if (!isDevMode) {
         try {
@@ -132,10 +147,21 @@ export function setupAuthInterceptor(getAccessToken: GetAccessTokenFn): void {
   )
 
   // Response interceptor - handle auth, consent, and rate limit errors
-  api.interceptors.response.use(
+  const responseInterceptorId = api.interceptors.response.use(
     (response) => response,
     async (error: AxiosError) => {
       if (error.response?.status === 401 && !isDevMode) {
+        // Terminal deleted-account 401 (M8): the token is valid but its account
+        // was deleted, so refresh/retry/re-auth can never succeed. Bypass the
+        // expiry path entirely — hand off to the seam's teardown (once, shared
+        // across concurrent 401s) and reject. Match the stable error_code, not
+        // the human-readable detail.
+        const errorCode = (error.response.data as { error_code?: string } | undefined)?.error_code
+        if (errorCode === 'account_deleted') {
+          accountDeletedHandling ??= Promise.resolve().then(onAccountDeleted)
+          return Promise.reject(error)
+        }
+
         const requestConfig = error.config as (InternalAxiosRequestConfig & { _retryAuth?: boolean }) | undefined
 
         if (requestConfig && !requestConfig._retryAuth) {
@@ -228,6 +254,13 @@ export function setupAuthInterceptor(getAccessToken: GetAccessTokenFn): void {
       return Promise.reject(error)
     }
   )
+
+  // Eject both interceptors on teardown so an effect re-run replaces rather
+  // than stacks handlers (which would fire teardown/refresh multiple times).
+  return () => {
+    api.interceptors.request.eject(requestInterceptorId)
+    api.interceptors.response.eject(responseInterceptorId)
+  }
 }
 
 /**

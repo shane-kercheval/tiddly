@@ -103,6 +103,7 @@ describe('api', () => {
 
 describe('setupAuthInterceptor', () => {
   const mockHandleConsentRequired = vi.fn()
+  const mockOnAccountDeleted = vi.fn()
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -123,7 +124,7 @@ describe('setupAuthInterceptor', () => {
   describe('451 response handling', () => {
     it('calls handleConsentRequired when 451 is received', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
 
       const errorHandler = getErrorHandler()
       const mock451Error = {
@@ -140,7 +141,7 @@ describe('setupAuthInterceptor', () => {
 
     it('does not call handleConsentRequired for non-451 errors', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
 
       const errorHandler = getErrorHandler()
       const mock500Error = {
@@ -159,7 +160,7 @@ describe('setupAuthInterceptor', () => {
   describe('402 response handling', () => {
     it('shows quota exceeded toast with pricing link', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
 
       const errorHandler = getErrorHandler()
       const mock402Error = {
@@ -187,7 +188,7 @@ describe('setupAuthInterceptor', () => {
 
     it('does not show toast for non-quota 402', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
 
       const errorHandler = getErrorHandler()
       const mock402Error = {
@@ -209,7 +210,7 @@ describe('setupAuthInterceptor', () => {
   describe('429 response handling', () => {
     it('shows toast with retry-after and pricing link when 429 with header', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
 
       const errorHandler = getErrorHandler()
       const mock429Error = {
@@ -236,7 +237,7 @@ describe('setupAuthInterceptor', () => {
 
     it('shows provider-busy toast without pricing link or retry-after on 429 with llm_rate_limited', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
 
       const errorHandler = getErrorHandler()
       // Upstream LLM provider throttle — backend does not set Retry-After,
@@ -268,7 +269,7 @@ describe('setupAuthInterceptor', () => {
 
     it('shows generic toast with pricing link when 429 without retry-after', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
 
       const errorHandler = getErrorHandler()
       const mock429Error = {
@@ -295,7 +296,7 @@ describe('setupAuthInterceptor', () => {
 
     it('does not show toast for non-429 errors', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('test-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
 
       const errorHandler = getErrorHandler()
       const mock500Error = {
@@ -314,7 +315,7 @@ describe('setupAuthInterceptor', () => {
   describe('401 response handling (one retry, then the session-expiry path)', () => {
     it('retries once with a fresh-minted token and resolves', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('fresh-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
 
       const errorHandler = getErrorHandler()
       const requestSpy = vi.spyOn(api, 'request').mockResolvedValue({ data: 'ok' })
@@ -336,7 +337,7 @@ describe('setupAuthInterceptor', () => {
 
     it('parks the request for re-auth when the retry also 401s — never rejects to a logout', async () => {
       const mockGetToken = vi.fn().mockResolvedValue('fresh-token')
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
       mockParkRequest.mockResolvedValue({ data: 'after-reauth' })
 
       const errorHandler = getErrorHandler()
@@ -362,7 +363,7 @@ describe('setupAuthInterceptor', () => {
 
     it('parks the request when no token can be minted at all (no session)', async () => {
       const mockGetToken = vi.fn().mockResolvedValue(null)
-      setupAuthInterceptor(mockGetToken)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
       mockParkRequest.mockResolvedValue({ data: 'after-reauth' })
 
       const errorHandler = getErrorHandler()
@@ -378,6 +379,78 @@ describe('setupAuthInterceptor', () => {
 
       expect(mockGetToken).toHaveBeenCalledWith({ skipCache: true })
       expect(mockParkRequest).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('account_deleted terminal 401', () => {
+    it('hands off to onAccountDeleted and rejects — no refresh, no park', async () => {
+      const mockGetToken = vi.fn().mockResolvedValue('fresh-token')
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
+
+      const errorHandler = getErrorHandler()
+      const mockError = {
+        response: { status: 401, data: { error_code: 'account_deleted' } },
+        config: { headers: {} },
+        isAxiosError: true,
+      }
+
+      if (errorHandler) {
+        await expect(errorHandler(mockError)).rejects.toBe(mockError)
+      }
+
+      expect(mockOnAccountDeleted).toHaveBeenCalledTimes(1)
+      expect(mockGetToken).not.toHaveBeenCalled() // no token refresh
+      expect(mockParkRequest).not.toHaveBeenCalled() // never enters the expiry path
+    })
+
+    it('fires onAccountDeleted once across concurrent account_deleted 401s', async () => {
+      setupAuthInterceptor(vi.fn(), mockOnAccountDeleted)
+
+      const errorHandler = getErrorHandler()
+      const makeError = (): unknown => ({
+        response: { status: 401, data: { error_code: 'account_deleted' } },
+        config: { headers: {} },
+        isAxiosError: true,
+      })
+
+      if (errorHandler) {
+        await Promise.allSettled([
+          errorHandler(makeError()),
+          errorHandler(makeError()),
+          errorHandler(makeError()),
+        ])
+      }
+
+      expect(mockOnAccountDeleted).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves an ordinary 401 (unrelated error_code) on the session-expiry path', async () => {
+      const mockGetToken = vi.fn().mockResolvedValue(null)
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted)
+      mockParkRequest.mockResolvedValue({ data: 'after-reauth' })
+
+      const errorHandler = getErrorHandler()
+      const mockError = {
+        response: { status: 401, data: { error_code: 'something_else' } },
+        config: { headers: {} },
+        isAxiosError: true,
+      }
+
+      if (errorHandler) {
+        await errorHandler(mockError)
+      }
+
+      expect(mockOnAccountDeleted).not.toHaveBeenCalled()
+      expect(mockParkRequest).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('interceptor lifecycle', () => {
+    it('returns a cleanup that ejects the interceptor (no stacking on re-setup)', () => {
+      const cleanup = setupAuthInterceptor(vi.fn(), mockOnAccountDeleted)
+      expect(getErrorHandler()).toBeDefined()
+      cleanup()
+      expect(getErrorHandler()).toBeUndefined()
     })
   })
 })

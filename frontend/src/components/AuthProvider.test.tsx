@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -9,6 +9,8 @@ import { useAuth, useClerk, useUser } from '@clerk/clerk-react'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 import { useAuthActions } from '../hooks/useAuthActions'
 import { queryClient } from '../queryClient'
+import { useAIStore } from '../stores/aiStore'
+import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 
 // The global setup (test/setup.ts) mocks the seam hooks module-wide; these
 // tests exist to verify the REAL seam bridge (seam call -> SDK call), so the
@@ -138,6 +140,74 @@ describe('AuthProvider', () => {
     await getAccessToken?.({ skipCache: true })
 
     expect(mockGetToken).toHaveBeenCalledWith({ skipCache: true })
+  })
+
+  describe('account-deletion terminal teardown', () => {
+    const realLocation = window.location
+    let replaceMock: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      replaceMock = vi.fn()
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        writable: true,
+        value: { origin: 'http://localhost:3000', replace: replaceMock },
+      })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        writable: true,
+        value: realLocation,
+      })
+      // Reset the real stores/localStorage this teardown mutates so it can't leak.
+      useAIStore.getState().clearAllKeys()
+      useSessionExpiryStore.getState().reset()
+      useSessionExpiryStore.getState().clearDeliberateLogout()
+      localStorage.clear()
+    })
+
+    /** Render and return the onAccountDeleted callback the interceptor was wired with. */
+    async function getOnAccountDeleted(): Promise<() => void> {
+      render(
+        <MemoryRouter>
+          <AuthProvider><div /></AuthProvider>
+        </MemoryRouter>
+      )
+      await waitFor(() => expect(setupAuthInterceptor).toHaveBeenCalled())
+      const fn = vi.mocked(setupAuthInterceptor).mock.calls[0]?.[1]
+      expect(fn).toBeTypeOf('function')
+      return fn as () => void
+    }
+
+    it("clears the deleted user's BYOK keys + drafts and reaches the terminal page", async () => {
+      useAIStore.getState().setApiKey('suggestions', 'sk-secret')
+      localStorage.setItem('tiddly:draft:note:x', 'draft')
+
+      const onAccountDeleted = await getOnAccountDeleted()
+      onAccountDeleted()
+
+      await waitFor(() =>
+        expect(replaceMock).toHaveBeenCalledWith('http://localhost:3000/account-deleted'),
+      )
+      expect(useAIStore.getState().useCaseConfigs.suggestions.apiKey).toBeNull()
+      expect(localStorage.getItem('tiddly:draft:note:x')).toBeNull()
+      expect(queryClient.clear).toHaveBeenCalled()
+      expect(mockResetConsent).toHaveBeenCalled()
+      expect(mockSignOut).toHaveBeenCalled()
+    })
+
+    it('reaches the terminal page even when sign-out fails', async () => {
+      mockSignOut.mockRejectedValueOnce(new Error('signout failed'))
+
+      const onAccountDeleted = await getOnAccountDeleted()
+      onAccountDeleted()
+
+      await waitFor(() =>
+        expect(replaceMock).toHaveBeenCalledWith('http://localhost:3000/account-deleted'),
+      )
+    })
   })
 
   it('router bridge treats same-location navigation as a no-op', () => {

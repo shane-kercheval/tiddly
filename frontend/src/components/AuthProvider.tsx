@@ -1,10 +1,12 @@
 import { ClerkProvider, useAuth, useClerk, useUser } from '@clerk/clerk-react'
-import { useEffect, useMemo, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { config, isDevMode } from '../config'
 import { setupAuthInterceptor } from '../services/api'
+import { useAIStore } from '../stores/aiStore'
 import { useConsentStore } from '../stores/consentStore'
 import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
+import { clearAllDrafts } from '../utils/drafts'
 import { queryClient } from '../queryClient'
 import { toSafeReturnTo } from '../utils/returnTo'
 import { AuthSeamProvider } from './AuthSeamProvider'
@@ -142,12 +144,40 @@ function AuthSeamProviderProd({ children }: AuthProviderProps): ReactNode {
  */
 function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
   const { getToken } = useAuth()
+  const clerk = useClerk()
+  const resetConsent = useConsentStore((state) => state.reset)
+
+  // Terminal deleted-account teardown (see services/api.tsx). Mirrors deliberate
+  // logout's teardown, PLUS clears the deleted user's persisted secrets (BYOK
+  // API keys) and drafts, then hard-navigates to /account-deleted — guaranteed
+  // even if signOut fails or hangs (a full load also unmounts the editor/expiry
+  // UI so nothing keeps operating on the dead session). localStorage is per
+  // browser origin, not per account, so this clears the browser's drafts/keys,
+  // not just this account's — accepted at current scale (see utils/drafts).
+  const onAccountDeleted = useCallback((): void => {
+    resetConsent()
+    queryClient.clear()
+    useAIStore.getState().clearAllKeys()
+    clearAllDrafts()
+    useSessionExpiryStore.getState().reset()
+    // Suppress the expiry dialog during the signed-out transition below.
+    useSessionExpiryStore.getState().beginDeliberateLogout()
+    const goToTerminalPage = (): void => {
+      window.location.replace(`${window.location.origin}/account-deleted`)
+    }
+    // Best-effort provider sign-out, then navigate regardless of its outcome
+    // (rejection OR a hang, capped by the timeout) — the navigation is the
+    // guarantee, not the sign-out.
+    void Promise.race([
+      clerk.signOut(),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]).then(goToTerminalPage, goToTerminalPage)
+  }, [clerk, resetConsent])
 
   useEffect(() => {
-    if (!isDevMode) {
-      setupAuthInterceptor((options) => getToken(options))
-    }
-  }, [getToken])
+    if (isDevMode) return undefined
+    return setupAuthInterceptor((options) => getToken(options), onAccountDeleted)
+  }, [getToken, onAccountDeleted])
 
   return children
 }

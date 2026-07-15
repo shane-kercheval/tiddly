@@ -36,6 +36,7 @@ import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
 import { useDraftAutosave } from '../hooks/useDraftAutosave'
+import { draftKey } from '../utils/drafts'
 import { DraftRestorePrompt } from './DraftRestorePrompt'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
@@ -406,7 +407,7 @@ export function Prompt({
   // not-yet-created one. Cleared automatically when a save lands (isDirty
   // falls false); a lingering draft surfaces as the restore prompt below.
   const { pendingDraft, restoreDraft, discardDraft, clearDraft } = useDraftAutosave<PromptState>({
-    storageKey: `tiddly:draft:prompt:${prompt?.id ?? 'new'}`,
+    storageKey: draftKey('prompt', prompt?.id ?? 'new'),
     current,
     isDirty,
     disabled: isReadOnly,
