@@ -151,6 +151,8 @@ Two MCP (Model Context Protocol) servers allow AI agents like Claude to interact
 | Content MCP | 8001 | Tools for bookmarks and notes |
 | Prompt MCP | 8002 | Prompts capability + create_prompt tool |
 
+Both servers accept a bearer token (Personal Access Token) and also speak OAuth 2.0 protected-resource discovery (RFC 9728), so OAuth-only AI clients can connect via a browser sign-in with dynamic client registration through Clerk. The `/mcp` transport enforces DNS-rebinding Host/Origin protection.
+
 ### Running the MCP Servers
 
 ```bash
