@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -467,6 +467,45 @@ class ProtectedResourceGate:
                 headers={"WWW-Authenticate": self._www_authenticate},
             )
             await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+class TransportSecurityGate:
+    """
+    ASGI middleware applying MCP DNS-rebinding Host/Origin validation on ``/mcp``.
+
+    The prompt server passes :class:`TransportSecuritySettings` natively to its
+    ``StreamableHTTPSessionManager``. The content server can't: FastMCP's
+    ``http_app()`` constructs the session manager internally without exposing
+    ``security_settings`` (and re-creates it each startup). So this gate applies the
+    SDK's *own* ``TransportSecurityMiddleware`` validation, with the **same** settings
+    (:func:`build_transport_security_settings`), at the ASGI layer — identical
+    Host (``421``) / Origin (``403``) enforcement, only a different injection point.
+
+    Runs after the presence gate (so a bearer-less request still gets the 401 discovery
+    pointer first, matching the prompt server, where transport security sits inside the
+    session manager past the gate). Non-``/mcp`` paths pass through untouched.
+    """
+
+    def __init__(self, app: Any, settings: TransportSecuritySettings) -> None:
+        self.app = app
+        self._validator = TransportSecurityMiddleware(settings)
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        """Validate Host/Origin on MCP requests; pass everything else through."""
+        if scope["type"] != "http" or not is_mcp_request_path(scope.get("path", "")):
+            await self.app(scope, receive, send)
+            return
+
+        # validate_request reads only headers (from scope), never the body, so the
+        # receive channel is left intact for the downstream app.
+        request = Request(scope, receive)
+        is_post = scope.get("method", "").upper() == "POST"
+        error = await self._validator.validate_request(request, is_post=is_post)
+        if error is not None:
+            await error(scope, receive, send)
             return
 
         await self.app(scope, receive, send)
