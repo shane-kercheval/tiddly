@@ -42,9 +42,20 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     prompt_mcp_server/conftest.py) read VITE_API_URL from os.environ, so
     pinning it here means the mock base_url and the URL the server code
     actually requests cannot drift.
+
+    The MCP OAuth discovery config is resolved+validated at server-module import
+    (prompt_mcp_server.main / mcp_server), so the service resource URLs and
+    CLERK_FRONTEND_API are pinned here to fixed test values — before collection —
+    so those imports are deterministic regardless of a developer's real .env, and
+    tests never assert against a developer's actual Clerk domain. Tests exercising
+    missing/alternate values override these explicitly (monkeypatch / subprocess env).
     """
     os.environ["VITE_DEV_MODE"] = "true"
     os.environ["VITE_API_URL"] = "http://localhost:8000"
+    os.environ["CLERK_FRONTEND_API"] = "test-instance.clerk.accounts.dev"
+    os.environ["CONTENT_MCP_RESOURCE_URL"] = "http://localhost:8001/mcp"
+    os.environ["PROMPT_MCP_RESOURCE_URL"] = "http://localhost:8002/mcp"
+    os.environ.pop("MCP_RESOURCE_URL", None)  # legacy shared var — must not leak in
 
 
 @pytest.fixture(scope="session")

@@ -6,7 +6,6 @@ middleware that extracts Bearer tokens and makes them available to
 MCP handlers via contextvars.
 """
 
-import os
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -21,21 +20,25 @@ from shared.mcp_oauth import (
     WELL_KNOWN_PATH,
     WELL_KNOWN_PATH_SUFFIXED,
     ProtectedResourceGate,
+    build_oauth_config,
+    cors_middleware,
     make_metadata_endpoint,
+    require_resource_url,
 )
 
 from .auth import clear_current_token, set_current_token
 from .server import cleanup, init_http_client, server
 
-# This server's own public URL (the OAuth ``resource``). MCP_RESOURCE_URL is the
-# authoritative production knob (set per Railway MCP service); local dev falls back
-# to this server's existing public-URL var so a shared .env can't collide with the
-# content server's value.
-RESOURCE_URL = (
-    os.getenv("MCP_RESOURCE_URL")
-    or os.getenv("VITE_PROMPT_MCP_URL")
-    or "http://localhost:8002"
-)
+# This server's canonical MCP endpoint (the OAuth ``resource``, including /mcp).
+# PROMPT_MCP_RESOURCE_URL is service-specific and required in every environment (no
+# shared name, no localhost fallback), so the two MCP servers can never collide on a
+# shared .env and a missing value crashes on boot instead of advertising a placeholder.
+RESOURCE_URL = require_resource_url("PROMPT_MCP_RESOURCE_URL")
+
+# Resolve + validate the OAuth discovery config ONCE, at import (which is uvicorn's
+# startup): a missing/malformed CLERK_FRONTEND_API or PROMPT_MCP_RESOURCE_URL crashes the
+# process before it serves, instead of surfacing as a 500 to the first OAuth client.
+OAUTH_CONFIG = build_oauth_config(RESOURCE_URL)
 
 # Create session manager for streamable HTTP transport
 session_manager = StreamableHTTPSessionManager(
@@ -127,27 +130,29 @@ async def lifespan(app: Starlette):  # noqa: ARG001, ANN201
 # Create ASGI handler for MCP routes
 mcp_handler = MCPRouteHandler(session_manager)
 
-# OAuth protected-resource metadata handler (RFC 9728), served for this server's
-# own resource URL. Both the root and path-suffixed well-known routes share it.
-metadata_endpoint = make_metadata_endpoint(RESOURCE_URL)
+# OAuth protected-resource metadata handler (RFC 9728). The canonical route is the
+# /mcp-suffixed well-known path; the root path is served too as a compatibility
+# fallback for less-strict clients. Both return this server's full-endpoint resource.
+metadata_endpoint = make_metadata_endpoint(OAUTH_CONFIG)
 
 # Create the Starlette application
 app = Starlette(
     routes=[
         Route("/health", health_check, methods=["GET"]),
-        # OAuth discovery: unauthenticated, CORS-enabled (browser clients preflight).
-        Route(WELL_KNOWN_PATH, metadata_endpoint, methods=["GET", "OPTIONS"]),
-        Route(WELL_KNOWN_PATH_SUFFIXED, metadata_endpoint, methods=["GET", "OPTIONS"]),
+        # OAuth discovery (unauthenticated). CORS/preflight handled by cors_middleware.
+        Route(WELL_KNOWN_PATH_SUFFIXED, metadata_endpoint, methods=["GET"]),  # canonical
+        Route(WELL_KNOWN_PATH, metadata_endpoint, methods=["GET"]),  # compat fallback
         # Handle /mcp exactly (no trailing slash)
         Route("/mcp", mcp_handler, methods=["GET", "POST", "DELETE"]),
         # Handle /mcp/* with any sub-path
         Route("/mcp/{path:path}", mcp_handler, methods=["GET", "POST", "DELETE"]),
     ],
-    # Gate runs outermost: a missing bearer on an /mcp path is rejected with the
-    # WWW-Authenticate discovery pointer before AuthMiddleware stages the token.
-    # A present bearer passes the gate and is staged for the proxy as before.
+    # Order (outermost first): CORS handles browser preflight and injects headers on
+    # every response incl. the gate's 401; the gate then rejects bearer-less /mcp
+    # requests with the discovery pointer before AuthMiddleware stages a present token.
     middleware=[
-        Middleware(ProtectedResourceGate, resource_url=RESOURCE_URL),
+        cors_middleware(),
+        Middleware(ProtectedResourceGate, config=OAUTH_CONFIG),
         Middleware(AuthMiddleware),
     ],
     lifespan=lifespan,
