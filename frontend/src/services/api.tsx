@@ -137,9 +137,12 @@ export function setupAuthInterceptor(
   getActiveUserId: () => string | null,
 ): () => void {
   refreshPromise = null
-  // Closure-scoped (fresh per installation): fires the terminal deleted-account
-  // teardown at most once, even under concurrent 401s.
-  let accountDeletedHandling: Promise<void> | null = null
+  // Closure-scoped (fresh per installation): terminal teardown fires once PER
+  // deleted identity (keyed by the token `sub`). Concurrent 401s for one deletion
+  // collapse, while a LATER, different identity's deletion in the same SPA session
+  // (e.g. after a failed sign-out or a fresh sign-in) still gets handled — the
+  // latch must not be global/permanent.
+  const handledSubjects = new Set<string | null>()
 
   // Request interceptor - add auth token (production only)
   const requestInterceptorId = api.interceptors.request.use(
@@ -197,7 +200,10 @@ export function setupAuthInterceptor(
           if (current !== null && sender !== current) {
             return Promise.reject(error)
           }
-          accountDeletedHandling ??= Promise.resolve().then(onAccountDeleted)
+          if (!handledSubjects.has(sender)) {
+            handledSubjects.add(sender)
+            void Promise.resolve().then(onAccountDeleted).catch(() => {})
+          }
           return Promise.reject(error)
         }
 

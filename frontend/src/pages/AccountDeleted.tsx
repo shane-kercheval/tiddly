@@ -1,5 +1,4 @@
 import { useEffect, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 
 /**
@@ -29,12 +28,15 @@ export function AccountDeleted(): ReactNode {
         <p className="mt-3 text-gray-600">
           Your Tiddly account has been deleted.
         </p>
-        <Link
-          to="/"
+        {/* A full reload (not an SPA link) so that if sign-out failed and the
+            client is briefly still authenticated, the homepage gets a clean
+            re-init and Clerk re-detects the deleted session. */}
+        <a
+          href="/"
           className="mt-6 inline-block rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
         >
           Return to homepage
-        </Link>
+        </a>
       </div>
     </div>
   )

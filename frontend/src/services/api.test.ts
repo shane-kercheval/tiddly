@@ -514,6 +514,33 @@ describe('setupAuthInterceptor', () => {
 
       expect(mockOnAccountDeleted).not.toHaveBeenCalled()
     })
+
+    it('re-arms terminal handling for a later, different identity (latch is per-identity, not global)', async () => {
+      setupAuthInterceptor(vi.fn(), mockOnAccountDeleted, mockGetActiveUserId)
+      const errorHandler = getErrorHandler()
+
+      // A is deleted while A is active → teardown fires.
+      mockGetActiveUserId.mockReturnValue('userA')
+      const errorA = {
+        response: { status: 401, data: { error_code: 'account_deleted' } },
+        config: { headers: {}, _senderUserId: 'userA' },
+        isAxiosError: true,
+      }
+      if (errorHandler) await expect(errorHandler(errorA)).rejects.toBe(errorA)
+
+      // Later in the same SPA session, B is active and B is deleted → must fire
+      // AGAIN (a global latch would silently no-op this).
+      mockGetActiveUserId.mockReturnValue('userB')
+      const errorB = {
+        response: { status: 401, data: { error_code: 'account_deleted' } },
+        config: { headers: {}, _senderUserId: 'userB' },
+        isAxiosError: true,
+      }
+      if (errorHandler) await expect(errorHandler(errorB)).rejects.toBe(errorB)
+
+      await Promise.resolve() // flush the microtask-deferred handler calls
+      expect(mockOnAccountDeleted).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('request identity stamp (cross-account guard input)', () => {
