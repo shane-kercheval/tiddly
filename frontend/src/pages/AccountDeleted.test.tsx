@@ -1,9 +1,30 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { AccountDeleted } from './AccountDeleted'
+import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 
 describe('AccountDeleted', () => {
+  afterEach(() => {
+    useSessionExpiryStore.setState({ accountDeleted: false })
+  })
+
+  it('consumes the terminal blocker exemption on mount (one-shot)', () => {
+    // Set by onAccountDeleted before navigating here; the blocker stays disabled
+    // globally until it's cleared, so a later same-session sign-in would lose
+    // unsaved-change protection. Reaching this page must clear it.
+    useSessionExpiryStore.getState().markAccountDeleted()
+    expect(useSessionExpiryStore.getState().accountDeleted).toBe(true)
+
+    render(
+      <MemoryRouter>
+        <AccountDeleted />
+      </MemoryRouter>,
+    )
+
+    expect(useSessionExpiryStore.getState().accountDeleted).toBe(false)
+  })
+
   it('renders a terminal message and only a homepage link (no re-auth path)', () => {
     render(
       <MemoryRouter>

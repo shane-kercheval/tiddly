@@ -46,6 +46,19 @@ function getErrorHandler(): ((error: unknown) => unknown) | undefined {
   return handlers[handlers.length - 1]?.rejected
 }
 
+/** Get the last registered request fulfilled handler (stamps the sender identity). */
+function getRequestHandler(): ((config: unknown) => unknown) | undefined {
+  const handlers = (api.interceptors.request as unknown as { handlers: AxiosInterceptorHandler[] }).handlers
+  return handlers[handlers.length - 1]?.fulfilled
+}
+
+/** Build an unsigned JWT carrying the given `sub` claim (for identity-stamp tests). */
+function fakeJwt(sub: string): string {
+  const seg = (obj: unknown): string =>
+    btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return `${seg({ alg: 'none' })}.${seg({ sub })}.sig`
+}
+
 /** Extract text content from a React element's props (shallow). */
 function getToastText(): string {
   const call = vi.mocked(toast.error).mock.calls[0]
@@ -108,6 +121,9 @@ describe('setupAuthInterceptor', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // clearAllMocks doesn't reset mockReturnValue, so re-default the active user
+    // to "signed out" each test (guard tests override it explicitly).
+    mockGetActiveUserId.mockReturnValue(null)
     vi.mocked(useConsentStore.getState).mockReturnValue({
       consent: null,
       needsConsent: null,
@@ -479,6 +495,42 @@ describe('setupAuthInterceptor', () => {
       }
 
       expect(mockOnAccountDeleted).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT tear down when the sender is unverifiable and a user is active (fail closed)', async () => {
+      mockGetActiveUserId.mockReturnValue('userB')
+      setupAuthInterceptor(vi.fn(), mockOnAccountDeleted, mockGetActiveUserId)
+
+      const errorHandler = getErrorHandler()
+      const mockError = {
+        response: { status: 401, data: { error_code: 'account_deleted' } },
+        config: { headers: {} }, // no _senderUserId — sender can't be verified
+        isAxiosError: true,
+      }
+
+      if (errorHandler) {
+        await expect(errorHandler(mockError)).rejects.toBe(mockError)
+      }
+
+      expect(mockOnAccountDeleted).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('request identity stamp (cross-account guard input)', () => {
+    it('stamps _senderUserId from the attached token sub, not the active user', async () => {
+      // Token belongs to A, but the active user has since switched to B; the
+      // stamp must reflect the TOKEN (A), so a stale A response never matches B.
+      const mockGetToken = vi.fn().mockResolvedValue(fakeJwt('userA'))
+      mockGetActiveUserId.mockReturnValue('userB')
+      setupAuthInterceptor(mockGetToken, mockOnAccountDeleted, mockGetActiveUserId)
+
+      const requestHandler = getRequestHandler()
+      const config: { headers: Record<string, string>; _senderUserId?: string | null } = { headers: {} }
+      if (requestHandler) {
+        await requestHandler(config)
+      }
+
+      expect(config._senderUserId).toBe('userA')
     })
   })
 

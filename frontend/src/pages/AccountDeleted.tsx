@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 
 /**
  * Terminal screen shown after an account is deleted.
@@ -12,12 +13,21 @@ import { Link } from 'react-router-dom'
  * restrained (no data-permanence claims) and the only action is going home.
  */
 export function AccountDeleted(): ReactNode {
+  // The unsaved-changes blocker exemption's only job was to let the one forced
+  // navigation here through; consume it on arrival so a later same-session
+  // sign-in gets normal unsaved-change protection back (matters especially if
+  // sign-out failed and the user is briefly still authenticated).
+  const clearAccountDeleted = useSessionExpiryStore((state) => state.clearAccountDeleted)
+  useEffect(() => {
+    clearAccountDeleted()
+  }, [clearAccountDeleted])
+
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4">
       <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-8 text-center">
         <h1 className="text-xl font-semibold text-gray-900">Account deleted</h1>
         <p className="mt-3 text-gray-600">
-          Your Tiddly account has been deleted. You've been signed out.
+          Your Tiddly account has been deleted.
         </p>
         <Link
           to="/"

@@ -14,9 +14,10 @@
  * live account is never signed out or torn down by another account's deletion.
  * The residual: when the account being deleted is the active one, any OTHER
  * account's leftover local drafts/keys in the same browser are cleared too.
- * Worst case is a local-cache wipe, never a data deletion (no account deleted,
- * server-side data untouched). Accepted at beta scale rather than namespacing
- * every draft/key by user id; see the teardown in AuthProvider and the plan.
+ * Worst case is loss of local unsynced data and locally-stored credentials
+ * (these can be the only copy), never a server-side/account deletion — no account
+ * is deleted and saved/synced data is untouched. Accepted at beta scale rather
+ * than namespacing every draft/key by user id; see AuthProvider and the plan.
  */
 export const DRAFT_KEY_PREFIX = 'tiddly:draft:'
 

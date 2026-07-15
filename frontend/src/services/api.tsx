@@ -51,6 +51,24 @@ let refreshPromise: Promise<string | null> | null = null
 type GetAccessTokenFn = (options?: { skipCache?: boolean }) => Promise<string | null>
 
 /**
+ * Extract the `sub` (Clerk user id) from a session JWT — for request/response
+ * correlation only, NOT verification (the backend verifies). Returns null on any
+ * malformed/opaque token so the cross-account guard can fail closed.
+ */
+function jwtSubject(token: string): string | null {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return null
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const pad = base64.length % 4
+    const claims = JSON.parse(atob(pad ? base64 + '='.repeat(4 - pad) : base64)) as { sub?: unknown }
+    return typeof claims.sub === 'string' ? claims.sub : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Consent API types
  */
 export interface ConsentResponse {
@@ -126,14 +144,19 @@ export function setupAuthInterceptor(
   // Request interceptor - add auth token (production only)
   const requestInterceptorId = api.interceptors.request.use(
     async (requestConfig: InternalAxiosRequestConfig) => {
+      const cfg = requestConfig as InternalAxiosRequestConfig & { _senderUserId?: string | null }
       if (!isDevMode) {
         try {
           const token = await getAccessToken()
           if (token) {
             requestConfig.headers.Authorization = `Bearer ${token}`
           }
-          // No token (signed out / session expired): send the request bare and
-          // let the 401 path below decide - it owns the expiry UX.
+          // Stamp the sending identity from the TOKEN actually attached (its
+          // `sub`) — NOT the currently-active user, which can change during the
+          // await above. The terminal-401 guard compares this against who's
+          // active at response time to avoid tearing down a since-switched
+          // account. Null (no/opaque token) makes the guard fail closed.
+          cfg._senderUserId = token ? jwtSubject(token) : null
         } catch (error) {
           console.error('[Auth] Initial token fetch failed:', {
             error: error instanceof Error ? error.message : String(error),
@@ -143,10 +166,6 @@ export function setupAuthInterceptor(
           })
         }
       }
-      // Stamp the sending identity so the terminal-401 path can tell a stale
-      // response (sent by a since-replaced account) from the active one.
-      const cfg = requestConfig as InternalAxiosRequestConfig & { _senderUserId?: string | null }
-      cfg._senderUserId = getActiveUserId()
       return requestConfig
     },
     (error: AxiosError) => Promise.reject(error)
@@ -170,9 +189,12 @@ export function setupAuthInterceptor(
           // only when the response's identity is still the active one (or nobody
           // is signed in). This does NOT change the browser-wide clear for the
           // active account's own deletion (see AuthProvider / utils/drafts).
-          const sender = (error.config as { _senderUserId?: string | null } | undefined)?._senderUserId
+          const sender = (error.config as { _senderUserId?: string | null } | undefined)?._senderUserId ?? null
           const current = getActiveUserId()
-          if (current && sender && current !== sender) {
+          // Fail closed: tear down only when nobody is signed in, or the response
+          // provably belongs to the still-active identity. A live user with a
+          // different-or-unverifiable sender is left untouched.
+          if (current !== null && sender !== current) {
             return Promise.reject(error)
           }
           accountDeletedHandling ??= Promise.resolve().then(onAccountDeleted)

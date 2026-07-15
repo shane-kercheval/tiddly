@@ -60,6 +60,8 @@ interface SessionExpiryActions {
   markExpired: () => void
   /** Terminal: account deletion has begun — exempts the forced deleted-account navigation from the unsaved-changes blocker. */
   markAccountDeleted: () => void
+  /** Consume that exemption once the deleted-account screen is reached, so a later same-session sign-in gets normal unsaved-change protection back. */
+  clearAccountDeleted: () => void
   /** Called by the seam's logout() before signOut, so ProtectedRoute lets the navigation happen. */
   beginDeliberateLogout: () => void
   /** Cleared on the next successful sign-in. */
@@ -84,6 +86,10 @@ export const useSessionExpiryStore = create<SessionExpiryStore>((set, get) => ({
 
   markAccountDeleted: () => {
     set({ accountDeleted: true })
+  },
+
+  clearAccountDeleted: () => {
+    set({ accountDeleted: false })
   },
 
   beginDeliberateLogout: () => {

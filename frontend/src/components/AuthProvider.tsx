@@ -168,7 +168,8 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
   // api.tsx prevents tearing down a *different, currently-active* account, but
   // localStorage is per browser — so when the active account is the one deleted,
   // this clear still removes any OTHER account's leftover local drafts/keys in the
-  // same browser. Worst case is a local-cache wipe, never a data deletion.
+  // same browser. Worst case is loss of local unsynced data and locally-stored
+  // credentials (possibly the only copy), never a server-side/account deletion.
   const onAccountDeleted = useCallback((): void => {
     useSessionExpiryStore.getState().markAccountDeleted()
     const safe = (label: string, fn: () => void): void => {
@@ -193,7 +194,13 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
     // redirect can't bounce off it. Wrapped so neither a sync throw nor a rejected
     // promise escapes; navigation already happened above.
     safe('sign-out', () =>
-      void Promise.resolve(clerk.signOut({ redirectUrl: '/account-deleted' })).catch(() => {}),
+      void Promise.resolve(clerk.signOut({ redirectUrl: '/account-deleted' })).catch(
+        (err: unknown) =>
+          console.warn(
+            '[account-deletion] sign-out failed',
+            err instanceof Error ? err.name : String(err),
+          ),
+      ),
     )
   }, [clerk, navigate, resetConsent])
 
