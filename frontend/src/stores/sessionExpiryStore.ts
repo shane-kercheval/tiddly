@@ -36,6 +36,12 @@ interface SessionExpiryState {
    * from "session died mid-use" (stay mounted, raise the dialog).
    */
   deliberateLogout: boolean
+  /**
+   * True once account deletion begins (terminal, one-way). The unsaved-changes
+   * blocker (useUnsavedChangesWarning) reads this so the forced navigation to the
+   * deleted-account screen is NOT trapped by a "discard changes?" dialog.
+   */
+  accountDeleted: boolean
   pending: PendingRequest[]
 }
 
@@ -52,6 +58,8 @@ interface SessionExpiryActions {
    * before any API call gets a 401.
    */
   markExpired: () => void
+  /** Terminal: account deletion has begun — exempts the forced deleted-account navigation from the unsaved-changes blocker. */
+  markAccountDeleted: () => void
   /** Called by the seam's logout() before signOut, so ProtectedRoute lets the navigation happen. */
   beginDeliberateLogout: () => void
   /** Cleared on the next successful sign-in. */
@@ -67,10 +75,15 @@ type SessionExpiryStore = SessionExpiryState & SessionExpiryActions
 export const useSessionExpiryStore = create<SessionExpiryStore>((set, get) => ({
   expired: false,
   deliberateLogout: false,
+  accountDeleted: false,
   pending: [],
 
   markExpired: () => {
     set({ expired: true })
+  },
+
+  markAccountDeleted: () => {
+    set({ accountDeleted: true })
   },
 
   beginDeliberateLogout: () => {

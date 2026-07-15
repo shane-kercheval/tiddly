@@ -148,6 +148,7 @@ describe('AuthProvider', () => {
       useAIStore.getState().clearAllKeys()
       useSessionExpiryStore.getState().reset()
       useSessionExpiryStore.getState().clearDeliberateLogout()
+      useSessionExpiryStore.setState({ accountDeleted: false })
       localStorage.clear()
     })
 
@@ -171,12 +172,15 @@ describe('AuthProvider', () => {
       const onAccountDeleted = await getOnAccountDeleted()
       onAccountDeleted()
 
+      // Terminal flag set (exempts the unsaved-changes blocker) before navigation.
+      expect(useSessionExpiryStore.getState().accountDeleted).toBe(true)
       expect(mockNavigate).toHaveBeenCalledWith('/account-deleted', { replace: true })
       expect(useAIStore.getState().useCaseConfigs.suggestions.apiKey).toBeNull()
       expect(localStorage.getItem('tiddly:draft:note:x')).toBeNull()
       expect(queryClient.clear).toHaveBeenCalled()
       expect(mockResetConsent).toHaveBeenCalled()
-      expect(mockSignOut).toHaveBeenCalled()
+      // Sign-out pinned to the terminal page so Clerk can't redirect off it.
+      expect(mockSignOut).toHaveBeenCalledWith({ redirectUrl: '/account-deleted' })
     })
 
     it('navigates to the terminal page even when sign-out rejects', async () => {

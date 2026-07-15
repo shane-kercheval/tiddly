@@ -7,6 +7,7 @@
 import { useContext, useCallback, useRef, useEffect } from 'react'
 import { UNSAFE_DataRouterContext, useBlocker } from 'react-router-dom'
 import type { Blocker } from 'react-router-dom'
+import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 
 interface UseUnsavedChangesWarningResult {
   /** Whether the warning dialog should be shown */
@@ -97,8 +98,16 @@ export function useUnsavedChangesWarning(isDirty: boolean): UseUnsavedChangesWar
     }
   }, [isDirty])
 
-  // Pass function to useBlocker so the ref check happens at navigation time, not render time
-  const blocker = useBlockerSafe(() => isDirty && !confirmedLeaveRef.current)
+  // Pass function to useBlocker so the checks happen at navigation time, not
+  // render time. Account deletion is a terminal, forced transition — never block
+  // it, or a dirty editor would trap the user on a deleted-account page (read
+  // synchronously so it's current at the moment navigation is attempted).
+  const blocker = useBlockerSafe(
+    () =>
+      isDirty &&
+      !confirmedLeaveRef.current &&
+      !useSessionExpiryStore.getState().accountDeleted,
+  )
 
   const showDialog = blocker.state === 'blocked'
 

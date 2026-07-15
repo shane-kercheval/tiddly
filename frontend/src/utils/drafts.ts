@@ -9,14 +9,14 @@
  * NOTE (deletion teardown — accepted limitation): these keys are NOT namespaced
  * by user, and localStorage is per-browser-origin. So on account deletion,
  * `clearAllDrafts()` (and the sibling BYOK-key clear) wipe *every* draft/key in
- * the browser, not just the deleted account's. In the rare case where a second
- * account has used this same browser — or a just-deleted account's slow response
- * arrives after a different account becomes active — that other account's local,
- * unsynced drafts/keys are cleared too (and it is signed out). Worst case is a
- * signout + local-cache wipe, never a data deletion: no account is deleted, and
- * server-side data is untouched. Accepted at current (beta) scale rather than
- * namespacing every draft/key by user id; see the account-deletion teardown in
- * AuthProvider and the deletion notes in the migration plan.
+ * the browser, not just the deleted account's. A cross-account guard (api.tsx)
+ * prevents this from running for a *different, currently-active* account, so a
+ * live account is never signed out or torn down by another account's deletion.
+ * The residual: when the account being deleted is the active one, any OTHER
+ * account's leftover local drafts/keys in the same browser are cleared too.
+ * Worst case is a local-cache wipe, never a data deletion (no account deleted,
+ * server-side data untouched). Accepted at beta scale rather than namespacing
+ * every draft/key by user id; see the teardown in AuthProvider and the plan.
  */
 export const DRAFT_KEY_PREFIX = 'tiddly:draft:'
 

@@ -148,48 +148,63 @@ function AuthInterceptorSetup({ children }: AuthProviderProps): ReactNode {
   const navigate = useNavigate()
   const resetConsent = useConsentStore((state) => state.reset)
 
-  // Terminal deleted-account teardown (see services/api.tsx). Clears the deleted
-  // user's persisted secrets (BYOK keys) + drafts and the in-memory query/
-  // consent/session-expiry state, navigates to the terminal screen, and signs
-  // out.
+  // Terminal deleted-account teardown (see services/api.tsx and its cross-account
+  // guard). Marks the terminal state, clears the deleted user's persisted secrets
+  // (BYOK keys) + drafts and the in-memory query/consent/session-expiry state,
+  // navigates to the terminal screen, and signs out.
   //
-  // Two robustness rules make the terminal screen actually guaranteed:
-  //   1. Every cleanup step is best-effort (`safe`), so a failure — e.g.
-  //      localStorage unavailable — can never abort the transition.
-  //   2. Navigation is a CLIENT-SIDE route change, not a full-page load, and is
-  //      NOT gated on sign-out. It unmounts the protected tree (the editor, its
-  //      `beforeunload` handler, and its draft-autosave interval), so there is no
-  //      cancellable "Leave site?" prompt and no interval to re-create a
-  //      just-cleared draft; and the terminal screen is reached even if sign-out
-  //      fails or hangs (sign-out is fire-and-forget below).
+  // What makes the terminal screen actually reached:
+  //   1. `markAccountDeleted()` is set FIRST — the unsaved-changes blocker
+  //      (useUnsavedChangesWarning) reads it at nav time and lets THIS forced
+  //      navigation through, so a dirty editor can't trap the user on the
+  //      deleted-account page with a "discard changes?" dialog.
+  //   2. Every teardown step is best-effort AND surfaced (a failure — e.g.
+  //      localStorage unavailable — can neither abort the transition nor silently
+  //      leave a secret behind).
+  //   3. Navigation is client-side and NOT gated on sign-out (fire-and-forget,
+  //      pinned to /account-deleted), so it's reached even if sign-out fails.
   //
-  // Accepted limitation (see utils/drafts + the migration plan): this teardown is
-  // NOT scoped to the deleted identity. localStorage is per browser, so a second
-  // account that shared this browser — or is active when a just-deleted account's
-  // slow response lands — is signed out and loses its local unsynced drafts/keys.
-  // Worst case is a signout + local-cache wipe, never a data deletion.
+  // Accepted limitation (see utils/drafts + the migration plan): the guard in
+  // api.tsx prevents tearing down a *different, currently-active* account, but
+  // localStorage is per browser — so when the active account is the one deleted,
+  // this clear still removes any OTHER account's leftover local drafts/keys in the
+  // same browser. Worst case is a local-cache wipe, never a data deletion.
   const onAccountDeleted = useCallback((): void => {
-    const safe = (fn: () => void): void => {
-      try { fn() } catch { /* best-effort — must not abort the transition */ }
+    useSessionExpiryStore.getState().markAccountDeleted()
+    const safe = (label: string, fn: () => void): void => {
+      try {
+        fn()
+      } catch (err) {
+        console.warn(
+          `[account-deletion] teardown step "${label}" failed`,
+          err instanceof Error ? err.name : String(err),
+        )
+      }
     }
-    safe(resetConsent)
-    safe(() => queryClient.clear())
-    safe(() => useAIStore.getState().clearAllKeys())
-    safe(clearAllDrafts)
-    safe(() => useSessionExpiryStore.getState().reset())
-    // Suppress the expiry dialog during the signed-out transition.
-    safe(() => useSessionExpiryStore.getState().beginDeliberateLogout())
+    safe('reset-consent', resetConsent)
+    safe('clear-queries', () => queryClient.clear())
+    safe('clear-byok-keys', () => useAIStore.getState().clearAllKeys())
+    safe('clear-drafts', clearAllDrafts)
+    safe('reset-session-expiry', () => useSessionExpiryStore.getState().reset())
+    safe('begin-deliberate-logout', () => useSessionExpiryStore.getState().beginDeliberateLogout())
     // `replace` so Back doesn't return to the dead session.
     navigate('/account-deleted', { replace: true })
-    // Fire-and-forget provider sign-out; navigation already happened. Wrapped so
-    // neither a sync throw nor a rejected promise escapes the teardown.
-    safe(() => void Promise.resolve(clerk.signOut()).catch(() => { /* best-effort */ }))
+    // Fire-and-forget sign-out, pinned to the terminal page so a Clerk default
+    // redirect can't bounce off it. Wrapped so neither a sync throw nor a rejected
+    // promise escapes; navigation already happened above.
+    safe('sign-out', () =>
+      void Promise.resolve(clerk.signOut({ redirectUrl: '/account-deleted' })).catch(() => {}),
+    )
   }, [clerk, navigate, resetConsent])
 
   useEffect(() => {
     if (isDevMode) return undefined
-    return setupAuthInterceptor((options) => getToken(options), onAccountDeleted)
-  }, [getToken, onAccountDeleted])
+    return setupAuthInterceptor(
+      (options) => getToken(options),
+      onAccountDeleted,
+      () => clerk.user?.id ?? null,
+    )
+  }, [getToken, onAccountDeleted, clerk])
 
   return children
 }

@@ -111,10 +111,12 @@ export interface PolicyVersions {
  *
  * @param getAccessToken - Function to get the current session token (null = no session)
  * @param onAccountDeleted - Seam-provided terminal teardown for a deleted account
+ * @param getActiveUserId - Returns the currently-active user id (null = signed out), for the cross-account guard
  */
 export function setupAuthInterceptor(
   getAccessToken: GetAccessTokenFn,
   onAccountDeleted: () => void,
+  getActiveUserId: () => string | null,
 ): () => void {
   refreshPromise = null
   // Closure-scoped (fresh per installation): fires the terminal deleted-account
@@ -141,6 +143,10 @@ export function setupAuthInterceptor(
           })
         }
       }
+      // Stamp the sending identity so the terminal-401 path can tell a stale
+      // response (sent by a since-replaced account) from the active one.
+      const cfg = requestConfig as InternalAxiosRequestConfig & { _senderUserId?: string | null }
+      cfg._senderUserId = getActiveUserId()
       return requestConfig
     },
     (error: AxiosError) => Promise.reject(error)
@@ -158,6 +164,17 @@ export function setupAuthInterceptor(
         // the human-readable detail.
         const errorCode = (error.response.data as { error_code?: string } | undefined)?.error_code
         if (errorCode === 'account_deleted') {
+          // Cross-account guard: a deleted account's response can arrive after a
+          // DIFFERENT account has become active in this browser. Running teardown
+          // then would sign out and wipe the wrong (live) account, so tear down
+          // only when the response's identity is still the active one (or nobody
+          // is signed in). This does NOT change the browser-wide clear for the
+          // active account's own deletion (see AuthProvider / utils/drafts).
+          const sender = (error.config as { _senderUserId?: string | null } | undefined)?._senderUserId
+          const current = getActiveUserId()
+          if (current && sender && current !== sender) {
+            return Promise.reject(error)
+          }
           accountDeletedHandling ??= Promise.resolve().then(onAccountDeleted)
           return Promise.reject(error)
         }
