@@ -32,11 +32,13 @@ so a missing/malformed value crashes the process instead of serving a
 healthy-but-broken OAuth endpoint to the first client.
 """
 
+import ipaddress
 import os
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
@@ -58,6 +60,7 @@ _ALLOW_HEADERS = ["Authorization", "Content-Type", "MCP-Protocol-Version", "MCP-
 _EXPOSE_HEADERS = ["WWW-Authenticate"]
 
 _LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 @dataclass(frozen=True)
@@ -124,18 +127,52 @@ def _has_port_component(parts: SplitResult) -> bool:
         return True
 
 
-def _validate_resource_port(parts: SplitResult) -> None:
+def _validated_port(parts: SplitResult, label: str) -> int | None:
     """
-    Force the deferred port parse on the resource URL, turning ``urlsplit``'s
-    ``ValueError`` into the clear startup error. A valid explicit port is permitted
-    (local/tunnel dev use one); a malformed/out-of-range port is rejected.
+    Return the authority's port, forcing ``urlsplit``'s deferred parse and rejecting
+    unusable values with a clear startup error.
+
+    ``urlsplit`` raises ``ValueError`` for a non-numeric or out-of-range (>65535)
+    port; port ``0`` parses fine but is not a connectable TCP port. A valid explicit
+    port (1-65535) is permitted — local/tunnel dev use one. Returns ``None`` when no
+    port is present.
     """
     try:
-        _ = parts.port  # attribute access triggers urlsplit's deferred port parse
+        port = parts.port
     except ValueError:
-        raise RuntimeError(
-            f"MCP resource URL has an invalid port — got {parts.netloc!r}.",
-        ) from None
+        raise RuntimeError(f"{label} has an invalid port — got {parts.netloc!r}.") from None
+    if port == 0:
+        raise RuntimeError(f"{label} port must be 1-65535 — got 0 in {parts.netloc!r}.")
+    return port
+
+
+def _is_ip_literal(host: str) -> bool:
+    """True if ``host`` is an IPv4/IPv6 literal (``CLERK_FRONTEND_API`` must be a DNS name)."""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def _canonical_scheme_netloc(parts: SplitResult) -> tuple[str, str]:
+    """
+    Canonicalize an authority: lowercase scheme + host, drop the scheme's default
+    port, keep a non-default port, and bracket IPv6 literals.
+
+    URI normalization *permits* omitting the default port and lowercasing host/scheme,
+    so the security layer must not depend on a client's Host serialization — deriving
+    one canonical authority (used for both the advertised ``resource`` and Host
+    validation) keeps discovery and enforcement from drifting apart. Assumes the port
+    has already been validated (``.port`` will not raise here).
+    """
+    scheme = parts.scheme.lower()
+    hostname = (parts.hostname or "").lower()
+    # urlsplit strips IPv6 brackets from .hostname; re-add them, or "::1:8002" results.
+    host = f"[{hostname}]" if ":" in hostname else hostname
+    port = parts.port
+    netloc = host if port is None or port == _DEFAULT_PORTS.get(scheme) else f"{host}:{port}"
+    return scheme, netloc
 
 
 def _clerk_authorization_server() -> str:
@@ -164,12 +201,20 @@ def _clerk_authorization_server() -> str:
         or authority.password
         or _has_port_component(authority)
         or not authority.hostname
+        # Contractually a Clerk DNS hostname: reject a trailing root dot (would make the
+        # issuer differ from Clerk's published, canonical one) and IP literals (Clerk is
+        # a DNS-only issuer and an IP can't form the issuer clients discover).
+        or authority.hostname.endswith(".")
+        or _is_ip_literal(authority.hostname)
     ):
         raise RuntimeError(
-            "CLERK_FRONTEND_API must be a bare hostname (no scheme, port, path, "
-            f"userinfo, query, or fragment), e.g. 'clerk.example.com' — got {frontend_api!r}.",
+            "CLERK_FRONTEND_API must be a bare DNS hostname (no scheme, port, path, "
+            "userinfo, query, fragment, trailing dot, or IP literal), e.g. "
+            f"'clerk.example.com' — got {frontend_api!r}.",
         )
-    return f"https://{frontend_api}"
+    # Build from the parsed, lowercased hostname so the advertised authorization-server
+    # issuer is canonical (RFC 8414 requires code-point-identical issuer comparison).
+    return f"https://{authority.hostname}"
 
 
 def build_oauth_config(resource_url: str, *, expected_path: str = "/mcp") -> OAuthConfig:
@@ -196,7 +241,7 @@ def build_oauth_config(resource_url: str, *, expected_path: str = "/mcp") -> OAu
         raise RuntimeError(
             f"MCP resource URL must not include userinfo — got {resource_url!r}.",
         )
-    _validate_resource_port(parts)
+    _validated_port(parts, "MCP resource URL")
     is_localhost = parts.hostname in _LOCALHOST_HOSTS
     if parts.scheme != "https" and not is_localhost:
         raise RuntimeError(
@@ -212,12 +257,15 @@ def build_oauth_config(resource_url: str, *, expected_path: str = "/mcp") -> OAu
             f"got {parts.path!r} in {resource_url!r}.",
         )
 
+    # Canonicalize the authority once (lowercase host, drop default port, bracket
+    # IPv6) so the advertised resource and the derived allowed-hosts share one
+    # identity and match the Host clients actually send. The path is preserved as-is.
+    scheme, netloc = _canonical_scheme_netloc(parts)
+    canonical_resource = urlunsplit((scheme, netloc, parts.path, "", ""))
     # RFC 9728 §3.1: insert the well-known segment between host and the resource path.
-    metadata_url = urlunsplit(
-        (parts.scheme, parts.netloc, f"{WELL_KNOWN_PATH}{parts.path}", "", ""),
-    )
+    metadata_url = urlunsplit((scheme, netloc, f"{WELL_KNOWN_PATH}{parts.path}", "", ""))
     return OAuthConfig(
-        resource_url=resource_url,
+        resource_url=canonical_resource,
         authorization_server=_clerk_authorization_server(),
         metadata_url=metadata_url,
     )
@@ -261,6 +309,103 @@ def cors_middleware() -> Middleware:
         allow_methods=_ALLOW_METHODS,
         allow_headers=_ALLOW_HEADERS,
         expose_headers=_EXPOSE_HEADERS,
+    )
+
+
+def _normalize_origin(value: str, env_var: str) -> str:
+    """
+    Validate and canonicalize one browser-``Origin`` allowlist entry.
+
+    A browser serializes ``Origin`` as a bare ``scheme://host[:port]`` (no path, no
+    trailing slash, lowercase, default port omitted). So a raw operator value like
+    ``https://connector.example/`` would never match — canonicalize to that form and
+    reject anything that isn't an origin (path, userinfo, query, fragment, stray
+    characters, bad scheme/port). SDK ``:*`` wildcard-port patterns are deliberately
+    not supported — list exact origins.
+    """
+    _reject_bad_authority_chars(value, env_var)
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https"):
+        raise RuntimeError(
+            f"{env_var} entries must be http(s) origins — got {value!r}.",
+        )
+    if not parts.hostname:
+        raise RuntimeError(f"{env_var} entries must include a host — got {value!r}.")
+    if parts.username or parts.password:
+        raise RuntimeError(f"{env_var} entries must not include userinfo — got {value!r}.")
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        raise RuntimeError(
+            f"{env_var} entries must be bare origins with no path/query/fragment — "
+            f"got {value!r}.",
+        )
+    # A browser origin that can make authenticated cross-origin calls must be TLS —
+    # a plain-HTTP remote origin is network-tamperable. Only loopback may use http.
+    if parts.scheme != "https" and parts.hostname not in _LOCALHOST_HOSTS:
+        raise RuntimeError(
+            f"{env_var} entries must be HTTPS (except loopback dev origins) — got {value!r}.",
+        )
+    _validated_port(parts, f"{env_var} entry")
+    scheme, netloc = _canonical_scheme_netloc(parts)
+    return f"{scheme}://{netloc}"
+
+
+def parse_allowed_origins(env_var: str = "MCP_ALLOWED_ORIGINS") -> list[str]:
+    """
+    Parse, validate, and canonicalize the comma-separated browser-``Origin`` allowlist
+    for the ``/mcp`` transport.
+
+    Empty by default — the Origin policy fails closed (see
+    :func:`build_transport_security_settings`): server-side connectors omit ``Origin``
+    and are unaffected; browser origins must be explicitly allowlisted. A malformed
+    entry raises at startup (fail fast) rather than silently never matching. Production
+    origins are populated here during the connector verification ladder. Order-preserving
+    dedupe.
+    """
+    raw = os.getenv(env_var, "")
+    origins = [_normalize_origin(item.strip(), env_var) for item in raw.split(",") if item.strip()]
+    return list(dict.fromkeys(origins))
+
+
+def build_transport_security_settings(
+    config: OAuthConfig, allowed_origins: list[str],
+) -> TransportSecuritySettings:
+    """
+    Build the MCP SDK's DNS-rebinding protection for the ``/mcp`` transport.
+
+    ``allowed_hosts`` is the canonical authority of the (already-canonicalized) resource
+    URL — the ``host[:port]`` clients connect to — always included, plus loopback
+    aliases (``localhost``/``127.0.0.1``/``[::1]`` on the same port) when the resource
+    host is a loopback form, so any local access path works. It is not
+    connector-dependent. The ``Origin`` policy **fails closed**: a request with no
+    ``Origin`` (server-side connectors) passes, but a browser ``Origin`` must be in
+    ``allowed_origins`` — otherwise the SDK rejects it (``403``). Host mismatch is
+    rejected (``421``). Applies only to the MCP transport, not ``/health`` or the public
+    well-known metadata routes.
+    """
+    parts = urlsplit(config.resource_url)  # already canonical (default port stripped)
+    hostname = parts.hostname or ""
+    host = f"[{hostname}]" if ":" in hostname else hostname  # bracket IPv6 for the authority
+    port = parts.port
+
+    # Base authority hosts: the canonical host, plus loopback aliases when local.
+    bases = [host]
+    if hostname in _LOCALHOST_HOSTS:
+        bases += ["localhost", "127.0.0.1", "[::1]"]
+
+    # One port rule applied uniformly to every base: a default-port endpoint accepts
+    # both the bare and explicit-default Host serializations (same endpoint, no
+    # security cost); a non-default port is mandatory on every base.
+    allowed_hosts: list[str] = []
+    for base in bases:
+        if port is None:
+            allowed_hosts += [base, f"{base}:{_DEFAULT_PORTS[parts.scheme]}"]
+        else:
+            allowed_hosts.append(f"{base}:{port}")
+
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=list(dict.fromkeys(allowed_hosts)),
+        allowed_origins=list(allowed_origins),
     )
 
 

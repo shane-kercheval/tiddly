@@ -55,6 +55,9 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     os.environ["CLERK_FRONTEND_API"] = "test-instance.clerk.accounts.dev"
     os.environ["CONTENT_MCP_RESOURCE_URL"] = "http://localhost:8001/mcp"
     os.environ["PROMPT_MCP_RESOURCE_URL"] = "http://localhost:8002/mcp"
+    # A known browser-Origin allowlist so the env->session-manager seam is exercised
+    # end to end by the full-app transport-security test (import-time read).
+    os.environ["MCP_ALLOWED_ORIGINS"] = "https://connector.test"
     os.environ.pop("MCP_RESOURCE_URL", None)  # legacy shared var — must not leak in
 
 

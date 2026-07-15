@@ -33,29 +33,53 @@ async def test__mcp_endpoint__exists() -> None:
         async with session_manager.run():
             yield
 
+    # base_url Host must match the transport's allowed_hosts (derived from the pinned
+    # PROMPT_MCP_RESOURCE_URL = http://localhost:8002/mcp) now that DNS-rebinding
+    # protection is enabled.
     async with lifespan_context():
         async with AsyncClient(
             transport=ASGITransport(app=app),
-            base_url="http://test",
+            base_url="http://localhost:8002",
         ) as client:
             # Test /mcp without trailing slash works (no redirect). A bearer is
             # required to pass the ProtectedResourceGate before reaching dispatch;
             # its value is not verified at the proxy, so any token gets past the gate.
-            response = await client.post(
-                "/mcp",
-                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {
+            request = {
+                "jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
                     "clientInfo": {"name": "test", "version": "1.0.0"},
-                }},
-                headers={"Accept": "application/json", "Authorization": "Bearer bm_test"},
-            )
+                },
+            }
+            headers = {"Accept": "application/json", "Authorization": "Bearer bm_test"}
+            response = await client.post("/mcp", json=request, headers=headers)
 
             # The endpoint exists and responds (not a redirect or 404)
             assert response.status_code == 200
             data = response.json()
             assert data.get("jsonrpc") == "2.0"
             assert "result" in data
+
+            # Transport-security is live: a bearer-carrying request (past the gate)
+            # with a foreign Host is rejected by DNS-rebinding protection (421),
+            # proving the settings are wired, not just constructed.
+            rebind = await client.post(
+                "/mcp", json=request, headers={**headers, "Host": "evil.example.com"},
+            )
+            assert rebind.status_code == 421
+
+            # The env-configured Origin allowlist (MCP_ALLOWED_ORIGINS, pinned in the
+            # root conftest) reaches the session manager: the allowlisted browser Origin
+            # is honored, an unknown one fails closed (403). Proves the env->app seam,
+            # which the unit tests cannot.
+            allowed = await client.post(
+                "/mcp", json=request, headers={**headers, "Origin": "https://connector.test"},
+            )
+            assert allowed.status_code == 200
+            unknown = await client.post(
+                "/mcp", json=request, headers={**headers, "Origin": "https://attacker.test"},
+            )
+            assert unknown.status_code == 403
 
 
 async def test__auth_middleware__extracts_bearer_token_from_header() -> None:

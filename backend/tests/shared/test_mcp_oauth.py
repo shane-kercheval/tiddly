@@ -2,6 +2,7 @@
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from mcp.server.transport_security import TransportSecurityMiddleware
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
@@ -15,9 +16,11 @@ from shared.mcp_oauth import (
     ProtectedResourceGate,
     build_oauth_config,
     build_protected_resource_metadata,
+    build_transport_security_settings,
     cors_middleware,
     is_mcp_request_path,
     make_metadata_endpoint,
+    parse_allowed_origins,
     require_resource_url,
 )
 
@@ -105,6 +108,55 @@ def test__build_oauth_config__allows_localhost_http(monkeypatch: pytest.MonkeyPa
     )
 
 
+def test__build_oauth_config__canonicalizes_case_and_default_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uppercase host + explicit default port are canonicalized to the form clients send."""
+    monkeypatch.setenv("CLERK_FRONTEND_API", "clerk.example.com")
+
+    config = build_oauth_config("HTTPS://EXAMPLE.COM:443/mcp")
+
+    assert config.resource_url == "https://example.com/mcp"
+    assert config.metadata_url == "https://example.com/.well-known/oauth-protected-resource/mcp"
+    # The advertised authority and the Host allowlist share one canonical identity;
+    # both default-port serializations are accepted.
+    assert build_transport_security_settings(config, []).allowed_hosts == [
+        "example.com", "example.com:443",
+    ]
+
+
+def test__build_oauth_config__canonicalizes_ipv6_localhost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IPv6 literal keeps its brackets in resource + allowed_hosts (no '::1:8002')."""
+    monkeypatch.setenv("CLERK_FRONTEND_API", "clerk.example.com")
+
+    config = build_oauth_config("http://[::1]:8002/mcp")
+
+    assert config.resource_url == "http://[::1]:8002/mcp"
+    assert config.metadata_url == (
+        "http://[::1]:8002/.well-known/oauth-protected-resource/mcp"
+    )
+    # Canonical [::1] authority is included, alongside the other loopback aliases.
+    assert build_transport_security_settings(config, []).allowed_hosts == [
+        "[::1]:8002", "localhost:8002", "127.0.0.1:8002",
+    ]
+
+
+def test__build_oauth_config__does_not_alias_localhost_in_resource(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Loopback aliases live only in allowed_hosts — the resource identity is preserved."""
+    monkeypatch.setenv("CLERK_FRONTEND_API", "clerk.example.com")
+
+    config = build_oauth_config("http://localhost:8002/mcp")
+
+    assert config.resource_url == "http://localhost:8002/mcp"  # not rewritten to 127.0.0.1
+    assert build_transport_security_settings(config, []).allowed_hosts == [
+        "localhost:8002", "127.0.0.1:8002", "[::1]:8002",
+    ]
+
+
 def test__build_oauth_config__raises_when_clerk_frontend_api_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -130,7 +182,7 @@ def test__build_oauth_config__rejects_malformed_clerk_frontend_api(
 ) -> None:
     monkeypatch.setenv("CLERK_FRONTEND_API", bad_clerk)
 
-    with pytest.raises(RuntimeError, match="bare hostname"):
+    with pytest.raises(RuntimeError, match="bare DNS hostname"):
         build_oauth_config(RESOURCE_URL)
 
 
@@ -140,6 +192,27 @@ def test__build_oauth_config__rejects_clerk_frontend_api_with_whitespace(
     monkeypatch.setenv("CLERK_FRONTEND_API", "clerk .example.com")
 
     with pytest.raises(RuntimeError, match="whitespace, control, or backslash"):
+        build_oauth_config(RESOURCE_URL)
+
+
+def test__build_oauth_config__canonicalizes_clerk_hostname_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uppercase Clerk host -> canonical (lowercase) issuer, per RFC 8414 matching."""
+    monkeypatch.setenv("CLERK_FRONTEND_API", "CLERK.Example.COM")
+
+    config = build_oauth_config(RESOURCE_URL)
+
+    assert config.authorization_server == "https://clerk.example.com"
+
+
+@pytest.mark.parametrize("bad_clerk", ["clerk.example.com.", "::1", "[::1]", "127.0.0.1"])
+def test__build_oauth_config__rejects_clerk_trailing_dot_or_ip_literal(
+    monkeypatch: pytest.MonkeyPatch, bad_clerk: str,
+) -> None:
+    monkeypatch.setenv("CLERK_FRONTEND_API", bad_clerk)
+
+    with pytest.raises(RuntimeError, match="bare DNS hostname"):
         build_oauth_config(RESOURCE_URL)
 
 
@@ -166,6 +239,7 @@ def test__build_oauth_config__allows_valid_explicit_resource_port(
         ("http://host/mcp", "HTTPS"),  # non-localhost http
         ("https://user@host/mcp", "userinfo"),
         ("https://host:notaport/mcp", "invalid port"),  # deferred-parse port footgun
+        ("https://host:0/mcp", "1-65535"),  # port 0 parses but isn't connectable
         ("https://host/mcp?x=1", "query or fragment"),
         ("https://host/mcp#frag", "query or fragment"),
         ("https://host/other", "path must be"),
@@ -365,3 +439,199 @@ async def test__gate__401_challenge_exposes_www_authenticate_to_browser() -> Non
     assert response.status_code == 401
     assert response.headers["access-control-allow-origin"] == "*"
     assert "www-authenticate" in response.headers["access-control-expose-headers"].lower()
+
+
+# ---------------------------------------------------------------------------
+# transport security (DNS-rebinding Host/Origin) — parse_allowed_origins +
+# build_transport_security_settings, verified through the SDK middleware.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, []),
+        ("", []),
+        ("  ", []),
+        ("https://a.example", ["https://a.example"]),
+        (" https://a.example , https://b.example ", ["https://a.example", "https://b.example"]),
+        # canonicalization: trailing slash stripped, host lowercased, default port dropped
+        ("https://Connector.Example/", ["https://connector.example"]),
+        ("https://a.example:443", ["https://a.example"]),
+        ("http://localhost:80", ["http://localhost"]),  # http allowed for loopback; :80 stripped
+        # order-preserving dedupe after canonicalization
+        ("https://a.example/, https://A.EXAMPLE", ["https://a.example"]),
+        # non-default port preserved
+        ("http://localhost:6274", ["http://localhost:6274"]),
+    ],
+)
+def test__parse_allowed_origins__parses_and_canonicalizes(
+    monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: list[str],
+) -> None:
+    if raw is None:
+        monkeypatch.delenv("MCP_ALLOWED_ORIGINS", raising=False)
+    else:
+        monkeypatch.setenv("MCP_ALLOWED_ORIGINS", raw)
+
+    assert parse_allowed_origins() == expected
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "connector.example",  # no scheme
+        "ftp://connector.example",  # bad scheme
+        "https://user@connector.example",  # userinfo
+        "https://connector.example/app",  # path
+        "https://connector.example?x=1",  # query
+        "https://connector.example:notaport",  # malformed port
+        "https://connector.example:0",  # port 0
+        "https://connector .example",  # whitespace
+        "http://connector.example",  # remote http — not TLS
+    ],
+)
+def test__parse_allowed_origins__rejects_malformed(
+    monkeypatch: pytest.MonkeyPatch, bad: str,
+) -> None:
+    monkeypatch.setenv("MCP_ALLOWED_ORIGINS", bad)
+
+    with pytest.raises(RuntimeError, match="MCP_ALLOWED_ORIGINS"):
+        parse_allowed_origins()
+
+
+@pytest.mark.parametrize(
+    "origin",
+    ["http://localhost:6274", "http://127.0.0.1:6274", "http://[::1]:6274"],
+)
+def test__parse_allowed_origins__allows_http_for_loopback(
+    monkeypatch: pytest.MonkeyPatch, origin: str,
+) -> None:
+    """Plain http is permitted for loopback dev origins only."""
+    monkeypatch.setenv("MCP_ALLOWED_ORIGINS", origin)
+
+    assert parse_allowed_origins() == [origin]
+
+
+def test__transport_security__derives_host_from_production_resource() -> None:
+    settings = build_transport_security_settings(CONFIG, [])
+
+    assert settings.enable_dns_rebinding_protection is True
+    # Default-port (https) endpoint: accept both Host serializations.
+    assert settings.allowed_hosts == ["content-mcp.example.com", "content-mcp.example.com:443"]
+    assert settings.allowed_origins == []
+
+
+def test__transport_security__default_port_expands_every_loopback_alias() -> None:
+    """Default-port loopback: each alias gets both the bare and explicit-default form."""
+    cfg = OAuthConfig(
+        resource_url="http://localhost/mcp",
+        authorization_server="https://clerk.example.com",
+        metadata_url="http://localhost/.well-known/oauth-protected-resource/mcp",
+    )
+
+    assert build_transport_security_settings(cfg, []).allowed_hosts == [
+        "localhost", "localhost:80",
+        "127.0.0.1", "127.0.0.1:80",
+        "[::1]", "[::1]:80",
+    ]
+
+
+def test__transport_security__non_default_port_is_sole_authority() -> None:
+    """A non-default explicit port authorizes only that exact authority (no bare host)."""
+    cfg = OAuthConfig(
+        resource_url="https://host.example.com:8443/mcp",
+        authorization_server="https://clerk.example.com",
+        metadata_url="https://host.example.com:8443/.well-known/oauth-protected-resource/mcp",
+    )
+
+    assert build_transport_security_settings(cfg, []).allowed_hosts == ["host.example.com:8443"]
+
+
+def test__transport_security__adds_loopback_siblings_for_localhost() -> None:
+    local = OAuthConfig(
+        resource_url="http://localhost:8002/mcp",
+        authorization_server="https://clerk.example.com",
+        metadata_url="http://localhost:8002/.well-known/oauth-protected-resource/mcp",
+    )
+
+    settings = build_transport_security_settings(local, [])
+
+    assert settings.allowed_hosts == ["localhost:8002", "127.0.0.1:8002", "[::1]:8002"]
+
+
+def _post_request(headers: dict[str, str]) -> Request:
+    raw = [(k.lower().encode(), v.encode()) for k, v in headers.items()]
+    return Request({"type": "http", "method": "POST", "headers": raw})
+
+
+async def test__transport_security__allows_canonical_host_no_origin() -> None:
+    """Server-side connector: canonical Host, no Origin, JSON body -> passes."""
+    mw = TransportSecurityMiddleware(build_transport_security_settings(CONFIG, []))
+
+    result = await mw.validate_request(
+        _post_request({"host": "content-mcp.example.com", "content-type": "application/json"}),
+        is_post=True,
+    )
+
+    assert result is None
+
+
+async def test__transport_security__accepts_explicit_default_port_host() -> None:
+    """A client that serializes Host with the explicit default port still matches."""
+    mw = TransportSecurityMiddleware(build_transport_security_settings(CONFIG, []))
+
+    result = await mw.validate_request(
+        _post_request({
+            "host": "content-mcp.example.com:443",
+            "content-type": "application/json",
+        }),
+        is_post=True,
+    )
+
+    assert result is None
+
+
+async def test__transport_security__rejects_foreign_host() -> None:
+    mw = TransportSecurityMiddleware(build_transport_security_settings(CONFIG, []))
+
+    result = await mw.validate_request(
+        _post_request({"host": "evil.example.com", "content-type": "application/json"}),
+        is_post=True,
+    )
+
+    assert result is not None
+    assert result.status_code == 421
+
+
+async def test__transport_security__origin_fails_closed_by_default() -> None:
+    """An unknown browser Origin is rejected (403) when the allowlist is empty."""
+    mw = TransportSecurityMiddleware(build_transport_security_settings(CONFIG, []))
+
+    result = await mw.validate_request(
+        _post_request({
+            "host": "content-mcp.example.com",
+            "origin": "https://attacker.example",
+            "content-type": "application/json",
+        }),
+        is_post=True,
+    )
+
+    assert result is not None
+    assert result.status_code == 403
+
+
+async def test__transport_security__allows_allowlisted_origin() -> None:
+    mw = TransportSecurityMiddleware(
+        build_transport_security_settings(CONFIG, ["https://client.example"]),
+    )
+
+    result = await mw.validate_request(
+        _post_request({
+            "host": "content-mcp.example.com",
+            "origin": "https://client.example",
+            "content-type": "application/json",
+        }),
+        is_post=True,
+    )
+
+    assert result is None

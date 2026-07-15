@@ -21,8 +21,10 @@ from shared.mcp_oauth import (
     WELL_KNOWN_PATH_SUFFIXED,
     ProtectedResourceGate,
     build_oauth_config,
+    build_transport_security_settings,
     cors_middleware,
     make_metadata_endpoint,
+    parse_allowed_origins,
     require_resource_url,
 )
 
@@ -40,12 +42,18 @@ RESOURCE_URL = require_resource_url("PROMPT_MCP_RESOURCE_URL")
 # process before it serves, instead of surfacing as a 500 to the first OAuth client.
 OAUTH_CONFIG = build_oauth_config(RESOURCE_URL)
 
-# Create session manager for streamable HTTP transport
+# Create session manager for streamable HTTP transport. DNS-rebinding protection
+# (Host/Origin validation) is enabled on the /mcp transport, derived from this
+# server's validated resource URL; the Origin allowlist fails closed (see
+# build_transport_security_settings). Off by default in the SDK — must be passed.
 session_manager = StreamableHTTPSessionManager(
     app=server,
     event_store=None,
     json_response=True,
     stateless=True,
+    security_settings=build_transport_security_settings(
+        OAUTH_CONFIG, parse_allowed_origins(),
+    ),
 )
 
 
