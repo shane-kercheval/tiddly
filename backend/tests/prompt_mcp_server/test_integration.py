@@ -38,7 +38,9 @@ async def test__mcp_endpoint__exists() -> None:
             transport=ASGITransport(app=app),
             base_url="http://test",
         ) as client:
-            # Test /mcp without trailing slash works (no redirect)
+            # Test /mcp without trailing slash works (no redirect). A bearer is
+            # required to pass the ProtectedResourceGate before reaching dispatch;
+            # its value is not verified at the proxy, so any token gets past the gate.
             response = await client.post(
                 "/mcp",
                 json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {
@@ -46,7 +48,7 @@ async def test__mcp_endpoint__exists() -> None:
                     "capabilities": {},
                     "clientInfo": {"name": "test", "version": "1.0.0"},
                 }},
-                headers={"Accept": "application/json"},
+                headers={"Accept": "application/json", "Authorization": "Bearer bm_test"},
             )
 
             # The endpoint exists and responds (not a redirect or 404)
