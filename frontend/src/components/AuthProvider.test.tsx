@@ -143,24 +143,7 @@ describe('AuthProvider', () => {
   })
 
   describe('account-deletion terminal teardown', () => {
-    const realLocation = window.location
-    let replaceMock: ReturnType<typeof vi.fn>
-
-    beforeEach(() => {
-      replaceMock = vi.fn()
-      Object.defineProperty(window, 'location', {
-        configurable: true,
-        writable: true,
-        value: { origin: 'http://localhost:3000', replace: replaceMock },
-      })
-    })
-
     afterEach(() => {
-      Object.defineProperty(window, 'location', {
-        configurable: true,
-        writable: true,
-        value: realLocation,
-      })
       // Reset the real stores/localStorage this teardown mutates so it can't leak.
       useAIStore.getState().clearAllKeys()
       useSessionExpiryStore.getState().reset()
@@ -181,16 +164,14 @@ describe('AuthProvider', () => {
       return fn as () => void
     }
 
-    it("clears the deleted user's BYOK keys + drafts and reaches the terminal page", async () => {
+    it("clears the deleted user's BYOK keys + drafts and navigates to the terminal page", async () => {
       useAIStore.getState().setApiKey('suggestions', 'sk-secret')
       localStorage.setItem('tiddly:draft:note:x', 'draft')
 
       const onAccountDeleted = await getOnAccountDeleted()
       onAccountDeleted()
 
-      await waitFor(() =>
-        expect(replaceMock).toHaveBeenCalledWith('http://localhost:3000/account-deleted'),
-      )
+      expect(mockNavigate).toHaveBeenCalledWith('/account-deleted', { replace: true })
       expect(useAIStore.getState().useCaseConfigs.suggestions.apiKey).toBeNull()
       expect(localStorage.getItem('tiddly:draft:note:x')).toBeNull()
       expect(queryClient.clear).toHaveBeenCalled()
@@ -198,15 +179,24 @@ describe('AuthProvider', () => {
       expect(mockSignOut).toHaveBeenCalled()
     })
 
-    it('reaches the terminal page even when sign-out fails', async () => {
+    it('navigates to the terminal page even when sign-out rejects', async () => {
       mockSignOut.mockRejectedValueOnce(new Error('signout failed'))
 
       const onAccountDeleted = await getOnAccountDeleted()
       onAccountDeleted()
 
-      await waitFor(() =>
-        expect(replaceMock).toHaveBeenCalledWith('http://localhost:3000/account-deleted'),
-      )
+      expect(mockNavigate).toHaveBeenCalledWith('/account-deleted', { replace: true })
+    })
+
+    it('still navigates when a cleanup step throws (best-effort teardown)', async () => {
+      vi.mocked(queryClient.clear).mockImplementationOnce(() => {
+        throw new Error('storage unavailable')
+      })
+
+      const onAccountDeleted = await getOnAccountDeleted()
+      onAccountDeleted()
+
+      expect(mockNavigate).toHaveBeenCalledWith('/account-deleted', { replace: true })
     })
   })
 

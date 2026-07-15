@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { DRAFT_KEY_PREFIX, draftKey, clearAllDrafts } from './drafts'
 
 describe('drafts', () => {
@@ -24,5 +24,16 @@ describe('drafts', () => {
     expect(localStorage.getItem(draftKey('bookmark', 'new'))).toBeNull()
     expect(localStorage.getItem('unrelated:key')).toBe('keep')
     expect(localStorage.getItem('tiddly:other')).toBe('keep2')
+  })
+
+  it('clearAllDrafts is best-effort — a storage error does not throw', () => {
+    localStorage.setItem(draftKey('note', '1'), 'a')
+    const spy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('storage unavailable')
+    })
+
+    expect(() => clearAllDrafts()).not.toThrow()
+
+    spy.mockRestore()
   })
 })
