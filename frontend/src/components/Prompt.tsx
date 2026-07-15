@@ -35,6 +35,9 @@ import { useLimits, PUBLIC_VIEW_LIMITS } from '../hooks/useLimits'
 import { useRightSidebarStore } from '../stores/rightSidebarStore'
 import { extractTemplateVariables } from '../utils/extractTemplateVariables'
 import { useDiscardConfirmation } from '../hooks/useDiscardConfirmation'
+import { useDraftAutosave } from '../hooks/useDraftAutosave'
+import { draftKey } from '../utils/drafts'
+import { DraftRestorePrompt } from './DraftRestorePrompt'
 import { useSaveAndClose } from '../hooks/useSaveAndClose'
 import { useStaleCheck } from '../hooks/useStaleCheck'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -399,6 +402,26 @@ export function Prompt({
     [current, original]
   )
 
+  // Draft autosave (plan M3 step 8): protects unsaved work against tab close,
+  // crash, power loss, and expired sessions. Keyed per item; 'new' covers a
+  // not-yet-created one. Cleared automatically when a save lands (isDirty
+  // falls false); a lingering draft surfaces as the restore prompt below.
+  const { pendingDraft, restoreDraft, discardDraft, clearDraft } = useDraftAutosave<PromptState>({
+    storageKey: draftKey('prompt', prompt?.id ?? 'new'),
+    current,
+    isDirty,
+    disabled: isReadOnly,
+  })
+
+  const handleRestoreDraft = (): void => {
+    const draft = restoreDraft()
+    if (draft) {
+      setCurrent(draft)
+      // Remount the editor so it picks up the restored content.
+      setContentKey((prev) => prev + 1)
+    }
+  }
+
   // Compute validity for save button (doesn't show error messages, just checks if saveable)
   const isValid = useMemo(() => {
     const nameValid =
@@ -737,6 +760,9 @@ export function Prompt({
         archivedAt: current.archivedAt,
         archivePreset: current.archivePreset,
       })
+      // Immediately after a successful save, while the closure still holds the
+      // pre-save storage key (':new' for creates, before navigation re-keys it).
+      clearDraft()
 
       // Close if requested (Cmd+Shift+S)
       if (checkAndClose()) return
@@ -1060,6 +1086,14 @@ export function Prompt({
                 This prompt is in trash and cannot be edited. Restore it to make changes.
               </p>
             </div>
+          )}
+
+          {pendingDraft && (
+            <DraftRestorePrompt
+              savedAt={pendingDraft.savedAt}
+              onRestore={handleRestoreDraft}
+              onDiscard={discardDraft}
+            />
           )}
 
           {/* Name (primary identifier, monospace) */}

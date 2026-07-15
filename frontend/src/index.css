@@ -144,6 +144,15 @@ body {
     @apply border-red-200 bg-red-50/50 focus:border-red-300 focus:ring-red-500/10;
   }
 
+  /* While the session is expired (re-auth dialog or banner up), the page
+     behind is inert: parked requests hold widgets in their loading state, and
+     an animated spinner back there reads as breakage rather than waiting.
+     Hidden, not unmounted - layout stays put and everything resumes on
+     re-auth. The body class is toggled by SessionExpiredDialog. */
+  body.session-expired :is(.animate-spin, .spinner, .spinner-xs, .spinner-sm, .spinner-md, .spinner-lg, .spinner-ai) {
+    visibility: hidden;
+  }
+
   /* Loading spinner */
   .spinner {
     @apply animate-spin rounded-full border-2 border-gray-200 border-t-gray-900;
@@ -749,4 +758,39 @@ body {
     visibility: hidden !important;
     opacity: 0 !important;
   }
+}
+
+/* Make the mounted <UserProfile /> (Settings -> Account) read as page
+   structure rather than an embedded widget: fill the settings column and the
+   remaining viewport height, and strip the card chrome (shadow, border,
+   rounding) so the gray navbar column reads as a native two-pane settings
+   layout. Targets Clerk's stable cl-* classes (their documented CSS escape
+   hatch).
+   MUST live OUTSIDE the Tailwind @layer blocks: Clerk injects its stylesheet
+   unlayered at runtime, and unlayered CSS beats layered CSS regardless of
+   specificity - inside @layer components these rules silently lose. The
+   !important guards against Clerk's higher-specificity internal selectors. */
+.clerk-user-profile .cl-rootBox,
+.clerk-user-profile .cl-userProfile-root {
+  width: 100% !important;
+}
+.clerk-user-profile .cl-cardBox {
+  width: 100% !important;
+  max-width: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  /* 100dvh minus the settings footer (h-12 + 1px border-t, Footer.tsx) — the
+     page cancels the content wrapper's padding with negative margins, so the
+     footer is the only other thing in the column. */
+  min-height: calc(100dvh - 49px);
+}
+/* The navbar and the white content pane keep their own rounding even with the
+   cardBox squared — zero both or their corners peek through as notches. */
+.clerk-user-profile .cl-navbar,
+.clerk-user-profile .cl-scrollBox {
+  border-radius: 0 !important;
+}
+.clerk-user-profile .cl-card {
+  box-shadow: none !important;
 }

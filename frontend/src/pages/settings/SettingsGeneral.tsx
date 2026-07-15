@@ -4,12 +4,10 @@
  * Allows users to configure layout and display options.
  */
 import type { ReactNode } from 'react'
-import { useAuthStatus } from '../../hooks/useAuthStatus'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { useUIPreferencesStore } from '../../stores/uiPreferencesStore'
 import { useLimits } from '../../hooks/useLimits'
 import { Link } from 'react-router-dom'
-import { isDevMode } from '../../config'
 import { formatShortcut } from '../../utils/platform'
 import { getShortcut } from '../../shortcuts/registry'
 
@@ -26,7 +24,6 @@ function formatItemCount(count: number): string {
 export function SettingsGeneral(): ReactNode {
   usePageTitle('Settings')
   const { fullWidthLayout, toggleFullWidthLayout } = useUIPreferencesStore()
-  const { userEmail } = useAuthStatus()
   const { limits, isLoading: isLoadingLimits, error: limitsError } = useLimits()
 
   return (
@@ -79,29 +76,6 @@ export function SettingsGeneral(): ReactNode {
                 }`}
               />
             </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Account Section */}
-      <div className="mt-8 space-y-6">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">Account</h2>
-          <p className="mt-1 text-sm text-gray-500">
-            Your account information.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-gray-200 bg-white">
-          <div className="flex items-center justify-between p-4">
-            <div>
-              <h3 className="text-sm font-medium text-gray-900">Logged in as</h3>
-              {isDevMode ? (
-                <p className="text-sm text-yellow-700 font-medium">Dev User</p>
-              ) : (
-                <p className="text-sm text-gray-500">{userEmail}</p>
-              )}
-            </div>
           </div>
         </div>
       </div>

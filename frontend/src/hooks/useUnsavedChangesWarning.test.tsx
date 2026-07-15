@@ -1,12 +1,13 @@
 /**
  * Tests for useUnsavedChangesWarning hook.
  */
-import { describe, it, expect } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { describe, it, expect, afterEach } from 'vitest'
+import { renderHook, render, screen, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useUnsavedChangesWarning } from './useUnsavedChangesWarning'
+import { useSessionExpiryStore } from '../stores/sessionExpiryStore'
 
 describe('useUnsavedChangesWarning', () => {
   describe('without data router (MemoryRouter)', () => {
@@ -323,6 +324,48 @@ describe('useUnsavedChangesWarning', () => {
       renderHook(() => null, {
         wrapper: () => wrapper,
       })
+    })
+  })
+
+  describe('account-deletion terminal transition (blocker exemption)', () => {
+    afterEach(() => {
+      useSessionExpiryStore.setState({ accountDeleted: false })
+    })
+
+    function DirtyEditor(): ReactNode {
+      const { showDialog } = useUnsavedChangesWarning(true)
+      return <div>{showDialog ? 'BLOCKED' : 'editor'}</div>
+    }
+
+    function renderWithRouter(): ReturnType<typeof createMemoryRouter> {
+      const router = createMemoryRouter(
+        [
+          { path: '/', element: <DirtyEditor /> },
+          { path: '/account-deleted', element: <div>DELETED PAGE</div> },
+        ],
+        { initialEntries: ['/'] },
+      )
+      render(<RouterProvider router={router} />)
+      return router
+    }
+
+    it('blocks navigation away from a dirty editor by default', async () => {
+      const router = renderWithRouter()
+      await act(async () => {
+        await router.navigate('/account-deleted')
+      })
+      expect(screen.getByText('BLOCKED')).toBeDefined()
+      expect(screen.queryByText('DELETED PAGE')).toBeNull()
+    })
+
+    it('does NOT block the forced navigation when the account-deleted flag is set', async () => {
+      // Set the terminal flag first — the blocker predicate reads it at nav time.
+      useSessionExpiryStore.getState().markAccountDeleted()
+      const router = renderWithRouter()
+      await act(async () => {
+        await router.navigate('/account-deleted')
+      })
+      expect(screen.getByText('DELETED PAGE')).toBeDefined()
     })
   })
 })

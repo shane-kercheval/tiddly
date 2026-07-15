@@ -14,10 +14,8 @@ describe('config', () => {
     expect(config).toBeDefined()
     expect(config.apiUrl).toBeDefined()
     expect(typeof config.apiUrl).toBe('string')
-    expect(config.auth0).toBeDefined()
-    expect(config.auth0).toHaveProperty('domain')
-    expect(config.auth0).toHaveProperty('clientId')
-    expect(config.auth0).toHaveProperty('audience')
+    expect(config.clerk).toBeDefined()
+    expect(config.clerk).toHaveProperty('publishableKey')
   })
 
   it('should default apiUrl to localhost:8000', async () => {
@@ -37,20 +35,22 @@ describe('isDevMode', () => {
     delete (import.meta.env as Record<string, unknown>).VITE_DEV_MODE
   })
 
-  it('should be true when auth0 domain is empty', async () => {
-    ;(import.meta.env as Record<string, unknown>).VITE_AUTH0_DOMAIN = ''
+  it('should be true when the Clerk publishable key is empty', async () => {
+    // Preserved semantic from the Auth0 era: a missing provider key falls back
+    // to dev mode rather than a broken login.
+    ;(import.meta.env as Record<string, unknown>).VITE_CLERK_PUBLISHABLE_KEY = ''
     const { isDevMode } = await import('./config')
     expect(isDevMode).toBe(true)
   })
 
-  it('should be false when auth0 domain is configured and VITE_DEV_MODE is not set', async () => {
-    ;(import.meta.env as Record<string, unknown>).VITE_AUTH0_DOMAIN = 'test.auth0.com'
+  it('should be false when the key is configured and VITE_DEV_MODE is not set', async () => {
+    ;(import.meta.env as Record<string, unknown>).VITE_CLERK_PUBLISHABLE_KEY = 'pk_test_abc'
     const { isDevMode } = await import('./config')
     expect(isDevMode).toBe(false)
   })
 
-  it('should be true when VITE_DEV_MODE is true even with auth0 domain configured', async () => {
-    ;(import.meta.env as Record<string, unknown>).VITE_AUTH0_DOMAIN = 'test.auth0.com'
+  it('should be true when VITE_DEV_MODE is true even with the key configured', async () => {
+    ;(import.meta.env as Record<string, unknown>).VITE_CLERK_PUBLISHABLE_KEY = 'pk_test_abc'
     ;(import.meta.env as Record<string, unknown>).VITE_DEV_MODE = 'true'
     const { isDevMode } = await import('./config')
     expect(isDevMode).toBe(true)
