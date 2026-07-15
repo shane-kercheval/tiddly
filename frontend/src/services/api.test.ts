@@ -538,7 +538,31 @@ describe('setupAuthInterceptor', () => {
       }
       if (errorHandler) await expect(errorHandler(errorB)).rejects.toBe(errorB)
 
-      await Promise.resolve() // flush the microtask-deferred handler calls
+      expect(mockOnAccountDeleted).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries a later response for the same identity if the first teardown throws', async () => {
+      mockGetActiveUserId.mockReturnValue('userA')
+      // First invocation throws (e.g. navigate fails); it must NOT latch the
+      // identity off permanently — a later response for the same id retries.
+      mockOnAccountDeleted.mockImplementationOnce(() => {
+        throw new Error('nav boom')
+      })
+      setupAuthInterceptor(vi.fn(), mockOnAccountDeleted, mockGetActiveUserId)
+      const errorHandler = getErrorHandler()
+      const make = (): unknown => ({
+        response: { status: 401, data: { error_code: 'account_deleted' } },
+        config: { headers: {}, _senderUserId: 'userA' },
+        isAxiosError: true,
+      })
+
+      const e1 = make()
+      const e2 = make()
+      if (errorHandler) {
+        await expect(errorHandler(e1)).rejects.toBe(e1)
+        await expect(errorHandler(e2)).rejects.toBe(e2)
+      }
+
       expect(mockOnAccountDeleted).toHaveBeenCalledTimes(2)
     })
   })

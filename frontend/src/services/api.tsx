@@ -201,8 +201,22 @@ export function setupAuthInterceptor(
             return Promise.reject(error)
           }
           if (!handledSubjects.has(sender)) {
+            // Run synchronously so the guard check and the destructive teardown
+            // are atomic — no microtask gap in which the active identity could
+            // change before teardown fires. The Set still dedups concurrent 401s
+            // (each is a separate event that sees this synchronous add()). On
+            // failure, un-mark so a later response for this identity can retry
+            // instead of being latched off permanently.
             handledSubjects.add(sender)
-            void Promise.resolve().then(onAccountDeleted).catch(() => {})
+            try {
+              onAccountDeleted()
+            } catch (err) {
+              handledSubjects.delete(sender)
+              console.warn(
+                '[account-deletion] terminal teardown failed',
+                err instanceof Error ? err.name : String(err),
+              )
+            }
           }
           return Promise.reject(error)
         }
