@@ -16,15 +16,45 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from shared.mcp_oauth import (
+    WELL_KNOWN_PATH,
+    WELL_KNOWN_PATH_SUFFIXED,
+    ProtectedResourceGate,
+    build_oauth_config,
+    build_transport_security_settings,
+    cors_middleware,
+    extract_bearer_token,
+    make_metadata_endpoint,
+    parse_allowed_origins,
+    require_resource_url,
+)
+
 from .auth import clear_current_token, set_current_token
 from .server import cleanup, init_http_client, server
 
-# Create session manager for streamable HTTP transport
+# This server's canonical MCP endpoint (the OAuth ``resource``, including /mcp).
+# PROMPT_MCP_RESOURCE_URL is service-specific and required in every environment (no
+# shared name, no localhost fallback), so the two MCP servers can never collide on a
+# shared .env and a missing value crashes on boot instead of advertising a placeholder.
+RESOURCE_URL = require_resource_url("PROMPT_MCP_RESOURCE_URL")
+
+# Resolve + validate the OAuth discovery config ONCE, at import (which is uvicorn's
+# startup): a missing/malformed CLERK_FRONTEND_API or PROMPT_MCP_RESOURCE_URL crashes the
+# process before it serves, instead of surfacing as a 500 to the first OAuth client.
+OAUTH_CONFIG = build_oauth_config(RESOURCE_URL)
+
+# Create session manager for streamable HTTP transport. DNS-rebinding protection
+# (Host/Origin validation) is enabled on the /mcp transport, derived from this
+# server's validated resource URL; the Origin allowlist fails closed (see
+# build_transport_security_settings). Off by default in the SDK — must be passed.
 session_manager = StreamableHTTPSessionManager(
     app=server,
     event_store=None,
     json_response=True,
     stateless=True,
+    security_settings=build_transport_security_settings(
+        OAUTH_CONFIG, parse_allowed_origins(),
+    ),
 )
 
 
@@ -73,12 +103,12 @@ class AuthMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Extract Bearer token from headers
+        # Extract Bearer token from headers with the SAME parser the 401 gate uses,
+        # so the gate can never admit a header this stager then drops.
         headers = dict(scope.get("headers", []))
-        auth_header = headers.get(b"authorization", b"").decode()
-
-        if auth_header.lower().startswith("bearer "):
-            set_current_token(auth_header[7:])
+        token = extract_bearer_token(headers.get(b"authorization", b"").decode())
+        if token is not None:
+            set_current_token(token)
 
         try:
             await self.app(scope, receive, send)
@@ -109,15 +139,30 @@ async def lifespan(app: Starlette):  # noqa: ARG001, ANN201
 # Create ASGI handler for MCP routes
 mcp_handler = MCPRouteHandler(session_manager)
 
+# OAuth protected-resource metadata handler (RFC 9728). The canonical route is the
+# /mcp-suffixed well-known path; the root path is served too as a compatibility
+# fallback for less-strict clients. Both return this server's full-endpoint resource.
+metadata_endpoint = make_metadata_endpoint(OAUTH_CONFIG)
+
 # Create the Starlette application
 app = Starlette(
     routes=[
         Route("/health", health_check, methods=["GET"]),
+        # OAuth discovery (unauthenticated). CORS/preflight handled by cors_middleware.
+        Route(WELL_KNOWN_PATH_SUFFIXED, metadata_endpoint, methods=["GET"]),  # canonical
+        Route(WELL_KNOWN_PATH, metadata_endpoint, methods=["GET"]),  # compat fallback
         # Handle /mcp exactly (no trailing slash)
         Route("/mcp", mcp_handler, methods=["GET", "POST", "DELETE"]),
         # Handle /mcp/* with any sub-path
         Route("/mcp/{path:path}", mcp_handler, methods=["GET", "POST", "DELETE"]),
     ],
-    middleware=[Middleware(AuthMiddleware)],
+    # Order (outermost first): CORS handles browser preflight and injects headers on
+    # every response incl. the gate's 401; the gate then rejects bearer-less /mcp
+    # requests with the discovery pointer before AuthMiddleware stages a present token.
+    middleware=[
+        cors_middleware(),
+        Middleware(ProtectedResourceGate, config=OAUTH_CONFIG),
+        Middleware(AuthMiddleware),
+    ],
     lifespan=lifespan,
 )

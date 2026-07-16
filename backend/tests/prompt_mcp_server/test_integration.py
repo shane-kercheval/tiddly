@@ -33,27 +33,53 @@ async def test__mcp_endpoint__exists() -> None:
         async with session_manager.run():
             yield
 
+    # base_url Host must match the transport's allowed_hosts (derived from the pinned
+    # PROMPT_MCP_RESOURCE_URL = http://localhost:8002/mcp) now that DNS-rebinding
+    # protection is enabled.
     async with lifespan_context():
         async with AsyncClient(
             transport=ASGITransport(app=app),
-            base_url="http://test",
+            base_url="http://localhost:8002",
         ) as client:
-            # Test /mcp without trailing slash works (no redirect)
-            response = await client.post(
-                "/mcp",
-                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {
+            # Test /mcp without trailing slash works (no redirect). A bearer is
+            # required to pass the ProtectedResourceGate before reaching dispatch;
+            # its value is not verified at the proxy, so any token gets past the gate.
+            request = {
+                "jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {},
                     "clientInfo": {"name": "test", "version": "1.0.0"},
-                }},
-                headers={"Accept": "application/json"},
-            )
+                },
+            }
+            headers = {"Accept": "application/json", "Authorization": "Bearer bm_test"}
+            response = await client.post("/mcp", json=request, headers=headers)
 
             # The endpoint exists and responds (not a redirect or 404)
             assert response.status_code == 200
             data = response.json()
             assert data.get("jsonrpc") == "2.0"
             assert "result" in data
+
+            # Transport-security is live: a bearer-carrying request (past the gate)
+            # with a foreign Host is rejected by DNS-rebinding protection (421),
+            # proving the settings are wired, not just constructed.
+            rebind = await client.post(
+                "/mcp", json=request, headers={**headers, "Host": "evil.example.com"},
+            )
+            assert rebind.status_code == 421
+
+            # The env-configured Origin allowlist (MCP_ALLOWED_ORIGINS, pinned in the
+            # root conftest) reaches the session manager: the allowlisted browser Origin
+            # is honored, an unknown one fails closed (403). Proves the env->app seam,
+            # which the unit tests cannot.
+            allowed = await client.post(
+                "/mcp", json=request, headers={**headers, "Origin": "https://connector.test"},
+            )
+            assert allowed.status_code == 200
+            unknown = await client.post(
+                "/mcp", json=request, headers={**headers, "Origin": "https://attacker.test"},
+            )
+            assert unknown.status_code == 403
 
 
 async def test__auth_middleware__extracts_bearer_token_from_header() -> None:
@@ -110,6 +136,35 @@ async def test__auth_middleware__extracts_bearer_token_from_header() -> None:
     # Verify handler saw correct tokens
     assert captured_tokens == ["test_token_123"]
     assert len(captured_errors) == 2  # Two requests without valid Bearer token
+
+
+async def test__auth_middleware__stages_token_with_non_space_separator() -> None:
+    r"""
+    Regression: a header the 401 gate admits (any-whitespace separator) is also staged
+    by AuthMiddleware — they share one parser, so the gate can't admit a header the
+    stager drops. Exercised through a real ASGI request, the seam where the divergence
+    (gate admits `Bearer\ttoken`, `startswith('bearer ')` stager drops it) once lived.
+    """
+    async def echo(request: Request) -> JSONResponse:  # noqa: ARG001
+        try:
+            return JSONResponse({"token": get_bearer_token()})
+        except AuthenticationError:
+            return JSONResponse({"token": None})
+
+    test_app = Starlette(
+        routes=[Route("/echo-token", echo, methods=["GET"])],
+        middleware=[Middleware(AuthMiddleware)],
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=test_app), base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/echo-token", headers={"Authorization": "Bearer\ttab_token"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"token": "tab_token"}
 
 
 async def test__auth_middleware__clears_token_after_request() -> None:

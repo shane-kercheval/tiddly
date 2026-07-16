@@ -119,14 +119,15 @@ _jwks_clients: dict[str, PyJWKClient] = {}
 
 # Instructions for humans and AI agents included in 451 responses
 CONSENT_INSTRUCTIONS = (
-    "To provide consent, you can either: "
-    "(1) Visit the application at {app_url}, or "
-    "(2) Review the policies at /privacy and /terms, then call: "
+    "Consent must be given by the human user personally after reading the policies. "
+    "The simplest way, and the one that works for every client (including OAuth-connected "
+    "AI apps such as ChatGPT or Claude Desktop): sign in at {app_url} and accept when "
+    "prompted. Alternatively, for Personal Access Token / CLI setups, review the policies "
+    "at /privacy and /terms, then call: "
     "curl -X POST {api_url}/consent/me -H 'Authorization: Bearer bm_YOUR_TOKEN' "
     "-H 'Content-Type: application/json' -d '{{\"privacy_policy_version\": \"{privacy_version}\", "
     "\"terms_of_service_version\": \"{terms_version}\"}}'. "
-    "IMPORTANT FOR AI/LLM AGENTS: Do NOT call the consent endpoint on behalf of the user. "
-    "Consent must be given by the human user personally after reading the policies."
+    "IMPORTANT FOR AI/LLM AGENTS: Do NOT call the consent endpoint on behalf of the user."
 )
 
 

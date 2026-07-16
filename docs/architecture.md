@@ -120,12 +120,20 @@ flowchart LR
 
 ### MCP servers — `backend/src/mcp_server/` and `backend/src/prompt_mcp_server/`
 
-Two independent MCP services that agentic tools (Claude Desktop, Claude Code, Codex, Antigravity) talk to via the MCP protocol. Both proxy through the api service over HTTPS using a user-supplied PAT; they hold no database credentials.
+Two independent MCP services that agentic tools (Claude Desktop, Claude Code, Codex, Antigravity) talk to via the MCP protocol. Both proxy through the api service over HTTPS using a bearer token; they hold no database credentials and — by design — **never verify the token themselves** (the backend API is the only verifier, AD10).
 
 - **content-mcp** — bookmarks + notes: search, get, create, update, content-level edits (old_str/new_str patches), tag and filter listing, relationship creation. Local dev port: 8001.
 - **prompt-mcp** — prompt templates: search, metadata/content fetch, create, update, content-level edits, tag/filter listing. Local dev port: 8002.
 
 Both deliberately **do not expose delete**. Destructive operations are web-UI-only. Both are deployed as regular Railway services with public domains.
+
+**OAuth for AI connectors (M5).** Both servers speak the server side of the MCP authorization spec so OAuth-only clients (ChatGPT, Claude Desktop/web native connectors) can connect with a paste-the-URL flow, while existing bearer/PAT configs keep working unchanged. The shared implementation is `backend/src/shared/mcp_oauth.py`; the servers are assembled differently (the content server serves FastMCP's `http_app()` via `mcp_server/app.py` under uvicorn; the prompt server hand-builds a Starlette app in `prompt_mcp_server/main.py`), but expose the same surface:
+- **Protected-resource metadata** (RFC 9728) at `/.well-known/oauth-protected-resource[/mcp]`, advertising the server's own `/mcp` endpoint as the `resource` and Clerk (`https://<CLERK_FRONTEND_API>`) as the authorization server. Public, CORS-enabled.
+- **A presence-only 401 gate** on `/mcp`: no `Authorization` header → `401` + `WWW-Authenticate` discovery pointer before dispatch. A present bearer (valid or not) passes through to the backend (AD10 holds).
+- **DNS-rebinding Host/Origin protection** on the `/mcp` transport (SDK `TransportSecuritySettings`): `allowed_hosts` derived from the validated resource URL; the browser-`Origin` allowlist (`MCP_ALLOWED_ORIGINS`) fails closed. Injected natively on the prompt server and via a shared `TransportSecurityGate` ASGI middleware on the content server (FastMCP's `http_app()` does not expose the setting).
+- **Config validated at startup** (crashes on boot if a service's `*_MCP_RESOURCE_URL` or `CLERK_FRONTEND_API` is missing/malformed) — see `README_DEPLOY.md` for the required per-service env vars and pre-deploy staging.
+
+Clerk **dynamic client registration** (each connecting client registers itself) is enabled at the identity provider, not implemented here. The step-by-step per-client connection docs (Settings → AI Integration, ChatGPT/Claude/Codex) are written after the connector verification ladder confirms the flows.
 
 ### CLI — `cli/` (Go + Cobra + Viper)
 
