@@ -341,9 +341,9 @@ Same `postgresql+asyncpg://` rule as above. `AUTH0_CUSTOM_CLAIM_NAMESPACE`, `CLE
 
 ```
 VITE_API_URL=http://api.railway.internal:8080
-CONTENT_MCP_RESOURCE_URL=https://${{content-mcp.RAILWAY_PUBLIC_DOMAIN}}/mcp
+CONTENT_MCP_RESOURCE_URL=https://content-mcp.tiddly.me/mcp
 CLERK_FRONTEND_API=<clerk frontend API host, e.g. clerk.tiddly.me — no scheme>
-MCP_ALLOWED_ORIGINS=
+MCP_ALLOWED_ORIGINS=   # leave UNSET until a real connector origin is verified — unset ≡ empty (both fail closed), and the Railway CLI rejects empty values
 ```
 
 **Note:** Railway automatically provides the `PORT` variable - do not set it manually.
@@ -352,12 +352,14 @@ MCP_ALLOWED_ORIGINS=
 
 ```
 VITE_API_URL=http://api.railway.internal:8080
-PROMPT_MCP_RESOURCE_URL=https://${{prompt-mcp.RAILWAY_PUBLIC_DOMAIN}}/mcp
+PROMPT_MCP_RESOURCE_URL=https://prompts-mcp.tiddly.me/mcp
 CLERK_FRONTEND_API=<clerk frontend API host, e.g. clerk.tiddly.me — no scheme>
-MCP_ALLOWED_ORIGINS=
+MCP_ALLOWED_ORIGINS=   # leave UNSET until a real connector origin is verified — unset ≡ empty (both fail closed), and the Railway CLI rejects empty values
 ```
 
 **Note:** Railway automatically provides the `PORT` variable - do not set it manually.
+
+**Use the literal custom domain, not a `${{...RAILWAY_PUBLIC_DOMAIN}}` reference.** The resource URL doubles as the transport's Host allowlist (DNS-rebinding protection), so it must be the domain clients actually connect to. Both MCP services use custom domains; `RAILWAY_PUBLIC_DOMAIN` resolves to the Railway-generated domain instead, which would advertise the wrong `resource` **and** reject (421) every request arriving at the real domain.
 
 **MCP OAuth variables (M5) — stage these BEFORE merging the OAuth code (fail-fast, deploy-on-merge).** Each MCP server validates its OAuth discovery config at startup: a missing or malformed `*_MCP_RESOURCE_URL` (must be the server's own full `/mcp` endpoint) or `CLERK_FRONTEND_API` (a bare hostname) now **crashes the service on boot** rather than silently serving broken discovery. Because merging deploys the MCP services, set and verify both variables on **both** MCP services first, then merge — otherwise the auto-deploy takes the whole service down (not just OAuth), including existing bearer/PAT MCP users. `MCP_ALLOWED_ORIGINS` (browser-`Origin` allowlist for the `/mcp` transport) stays empty until the connector verification ladder confirms real connector origins; add them there, independently verified as provider-owned — never by copying rejected-Origin log lines.
 

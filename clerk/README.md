@@ -10,8 +10,8 @@ Part of the Auth0 → Clerk migration (see `docs/implementation_plans/2026-07-02
 
 ## Update it when the dev instance config changes
 
-Any time the dev instance's configuration changes (e.g. M4 adds the CLI OAuth app, M5 enables
-DCR), re-pull and re-commit so git tracks the evolution:
+Any time the dev instance's configuration changes (e.g. adding the CLI OAuth app, enabling
+dynamic client registration), re-pull and re-commit so git tracks the evolution:
 
 ```sh
 clerk config pull | python3 -c "import json,sys; json.dump(json.load(sys.stdin), sys.stdout, indent=2, sort_keys=True); print()" > clerk/config.dev.json
@@ -26,9 +26,26 @@ diff <(clerk config pull | python3 -c "import json,sys; json.dump(json.load(sys.
 An empty diff means the live dev instance matches the committed config. A non-empty diff means
 someone changed the live instance out-of-band (or the file is stale) — reconcile before relying on it.
 
-## Promotion to production (M3)
+## Not covered by `config pull`: instance OAuth application settings
 
-At M3, production instance config is derived from this committed dev config — via `clerk deploy`
+`clerk config pull` does **not** include the instance's `oauth_application_settings`
+(discovered when enabling dynamic client registration produced no diff on re-pull).
+Those settings are therefore recorded here instead — check the live values with:
+
+```sh
+clerk api /instance/oauth_application_settings --instance dev   # or --instance prod
+```
+
+Intended state (last verified 2026-07-15):
+
+| Setting | dev | prod | Why |
+|---|---|---|---|
+| `dynamic_oauth_client_registration` | `true` | `true` (flips as part of the MCP-OAuth deploy) | Lets MCP OAuth clients (ChatGPT, Claude connectors) self-register |
+| `oauth_jwt_access_tokens` | `true` | `true` | Required — opaque access tokens would 401 at the API |
+
+## Promotion to production
+
+Production instance config is derived from this committed dev config — via `clerk deploy`
 (clones dev → prod) and/or `clerk config put --instance prod --file clerk/config.dev.json`.
 Production-specific values that differ from dev (real Google OAuth credentials, the production
 Frontend API domain) are applied on top and are **not** in this file.
