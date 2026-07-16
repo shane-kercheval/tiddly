@@ -34,6 +34,7 @@ healthy-but-broken OAuth endpoint to the first client.
 
 import ipaddress
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import SplitResult, urlsplit, urlunsplit
@@ -44,20 +45,28 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-# RFC 9728 well-known path. The canonical metadata URL for a resource with path
-# ``/mcp`` inserts that path after the well-known segment (``…/oauth-protected-resource/mcp``);
-# the root path is served too as a compatibility fallback for less-strict clients.
+# The MCP endpoint path, single-sourced: the gate predicate, the well-known suffix, and
+# the resource-URL validation all derive from it, so they can't drift. Both servers mount
+# MCP at /mcp; this is not per-server configurable (a partial knob would let metadata and
+# enforcement disagree).
+MCP_PATH = "/mcp"
+
+# RFC 9728 well-known path. The canonical metadata URL for the /mcp resource inserts that
+# path after the well-known segment (``…/oauth-protected-resource/mcp``); the root path is
+# served too as a compatibility fallback for less-strict clients.
 WELL_KNOWN_PATH = "/.well-known/oauth-protected-resource"
-WELL_KNOWN_PATH_SUFFIXED = f"{WELL_KNOWN_PATH}/mcp"
+WELL_KNOWN_PATH_SUFFIXED = f"{WELL_KNOWN_PATH}{MCP_PATH}"
 
 # CORS for browser-based connectors. A cross-origin request that sets Authorization
 # is a "non-simple" request and preflights; the preflight (OPTIONS) never carries the
 # bearer, so it must be answered by CORS handling, not the gate. WWW-Authenticate is
 # not on the response-header safelist, so it must be explicitly exposed for browser JS
-# to read the discovery pointer off the 401 challenge.
+# to read the discovery pointer off the 401 challenge. MCP-Session-Id: no session id is
+# issued today (both transports are stateless), but it is exposed so a future stateful
+# transport doesn't fail cross-origin-only (browser JS couldn't read it off initialize).
 _ALLOW_METHODS = ["GET", "POST", "DELETE", "OPTIONS"]
 _ALLOW_HEADERS = ["Authorization", "Content-Type", "MCP-Protocol-Version", "MCP-Session-Id"]
-_EXPOSE_HEADERS = ["WWW-Authenticate"]
+_EXPOSE_HEADERS = ["WWW-Authenticate", "MCP-Session-Id"]
 
 _LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -79,7 +88,7 @@ def is_mcp_request_path(path: str) -> bool:
     Matches ``/mcp`` exactly and any ``/mcp/`` sub-path. The health check and the
     well-known metadata paths are intentionally excluded — they stay public.
     """
-    return path == "/mcp" or path.startswith("/mcp/")
+    return path == MCP_PATH or path.startswith(f"{MCP_PATH}/")
 
 
 def require_resource_url(env_var: str) -> str:
@@ -217,7 +226,7 @@ def _clerk_authorization_server() -> str:
     return f"https://{authority.hostname}"
 
 
-def build_oauth_config(resource_url: str, *, expected_path: str = "/mcp") -> OAuthConfig:
+def build_oauth_config(resource_url: str) -> OAuthConfig:
     """
     Validate the resource URL and Clerk config, and resolve them once into an
     immutable :class:`OAuthConfig`.
@@ -225,7 +234,7 @@ def build_oauth_config(resource_url: str, *, expected_path: str = "/mcp") -> OAu
     Raises ``RuntimeError`` (loudly, at startup when called from a server's module
     load) for a misconfiguration that would otherwise publish unusable metadata:
     a non-absolute or non-HTTP(S) URL, a non-HTTPS resource off localhost, a URL
-    carrying a query/fragment, or a path other than ``expected_path``.
+    carrying a query/fragment, or a path other than the MCP endpoint (:data:`MCP_PATH`).
     """
     _reject_bad_authority_chars(resource_url, "MCP resource URL")
     parts = urlsplit(resource_url)
@@ -251,9 +260,9 @@ def build_oauth_config(resource_url: str, *, expected_path: str = "/mcp") -> OAu
         raise RuntimeError(
             f"MCP resource URL must not carry a query or fragment — got {resource_url!r}.",
         )
-    if parts.path != expected_path:
+    if parts.path != MCP_PATH:
         raise RuntimeError(
-            f"MCP resource URL path must be {expected_path!r} (the MCP endpoint) — "
+            f"MCP resource URL path must be {MCP_PATH!r} (the MCP endpoint) — "
             f"got {parts.path!r} in {resource_url!r}.",
         )
 
@@ -280,7 +289,9 @@ def build_protected_resource_metadata(config: OAuthConfig) -> dict[str, Any]:
     }
 
 
-def make_metadata_endpoint(config: OAuthConfig):  # noqa: ANN201 (Starlette handler)
+def make_metadata_endpoint(
+    config: OAuthConfig,
+) -> Callable[[Request], Awaitable[Response]]:
     """
     Build the well-known metadata route handler for a server's config.
 
@@ -409,20 +420,30 @@ def build_transport_security_settings(
     )
 
 
-def _request_has_bearer(raw_headers: list[tuple[bytes, bytes]]) -> bool:
+def extract_bearer_token(authorization: str | None) -> str | None:
     """
-    Presence check for a non-empty ``Authorization: Bearer`` header.
+    Extract the token from an ``Authorization`` header value, or ``None``.
 
-    Presence only — the token is NOT validated here; that is the backend's job.
+    Case-insensitive scheme; any whitespace separates scheme and token (RFC 9110).
+    This is the **single** bearer parser shared by the 401 gate, the prompt server's
+    token stager, and the content server's token reader — so the gate can never admit
+    a header that the stager/reader then drops (a divergent parser once did exactly
+    that for a tab-separated header). Presence/format only; the token is NOT verified
+    here — that is the backend's job.
     """
+    if not authorization:
+        return None
+    parts = authorization.split(maxsplit=1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+    return parts[1].strip() or None
+
+
+def _request_has_bearer(raw_headers: list[tuple[bytes, bytes]]) -> bool:
+    """Presence check for a bearer token, using the shared :func:`extract_bearer_token`."""
     for name, value in raw_headers:
         if name.lower() == b"authorization":
-            parts = value.decode("latin-1").split(maxsplit=1)
-            return (
-                len(parts) == 2
-                and parts[0].lower() == "bearer"
-                and bool(parts[1].strip())
-            )
+            return extract_bearer_token(value.decode("latin-1")) is not None
     return False
 
 

@@ -18,6 +18,7 @@ from shared.mcp_oauth import (
     build_protected_resource_metadata,
     build_transport_security_settings,
     cors_middleware,
+    extract_bearer_token,
     is_mcp_request_path,
     make_metadata_endpoint,
     parse_allowed_origins,
@@ -54,6 +55,32 @@ CONFIG = OAuthConfig(
 )
 def test__is_mcp_request_path__gates_only_mcp_endpoint(path: str, expected: bool) -> None:
     assert is_mcp_request_path(path) is expected
+
+
+# ---------------------------------------------------------------------------
+# extract_bearer_token — the single parser shared by gate + stager + reader
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("authorization", "expected"),
+    [
+        ("Bearer token123", "token123"),
+        ("bearer token123", "token123"),  # case-insensitive scheme
+        ("Bearer\ttoken123", "token123"),  # non-space separator (the divergence case)
+        ("Bearer   token123", "token123"),  # multiple spaces
+        (None, None),
+        ("", None),
+        ("token123", None),  # no scheme
+        ("Basic dXNlcjpwYXNz", None),  # wrong scheme
+        ("Bearer ", None),  # empty token
+        ("Bearer", None),  # scheme only
+    ],
+)
+def test__extract_bearer_token__parses_any_whitespace_separator(
+    authorization: str | None, expected: str | None,
+) -> None:
+    assert extract_bearer_token(authorization) == expected
 
 
 # ---------------------------------------------------------------------------

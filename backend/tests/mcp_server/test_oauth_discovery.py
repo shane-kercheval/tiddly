@@ -1,7 +1,7 @@
 """
 OAuth discovery + auth-gate + transport-security tests for the Content MCP server app.
 
-Exercises the real FastMCP-derived ASGI app (``mcp_server.server.app``): the well-known
+Exercises the real FastMCP-derived ASGI app (``mcp_server.app.app``): the well-known
 metadata routes, the presence-only 401 gate, browser CORS, and the DNS-rebinding
 Host/Origin gate (applied at the ASGI layer here, since FastMCP's http_app() does not
 expose the session manager's security_settings). Values are pinned to fixed test values

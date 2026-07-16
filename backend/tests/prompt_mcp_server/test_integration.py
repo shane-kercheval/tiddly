@@ -138,6 +138,35 @@ async def test__auth_middleware__extracts_bearer_token_from_header() -> None:
     assert len(captured_errors) == 2  # Two requests without valid Bearer token
 
 
+async def test__auth_middleware__stages_token_with_non_space_separator() -> None:
+    r"""
+    Regression: a header the 401 gate admits (any-whitespace separator) is also staged
+    by AuthMiddleware — they share one parser, so the gate can't admit a header the
+    stager drops. Exercised through a real ASGI request, the seam where the divergence
+    (gate admits `Bearer\ttoken`, `startswith('bearer ')` stager drops it) once lived.
+    """
+    async def echo(request: Request) -> JSONResponse:  # noqa: ARG001
+        try:
+            return JSONResponse({"token": get_bearer_token()})
+        except AuthenticationError:
+            return JSONResponse({"token": None})
+
+    test_app = Starlette(
+        routes=[Route("/echo-token", echo, methods=["GET"])],
+        middleware=[Middleware(AuthMiddleware)],
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=test_app), base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/echo-token", headers={"Authorization": "Bearer\ttab_token"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"token": "tab_token"}
+
+
 async def test__auth_middleware__clears_token_after_request() -> None:
     """
     Test that AuthMiddleware clears the token after request completes.

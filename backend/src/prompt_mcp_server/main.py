@@ -23,6 +23,7 @@ from shared.mcp_oauth import (
     build_oauth_config,
     build_transport_security_settings,
     cors_middleware,
+    extract_bearer_token,
     make_metadata_endpoint,
     parse_allowed_origins,
     require_resource_url,
@@ -102,12 +103,12 @@ class AuthMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Extract Bearer token from headers
+        # Extract Bearer token from headers with the SAME parser the 401 gate uses,
+        # so the gate can never admit a header this stager then drops.
         headers = dict(scope.get("headers", []))
-        auth_header = headers.get(b"authorization", b"").decode()
-
-        if auth_header.lower().startswith("bearer "):
-            set_current_token(auth_header[7:])
+        token = extract_bearer_token(headers.get(b"authorization", b"").decode())
+        if token is not None:
+            set_current_token(token)
 
         try:
             await self.app(scope, receive, send)
