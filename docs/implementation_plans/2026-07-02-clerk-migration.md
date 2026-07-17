@@ -363,6 +363,18 @@ Per AD10, the servers stay proxies; Appendix A's requirements are the shape. For
 - **Per-client setup instructions:** ChatGPT Connectors, Claude Desktop/web custom connectors, Claude Code, Codex — the actual paste-URL + sign-in steps.
 - **`llms.txt` family** (`llms-integration.txt` OAuth connect path + the Auth0→session 403 rename; cross-refs in `llms.txt`), **`frontend/src/data/agentPrompts.ts`**, FAQ (`content/data/faq.json`), and command-palette `docsRoutes.tsx`/`settingsRoutes.tsx` searchText (mcp/oauth/connector keywords).
 
+### Executed (2026-07-16) — as-built record
+
+Code merged as [PR #159](https://github.com/shane-kercheval/tiddly/pull/159) (deploy-on-merge; env vars pre-staged on both Railway MCP services with `--skip-deploys`; both services booted healthy first try — the fail-fast validation is what proved the staging). Full verification evidence: [connector verification notes](2026-07-16-mcp-connector-verification-notes.md). Deltas and outcomes vs the plan above:
+
+- **The verification matrix completed in one day, entirely against deployed prod — the tunnel path (cloudflared/ngrok) was never needed.** Merge gate ran as recommended (CI-green + local Inspector OAuth end-to-end against the Clerk dev instance + bearer smoke); post-merge: prod curl battery, live bearer/PAT regression through real pre-existing connector configs, deployed security suite (58 passed — run at M5 as required, not deferred to M6b).
+- **Matrix: all ✅** — Inspector (dev localhost + prod, both servers; Clerk dev *did* accept the DCR localhost redirect, resolving the plan's open risk (a)); Claude web/Desktop/iOS (custom connectors are account-level and sync in both directions); Claude Code CLI (both servers); Codex CLI; ChatGPT (see below); `tiddly` CLI login re-verified through the DCR-forced consent screen.
+- **Item 3 resolved empirically: no client probed `/.well-known/oauth-authorization-server` on our origins** — every verified client followed the RFC 9728 pointer. The speculative proxy/redirect was correctly not built.
+- **`MCP_ALLOWED_ORIGINS` ended the milestone EMPTY (unset), and that is its expected resting state**: every verified connector calls server-side (Claude/ChatGPT backends) or from loopback (Inspector proxy, CLIs) — no browser `Origin` ever reached the transport, so the fail-closed allowlist never fired and the log-correlation bootstrap procedure went unused. It remains defense-in-depth for a future true-browser MCP client.
+- **DCR observations** (details in the ledger's "As-executed observations"): registration granularity is per-connection-attempt (7 OAuth apps from one operator's day — empirically vindicating the Auth0 10-app-cap analysis); no Clerk limit/throttle surfaced; JWT inheritance re-verified live (Q3); consent-screen review done — the displayed client name is attacker-choosable, the registered redirect URI (provider-owned domain, readable via `clerk api /oauth_applications`) is the real identity check.
+- **One interop bug found, worked around, and accepted as an operational known-issue: ChatGPT's DCR omits `openid` but its authorize request demands it** (OpenAI-acknowledged, open since Dec 2025). Clerk's rejection is correct behavior. Resolution: one-line scope patch per ChatGPT registration (**patch-on-demand with operator approval** — decided over an automated sweep at beta scale), documented in the verification notes + as a user-facing known issue. Consequence: ChatGPT onboarding is not currently self-serve.
+- **Tier B docs land in the follow-up verification/docs PR** (branch `mcp-connector-verification`) together with this addendum, per the one-PR close-out agreed with the operator.
+
 ---
 
 ## Milestone 6 — Production cutover (M6a), then decommission (M6b)
