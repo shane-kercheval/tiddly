@@ -1,5 +1,22 @@
 [
   {
+    "month": "July 2026",
+    "theme": "OAuth for AI Apps",
+    "categories": [
+      {
+        "label": "New",
+        "emoji": "🚀",
+        "entries": [
+          {
+            "title": "Connect Claude and coding agents with OAuth — no tokens",
+            "description": "Tiddly's MCP servers now support OAuth sign-in: paste a server URL into Claude (web, desktop, or mobile), Claude Code, or Codex, sign in with your Tiddly account in the browser, and approve — done. Claude connectors sync across all your devices automatically. Token-based setup via the CLI keeps working unchanged and remains the path for headless tools. Per-app steps: https://tiddly.me/docs/ai.",
+            "tag": "ai"
+          }
+        ]
+      }
+    ]
+  },
+  {
     "month": "June 2026",
     "theme": "Public Sharing",
     "categories": [

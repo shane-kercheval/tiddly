@@ -20,17 +20,18 @@ Then give me an honest assessment: what Tiddly actually does, who it's a good fi
 const MCP_SETUP_INTRO =
   'Help me connect Tiddly (https://tiddly.me) to my AI tools so my bookmarks, notes, and prompts are available to you via MCP.'
 
-// MCP setup path: read the CLI guide, confirm scope, then configure with
-// per-command confirmation (and explicit permission before installing).
-const MCP_SETUP_GUIDANCE = `Read https://tiddly.me/llms-cli-instructions.txt — the guide for Tiddly's CLI (you can also get it by running \`tiddly ai-instructions\`). The CLI is how you connect AI tools to Tiddly: it configures Tiddly's hosted (remote) MCP servers into your AI tool's config and manages the access tokens.
+// MCP setup path: read the integration guide, pick OAuth vs CLI per its
+// guidance, then walk through setup with per-step confirmation (and explicit
+// permission before installing anything).
+const MCP_SETUP_GUIDANCE = `Read https://tiddly.me/llms-integration.txt — it explains the two ways to connect (OAuth paste-the-URL for apps with connector support, or Tiddly's CLI for token-based setups) and which tools support which.
 
-Once you've read the guide — and before configuring anything — ask me:
-- Which AI tool(s) to set up — Claude Code, Claude Desktop, Codex, or Antigravity.
+Once you've read it — and before configuring anything — ask me:
+- Which AI tool(s) to set up.
 - Whether to connect my bookmarks & notes, my prompts, or both — these are two separate MCP servers, so confirm which I want.
 
-If I choose Codex or Antigravity, explain — as the instructions describe — that they don't surface MCP prompts natively the way Claude Code and Claude Desktop do, and how each makes prompts available instead, so I can decide what to enable.
+Recommend the connection path the integration guide describes for my tool (OAuth where supported; the CLI otherwise), and mention anything the guide flags about my tool — how it surfaces prompts, or any current caveats — so I can decide what to enable.
 
-Then walk me through the setup: if the Tiddly CLI isn't already installed, ask my permission before installing it; then help me log in and configure the servers I chose. Before running each command, tell me what it will do and any implications (tokens it creates, config files it changes), and run it only after I confirm.`
+Then walk me through the setup. For the CLI path: read https://tiddly.me/llms-cli-instructions.txt first (or run \`tiddly ai-instructions\`), ask my permission before installing the CLI, and before running each command tell me what it will do and any implications (tokens it creates, config files it changes), running it only after I confirm. For the OAuth path: give me the steps for my app and let me do the sign-in myself.`
 
 /** Landing-page evaluation CTA — points the agent at the llms.txt hub. */
 export const EVALUATION_PROMPT = `${EVALUATION_INTRO}

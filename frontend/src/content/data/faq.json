@@ -92,7 +92,7 @@
       },
       {
         "question": "Can I see who or what made a change?",
-        "answer": "Yes. Each version records the source of the change (web UI, MCP Content Server, MCP Prompt Server, API) and the authentication method (Auth0, PAT). For PAT-based changes, the token prefix is recorded so you can identify which token was used."
+        "answer": "Yes. Each version records the source of the change (web UI, MCP Content Server, MCP Prompt Server, API) and the authentication method (web session or personal access token). For PAT-based changes, the token prefix is recorded so you can identify which token was used."
       },
       {
         "question": "How do I restore a previous version?",
@@ -156,28 +156,20 @@
     "section": "API & Integrations",
     "items": [
       {
-        "question": "What are Personal Access Tokens (PATs)?",
-        "answer": "PATs let you access your bookmarks programmatically through the API. You can use them for automation, CLI tools, or custom integrations. Tokens are prefixed with \"bm_\" and should be kept secret like a password."
-      },
-      {
-        "question": "How do I keep my PAT secure?",
-        "answer": "Treat PATs like passwords. Never share them, commit them to version control, or expose them in client-side code. Store them in environment variables or a secret manager.\n\nIf you suspect a token has been exposed, delete it immediately in Settings → Tokens and create a new one."
-      },
-      {
         "question": "What is MCP integration?",
         "answer": "MCP (Model Context Protocol) is an open standard that allows AI assistants to securely access external tools and data. Once configured, you can ask AI agents to search your bookmarks, create notes, use your prompt templates, and more—all through natural language."
       },
       {
+        "question": "Can I connect Claude or ChatGPT to Tiddly?",
+        "answer": "**Claude:** yes. Add Tiddly as a connector (Settings → Connectors): paste a Tiddly MCP server URL, sign in with your Tiddly account when the browser opens, and approve. Connectors sync across web, desktop, and mobile automatically.\n\n**ChatGPT:** not currently — connections are blocked by an OpenAI bug in ChatGPT itself (see [Known Issues](/docs/known-issues)); they'll start working once OpenAI ships a fix.\n\nPer-app steps (including Claude Code and Codex) are in [AI Integration](/docs/ai)."
+      },
+      {
         "question": "Which MCP clients are supported?",
-        "answer": "Any MCP-compatible client works, including Claude Desktop, Claude Code, Cursor, and others. The setup instructions in Settings → AI Integration provide configuration for Claude Desktop and Claude Code, with similar steps for other clients."
+        "answer": "Any MCP-compatible client works. Apps with connector support (Claude, Claude Code, Codex) can connect via OAuth — see [AI Integration](/docs/ai). Other tools connect with a token via the CLI (`tiddly mcp configure`); the authoritative list and setup for both paths is Settings → AI Integration."
       },
       {
         "question": "Why are there two MCP servers?",
         "answer": "**Content Server:** Lets AI agents interact with your data—searching, creating, and managing your bookmarks and notes.\n\n**Prompt Server:** Provides AI agents with your reusable prompt templates. Agents can use your saved prompts and create new ones.\n\nThey serve different purposes, so you can enable one or both based on your needs."
-      },
-      {
-        "question": "Do I need separate tokens for each MCP server?",
-        "answer": "It's not required, but recommended if you enable both servers. Using separate tokens lets you revoke access to one server without affecting the other, and makes it easier to track usage."
       },
       {
         "question": "What can AI agents do with my content?",
@@ -190,6 +182,18 @@
       {
         "question": "What are prompt templates with variables?",
         "answer": "Prompts can include variables using Jinja2 syntax, like `{{ topic }}`. When an AI agent uses the prompt, it provides values for these variables, and the final prompt is rendered with those values substituted in.\n\nThis lets you create reusable prompts like \"Explain {{ topic }} in simple terms\" that work for any topic the agent provides."
+      },
+      {
+        "question": "What are Personal Access Tokens (PATs)?",
+        "answer": "PATs let you access your bookmarks programmatically through the API. You can use them for automation, CLI tools, or custom integrations. Tokens are prefixed with \"bm_\" and should be kept secret like a password."
+      },
+      {
+        "question": "How do I keep my PAT secure?",
+        "answer": "Treat PATs like passwords. Never share them, commit them to version control, or expose them in client-side code. Store them in environment variables or a secret manager.\n\nIf you suspect a token has been exposed, delete it immediately in Settings → Tokens and create a new one."
+      },
+      {
+        "question": "Do I need separate tokens for each MCP server?",
+        "answer": "This applies to the CLI/token setup path (OAuth connections manage their own access per app). It's not required, but recommended if you enable both servers: separate tokens let you revoke access to one server without affecting the other, and make it easier to track usage. `tiddly mcp configure` does this automatically."
       }
     ]
   }

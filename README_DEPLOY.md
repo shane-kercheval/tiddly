@@ -8,11 +8,11 @@ Deploy Tiddly services to Railway using Docker.
 |---------|-------------|-------|
 | **api** | FastAPI backend | `Dockerfile.api` |
 | **content-mcp** | Content MCP server (bookmarks/notes) | Railpack |
-| **prompt-mcp** | Prompt MCP server (prompts capability) | Railpack |
+| **prompts-mcp** | Prompt MCP server (prompts capability) | Railpack |
 | **frontend** | React SPA | Railpack |
 | **ai-usage-flush** | Hourly cron that flushes Redis AI cost buckets into `ai_usage` | `Dockerfile.api` |
 | **cleanup** | Daily cron: tier-based history retention + soft-delete expiry + orphan-history sweep | `Dockerfile.api` |
-| **orphan-relationships** | Daily cron: detects (and optionally deletes) rows in `content_relationships` whose source/target entity no longer exists | `Dockerfile.api` |
+| **orphan-relationships** | Daily cron: detects (and optionally deletes) rows in `content_relationships` whose source/target entity no longer exists. **Deferred — documented for future deploy but not running in production** ([KAN-67](https://tiddly.atlassian.net/browse/KAN-67); see `docs/architecture.md` §9) | `Dockerfile.api` |
 | **Postgres** | PostgreSQL database | (managed by Railway) |
 | **Redis** | Rate limiting and auth cache | (managed by Railway) |
 
@@ -69,12 +69,12 @@ Redis is used for:
 
 ### Step 3: Create Services
 
-Create 7 services, each connected to your GitHub repo:
+Create the services (6 deployed today; `orphan-relationships` is deferred — see the table above), each connected to your GitHub repo:
 
 1. Click **+ Create** → **GitHub Repo** → Select `tiddly`
-2. Repeat 6 more times (you'll have 7 services all pointing to the same repo)
+2. Repeat for each service (all pointing to the same repo)
 
-All seven are created the same way — Railway does NOT have a distinct "Cron Job" service type. The last three services (`ai-usage-flush`, `cleanup`, `orphan-relationships`) become crons by setting a **Cron Schedule** on each in Step 4; everything else is a regular long-running service.
+All are created the same way — Railway does NOT have a distinct "Cron Job" service type. The cron services (`ai-usage-flush`, `cleanup`, and — when it's eventually deployed — `orphan-relationships`) become crons by setting a **Cron Schedule** on each in Step 4; everything else is a regular long-running service. Production currently runs **six** services (`orphan-relationships` is deferred, per the table above).
 
 ### Step 4: Configure Each Service
 
@@ -118,7 +118,7 @@ Click on each service → **Settings** tab → Configure as follows:
 #### Prompt MCP Service
 
 **Settings → Source:**
-- Rename service to `prompt-mcp`
+- Rename service to `prompts-mcp` (the deployed service name — commands below and any `${{prompts-mcp....}}` references depend on it)
 - Enable **Wait for CI**
 
 **Settings → Build:**
@@ -194,9 +194,9 @@ Daily job that enforces tier-based history retention (`content_history`), perman
 **Settings → Networking:**
 - No public domain.
 
-#### Orphan Relationships Service (Cron)
+#### Orphan Relationships Service (Cron) — deferred, not currently deployed
 
-Daily job that finds rows in `content_relationships` whose source or target entity no longer exists, and (when `--delete` is passed) deletes them. Independent of the `cleanup` service — separate failure mode. DB-only.
+**This service is intentionally not running in production** at current scale ([KAN-67](https://tiddly.atlassian.net/browse/KAN-67)); the section is kept as the setup reference for when it deploys. Daily job that finds rows in `content_relationships` whose source or target entity no longer exists, and (when `--delete` is passed) deletes them. Independent of the `cleanup` service — separate failure mode. DB-only.
 
 **Settings → Source:**
 - Rename service to `orphan-relationships`
@@ -239,11 +239,11 @@ CLERK_AUTHORIZED_PARTIES=https://tiddly.me
 API_WORKERS=4
 ```
 
-**Clerk (dual-accept window — Auth0 → Clerk migration):** `CLERK_FRONTEND_API` (the production instance's Frontend API domain) and `CLERK_AUTHORIZED_PARTIES` (comma-separated web origins accepted as the `azp` claim) are **required** — Settings validation refuses to start without them in non-dev mode, same as `AUTH0_CUSTOM_CLAIM_NAMESPACE`. They are inert until Clerk tokens actually reach production (M6a). Two optional flags gate just-in-time user *creation* per issuer and are flipped at the M6a cutover; the defaults are production-safe, so omit them until then:
+**Clerk (dual-accept window — Auth0 → Clerk migration):** `CLERK_FRONTEND_API` (the production instance's Frontend API domain) and `CLERK_AUTHORIZED_PARTIES` (comma-separated web origins accepted as the `azp` claim) are **required** — Settings validation refuses to start without them in non-dev mode, same as `AUTH0_CUSTOM_CLAIM_NAMESPACE`. Clerk has been the **primary production IdP since the M6a cutover (2026-07-15)**. Two flags gate just-in-time user *creation* per issuer; both were flipped at the cutover and are actively set (non-default) on the api service:
 
 ```
-# CLERK_JIT_CREATE_ENABLED=false   # default; set true at M6a once the import reconciles
-# AUTH0_JIT_CREATE_ENABLED=true    # default; set false at the M6a flip
+CLERK_JIT_CREATE_ENABLED=true    # flipped at the 2026-07-15 cutover (code default: false)
+AUTH0_JIT_CREATE_ENABLED=false   # flipped at the 2026-07-15 cutover (code default: true)
 ```
 
 **Account-deletion webhook:** `CLERK_WEBHOOK_SIGNING_SECRET` (the `whsec_...` secret of the production instance's webhook endpoint — see Step 6f). API service only. Unset, `POST /webhooks/clerk` fails closed with 503; Svix retries on a finite ~28-hour schedule and then marks deliveries Failed (manual replay only — see the Step 6f runbook).
@@ -363,16 +363,20 @@ MCP_ALLOWED_ORIGINS=   # leave UNSET until a real connector origin is verified �
 
 **MCP OAuth variables (M5) — stage these BEFORE merging the OAuth code (fail-fast, deploy-on-merge).** Each MCP server validates its OAuth discovery config at startup: a missing or malformed `*_MCP_RESOURCE_URL` (must be the server's own full `/mcp` endpoint) or `CLERK_FRONTEND_API` (a bare hostname) now **crashes the service on boot** rather than silently serving broken discovery. Because merging deploys the MCP services, set and verify both variables on **both** MCP services first, then merge — otherwise the auto-deploy takes the whole service down (not just OAuth), including existing bearer/PAT MCP users. `MCP_ALLOWED_ORIGINS` (browser-`Origin` allowlist for the `/mcp` transport) stays empty until the connector verification ladder confirms real connector origins; add them there, independently verified as provider-owned — never by copying rejected-Origin log lines.
 
+**Known operational issue — ChatGPT connector sign-ins fail until patched (OpenAI bug).** ChatGPT's dynamic client registration omits the `openid` scope its own sign-in request later demands, so every new ChatGPT connector registration bounces at the Clerk authorize step until an operator adds `openid` to that registration's scopes (one `clerk api /oauth_applications/{id}` PATCH — exact command, diagnosis evidence, and the OpenAI acknowledgment link in `docs/implementation_plans/2026-07-16-mcp-connector-verification-notes.md`). Policy: patch on request, with operator approval — this is a Clerk-side data fix, never a server code change. Claude/Codex/Inspector registrations are unaffected.
+
 **Why `http` and not `https`?** The MCP servers communicate with the API over Railway's private network, which never leaves Railway's infrastructure. TLS is unnecessary for internal traffic and skipping it reduces latency. The frontend must still use the public `https` URL since it runs in the user's browser.
 
 #### Frontend Service Variables
 
 ```
-VITE_API_URL=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
-VITE_MCP_URL=https://${{content-mcp.RAILWAY_PUBLIC_DOMAIN}}
-VITE_PROMPT_MCP_URL=https://${{prompt-mcp.RAILWAY_PUBLIC_DOMAIN}}
+VITE_API_URL=https://api.tiddly.me
+VITE_MCP_URL=https://content-mcp.tiddly.me
+VITE_PROMPT_MCP_URL=https://prompts-mcp.tiddly.me
 VITE_CLERK_PUBLISHABLE_KEY=<pk_live_... from the production Clerk instance>
 ```
+
+Use the **literal custom domains** (matching the live services), not `${{...RAILWAY_PUBLIC_DOMAIN}}` references — those resolve to the Railway-generated domains, and the values here are user-facing (the app displays the MCP URLs for connector setup).
 
 **Note:** Railway may warn about egress fees for `VITE_API_URL` and `VITE_MCP_URL` referencing public endpoints. You can ignore this - the frontend is a static SPA, so all API calls happen from the user's browser, not between Railway services.
 
@@ -382,7 +386,7 @@ Clerk provides authentication for the web app (embedded sign-in components, no h
 
 This section is deliberately specific about WHAT must exist in Clerk and gives only general dashboard direction — dashboard click-paths rot; settings do not. Nearly everything below is scriptable through the Clerk CLI (`clerk auth login` once, then `clerk apps create`, `clerk config pull/patch/put`, `clerk deploy`, `clerk env pull`); the committed `clerk/config.dev.json` is the reviewable source of truth for instance configuration (see `clerk/README.md`).
 
-> **Migration-window note (until M6a of `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the Clerk frontend lives on a held, unmerged branch (the M3 flip PR); `main`'s frontend is still the pre-Clerk (Auth0) build and deploys normally — no Railway configuration is changed. Merging that PR IS the frontend cutover (M6a flip step); do not merge it early. The backend dual-accepts Auth0 and Clerk tokens. The legacy Auth0 tenant keeps serving already-issued sessions until decommission (M6b) — its backend env var (`AUTH0_CUSTOM_CLAIM_NAMESPACE`) stays set. To recreate the Auth0 side from scratch mid-window, see this file's pre-M3 version in git history.
+> **Migration status (see `docs/implementation_plans/2026-07-02-clerk-migration.md`):** the frontend cutover **executed 2026-07-15 (M6a)** — Clerk is the live production web IdP and the frontend service carries `VITE_CLERK_PUBLISHABLE_KEY`. The backend still **dual-accepts** Auth0 and Clerk tokens: the legacy Auth0 tenant keeps serving already-issued sessions (chiefly iOS) until decommission (M6b), so its backend env var (`AUTH0_CUSTOM_CLAIM_NAMESPACE`) stays set. To recreate the Auth0 side from scratch mid-window, see this file's pre-M3 version in git history.
 
 #### 6a. Application and instances
 
@@ -411,7 +415,7 @@ What must exist (all present in `clerk/config.dev.json`; apply to prod via `cler
 - **Auth strategies**: email/password enabled; `email_code` enabled as a sign-in strategy (this is what gives passwordless-imported users their first sign-in path); Google social connection enabled.
 - **Session token custom claims** (`session.claims`): `email` = `{{user.primary_email_address}}`, `email_verified` = `{{user.email_verified}}` — the backend reads these plain (non-namespaced) claims.
 - **Session clock skew** (`session.allowed_clock_skew`): 5s (default) — the backend independently applies `leeway=5` in its own verification; the two are set to match.
-- **Sign-up mode** (`auth_access_control.sign_up_mode`): `restricted` on production from instance activation until the M6a cutover reconciles the user import, then `public`. (Dev stays `public`.)
+- **Sign-up mode** (`auth_access_control.sign_up_mode`): `public` on production since the M6a cutover reopened sign-ups (2026-07-15); it was `restricted` from instance activation until the cutover reconciled the user import. (Dev stays `public`.)
 - **MFA and passkeys**: off (deferred with the Pro-plan decision; see the migration plan's adoption register).
 
 #### 6d. Google social connection (production credentials)
@@ -424,7 +428,7 @@ Dev instances use Clerk's shared Google credentials; production requires your ow
 #### 6e. Environment variables recap
 
 - Frontend service: `VITE_CLERK_PUBLISHABLE_KEY` (`pk_live_...`; `clerk env pull --instance prod` fetches it). An empty key makes the frontend fall back to dev mode (auth bypassed) — the same fail-safe semantic the Auth0 domain had.
-- API + cron services: `CLERK_FRONTEND_API`, `CLERK_AUTHORIZED_PARTIES`, and the optional JIT-create flags — see the API Service Variables section above.
+- API + cron services: `CLERK_FRONTEND_API`, `CLERK_AUTHORIZED_PARTIES`; the api service also sets both JIT-create flags explicitly post-M6a (crons may omit them — Settings defaults apply) — see the API Service Variables section above.
 - The Clerk **secret key** is not deployed anywhere: the backend verifies tokens against the public JWKS (networkless); the secret key is used only by the one-off M2 import script, run from an operator machine.
 - API service additionally: `CLERK_WEBHOOK_SIGNING_SECRET` (see 6f). Not required by Settings validation (crons don't need it); without it the webhook endpoint fails closed with 503.
 
@@ -507,13 +511,13 @@ The `ai_usage_analytics` view and the `pgcrypto` extension it depends on are cre
 1. **API:** Visit `https://<api-domain>/docs` - should show FastAPI docs
 2. **Frontend:** Visit `https://<frontend-domain>` - should show login page
 3. **Content MCP:** Visit `https://<content-mcp-domain>/mcp` - should respond to MCP requests
-4. **Prompt MCP:** Visit `https://<prompt-mcp-domain>/mcp` - should respond to MCP requests
+4. **Prompt MCP:** Visit `https://<prompts-mcp-domain>/mcp` - should respond to MCP requests
 5. **AI Usage Flush cron:** Railway dashboard → `ai-usage-flush` service → **Deployments** tab. Verify at least one run has occurred at `:30` past the hour. One of three log outputs is expected:
    - `ai_usage_flush: no keys found` — Redis has no `ai_stats:*` keys at all (no AI traffic yet)
    - `ai_usage_flush: no completed hourly buckets to flush` — keys exist but only for the current hour (the flush intentionally excludes in-flight hours)
    - `ai_usage_flush: complete` — buckets were flushed, logged with `keys_processed` and `total_cost_flushed`
 6. **Cleanup cron:** Railway dashboard → `cleanup` service → **Deployments** tab. After the first `0 3 * * *` UTC run, logs start with `Starting cleanup task` and end with `Cleanup complete: {...}` containing `soft_deleted_expired`, `expired_deleted`, `orphaned_deleted`. Any exceptions are surfaced via Railway's deployment failure indicator.
-7. **Orphan Relationships cron:** Railway dashboard → `orphan-relationships` service → **Deployments** tab. After the first `0 4 * * *` UTC run, logs start with `Starting orphan relationship cleanup (delete=...)` and end with `Orphan relationship cleanup complete: {...}` containing `orphaned_source`, `orphaned_target`, `total_deleted`. Expect all zeros on a healthy system. **Before switching to `--delete`:** confirm `orphaned_source + orphaned_target = 0` for at least one scheduled run in report-only mode.
+7. **Orphan Relationships cron** *(skip — deferred, not deployed; applies only once KAN-67 deploys it)*: Railway dashboard → `orphan-relationships` service → **Deployments** tab. After the first `0 4 * * *` UTC run, logs start with `Starting orphan relationship cleanup (delete=...)` and end with `Orphan relationship cleanup complete: {...}` containing `orphaned_source`, `orphaned_target`, `total_deleted`. Expect all zeros on a healthy system. **Before switching to `--delete`:** confirm `orphaned_source + orphaned_target = 0` for at least one scheduled run in report-only mode.
 8. **AI endpoints** (requires a session token — PATs are blocked on these surfaces):
    ```bash
    curl -H "Authorization: Bearer <token>" https://<api>/ai/health
@@ -579,7 +583,7 @@ For manual deploy:
 railway up -s api         # Deploy API
 railway up -s frontend    # Deploy frontend
 railway up -s content-mcp # Deploy Content MCP
-railway up -s prompt-mcp  # Deploy Prompt MCP
+railway up -s prompts-mcp # Deploy Prompt MCP
 ```
 
 ---
@@ -600,7 +604,7 @@ To run migrations manually (if needed):
 railway logs -s api
 railway logs -s frontend
 railway logs -s content-mcp
-railway logs -s prompt-mcp
+railway logs -s prompts-mcp
 ```
 
 Or use Railway dashboard → Click service → **Logs** tab

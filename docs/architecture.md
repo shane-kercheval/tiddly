@@ -36,7 +36,7 @@ flowchart LR
         Frontend["frontend\nReact 19 SPA\nDockerfile: Railpack"]
         API["api\nFastAPI + async SQLAlchemy\nDockerfile.api"]
         ContentMCP["content-mcp\nMCP HTTP proxy"]
-        PromptMCP["prompt-mcp\nMCP HTTP proxy"]
+        PromptMCP["prompts-mcp\nMCP HTTP proxy"]
         FlushCron["ai-usage-flush\ncron 30 * * * *"]
         CleanupCron["cleanup\ncron 0 3 * * *"]
         OrphanCron["orphan-relationships\n(deferred — not deployed)"]
@@ -46,7 +46,7 @@ flowchart LR
 
     %% User flows
     Browser -->|"loads SPA"| Frontend
-    Browser -->|"OAuth login"| Auth0
+    Browser -->|"OAuth login"| Clerk
     Browser -->|"JWT"| API
     CLITerm -->|"OAuth access token / PAT"| API
     CLITerm -->|"PKCE loopback flow"| Clerk
@@ -75,7 +75,8 @@ flowchart LR
     %% API fan-out
     API -->|"async SQLAlchemy"| Postgres
     API -->|"rate limits / auth cache /\nAI cost buckets"| Redis
-    API -->|"JWKS for JWT verify"| Auth0
+    API -->|"JWKS for JWT verify\n(Clerk primary)"| Clerk
+    API -->|"JWKS for legacy\nAuth0 sessions"| Auth0
     API -->|"LiteLLM"| LLMs
     API -->|"metadata fetch"| Scrape
 
@@ -123,7 +124,7 @@ flowchart LR
 Two independent MCP services that agentic tools (Claude Desktop, Claude Code, Codex, Antigravity) talk to via the MCP protocol. Both proxy through the api service over HTTPS using a bearer token; they hold no database credentials and — by design — **never verify the token themselves** (the backend API is the only verifier, AD10).
 
 - **content-mcp** — bookmarks + notes: search, get, create, update, content-level edits (old_str/new_str patches), tag and filter listing, relationship creation. Local dev port: 8001.
-- **prompt-mcp** — prompt templates: search, metadata/content fetch, create, update, content-level edits, tag/filter listing. Local dev port: 8002.
+- **prompts-mcp** — prompt templates: search, metadata/content fetch, create, update, content-level edits, tag/filter listing. Local dev port: 8002.
 
 Both deliberately **do not expose delete**. Destructive operations are web-UI-only. Both are deployed as regular Railway services with public domains.
 
@@ -168,8 +169,8 @@ Each cron runs as its own Railway service with its own schedule and failure mode
 
 ### External dependencies
 
-- **Auth0** — JWT issuer for web login (RS256, custom email claim namespace `https://tiddly.me` matching the Post-Login Action). Being replaced by Clerk (decommissioned at M6b of the migration plan); the CLI's login already targets Clerk's OAuth endpoints as of the M4 rewrite (released at M6a).
-- **Clerk** — second accepted JWT issuer during the Auth0 → Clerk dual-accept window (see §5); production clients don't send Clerk tokens until the M6a cutover. Also the one inbound provider-calls-us surface: Clerk delivers `user.deleted` webhooks (Svix-signed) to `POST /webhooks/clerk` for account deletion (see §5).
+- **Auth0** — legacy JWT verifier only, during the dual-accept window (RS256, custom email claim namespace `https://tiddly.me`): web login moved to Clerk at the M6a cutover (2026-07-15), so Auth0 now exists solely so the backend can honor lingering Auth0 sessions (chiefly the iOS app) until M6b decommissions it.
+- **Clerk** — the primary IdP as of the M6a cutover (2026-07-15): web login, CLI OAuth (M4), and MCP OAuth connectors (M5) all authenticate against Clerk; the backend dual-accepts Auth0 tokens by issuer until M6b (see §5). Also the one inbound provider-calls-us surface: Clerk delivers `user.deleted` webhooks (Svix-signed) to `POST /webhooks/clerk` for account deletion (see §5).
 - **OpenAI / Google Gemini / Anthropic** — LLM providers accessed via LiteLLM. Only `OPENAI_API_KEY` is required today (platform default for suggestions is `openai/gpt-5.4-nano`). Gemini/Anthropic keys are optional until more AI use cases ship.
 - **External URLs** — the api scrapes target URLs for bookmark metadata (`services/url_scraper.py`), wrapped in SSRF protection (see §10).
 
@@ -179,7 +180,7 @@ Each cron runs as its own Railway service with its own schedule and failure mode
 
 A realistic happy-path walkthrough touching most of the moving parts:
 
-1. **Browser → Frontend.** React SPA loads. Auth0 session supplies a JWT.
+1. **Browser → Frontend.** React SPA loads. A Clerk session supplies a short-lived JWT (auto-refreshed by clerk-js).
 2. **Browser → api: `POST /bookmarks/`** with bearer JWT and `X-Request-Source: web`.
 3. **Auth layer** (`core/auth.py`): routes the JWT by issuer and verifies its signature against that issuer's cached JWKS (1-hour TTL), resolves the token `sub` → user via the Redis auth cache (5-min TTL) with DB fallback, attaches a `RequestContext` to `request.state` for audit, checks that the user has accepted current policy versions (else HTTP 451).
 4. **Rate limiter** (`core/rate_limiter.py`): looks up the user's tier → `WRITE` limits; consults Redis sliding-window + daily Lua script; rejects with 429 + `Retry-After` if over. Redis-backed; fails open on Redis outage.
@@ -547,7 +548,7 @@ Run: `make evals` (requires api + MCP servers + Docker containers running).
 | [`docs/content-versioning.md`](content-versioning.md) | `ContentHistory` design: reverse diffs, snapshots, audit vs. content events, tier retention, reconstruction |
 | [`docs/http-caching.md`](http-caching.md) | ETag / Last-Modified behavior for GET JSON endpoints |
 | [`docs/connection-pool-tuning.md`](connection-pool-tuning.md) | SQLAlchemy + Redis pool sizing rationale |
-| [`docs/custom-domain-setup.md`](custom-domain-setup.md) | Custom domain + DNS + Auth0 allowlist updates |
+| [`docs/custom-domain-setup.md`](custom-domain-setup.md) | Custom domain + DNS + IdP allowlist updates (Clerk; legacy Auth0 until M6b) |
 | [`frontend/public/llms.txt`](../frontend/public/llms.txt) | LLM-friendly site index and feature summary |
 | `docs/implementation_plans/` | Dated design docs for in-progress and past features. Point-in-time snapshots, not maintained after ship. |
 
@@ -575,6 +576,8 @@ A grab-bag of non-obvious invariants and constraints — if you're about to chan
 - `/ai/validate-key` returns `200 {"valid": false}` for a provider-rejected key — not a 422. That's the endpoint's explicit purpose; suggestion endpoints surface the same condition as 422 with `error_code: llm_auth_failed`.
 - 429 responses carry a `Retry-After` header only when the Tiddly rate limiter produces them. Provider-side 429s (`error_code: llm_rate_limited`) do not — use exponential backoff.
 - **`Prompt.content` is nullable in the DB, but every create path requires content.** `models/prompt.py` declares `content` as `nullable=True`, yet `PromptCreate.content` is required (`str`), so any code that reads a prompt from the DB and feeds it back through `PromptCreate`/`create()` (e.g. the public clone endpoint) must treat null content as a data-quality case, not a server error — a directly-inserted/imported prompt with null content would otherwise raise a `ValidationError` → 500. The clone endpoint guards this (422 `SOURCE_PROMPT_UNCOPYABLE`). The same "DB JSON has no schema guarantee" caveat applies to `Prompt.arguments` (free-form JSON that may not satisfy `PromptArgument`). If you tighten this, making the column `NOT NULL` is a migration with its own blast radius; until then, assume prompt content can be null at any read site.
+- **Each MCP server's `*_MCP_RESOURCE_URL` is both its advertised OAuth identity and its Host allowlist.** The DNS-rebinding protection derives `allowed_hosts` from it, so it must be the **literal client-facing domain** (`https://content-mcp.tiddly.me/mcp`) — not a `${{...RAILWAY_PUBLIC_DOMAIN}}` reference, which resolves to the Railway-generated domain and makes the server 421 every request arriving at the real one. Changing a service's public domain means changing this var in the same deploy.
+- **New ChatGPT connector registrations are born broken (OpenAI bug, open since Dec 2025).** ChatGPT's DCR registration omits the `openid` scope its own authorize request later demands; Clerk correctly rejects the mismatch, so a user connecting from ChatGPT gets a bounced sign-in popup until an operator patches `openid` into that registration (one `clerk api` line — procedure and link to OpenAI's acknowledgment in `docs/implementation_plans/2026-07-16-mcp-connector-verification-notes.md`). The fix is per-registration at Clerk, **not** a server-side change — do not loosen anything in `shared/mcp_oauth.py` in response to a ChatGPT connection report. Claude, Codex, and Inspector register correctly and need nothing.
 - **Status changes don't bump `updated_at`; the ETag — not `Last-Modified` — is the complete cache validator.** Sharing (`/share`, `/rotate-share-token`), archive, and delete change the item's response body (`is_public`/`public_token`, `archived_at`, `deleted_at`) *without* touching `updated_at`, by design — so the displayed "last updated" date doesn't move on a non-content event. Consequence: the `Last-Modified`/`If-Modified-Since` fast path on the detail/metadata GETs is an *incomplete* validator for those fields (a `Last-Modified`-only revalidation can return a stale `304`). The ETag is computed from the full body and is always correct, which is why the web app (browsers send `If-None-Match`) is unaffected. Don't "fix" a stale-share-state report by bumping `updated_at` on share — that breaks the deliberate decoupling and the archive/delete consistency. The proper fix (deferred until a `Last-Modified`-only consumer like the iOS app needs it) is to split `updated_at` into a stable display timestamp + an advancing cache-validator, applied to all status ops. Documented for consumers in the OpenAPI "Caching & conditional requests" overview; rationale in `docs/implementation_plans/2026-06-17-public-view.md` (M3).
 
 ---

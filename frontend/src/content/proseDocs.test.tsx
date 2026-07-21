@@ -44,7 +44,9 @@ const EXCLUDED_FROM_PROSE: Record<string, string> = {
   '/docs/faq': 'structured data → /data/faq.json',
   '/docs/known-issues': 'structured data → known-issues.json',
   // Interactive widget / placeholder UI pages (not content prose).
-  '/docs/ai': 'interactive AI-setup widget (owned by KAN-152)',
+  // NB: '/docs/ai' is NOT excluded — it's a hybrid: the AI-setup widget renders
+  // its per-app OAuth instructions from `connect-ai-apps.md` (which claims the
+  // route), so the instructional content is prose-backed and agent-fetchable.
   '/docs/extensions/safari': 'placeholder "coming soon" UI page (not prose)',
 }
 
