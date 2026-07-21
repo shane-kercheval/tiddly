@@ -100,6 +100,15 @@ function renderWithRouter(): void {
   )
 }
 
+/**
+ * Render the page and switch to the "Setup via CLI" tab (the CLI configurator
+ * lives behind the non-default tab; "Connect with OAuth" is the default).
+ */
+async function renderCliTab(): Promise<void> {
+  renderWithRouter()
+  await userEvent.click(screen.getByRole('tab', { name: 'Setup via CLI' }))
+}
+
 describe('SettingsMCP', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -119,9 +128,21 @@ describe('SettingsMCP', () => {
       expect(screen.getByText('AI Integration')).toBeInTheDocument()
     })
 
-    it('should render the CLI setup section (no tabs, manual setup removed)', () => {
+    it('defaults to the OAuth tab: server URLs and per-app steps, no CLI section', () => {
       renderWithRouter()
-      expect(screen.getByRole('heading', { name: 'Setup via CLI' })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Connect with OAuth' })).toHaveAttribute('aria-selected', 'true')
+      // Both server URLs are shown with the OAuth path.
+      expect(screen.getByText('https://content-mcp.tiddly.me/mcp')).toBeInTheDocument()
+      expect(screen.getByText('https://prompts-mcp.tiddly.me/mcp')).toBeInTheDocument()
+      // Per-app steps render from the shared prose doc.
+      expect(screen.getByRole('heading', { name: /Claude \(web, desktop, and mobile\)/ })).toBeInTheDocument()
+      // The CLI configurator lives behind the other tab.
+      expect(screen.queryByTestId('cli-setup-section')).not.toBeInTheDocument()
+    })
+
+    it('switches to the CLI configurator on the CLI tab (no manual Curl/PAT setup)', async () => {
+      await renderCliTab()
+      expect(screen.getByRole('tab', { name: 'Setup via CLI' })).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByTestId('cli-setup-section')).toBeInTheDocument()
       // The old Curl/PAT manual tab is gone.
       expect(screen.queryByRole('button', { name: 'Setup via Curl/PAT' })).not.toBeInTheDocument()
@@ -133,8 +154,8 @@ describe('SettingsMCP', () => {
   // CLI Setup Section
   // ===========================================================================
   describe('CLI setup section', () => {
-    it('should render "what to install" toggles', () => {
-      renderWithRouter()
+    it('should render "what to install" toggles', async () => {
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
       expect(within(cli).getByText('MCP Servers')).toBeInTheDocument()
       expect(within(cli).getByText('Skills')).toBeInTheDocument()
@@ -145,8 +166,8 @@ describe('SettingsMCP', () => {
       expect(within(cli).getByRole('button', { name: 'No' })).toBeInTheDocument()
     })
 
-    it('should render "where to install" tool toggles', () => {
-      renderWithRouter()
+    it('should render "where to install" tool toggles', async () => {
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
       expect(within(cli).getByRole('button', { name: 'Claude Desktop' })).toBeInTheDocument()
       expect(within(cli).getByRole('button', { name: 'Claude Code' })).toBeInTheDocument()
@@ -154,8 +175,8 @@ describe('SettingsMCP', () => {
       expect(within(cli).getByRole('button', { name: 'Antigravity' })).toBeInTheDocument()
     })
 
-    it('should have servers and tools selected by default with skills off', () => {
-      renderWithRouter()
+    it('should have servers and tools selected by default with skills off', async () => {
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
       // Server and tool pills should be selected (orange), except Claude Desktop
       for (const name of ['Bookmarks & Notes', 'Prompts', 'Claude Code', 'Codex']) {
@@ -168,8 +189,8 @@ describe('SettingsMCP', () => {
       expect(within(cli).getByRole('button', { name: 'Yes' }).className).not.toContain('bg-[#f09040]')
     })
 
-    it('should generate default command with mcp only (skills off, Claude Desktop off)', () => {
-      renderWithRouter()
+    it('should generate default command with mcp only (skills off, Claude Desktop off)', async () => {
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
       const pre = within(cli).getByTestId('cli-install-command')
       expect(pre.textContent).toContain('tiddly mcp configure claude-code codex')
@@ -178,7 +199,7 @@ describe('SettingsMCP', () => {
 
     it('should add skills command when skills enabled', async () => {
       const user = userEvent.setup()
-      renderWithRouter()
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
 
       await user.click(within(cli).getByRole('button', { name: 'Yes' }))
@@ -190,7 +211,7 @@ describe('SettingsMCP', () => {
 
     it('should omit mcp command when no servers selected', async () => {
       const user = userEvent.setup()
-      renderWithRouter()
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
 
       // Enable skills first, then deselect both servers
@@ -205,7 +226,7 @@ describe('SettingsMCP', () => {
 
     it('should omit skills command when skills set to No', async () => {
       const user = userEvent.setup()
-      renderWithRouter()
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
 
       // Enable then disable skills
@@ -219,7 +240,7 @@ describe('SettingsMCP', () => {
 
     it('should add --servers flag when only one server selected', async () => {
       const user = userEvent.setup()
-      renderWithRouter()
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
 
       await user.click(within(cli).getByRole('button', { name: 'Prompts' }))
@@ -230,7 +251,7 @@ describe('SettingsMCP', () => {
 
     it('should add tool names when not all tools selected', async () => {
       const user = userEvent.setup()
-      renderWithRouter()
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
 
       // Codex is on by default; deselect it so only claude-code remains
@@ -249,7 +270,7 @@ describe('SettingsMCP', () => {
     // forgiving auto-detect path on purpose, not by accident.
     it('should emit bare auto-detect command when all tools selected', async () => {
       const user = userEvent.setup()
-      renderWithRouter()
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
 
       // Defaults are claude-code + codex; add the remaining two to select all four.
@@ -266,7 +287,7 @@ describe('SettingsMCP', () => {
 
     it('should show empty state when nothing selected', async () => {
       const user = userEvent.setup()
-      renderWithRouter()
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
 
       // Deselect all servers (skills already off by default)
@@ -276,8 +297,8 @@ describe('SettingsMCP', () => {
       expect(within(cli).getByText(/Select at least one item and one target tool above/)).toBeInTheDocument()
     })
 
-    it('should show numbered steps with install, login, and command', () => {
-      renderWithRouter()
+    it('should show numbered steps with install, login, and command', async () => {
+      await renderCliTab()
       const cli = screen.getByTestId('cli-setup-section')
       expect(within(cli).getByText('Install the CLI')).toBeInTheDocument()
       expect(within(cli).getByText('Log in')).toBeInTheDocument()
@@ -287,8 +308,8 @@ describe('SettingsMCP', () => {
     })
 
     describe('scope options', () => {
-      it('should show single Scope selector with User and Directory options', () => {
-        renderWithRouter()
+      it('should show single Scope selector with User and Directory options', async () => {
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
         expect(within(cli).getByText('Scope')).toBeInTheDocument()
         expect(within(cli).getByRole('button', { name: 'User' })).toBeInTheDocument()
@@ -303,7 +324,7 @@ describe('SettingsMCP', () => {
 
       it('should hide scope when nothing selected', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Bookmarks & Notes' }))
@@ -314,7 +335,7 @@ describe('SettingsMCP', () => {
 
       it('should add --scope directory to command when Directory selected', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Directory' }))
@@ -323,8 +344,8 @@ describe('SettingsMCP', () => {
         expect(pre.textContent).toContain('--scope directory')
       })
 
-      it('should not add --scope when User selected (default)', () => {
-        renderWithRouter()
+      it('should not add --scope when User selected (default)', async () => {
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
         const pre = within(cli).getByTestId('cli-install-command')
         expect(pre.textContent).not.toContain('--scope')
@@ -332,7 +353,7 @@ describe('SettingsMCP', () => {
 
       it('should apply scope to both MCP and skills commands', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Yes' }))
@@ -349,8 +370,8 @@ describe('SettingsMCP', () => {
         expect(skillsMatch).not.toBeNull()
       })
 
-      it('should not show scope warnings', () => {
-        renderWithRouter()
+      it('should not show scope warnings', async () => {
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
         expect(within(cli).queryByText(/doesn't support/)).not.toBeInTheDocument()
       })
@@ -359,7 +380,7 @@ describe('SettingsMCP', () => {
     describe('antigravity', () => {
       it('should add antigravity to the configure command when selected', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
@@ -370,7 +391,7 @@ describe('SettingsMCP', () => {
 
       it('should show user-scope-only error when antigravity selected with Directory scope', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
@@ -383,7 +404,7 @@ describe('SettingsMCP', () => {
 
       it('should not be affected by the Skills toggle on its own (no skills, no error when skills off)', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         // Select only Antigravity (deselect the two defaults).
@@ -402,7 +423,7 @@ describe('SettingsMCP', () => {
     describe('skills support conflict', () => {
       it('should error when skills enabled with only Antigravity selected', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Claude Code' }))
@@ -417,7 +438,7 @@ describe('SettingsMCP', () => {
 
       it('should error when skills enabled and Antigravity is selected alongside skills-capable tools', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         // Defaults claude-code + codex (skills-capable) plus Antigravity.
@@ -430,7 +451,7 @@ describe('SettingsMCP', () => {
 
       it('should clear the skills conflict when Skills is turned off', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
@@ -444,7 +465,7 @@ describe('SettingsMCP', () => {
 
       it('should clear the skills conflict when the unsupported tool is deselected', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
@@ -459,7 +480,7 @@ describe('SettingsMCP', () => {
 
       it('should show both scope and skills conflicts together', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Antigravity' }))
@@ -473,7 +494,7 @@ describe('SettingsMCP', () => {
 
       it('should not error when skills enabled with only skills-capable tools', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         // Defaults claude-code + codex are both skills-capable.
@@ -488,7 +509,7 @@ describe('SettingsMCP', () => {
     describe('skills tag filter', () => {
       it('should show tag filter when skills enabled', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Yes' }))
@@ -496,14 +517,14 @@ describe('SettingsMCP', () => {
         expect(within(cli).getByText(/Filter which prompts to export/)).toBeInTheDocument()
       })
 
-      it('should hide tag filter when skills off', () => {
-        renderWithRouter()
+      it('should hide tag filter when skills off', async () => {
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
         expect(within(cli).queryByText(/Filter which prompts to export/)).not.toBeInTheDocument()
       })
 
       it('should fetch prompt tags on mount', async () => {
-        renderWithRouter()
+        await renderCliTab()
         await waitFor(() => {
           expect(mockApiGet).toHaveBeenCalledWith('/tags/?content_types=prompt')
         })
@@ -511,7 +532,7 @@ describe('SettingsMCP', () => {
 
       it('should auto-select "skill" tag when it exists and skills enabled', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Yes' }))
@@ -531,7 +552,7 @@ describe('SettingsMCP', () => {
           },
         })
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Yes' }))
@@ -543,7 +564,7 @@ describe('SettingsMCP', () => {
 
       it('should show tag match selector when skills enabled', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         await user.click(within(cli).getByRole('button', { name: 'Yes' }))
@@ -555,7 +576,7 @@ describe('SettingsMCP', () => {
 
       it('should add --tag-match any to command when any tag match selected', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         // Enable skills first
@@ -570,7 +591,7 @@ describe('SettingsMCP', () => {
     describe('copy functionality', () => {
       it('should show Copied! after clicking copy button', async () => {
         const user = userEvent.setup()
-        renderWithRouter()
+        await renderCliTab()
         const cli = screen.getByTestId('cli-setup-section')
 
         const copyButtons = within(cli).getAllByText('Copy')

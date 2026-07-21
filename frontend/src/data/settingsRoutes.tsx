@@ -98,7 +98,8 @@ export const SETTINGS_ROUTES: SettingsRoute[] = [
       'ai integration mcp model context protocol claude desktop claude code '
       + 'codex antigravity agy gemini google setup configure cli command tokens scope user '
       + 'directory tools servers content prompts skills agent connect ai '
-      + 'assistant install remove status detect',
+      + 'assistant install remove status detect oauth connector custom connector '
+      + 'chatgpt paste url sign in browser login no token server url',
   },
   {
     path: '/app/settings/history',

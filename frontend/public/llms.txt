@@ -68,7 +68,7 @@ The core of Tiddly, summarized here conceptually:
 - **REST API** — full programmatic access, authenticated with Personal Access Tokens.
 - **In-app AI suggestions (Pro)** — tag, title, description, and relationship suggestions as you create or edit, with optional bring-your-own-key for higher limits and model choice.
 
-Supported tools, exact setup, and the security model live in `llms-integration.txt`; the `tiddly` CLI is documented in `llms-cli-instructions.txt`. The authoritative supported-tools list is the AI Integration settings page (linked below).
+Supported tools, exact setup (OAuth paste-the-URL for Claude/ChatGPT/Claude Code/Codex, or token-based via the CLI), and the security model live in `llms-integration.txt`; the `tiddly` CLI is documented in `llms-cli-instructions.txt`. The authoritative supported-tools list is the AI Integration settings page (linked below).
 
 ## Pricing
 

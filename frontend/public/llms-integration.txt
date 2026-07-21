@@ -1,21 +1,29 @@
 # Tiddly — Connecting to AI Tooling
 
-> How an AI agent should guide a person in *connecting* Tiddly to their AI tools — MCP servers, prompt/skills export, and the REST API — and the auth/security model that governs it. This is the "integration" companion to the hub (https://tiddly.me/llms.txt). For what Tiddly is, see https://tiddly.me/llms.txt; for operating the app, https://tiddly.me/llms-app-usage.txt; for the full `tiddly` CLI command reference, https://tiddly.me/llms-cli-instructions.txt.
+> How an AI agent should guide a person in *connecting* Tiddly to their AI tools — OAuth connectors (the default path), the MCP servers, prompt/skills export, and the REST API — and the auth/security model that governs it. This is the "integration" companion to the hub (https://tiddly.me/llms.txt). For what Tiddly is, see https://tiddly.me/llms.txt; for operating the app, https://tiddly.me/llms-app-usage.txt; for the full `tiddly` CLI command reference, https://tiddly.me/llms-cli-instructions.txt.
 
-**Scope / cross-references.** This file owns the MCP / API / PAT integration model and per-tool connection notes. It does **not** restate the value prop or tiers (see https://tiddly.me/llms.txt), and it does **not** re-list CLI commands — it says "use the CLI" and points to https://tiddly.me/llms-cli-instructions.txt for command depth. Full setup mechanics live in the docs: https://tiddly.me/prose/cli-mcp.md, https://tiddly.me/prose/cli-skills.md, https://tiddly.me/prose/api.md, https://tiddly.me/prose/extensions-chrome.md. The **authoritative current list of supported tools** (and the exact configure command for each) is the AI Integration settings page: https://tiddly.me/app/settings/ai-integration. For the full index of fetchable data and docs, see **Agent Resources** in https://tiddly.me/llms.txt (links `/data/index.json` and `/prose/index.json`).
+**Scope / cross-references.** This file owns the MCP / API / PAT integration model and per-tool connection notes. It does **not** restate the value prop or tiers (see https://tiddly.me/llms.txt), and it does **not** re-list CLI commands — it says "use the CLI" and points to https://tiddly.me/llms-cli-instructions.txt for command depth. Full setup mechanics live in the docs: https://tiddly.me/prose/connect-ai-apps.md (OAuth), https://tiddly.me/prose/cli-mcp.md, https://tiddly.me/prose/cli-skills.md, https://tiddly.me/prose/api.md, https://tiddly.me/prose/extensions-chrome.md. The **authoritative current list of supported tools** (and the exact setup for each path) is the AI Integration settings page: https://tiddly.me/app/settings/ai-integration. For the full index of fetchable data and docs, see **Agent Resources** in https://tiddly.me/llms.txt (links `/data/index.json` and `/prose/index.json`).
 
 ## The two MCP servers
 
 Both are remote/hosted HTTP MCP servers (no local process). Both read **and** write your content; **neither exposes a delete tool** — deletion is web-UI-only by design.
 
-- **Content server** — bookmarks + notes. MCP entry name `tiddly_notes_bookmarks`, URL `https://content-mcp.tiddly.me/mcp`. Tools: `get_context` (a summary of the user's content landscape — a good first call), `search_items`, `get_item`, `search_in_content` (find text *inside* one item), `create_bookmark`, `create_note`, `update_item`, `edit_content` (surgical str-replace on the content field), `create_relationship`, `list_tags`, `list_filters`.
-- **Prompt server** — prompt templates. MCP entry name `tiddly_prompts`, URL `https://prompts-mcp.tiddly.me/mcp`. Tools: `search_prompts`, `get_prompt_metadata`, `get_prompt_content`, `create_prompt`, `update_prompt`, `edit_prompt_content`, `list_tags`, `list_filters` — **plus** the native MCP Prompts protocol (`list_prompts` / `get_prompt`) so capable clients can list and render templates directly.
+- **Content server** — bookmarks + notes. URL `https://content-mcp.tiddly.me/mcp` (the CLI-managed config entry is named `tiddly_notes_bookmarks`; OAuth connectors can be named anything). Tools: `get_context` (a summary of the user's content landscape — a good first call), `search_items`, `get_item`, `search_in_content` (find text *inside* one item), `create_bookmark`, `create_note`, `update_item`, `edit_content` (surgical str-replace on the content field), `create_relationship`, `list_tags`, `list_filters`.
+- **Prompt server** — prompt templates. URL `https://prompts-mcp.tiddly.me/mcp` (CLI-managed entry name `tiddly_prompts`). Tools: `search_prompts`, `get_prompt_metadata`, `get_prompt_content`, `create_prompt`, `update_prompt`, `edit_prompt_content`, `list_tags`, `list_filters` — **plus** the native MCP Prompts protocol (`list_prompts` / `get_prompt`) so capable clients can list and render templates directly.
 
 An MCP-connected agent should rely on each server's own `instructions` and per-tool descriptions (always in context) for how to use the tools well — that's the authoritative, always-current usage guidance.
 
-## Connecting a tool — use the CLI
+## Connecting an app — OAuth (paste the URL; no tokens)
 
-Recommended path: **`tiddly mcp configure`** auto-detects installed tools, mints a dedicated Personal Access Token per tool+server, and writes each tool's native MCP config (atomic write, backs up the prior file). One command covers detection, tokens, and config. Command reference: https://tiddly.me/llms-cli-instructions.txt; full mechanics: https://tiddly.me/prose/cli-mcp.md.
+Both MCP servers support the MCP authorization spec, so any OAuth-capable MCP client can connect with just the server URL: the client discovers the sign-in flow, the user signs in with their Tiddly account in a browser and approves, done. Verified clients: **Claude** (web / desktop / mobile — connectors are account-level and sync across all surfaces), **Claude Code** (`claude mcp add --transport http` then `/mcp` → Authenticate), and **Codex** (`codex mcp add --url …` opens the sign-in automatically). **ChatGPT is currently NOT connectable**: an OpenAI-side registration bug blocks its sign-in (see the known issue at https://tiddly.me/data/known-issues.json) — do not recommend ChatGPT for Tiddly until OpenAI fixes it. Per-app steps: https://tiddly.me/prose/connect-ai-apps.md.
+
+Guide a user to OAuth when their tool supports connectors — it's the simplest path and creates no tokens to manage. Use the CLI path below for headless/scripted setups and tools without OAuth connector support.
+
+**What you (the agent) can do vs. the user:** for Claude Code and Codex you can run the `add` commands yourself; the browser sign-in/consent step must always be completed by the user personally — never attempt to automate or complete it for them. For Claude and ChatGPT the whole flow happens in the user's app UI, so give steps rather than acting. **Access granularity:** approving the consent screen grants that app the same content access as the user's session (there are no granular scopes); when a user wants separately revocable per-tool credentials, that's what the CLI/PAT path provides.
+
+## Connecting a tool — the CLI (token-based)
+
+**`tiddly mcp configure`** auto-detects installed tools, mints a dedicated Personal Access Token per tool+server, and writes each tool's native MCP config (atomic write, backs up the prior file). One command covers detection, tokens, and config. Command reference: https://tiddly.me/llms-cli-instructions.txt; full mechanics: https://tiddly.me/prose/cli-mcp.md.
 
 Supported tools, their config files, and per-tool quirks:
 
@@ -50,9 +58,9 @@ For programmatic/custom access (the MCP servers are preferred for AI assistants)
 - **Endpoint groups:** bookmarks, notes, prompts (+ a render endpoint), content (unified cross-type search, incl. in-content search), tags, filters, relationships, history (version diffs + restore).
 - **Conventions:** offset/limit pagination, sorting (created/updated/title/last-used), tag AND/OR filtering. Rate-limit headers (`X-RateLimit-*`) on every response; `Retry-After` on 429. Full overview: https://tiddly.me/prose/api.md.
 
-## What a PAT *cannot* do — the Auth0-only (403) surfaces
+## What a PAT *cannot* do — the session-only (403) surfaces
 
-Some endpoints reject PATs (HTTP 403) and require an interactive web/Auth0 login. This is deliberate defense-in-depth, not a bug — keep it in mind when scripting:
+Some endpoints reject PATs (HTTP 403) and require an interactive web session (browser sign-in). This is deliberate defense-in-depth, not a bug — keep it in mind when scripting:
 
 - **All `/ai/*` endpoints** — tag/metadata/relationship/argument suggestions, plus `/ai/health`, `/ai/models`, `/ai/validate-key`. AI features aren't for programmatic automation (cost/abuse control).
 - **Token management (`/tokens/*`)** — a PAT can't mint or manage tokens.

@@ -9,6 +9,8 @@ import { api } from '../services/api'
 import { useAuthStatus } from '../hooks/useAuthStatus'
 import { AgentPromptButton } from './AgentPromptButton'
 import { MCP_SETUP_PROMPT } from '../data/agentPrompts'
+import { DocsMarkdown } from './markdown/DocsMarkdown'
+import { getProseDoc } from '../content/proseDocs'
 import type { TagCount, TagListResponse } from '../types'
 
 
@@ -913,6 +915,108 @@ function SkillsTagSelector({
 }
 
 /**
+ * One MCP server URL with a copy button, for the OAuth connect section.
+ */
+function ServerUrlRow({ label, url }: { label: string; url: string }): ReactNode {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* Silent fail */ }
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-700 mb-1">{label}</p>
+      <div className="relative">
+        <code className="block bg-gray-50 text-gray-700 px-3 py-2 rounded text-xs font-mono pr-14 overflow-x-auto">
+          {url}
+        </code>
+        <button
+          onClick={handleCopy}
+          className={`absolute top-1.5 right-1.5 rounded px-1.5 py-0.5 text-xs transition-colors ${
+            copied
+              ? 'bg-green-600 text-white'
+              : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+          }`}
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// The per-app OAuth steps are single-sourced in the prose doc (also served to
+// agents at /prose/connect-ai-apps.md); the widget renders everything after
+// this marker so the two surfaces cannot drift.
+const PER_APP_STEPS_MARKER = '<!-- widget:per-app-steps -->'
+
+/**
+ * OAuth connect tab: paste-the-URL setup for apps with remote MCP connector
+ * support (Claude, ChatGPT, Claude Code, Codex). No tokens involved — the app
+ * discovers the sign-in flow from the server URL. Per-app steps are rendered
+ * from the shared prose doc.
+ */
+function OAuthConnectSection(): ReactNode {
+  const doc = getProseDoc('connect-ai-apps')
+  const markerIndex = doc.body.indexOf(PER_APP_STEPS_MARKER)
+  const perAppSteps = markerIndex === -1 ? doc.body : doc.body.slice(markerIndex + PER_APP_STEPS_MARKER.length)
+
+  return (
+    <div>
+      <p className="text-sm text-gray-600 mb-4">
+        Paste a server URL into the app, sign in with your Tiddly account in the browser, and
+        approve — that&rsquo;s the whole setup. The simplest path for Claude (web, desktop,
+        mobile), Claude Code, and Codex.
+      </p>
+      <div className="flex flex-col gap-3 mb-6">
+        <ServerUrlRow label="Bookmarks & Notes" url="https://content-mcp.tiddly.me/mcp" />
+        <ServerUrlRow label="Prompts" url="https://prompts-mcp.tiddly.me/mcp" />
+      </div>
+      <DocsMarkdown body={perAppSteps} />
+    </div>
+  )
+}
+
+type SetupTab = 'oauth' | 'cli'
+
+/**
+ * Tab bar for the two setup paths. OAuth is the default — it's the simplest
+ * path for every connector-capable app; the CLI tab covers what OAuth can't
+ * (headless/SSH machines, scripts, tools without connector support).
+ */
+function SetupTabs({ active, onChange }: { active: SetupTab; onChange: (tab: SetupTab) => void }): ReactNode {
+  const tabs: { value: SetupTab; label: string }[] = [
+    { value: 'oauth', label: 'Connect with OAuth' },
+    { value: 'cli', label: 'Setup via CLI' },
+  ]
+  return (
+    <div className="flex gap-6 border-b border-gray-200 mb-6" role="tablist">
+      {tabs.map((tab) => (
+        <button
+          key={tab.value}
+          type="button"
+          role="tab"
+          aria-selected={active === tab.value}
+          onClick={() => onChange(tab.value)}
+          className={`pb-2 -mb-px text-sm font-semibold border-b-2 transition-colors ${
+            active === tab.value
+              ? 'border-[#f09040] text-gray-900'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/**
  * Build the export URL for skills API endpoint.
  */
 function getDefaultSkillTags(availableTags: TagCount[]): string[] {
@@ -923,6 +1027,8 @@ function getDefaultSkillTags(availableTags: TagCount[]): string[] {
 }
 
 export function AISetupWidget(): ReactNode {
+  const [activeTab, setActiveTab] = useState<SetupTab>('oauth')
+
   return (
     <div>
       <p className="text-sm text-gray-600 mb-4">
@@ -959,11 +1065,22 @@ export function AISetupWidget(): ReactNode {
         />
       </div>
 
-      <h2 className="text-lg font-semibold text-gray-900 mb-6 pb-2 border-b border-gray-200">
-        Setup via CLI
-      </h2>
+      <SetupTabs active={activeTab} onChange={setActiveTab} />
 
-      <CLISetupSection />
+      {activeTab === 'oauth' ? (
+        <OAuthConnectSection />
+      ) : (
+        <div>
+          <p className="text-sm text-gray-600 mb-6">
+            Token-based setup for when OAuth can&rsquo;t work: headless or remote machines
+            (e.g. SSH, where no browser can open to sign in), scripted setups, and tools
+            without OAuth connector support (e.g. Antigravity). Also the home of{' '}
+            <Link to="/docs/cli/skills" className="text-[#d97b3d] hover:underline">Skills</Link>{' '}
+            export.
+          </p>
+          <CLISetupSection />
+        </div>
+      )}
     </div>
   )
 }

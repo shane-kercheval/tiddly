@@ -117,7 +117,9 @@ export const DOCS_ROUTES: DocsRoute[] = [
     searchText:
       'ai integration mcp model context protocol claude code claude desktop codex '
       + 'antigravity agy gemini google cursor windsurf chatgpt connect ai assistants agents setup configure tokens '
-      + 'example prompts widget tools server',
+      + 'example prompts widget tools server oauth connector custom connector paste url '
+      + 'sign in browser login no token authorize consent mobile ios sync plugins '
+      + 'browse plugins openid known issue problem connecting authenticate',
   },
   {
     path: '/docs/cli',
