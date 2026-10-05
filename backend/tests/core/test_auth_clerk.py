@@ -25,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings
+from core.logging_config import FIRST_PARTY_LOGGERS, configure_logging
 from models.deleted_identity import DeletedIdentity
 from models.user import User
 
@@ -328,6 +329,64 @@ class TestClerkOAuthAccessTokens:
         assert payload["client_id"] == "zTESTclientid123"
         assert "email" not in payload
         assert "azp" not in payload
+
+    def test__url_shaped_client_id__accepted_and_logged_at_info(
+        self,
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """
+        A CIMD client's `client_id` is its metadata URL; it is accepted (no
+        allowlist, no format check — the security-review decision recorded in
+        the docstring) and the accepted-token line reaches the log at INFO
+        through the API's configured logging (stream routing is covered in
+        test_logging_config.py).
+
+        Before/after in one test: with `core` reset to the unconfigured state
+        the line is dropped (the defect the logging setup fixes); after
+        `configure_logging()` it is emitted. No `caplog.at_level` here — that
+        would raise the logger level itself and mask the defect.
+        """
+        from core.auth import decode_clerk_jwt  # noqa: PLC0415
+
+        cimd_client_id = "https://claude.ai/oauth/claude-code-client-metadata"
+        token = mint_clerk_oauth_token(clerk_signing_key, client_id=cimd_client_id)
+        # Snapshot every logger configure_logging touches, plus the root: the
+        # "before" half needs root at WARNING (pytest's --log-level would raise
+        # it), and the restore must cover all first-party loggers, not just `core`.
+        root = logging.getLogger()
+        saved_root_level = root.level
+        saved = {
+            name: (logging.getLogger(name).level, list(logging.getLogger(name).handlers))
+            for name in FIRST_PARTY_LOGGERS
+        }
+        core_logger = logging.getLogger("core")
+        try:
+            root.setLevel(logging.WARNING)
+            core_logger.setLevel(logging.NOTSET)
+            core_logger.handlers[:] = []
+            payload = decode_clerk_jwt(token, clerk_settings)
+            assert payload["client_id"] == cimd_client_id
+            assert "clerk_oauth_token_accepted" not in caplog.text
+
+            configure_logging()
+            payload = decode_clerk_jwt(token, clerk_settings)
+            assert payload["client_id"] == cimd_client_id
+        finally:
+            root.setLevel(saved_root_level)
+            for name, (level, handlers) in saved.items():
+                logging.getLogger(name).setLevel(level)
+                logging.getLogger(name).handlers[:] = handlers
+
+        accepted = [
+            r for r in caplog.records
+            if r.name == "core.auth" and r.getMessage().startswith("clerk_oauth_token_accepted")
+        ]
+        assert len(accepted) == 1
+        assert accepted[0].levelno == logging.INFO
+        assert f"client_id={cimd_client_id}" in accepted[0].getMessage()
+        assert "sub=user_test_clerk_id" in accepted[0].getMessage()
 
     def test__oauth_token_missing_client_id__rejected_401(
         self,
