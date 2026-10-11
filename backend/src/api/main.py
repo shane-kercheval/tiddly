@@ -40,6 +40,7 @@ from core.auth import DeletedIdentityError
 from core.auth_cache import AuthCache, set_auth_cache
 from core.config import get_settings
 from core.http_cache import ETagMiddleware
+from core.logging_config import configure_logging
 from core.rate_limit_config import RateLimitExceededError
 from core.redis import RedisClient, set_redis_client
 from db.session import engine
@@ -122,6 +123,11 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
 
         return response
 
+
+# Module level, before anything else logs: uvicorn imports this module in each
+# worker process, so this runs once per process. Why it exists and why it
+# enumerates loggers instead of touching the root: core/logging_config.py.
+configure_logging()
 
 app_settings = get_settings()
 
