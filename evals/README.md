@@ -1,16 +1,17 @@
-# MCP Server Evaluations
+# Evaluations
 
-This directory contains evaluation tests for the MCP servers using the [flex-evals](https://github.com/shane-kercheval/flex-evals) framework.
+This directory contains two kinds of LLM evaluations, both using the [flex-evals](https://github.com/shane-kercheval/flex-evals) framework:
 
-These evals verify that LLMs can correctly use the MCP tools by:
-1. Creating realistic test scenarios
-2. Getting LLM tool predictions
-3. Executing the predicted tools
-4. Verifying the results match expectations
+- **MCP server evals** (`content_mcp/`, `prompt_mcp/`) verify that LLMs can correctly use the MCP tools by:
+  1. Creating realistic test scenarios
+  2. Getting LLM tool predictions
+  3. Executing the predicted tools
+  4. Verifying the results match expectations
+- **AI suggestion evals** (`ai_suggestions/`) measure the quality of the AI suggestion endpoints across models. They need only provider keys, not the servers below; see [AI Suggestion Evaluations](#ai-suggestion-evaluations).
 
-## Prerequisites
+## Prerequisites (MCP server evals)
 
-Before running evaluations, ensure:
+Before running the MCP server evaluations, ensure:
 
 1. Your `.env` file has:
    ```bash
@@ -72,6 +73,43 @@ uv run pytest 'evals/prompt_mcp/test_update_prompt.py::test_update_prompt[gpt-4o
 
 **NOTE**: Changes to MCP Servers (e.g. instructions/tool-descriptions, code changes to servers) are not hot reloaded; the MCP Servers need to be restarted.
 
+## AI Suggestion Evaluations
+
+`evals/ai_suggestions/` measures the quality of the five AI suggestion endpoints: tags, metadata, relationships, prompt arguments (generate all), and prompt argument fields (refine one). Each suite calls the backend's suggestion function for its endpoint (e.g. `suggest_tags`) directly, so it needs only the provider keys in the repo-root `.env` (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`), not the API, the MCP servers, or Docker.
+
+**Models.** Every `config_suggest_*.yaml` lists the same five, by provider-prefixed ID. BYOK (bring your own key) means a user who adds their own provider API key in Settings → AI Configuration and may then pick any model the app lists; without a key, suggestions use the platform default.
+
+| Model | Why it is in the run |
+|---|---|
+| `openai/gpt-6-luna` | The platform default for suggestions |
+| `gemini/gemini-3.5-flash-lite` | The Google budget model a BYOK user can pick |
+| `anthropic/claude-haiku-5-5` | The Anthropic budget model a BYOK user can pick |
+| `openai/gpt-5.4-nano` | Baseline: the previous platform default. OpenAI shuts it down on 2027-04-01, so it has to leave the configs before then. |
+| `anthropic/claude-haiku-4-5` | Baseline: the previous Anthropic budget model |
+
+Each call goes through `LLMService.complete()`, so every model gets its production request settings (`_MODEL_REQUEST_SETTINGS` in `backend/src/services/llm_service.py`) at `DEFAULT_TEMPERATURE`; the configs carry no temperature. Each result records what was sent as `temperature` (`null` when the model's entry omits it) and `request_settings`.
+
+**Judge.** `openai/gpt-5.4-mini` (`eval.judge_model` in each config) scores the `llm_judge` checks at temperature 0, through the same settings helper. Keep it fixed when comparing models, so that score changes come from the models under test.
+
+**Pass threshold.** Each test case runs 10 samples (`eval.samples`) and passes when at least 8 pass (`eval.pass_threshold: 0.8`).
+
+**Running.** Run the suites one at a time, each with its own make target, then lint by hand: `ruff` runs on `evals/` only as the first step of `make evals` (which runs every eval, MCP included), not in the per-suite targets or `make backend-verify`.
+
+```bash
+make evals-ai-suggestions-tags
+make evals-ai-suggestions-metadata
+make evals-ai-suggestions-relationships
+make evals-ai-suggestions-prompt-arguments
+make evals-ai-suggestions-prompt-argument-fields
+uv run ruff check evals
+```
+
+Don't use the combined `make evals-ai-suggestions` target: it runs all five suites in one pytest process, which can exhaust file descriptors on macOS (see the comment above the eval targets in the `Makefile`). Each suite writes one result file per model to `evals/ai_suggestions/results/`. A full run of all five suites costs about $2.50: the 2026-10-20 run cost $2.52, of which $0.67 was suggestion calls and $1.85 was the judge.
+
+**Comparing a candidate with the current default.** Compare pooled pass rates per suite, not test cases one by one. A suite's pooled pass rate for a model is the sum of `passed` over the sum of `total` across `metadata._test_results.per_test_case` in that model's result file (60 to 110 samples per suite). A per-case comparison is too noisy: with 6 to 11 cases per suite and a case passing at 8 of 10 samples, two equally good models differ on at least one suite about 73% of the time (a binomial estimate). The rule used for the 2026-10-20 default change: if the candidate's pooled pass rate is more than 5 percentage points below the current default's on any suite, stop and report the numbers before changing the default.
+
+Check slow calls as well as pass rates. The evals allow 60 s per attempt and 3 retries (`EVAL_LLM_TIMEOUT` and `EVAL_LLM_NUM_RETRIES` in `helpers.py`), while the suggestion endpoints allow 15 s and none. So a call that takes longer than 15 s passes here but times out in production. The result files record each call's duration.
+
 ## Viewing Results
 
 Each run writes a timestamped JSON file to `evals/<suite>/results/` containing every sample's prompt, tool predictions, tool results, check outcomes, and tracebacks. The eval viewer is a local web UI for browsing those files — use it to inspect individual failures, compare runs across models, and diagnose why a check failed.
@@ -91,6 +129,7 @@ evals/
 ├── README.md                           # This file
 ├── conftest.py                         # Shared pytest fixtures
 ├── utils.py                            # Shared helper functions
+├── ai_suggestions/                     # AI suggestion endpoint evals (see "AI Suggestion Evaluations")
 ├── content_mcp/                        # Content MCP server evals
 │   ├── config_edit_content.yaml        # edit_content test cases
 │   ├── test_edit_content.py            # edit_content eval tests
@@ -105,9 +144,9 @@ evals/
 └── viewer/                             # Local web UI for browsing eval results (make eval-viewer)
 ```
 
-## Configuration
+## Configuration (MCP server evals)
 
-Each eval suite has a `config.yaml` that defines:
+Each MCP eval suite has a `config.yaml` that defines (the AI suggestion configs differ; see [AI Suggestion Evaluations](#ai-suggestion-evaluations)):
 
 ### Model Configuration
 ```yaml

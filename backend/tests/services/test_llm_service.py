@@ -284,7 +284,7 @@ class TestResolveConfig:
             )
 
     def test_never_offered_model_still_rejected(self) -> None:
-        """The map does not widen the allowlist."""
+        """An ID that was never on the allowlist and is not in the map is rejected."""
         service = LLMService(_make_settings())
         with pytest.raises(UnsupportedModelError, match="Unsupported model"):
             service.resolve_config(

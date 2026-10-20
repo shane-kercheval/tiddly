@@ -102,6 +102,7 @@ Includes SSRF tests (run locally) and live penetration tests (`deployed/test_liv
 - **Don't mutate `deleted_at`/`archived_at` directly** — use the service layer methods.
 - **Don't use synchronous DB calls** — all database access is async.
 - **Don't bypass auth outside dev mode** — `VITE_DEV_MODE=true` is for local development only.
+- **Don't add a model to `_SUPPORTED_MODEL_DEFS` without checking whether it needs a `_MODEL_REQUEST_SETTINGS` entry.** Run the LLM smoke test (`backend/tests/integration/test_llm_smoke.py`), and, for a model that thinks by default, check its reasoning tokens once on a real suggestion prompt (see the comment on `_MODEL_REQUEST_SETTINGS`).
 - **Don't commit/push without approval**
 
 ## Files to Keep in Sync

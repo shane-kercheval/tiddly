@@ -268,7 +268,7 @@ To set DATABASE_URL:
 
 **AI / LLM variables:**
 
-Only `OPENAI_API_KEY` is required for the initial deploy. The only AI use case wired up today (suggestions) defaults to `openai/gpt-5.4-nano`, and platform users are locked to the use-case default in code — no other platform key is reachable on the platform path. BYOK users supply their own keys via the `X-LLM-Api-Key` header and do not depend on these vars.
+Only `OPENAI_API_KEY` is required for the initial deploy. The only AI use case wired up today (suggestions) defaults to `openai/gpt-6-luna` (the code default, which applies unless `LLM_MODEL_SUGGESTIONS` is set), and platform users are locked to the use-case default in code — no other platform key is reachable on the platform path. BYOK users supply their own keys via the `X-LLM-Api-Key` header and do not depend on these vars.
 
 ```
 OPENAI_API_KEY=<your OpenAI key>
@@ -281,14 +281,16 @@ GEMINI_API_KEY=<your Google AI Studio key>
 ANTHROPIC_API_KEY=<your Anthropic key>
 ```
 
-Optional per-use-case model overrides (change only if you want to deviate from defaults — and add the matching provider key if the override points to a different provider):
+Optional per-use-case model overrides. The code defaults in `backend/src/core/config.py` apply unless these are set. The values below are those defaults, so you can see what each variable controls:
 
 ```
-LLM_MODEL_SUGGESTIONS=openai/gpt-5.4-nano
-LLM_MODEL_TRANSFORM=gemini/gemini-flash-lite-latest
-LLM_MODEL_AUTO_COMPLETE=gemini/gemini-flash-lite-latest
-LLM_MODEL_CHAT=openai/gpt-5.4-mini
+LLM_MODEL_SUGGESTIONS=openai/gpt-6-luna
+LLM_MODEL_TRANSFORM=gemini/gemini-3.5-flash-lite
+LLM_MODEL_AUTO_COMPLETE=gemini/gemini-3.5-flash-lite
+LLM_MODEL_CHAT=openai/gpt-6.1-sol
 ```
+
+Set one only to deviate from its default, and don't copy the block as-is: a variable set to today's default pins it, so a later change to the default in code would not reach production. An override must name a model from the `/ai/models` list (`_SUPPORTED_MODEL_DEFS` in `backend/src/services/llm_service.py`), because only those have per-model request settings; any other model is sent only a temperature, which recent OpenAI and Claude models refuse. Add the matching provider key if the override points to a different provider.
 
 **Database migrations:** `ai_usage` and `ai_usage_analytics` (Postgres view used by the analytics role, see Step 8) are applied automatically by the pre-deploy `alembic upgrade head` command configured on this service — no manual migration step is needed.
 

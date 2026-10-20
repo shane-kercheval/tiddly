@@ -135,7 +135,11 @@ def build_supported_models() -> list[AIModelEntry]:
     """
     Build the supported models list with pricing from LiteLLM's SDK.
 
-    Called at startup. Pricing auto-updates with LiteLLM version bumps.
+    Called at startup. Prices come from the price list LiteLLM downloads from
+    its GitHub `main` branch at import, with the copy bundled in the installed
+    LiteLLM as the fallback when the download fails, so they can change at any
+    restart without a LiteLLM upgrade.
+
     Returns typed `AIModelEntry` instances rather than raw dicts — so a typo
     or drift in `_SUPPORTED_MODEL_DEFS` (e.g., an unsupported `provider`
     value) surfaces as a `ValidationError` at import/startup, not at
