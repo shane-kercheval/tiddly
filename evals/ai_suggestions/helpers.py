@@ -73,8 +73,8 @@ def create_judge_llm_function(
     Returns an async callable with signature (prompt, response_format) -> (parsed, metadata)
     as required by LLMJudgeCheck. The judge calls `acompletion` directly but takes its
     per-model settings from the same table as the service, so moving it to a model that
-    rejects temperature 0 (GPT-6, Claude 5.5) needs only a YAML change once that model has a
-    settings-table entry.
+    rejects temperature 0 (GPT-6 Sol and Astra, Claude 5.5; Luna accepts it at effort
+    `none`) needs only a YAML change once that model has a settings-table entry.
     """
 
     async def judge_llm_function(

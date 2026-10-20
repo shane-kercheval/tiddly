@@ -193,11 +193,11 @@ class AIModelEntry(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "id": "openai/gpt-5.4-nano",
+                    "id": "openai/gpt-6-luna",
                     "provider": "openai",
                     "tier": "budget",
-                    "input_cost_per_million": 0.05,
-                    "output_cost_per_million": 0.40,
+                    "input_cost_per_million": 0.10,
+                    "output_cost_per_million": 0.50,
                 },
             ],
         },
@@ -244,18 +244,18 @@ class AIModelsResponse(BaseModel):
                 {
                     "models": [
                         {
-                            "id": "openai/gpt-5.4-nano",
+                            "id": "openai/gpt-6-luna",
                             "provider": "openai",
                             "tier": "budget",
-                            "input_cost_per_million": 0.05,
-                            "output_cost_per_million": 0.40,
+                            "input_cost_per_million": 0.10,
+                            "output_cost_per_million": 0.50,
                         },
                     ],
                     "defaults": {
-                        "suggestions": "openai/gpt-5.4-nano",
-                        "transform": "gemini/gemini-flash-lite-latest",
-                        "auto_complete": "gemini/gemini-flash-lite-latest",
-                        "chat": "openai/gpt-5.4-mini",
+                        "suggestions": "openai/gpt-6-luna",
+                        "transform": "gemini/gemini-3.5-flash-lite",
+                        "auto_complete": "gemini/gemini-3.5-flash-lite",
+                        "chat": "openai/gpt-6.1-sol",
                     },
                 },
             ],
@@ -311,8 +311,8 @@ class ValidateKeyRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
-                {"model": "openai/gpt-5.4-nano"},
-                {"model": "anthropic/claude-haiku-4-5"},
+                {"model": "openai/gpt-6-luna"},
+                {"model": "anthropic/claude-haiku-5-5"},
             ],
         },
     )
@@ -346,7 +346,7 @@ class SuggestTagsRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "content_type": "bookmark",
                     "title": "How async/await works under the hood",
                     "url": "https://example.com/posts/async-internals",
@@ -361,10 +361,12 @@ class SuggestTagsRequest(BaseModel):
     model: str | None = Field(
         None,
         description=(
-            "Optional supported model ID (e.g. `openai/gpt-5.4-mini`). Only "
+            "Optional supported model ID (e.g. `openai/gpt-6.1-sol`). Only "
             "honored when a BYOK key is supplied via `X-LLM-Api-Key`; platform "
             "callers are silently locked to the use-case default. Call "
-            "`GET /ai/models` for the supported list."
+            "`GET /ai/models` for the supported list. A retired ID from a "
+            "previous list is accepted and replaced by its current "
+            "same-provider model."
         ),
     )
     content_type: ContentTypeLiteral = Field(
@@ -436,7 +438,7 @@ class SuggestMetadataRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "fields": ["title", "description"],
                     "url": "https://example.com/posts/async-internals",
                     "title": "Async internals",
@@ -444,7 +446,7 @@ class SuggestMetadataRequest(BaseModel):
                     "content_snippet": "The event loop sits at the heart of asyncio...",
                 },
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "fields": ["name"],
                     "title": "Weekly status update",
                     "description": "Template for our team's weekly status report.",
@@ -564,7 +566,7 @@ class SuggestRelationshipsRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "source_id": "01920000-0000-7000-8000-000000000001",
                     "title": "How async/await works under the hood",
                     "url": "https://example.com/posts/async-internals",
@@ -718,7 +720,7 @@ class SuggestPromptArgumentsRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "prompt_content": (
                         "Summarize {{ document }} in {{ num_sentences }} sentences."
                     ),
@@ -779,7 +781,7 @@ class SuggestPromptArgumentFieldsRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "prompt_content": (
                         "Summarize {{ document }} in {{ num_sentences }} sentences."
                     ),

@@ -85,7 +85,7 @@ class TestSchemaExampleModelIdsDriftGuard:
     Guards against stale model IDs in OpenAPI examples.
 
     Several request schemas hardcode model IDs in `json_schema_extra.examples`
-    (e.g. `"openai/gpt-5.4-nano"`). These are not checked against the runtime
+    (e.g. `"openai/gpt-6-luna"`). These are not checked against the runtime
     model catalog (`_SUPPORTED_MODEL_IDS`), so deprecating or renaming a
     model would leave stale examples in Swagger. This test catches that at
     CI time instead of at the next time someone notices the docs are wrong.

@@ -1,4 +1,5 @@
 """Unit tests for LLMService."""
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,11 +9,13 @@ from core.config import Settings
 from services.llm_service import (
     _MODEL_REQUEST_SETTINGS,
     _PROVIDER_KEY_MAP,
+    _RETIRED_MODEL_REPLACEMENTS,
     _SUPPORTED_MODEL_DEFS,
     AIUseCase,
     KeySource,
     LLMConfig,
     LLMService,
+    UnsupportedModelError,
     _get_model_cost,
     _resolve_platform_key,
     _sanitize_structured_content,
@@ -43,10 +46,10 @@ def _per_model_kwargs(call_kwargs: dict) -> dict:
 def _make_settings(**overrides: str) -> MagicMock:
     """Create a mock Settings with LLM defaults."""
     defaults = {
-        "llm_model_suggestions": "gemini/gemini-flash-lite-latest",
-        "llm_model_transform": "gemini/gemini-flash-lite-latest",
-        "llm_model_auto_complete": "gemini/gemini-flash-lite-latest",
-        "llm_model_chat": "openai/gpt-5.4-mini",
+        "llm_model_suggestions": "openai/gpt-6-luna",
+        "llm_model_transform": "gemini/gemini-3.5-flash-lite",
+        "llm_model_auto_complete": "gemini/gemini-3.5-flash-lite",
+        "llm_model_chat": "openai/gpt-6.1-sol",
         "gemini_api_key": "test-gemini-key",
         "openai_api_key": "test-openai-key",
         "anthropic_api_key": "test-anthropic-key",
@@ -78,7 +81,7 @@ class TestResolvePlatformKey:
 
     def test_anthropic_prefix(self) -> None:
         settings = _make_settings()
-        assert _resolve_platform_key("anthropic/claude-haiku-4-5", settings) == "test-anthropic-key"
+        assert _resolve_platform_key("anthropic/claude-haiku-5-5", settings) == "test-anthropic-key"
 
     def test_unknown_prefix_raises(self) -> None:
         settings = _make_settings()
@@ -96,7 +99,7 @@ class TestGetModelCost:
 
     def test_prefixed_key_found(self) -> None:
         """Gemini models are in cost map with prefix."""
-        cost = _get_model_cost("gemini/gemini-flash-lite-latest")
+        cost = _get_model_cost("gemini/gemini-3.5-flash-lite")
         assert cost is not None
         assert "input_cost_per_token" in cost
 
@@ -166,14 +169,14 @@ class TestResolveConfig:
     def test_platform_config_suggestions(self) -> None:
         service = LLMService(_make_settings())
         config = service.resolve_config(AIUseCase.SUGGESTIONS)
-        assert config.model == "gemini/gemini-flash-lite-latest"
-        assert config.api_key == "test-gemini-key"
+        assert config.model == "openai/gpt-6-luna"
+        assert config.api_key == "test-openai-key"
         assert config.key_source == KeySource.PLATFORM
 
     def test_chat_uses_different_model(self) -> None:
         service = LLMService(_make_settings())
         config = service.resolve_config(AIUseCase.CHAT)
-        assert config.model == "openai/gpt-5.4-mini"
+        assert config.model == "openai/gpt-6.1-sol"
 
     def test_user_key_overrides_platform(self) -> None:
         service = LLMService(_make_settings())
@@ -181,16 +184,16 @@ class TestResolveConfig:
         assert config.api_key == "user-key-123"
         assert config.key_source == KeySource.USER
         # Falls back to use-case default model
-        assert config.model == "gemini/gemini-flash-lite-latest"
+        assert config.model == "openai/gpt-6-luna"
 
     def test_user_key_with_user_model(self) -> None:
         service = LLMService(_make_settings())
         config = service.resolve_config(
             AIUseCase.SUGGESTIONS,
             user_api_key="user-key-123",
-            user_model="anthropic/claude-sonnet-4-6",
+            user_model="anthropic/claude-sonnet-5-5",
         )
-        assert config.model == "anthropic/claude-sonnet-4-6"
+        assert config.model == "anthropic/claude-sonnet-5-5"
         assert config.api_key == "user-key-123"
         assert config.key_source == KeySource.USER
 
@@ -211,16 +214,17 @@ class TestResolveConfig:
             AIUseCase.SUGGESTIONS,
             user_model="openai/evil-model",
         )
-        assert config.model == "gemini/gemini-flash-lite-latest"
+        assert config.model == "openai/gpt-6-luna"
         assert config.key_source == KeySource.PLATFORM
 
     def test_user_model_ignored_without_user_key(self) -> None:
+        """Without a key, even a retired `user_model` is ignored: no remap, platform default."""
         service = LLMService(_make_settings())
         config = service.resolve_config(
             AIUseCase.SUGGESTIONS,
             user_model="anthropic/claude-sonnet-4-6",
         )
-        assert config.model == "gemini/gemini-flash-lite-latest"
+        assert config.model == "openai/gpt-6-luna"
         assert config.key_source == KeySource.PLATFORM
 
     def test_all_use_cases_resolve(self) -> None:
@@ -229,6 +233,79 @@ class TestResolveConfig:
             config = service.resolve_config(use_case)
             assert config.key_source == KeySource.PLATFORM
             assert config.api_key  # non-empty
+
+    @pytest.mark.parametrize(
+        ("retired", "replacement"),
+        [
+            # Expected values are the plan's map (milestone 4), not the code's.
+            ("openai/gpt-5.4-nano", "openai/gpt-6-luna"),
+            ("openai/gpt-5.4-mini", "openai/gpt-6-luna"),
+            ("openai/gpt-5.4", "openai/gpt-6-luna"),
+            ("anthropic/claude-haiku-4-5", "anthropic/claude-haiku-5-5"),
+            ("anthropic/claude-sonnet-4-6", "anthropic/claude-sonnet-5-5"),
+            ("anthropic/claude-opus-4-6", "anthropic/claude-opus-5-5"),
+            ("gemini/gemini-flash-lite-latest", "gemini/gemini-3.5-flash-lite"),
+        ],
+    )
+    def test_retired_byok_model_is_replaced(
+        self, retired: str, replacement: str, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A BYOK caller's stale model ID from a previous allowlist keeps working."""
+        # The API sets its own loggers to INFO at startup (core/logging_config.py); this
+        # module never imports the app, so set the level the API runs at.
+        caplog.set_level(logging.INFO, logger="services.llm_service")
+        service = LLMService(_make_settings())
+        config = service.resolve_config(
+            AIUseCase.SUGGESTIONS, user_api_key="user-key-secret", user_model=retired,
+        )
+        assert config.model == replacement
+        assert config.api_key == "user-key-secret"
+        assert config.key_source == KeySource.USER
+        messages = [r.getMessage() for r in caplog.records if r.name == "services.llm_service"]
+        # The IDs are in the message itself: the API's log format prints only the message.
+        assert f"byok_model_remapped from={retired} to={replacement} use_case=suggestions" in messages
+        assert not any("user-key-secret" in m for m in messages)
+
+    def test_never_offered_model_still_rejected(self) -> None:
+        """The map does not widen the allowlist."""
+        service = LLMService(_make_settings())
+        with pytest.raises(UnsupportedModelError, match="Unsupported model"):
+            service.resolve_config(
+                AIUseCase.SUGGESTIONS, user_api_key="user-key-123", user_model="evil/attacker-model",
+            )
+
+
+class TestRetiredModelReplacements:
+    """Drift rules for _RETIRED_MODEL_REPLACEMENTS."""
+
+    def test_no_retired_id_is_still_allowlisted(self) -> None:
+        allowlist = {d["id"] for d in _SUPPORTED_MODEL_DEFS}
+        still_offered = sorted(_RETIRED_MODEL_REPLACEMENTS.keys() & allowlist)
+        assert not still_offered, f"Retired IDs still on the allowlist: {still_offered}"
+
+    def test_every_replacement_is_allowlisted(self) -> None:
+        """Every value must itself pass the allowlist, which keeps its SSRF protection."""
+        allowlist = {d["id"] for d in _SUPPORTED_MODEL_DEFS}
+        unknown = sorted(set(_RETIRED_MODEL_REPLACEMENTS.values()) - allowlist)
+        assert not unknown, f"Replacements not on the allowlist: {unknown}"
+
+    def test_replacement_keeps_the_provider(self) -> None:
+        """
+        The model's prefix is the only record of which provider issued the
+        user's key, so a cross-provider replacement would send the key to the
+        wrong provider.
+        """
+        prefixes = [prefix for prefix, _ in _PROVIDER_KEY_MAP]
+
+        def provider(model: str) -> str | None:
+            return next((p for p in prefixes if model.startswith(p)), None)
+
+        crossed = {
+            retired: replacement
+            for retired, replacement in _RETIRED_MODEL_REPLACEMENTS.items()
+            if provider(retired) is None or provider(retired) != provider(replacement)
+        }
+        assert not crossed, f"Replacements that change or lack a provider prefix: {crossed}"
 
 
 # ---------------------------------------------------------------------------
@@ -241,8 +318,8 @@ class TestGetModelForUseCase:
 
     def test_returns_platform_model(self) -> None:
         service = LLMService(_make_settings())
-        assert service.get_model_for_use_case(AIUseCase.SUGGESTIONS) == "gemini/gemini-flash-lite-latest"
-        assert service.get_model_for_use_case(AIUseCase.CHAT) == "openai/gpt-5.4-mini"
+        assert service.get_model_for_use_case(AIUseCase.SUGGESTIONS) == "openai/gpt-6-luna"
+        assert service.get_model_for_use_case(AIUseCase.CHAT) == "openai/gpt-6.1-sol"
 
 
 # ---------------------------------------------------------------------------
@@ -459,14 +536,6 @@ class TestModelRequestSettings:
             ("anthropic/claude-sonnet-5-5", {}),
             ("anthropic/claude-opus-5-5", {}),
             ("gemini/gemini-3.5-flash-lite", {}),
-            # Today's allowlist: `{}` entries, so the caller's temperature passes through.
-            ("gemini/gemini-flash-lite-latest", {"temperature": 0.7}),
-            ("openai/gpt-5.4-nano", {"temperature": 0.7}),
-            ("openai/gpt-5.4-mini", {"temperature": 0.7}),
-            ("openai/gpt-5.4", {"temperature": 0.7}),
-            ("anthropic/claude-haiku-4-5", {"temperature": 0.7}),
-            ("anthropic/claude-sonnet-4-6", {"temperature": 0.7}),
-            ("anthropic/claude-opus-4-6", {"temperature": 0.7}),
         ],
     )
     def test_table_entries(self, model: str, expected: dict) -> None:

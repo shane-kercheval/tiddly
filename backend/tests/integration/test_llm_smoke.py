@@ -118,3 +118,40 @@ async def test_smoke_structured_output(model_def: AIModelEntry) -> None:
             f"{model_id} used {reasoning_tokens} reasoning tokens; its "
             "_MODEL_REQUEST_SETTINGS entry should turn reasoning off"
         )
+
+
+@pytest.mark.parametrize(
+    "model_def",
+    _SMOKE_MODELS,
+    ids=[m.id for m in _SMOKE_MODELS],
+)
+async def test_smoke_key_check_call(model_def: AIModelEntry) -> None:
+    """
+    Make exactly the call `POST /ai/validate-key` makes for each supported model.
+
+    The Settings page's "Test connection" sends `max_tokens=5`, temperature 0,
+    and no response format, so a model whose settings-table entry breaks that
+    call would report every user's key as unusable. Only an exception fails
+    this: the endpoint treats any reply as a valid key, and a 5-token cap can
+    leave the reply empty when the model reasons first (recorded below, not
+    asserted).
+    """
+    model_id = model_def.id
+    api_key = _get_api_key_for_model(model_id)
+
+    if not api_key:
+        pytest.skip(f"No API key for {model_id}")
+
+    service = LLMService(_make_smoke_settings(model_id, api_key))
+    config = LLMConfig(model=model_id, api_key=api_key, key_source=KeySource.PLATFORM)
+    response, _ = await service.complete(
+        messages=[{"role": "user", "content": "This is a test. Respond with 'ok'."}],
+        config=config,
+        max_tokens=5,
+        temperature=0,
+    )
+    details = getattr(response.usage, "completion_tokens_details", None)
+    print(
+        f"{model_id}: content={response.choices[0].message.content!r} "
+        f"reasoning_tokens={getattr(details, 'reasoning_tokens', None)}",
+    )

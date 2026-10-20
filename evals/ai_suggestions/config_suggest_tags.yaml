@@ -4,9 +4,10 @@ description: |
   context. Verifies structural correctness (expected tags present, dedup works)
   and semantic relevance (LLM judge scores all tags as topically related).
 
-# Baselines (gpt-5.4-nano, claude-haiku-4-5) first, then the candidates. The
-# temperature and other per-model settings sent come from the settings table in
-# backend/src/services/llm_service.py and are recorded per result as
+# Baselines (gpt-5.4-nano, claude-haiku-4-5) first, then the candidates. Each
+# call is sent LLMService's DEFAULT_TEMPERATURE (0.7) unless the model's entry in
+# the settings table (backend/src/services/llm_service.py) omits it, plus
+# whatever else the entry adds; each result records what was sent as
 # `temperature` and `request_settings`.
 models:
   - name: "openai/gpt-5.4-nano"

@@ -73,21 +73,43 @@ LLM_KEY_REJECTED_STATUSES: frozenset[int] = frozenset({401, 403})
 # Cost lookup keys may differ (e.g. OpenAI models have no prefix in cost map).
 
 _SUPPORTED_MODEL_DEFS: list[dict] = [
-    # Google Gemini
-    {"id": "gemini/gemini-flash-lite-latest", "provider": "google", "tier": "budget"},
+    # Google Gemini. Pinned, not the `-latest` alias, which Google may move to a
+    # new model with two weeks' notice.
+    {"id": "gemini/gemini-3.5-flash-lite", "provider": "google", "tier": "budget"},
     # Gemini flash/pro disabled — chronic 503 "high demand" errors from Google's API
     # make these unreliable for production use. See evals/LEARNINGS.md.
     # {"id": "gemini/gemini-flash-latest", "provider": "google", "tier": "balanced"},
     # {"id": "gemini/gemini-pro-latest", "provider": "google", "tier": "flagship"},
     # OpenAI
-    {"id": "openai/gpt-5.4-nano", "provider": "openai", "tier": "budget"},
-    {"id": "openai/gpt-5.4-mini", "provider": "openai", "tier": "balanced"},
-    {"id": "openai/gpt-5.4", "provider": "openai", "tier": "flagship"},
+    {"id": "openai/gpt-6-luna", "provider": "openai", "tier": "budget"},
+    {"id": "openai/gpt-6.1-sol", "provider": "openai", "tier": "balanced"},
+    {"id": "openai/gpt-6-astra", "provider": "openai", "tier": "flagship"},
     # Anthropic
-    {"id": "anthropic/claude-haiku-4-5", "provider": "anthropic", "tier": "budget"},
-    {"id": "anthropic/claude-sonnet-4-6", "provider": "anthropic", "tier": "balanced"},
-    {"id": "anthropic/claude-opus-4-6", "provider": "anthropic", "tier": "flagship"},
+    {"id": "anthropic/claude-haiku-5-5", "provider": "anthropic", "tier": "budget"},
+    {"id": "anthropic/claude-sonnet-5-5", "provider": "anthropic", "tier": "balanced"},
+    {"id": "anthropic/claude-opus-5-5", "provider": "anthropic", "tier": "flagship"},
 ]
+
+# Retired allowlist IDs and the model a BYOK request for one now gets. The BYOK
+# model choice lives only in the user's browser, so a user who picked a model
+# that has since left the allowlist would otherwise get 400 "Unsupported model"
+# on every request until they re-pick. Kept deliberately simple, a plain lookup
+# (the user's instruction): every retired OpenAI ID goes to GPT-6 Luna, with no
+# tier mapping; each retired Claude ID goes to its 5.5 successor. Rules,
+# enforced by test_llm_service.py: a replacement never crosses providers (the
+# model's prefix is the only record of which provider issued the user's key, so
+# crossing would send the key to the wrong provider), and every replacement is
+# itself on the allowlist (so the allowlist's routing protection still holds).
+# An entry can go once logs stop showing `byok_model_remapped` for it.
+_RETIRED_MODEL_REPLACEMENTS: dict[str, str] = {
+    "openai/gpt-5.4-nano": "openai/gpt-6-luna",
+    "openai/gpt-5.4-mini": "openai/gpt-6-luna",
+    "openai/gpt-5.4": "openai/gpt-6-luna",
+    "anthropic/claude-haiku-4-5": "anthropic/claude-haiku-5-5",
+    "anthropic/claude-sonnet-4-6": "anthropic/claude-sonnet-5-5",
+    "anthropic/claude-opus-4-6": "anthropic/claude-opus-5-5",
+    "gemini/gemini-flash-lite-latest": "gemini/gemini-3.5-flash-lite",
+}
 
 
 def _get_model_cost(model_id: str) -> dict | None:
@@ -169,8 +191,9 @@ def _resolve_platform_key(model: str, settings: Settings) -> str:
 
 
 # The temperature `complete()` and `stream()` use when the caller passes none.
-# The suggestion endpoints rely on it, and the suggestion evals record it, through
-# `model_request_settings`, as the temperature sent.
+# The suggestion endpoints never pass one, so this is what they request; the
+# settings table then decides whether it is sent. The suggestion evals record it
+# as the temperature sent, through the same table helper.
 DEFAULT_TEMPERATURE: float = 0.7
 
 
@@ -203,14 +226,6 @@ DEFAULT_TEMPERATURE: float = 0.7
 # because removing their temperature without setting an effort leaves the
 # model's default reasoning on.
 _MODEL_REQUEST_SETTINGS: dict[str, dict] = {
-    # Today's allowlist and defaults: verified to accept the caller's temperature.
-    "gemini/gemini-flash-lite-latest": {},
-    "openai/gpt-5.4-nano": {},
-    "openai/gpt-5.4-mini": {},
-    "openai/gpt-5.4": {},
-    "anthropic/claude-haiku-4-5": {},
-    "anthropic/claude-sonnet-4-6": {},
-    "anthropic/claude-opus-4-6": {},
     # Temperature is accepted only when reasoning effort is "none".
     "openai/gpt-6-luna": {"reasoning_effort": "none"},
     # No "none" effort level exists, so temperature must be omitted.
@@ -337,10 +352,22 @@ class LLMService:
         - If user provides a key: use their key + their model (or use-case default model)
         - Otherwise: use platform key + use-case model (ignore user model choice)
 
+        A BYOK `user_model` from a previous allowlist is replaced by its current
+        same-provider model (`_RETIRED_MODEL_REPLACEMENTS`) before the allowlist
+        check, and the replacement is logged.
+
         Raises UnsupportedModelError (subclass of ValueError) if user_model is
         not in the supported models allowlist.
         """
         if user_api_key:
+            if user_model in _RETIRED_MODEL_REPLACEMENTS:
+                replacement = _RETIRED_MODEL_REPLACEMENTS[user_model]
+                # IDs in the message itself: the API's log format prints only the message.
+                logger.info(
+                    "byok_model_remapped from=%s to=%s use_case=%s",
+                    user_model, replacement, use_case.value,
+                )
+                user_model = replacement
             if user_model and user_model not in _SUPPORTED_MODEL_IDS:
                 raise UnsupportedModelError(f"Unsupported model: {user_model}")
             return LLMConfig(
@@ -393,7 +420,7 @@ class LLMService:
             _sanitize_structured_content(response)
 
         try:
-            # Strip provider prefix (e.g. "openai/gpt-5.4-nano" → "gpt-5.4-nano")
+            # Strip provider prefix (e.g. "openai/gpt-6-luna" → "gpt-6-luna")
             # because completion_cost() doesn't recognize prefixed OpenAI/Anthropic
             # model names. Bare names work for all providers including Gemini.
             cost_model = config.model.split("/")[-1] if "/" in config.model else config.model

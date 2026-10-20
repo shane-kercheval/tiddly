@@ -137,7 +137,8 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
             "or 429, e.g. 404 for a model it doesn't recognize). Also: the "
             "supplied `model` is not in "
             "the supported list (no `error_code`; message starts with "
-            "\"Unsupported model\")."
+            "\"Unsupported model\"). A retired ID from a previous list is not "
+            "rejected: it is replaced by its current same-provider model."
         ),
         "content": {
             "application/json": {
@@ -408,7 +409,9 @@ AI_VALIDATE_KEY_RESPONSES: dict[int, dict] = {
             "provider rejected the request with a 4xx other than 401, 403, 408 "
             "or 429, e.g. 404 for a model it doesn't recognize); unsupported "
             "`model` value "
-            "(no `error_code`; message starts with `\"Unsupported model\"`)."
+            "(no `error_code`; message starts with `\"Unsupported model\"`). "
+            "A retired ID from a previous list is not rejected: it is replaced "
+            "by its current same-provider model."
         ),
     },
     429: _LLM_CALL_ERROR_RESPONSES[429],

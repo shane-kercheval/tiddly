@@ -66,12 +66,18 @@ Settled by the briefer after the milestone 1 review:
 22. **When the server's own key is refused (platform path, no `X-LLM-Api-Key` header), the API keeps answering 422 `llm_auth_failed` in this PR.** The handler's log line records whether the caller sent a key (never the key itself), so operators can tell an outage of the server's key from a user's bad key. Answering 503 instead is recorded under known limitations.
 23. **On `POST /ai/validate-key`, a provider 404 stays 400 ("Connection failed" on the Settings page), not a rejected key**, because a 404 can mean the provider doesn't recognize the model while the key is fine.
 
+Settled by the briefer after the milestone 3 review:
+
+24. **The platform default stays `openai/gpt-6-luna`.** Four calls took about 61 s in the eval run (three Luna, one nano, all on prompt arguments); in production they would have timed out, and counted as failures they put Luna 6.7 points behind nano on prompt arguments. A 40-call sequential check at production settings found no Luna timeout (0 of 40) against one for nano (1 of 40), and the briefer kept Luna on that basis. Milestone 3's Results has the details.
+25. **One default temperature, `DEFAULT_TEMPERATURE` in `llm_service.py`,** used by `complete()` and `stream()` and read by the suggestion evals' record, replacing each eval YAML's separate `temperature`. A test checks that no suggestion passes its own temperature, so the record always matches what was sent.
+26. **The stall check's raw data and script are committed** in `evals/ai_suggestions/results/2026-10-20-prompt-arguments-stall-check/` (`calls.json`, `run_stall_check.py`), so its table can be checked.
+
 ### By the plan writer
 
 1. **Milestone order: the evals (milestone 3) run before the model swap (milestone 4).** The gate must run before the default changes, and the evals need only the settings table, not the allowlist.
 2. **Why the band handler (decided by the briefer, item 20).** Item 21 replaced this design after the milestone 1 review: one handler on `openai.APIError` maps by status alone, and only the rate-limit, timeout, and connection handlers remain. What follows is the reasoning for the first design, kept as the record. reviewer-fable proposed it; reviewer-opus preferred handlers on the three concrete 5xx classes, because a handler on `APIStatusError` also catches the 403, 404, and 422 classes. The band handler catches them on purpose and maps them: it makes the documented "other → 503" true for every 5xx class LiteLLM has or adds (it added `PaymentRequiredError` this cycle), it closes the three 4xx gaps that would otherwise stay a known limitation, and it is the same size as three class handlers. Starlette walks the exception's MRO, so the existing specific handlers (401, 429, 400, timeout, connection) still win. The cost is that `api/main.py` imports `openai`, today only LiteLLM's dependency, so `pyproject.toml` declares it (`openai>=2.20.0,<3`, LiteLLM's own constraint; the locked 2.21.0 does not move).
 3. **The retired-model map lives next to the allowlist in `llm_service.py` and logs each remap at INFO** with the IDs inline in the message (from, to, use case; never the key), so operators can see when an entry can be dropped.
-4. **Eval results record the request settings the helper produces for the model**, not the YAML's informational `temperature: 0.7`. The eval viewer tolerates a null temperature (`evals/viewer/server/routes/runs.ts:83`, `RunDetail.tsx:61`). The record is derived (briefer's item 17); cost per call is the check.
+4. **Eval results record the request settings the helper produces for the model**, at `DEFAULT_TEMPERATURE`, the temperature `complete()` uses (briefer's item 25; the YAML `temperature` field this first replaced was removed after the milestone 3 review). The eval viewer tolerates a null temperature (`evals/viewer/server/routes/runs.ts:83`, `RunDetail.tsx:61`). The record is derived (briefer's item 17); cost per call is the check.
 5. **The settings table has no `o4-mini` entry.** The model shuts down 2026-10-23 and was never on the allowlist.
 6. **Two drift tests**: every settings-table key and every retired-map key carries a known provider prefix, and every retired-map value is on the allowlist with the same prefix as its key.
 7. **A changelog entry and one line in `AGENTS.md`**, per the "Files to keep in sync" section of `AGENTS.md`.
@@ -237,7 +243,7 @@ Measure whether the new budget models suggest as well as the ones they replace, 
 
 - Each of the five suggestion suites (tags, metadata, relationships, prompt arguments, prompt argument fields) has result files for five models: the two baselines `gpt-5.4-nano` and `claude-haiku-4-5`, and the candidates `gpt-6-luna`, `gemini-3.5-flash-lite`, `claude-haiku-5-5`.
 - Each result file shows the request settings that were sent, so a reader can tell Luna ran at effort `none` and Haiku 5.5 with thinking off.
-- The gate has a verdict: either Luna's pooled pass rate is within 5 points of nano's on every suite, or the implementer has stopped and reported the numbers.
+- The gate has a verdict: either Luna's pooled pass rate is no more than 5 points below nano's on any suite, or the implementer has stopped and reported the numbers.
 
 ### Implementation outline
 
@@ -262,7 +268,7 @@ Measure whether the new budget models suggest as well as the ones they replace, 
 
 ### Results (2026-10-20)
 
-**Gate: passed on every suite.** GPT-6 Luna's pooled pass rate is within 5 points of `gpt-5.4-nano`'s on all five suites, so the platform default moves to Luna in milestone 4. One full run, five suites run one at a time with `make evals-ai-suggestions-<suite>`, five models each, 440 samples per model. Judge `openai/gpt-5.4-mini` throughout. Result files: the 25 files in `evals/ai_suggestions/results/` from `2026-10-20T05-37-09` to `2026-10-20T05-44-57`, one per suite and model.
+**Gate: passed.** GPT-6 Luna's pooled pass rate is no more than 5 points below `gpt-5.4-nano`'s on any suite (on tags it is 6.4 points above). That pass counts four stalled calls as passes: in production they would have timed out, and counted as failures, prompt arguments would put Luna 6.7 points behind nano (see "Stalls" below). The briefer kept Luna as the default after a check at production settings (briefer's item 24), so the platform default moves to Luna in milestone 4. One full run, five suites run one at a time with `make evals-ai-suggestions-<suite>`, five models each, 440 samples per model. Judge `openai/gpt-5.4-mini` throughout. Result files: the 25 files in `evals/ai_suggestions/results/` from `2026-10-20T05-37-09` to `2026-10-20T05-44-57`, one per suite and model.
 
 | Suite | Luna minus nano (pooled points) |
 |---|---|
@@ -274,35 +280,35 @@ Measure whether the new budget models suggest as well as the ones they replace, 
 
 Per suite and model, from the result files. Pooled pass rate is passed samples over all samples; a test case passes at 8 of 10 samples; latency is per suggestion call, and p95 is nearest-rank, which hides up to three slow calls in 60 (the slow calls are listed under "Stalls" below); cost is LiteLLM's per call.
 
-| Suite | Model | Pooled pass rate | Cases passing | p95 latency | Mean cost per call |
-|---|---|---|---|---|---|
-| Tags | gpt-5.4-nano | 85.5% (94/110) | 9/11 | 1.32 s | $0.000139 |
-| Tags | claude-haiku-4-5 | 96.4% (106/110) | 10/11 | 1.63 s | $0.000867 |
-| Tags | gpt-6-luna | 91.8% (101/110) | 10/11 | 1.35 s | $0.000065 |
-| Tags | gemini-3.5-flash-lite | 99.1% (109/110) | 11/11 | 0.87 s | $0.000206 |
-| Tags | claude-haiku-5-5 | 98.2% (108/110) | 11/11 | 1.44 s | $0.000116 |
-| Metadata | gpt-5.4-nano | 100.0% (110/110) | 11/11 | 1.15 s | $0.000132 |
-| Metadata | claude-haiku-4-5 | 100.0% (110/110) | 11/11 | 3.31 s | $0.000802 |
-| Metadata | gpt-6-luna | 100.0% (110/110) | 11/11 | 1.47 s | $0.000059 |
-| Metadata | gemini-3.5-flash-lite | 100.0% (110/110) | 11/11 | 0.89 s | $0.000162 |
-| Metadata | claude-haiku-5-5 | 100.0% (110/110) | 11/11 | 2.13 s | $0.000109 |
-| Relationships | gpt-5.4-nano | 95.0% (76/80) | 7/8 | 1.26 s | $0.000185 |
-| Relationships | claude-haiku-4-5 | 100.0% (80/80) | 8/8 | 2.94 s | $0.001297 |
-| Relationships | gpt-6-luna | 97.5% (78/80) | 8/8 | 1.63 s | $0.000085 |
-| Relationships | gemini-3.5-flash-lite | 100.0% (80/80) | 8/8 | 1.01 s | $0.000359 |
-| Relationships | claude-haiku-5-5 | 100.0% (80/80) | 8/8 | 2.50 s | $0.000177 |
-| Prompt arguments | gpt-5.4-nano | 98.3% (59/60) | 6/6 | 2.24 s | $0.000252 |
-| Prompt arguments | claude-haiku-4-5 | 100.0% (60/60) | 6/6 | 3.71 s | $0.001277 |
-| Prompt arguments | gpt-6-luna | 95.0% (57/60) | 6/6 | 2.22 s | $0.000090 |
-| Prompt arguments | gemini-3.5-flash-lite | 100.0% (60/60) | 6/6 | 1.18 s | $0.000366 |
-| Prompt arguments | claude-haiku-5-5 | 100.0% (60/60) | 6/6 | 2.89 s | $0.000161 |
-| Prompt argument fields | gpt-5.4-nano | 97.5% (78/80) | 8/8 | 1.04 s | $0.000112 |
-| Prompt argument fields | claude-haiku-4-5 | 100.0% (80/80) | 8/8 | 2.26 s | $0.000665 |
-| Prompt argument fields | gpt-6-luna | 100.0% (80/80) | 8/8 | 1.35 s | $0.000046 |
-| Prompt argument fields | gemini-3.5-flash-lite | 100.0% (80/80) | 8/8 | 0.93 s | $0.000142 |
-| Prompt argument fields | claude-haiku-5-5 | 100.0% (80/80) | 8/8 | 2.12 s | $0.000085 |
+| Suite | Model | Pooled pass rate | Cases passing | p95 latency | Mean cost per call | Calls over 15 s |
+|---|---|---|---|---|---|---|
+| Tags | gpt-5.4-nano | 85.5% (94/110) | 9/11 | 1.32 s | $0.000139 | 0 |
+| Tags | claude-haiku-4-5 | 96.4% (106/110) | 10/11 | 1.63 s | $0.000867 | 0 |
+| Tags | gpt-6-luna | 91.8% (101/110) | 10/11 | 1.35 s | $0.000065 | 0 |
+| Tags | gemini-3.5-flash-lite | 99.1% (109/110) | 11/11 | 0.87 s | $0.000206 | 0 |
+| Tags | claude-haiku-5-5 | 98.2% (108/110) | 11/11 | 1.44 s | $0.000116 | 0 |
+| Metadata | gpt-5.4-nano | 100.0% (110/110) | 11/11 | 1.15 s | $0.000132 | 0 |
+| Metadata | claude-haiku-4-5 | 100.0% (110/110) | 11/11 | 3.31 s | $0.000802 | 0 |
+| Metadata | gpt-6-luna | 100.0% (110/110) | 11/11 | 1.47 s | $0.000059 | 0 |
+| Metadata | gemini-3.5-flash-lite | 100.0% (110/110) | 11/11 | 0.89 s | $0.000162 | 0 |
+| Metadata | claude-haiku-5-5 | 100.0% (110/110) | 11/11 | 2.13 s | $0.000109 | 0 |
+| Relationships | gpt-5.4-nano | 95.0% (76/80) | 7/8 | 1.26 s | $0.000185 | 0 |
+| Relationships | claude-haiku-4-5 | 100.0% (80/80) | 8/8 | 2.94 s | $0.001297 | 0 |
+| Relationships | gpt-6-luna | 97.5% (78/80) | 8/8 | 1.63 s | $0.000085 | 0 |
+| Relationships | gemini-3.5-flash-lite | 100.0% (80/80) | 8/8 | 1.01 s | $0.000359 | 0 |
+| Relationships | claude-haiku-5-5 | 100.0% (80/80) | 8/8 | 2.50 s | $0.000177 | 0 |
+| Prompt arguments | gpt-5.4-nano | 98.3% (59/60) | 6/6 | 2.24 s | $0.000252 | 1 |
+| Prompt arguments | claude-haiku-4-5 | 100.0% (60/60) | 6/6 | 3.71 s | $0.001277 | 0 |
+| Prompt arguments | gpt-6-luna | 95.0% (57/60) | 6/6 | 2.22 s | $0.000090 | 3 |
+| Prompt arguments | gemini-3.5-flash-lite | 100.0% (60/60) | 6/6 | 1.18 s | $0.000366 | 0 |
+| Prompt arguments | claude-haiku-5-5 | 100.0% (60/60) | 6/6 | 2.89 s | $0.000161 | 0 |
+| Prompt argument fields | gpt-5.4-nano | 97.5% (78/80) | 8/8 | 1.04 s | $0.000112 | 0 |
+| Prompt argument fields | claude-haiku-4-5 | 100.0% (80/80) | 8/8 | 2.26 s | $0.000665 | 0 |
+| Prompt argument fields | gpt-6-luna | 100.0% (80/80) | 8/8 | 1.35 s | $0.000046 | 0 |
+| Prompt argument fields | gemini-3.5-flash-lite | 100.0% (80/80) | 8/8 | 0.93 s | $0.000142 | 0 |
+| Prompt argument fields | claude-haiku-5-5 | 100.0% (80/80) | 8/8 | 2.12 s | $0.000085 | 0 |
 
-**Bypass check: passed; no Luna or Haiku 5.5 call reasoned.** On the first tag case (`python-flask-tutorial`, the one appendix A measured), Luna cost $0.000071 on all 10 calls (appendix A: $0.000071 at effort `none`, $0.000092 to $0.00011 when it reasons) and Haiku 5.5 cost $0.000128 to $0.000131 (appendix A: $0.00013 with thinking off, $0.00021 to $0.00023 with it on). Across all 44 test cases, no Luna call cost more than 1.08 times its case's median and no Haiku 5.5 call more than 1.12 times; in appendix A, reasoning added 30 to 77%. Two price checks agree. Luna's mean cost per test case against nano's is 0.31 to 0.50, and list prices ($0.10 / $0.50 per million against $0.20 / $1.25) put that ratio between 0.4 and 0.5 when both use the same tokens, so Luna used about the same as or fewer tokens than nano, which does not reason. Haiku 5.5's against Haiku 4.5's is 0.121 to 0.145, where appendix A's thinking-on cost would put it at 0.22 to 0.24 on the first tag case. Every result records the settings the table sends: temperature 0.7 for nano, Haiku 4.5, and Luna (Luna with `reasoning_effort: none`), `null` for Gemini and for Haiku 5.5 (with `thinking: disabled`).
+**Bypass check: passed; no sign of reasoning in any Luna or Haiku 5.5 call (inferred from cost).** The result files record each call's cost, not its reasoning tokens, so reasoning that adds only a few percent cannot be ruled out; the reasoning appendix A measured can be. On the first tag case (`python-flask-tutorial`, the one appendix A measured), Luna cost $0.000071 on all 10 calls (appendix A: $0.000071 at effort `none`, $0.000092 to $0.00011 when it reasons) and Haiku 5.5 cost $0.000128 to $0.000131 (appendix A: $0.00013 with thinking off, $0.00021 to $0.00023 with it on). Across all 44 test cases, no Luna call cost more than 1.08 times its case's median and no Haiku 5.5 call more than 1.12 times; in appendix A, reasoning added 30 to 77%. Two price checks agree. Luna's mean cost per test case against nano's is 0.31 to 0.50, and list prices ($0.10 / $0.50 per million against $0.20 / $1.25) put that ratio between 0.4 and 0.5 when both use the same tokens, so Luna used about the same as or fewer tokens than nano, which does not reason. Haiku 5.5's against Haiku 4.5's is 0.121 to 0.145, where appendix A's thinking-on cost would put it at 0.22 to 0.24 on the first tag case. Every result records the settings the table sends: temperature 0.7 for nano, Haiku 4.5, and Luna (Luna with `reasoning_effort: none`), `null` for Gemini and for Haiku 5.5 (with `thinking: disabled`).
 
 **Stalls: four calls took about 61 s in the eval run; in a 40-call sequential check at production settings, Luna did not stall.** Found in the milestone 3 review. All four were in prompt arguments: nano once and Luna twice on `objective-jinja-conditional` (a template with a Jinja `if` block), and Luna once on `generate-all-mixed-short-and-long`. No other call in the run took over 15 s. They fit a first attempt hitting the eval's 60 s limit and a retry succeeding (inferred; the files do not record retries), and all four passed their checks, so the gate counts them as passes. In production (15 s limit, no retries) each would have been a timeout; counted as failures, prompt arguments would be Luna 54/60 (90.0%) against nano 58/60 (96.7%), 6.7 points behind. Nano also stalled on `objective-jinja-conditional` in the 2026-05-14 run (61.7 s).
 
@@ -315,7 +321,13 @@ A follow-up check on 2026-10-20 ($0.012) called the backend's `suggest_prompt_ar
 | `generate-all-mixed-short-and-long` | gpt-6-luna | 20 | 0 | 1.21 / 1.52 / 1.67 / 1.75 s |
 | `generate-all-mixed-short-and-long` | gpt-5.4-nano | 20 | 0 | 0.86 / 1.09 / 1.36 / 1.44 s |
 
-Luna did not time out (0 of 40); nano timed out once (1 of 40). The eval run's stalls did not reproduce for Luna one call at a time. Nano's one slow completed call (8.65 s) cost about 9.5 times its case's median, which points to a runaway long answer from the model rather than a provider stall (observation by reviewer-opus, confirmed from the check's data); so the slow calls are not evidence that concurrency causes stalls, and a concurrency test is not the obvious next step. **Decision (the briefer):** the platform default stays `openai/gpt-6-luna`, based on this check.
+Luna did not time out (0 of 40); nano timed out once (1 of 40). What is known:
+
+- Luna did not stall in 40 sequential calls at production settings.
+- The cause of the eval run's stalls is unknown. The check differs from the eval in three ways at once (one call at a time instead of 10, a 15 s limit instead of 60 s, no retries instead of 3), so it cannot tell a rare stall from one that needs many calls in flight. Even at the eval's suite-wide rate for Luna (3 of 60), 0 of 40 would happen about 13% of the time.
+- Nano's stall recurs on `objective-jinja-conditional` across runs: 61.4 s in this eval run, 61.7 s on 2026-05-14, and in this check both its timeout and its slowest completed call (8.65 s). That 8.65 s call cost about 9.5 times its case's median cost ($0.001727 against $0.000182), so it returned a much longer answer than usual.
+
+Raw data and script: `evals/ai_suggestions/results/2026-10-20-prompt-arguments-stall-check/` (`calls.json`, `run_stall_check.py`). **Decision (the briefer, item 24):** the platform default stays `openai/gpt-6-luna`, based on this check.
 
 **For information.** Haiku 5.5 against Haiku 4.5: +1.8 points on tags, equal on the other four suites, at about 13% of the cost per call. The pinned Gemini 3.5 Flash-Lite against the alias `gemini-flash-lite-latest` in the most recent earlier runs (May 2026 where one exists, otherwise April 2026; both April tags runs shown):
 
@@ -407,7 +419,7 @@ Rewrite each section as if fresh (current state, not history):
 - `frontend/src/content/data/changelog.json`: a new month at the top (`"month": "October 2026"`, a theme, an "Improved" category) with one entry for BYOK users (the new model list; retired OpenAI picks now use GPT-6 Luna, Claude picks move to their 5.5 versions, and users can pick again in Settings) and one for the platform default. `tag: "ai"` is a valid tag (`changelog.ts` validates `web | api | cli | extension | site | performance | ai`); set `pr` once the PR number exists. `npx vitest run src/content/data/changelog.test.ts` must pass.
 - `AGENTS.md`, under "Don't": one line, "Don't add a model to `_SUPPORTED_MODEL_DEFS` without checking whether it needs a `_MODEL_REQUEST_SETTINGS` entry; run the LLM smoke test, and, for a model that thinks by default, check its reasoning tokens once on a real suggestion prompt (see the comment on `_MODEL_REQUEST_SETTINGS`)."
 - Privacy: no change. The "AI Features" section and the provider list name providers and data categories, not models, and the default provider stays OpenAI (`privacy.md:88-90`). State in the PR that this was checked.
-- This plan: append the "Results" section from milestone 3.
+- This plan: keep the "Results" section in milestone 3, where it already is; nothing to append.
 
 ### Definition of done
 

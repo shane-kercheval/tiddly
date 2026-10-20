@@ -293,13 +293,37 @@ class TestValidateKey:
             response = await client.post(
                 "/ai/validate-key",
                 headers={"X-LLM-Api-Key": "valid-key-123"},
-                json={"model": "anthropic/claude-haiku-4-5"},
+                json={"model": "anthropic/claude-haiku-5-5"},
             )
         assert response.status_code == 200
         assert response.json()["valid"] is True
         # Verify the model passed to acompletion matches the requested model
         call_kwargs = mock_acompletion.call_args
-        assert call_kwargs.kwargs["model"] == "anthropic/claude-haiku-4-5"
+        assert call_kwargs.kwargs["model"] == "anthropic/claude-haiku-5-5"
+
+    async def test_valid_key_with_retired_model_uses_replacement(self, client: AsyncClient) -> None:
+        """
+        A browser still holding a retired model gets its same-provider
+        replacement, sent with the replacement's request settings (Claude 5.5
+        takes no temperature), so the key check also goes through the table.
+        """
+        with (
+            patch(
+                "services.llm_service.acompletion", new_callable=AsyncMock, return_value=MagicMock(),
+            ) as mock_acompletion,
+            patch("services.llm_service.completion_cost", return_value=0.0),
+        ):
+            response = await client.post(
+                "/ai/validate-key",
+                headers={"X-LLM-Api-Key": "valid-key-123"},
+                json={"model": "anthropic/claude-haiku-4-5"},
+            )
+        assert response.status_code == 200
+        assert response.json()["valid"] is True
+        sent = mock_acompletion.call_args.kwargs
+        assert sent["model"] == "anthropic/claude-haiku-5-5"
+        assert "temperature" not in sent
+        assert sent["thinking"] == {"type": "disabled"}
 
     async def test_valid_key_with_unsupported_model(self, client: AsyncClient) -> None:
         """validate-key with unsupported model should return 400."""
@@ -673,68 +697,68 @@ def _google_error(code: int, status: str, message: str) -> dict:
 # different class for each (`APIError`, `BadRequestError`, `NotFoundError`).
 _PROVIDER_ERROR_CASES = [
     pytest.param(
-        "openai/gpt-5.4-nano", _OPENAI_URL, 403,
+        "openai/gpt-6-luna", _OPENAI_URL, 403,
         _openai_error("Country, region, or territory not supported", "request_forbidden",
                       "unsupported_country_region_territory"),
         422, "llm_auth_failed", id="openai-403-request-forbidden",
     ),
-    pytest.param("openai/gpt-5.4-nano", _OPENAI_URL, 403, {}, 422, "llm_auth_failed", id="openai-403-no-body"),
+    pytest.param("openai/gpt-6-luna", _OPENAI_URL, 403, {}, 422, "llm_auth_failed", id="openai-403-no-body"),
     pytest.param(
-        "openai/gpt-5.4-nano", _OPENAI_URL, 403,
+        "openai/gpt-6-luna", _OPENAI_URL, 403,
         _openai_error("You are not allowed to sample from this model", "invalid_request_error"),
         422, "llm_auth_failed", id="openai-403-invalid-request",
     ),
     pytest.param(
-        "openai/gpt-5.4-nano", _OPENAI_URL, 403,
+        "openai/gpt-6-luna", _OPENAI_URL, 403,
         _openai_error("Project does not have access to model", "invalid_request_error", "model_not_found"),
         422, "llm_auth_failed", id="openai-403-model-not-found",
     ),
     pytest.param(
-        "openai/gpt-5.4-nano", _OPENAI_URL, 401,
+        "openai/gpt-6-luna", _OPENAI_URL, 401,
         _openai_error("You didn't provide an API key.", "invalid_request_error"),
         422, "llm_auth_failed", id="openai-401-no-key",
     ),
     pytest.param(
-        "openai/gpt-5.4-nano", _OPENAI_URL, 401,
+        "openai/gpt-6-luna", _OPENAI_URL, 401,
         _openai_error("Incorrect API key provided:", "invalid_request_error", "invalid_api_key"),
         422, "llm_auth_failed", id="openai-401-incorrect-key",
     ),
     pytest.param(
-        "openai/gpt-5.4-nano", _OPENAI_URL, 404,
+        "openai/gpt-6-luna", _OPENAI_URL, 404,
         _openai_error("The model does not exist", "invalid_request_error", "model_not_found"),
         400, "llm_bad_request", id="openai-404-model-not-found",
     ),
     pytest.param(
-        "openai/gpt-5.4-nano", _OPENAI_URL, 409, _openai_error("Conflict", "invalid_request_error"),
+        "openai/gpt-6-luna", _OPENAI_URL, 409, _openai_error("Conflict", "invalid_request_error"),
         400, "llm_bad_request", id="openai-409",
     ),
     pytest.param(
-        "openai/gpt-5.4-nano", _OPENAI_URL, 500, _openai_error("Server error", "server_error"),
+        "openai/gpt-6-luna", _OPENAI_URL, 500, _openai_error("Server error", "server_error"),
         503, "llm_unavailable", id="openai-500",
     ),
     pytest.param(
-        "openai/gpt-5.4-nano", _OPENAI_URL, 503, _openai_error("Overloaded", "server_error"),
+        "openai/gpt-6-luna", _OPENAI_URL, 503, _openai_error("Overloaded", "server_error"),
         503, "llm_unavailable", id="openai-503",
     ),
     pytest.param(
-        "anthropic/claude-haiku-4-5", _ANTHROPIC_URL, 403, _anthropic_error("permission_error"),
+        "anthropic/claude-haiku-5-5", _ANTHROPIC_URL, 403, _anthropic_error("permission_error"),
         422, "llm_auth_failed", id="anthropic-403",
     ),
     pytest.param(
-        "anthropic/claude-haiku-4-5", _ANTHROPIC_URL, 529, _anthropic_error("overloaded_error"),
+        "anthropic/claude-haiku-5-5", _ANTHROPIC_URL, 529, _anthropic_error("overloaded_error"),
         503, "llm_unavailable", id="anthropic-529",
     ),
     pytest.param(
-        "gemini/gemini-flash-lite-latest", _GEMINI_URL, 400, _GOOGLE_BAD_KEY_REPLY,
+        "gemini/gemini-3.5-flash-lite", _GEMINI_URL, 400, _GOOGLE_BAD_KEY_REPLY,
         422, "llm_auth_failed", id="gemini-400-bad-key",
     ),
     pytest.param(
-        "gemini/gemini-flash-lite-latest", _GEMINI_URL, 403,
+        "gemini/gemini-3.5-flash-lite", _GEMINI_URL, 403,
         _google_error(403, "PERMISSION_DENIED", "Permission denied on resource project."),
         422, "llm_auth_failed", id="gemini-403-permission-denied",
     ),
     pytest.param(
-        "gemini/gemini-flash-lite-latest", _GEMINI_URL, 503,
+        "gemini/gemini-3.5-flash-lite", _GEMINI_URL, 503,
         _google_error(503, "UNAVAILABLE", "The model is overloaded. Please try again later."),
         503, "llm_unavailable", id="gemini-503",
     ),
@@ -872,7 +896,7 @@ class TestProviderErrorsThroughLiteLLM:
         response = await client.post(
             "/ai/suggest-tags",
             headers={"X-LLM-Api-Key": "test-byok-key"},
-            json={"title": "Flask", "content_type": "bookmark", "model": "openai/gpt-5.4-nano"},
+            json={"title": "Flask", "content_type": "bookmark", "model": "openai/gpt-6-luna"},
         )
         assert route.called, "the request bypassed the mocked provider"
         assert response.status_code == expected_status
