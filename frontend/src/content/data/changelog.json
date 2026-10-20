@@ -10,16 +10,19 @@
           {
             "title": "AI suggestions run on GPT-6 Luna",
             "description": "When you haven't added your own API key, tag, title, description, relationship, and prompt-argument suggestions now use OpenAI's GPT-6 Luna, replacing GPT-5.4 nano, which OpenAI is retiring.",
+            "pr": 173,
             "tag": "ai"
           },
           {
             "title": "Newer models when you use your own API key",
             "description": "With your own key, you can now choose GPT-6 Luna, GPT-6.1 Sol, or GPT-6 Astra from OpenAI; Claude Haiku 5.5, Sonnet 5.5, or Opus 5.5 from Anthropic; or Gemini 3.5 Flash-Lite from Google. If you had picked a model that has left this list, your suggestions keep working: an earlier OpenAI model now runs on GPT-6 Luna, each earlier Claude model on its 5.5 version, and Gemini Flash-Lite on Gemini 3.5 Flash-Lite. Settings → AI Configuration may not show the model actually in use until you pick a model again. If you had picked GPT-5.4 mini or GPT-5.4, choose GPT-6.1 Sol or GPT-6 Astra there to move back to a larger model.",
+            "pr": 173,
             "tag": "ai"
           },
           {
             "title": "Saving two items with the same new tag at once",
             "description": "Creating or editing two bookmarks, notes, prompts, or saved filters at the same moment with the same tag you hadn't used before could fail one of them with a server error. AI agents making parallel requests were the most likely to hit it. Both now save and share the one new tag.",
+            "pr": 173,
             "tag": "api"
           }
         ]
