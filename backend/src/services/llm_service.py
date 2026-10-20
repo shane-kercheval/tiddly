@@ -99,8 +99,10 @@ _SUPPORTED_MODEL_DEFS: list[dict] = [
 # enforced by test_llm_service.py: a replacement never crosses providers (the
 # model's prefix is the only record of which provider issued the user's key, so
 # crossing would send the key to the wrong provider), and every replacement is
-# itself on the allowlist (so the allowlist's routing protection still holds).
-# An entry can go once logs stop showing `byok_model_remapped` for it.
+# itself on the allowlist (so a remapped user's request is accepted, not 400).
+# The map cannot widen the allowlist: `resolve_config` swaps first and then runs
+# the replacement through the same allowlist check as any other ID. An entry can
+# go once logs stop showing `byok_model_remapped` for it.
 _RETIRED_MODEL_REPLACEMENTS: dict[str, str] = {
     "openai/gpt-5.4-nano": "openai/gpt-6-luna",
     "openai/gpt-5.4-mini": "openai/gpt-6-luna",

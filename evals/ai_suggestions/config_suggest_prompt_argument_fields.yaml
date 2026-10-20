@@ -7,8 +7,8 @@ description: |
   template context.
 
 # Baselines (gpt-5.4-nano, claude-haiku-4-5) first, then the candidates. Each
-# call is sent LLMService's DEFAULT_TEMPERATURE (0.7) unless the model's entry in
-# the settings table (backend/src/services/llm_service.py) omits it, plus
+# call is sent LLMService's DEFAULT_TEMPERATURE unless the model's entry in the
+# settings table (backend/src/services/llm_service.py) omits it, plus
 # whatever else the entry adds; each result records what was sent as
 # `temperature` and `request_settings`.
 models:

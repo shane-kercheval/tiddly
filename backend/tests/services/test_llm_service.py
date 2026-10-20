@@ -217,8 +217,9 @@ class TestResolveConfig:
         assert config.model == "openai/gpt-6-luna"
         assert config.key_source == KeySource.PLATFORM
 
-    def test_user_model_ignored_without_user_key(self) -> None:
+    def test_user_model_ignored_without_user_key(self, caplog: pytest.LogCaptureFixture) -> None:
         """Without a key, even a retired `user_model` is ignored: no remap, platform default."""
+        caplog.set_level(logging.INFO, logger="services.llm_service")
         service = LLMService(_make_settings())
         config = service.resolve_config(
             AIUseCase.SUGGESTIONS,
@@ -226,6 +227,7 @@ class TestResolveConfig:
         )
         assert config.model == "openai/gpt-6-luna"
         assert config.key_source == KeySource.PLATFORM
+        assert not any("byok_model_remapped" in r.getMessage() for r in caplog.records)
 
     def test_all_use_cases_resolve(self) -> None:
         service = LLMService(_make_settings())
@@ -266,6 +268,21 @@ class TestResolveConfig:
         assert f"byok_model_remapped from={retired} to={replacement} use_case=suggestions" in messages
         assert not any("user-key-secret" in m for m in messages)
 
+    def test_replacement_still_passes_the_allowlist_check(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        The allowlist's protection comes from checking after swapping: a
+        replacement goes through the same check as any other ID, so even a map
+        entry pointing off the allowlist cannot route a request there.
+        """
+        monkeypatch.setitem(_RETIRED_MODEL_REPLACEMENTS, "openai/gpt-5.4-nano", "openai/evil-model")
+        service = LLMService(_make_settings())
+        with pytest.raises(UnsupportedModelError, match="Unsupported model: openai/evil-model"):
+            service.resolve_config(
+                AIUseCase.SUGGESTIONS, user_api_key="user-key-123", user_model="openai/gpt-5.4-nano",
+            )
+
     def test_never_offered_model_still_rejected(self) -> None:
         """The map does not widen the allowlist."""
         service = LLMService(_make_settings())
@@ -284,7 +301,13 @@ class TestRetiredModelReplacements:
         assert not still_offered, f"Retired IDs still on the allowlist: {still_offered}"
 
     def test_every_replacement_is_allowlisted(self) -> None:
-        """Every value must itself pass the allowlist, which keeps its SSRF protection."""
+        """
+        Every replacement is on the allowlist, so a remapped user is not refused.
+
+        Without this, a remapped request would be rejected with 400. The
+        allowlist's protection itself comes from checking after the swap (see
+        `test_replacement_still_passes_the_allowlist_check`).
+        """
         allowlist = {d["id"] for d in _SUPPORTED_MODEL_DEFS}
         unknown = sorted(set(_RETIRED_MODEL_REPLACEMENTS.values()) - allowlist)
         assert not unknown, f"Replacements not on the allowlist: {unknown}"
@@ -331,8 +354,9 @@ class TestComplete:
     """Tests for LLMService.complete."""
 
     async def test_calls_acompletion_with_correct_args(self) -> None:
+        """A model with no settings-table entry gets the caller's temperature and nothing else."""
         service = LLMService(_make_settings())
-        config = LLMConfig(model="gemini/gemini-flash-lite-latest", api_key="key", key_source=KeySource.PLATFORM)
+        config = LLMConfig(model="openai/gpt-4o", api_key="key", key_source=KeySource.PLATFORM)
 
         mock_response = MagicMock()
         with (
@@ -346,11 +370,13 @@ class TestComplete:
 
             mock_acomp.assert_called_once()
             call_kwargs = mock_acomp.call_args.kwargs
-            assert call_kwargs["model"] == "gemini/gemini-flash-lite-latest"
+            assert call_kwargs["model"] == "openai/gpt-4o"
             assert call_kwargs["api_key"] == "key"
             assert call_kwargs["timeout"] == 30
             assert call_kwargs["num_retries"] == 1
             assert call_kwargs["temperature"] == 0.7
+            assert "reasoning_effort" not in call_kwargs
+            assert "thinking" not in call_kwargs
             assert "response_format" not in call_kwargs
             assert response is mock_response
             assert cost == 0.001

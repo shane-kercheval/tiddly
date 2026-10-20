@@ -134,7 +134,8 @@ async def test_smoke_key_check_call(model_def: AIModelEntry) -> None:
     call would report every user's key as unusable. Only an exception fails
     this: the endpoint treats any reply as a valid key, and a 5-token cap can
     leave the reply empty when the model reasons first (recorded below, not
-    asserted).
+    asserted). Pytest hides a passing test's output, so run with `-rP` to see
+    each model's recorded reply and reasoning tokens.
     """
     model_id = model_def.id
     api_key = _get_api_key_for_model(model_id)

@@ -323,7 +323,9 @@ class ValidateKeyRequest(BaseModel):
             "Optional supported model ID used to pick the provider to validate "
             "the supplied `X-LLM-Api-Key` against. If omitted, the server "
             "validates using a default model. Call `GET /ai/models` for the "
-            "supported list."
+            "supported list. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
 
@@ -461,7 +463,9 @@ class SuggestMetadataRequest(BaseModel):
         description=(
             "Optional supported model ID. Only honored when a BYOK key is "
             "supplied via `X-LLM-Api-Key`; platform callers are silently "
-            "locked to the use-case default. Call `GET /ai/models`."
+            "locked to the use-case default. Call `GET /ai/models`. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
     fields: list[Literal["name", "title", "description"]] = Field(
@@ -585,7 +589,9 @@ class SuggestRelationshipsRequest(BaseModel):
         None,
         description=(
             "Optional supported model ID. Only honored with BYOK. Call "
-            "`GET /ai/models` for the supported list."
+            "`GET /ai/models` for the supported list. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
     source_id: str | None = Field(
@@ -739,7 +745,9 @@ class SuggestPromptArgumentsRequest(BaseModel):
         None,
         description=(
             "Optional supported model ID. Only honored with BYOK. Call "
-            "`GET /ai/models` for the supported list."
+            "`GET /ai/models` for the supported list. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
     prompt_content: str = Field(
@@ -806,7 +814,9 @@ class SuggestPromptArgumentFieldsRequest(BaseModel):
         None,
         description=(
             "Optional supported model ID. Only honored with BYOK. Call "
-            "`GET /ai/models` for the supported list."
+            "`GET /ai/models` for the supported list. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
     prompt_content: str | None = Field(
