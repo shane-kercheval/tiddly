@@ -7,6 +7,8 @@ This directory contains two kinds of LLM evaluations, both using the [flex-evals
   2. Getting LLM tool predictions
   3. Executing the predicted tools
   4. Verifying the results match expectations
+
+  They run on `gpt-4o-mini` and `claude-haiku-4-5`. OpenAI shuts down `gpt-4o-mini` on 2027-01-14, so these evals need moving to current models before then; the agreed approach is in the [LLM model refresh plan's known limitations](../docs/implementation_plans/2026-10-19-llm-model-refresh.md#known-limitations) (the MCP tool evals entry).
 - **AI suggestion evals** (`ai_suggestions/`) measure the quality of the AI suggestion endpoints across models. They need only provider keys, not the servers below; see [AI Suggestion Evaluations](#ai-suggestion-evaluations).
 
 ## Prerequisites (MCP server evals)
