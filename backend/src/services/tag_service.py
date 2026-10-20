@@ -3,7 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import cast, func, literal, select, type_coerce
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TEXT as PG_TEXT
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TEXT as PG_TEXT, insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,13 +109,27 @@ async def get_or_create_tags(
     """
     Get existing tags or create new ones.
 
+    Missing tags are inserted with ON CONFLICT DO NOTHING and then looked up
+    again, so two requests that add the same new tag at once both succeed and
+    share one row (a plain insert failed on `uq_tags_user_id_name`, because
+    each request's lookup misses the other's uncommitted tag). There is no
+    lock: two requests that each create two or more of the same new tags in
+    opposite orders can deadlock, and Postgres then cancels one after about a
+    second. That case predates the conflict handling.
+
+    New tags are inserted in the caller's order. An item's tags have no ORDER
+    BY, so the order they load in is observed, not guaranteed: it comes from
+    Postgres's query plan, and five API tests check that a new item's tags
+    come back in the order given.
+
     Args:
         db: Database session.
         user_id: User ID to scope tags.
         tag_names: List of tag names to get or create.
 
     Returns:
-        List of Tag objects (existing or newly created).
+        List of Tag objects (existing or newly created), in the order of the
+        normalized names.
     """
     if not tag_names:
         return []
@@ -124,27 +138,30 @@ async def get_or_create_tags(
     if not normalized:
         return []
 
-    # Fetch existing tags
+    tags_by_name = await _get_tags_by_name(db, user_id, normalized)
+    missing = [name for name in normalized if name not in tags_by_name]
+    if missing:
+        await db.execute(
+            pg_insert(Tag).on_conflict_do_nothing(index_elements=["user_id", "name"]),
+            [{"user_id": user_id, "name": name} for name in missing],
+        )
+        tags_by_name.update(await _get_tags_by_name(db, user_id, missing))
+    return [tags_by_name[name] for name in normalized]
+
+
+async def _get_tags_by_name(
+    db: AsyncSession,
+    user_id: UUID,
+    names: list[str],
+) -> dict[str, Tag]:
+    """Return the user's tags with these names, keyed by name."""
     result = await db.execute(
         select(Tag).where(
             Tag.user_id == user_id,
-            Tag.name.in_(normalized),
+            Tag.name.in_(names),
         ),
     )
-    existing_tags = {tag.name: tag for tag in result.scalars()}
-
-    # Create missing tags
-    tags = []
-    for name in normalized:
-        if name in existing_tags:
-            tags.append(existing_tags[name])
-        else:
-            new_tag = Tag(user_id=user_id, name=name)
-            db.add(new_tag)
-            tags.append(new_tag)
-
-    await db.flush()
-    return tags
+    return {tag.name: tag for tag in result.scalars()}
 
 
 async def resolve_tag_ids_to_names(

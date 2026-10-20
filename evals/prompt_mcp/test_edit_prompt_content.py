@@ -32,6 +32,7 @@ from evals.utils import (
     get_prompt_mcp_config,
     get_tool_predictions,
     load_yaml_config,
+    model_record,
 )
 
 # Load configuration at module level
@@ -67,7 +68,6 @@ async def _run_edit_prompt_content_eval(
     instruction: str,
     expected_argument_names: list[str] | None,
     model_name: str,
-    provider: str,
     temperature: float,
 ) -> dict[str, Any]:
     """
@@ -129,7 +129,6 @@ Use the tool result above as context for the following instruction.
                 prompt=llm_prompt,
                 tools=tools,
                 model_name=model_name,
-                provider=provider,
                 temperature=temperature,
             )
             predictions = result["predictions"]
@@ -160,6 +159,7 @@ Use the tool result above as context for the following instruction.
                 "argument_descriptions": check_argument_descriptions_preserved(
                     prediction, arguments, expected_argument_names,
                 ),
+                "request_settings": result["request_settings"],
                 "usage": result["usage"],
             }
 
@@ -181,7 +181,7 @@ Use the tool result above as context for the following instruction.
         "eval_description": EVAL_DESCRIPTION,
     },
 )
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(300)
 @pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
 async def test_edit_prompt_content(
     test_case: TestCase,
@@ -210,10 +210,7 @@ async def test_edit_prompt_content(
         instruction=test_case.input["instruction"],
         expected_argument_names=test_case.expected.get("expected_argument_names"),
         model_name=model_config["name"],
-        provider=model_config["provider"],
         temperature=model_config["temperature"],
     )
-    result["model_name"] = model_config["name"]
-    result["model_provider"] = model_config["provider"]
-    result["temperature"] = model_config["temperature"]
+    result.update(model_record(model_config["name"], result["request_settings"]))
     return result

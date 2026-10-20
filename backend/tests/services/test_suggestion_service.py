@@ -5,6 +5,7 @@ Tests core logic (dedup, caps, filtering, error handling) by mocking
 llm_service.complete(). No DB or HTTP dependencies.
 """
 import json
+from collections.abc import Awaitable, Callable
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -1161,3 +1162,102 @@ class TestSuggestPromptArgumentFields:
                 config=_mock_config(),
             )
         service.complete.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Temperature: every suggestion call leaves it to LLMService
+# ---------------------------------------------------------------------------
+
+
+async def _suggest_tags(service: MagicMock) -> None:
+    await suggest_tags(
+        title="Flask", url=None, description=None, content_snippet=None,
+        content_type="bookmark", current_tags=[], tag_vocabulary=[],
+        llm_service=service, config=_mock_config(),
+    )
+
+
+async def _suggest_metadata(service: MagicMock) -> None:
+    await suggest_metadata(
+        fields=["title"], url=None, title=None, description="Existing desc",
+        content_snippet="Some content", name=None, llm_service=service, config=_mock_config(),
+    )
+
+
+async def _suggest_relationships(service: MagicMock) -> None:
+    candidate = RelationshipCandidateContext(
+        entity_id="id-0", entity_type="bookmark", title="Item 0",
+        description="Description 0", content_preview="Preview 0",
+    )
+    await suggest_relationships(
+        title="Test", url=None, description=None, content_snippet=None,
+        candidates=[candidate], llm_service=service, config=_mock_config(),
+    )
+
+
+async def _suggest_prompt_arguments(service: MagicMock) -> None:
+    await suggest_prompt_arguments(
+        prompt_content="Explain {{ topic }}.", arguments=[],
+        llm_service=service, config=_mock_config(),
+    )
+
+
+async def _refine_name(service: MagicMock) -> None:
+    await suggest_prompt_argument_fields(
+        prompt_content=None, arguments=[ArgumentInput(name=None, description="desc")],
+        target_index=0, target_fields=["name"], llm_service=service, config=_mock_config(),
+    )
+
+
+async def _refine_description(service: MagicMock) -> None:
+    await suggest_prompt_argument_fields(
+        prompt_content=None, arguments=[ArgumentInput(name="language", description=None)],
+        target_index=0, target_fields=["description"], llm_service=service, config=_mock_config(),
+    )
+
+
+async def _refine_both(service: MagicMock) -> None:
+    await suggest_prompt_argument_fields(
+        prompt_content="Template with {{ foo }} placeholder",
+        arguments=[ArgumentInput(name=None, description=None)],
+        target_index=0, target_fields=["name", "description"],
+        llm_service=service, config=_mock_config(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("llm_reply", "suggest"),
+    [
+        pytest.param({"tags": ["python"]}, _suggest_tags, id="tags"),
+        pytest.param({"name": "n", "title": "T", "description": "D"}, _suggest_metadata, id="metadata"),
+        pytest.param(
+            {"candidates": [{"entity_id": "id-0", "entity_type": "bookmark", "title": "Item 0"}]},
+            _suggest_relationships, id="relationships",
+        ),
+        pytest.param(
+            {"arguments": [{"name": "topic", "description": "The topic"}]},
+            _suggest_prompt_arguments, id="prompt-arguments",
+        ),
+        pytest.param({"name": "x"}, _refine_name, id="argument-fields-name"),
+        pytest.param({"description": "d"}, _refine_description, id="argument-fields-description"),
+        pytest.param(
+            {"name": "foo", "description": "d", "required": False},
+            _refine_both, id="argument-fields-both",
+        ),
+    ],
+)
+async def test_suggestions_leave_temperature_to_llm_service(
+    llm_reply: dict, suggest: Callable[[MagicMock], Awaitable[None]],
+) -> None:
+    """
+    No suggestion passes a temperature, so `LLMService.complete()` sends
+    `DEFAULT_TEMPERATURE`. The suggestion evals record that constant as the
+    temperature sent (`evals/ai_suggestions/helpers.py::request_settings_record`);
+    this keeps that record true.
+    """
+    service = _mock_llm_service(json.dumps(llm_reply))
+    await suggest(service)
+    assert service.complete.await_count >= 1
+    for call in service.complete.call_args_list:
+        assert "temperature" not in call.kwargs
+        assert not call.args  # every argument is a keyword, so the check above sees them all

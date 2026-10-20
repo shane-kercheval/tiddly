@@ -29,12 +29,10 @@ from api.routers import (
 )
 from litellm.exceptions import (
     APIConnectionError as LiteLLMAPIConnectionError,
-    APIError as LiteLLMAPIError,
-    AuthenticationError as LiteLLMAuthenticationError,
-    BadRequestError as LiteLLMBadRequestError,
     RateLimitError as LiteLLMRateLimitError,
     Timeout as LiteLLMTimeout,
 )
+from openai import APIError as OpenAIAPIError
 
 from core.auth import DeletedIdentityError
 from core.auth_cache import AuthCache, set_auth_cache
@@ -45,7 +43,7 @@ from core.rate_limit_config import RateLimitExceededError
 from core.redis import RedisClient, set_redis_client
 from db.session import engine
 from services.exceptions import FieldLimitExceededError, QuotaExceededError
-from services.llm_service import LLMService, set_llm_service
+from services.llm_service import LLM_KEY_REJECTED_STATUSES, LLMService, set_llm_service
 from services.suggestion_service import LLMParseFailedError
 
 logger = logging.getLogger(__name__)
@@ -183,11 +181,12 @@ _OPENAPI_TAGS = [
             "catalog. One shape is different:\n\n"
             "- **422** uses FastAPI's standard validation-error array: "
             "`{detail: [{loc, msg, type}, ...]}`. On suggestion endpoints, "
-            "BYOK provider-auth failures also surface as 422 but with the "
-            "common envelope and `error_code: llm_auth_failed`. "
+            "a provider refusing the key (401 or 403: the BYOK key, or on the "
+            "platform path the server's own key) also surfaces as 422 but with "
+            "the common envelope and `error_code: llm_auth_failed`. "
             "`/ai/validate-key` is the exception — it normalizes provider "
-            "auth failures to `200 {\"valid\": false}` because testing the "
-            "key is the endpoint's explicit purpose.\n\n"
+            "auth failures (401 or 403) to `200 {\"valid\": false}` because "
+            "testing the key is the endpoint's explicit purpose.\n\n"
             "Typed `error_code` values starting with `llm_*` indicate upstream "
             "LLM provider failures (`llm_auth_failed`, `llm_rate_limited`, "
             "`llm_timeout`, `llm_bad_request`, `llm_connection_error`, "
@@ -317,32 +316,28 @@ async def field_limit_exceeded_exception_handler(
 # All LLM errors use llm_* error codes so the frontend can distinguish them
 # from platform auth errors (which use HTTP 401).
 
-
-@app.exception_handler(LiteLLMAuthenticationError)
-async def llm_auth_exception_handler(
-    _request: Request, exc: LiteLLMAuthenticationError,
-) -> JSONResponse:
-    """LLM authentication failed (bad API key) → 422."""
-    logger.warning("llm_auth_failed", extra={"error": str(exc)})
-    return JSONResponse(
-        status_code=422,
-        content={
-            "detail": "LLM authentication failed. Check your API key.",
-            "error_code": "llm_auth_failed",
-        },
-    )
-
-
-@app.exception_handler(LiteLLMBadRequestError)
-async def llm_bad_request_exception_handler(
-    _request: Request, exc: LiteLLMBadRequestError,
-) -> JSONResponse:
-    """Invalid request to LLM provider → 400."""
-    logger.warning("llm_bad_request", extra={"error": str(exc)})
-    return JSONResponse(
-        status_code=400,
-        content={"detail": "Invalid request to LLM provider.", "error_code": "llm_bad_request"},
-    )
+# Response bodies. The rate-limit and timeout bodies are shared by their class
+# handlers and the status handler; the others belong to the status handler.
+_LLM_AUTH_FAILED_CONTENT = {
+    "detail": "LLM authentication failed. Check your API key.",
+    "error_code": "llm_auth_failed",
+}
+_LLM_BAD_REQUEST_CONTENT = {
+    "detail": "Invalid request to LLM provider.",
+    "error_code": "llm_bad_request",
+}
+_LLM_RATE_LIMITED_CONTENT = {
+    "detail": "LLM provider rate limit exceeded. Try again later.",
+    "error_code": "llm_rate_limited",
+}
+_LLM_TIMEOUT_CONTENT = {
+    "detail": "LLM request timed out. Try again.",
+    "error_code": "llm_timeout",
+}
+_LLM_UNAVAILABLE_CONTENT = {
+    "detail": "AI service temporarily unavailable.",
+    "error_code": "llm_unavailable",
+}
 
 
 @app.exception_handler(LiteLLMRateLimitError)
@@ -351,13 +346,7 @@ async def llm_rate_limit_exception_handler(
 ) -> JSONResponse:
     """LLM provider rate limit exceeded → 429."""
     logger.warning("llm_rate_limited", extra={"error": str(exc)})
-    return JSONResponse(
-        status_code=429,
-        content={
-            "detail": "LLM provider rate limit exceeded. Try again later.",
-            "error_code": "llm_rate_limited",
-        },
-    )
+    return JSONResponse(status_code=429, content=_LLM_RATE_LIMITED_CONTENT)
 
 
 @app.exception_handler(LiteLLMTimeout)
@@ -366,10 +355,7 @@ async def llm_timeout_exception_handler(
 ) -> JSONResponse:
     """LLM request timed out → 504."""
     logger.warning("llm_timeout", extra={"error": str(exc)})
-    return JSONResponse(
-        status_code=504,
-        content={"detail": "LLM request timed out. Try again.", "error_code": "llm_timeout"},
-    )
+    return JSONResponse(status_code=504, content=_LLM_TIMEOUT_CONTENT)
 
 
 @app.exception_handler(LiteLLMAPIConnectionError)
@@ -387,16 +373,65 @@ async def llm_connection_exception_handler(
     )
 
 
-@app.exception_handler(LiteLLMAPIError)
-async def llm_unavailable_exception_handler(
-    _request: Request, exc: LiteLLMAPIError,
+def _llm_response_for_status(status: int | None) -> tuple[int, dict[str, str]]:
+    """The API's (HTTP status, body) for a provider error with this HTTP status."""
+    if status in LLM_KEY_REJECTED_STATUSES:
+        return 422, _LLM_AUTH_FAILED_CONTENT
+    if status == 429:
+        return 429, _LLM_RATE_LIMITED_CONTENT
+    if status in (408, 504):
+        return 504, _LLM_TIMEOUT_CONTENT
+    if isinstance(status, int) and 400 <= status < 500:
+        return 400, _LLM_BAD_REQUEST_CONTENT
+    return 503, _LLM_UNAVAILABLE_CONTENT
+
+
+@app.exception_handler(OpenAIAPIError)
+async def llm_provider_status_exception_handler(
+    request: Request, exc: OpenAIAPIError,
 ) -> JSONResponse:
-    """Catch-all for unknown LiteLLM errors → 503."""
-    logger.warning("llm_unavailable", extra={"error": str(exc)})
-    return JSONResponse(
-        status_code=503,
-        content={"detail": "AI service temporarily unavailable.", "error_code": "llm_unavailable"},
+    """
+    Every other provider error → mapped by its HTTP status alone.
+
+    401/403 → 422 `llm_auth_failed`; 429 → 429 `llm_rate_limited`; 408 or 504
+    → 504 `llm_timeout`; any other 4xx → 400 `llm_bad_request`; any other 5xx
+    or no status → 503 `llm_unavailable`.
+
+    Why one handler on `openai.APIError`, the base of every LiteLLM provider
+    error, instead of a handler per LiteLLM class: LiteLLM picks the class from
+    the provider's error body as well as its status, so the class is not a
+    reliable signal. On LiteLLM 1.106.0 an OpenAI 403 arrives as `APIError`,
+    `BadRequestError` or `NotFoundError` depending on the body, and an OpenAI
+    401 without the usual wording arrives as `BadRequestError`. Mapping by class
+    sent the same refusal to 503, 400 or 422; mapping by status sends every one
+    to 422. The base class also covers LiteLLM's 5xx classes
+    (`ServiceUnavailableError` and others), which subclass
+    `openai.APIStatusError` rather than LiteLLM's `APIError`: a handler on
+    LiteLLM's `APIError` alone misses them, and a provider outage surfaces as a
+    plain 500.
+
+    Starlette picks the handler registered for the nearest class in the
+    exception's MRO, so the rate-limit, timeout and connection handlers above
+    still win for their classes; this one sees everything else. The 429, 408
+    and 504 branches cover those statuses arriving under another class.
+
+    The log line carries its fields in the message, because the log format
+    prints only the message. It records whether the caller sent their own key
+    (never the key), so an outage of the server's own key shows as
+    `byok=False`. The provider's error text is left out: some providers echo
+    part of the API key in it.
+    """
+    status = getattr(exc, "status_code", None)
+    http_status, content = _llm_response_for_status(status)
+    logger.warning(
+        "llm_provider_status code=%s status=%s class=%s model=%s byok=%s",
+        content["error_code"],
+        status,
+        type(exc).__name__,
+        getattr(exc, "model", None),
+        bool(request.headers.get(ai.LLM_API_KEY_HEADER)),
     )
+    return JSONResponse(status_code=http_status, content=content)
 
 
 @app.exception_handler(LLMParseFailedError)

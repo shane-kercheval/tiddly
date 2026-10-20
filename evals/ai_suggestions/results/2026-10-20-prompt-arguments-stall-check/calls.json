@@ -1,0 +1,642 @@
+[
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 1,
+  "outcome": "ok",
+  "seconds": 2.18,
+  "cost": 7.06e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 1,
+  "outcome": "ok",
+  "seconds": 1.0,
+  "cost": 0.00015945
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 2,
+  "outcome": "ok",
+  "seconds": 1.36,
+  "cost": 6.91e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 2,
+  "outcome": "ok",
+  "seconds": 8.65,
+  "cost": 0.00172695
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 3,
+  "outcome": "ok",
+  "seconds": 1.58,
+  "cost": 7.06e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 3,
+  "outcome": "ok",
+  "seconds": 1.6,
+  "cost": 0.00018695000000000002
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 4,
+  "outcome": "ok",
+  "seconds": 1.66,
+  "cost": 6.81e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 4,
+  "outcome": "ok",
+  "seconds": 1.25,
+  "cost": 0.00017695
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 5,
+  "outcome": "ok",
+  "seconds": 1.25,
+  "cost": 6.76e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 5,
+  "outcome": "Timeout",
+  "seconds": 15.11,
+  "cost": null
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 6,
+  "outcome": "ok",
+  "seconds": 1.44,
+  "cost": 7.01e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 6,
+  "outcome": "ok",
+  "seconds": 1.23,
+  "cost": 0.00018195
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 7,
+  "outcome": "ok",
+  "seconds": 1.72,
+  "cost": 6.71e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 7,
+  "outcome": "ok",
+  "seconds": 0.96,
+  "cost": 0.0001932
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 8,
+  "outcome": "ok",
+  "seconds": 1.56,
+  "cost": 7.16e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 8,
+  "outcome": "ok",
+  "seconds": 1.03,
+  "cost": 0.0001782
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 9,
+  "outcome": "ok",
+  "seconds": 1.14,
+  "cost": 6.71e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 9,
+  "outcome": "ok",
+  "seconds": 1.0,
+  "cost": 0.0001807
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 10,
+  "outcome": "ok",
+  "seconds": 1.36,
+  "cost": 6.659999999999999e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 10,
+  "outcome": "ok",
+  "seconds": 0.89,
+  "cost": 0.0001807
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 11,
+  "outcome": "ok",
+  "seconds": 1.28,
+  "cost": 6.76e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 11,
+  "outcome": "ok",
+  "seconds": 0.89,
+  "cost": 0.0001832
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 12,
+  "outcome": "ok",
+  "seconds": 1.48,
+  "cost": 6.76e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 12,
+  "outcome": "ok",
+  "seconds": 0.89,
+  "cost": 0.0001782
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 13,
+  "outcome": "ok",
+  "seconds": 1.43,
+  "cost": 6.76e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 13,
+  "outcome": "ok",
+  "seconds": 0.93,
+  "cost": 0.0001807
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 14,
+  "outcome": "ok",
+  "seconds": 1.93,
+  "cost": 7.26e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 14,
+  "outcome": "ok",
+  "seconds": 0.98,
+  "cost": 0.0001932
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 15,
+  "outcome": "ok",
+  "seconds": 1.0,
+  "cost": 6.659999999999999e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 15,
+  "outcome": "ok",
+  "seconds": 0.89,
+  "cost": 0.00018195
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 16,
+  "outcome": "ok",
+  "seconds": 1.45,
+  "cost": 6.71e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 16,
+  "outcome": "ok",
+  "seconds": 1.41,
+  "cost": 0.0001982
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 17,
+  "outcome": "ok",
+  "seconds": 1.58,
+  "cost": 6.86e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 17,
+  "outcome": "ok",
+  "seconds": 1.0,
+  "cost": 0.00019695
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 18,
+  "outcome": "ok",
+  "seconds": 1.04,
+  "cost": 6.659999999999999e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 18,
+  "outcome": "ok",
+  "seconds": 0.93,
+  "cost": 0.00018695000000000002
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 19,
+  "outcome": "ok",
+  "seconds": 1.19,
+  "cost": 6.76e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 19,
+  "outcome": "ok",
+  "seconds": 1.1,
+  "cost": 0.00017195
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-6-luna",
+  "call": 20,
+  "outcome": "ok",
+  "seconds": 1.11,
+  "cost": 6.76e-05
+ },
+ {
+  "case": "objective-jinja-conditional",
+  "model": "openai/gpt-5.4-nano",
+  "call": 20,
+  "outcome": "ok",
+  "seconds": 0.93,
+  "cost": 0.00017195
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 1,
+  "outcome": "ok",
+  "seconds": 1.43,
+  "cost": 8.13e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 1,
+  "outcome": "ok",
+  "seconds": 1.17,
+  "cost": 0.0002216
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 2,
+  "outcome": "ok",
+  "seconds": 1.39,
+  "cost": 8.03e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 2,
+  "outcome": "ok",
+  "seconds": 1.18,
+  "cost": 0.00021535
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 3,
+  "outcome": "ok",
+  "seconds": 1.69,
+  "cost": 8.13e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 3,
+  "outcome": "ok",
+  "seconds": 1.05,
+  "cost": 0.0002141
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 4,
+  "outcome": "ok",
+  "seconds": 1.6,
+  "cost": 7.829999999999999e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 4,
+  "outcome": "ok",
+  "seconds": 1.02,
+  "cost": 0.00021035
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 5,
+  "outcome": "ok",
+  "seconds": 1.67,
+  "cost": 9.03e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 5,
+  "outcome": "ok",
+  "seconds": 1.15,
+  "cost": 0.0002141
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 6,
+  "outcome": "ok",
+  "seconds": 1.33,
+  "cost": 7.979999999999999e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 6,
+  "outcome": "ok",
+  "seconds": 1.2,
+  "cost": 0.00020659999999999998
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 7,
+  "outcome": "ok",
+  "seconds": 1.36,
+  "cost": 7.879999999999999e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 7,
+  "outcome": "ok",
+  "seconds": 1.02,
+  "cost": 0.00020035000000000002
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 8,
+  "outcome": "ok",
+  "seconds": 1.54,
+  "cost": 8.18e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 8,
+  "outcome": "ok",
+  "seconds": 1.0,
+  "cost": 0.00020659999999999998
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 9,
+  "outcome": "ok",
+  "seconds": 1.42,
+  "cost": 8.329999999999999e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 9,
+  "outcome": "ok",
+  "seconds": 1.1,
+  "cost": 0.00021285
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 10,
+  "outcome": "ok",
+  "seconds": 1.59,
+  "cost": 7.879999999999999e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 10,
+  "outcome": "ok",
+  "seconds": 1.44,
+  "cost": 0.0002166
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 11,
+  "outcome": "ok",
+  "seconds": 1.34,
+  "cost": 8.18e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 11,
+  "outcome": "ok",
+  "seconds": 1.09,
+  "cost": 0.0002116
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 12,
+  "outcome": "ok",
+  "seconds": 1.75,
+  "cost": 8.379999999999999e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 12,
+  "outcome": "ok",
+  "seconds": 0.97,
+  "cost": 0.00018659999999999998
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 13,
+  "outcome": "ok",
+  "seconds": 1.41,
+  "cost": 8.03e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 13,
+  "outcome": "ok",
+  "seconds": 1.43,
+  "cost": 0.00019535
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 14,
+  "outcome": "ok",
+  "seconds": 1.54,
+  "cost": 7.78e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 14,
+  "outcome": "ok",
+  "seconds": 1.0,
+  "cost": 0.0002091
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 15,
+  "outcome": "ok",
+  "seconds": 1.53,
+  "cost": 8.23e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 15,
+  "outcome": "ok",
+  "seconds": 1.09,
+  "cost": 0.0001891
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 16,
+  "outcome": "ok",
+  "seconds": 1.5,
+  "cost": 7.93e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 16,
+  "outcome": "ok",
+  "seconds": 1.36,
+  "cost": 0.0002141
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 17,
+  "outcome": "ok",
+  "seconds": 1.46,
+  "cost": 8.23e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 17,
+  "outcome": "ok",
+  "seconds": 0.86,
+  "cost": 0.0001891
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 18,
+  "outcome": "ok",
+  "seconds": 1.56,
+  "cost": 7.879999999999999e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 18,
+  "outcome": "ok",
+  "seconds": 0.95,
+  "cost": 0.00018784999999999999
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 19,
+  "outcome": "ok",
+  "seconds": 1.21,
+  "cost": 7.73e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 19,
+  "outcome": "ok",
+  "seconds": 1.23,
+  "cost": 0.0002216
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-6-luna",
+  "call": 20,
+  "outcome": "ok",
+  "seconds": 1.59,
+  "cost": 8.079999999999999e-05
+ },
+ {
+  "case": "generate-all-mixed-short-and-long",
+  "model": "openai/gpt-5.4-nano",
+  "call": 20,
+  "outcome": "ok",
+  "seconds": 1.0,
+  "cost": 0.0002016
+ }
+]

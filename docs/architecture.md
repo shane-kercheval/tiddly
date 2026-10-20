@@ -169,7 +169,7 @@ Each cron runs as its own Railway service with its own schedule and failure mode
 
 - **Auth0** — **no longer an authentication path**: the backend stopped verifying Auth0 tokens at the M6b expand deploy (2026-07-31), and the contract deploy removed every code reference (verifier, `auth0_id` keying, cache segment, Settings fields). Only the unreferenced database columns, Railway env vars, and the tenants remain, deleted by the final M6b migration/cleanup steps (see the decommission run sheet).
 - **Clerk** — the sole IdP: web login, CLI OAuth (M4), MCP OAuth connectors (M5), and the Chrome extension's session sync (M7) all authenticate against Clerk; the backend accepts Clerk-issued JWTs only (see §5). Also the one inbound provider-calls-us surface: Clerk delivers `user.deleted` webhooks (Svix-signed) to `POST /webhooks/clerk` for account deletion (see §5).
-- **OpenAI / Google Gemini / Anthropic** — LLM providers accessed via LiteLLM. Only `OPENAI_API_KEY` is required today (platform default for suggestions is `openai/gpt-5.4-nano`). Gemini/Anthropic keys are optional until more AI use cases ship.
+- **OpenAI / Google Gemini / Anthropic** — LLM providers accessed via LiteLLM. Only `OPENAI_API_KEY` is required today (platform default for suggestions is `openai/gpt-6-luna`). Gemini/Anthropic keys are optional until more AI use cases ship.
 - **External URLs** — the api scrapes target URLs for bookmark metadata (`services/url_scraper.py`), wrapped in SSRF protection (see §10).
 
 ---
@@ -186,7 +186,7 @@ A realistic happy-path walkthrough touching most of the moving parts:
 6. **Optional: URL scrape.** If the client requested metadata fetch, `services/url_scraper.py` validates the target (`validate_url_not_private()` blocks RFC1918, loopback, link-local; resolves hostnames to prevent DNS rebinding) and fetches title/description.
 7. **Response.** Body serialized; `ETagMiddleware` generates a weak ETag; `RateLimitHeadersMiddleware` emits `X-RateLimit-*` headers from `request.state.rate_limit_info`.
 8. **Follow-up: AI tag suggestions.** Browser calls `POST /ai/suggest-tags`. Auth flow repeats (this time the AI-specific rate limit bucket — `AI_PLATFORM` or `AI_BYOK` depending on whether an `X-LLM-Api-Key` header is present).
-9. **LLMService** resolves the config (`AIUseCase.SUGGESTIONS` → `openai/gpt-5.4-nano` + platform key, or user-model + user-key for BYOK). Calls LiteLLM's `acompletion()`. On success, records cost + count into Redis via `HINCRBY` + `HINCRBYFLOAT` on key `ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}` with a ~7-day TTL. Never logs prompts, completions, or API keys.
+9. **LLMService** resolves the config (`AIUseCase.SUGGESTIONS` → `openai/gpt-6-luna` + platform key, or user-model + user-key for BYOK). Calls LiteLLM's `acompletion()` with the model's request settings (§7). On success, records cost + count into Redis via `HINCRBY` + `HINCRBYFLOAT` on key `ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}` with a ~7-day TTL. Never logs prompts, completions, or API keys.
 10. **Hourly flush.** At the next `:30`, the `ai-usage-flush` cron scans Redis, aggregates completed hours, and upserts into `ai_usage`. The `ai_usage_analytics` view (SHA-256-pseudonymized `user_hash`) makes these rows safe to expose to a scoped read-only analytics role.
 
 ---
@@ -337,27 +337,41 @@ Implemented in `services/llm_service.py` using LiteLLM.
 
 | `AIUseCase` | Default model | Status |
 |---|---|---|
-| `SUGGESTIONS` | `openai/gpt-5.4-nano` | **Wired up**: suggest-tags, suggest-metadata, suggest-relationships, suggest-prompt-arguments, suggest-prompt-argument-fields |
-| `TRANSFORM` | `gemini/gemini-flash-lite-latest` | Defined, not yet wired to an endpoint |
-| `AUTO_COMPLETE` | `gemini/gemini-flash-lite-latest` | Defined, not yet wired |
-| `CHAT` | `openai/gpt-5.4-mini` | Defined, not yet wired |
+| `SUGGESTIONS` | `openai/gpt-6-luna` | **Wired up**: suggest-tags, suggest-metadata, suggest-relationships, suggest-prompt-arguments, suggest-prompt-argument-fields |
+| `TRANSFORM` | `gemini/gemini-3.5-flash-lite` | Defined, not yet wired to an endpoint |
+| `AUTO_COMPLETE` | `gemini/gemini-3.5-flash-lite` | Defined, not yet wired |
+| `CHAT` | `openai/gpt-6.1-sol` | Defined, not yet wired |
 
-Defaults are overridable per-use-case via `LLM_MODEL_*` env vars. The current `/ai/models` endpoint returns 7 GA models (OpenAI nano/mini/flagship, Anthropic Haiku/Sonnet/Opus, Gemini Flash Lite). Gemini Flash and Gemini Pro are defined but commented out due to chronic provider 503s — see `evals/LEARNINGS.md`.
+The defaults live in `core/config.py` and apply unless the matching `LLM_MODEL_*` env var is set on the api service. The `/ai/models` endpoint returns the 7 GA models a BYOK user may pick (`_SUPPORTED_MODEL_DEFS` in `services/llm_service.py`), one per provider and tier:
+
+| Provider | Budget | Balanced | Flagship |
+|---|---|---|---|
+| OpenAI | `openai/gpt-6-luna` | `openai/gpt-6.1-sol` | `openai/gpt-6-astra` |
+| Anthropic | `anthropic/claude-haiku-5-5` | `anthropic/claude-sonnet-5-5` | `anthropic/claude-opus-5-5` |
+| Google | `gemini/gemini-3.5-flash-lite` | | |
+
+The Gemini ID is pinned rather than the `gemini-flash-lite-latest` alias, which Google may move to a new model with two weeks' notice. Gemini Flash and Gemini Pro are defined but commented out due to chronic provider 503s (see `evals/LEARNINGS.md`).
+
+### Request settings per model
+
+Current models disagree on what a request may contain: for example, every Claude 5.5 model rejects a temperature other than 1, GPT-6 Luna accepts one only with reasoning effort `none`, and Claude Haiku 5.5 thinks unless told not to. `_MODEL_REQUEST_SETTINGS` in `services/llm_service.py` records, per model ID, what that model is sent besides the prompt (the comment on each entry says why), and `model_request_settings(model, temperature)` turns an entry into `acompletion` kwargs. `LLMService.complete()` and `stream()` both call it, and nothing else decides per-model parameters.
+
+The caller's temperature defaults to `DEFAULT_TEMPERATURE` in `llm_service.py`; the suggestion endpoints never pass their own. The entries that set reasoning keep it off (Luna, Haiku 5.5) or at effort `low` (Sol, Astra), because suggestions run while the user waits and reasoning adds latency and cost to every call. The other entries only omit the temperature: they say nothing about reasoning. The table exists because LiteLLM's own option for this, `drop_params`, can only remove parameters and decides from flags in LiteLLM's price list: removing Luna's or Haiku 5.5's temperature without setting an effort leaves their default reasoning on. The rules for adding a model are in §16.
 
 ### Platform vs BYOK
 
 `LLMService.resolve_config(use_case, user_api_key, user_model)`:
 
-- If `user_api_key` is supplied (BYOK), the request uses the user's key, and the user may also pass their own `user_model` (validated against `_SUPPORTED_MODEL_IDS`).
+- If `user_api_key` is supplied (BYOK), the request uses the user's key, and the user may also pass their own `user_model` (validated against `_SUPPORTED_MODEL_IDS`). A `user_model` that was on an earlier allowlist is first replaced by its current model from the same provider (`_RETIRED_MODEL_REPLACEMENTS`), because the BYOK model choice lives only in the user's browser and would otherwise fail every request until the user picks again. Every retired OpenAI ID goes to `openai/gpt-6-luna`; each retired Claude ID goes to its 5.5 successor; `gemini/gemini-flash-lite-latest` goes to `gemini/gemini-3.5-flash-lite`. The replacement then passes the same allowlist check as any other ID, and each swap logs `byok_model_remapped from=... to=... use_case=...` at INFO.
 - If no user key, the server uses its own platform key for the use case. **In platform mode, the user's requested `user_model` is ignored** — platform callers are locked to the use-case default. This is deliberate: it keeps platform cost deterministic and prevents arbitrary-model abuse.
 
 ### Cost tracking
 
 Each successful completion:
 
-1. Computes cost via LiteLLM's `completion_cost(completion_response=...)` (public API — never touch `_hidden_params`, which is private and unstable across versions).
+1. Computes cost via LiteLLM's `completion_cost(completion_response=...)` (public API — never touch `_hidden_params`, which is private and unstable across versions). Prices come from the price list LiteLLM downloads from its GitHub `main` branch when it is imported, with the copy bundled in the installed LiteLLM as the fallback when the download fails. So prices can change at any restart without a LiteLLM upgrade (§16). The per-million prices in `/ai/models` are read from the same list when the API starts.
 2. Writes a Redis hash keyed `ai_stats:{user_id}:{hour}:{use_case}:{model}:{key_source}` with fields `count` (`HINCRBY`) and `cost` (`HINCRBYFLOAT`). TTL ~7 days as a safety net.
-3. Emits a structured info log with metadata (user_id, use_case, model, key_source, cost, latency). **Never** logs prompts, completions, or API keys.
+3. Emits an `llm_call` info log with metadata (user_id, use_case, model, key_source, cost, latency) in `extra={...}`, which Railway does not show (§16): there the line reads `llm_call` alone. **Never** logs prompts, completions, or API keys.
 
 The `ai-usage-flush` cron aggregates these buckets into the `ai_usage` table every hour, processing only *past* hours so it never loses in-flight writes. The `ai_usage_analytics` Postgres view adds a SHA-256 `user_hash` pseudonymization layer for analytics tools; a read-only `analytics_reader` role grants SELECT on the view only.
 
@@ -367,9 +381,35 @@ There is no application-level circuit breaker. Cost containment relies on **prov
 
 ### Errors
 
-LiteLLM exceptions propagate; a shared exception handler registered on the AI router maps them to typed HTTP responses (`llm_auth_failed` → 422, `llm_rate_limited` → 429, `llm_timeout` → 504, `llm_bad_request` → 400, `llm_connection_error` → 502, `llm_parse_failed` → 502, other → 503). All use the `llm_*` prefix so the frontend can distinguish provider failures from platform auth failures. `llm_parse_failed` is raised by `services/suggestion_service.py::LLMParseFailedError` when the provider returns a response that doesn't match the expected structured-output schema — clients should retry, ideally with a different model.
+LiteLLM exceptions propagate to exception handlers in `api/main.py`, which map them to typed HTTP responses. All use the `llm_*` prefix, so a caller can tell a provider failure from a platform auth failure. The web app tells only two of the codes apart. A provider rate limit (`llm_rate_limited`) shows "The AI provider is busy right now" on any request, from its request layer (`services/api.tsx`). Otherwise metadata and argument suggestions show a per-feature fallback toast (e.g. "Couldn't generate suggestion. Please try again."), or a "took too long" toast for `llm_timeout` (`hooks/aiErrorToast.ts`). Tag and relationship suggestions show "Couldn't load suggestions. Close and reopen to try again." inside their dropdown and log the error to the browser console. Every other code looks the same to a web user.
 
-Deeper treatment: [`docs/ai-integration.md`](ai-integration.md).
+Three handlers match by exception class: LiteLLM's `RateLimitError` → 429 `llm_rate_limited`, `Timeout` → 504 `llm_timeout`, and `APIConnectionError` → 502 `llm_connection_error`. Every other provider error is mapped by its HTTP status, whatever class LiteLLM raised, by one handler on `openai.APIError` (the base class of every LiteLLM provider error):
+
+| Provider's HTTP status | API answers |
+|---|---|
+| 401 or 403 | 422 `llm_auth_failed` |
+| 429 | 429 `llm_rate_limited` |
+| 408 or 504 | 504 `llm_timeout` |
+| any other 4xx | 400 `llm_bad_request` |
+| any other 5xx, or no status | 503 `llm_unavailable` |
+
+The mapping is by status because LiteLLM picks the class from the provider's error body as well as its status: on LiteLLM 1.106.0 an OpenAI 403 arrives as `APIError`, `BadRequestError`, or `NotFoundError` depending on the body, so handlers by class would answer one refusal three different ways. Starlette uses the handler registered for the nearest class in the exception's MRO, so the three class handlers win for their classes; a new handler on any other LiteLLM class would also win over the status mapping. `POST /ai/validate-key` reads the same 401-or-403 rule (`LLM_KEY_REJECTED_STATUSES` in `llm_service.py`) to report a rejected key. A refused server key (platform path, no `X-LLM-Api-Key` header) also answers 422 `llm_auth_failed`. The status handler's log line carries its fields in the message, `llm_provider_status code=... status=... class=... model=... byok=...`; `byok=False` means the caller sent no key, so on an `llm_auth_failed` line it means the server's own key was refused. It never logs the provider's error text, which can echo part of the key.
+
+Two cases answer differently from the tables above, both because of how LiteLLM 1.106.0 translates errors:
+
+- **An unreachable provider answers 503 for OpenAI and Anthropic, and 502 only for Gemini.** LiteLLM reports a failed connection to OpenAI or Anthropic as `InternalServerError` (status 500), and to Gemini as `APIConnectionError`, so `llm_connection_error` is not the answer for every unreachable provider. Checked with a refused connection for all three providers, and with a dropped connection and a DNS failure for OpenAI.
+
+  | Provider unreachable | LiteLLM 1.106.0 raises | API answers |
+  |---|---|---|
+  | OpenAI | `InternalServerError` (500) | 503 `llm_unavailable` |
+  | Anthropic | `InternalServerError` (500) | 503 `llm_unavailable` |
+  | Gemini | `APIConnectionError` | 502 `llm_connection_error` |
+
+- **A provider error whose text mentions rate limiting answers 429 `llm_rate_limited` whatever its real status.** LiteLLM checks the error text for "rate limit", "rate-limit", or "rate_limit" before the status and raises `RateLimitError` with status 429, discarding the real one (deliberate on LiteLLM's side; its code cites its issue #11455). For example, a 403 "Your organization's rate limit tier does not include this model" answers 429, and "Test connection" answers 429 for it, not "API key rejected by provider".
+
+`llm_parse_failed` → 502 is raised by `services/suggestion_service.py::LLMParseFailedError` when the provider returns a response that doesn't match the expected structured-output schema — clients should retry, ideally with a different model.
+
+Design rationale and the verification behind this section (a point-in-time snapshot, not maintained): [`docs/implementation_plans/2026-10-19-llm-model-refresh.md`](implementation_plans/2026-10-19-llm-model-refresh.md).
 
 ---
 
@@ -461,7 +501,7 @@ Implementation: `get_request_source` in `core/auth.py`, declared as an optional 
 
 ### Observability
 
-- Standard Python logging via `logger = logging.getLogger(__name__)`. Structured fields are attached via `extra={...}` where helpful (e.g. LLM call metadata, rate limiter warnings).
+- Standard Python logging via `logger = logging.getLogger(__name__)`. The API's log format (`LOG_FORMAT` in `core/logging_config.py`) prints the time, logger name, level, and message, and no `extra={...}` fields, so anything an operator needs in Railway goes in the message itself (`"byok_model_remapped from=%s to=%s use_case=%s"`, the pattern `core/auth.py` uses). Many existing lines still attach their fields with `extra={...}` (e.g. the LLM call metadata and the rate-limit, timeout, connection, and parse-failure handlers); those fields reach pytest's log capture but not Railway (§16).
 - **The API enables INFO for its own loggers only, and routes INFO to stdout** (`core/logging_config.py`, called at import in `api/main.py`): the first-party top-level packages (`api`, `core`, `services`, `shared`, `db`, `models`, `schemas`) are set to INFO and get a handler pair — records below WARNING to stdout, WARNING and above to stderr — because Railway shows unstructured stderr as error level (red) and stdout as info. The root logger and every third-party logger stay at WARNING. Three decisions are recorded in that module's docstring and are easy to re-litigate wrongly: the list is enumerated rather than raising the root (`httpx` would log every outbound URL, `sqlalchemy.engine` every SQL statement); handlers sit on the first-party loggers rather than the root (LiteLLM installs its own propagating handlers, so a root handler would double its lines); and a drift test asserts the list matches the directories under `backend/src`. Until this existed (2026-10), no API INFO line — including `core.auth`'s `clerk_oauth_token_accepted` — had ever reached Railway. The cron tasks still configure their own `basicConfig` to stderr in each `tasks/*.py` entry point (their INFO lines show red in Railway — follow-up); the MCP servers are separate processes and are not covered.
 - Cron tasks log start + completion with summary stats. Failures surface via Railway's deployment-failure indicator.
 - No dedicated monitoring/alerting stack yet. Railway's log viewer is the current sink. Moving to structured log sinks or APM is a TODO once traffic justifies it.
@@ -528,9 +568,12 @@ Security-specific: see `backend/tests/security/` (SSRF, IDOR, input validation) 
 
 ## 14. Evals
 
-`evals/` uses flex-evals + pytest with YAML test case definitions. Currently covers MCP tool behavior — specifically the `edit_content` / `update_item` semantics on Content MCP and `edit_prompt_content` / `update_prompt` on Prompt MCP. Notable finding in `evals/LEARNINGS.md`: LLMs frequently misapply "full replacement" semantics on fields like `tags` and `arguments` (supplying only the additions), which is why those MCP tool descriptions are extra-explicit about replacement vs. patch semantics.
+`evals/` uses flex-evals + pytest with YAML test case definitions. It covers two areas:
 
-Run: `make evals` (requires api + MCP servers + Docker containers running).
+- **MCP tool behavior**, specifically the `edit_content` / `update_item` semantics on Content MCP and `edit_prompt_content` / `update_prompt` on Prompt MCP. Notable finding in `evals/LEARNINGS.md`: LLMs frequently misapply "full replacement" semantics on fields like `tags` and `arguments` (supplying only the additions), which is why those MCP tool descriptions are extra-explicit about replacement vs. patch semantics.
+- **AI suggestion quality** (`evals/ai_suggestions/`): the service functions behind the five suggestion endpoints, run on the platform default, the BYOK budget models, and baselines, scored partly by an LLM judge. The models, the judge, and the rule for comparing a candidate with the current default are in `evals/README.md`.
+
+Run: `make evals` (requires api + MCP servers + Docker containers running). The suggestion suites need only provider keys and run one at a time with `make evals-ai-suggestions-<suite>`.
 
 ---
 
@@ -559,7 +602,13 @@ A grab-bag of non-obvious invariants and constraints — if you're about to chan
 - `Settings` validation (`core/config.py`) hard-requires `CLERK_FRONTEND_API` and `CLERK_AUTHORIZED_PARTIES` in non-dev mode to prevent silent IdP misconfiguration. This applies to *every* service that imports `db.session` — including crons that never touch auth (so both env vars must exist on the api and cron Railway services).
 - AI platform callers are locked to the use-case default model by design. Don't "helpfully" allow platform users to pick their own model — that's a cost-control invariant.
 - Cost tracking uses LiteLLM's **public** `completion_cost()` API. `_hidden_params` is private and unstable.
+- **Every allowlisted model and every `llm_model_*` default needs a `_MODEL_REQUEST_SETTINGS` entry** (`services/llm_service.py`, §7), `{}` when the model accepts the caller's temperature. `test_every_allowlisted_model_and_default_has_an_entry` in `backend/tests/services/test_llm_service.py` enforces this offline, because CI has no provider keys and skips the live smoke test. The smoke test (`PYTHONPATH=backend/src uv run --env-file .env pytest backend/tests/integration/test_llm_smoke.py -v -rP`, run locally) calls each allowlisted model at temperature 0, which proves the provider accepts its entry. It cannot prove an entry turns off thinking that a model does only on real prompts: Claude Haiku 5.5 with thinking left on does not think on the smoke prompt but does on a tag suggestion. So for a model that thinks by default, check its reasoning tokens once on a real suggestion prompt before adding its entry (see the comment on `_MODEL_REQUEST_SETTINGS`). Code that calls `acompletion` directly must call `model_request_settings()` too, as the suggestion-eval judge does. `LLM_MODEL_*` overrides are not checked against the allowlist: an override naming a model with no entry is sent the temperature and nothing else, which recent OpenAI and Claude models refuse.
+- **A model removed from `_SUPPORTED_MODEL_DEFS` goes into `_RETIRED_MODEL_REPLACEMENTS` with a replacement from the same provider.** The BYOK model choice lives only in the user's browser, so without an entry a user who picked the removed model gets 400 "Unsupported model" on every request until they pick again. The model's prefix is the only record of which provider issued the user's key, so a replacement from another provider would send the key to the wrong provider. Tests check that every replacement is allowlisted and keeps its provider; no test can tell that a removed model is missing from the map. The Settings AI Configuration page does not show the replacement until the user picks again.
+- **LiteLLM downloads two files from its GitHub `main` branch at runtime, and we leave that on deliberately:** the price list when `litellm` is imported, and the Anthropic beta-header file at the first Claude request in each process. It stays on because LiteLLM's documentation presents the off switch as an option for firewalled setups, not as production advice; the download has been on since the project adopted LiteLLM with no known incident; and turning it off would mean a LiteLLM upgrade or a `litellm.register_model` entry for every new model. (Decided as the user's item 9 in `docs/implementation_plans/2026-10-19-llm-model-refresh.md`.) If the price-list fetch at import fails with a network error or HTTP 429, 500, 502, 503, or 504, a background thread retries it and swaps the downloaded list into the running process on success; any other failure leaves the bundled copy in place. Both files change request behavior, not only prices: whether a temperature is sent, which structured-output mode Claude gets, and which `anthropic-beta` header goes out. So a change merged to LiteLLM's repository can change what production sends at the next restart, or mid-process, with no deploy on our side. **The symptom to recognize:** after a restart with no deploy, every call to a model fails with 400 `llm_bad_request`, and the API's log line for each starts `llm_provider_status code=llm_bad_request status=400 class=UnsupportedParamsError`, because LiteLLM now refuses that model's request before sending it (demonstrated with a locally edited copy of the price list). A slow GitHub response can also stall startup: in testing, a host answering one byte every 4 seconds blocked `import litellm` past 75 seconds. The switch if either ever bites: set `LITELLM_LOCAL_MODEL_COST_MAP=True` and `LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS=True` on the api service. Prices then freeze at the pinned LiteLLM, and a model newer than the pin needs a LiteLLM upgrade or a `litellm.register_model` entry.
+- **Log fields passed as `extra={...}` never reach Railway.** The API's log format (`LOG_FORMAT` in `core/logging_config.py`) prints the time, logger name, level, and message only. So the per-call `llm_call` line and the rate-limit, timeout, connection, and parse-failure handlers' lines show in Railway as the bare event name, with no model, status, or error. Pytest's log capture does see `extra` fields, so a unit test cannot catch the gap. A new line an operator needs goes with its fields in the message (`logger.info("byok_model_remapped from=%s to=%s use_case=%s", ...)`). When moving one of those handlers' fields into the message, log the status and the exception class, not `str(exc)`: providers can echo part of the API key in their error text, and the Settings page promises the key is never logged.
+- **`test_all_models_have_pricing` passes for a model newer than the pinned LiteLLM only while the price-list download works**, because the copy bundled in the installed LiteLLM has no price for it. If the test fails only when GitHub is unreachable or `LITELLM_LOCAL_MODEL_COST_MAP=True` is set, the pin predates a model on the allowlist.
 - Soft-deleted entities are **not** orphans. The orphan-relationship detector must exclude them — and it does.
+- **The order an item's tags load in is observed, not guaranteed.** The `tag_objects` relationships on bookmarks, notes, prompts, and filter groups have no `ORDER BY`, so the order comes from Postgres's query plan: small tables return physical row order and large analyzed ones tag-ID order, which agree because IDs are generated in insert order. `get_or_create_tags` (`services/tag_service.py`) inserts new tags in the order the user gave, and five API tests check that a new item's tags come back in that order (e.g. `test_create_note_normalizes_tags`), so inserting them in any other order changes what users see. The same function inserts with `ON CONFLICT DO NOTHING` and looks the tags up again, so two requests adding the same new tag at once both succeed (`test_tag_creation_concurrency.py`). It takes no lock: two requests that each create two or more of the same new tags in opposite orders can still deadlock, and Postgres cancels one after about a second.
 - MCP servers intentionally **do not** expose delete. If you're tempted to add it for symmetry, don't.
 - **The webhook endpoint's fail-closed 503 is deliberate.** If `POST /webhooks/clerk` starts 503ing, the fix is configuring `CLERK_WEBHOOK_SIGNING_SECRET`, not weakening the guard — an unverified webhook endpoint is an unauthenticated "delete this user" button. But deliveries are NOT queued indefinitely while it's closed: Svix exhausts its ~28-hour retry schedule and marks messages Failed, which for `user.deleted` means undeleted data until a manual replay (runbook: README_DEPLOY 6f).
 - **The post-population tombstone recheck in `get_or_create_user` is load-bearing, not redundant.** It looks like a duplicate of the pre-create check, but it closes a different hole: a deletion committing between the cache-miss DB read and the cache write would otherwise leave a deleted identity cached for a TTL (and able to trigger side-effectful endpoints). Removing it reopens a race no sequential test catches — `test_user_deletion_concurrency.py` reproduces the exact interleaving. Its guarantee is Redis-conditional: eviction failure is logged at error level and accepted as a TTL-bounded residual (partial-failure-only; full outages degrade safe to DB-path 401s), while the webhook's own invalidation failure is a hard 503 → Svix retry.
@@ -592,5 +641,10 @@ Areas of this doc most likely to go stale between edits. If you notice one of th
 - **Auth variant count (§5).** A new `get_current_user_*` dependency added to `core/auth.py` for a niche use case is easy to miss here.
 - **AI use-case wiring status.** The §7 table flags which use cases are wired to endpoints. Adding an endpoint for TRANSFORM / AUTO_COMPLETE / CHAT without updating that table or this doc is a likely drift.
 - **`AIUseCaseKey` Literal in `schemas/ai.py`.** Hand-written to mirror `services.llm_service.AIUseCase`. Guarded by `backend/tests/schemas/test_ai_schemas.py::test__ai_use_case_key__matches_ai_use_case_enum_values` — if the test fails, update both sides.
-- **Hardcoded model IDs in `schemas/ai.py` examples.** OpenAPI `json_schema_extra` examples reference specific model IDs (e.g. `openai/gpt-5.4-nano`). These don't auto-update with the `_SUPPORTED_MODEL_DEFS` catalog; when a model is deprecated or renamed, update the schema examples too. Low-risk today (catalog is stable) but worth checking on any catalog change.
+- **Hardcoded model IDs that change with the allowlist or a default.** When a model is added to or removed from `_SUPPORTED_MODEL_DEFS`, or an `llm_model_*` default changes, these change with it:
+  - in code: `_MODEL_REQUEST_SETTINGS` and `_RETIRED_MODEL_REPLACEMENTS` in the same file (§16); the `llm_model_*` defaults in `core/config.py`; and the OpenAPI `json_schema_extra` examples in `schemas/ai.py`, both the request schemas' `model` examples and the `/ai/models` response examples (`AIModelEntry` and `AIModelsResponse`, whose example lists one model and all four defaults);
+  - in the evals: the `models:` lists in `evals/ai_suggestions/config_suggest_*.yaml` and in the four MCP eval configs (`evals/content_mcp/config_*.yaml`, `evals/prompt_mcp/config_*.yaml`, which take their request settings from `_MODEL_REQUEST_SETTINGS` too), and in `evals/README.md` both the model table, which names the platform default, and the opening line on the MCP server evals, which names their models;
+  - in docs: the §7 tables in this doc, and the suggestions default named in §2 (External dependencies) and §3 (step 9); the suggestions default and the `LLM_MODEL_*` block in `README_DEPLOY.md` (AI / LLM variables).
+
+  Tests catch a model with no settings entry, a default or a replacement that is not allowlisted, and a request schema's `model` example that is not allowlisted (`TestSchemaExampleModelIdsDriftGuard` in `backend/tests/schemas/test_ai_schemas.py`). Nothing catches a removed model missing from the map, a stale `/ai/models` response example, a stale eval config, or any of the docs.
 - **Content-snippet size constants.** `CONTENT_SNIPPET_MAX_CHARS` (API-boundary ceiling) and `CONTENT_SNIPPET_LLM_WINDOW_CHARS` (prompt-builder truncation) live in `schemas/ai.py` and are referenced from `services/llm_prompts.py`, the Pydantic `max_length` validators on all three suggestion request models, and prose in field/endpoint docstrings. Changing either number: update in one place, rerun `backend/tests/schemas/test_ai_schemas.py::TestContentSnippetDriftGuard` to verify downstream usage is still wired correctly, then sweep the docstrings (currently three field descriptions + three endpoint-table rows) for the new values.

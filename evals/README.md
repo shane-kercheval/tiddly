@@ -1,22 +1,27 @@
-# MCP Server Evaluations
+# Evaluations
 
-This directory contains evaluation tests for the MCP servers using the [flex-evals](https://github.com/shane-kercheval/flex-evals) framework.
+This directory contains two kinds of LLM evaluations, both using the [flex-evals](https://github.com/shane-kercheval/flex-evals) framework:
 
-These evals verify that LLMs can correctly use the MCP tools by:
-1. Creating realistic test scenarios
-2. Getting LLM tool predictions
-3. Executing the predicted tools
-4. Verifying the results match expectations
+- **MCP server evals** (`content_mcp/`, `prompt_mcp/`) verify that LLMs can correctly use the MCP tools by:
+  1. Creating realistic test scenarios
+  2. Getting LLM tool predictions
+  3. Executing the predicted tools
+  4. Verifying the results match expectations
 
-## Prerequisites
+  They run on `openai/gpt-6-luna` (the platform default for suggestions) and `anthropic/claude-haiku-5-5` (the Anthropic budget model a BYOK user can pick), each with its production request settings; see [Configuration (MCP server evals)](#configuration-mcp-server-evals).
+- **AI suggestion evals** (`ai_suggestions/`) measure the quality of the AI suggestion endpoints across models. They need only provider keys, not the servers below; see [AI Suggestion Evaluations](#ai-suggestion-evaluations).
 
-Before running evaluations, ensure:
+## Prerequisites (MCP server evals)
+
+Before running the MCP server evaluations, ensure:
 
 1. Your `.env` file has:
    ```bash
    VITE_DEV_MODE=true  # Bypasses authentication
+   OPENAI_API_KEY=sk-...
    ANTHROPIC_API_KEY=sk-ant-...
    ```
+   The MCP servers also refuse to start without `CONTENT_MCP_RESOURCE_URL`, `PROMPT_MCP_RESOURCE_URL` (local values in `.env.example`), and `CLERK_FRONTEND_API`. For local evals, any bare hostname works for `CLERK_FRONTEND_API` (e.g. `placeholder.clerk.accounts.dev`): the servers only check its format and advertise it.
 
 2. **Start Docker containers** (PostgreSQL + Redis):
    ```bash
@@ -67,10 +72,47 @@ uv run pytest evals/content_mcp/test_update_item.py -v
 uv run pytest evals/prompt_mcp/test_edit_prompt_content.py -v
 uv run pytest evals/prompt_mcp/test_update_prompt.py -v
 
-uv run pytest 'evals/prompt_mcp/test_update_prompt.py::test_update_prompt[gpt-4o-mini]'
+uv run pytest 'evals/prompt_mcp/test_update_prompt.py::test_update_prompt[openai/gpt-6-luna]'
 ```
 
 **NOTE**: Changes to MCP Servers (e.g. instructions/tool-descriptions, code changes to servers) are not hot reloaded; the MCP Servers need to be restarted.
+
+## AI Suggestion Evaluations
+
+`evals/ai_suggestions/` measures the quality of the five AI suggestion endpoints: tags, metadata, relationships, prompt arguments (generate all), and prompt argument fields (refine one). Each suite calls the backend's suggestion function for its endpoint (e.g. `suggest_tags`) directly, so it needs only the provider keys in the repo-root `.env` (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`), not the API, the MCP servers, or Docker.
+
+**Models.** Every `config_suggest_*.yaml` lists the same five, by provider-prefixed ID. BYOK (bring your own key) means a user who adds their own provider API key in Settings → AI Configuration and may then pick any model the app lists; without a key, suggestions use the platform default.
+
+| Model | Why it is in the run |
+|---|---|
+| `openai/gpt-6-luna` | The platform default for suggestions |
+| `gemini/gemini-3.5-flash-lite` | The Google budget model a BYOK user can pick |
+| `anthropic/claude-haiku-5-5` | The Anthropic budget model a BYOK user can pick |
+| `openai/gpt-5.4-nano` | Baseline: the previous platform default. OpenAI shuts it down on 2027-04-01, so it has to leave the configs before then. |
+| `anthropic/claude-haiku-4-5` | Baseline: the previous Anthropic budget model |
+
+Each call goes through `LLMService.complete()`, so every model gets its production request settings (`_MODEL_REQUEST_SETTINGS` in `backend/src/services/llm_service.py`) at `DEFAULT_TEMPERATURE`; the configs carry no temperature. Each result records what was sent as `temperature` (`null` when the model's entry omits it) and `request_settings`.
+
+**Judge.** `openai/gpt-5.4-mini` (`eval.judge_model` in each config) scores the `llm_judge` checks at temperature 0, through the same settings helper. Keep it fixed when comparing models, so that score changes come from the models under test.
+
+**Pass threshold.** Each test case runs 10 samples (`eval.samples`) and passes when at least 8 pass (`eval.pass_threshold: 0.8`).
+
+**Running.** Run the suites one at a time, each with its own make target, then lint by hand: `ruff` runs on `evals/` only as the first step of `make evals` (which runs every eval, MCP included), not in the per-suite targets or `make backend-verify`.
+
+```bash
+make evals-ai-suggestions-tags
+make evals-ai-suggestions-metadata
+make evals-ai-suggestions-relationships
+make evals-ai-suggestions-prompt-arguments
+make evals-ai-suggestions-prompt-argument-fields
+uv run ruff check evals
+```
+
+Don't use the combined `make evals-ai-suggestions` target: it runs all five suites in one pytest process, which can exhaust file descriptors on macOS (see the comment above the eval targets in the `Makefile`). Each suite writes one result file per model to `evals/ai_suggestions/results/`. A full run of all five suites costs about $2.50: the 2026-10-20 run cost $2.52, of which $0.67 was suggestion calls and $1.85 was the judge.
+
+**Comparing a candidate with the current default.** Compare pooled pass rates per suite, not test cases one by one. A suite's pooled pass rate for a model is the sum of `passed` over the sum of `total` across `metadata._test_results.per_test_case` in that model's result file (60 to 110 samples per suite). A per-case comparison is too noisy: with 6 to 11 cases per suite and a case passing at 8 of 10 samples, two equally good models differ on at least one suite about 73% of the time (a binomial estimate). The rule used for the 2026-10-20 default change: if the candidate's pooled pass rate is more than 5 percentage points below the current default's on any suite, stop and report the numbers before changing the default.
+
+Check slow calls as well as pass rates. The evals allow 60 s per attempt and 3 retries (`EVAL_LLM_TIMEOUT` and `EVAL_LLM_NUM_RETRIES` in `helpers.py`), while the suggestion endpoints allow 15 s and none. So a call that takes longer than 15 s passes here but times out in production. The result files record each call's duration.
 
 ## Viewing Results
 
@@ -91,6 +133,7 @@ evals/
 ├── README.md                           # This file
 ├── conftest.py                         # Shared pytest fixtures
 ├── utils.py                            # Shared helper functions
+├── ai_suggestions/                     # AI suggestion endpoint evals (see "AI Suggestion Evaluations")
 ├── content_mcp/                        # Content MCP server evals
 │   ├── config_edit_content.yaml        # edit_content test cases
 │   ├── test_edit_content.py            # edit_content eval tests
@@ -105,17 +148,26 @@ evals/
 └── viewer/                             # Local web UI for browsing eval results (make eval-viewer)
 ```
 
-## Configuration
+## Configuration (MCP server evals)
 
-Each eval suite has a `config.yaml` that defines:
+Each MCP eval suite has a `config.yaml` that defines (the AI suggestion configs differ; see [AI Suggestion Evaluations](#ai-suggestion-evaluations)):
 
 ### Model Configuration
 ```yaml
-model:
-  provider: "anthropic"  # "anthropic" or "openai"
-  name: "claude-haiku-4-5"
-  temperature: 0  # Use 0 for reproducibility
+models:
+  - name: "openai/gpt-6-luna"  # Provider-prefixed LiteLLM ID: "openai/..." or "anthropic/..."
+    temperature: 0.5           # Requested; the settings table decides whether it is sent
 ```
+
+`get_tool_predictions` in `evals/utils.py` calls LiteLLM with the MCP server's tools and forces a tool call. Each model gets its production request settings (`_MODEL_REQUEST_SETTINGS` in `backend/src/services/llm_service.py`) at the configured temperature: Luna is sent reasoning effort `none` with the temperature, and Haiku 5.5 is sent thinking disabled and no temperature, which it rejects. So a model that needs settings must have an entry in that table before it goes in a config. A GPT-6 model also needs reasoning effort `none` here: on LiteLLM 1.106.0, a GPT-6 tool call with any higher effort fails before it is sent, so GPT-6 Sol and Astra can't run in these evals yet. Each result records what was sent as `temperature` (`null` when the table omits it) and `request_settings`.
+
+A call that hits a rate limit, a server error, a timeout, or a connection failure is retried, up to 3 attempts of 60 s each. The retries are the helper's own, because LiteLLM 1.106.0 doesn't retry Anthropic calls.
+
+The tool schemas the model sees come from the same `sik_llms` conversions the evals used before they called LiteLLM directly. These are private functions, so `sik-llms` is pinned in `pyproject.toml`; after upgrading it, compare the tools sent in a request before and after. Checked offline on 2026-10-20 against both MCP servers' tools, the LiteLLM path sends the same tool schemas (key order included), temperature, forced tool choice, and Anthropic `max_tokens` (8,000) as the old `sik_llms` path. The old OpenAI client also sent `store=False`, which the new path omits.
+
+The models moved from `gpt-4o-mini` and `claude-haiku-4-5` (called through `sik_llms`) on 2026-10-20. That run put all four models through the LiteLLM path, so the old pair's results show the change of code path separately from the change of model. Its result files are the ones timestamped `2026-10-20` in each suite's `results/` directory. Comparing them with the April 2026 results also spans commit 97f239b, which lengthened the prompt server's `search_prompts` description, so the prompt suites' prompts are longer than in April.
+
+Token counts changed meaning on 2026-10-20. From that run on, `usage.input_tokens` counts every prompt token, cached ones included, and `usage.input_cost` includes what the cached tokens cost; earlier OpenAI results excluded both. `usage.total_cost` means the same before and after, so compare costs, not token counts, across that date. Runs after the 2026-10-20 one also record `usage.cached_input_tokens`, which recovers the earlier token count (`input_tokens` minus `cached_input_tokens`) but not the earlier `input_cost`. Part of the increase in token counts since April comes from the longer tool descriptions, not from caching.
 
 ### Evaluation Parameters
 ```yaml
@@ -203,7 +255,7 @@ The eval framework uses `flex-evals` with pytest:
 If evaluations fail, check:
 
 1. **MCP servers running**: Ensure both API and MCP servers are up
-2. **API key valid**: Check the API key in `.env` matches the provider in your eval config (e.g., `ANTHROPIC_API_KEY` for Anthropic, `OPENAI_API_KEY` for OpenAI)
+2. **API key valid**: Check the API key in `.env` matches the provider prefix of each model in your eval config (`ANTHROPIC_API_KEY` for `anthropic/...`, `OPENAI_API_KEY` for `openai/...`)
 3. **Database accessible**: Run `make docker-up` if containers are down
 4. **Verbose output**: Run with `-v` flag for detailed failure info
 

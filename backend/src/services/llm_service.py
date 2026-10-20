@@ -1,4 +1,5 @@
 """LLM service wrapping LiteLLM for AI features."""
+import copy
 import json
 import logging
 import re
@@ -55,6 +56,15 @@ class LLMConfig(BaseModel):
     key_source: KeySource
 
 
+# Provider HTTP statuses that mean the provider refused the API key. The API's
+# error mapping (api/main.py) and POST /ai/validate-key both read this, so they
+# agree on what a rejected key is. It is a status, not an exception class:
+# LiteLLM picks the class from the provider's error body as well as its status
+# (an OpenAI 403 becomes `APIError`, `BadRequestError` or `NotFoundError`
+# depending on the body).
+LLM_KEY_REJECTED_STATUSES: frozenset[int] = frozenset({401, 403})
+
+
 # ---------------------------------------------------------------------------
 # Supported models — curated GA models only (no preview/experimental)
 # ---------------------------------------------------------------------------
@@ -63,21 +73,45 @@ class LLMConfig(BaseModel):
 # Cost lookup keys may differ (e.g. OpenAI models have no prefix in cost map).
 
 _SUPPORTED_MODEL_DEFS: list[dict] = [
-    # Google Gemini
-    {"id": "gemini/gemini-flash-lite-latest", "provider": "google", "tier": "budget"},
+    # Google Gemini. Pinned, not the `-latest` alias, which Google may move to a
+    # new model with two weeks' notice.
+    {"id": "gemini/gemini-3.5-flash-lite", "provider": "google", "tier": "budget"},
     # Gemini flash/pro disabled — chronic 503 "high demand" errors from Google's API
     # make these unreliable for production use. See evals/LEARNINGS.md.
     # {"id": "gemini/gemini-flash-latest", "provider": "google", "tier": "balanced"},
     # {"id": "gemini/gemini-pro-latest", "provider": "google", "tier": "flagship"},
     # OpenAI
-    {"id": "openai/gpt-5.4-nano", "provider": "openai", "tier": "budget"},
-    {"id": "openai/gpt-5.4-mini", "provider": "openai", "tier": "balanced"},
-    {"id": "openai/gpt-5.4", "provider": "openai", "tier": "flagship"},
+    {"id": "openai/gpt-6-luna", "provider": "openai", "tier": "budget"},
+    {"id": "openai/gpt-6.1-sol", "provider": "openai", "tier": "balanced"},
+    {"id": "openai/gpt-6-astra", "provider": "openai", "tier": "flagship"},
     # Anthropic
-    {"id": "anthropic/claude-haiku-4-5", "provider": "anthropic", "tier": "budget"},
-    {"id": "anthropic/claude-sonnet-4-6", "provider": "anthropic", "tier": "balanced"},
-    {"id": "anthropic/claude-opus-4-6", "provider": "anthropic", "tier": "flagship"},
+    {"id": "anthropic/claude-haiku-5-5", "provider": "anthropic", "tier": "budget"},
+    {"id": "anthropic/claude-sonnet-5-5", "provider": "anthropic", "tier": "balanced"},
+    {"id": "anthropic/claude-opus-5-5", "provider": "anthropic", "tier": "flagship"},
 ]
+
+# Retired allowlist IDs and the model a BYOK request for one now gets. The BYOK
+# model choice lives only in the user's browser, so a user who picked a model
+# that has since left the allowlist would otherwise get 400 "Unsupported model"
+# on every request until they re-pick. Kept deliberately simple, a plain lookup
+# (the user's instruction): every retired OpenAI ID goes to GPT-6 Luna, with no
+# tier mapping; each retired Claude ID goes to its 5.5 successor. Rules,
+# enforced by test_llm_service.py: a replacement never crosses providers (the
+# model's prefix is the only record of which provider issued the user's key, so
+# crossing would send the key to the wrong provider), and every replacement is
+# itself on the allowlist (so a remapped user's request is accepted, not 400).
+# The map cannot widen the allowlist: `resolve_config` swaps first and then runs
+# the replacement through the same allowlist check as any other ID. An entry can
+# go once logs stop showing `byok_model_remapped` for it.
+_RETIRED_MODEL_REPLACEMENTS: dict[str, str] = {
+    "openai/gpt-5.4-nano": "openai/gpt-6-luna",
+    "openai/gpt-5.4-mini": "openai/gpt-6-luna",
+    "openai/gpt-5.4": "openai/gpt-6-luna",
+    "anthropic/claude-haiku-4-5": "anthropic/claude-haiku-5-5",
+    "anthropic/claude-sonnet-4-6": "anthropic/claude-sonnet-5-5",
+    "anthropic/claude-opus-4-6": "anthropic/claude-opus-5-5",
+    "gemini/gemini-flash-lite-latest": "gemini/gemini-3.5-flash-lite",
+}
 
 
 def _get_model_cost(model_id: str) -> dict | None:
@@ -101,7 +135,11 @@ def build_supported_models() -> list[AIModelEntry]:
     """
     Build the supported models list with pricing from LiteLLM's SDK.
 
-    Called at startup. Pricing auto-updates with LiteLLM version bumps.
+    Called at startup. Prices come from the price list LiteLLM downloads from
+    its GitHub `main` branch at import, with the copy bundled in the installed
+    LiteLLM as the fallback when the download fails, so they can change at any
+    restart without a LiteLLM upgrade.
+
     Returns typed `AIModelEntry` instances rather than raw dicts — so a typo
     or drift in `_SUPPORTED_MODEL_DEFS` (e.g., an unsupported `provider`
     value) surfaces as a `ValidationError` at import/startup, not at
@@ -158,23 +196,76 @@ def _resolve_platform_key(model: str, settings: Settings) -> str:
     raise ValueError(f"Unknown model prefix: {model}. Add mapping to _PROVIDER_KEY_MAP.")
 
 
-# ---------------------------------------------------------------------------
-# Response normalization
-# ---------------------------------------------------------------------------
+# The temperature `complete()` and `stream()` use when the caller passes none.
+# The suggestion endpoints never pass one, so this is what they request; the
+# settings table then decides whether it is sent. The suggestion evals record it
+# as the temperature sent, through the same table helper.
+DEFAULT_TEMPERATURE: float = 0.7
 
-# Models that only support temperature=1. Hardcoded — no pattern matching.
-# The smoke test (test_llm_smoke.py) uses temperature=0 for all models,
-# so adding a new model that requires temperature=1 will be caught immediately.
-_TEMPERATURE_1_ONLY_MODELS: set[str] = {
-    "openai/o4-mini",
+
+# ---------------------------------------------------------------------------
+# Per-model request settings
+# ---------------------------------------------------------------------------
+# What each model must be sent besides the prompt, keyed by provider-prefixed
+# model ID. `omit_temperature: True` means the caller's temperature is not sent;
+# every other key is passed to `acompletion` unchanged. A model with no entry
+# gets the caller's temperature and nothing else.
+#
+# Every allowlisted model and every `llm_model_*` default needs an entry, and
+# test_llm_service.py enforces that offline (CI has no provider keys, so it skips
+# the live smoke test). An empty entry `{}` means "verified to accept the
+# caller's temperature".
+#
+# The smoke test (test_llm_smoke.py) calls each allowlisted model at
+# temperature 0. It proves the provider accepts the entry, and that the model
+# does not reason on its one-word prompt unless the entry sets a reasoning
+# effort above "none". It cannot prove an entry turns off thinking that a model
+# does only on real prompts: Claude Haiku 5.5 with thinking left on does not
+# think on the smoke prompt but does on a tag suggestion. So check a model that
+# thinks by default once with a real suggestion prompt, reading the reasoning
+# tokens in the response's usage, before adding its entry.
+#
+# Why a table and not LiteLLM's `drop_params`: `drop_params` can only remove
+# parameters, and it decides from flags in LiteLLM's downloaded price list
+# rather than from reviewed code. On LiteLLM 1.106.0 it silently turned
+# reasoning on for gpt-6-luna and claude-haiku-5-5 (slower, more tokens),
+# because removing their temperature without setting an effort leaves the
+# model's default reasoning on.
+_MODEL_REQUEST_SETTINGS: dict[str, dict] = {
+    # Temperature is accepted only when reasoning effort is "none".
+    "openai/gpt-6-luna": {"reasoning_effort": "none"},
+    # No "none" effort level exists, so temperature must be omitted.
+    "openai/gpt-6.1-sol": {"omit_temperature": True, "reasoning_effort": "low"},
+    "openai/gpt-6-astra": {"omit_temperature": True, "reasoning_effort": "low"},
+    # Claude 5.5 rejects any temperature other than 1. Haiku thinks by default.
+    "anthropic/claude-haiku-5-5": {"omit_temperature": True, "thinking": {"type": "disabled"}},
+    "anthropic/claude-sonnet-5-5": {"omit_temperature": True},
+    "anthropic/claude-opus-5-5": {"omit_temperature": True},
+    # Google ignores temperature on 3.5 and LiteLLM warns on every call that sends one.
+    "gemini/gemini-3.5-flash-lite": {"omit_temperature": True},
 }
 
 
-def _normalize_temperature(model: str, temperature: float) -> float:
-    """Clamp temperature to model-supported values."""
-    if model in _TEMPERATURE_1_ONLY_MODELS:
-        return 1.0
-    return temperature
+def model_request_settings(model: str, temperature: float) -> dict:
+    """
+    Return the per-model kwargs to send `acompletion` for `model` at `temperature`.
+
+    Applies `_MODEL_REQUEST_SETTINGS`: the temperature is left out when the
+    entry says `omit_temperature`, and every other key in the entry is added.
+    `LLMService.complete()` and `stream()` both call this, and nothing else
+    decides per-model parameters. Code that calls `acompletion` directly must
+    call it too (the eval judge in `evals/ai_suggestions/helpers.py` does).
+    """
+    # Deep copy: callers and LiteLLM get their own nested dicts, never the table's.
+    kwargs = copy.deepcopy(_MODEL_REQUEST_SETTINGS.get(model, {}))
+    if not kwargs.pop("omit_temperature", False):
+        kwargs["temperature"] = temperature
+    return kwargs
+
+
+# ---------------------------------------------------------------------------
+# Response normalization
+# ---------------------------------------------------------------------------
 
 
 def _sanitize_structured_content(response: object) -> None:
@@ -267,10 +358,22 @@ class LLMService:
         - If user provides a key: use their key + their model (or use-case default model)
         - Otherwise: use platform key + use-case model (ignore user model choice)
 
+        A BYOK `user_model` from a previous allowlist is replaced by its current
+        same-provider model (`_RETIRED_MODEL_REPLACEMENTS`) before the allowlist
+        check, and the replacement is logged.
+
         Raises UnsupportedModelError (subclass of ValueError) if user_model is
         not in the supported models allowlist.
         """
         if user_api_key:
+            if user_model in _RETIRED_MODEL_REPLACEMENTS:
+                replacement = _RETIRED_MODEL_REPLACEMENTS[user_model]
+                # IDs in the message itself: the API's log format prints only the message.
+                logger.info(
+                    "byok_model_remapped from=%s to=%s use_case=%s",
+                    user_model, replacement, use_case.value,
+                )
+                user_model = replacement
             if user_model and user_model not in _SUPPORTED_MODEL_IDS:
                 raise UnsupportedModelError(f"Unsupported model: {user_model}")
             return LLMConfig(
@@ -285,7 +388,7 @@ class LLMService:
         messages: list[dict],
         config: LLMConfig,
         response_format: type[BaseModel] | None = None,
-        temperature: float = 0.7,
+        temperature: float = DEFAULT_TEMPERATURE,
         max_tokens: int | None = None,
         timeout: int | None = None,
         num_retries: int | None = None,
@@ -308,7 +411,7 @@ class LLMService:
             "model": config.model,
             "messages": messages,
             "api_key": config.api_key,
-            "temperature": _normalize_temperature(config.model, temperature),
+            **model_request_settings(config.model, temperature),
             "timeout": timeout if timeout is not None else self._settings.llm_timeout_default,
             "num_retries": num_retries if num_retries is not None else 1,
         }
@@ -323,7 +426,7 @@ class LLMService:
             _sanitize_structured_content(response)
 
         try:
-            # Strip provider prefix (e.g. "openai/gpt-5.4-nano" → "gpt-5.4-nano")
+            # Strip provider prefix (e.g. "openai/gpt-6-luna" → "gpt-6-luna")
             # because completion_cost() doesn't recognize prefixed OpenAI/Anthropic
             # model names. Bare names work for all providers including Gemini.
             cost_model = config.model.split("/")[-1] if "/" in config.model else config.model
@@ -340,16 +443,16 @@ class LLMService:
         self,
         messages: list[dict],
         config: LLMConfig,
-        temperature: float = 0.7,
+        temperature: float = DEFAULT_TEMPERATURE,
     ) -> AsyncIterator:
         """Streaming completion. Returns an async iterator of chunks."""
         return await acompletion(
             model=config.model,
             messages=messages,
             api_key=config.api_key,
-            temperature=temperature,
             stream=True,
             timeout=self._settings.llm_timeout_streaming,
+            **model_request_settings(config.model, temperature),
         )
 
 

@@ -50,13 +50,17 @@ class AIErrorResponse(BaseModel):
         description=(
             "Machine-readable error identifier when a typed error is raised. "
             "Values that may appear on AI endpoints: `llm_auth_failed` (422, "
-            "BYOK key rejected by provider), `llm_rate_limited` (429, upstream "
+            "provider refused the key with 401 or 403: the BYOK key, or on the "
+            "platform path the server's key), `llm_rate_limited` (429, upstream "
             "provider throttled), `llm_timeout` (504), `llm_bad_request` (400, "
-            "LLM provider rejected the shape), `llm_connection_error` (502, "
-            "connection to provider failed), `llm_parse_failed` (502, LLM "
-            "returned an unparseable structured response), `llm_unavailable` "
-            "(503, unclassified provider failure). Absent for un-typed errors "
-            "(e.g. bare Tiddly `429` rate-limit, `401` / `403` auth failures)."
+            "LLM provider rejected the request), `llm_connection_error` (502, "
+            "could not connect to the provider; some providers' connection "
+            "failures arrive as `llm_unavailable` instead), `llm_parse_failed` "
+            "(502, LLM returned an unparseable structured response), "
+            "`llm_unavailable` (503, provider outage, provider unreachable, or "
+            "unclassified provider failure). Absent "
+            "for un-typed errors (e.g. bare Tiddly `429` rate-limit, `401` / "
+            "`403` auth failures)."
         ),
     )
 
@@ -189,11 +193,11 @@ class AIModelEntry(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "id": "openai/gpt-5.4-nano",
+                    "id": "openai/gpt-6-luna",
                     "provider": "openai",
                     "tier": "budget",
-                    "input_cost_per_million": 0.05,
-                    "output_cost_per_million": 0.40,
+                    "input_cost_per_million": 0.10,
+                    "output_cost_per_million": 0.50,
                 },
             ],
         },
@@ -240,18 +244,18 @@ class AIModelsResponse(BaseModel):
                 {
                     "models": [
                         {
-                            "id": "openai/gpt-5.4-nano",
+                            "id": "openai/gpt-6-luna",
                             "provider": "openai",
                             "tier": "budget",
-                            "input_cost_per_million": 0.05,
-                            "output_cost_per_million": 0.40,
+                            "input_cost_per_million": 0.10,
+                            "output_cost_per_million": 0.50,
                         },
                     ],
                     "defaults": {
-                        "suggestions": "openai/gpt-5.4-nano",
-                        "transform": "gemini/gemini-flash-lite-latest",
-                        "auto_complete": "gemini/gemini-flash-lite-latest",
-                        "chat": "openai/gpt-5.4-mini",
+                        "suggestions": "openai/gpt-6-luna",
+                        "transform": "gemini/gemini-3.5-flash-lite",
+                        "auto_complete": "gemini/gemini-3.5-flash-lite",
+                        "chat": "openai/gpt-6.1-sol",
                     },
                 },
             ],
@@ -307,8 +311,8 @@ class ValidateKeyRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
-                {"model": "openai/gpt-5.4-nano"},
-                {"model": "anthropic/claude-haiku-4-5"},
+                {"model": "openai/gpt-6-luna"},
+                {"model": "anthropic/claude-haiku-5-5"},
             ],
         },
     )
@@ -319,7 +323,9 @@ class ValidateKeyRequest(BaseModel):
             "Optional supported model ID used to pick the provider to validate "
             "the supplied `X-LLM-Api-Key` against. If omitted, the server "
             "validates using a default model. Call `GET /ai/models` for the "
-            "supported list."
+            "supported list. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
 
@@ -342,7 +348,7 @@ class SuggestTagsRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "content_type": "bookmark",
                     "title": "How async/await works under the hood",
                     "url": "https://example.com/posts/async-internals",
@@ -357,10 +363,12 @@ class SuggestTagsRequest(BaseModel):
     model: str | None = Field(
         None,
         description=(
-            "Optional supported model ID (e.g. `openai/gpt-5.4-mini`). Only "
+            "Optional supported model ID (e.g. `openai/gpt-6.1-sol`). Only "
             "honored when a BYOK key is supplied via `X-LLM-Api-Key`; platform "
             "callers are silently locked to the use-case default. Call "
-            "`GET /ai/models` for the supported list."
+            "`GET /ai/models` for the supported list. A retired ID from a "
+            "previous list is accepted and replaced by its current "
+            "same-provider model."
         ),
     )
     content_type: ContentTypeLiteral = Field(
@@ -432,7 +440,7 @@ class SuggestMetadataRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "fields": ["title", "description"],
                     "url": "https://example.com/posts/async-internals",
                     "title": "Async internals",
@@ -440,7 +448,7 @@ class SuggestMetadataRequest(BaseModel):
                     "content_snippet": "The event loop sits at the heart of asyncio...",
                 },
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "fields": ["name"],
                     "title": "Weekly status update",
                     "description": "Template for our team's weekly status report.",
@@ -455,7 +463,9 @@ class SuggestMetadataRequest(BaseModel):
         description=(
             "Optional supported model ID. Only honored when a BYOK key is "
             "supplied via `X-LLM-Api-Key`; platform callers are silently "
-            "locked to the use-case default. Call `GET /ai/models`."
+            "locked to the use-case default. Call `GET /ai/models`. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
     fields: list[Literal["name", "title", "description"]] = Field(
@@ -560,7 +570,7 @@ class SuggestRelationshipsRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "source_id": "01920000-0000-7000-8000-000000000001",
                     "title": "How async/await works under the hood",
                     "url": "https://example.com/posts/async-internals",
@@ -579,7 +589,9 @@ class SuggestRelationshipsRequest(BaseModel):
         None,
         description=(
             "Optional supported model ID. Only honored with BYOK. Call "
-            "`GET /ai/models` for the supported list."
+            "`GET /ai/models` for the supported list. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
     source_id: str | None = Field(
@@ -714,7 +726,7 @@ class SuggestPromptArgumentsRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "prompt_content": (
                         "Summarize {{ document }} in {{ num_sentences }} sentences."
                     ),
@@ -733,7 +745,9 @@ class SuggestPromptArgumentsRequest(BaseModel):
         None,
         description=(
             "Optional supported model ID. Only honored with BYOK. Call "
-            "`GET /ai/models` for the supported list."
+            "`GET /ai/models` for the supported list. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
     prompt_content: str = Field(
@@ -775,7 +789,7 @@ class SuggestPromptArgumentFieldsRequest(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "model": "openai/gpt-5.4-mini",
+                    "model": "openai/gpt-6.1-sol",
                     "prompt_content": (
                         "Summarize {{ document }} in {{ num_sentences }} sentences."
                     ),
@@ -800,7 +814,9 @@ class SuggestPromptArgumentFieldsRequest(BaseModel):
         None,
         description=(
             "Optional supported model ID. Only honored with BYOK. Call "
-            "`GET /ai/models` for the supported list."
+            "`GET /ai/models` for the supported list. "
+            "A retired ID from a previous list is accepted and replaced by its "
+            "current same-provider model."
         ),
     )
     prompt_content: str | None = Field(

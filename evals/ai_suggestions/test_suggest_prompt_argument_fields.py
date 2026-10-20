@@ -25,6 +25,7 @@ from evals.ai_suggestions.helpers import (
     create_judge_llm_function,
     create_llm_service,
     create_suggestion_checks,
+    request_settings_record,
 )
 from evals.utils import (
     create_checks_from_config,
@@ -115,9 +116,6 @@ async def test_suggest_prompt_argument_fields(
     Global judge verifies description quality with target_fields awareness.
     """
     config = create_eval_config(_llm_service, model_config["name"])
-    # Temperature is informational — records the LLMService default (0.7) for the viewer.
-    # The service layer controls temperature internally; it's not overridable per-call.
-    temperature = model_config.get("temperature", 0.7)
     input_data = test_case.input
 
     existing_args = [ArgumentInput(**a) for a in input_data.get("arguments", [])]
@@ -152,7 +150,7 @@ async def test_suggest_prompt_argument_fields(
         "arguments_detail": arguments_detail,
         "argument_descriptions_joined": argument_descriptions_joined,
         "model_name": config.model,
-        "temperature": temperature,
+        **request_settings_record(config.model),
         "usage": {
             "total_cost": cost,
         },
