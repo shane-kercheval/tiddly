@@ -35,6 +35,7 @@ from litellm.exceptions import (
     RateLimitError as LiteLLMRateLimitError,
     Timeout as LiteLLMTimeout,
 )
+from openai import APIStatusError as OpenAIAPIStatusError
 
 from core.auth import DeletedIdentityError
 from core.auth_cache import AuthCache, set_auth_cache
@@ -317,6 +318,20 @@ async def field_limit_exceeded_exception_handler(
 # All LLM errors use llm_* error codes so the frontend can distinguish them
 # from platform auth errors (which use HTTP 401).
 
+# Bodies shared by the specific handlers and the status-band handler below.
+_LLM_AUTH_FAILED_CONTENT = {
+    "detail": "LLM authentication failed. Check your API key.",
+    "error_code": "llm_auth_failed",
+}
+_LLM_BAD_REQUEST_CONTENT = {
+    "detail": "Invalid request to LLM provider.",
+    "error_code": "llm_bad_request",
+}
+_LLM_UNAVAILABLE_CONTENT = {
+    "detail": "AI service temporarily unavailable.",
+    "error_code": "llm_unavailable",
+}
+
 
 @app.exception_handler(LiteLLMAuthenticationError)
 async def llm_auth_exception_handler(
@@ -324,13 +339,7 @@ async def llm_auth_exception_handler(
 ) -> JSONResponse:
     """LLM authentication failed (bad API key) → 422."""
     logger.warning("llm_auth_failed", extra={"error": str(exc)})
-    return JSONResponse(
-        status_code=422,
-        content={
-            "detail": "LLM authentication failed. Check your API key.",
-            "error_code": "llm_auth_failed",
-        },
-    )
+    return JSONResponse(status_code=422, content=_LLM_AUTH_FAILED_CONTENT)
 
 
 @app.exception_handler(LiteLLMBadRequestError)
@@ -339,10 +348,7 @@ async def llm_bad_request_exception_handler(
 ) -> JSONResponse:
     """Invalid request to LLM provider → 400."""
     logger.warning("llm_bad_request", extra={"error": str(exc)})
-    return JSONResponse(
-        status_code=400,
-        content={"detail": "Invalid request to LLM provider.", "error_code": "llm_bad_request"},
-    )
+    return JSONResponse(status_code=400, content=_LLM_BAD_REQUEST_CONTENT)
 
 
 @app.exception_handler(LiteLLMRateLimitError)
@@ -391,12 +397,44 @@ async def llm_connection_exception_handler(
 async def llm_unavailable_exception_handler(
     _request: Request, exc: LiteLLMAPIError,
 ) -> JSONResponse:
-    """Catch-all for unknown LiteLLM errors → 503."""
+    """LiteLLM's own `APIError` (no more specific class applies) → 503."""
     logger.warning("llm_unavailable", extra={"error": str(exc)})
-    return JSONResponse(
-        status_code=503,
-        content={"detail": "AI service temporarily unavailable.", "error_code": "llm_unavailable"},
-    )
+    return JSONResponse(status_code=503, content=_LLM_UNAVAILABLE_CONTENT)
+
+
+@app.exception_handler(OpenAIAPIStatusError)
+async def llm_provider_status_exception_handler(
+    _request: Request, exc: OpenAIAPIStatusError,
+) -> JSONResponse:
+    """
+    Any other provider error that carries an HTTP status → mapped by status band.
+
+    LiteLLM's status-carrying exceptions (`ServiceUnavailableError`,
+    `InternalServerError`, `BadGatewayError`, `NotFoundError`,
+    `PermissionDeniedError`, `UnprocessableEntityError`, and any class it adds
+    later) subclass `openai.APIStatusError`, not LiteLLM's `APIError`, so the
+    `APIError` handler above never caught them and a provider outage reached
+    callers as a plain 500. Starlette picks the handler registered for the
+    nearest class in the exception's MRO, so the specific handlers above
+    (authentication, bad request including `PaymentRequiredError`, rate limit,
+    timeout, connection) still win, and this one sees only what they don't.
+
+    5xx → 503 `llm_unavailable` is the documented contract. The 4xx bands are a
+    deliberate extension of that fix: 401/403 are key problems (422
+    `llm_auth_failed`), and any other 4xx (e.g. a 404 for a model the key
+    cannot use) is a request the provider rejected (400 `llm_bad_request`).
+
+    The status and class go in the message because the log format prints only
+    the message. The provider's error text is left out: some providers echo
+    part of the API key in it.
+    """
+    status = exc.status_code
+    logger.warning("llm_provider_status status=%s class=%s", status, type(exc).__name__)
+    if status in (401, 403):
+        return JSONResponse(status_code=422, content=_LLM_AUTH_FAILED_CONTENT)
+    if isinstance(status, int) and 400 <= status < 500:
+        return JSONResponse(status_code=400, content=_LLM_BAD_REQUEST_CONTENT)
+    return JSONResponse(status_code=503, content=_LLM_UNAVAILABLE_CONTENT)
 
 
 @app.exception_handler(LLMParseFailedError)

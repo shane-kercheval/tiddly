@@ -5,7 +5,7 @@ from typing import NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from litellm.exceptions import AuthenticationError
+from litellm.exceptions import AuthenticationError, PermissionDeniedError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_limits_ai, get_current_user_ai
@@ -225,8 +225,9 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
         "description": (
             "Two sources. (1) **Auth infrastructure unavailable** — JWKS "
             "fetch from the identity provider failed. `detail` is `\"Could not validate "
-            "credentials\"`; no `error_code`. (2) **Unclassified LLM "
-            "provider failure** — `error_code: llm_unavailable`. Both are "
+            "credentials\"`; no `error_code`. (2) **LLM provider outage "
+            "(the provider returned a 5xx) or other unclassified provider "
+            "failure** — `error_code: llm_unavailable`. Both are "
             "safe to retry with backoff."
         ),
         "content": {
@@ -587,7 +588,8 @@ async def validate_key(
 
     - `200 {"valid": true}` — provider accepted the key.
     - `200 {"valid": false, "error": "API key rejected by provider"}` —
-      provider returned an authentication error. The 200 status reflects
+      provider rejected the key (HTTP 401, or 403 for a key without access
+      to the model). The 200 status reflects
       that the validation *request* succeeded; the key itself is simply
       invalid. Note this is **not** surfaced as 422 `llm_auth_failed` —
       that's the semantics on suggestion endpoints where the caller
@@ -613,7 +615,7 @@ async def validate_key(
             temperature=0,
         )
         return ValidateKeyResponse(valid=True)
-    except AuthenticationError:
+    except (AuthenticationError, PermissionDeniedError):
         return ValidateKeyResponse(valid=False, error="API key rejected by provider")
 
 

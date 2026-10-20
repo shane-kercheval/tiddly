@@ -55,8 +55,9 @@ class AIErrorResponse(BaseModel):
             "LLM provider rejected the shape), `llm_connection_error` (502, "
             "connection to provider failed), `llm_parse_failed` (502, LLM "
             "returned an unparseable structured response), `llm_unavailable` "
-            "(503, unclassified provider failure). Absent for un-typed errors "
-            "(e.g. bare Tiddly `429` rate-limit, `401` / `403` auth failures)."
+            "(503, provider outage or unclassified provider failure). Absent "
+            "for un-typed errors (e.g. bare Tiddly `429` rate-limit, `401` / "
+            "`403` auth failures)."
         ),
     )
 

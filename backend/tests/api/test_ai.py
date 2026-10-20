@@ -3,19 +3,38 @@ import typing
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from httpx import AsyncClient
+import pytest
+from httpx import AsyncClient, Request, Response
 from litellm.exceptions import (
     APIConnectionError,
     APIError,
     AuthenticationError,
+    BadGatewayError,
     BadRequestError,
+    InternalServerError,
+    NotFoundError,
+    PermissionDeniedError,
     RateLimitError,
+    ServiceUnavailableError,
     Timeout,
 )
 
 from core.tier_limits import Tier, TierLimits, get_tier_limits
 from services.llm_service import AIUseCase, get_llm_service
 from services.suggestion_service import LLMParseFailedError
+
+
+def _permission_denied_error() -> PermissionDeniedError:
+    """
+    Build a provider 403. Unlike the other LiteLLM classes used here,
+    `PermissionDeniedError` needs a real response that carries a request.
+    """
+    return PermissionDeniedError(
+        message="key lacks access to this model",
+        llm_provider="openai",
+        model="openai/gpt-5.4-nano",
+        response=Response(403, request=Request("POST", "https://example")),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +218,22 @@ class TestValidateKey:
             response = await client.post(
                 "/ai/validate-key",
                 headers={"X-LLM-Api-Key": "bad-key"},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["valid"] is False
+        assert "rejected" in data["error"]
+
+    async def test_permission_denied_key(self, client: AsyncClient) -> None:
+        """A provider 403 is a rejected key here too, not 422 `llm_auth_failed`."""
+        with patch(
+            "services.llm_service.acompletion",
+            new_callable=AsyncMock,
+            side_effect=_permission_denied_error(),
+        ):
+            response = await client.post(
+                "/ai/validate-key",
+                headers={"X-LLM-Api-Key": "key-without-model-access"},
             )
         assert response.status_code == 200
         data = response.json()
@@ -408,6 +443,55 @@ class TestLLMExceptionHandlers:
         response = await llm_unavailable_exception_handler(MagicMock(), exc)
         assert response.status_code == 503
         assert b"llm_unavailable" in response.body
+
+    @pytest.mark.parametrize(
+        ("exc_class", "status"),
+        [(InternalServerError, 500), (BadGatewayError, 502), (ServiceUnavailableError, 503)],
+    )
+    async def test_provider_5xx_returns_503(
+        self,
+        exc_class: type[Exception],
+        status: int,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
+        exc = exc_class(message="provider down", model="test", llm_provider="test")
+        response = await llm_provider_status_exception_handler(MagicMock(), exc)
+        assert response.status_code == 503
+        assert b"llm_unavailable" in response.body
+        # The status and class must be in the message itself: the API's log
+        # format prints only the message, so `extra=` fields never reach Railway.
+        messages = [r.getMessage() for r in caplog.records if r.name == "api.main"]
+        assert f"llm_provider_status status={status} class={exc_class.__name__}" in messages[-1]
+
+    async def test_provider_403_returns_422(self) -> None:
+        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
+        response = await llm_provider_status_exception_handler(MagicMock(), _permission_denied_error())
+        assert response.status_code == 422
+        assert b"llm_auth_failed" in response.body
+
+    async def test_provider_404_returns_400(self) -> None:
+        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
+        exc = NotFoundError(message="model not found", model="test", llm_provider="test")
+        response = await llm_provider_status_exception_handler(MagicMock(), exc)
+        assert response.status_code == 400
+        assert b"llm_bad_request" in response.body
+
+    async def test_provider_5xx_through_app_returns_503(self, client: AsyncClient) -> None:
+        """A provider outage on a suggestion endpoint reaches the caller as a typed 503."""
+        with patch(
+            "services.llm_service.acompletion",
+            new_callable=AsyncMock,
+            side_effect=ServiceUnavailableError(
+                message="overloaded", model="openai/gpt-5.4-nano", llm_provider="openai",
+            ),
+        ):
+            response = await client.post(
+                "/ai/suggest-tags",
+                json={"title": "Flask REST API Tutorial", "content_type": "bookmark"},
+            )
+        assert response.status_code == 503
+        assert response.json()["error_code"] == "llm_unavailable"
 
     async def test_parse_failed_returns_502(self) -> None:
         """LLM structured-output parse failure returns 502 with llm_parse_failed code."""
