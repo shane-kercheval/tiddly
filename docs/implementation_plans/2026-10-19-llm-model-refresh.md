@@ -1,12 +1,12 @@
 # LLM model refresh: LiteLLM 1.106.0, current-generation models, per-model request settings
 
-One pull request refreshes the backend's LLM layer: it upgrades LiteLLM (the Python library the backend calls LLM providers through) from 1.83.0 to 1.106.0, moves every model the product uses or offers to the current generation, teaches the backend to send each model only the request settings that model accepts, fixes two gaps found along the way (provider outages shown as plain 500s, and users stranded on a retired model), and re-runs the AI suggestion evals.
+One pull request refreshes the backend's LLM layer: it upgrades LiteLLM (the Python library the backend calls LLM providers through) from 1.83.0 to 1.106.0, moves every model the product uses or offers to the current generation, teaches the backend to send each model only the request settings that model accepts, fixes two gaps found along the way (provider outages shown as plain 500s, and users stranded on a retired model), re-runs the AI suggestion evals, moves the MCP tool evals to current models, and fixes a tag-creation race those evals exposed (two requests adding the same new tag at once failed one of them with a 500).
 
 Why now: the platform default for AI suggestions, `openai/gpt-5.4-nano`, shuts down on 2027-04-01 ([OpenAI deprecations](https://developers.openai.com/api/docs/deprecations)). Its replacement, and every other current OpenAI and Claude model, rejects the request the backend sends today: all of them refuse a temperature other than 1, and the GPT-6 models need a reasoning-effort setting. On LiteLLM 1.83.0 the providers return 400; on 1.106.0 LiteLLM refuses the call before it leaves the server. Either way, swapping the model ID alone breaks suggestions.
 
 ## How to read this plan
 
-Each milestone has three parts. "Goal and outcome" is for the approver, who knows the product but not the code: confirm the outcomes are the right ones. "Implementation outline" and "Definition of done" are for the implementer, a coding agent that reads the code but was not in the discussion. The outline states only the decisions the code cannot recover; naming, local structure, and style follow the surrounding code.
+Milestones 1 to 5 each have three parts. "Goal and outcome" is for the approver, who knows the product but not the code: confirm the outcomes are the right ones. "Implementation outline" and "Definition of done" are for the implementer, a coding agent that reads the code but was not in the discussion. The outline states only the decisions the code cannot recover; naming, local structure, and style follow the surrounding code. Milestones 6 and 7 record work added during implementation, so they describe what was done and what it showed.
 
 Terms used throughout:
 
@@ -32,7 +32,9 @@ A decision by the user or the briefer is not changed without asking. New evidenc
 9. **LiteLLM's runtime downloads from GitHub stay on, as today** (the price list at import, the Anthropic beta-header file at the first Claude request). Decided on the briefer's recommendation. Reasons: LiteLLM's docs present `LITELLM_LOCAL_MODEL_COST_MAP` as an option for firewalled setups ("you will need to upgrade to get updated pricing, and newer models"), not as production advice ([LiteLLM token usage](https://docs.litellm.ai/docs/completion/token_usage)); the download has been on since the project adopted LiteLLM, with no known incident; the demonstrated risk needs a bad change in LiteLLM's repository that affects our exact models; and guarding against it would add an import-order rule, guard tests, and a LiteLLM upgrade (or a `litellm.register_model` entry) for every new model. The risk and its switch are recorded under known limitations.
 10. **Settings AI page provider confusion is out of scope**: a user with an Anthropic or Google key who leaves the model on the OpenAI default gets "API key rejected by provider". Decided on the briefer's recommendation; recorded under known limitations with the one-line fix.
 11. **Fixing the Settings AI page after a remap is out of scope.** Decided on the briefer's recommendation; recorded under known limitations, where the fix is "show the replacement", never "clear".
-12. **The MCP tool evals stay on `gpt-4o-mini` and `claude-haiku-4-5` in this PR; moving them is a separate PR off `main` after this refresh merges.** The user's words, following investigate-mcp-evals' recommendation: "option 2, keep sik_llms for the MCP connection, run all four models once, no pass bar, own PR after the refresh merges." The follow-up is recorded under known limitations. The deadline is OpenAI's 2027-01-14 shutdown of `gpt-4o-mini`.
+12. **The MCP tool evals move to current models in this PR** (milestone 6). The approach is the user's, following investigate-mcp-evals' recommendation: keep `sik_llms` for the MCP connection, call the models through LiteLLM with the settings table, run all four models once (`gpt-4o-mini` and `claude-haiku-4-5` on the new path beside `gpt-6-luna` and `claude-haiku-5-5`), and report pooled pass rates with no pass bar. The deadline it meets is OpenAI's 2027-01-14 shutdown of `gpt-4o-mini`.
+13. **The tag-creation race the MCP eval run exposed is fixed in this PR** (milestone 7).
+14. **The eval helper gets no offline tests.** The user's words: "Evals will be ran and they will either pass or fail but it is not prod code."
 
 ### By the briefer
 
@@ -45,7 +47,7 @@ A decision by the user or the briefer is not changed without asking. New evidenc
 7. **Suggestion eval models: `gpt-5.4-nano` and `claude-haiku-4-5` as baselines, plus `gpt-6-luna` (effort none), `gemini-3.5-flash-lite`, and `claude-haiku-5-5` (thinking disabled). The judge stays `openai/gpt-5.4-mini`** so score changes come from the models. Run the five per-suite make targets separately (the Makefile comment at line 125 explains: one pytest process with this many calls exhausts file descriptors on macOS). Expected spend about $3 per full run (investigate-models' estimate from the April and May result files, repriced at current list prices).
 8. **The eval models get the same request settings as production.** The eval path must go through the settings table.
 9. **Eval gate: per suite, pool every sample across test cases; if `gpt-6-luna`'s pooled pass rate trails `gpt-5.4-nano`'s by more than 5 percentage points on any suite, the implementer stops and reports the numbers to the user before changing the platform default.** It does not tune prompts or pick another model on its own. The briefer set the 5-point margin after reviewer-opus showed that a per-test-case comparison is too noisy: the suites have 6 to 11 test cases, a case passes only at 8 of 10 samples, so two equally good models would differ on at least one suite about 73% of the time (binomial estimate). Pooling gives 60 to 110 samples per suite. The per-case table stays in the report.
-10. MCP tool evals: out of scope for this PR (user's item 12).
+10. MCP tool evals: in this PR, as milestone 6 (user's item 12).
 11. **The LLM smoke test (`backend/tests/integration/test_llm_smoke.py`) must pass for every model in the new allowlist.** It calls each at temperature 0, so it also proves the settings table.
 12. **Rewrite, don't delete, the two tests of the `o4-mini` temperature rule** so they test the settings table. Change the tests asserting seven allowlisted models only if the count changes (it does not: seven out, seven in).
 13. **Docs to update** are listed in milestone 5. The privacy policy needs no change because the default provider stays OpenAI.
@@ -121,7 +123,7 @@ Each claim says how it was checked. "Ran" means a command was run on 2026-10-19 
 - **Nothing in production code hardcodes model IDs outside the backend.** `grep` for the current IDs across `docs/*.md`, `README.md`, `frontend/src/content`, and `frontend/public` matches only `docs/architecture.md`. The frontend reads models from `/ai/models`. Frontend tests use fixture IDs.
 - **The BYOK model choice lives only in the browser** (`frontend/src/stores/aiStore.ts`, local storage key `ai-config`), and picking the default stores `null`, so only users who picked a non-default model hold an ID that can go stale (read by investigate-models).
 - **`sik_llms` 0.3.33 rejects the new model names before any request.** Ran `create_client(...)` offline for `gpt-6-luna` and `claude-haiku-5-5`: `ValueError: Model '...' is not supported.` Its OpenAI tool client drops temperature for models its table marks `supports_temperature=False` (`gpt-5.1`) and sends it otherwise (`gpt-4o-mini`); its Anthropic tool client sends the temperature regardless of that flag (investigate-mcp-evals patched a Haiku 5.5 entry marked `supports_temperature=False` into 0.3.33 offline, and the client still sent `temperature: 0.5`). PyPI's latest release is 0.3.33 (2026-02-23).
-- **`sik_llms` clients never see the settings table.** The MCP evals build their own clients in `evals/utils.py`, so nothing in this plan changes what they send (relevant to the MCP evals, user's item 12).
+- **`sik_llms` clients never see the settings table.** The MCP evals build their own clients in `evals/utils.py`, so the table alone doesn't change what they send. Milestone 6 replaces those clients with LiteLLM calls that use the table (user's item 12).
 
 ## Conventions every milestone follows
 
@@ -452,6 +454,71 @@ Rewrite each section as if fresh (current state, not history):
 - Each updated document reread cold once: no "no longer", "changed from", or "instead of".
 - The PR description follows the four headings in the technical-writing skill (Summary, Changes, Impact) and pastes the smoke-test lines, the verify summary, the eval table, and the total spend.
 
+## Milestone 6: MCP tool evals on current models
+
+### Goal and outcome
+
+The MCP tool evals (`evals/content_mcp/`, `evals/prompt_mcp/`) check whether an AI agent picks the right Tiddly MCP tool and fills in its arguments correctly. They ran on `gpt-4o-mini`, which OpenAI shuts down on 2027-01-14, and `claude-haiku-4-5`, calling both through the `sik_llms` library, which rejects the new model names before sending anything (appendix B). After this milestone they run on `openai/gpt-6-luna` and `anthropic/claude-haiku-5-5`, each with its settings-table entry, as the user decided (item 12).
+
+### Implementation
+
+- `get_tool_predictions` in `evals/utils.py` calls LiteLLM with a forced tool call and the model's settings-table entry at the configured temperature (0.5, which the table omits for Haiku 5.5). It returns the result shape the checks and the eval viewer read, plus `request_settings`. `MCPClientManager` from `sik_llms` still provides the MCP connection and tool list, and the four configs use provider-prefixed IDs.
+- Checked offline against both MCP servers' real tool lists, the new path sends the same tool schemas (key order included), temperature, forced tool choice, and Anthropic `max_tokens` (8,000) as the old `sik_llms` path. The old OpenAI client also sent `store=False`, which the new path omits.
+- Retries are the helper's own: up to 3 attempts of 60 s on rate limits, server errors, timeouts, and connection failures, because LiteLLM 1.106.0 never retries Anthropic calls. The counts measured against a fake provider are in the code comment. The MCP eval tests' pytest timeout is 300 s, which covers one call that uses all three attempts.
+- A model LiteLLM has no price for records null costs and keeps its prediction. From 2026-10-20 on, `usage.input_tokens` and `usage.input_cost` include cached prompt tokens; `evals/README.md` explains the boundary.
+- Facts for whoever changes these evals next:
+  - Luna needs reasoning effort `none` for tool calls here, which the table supplies (OpenAI's gpt-6-luna page also requires it for tool calls through Chat Completions).
+  - Whether GPT-6 Sol and Astra support tool calls through Chat Completions is unverified. OpenAI's model pages say no; LiteLLM 1.106.0's bundled price list marks both `supports_function_calling: true` and `supports_tool_choice: true` with `/v1/chat/completions` supported. On 1.106.0 they can't run in these evals anyway (see "Known limitations").
+  - LiteLLM 1.83.0 refuses `reasoning_effort` for Luna and `thinking` for Haiku 5.5, and has no price for either.
+
+### Results (2026-10-20)
+
+One run of four models, with `gpt-4o-mini` and `claude-haiku-4-5` on the new path beside the two new models, so the change of code path shows separately from the change of model. It cost $1.66 at LiteLLM's prices. The result files are the `2026-10-20` ones in `evals/content_mcp/results/` and `evals/prompt_mcp/results/`; the old pair then left the configs.
+
+Pooled pass rate is passed samples over all samples. A test case passes at 6 of its 10 samples (these configs' threshold). Mean cost per call: the April column's comes from `sik_llms`' own price table, this run's from LiteLLM's.
+
+| Suite | Model | April 2026 (`sik_llms`) | This run (LiteLLM) | Cases passing, April / this run | Mean cost per call, April / this run |
+|---|---|---|---|---|---|
+| edit_content | claude-haiku-4-5 | 100.0% (80/80) | 100.0% (80/80) | 8/8, 8/8 | $0.004660, $0.004688 |
+| edit_content | gpt-4o-mini | 100.0% (80/80) | 100.0% (80/80) | 8/8, 8/8 | $0.000284, $0.000276 |
+| edit_content | gpt-6-luna | | 98.8% (79/80) | 8/8 | $0.000113 |
+| edit_content | claude-haiku-5-5 | | 100.0% (80/80) | 8/8 | $0.000560 |
+| update_item | claude-haiku-4-5 | 96.7% (58/60) | 96.7% (58/60) | 6/6, 6/6 | $0.005573, $0.005625 |
+| update_item | gpt-4o-mini | 96.7% (58/60) | 96.7% (58/60) | 6/6, 6/6 | $0.000413, $0.000404 |
+| update_item | gpt-6-luna | | 93.3% (56/60) | 6/6 | $0.000206 |
+| update_item | claude-haiku-5-5 | | 86.7% (52/60) | 5/6 | $0.000717 |
+| edit_prompt_content | claude-haiku-4-5 | 95.0% (57/60) | 98.3% (59/60) | 6/6, 6/6 | $0.004419, $0.004558 |
+| edit_prompt_content | gpt-4o-mini | 90.0% (54/60) | 85.0% (51/60) | 5/6, 5/6 | $0.000251, $0.000265 |
+| edit_prompt_content | gpt-6-luna | | 80.0% (48/60) | 5/6 | $0.000104 |
+| edit_prompt_content | claude-haiku-5-5 | | 90.0% (54/60) | 5/6 | $0.000546 |
+| update_prompt | claude-haiku-4-5 | 98.8% (79/80) | 100.0% (80/80) | 8/8, 8/8 | $0.004674, $0.004830 |
+| update_prompt | gpt-4o-mini | 81.2% (65/80) | 77.5% (62/80) | 7/8, 7/8 | $0.000305, $0.000321 |
+| update_prompt | gpt-6-luna | | 95.0% (76/80) | 8/8 | $0.000141 |
+| update_prompt | claude-haiku-5-5 | | 98.8% (79/80) | 8/8 | $0.000599 |
+
+- On every suite, the old pair's pooled pass count on the new path was within three samples of its April result. `gpt-4o-mini` fell short on the same cases as in April (`simple-edit-no-arg-change`, `rewrite-keep-variables`).
+- The prompt suites' comparison with April also spans commit 97f239b, which lengthened the prompt server's `search_prompts` description after April; Haiku 4.5's prompts there are about 155 tokens longer.
+- Two samples errored, and both count as failures. One Luna sample (edit_content) lost its MCP connection before any model call. One Haiku 4.5 sample (update_item) got an API 500 because parallel samples created the same new tag at once; milestone 7 fixes that.
+
+## Milestone 7: tag-creation race found by the MCP eval run
+
+**What users saw.** When two requests from the same user added the same new tag at the same time, one of them failed with a 500. This covers creating or editing bookmarks, notes, and prompts, and saving filters, since all of them get their tags from `get_or_create_tags` in `services/tag_service.py`. The MCP eval run hit it when parallel samples created notes with the same new tag; AI agents making parallel tool calls are the users most likely to.
+
+**Cause.** `get_or_create_tags` looked the tags up, then inserted the missing ones. A request's work commits only when the request ends, so the second request's lookup missed the first request's new tag. Its insert then waited on the first request's transaction and, once that committed, failed on the unique constraint `uq_tags_user_id_name`. Nothing catches that `IntegrityError`, so the API answered 500.
+
+**Fix.** Missing tags are inserted with `INSERT ... ON CONFLICT DO NOTHING` on `(user_id, name)`, then looked up again. Both requests succeed and share one row. Per-user scoping is unchanged: the conflict target and every lookup are keyed by `user_id`.
+- **New tags keep the order the user gave.** That is the order a new item shows them in, but only as observed. The tag relationships have no `ORDER BY`, so the order comes from Postgres's query plan: physical row order on small tables, tag-ID order on large analyzed ones. The two agree because IDs are generated in insert order.
+- **One deadlock case remains.** Two requests that each create two or more of the same new tags, in opposite orders, can deadlock. Postgres then cancels one of them after about a second, and that request fails; a retry works. This case existed before the fix.
+- **No lock, by decision.** A per-user advisory lock would close that case. It was tried and dropped. It serialized one user's saves that add new tags, which are exactly the parallel agent saves this fix is for. It also needed every save to call the tag helper before writing anything, or it caused a new deadlock between two edits of the same item, and nothing enforces that rule.
+
+**Test.** `backend/tests/services/test_tag_creation_concurrency.py` forces each interleaving on the real test database with independent transactions. It waits until Postgres reports the second transaction blocked, or finished, before the first goes on. Its four tests cover:
+- the same new tag created concurrently
+- the first creator rolling back
+- two users not blocking each other
+- two concurrent edits of one note adding different new tags
+
+On the code before the fix, the same-tag test failed with `IntegrityError` on `uq_tags_user_id_name`. With the fix, all four pass. The changelog's October 2026 entry records the fix.
+
 ## After deploy
 
 One read-only check in production, because every other check in this plan runs locally and the PR's main goal (platform suggestions off `gpt-5.4-nano`) would fail silently if a Railway variable overrode the new default: open Settings AI with no key entered and confirm the Suggestions row shows `openai/gpt-6-luna` as the default (the page shows `defaults.suggestions` from the live `/ai/models` response). In the same response (the browser's network tab on that page), confirm all four defaults match the code: suggestions `openai/gpt-6-luna`, transform and auto-complete `gemini/gemini-3.5-flash-lite`, chat `openai/gpt-6.1-sol` (briefer's item 28; this also shows whether the other three `LLM_MODEL_*` values on the api service differ from the code default, which nobody had checked). Then make one real tag suggestion and confirm it returns. Paste the observations in the PR after the deploy. If any default differs, the matching `LLM_MODEL_*` variable is set on the api service; report it, don't change it.
@@ -484,7 +551,7 @@ Recorded, not fixed, in this PR:
 - `README_DEPLOY.md` states the `LLM_MODEL_*` rule, not Railway's current state. The user saw no `LLM_MODEL_SUGGESTIONS` on the api service; the other three names were not reported, and none of the three is wired to a feature yet. The "After deploy" check covers the one that matters.
 - LiteLLM 1.106.0 is adopted one day after release, and releases since 1.84.0 carry no PyPI provenance record (1.83.x did). The user accepted this.
 - LiteLLM downloads two files from its GitHub `main` branch at runtime, by the user's decision (item 9): the price list at import (and again in a background thread if the first fetch fails with a retryable error, swapping the list into the running process on success), and the Anthropic beta-header file at the first Claude request. Both can change request behavior, not only prices: whether a temperature is sent, which structured-output mode Claude gets, and which `anthropic-beta` header goes out. So a change merged to LiteLLM's repository can change what production sends at the next restart or mid-process, with no deploy on our side (demonstrated with a locally edited copy of the price list, see "What is true today"). Startup can also stall on a slow GitHub response: in testing, a host answering one byte every 4 seconds blocked `import litellm` past 75 seconds, and an unreachable host cost 6 seconds. The fix, if it ever bites: set `LITELLM_LOCAL_MODEL_COST_MAP=True` and `LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS=True` (then prices freeze at the pinned LiteLLM, and a model newer than the pin needs a LiteLLM bump or a `litellm.register_model` entry).
-- The MCP tool evals (`evals/content_mcp`, `evals/prompt_mcp`) stay on `gpt-4o-mini` and `claude-haiku-4-5` in this PR (user's item 12). They call models through the `sik_llms` library, version 0.3.33 (installed, and the latest on PyPI, 2026-02-23), whose hardcoded model tables end at `gpt-5.2`/`o4-mini` and `claude-opus-4-6`/`claude-haiku-4-5`: its tool-calling clients raise `ValueError: Model '...' is not supported.` for `gpt-6-luna` and `claude-haiku-5-5` before any request, and its Anthropic tool client sends the YAML temperature regardless of its table's flag, which Haiku 5.5 rejects (appendix B). **Decided follow-up (the user):** a separate PR off `main`, after this refresh merges and before 2027-01-14. `get_tool_predictions` in `evals/utils.py` calls LiteLLM, using this plan's settings helper and keeping the same return shape; `MCPClientManager` from `sik_llms` stays for the MCP connection and tool list; the four YAML configs get provider-prefixed IDs. The first run covers four models, `gpt-4o-mini` and `claude-haiku-4-5` through the new path plus `gpt-6-luna` and `claude-haiku-5-5`, so the measuring-code change is separated from the model change; then the old two come out of the configs. No pass bar: report the pooled pass rate per suite and model beside the April 2026 baseline. Facts it depends on: it needs LiteLLM 1.106.0 and the settings table (1.83.0 refuses `reasoning_effort` for Luna and `thinking` for Haiku 5.5, and has no price for either); Luna needs reasoning effort `none` for tool calls through Chat Completions (OpenAI's gpt-6-luna page), which the table supplies; GPT-6 Sol and Astra are not in the follow-up's model list, and whether they support Chat Completions tool calls is unverified (OpenAI's model pages say no; LiteLLM 1.106.0's bundled price list marks both `supports_function_calling: true` and `supports_tool_choice: true` with `/v1/chat/completions` supported); the evals need the API on port 8000 and the MCP servers on 8001 and 8002; a four-model run costs about $1.60 (investigate-mcp-evals' estimate).
+- The MCP tool evals rely on two private library features (milestone 6). `get_tool_predictions` in `evals/utils.py` passes LiteLLM's private `_skip_mcp_handler` flag on every call, because LiteLLM 1.106.0 imports code needing `mcp>=2.2` on any call with tools, and fastmcp 3.2.4 pins `mcp<2`. Remove the flag once a LiteLLM release contains LiteLLM PR #45961 (merged 2026-10-20), which stops those calls from importing that code. Until then, GPT-6 Sol and Astra can't run in these evals: the flag doesn't cover calls LiteLLM sends to OpenAI's Responses API, and on 1.106.0 any GPT-6 tool call with reasoning effort above `none` goes there and fails on the same import (verified offline). The tool conversion uses private `sik_llms` functions, so `sik-llms` is pinned at 0.3.33.
 
 ## Appendix A: verified request settings, LiteLLM 1.106.0, bundled price list
 
@@ -526,4 +593,4 @@ ANTHROPIC_TOOLS  claude-haiku-4-5   -> client built; request params sent: {'temp
 ANTHROPIC_TOOLS  claude-haiku-5-5   -> ValueError: Model 'claude-haiku-5-5' is not supported.
 ```
 
-The OpenAI rows show the table's `supports_temperature` flag at work (`gpt-5.1` drops the temperature). The Anthropic tool client does not consult that flag: with a Haiku 5.5 entry marked `supports_temperature=False` patched into 0.3.33, it still sent `{'temperature': 0.5, 'max_tokens': 8000, 'tool_choice': {'type': 'any'}}` (investigate-mcp-evals, offline). So for Anthropic the unknown name is not the only blocker; the temperature would be rejected as well. The follow-up under known limitations replaces this call path with LiteLLM and keeps `sik_llms` only for the MCP connection.
+The OpenAI rows show the table's `supports_temperature` flag at work (`gpt-5.1` drops the temperature). The Anthropic tool client does not consult that flag: with a Haiku 5.5 entry marked `supports_temperature=False` patched into 0.3.33, it still sent `{'temperature': 0.5, 'max_tokens': 8000, 'tool_choice': {'type': 'any'}}` (investigate-mcp-evals, offline). So for Anthropic the unknown name is not the only blocker; the temperature would be rejected as well. Milestone 6 replaces this call path with LiteLLM and keeps `sik_llms` only for the MCP connection.
