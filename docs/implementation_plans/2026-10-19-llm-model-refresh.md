@@ -243,7 +243,7 @@ Measure whether the new budget models suggest as well as the ones they replace, 
 
 **Configs.** In each `evals/ai_suggestions/config_suggest_*.yaml`, the `models:` list becomes the five models above. `gemini/gemini-flash-lite-latest` is replaced by the pinned ID (same model today). `judge_model` stays `openai/gpt-5.4-mini`. The judge in `helpers.py` calls `acompletion` directly at temperature 0. Route that call through `model_request_settings(judge_model, 0)`, so a future judge on a GPT-6 or Claude 5.5 model gets its table entry instead of a temperature it rejects (decided by the briefer in the milestone 2 review, on reviewer-sonnet's finding). For `gpt-5.4-mini` it sends exactly `temperature=0`, as today. Then trim the helper docstring's warning about the judge, which this makes unnecessary.
 
-**Settings pass-through.** The five suites call the service functions (`suggest_tags` and friends), which call `complete()`, so the table applies with no wiring. What needs changing is the recorded output: each suite's test returns `"temperature": temperature` taken from the YAML. Replace it with what the settings helper produces for the model: keep the `temperature` key (the number, or `null` when omitted; the viewer tolerates null) and add a `request_settings` dict with the full kwargs. This record is derived by calling the helper from the test, because `suggest_*` returns only the result and the cost; it documents the run but cannot detect a bypassed table. The check that can is cost per call (next paragraph). The YAML `temperature` field becomes the requested value only.
+**Settings pass-through.** The five suites call the service functions (`suggest_tags` and friends), which call `complete()`, so the table applies with no wiring. What needs changing is the recorded output: each suite's test returns `"temperature": temperature` taken from the YAML. Replace it with what the settings helper produces for the model: keep the `temperature` key (the number, or `null` when omitted; the viewer tolerates null) and add a `request_settings` dict with the full kwargs. This record is derived by calling the helper from the test, because `suggest_*` returns only the result and the cost; it documents the run but cannot detect a bypassed table. The check that can is cost per call (next paragraph). After the milestone 3 review the YAML `temperature` field was removed: the default temperature is one constant, `DEFAULT_TEMPERATURE` in `llm_service.py`, which `complete()` and `stream()` use and the record reads, so the record cannot disagree with what was sent.
 
 **Bypass check.** From appendix A, Luna costs about $0.000071 per tag-suggestion call at effort `none` and about $0.0001 when it reasons; Haiku 5.5 costs about $0.00013 with thinking off and $0.00021 to $0.00023 with it on. After the first suite, compute each model's mean cost per call from the result file. A Luna mean near $0.0001 or a Haiku 5.5 mean near $0.0002 means reasoning was on and the table was bypassed; stop and find out why before running the other suites. (The tag prompt is the appendix's reference; other suites have different prompt sizes, so compare each model's mean against the pattern, not the exact number.)
 
@@ -272,7 +272,7 @@ Measure whether the new budget models suggest as well as the ones they replace, 
 | Prompt arguments | −3.3 (57/60 vs 59/60) |
 | Prompt argument fields | +2.5 (80/80 vs 78/80) |
 
-Per suite and model, from the result files. Pooled pass rate is passed samples over all samples; a test case passes at 8 of 10 samples; latency is per suggestion call; cost is LiteLLM's per call.
+Per suite and model, from the result files. Pooled pass rate is passed samples over all samples; a test case passes at 8 of 10 samples; latency is per suggestion call, and p95 is nearest-rank, which hides up to three slow calls in 60 (the slow calls are listed under "Stalls" below); cost is LiteLLM's per call.
 
 | Suite | Model | Pooled pass rate | Cases passing | p95 latency | Mean cost per call |
 |---|---|---|---|---|---|
@@ -302,21 +302,34 @@ Per suite and model, from the result files. Pooled pass rate is passed samples o
 | Prompt argument fields | gemini-3.5-flash-lite | 100.0% (80/80) | 8/8 | 0.93 s | $0.000142 |
 | Prompt argument fields | claude-haiku-5-5 | 100.0% (80/80) | 8/8 | 2.12 s | $0.000085 |
 
-**Bypass check: passed on every suite.** On the tag prompt, Luna's mean cost per call is $0.000065 (appendix A: $0.000071 at effort `none`, about $0.0001 when it reasons) and Haiku 5.5's is $0.000116 (appendix A: $0.00013 with thinking off, $0.00021 to $0.00023 with it on). On the other suites, which have no appendix reference, the ratios held: Haiku 5.5 to Haiku 4.5 stays at 0.13 to 0.14 on every suite, and Luna to nano is 0.36 to 0.47; reasoning switched on would raise the candidate's cost against its baseline, not lower it. Every result records the settings the table sends: temperature 0.7 for nano, Haiku 4.5, and Luna (Luna with `reasoning_effort: none`), `null` for Gemini and for Haiku 5.5 (with `thinking: disabled`).
+**Bypass check: passed; no Luna or Haiku 5.5 call reasoned.** On the first tag case (`python-flask-tutorial`, the one appendix A measured), Luna cost $0.000071 on all 10 calls (appendix A: $0.000071 at effort `none`, $0.000092 to $0.00011 when it reasons) and Haiku 5.5 cost $0.000128 to $0.000131 (appendix A: $0.00013 with thinking off, $0.00021 to $0.00023 with it on). Across all 44 test cases, no Luna call cost more than 1.08 times its case's median and no Haiku 5.5 call more than 1.12 times; in appendix A, reasoning added 30 to 77%. Two price checks agree. Luna's mean cost per test case against nano's is 0.31 to 0.50, and list prices ($0.10 / $0.50 per million against $0.20 / $1.25) put that ratio between 0.4 and 0.5 when both use the same tokens, so Luna used about the same as or fewer tokens than nano, which does not reason. Haiku 5.5's against Haiku 4.5's is 0.121 to 0.145, where appendix A's thinking-on cost would put it at 0.22 to 0.24 on the first tag case. Every result records the settings the table sends: temperature 0.7 for nano, Haiku 4.5, and Luna (Luna with `reasoning_effort: none`), `null` for Gemini and for Haiku 5.5 (with `thinking: disabled`).
 
-**For information.** Haiku 5.5 against Haiku 4.5: +1.8 points on tags, equal on the other four suites, at about 13% of the cost per call. The pinned Gemini 3.5 Flash-Lite against the alias `gemini-flash-lite-latest` in the most recent earlier runs (May 2026 where one exists, otherwise April 2026):
+**Stalls: four calls took about 61 s in the eval run; in a 40-call sequential check at production settings, Luna did not stall.** Found in the milestone 3 review. All four were in prompt arguments: nano once and Luna twice on `objective-jinja-conditional` (a template with a Jinja `if` block), and Luna once on `generate-all-mixed-short-and-long`. No other call in the run took over 15 s. They fit a first attempt hitting the eval's 60 s limit and a retry succeeding (inferred; the files do not record retries), and all four passed their checks, so the gate counts them as passes. In production (15 s limit, no retries) each would have been a timeout; counted as failures, prompt arguments would be Luna 54/60 (90.0%) against nano 58/60 (96.7%), 6.7 points behind. Nano also stalled on `objective-jinja-conditional` in the 2026-05-14 run (61.7 s).
 
-| Suite | Pinned 3.5 Flash-Lite (this run) | Earlier alias run | p95 latency, this run vs earlier |
-|---|---|---|---|
-| Tags | 99.1% (109/110) | 90.9% (100/110), 2026-04-18 | 0.87 s vs 13.48 s |
-| Metadata | 100.0% (110/110) | 98.2% (108/110), 2026-05-14 | 0.89 s vs 15.04 s |
-| Relationships | 100.0% (80/80) | 100.0% (80/80), 2026-04-18 | 1.01 s vs 16.64 s |
-| Prompt arguments | 100.0% (60/60) | 95.0% (57/60), 2026-05-14 | 1.18 s vs 24.30 s |
-| Prompt argument fields | 100.0% (80/80) | 98.8% (79/80), 2026-05-14 | 0.93 s vs 50.49 s |
+A follow-up check on 2026-10-20 ($0.012) called the backend's `suggest_prompt_arguments` at production settings (its defaults: 15 s limit, no retries), 20 times per model on each of the two cases, one call at a time, alternating the two models:
 
-The earlier runs' p95 latencies (13 to 50 s) are far above this run's; why was not investigated.
+| Test case | Model | Calls | Timed out | Latency of completed calls: min / median / p90 / max |
+|---|---|---|---|---|
+| `objective-jinja-conditional` | gpt-6-luna | 20 | 0 | 1.00 / 1.44 / 1.72 / 2.18 s |
+| `objective-jinja-conditional` | gpt-5.4-nano | 20 | 1 | 0.89 / 1.00 / 1.60 / 8.65 s |
+| `generate-all-mixed-short-and-long` | gpt-6-luna | 20 | 0 | 1.21 / 1.52 / 1.67 / 1.75 s |
+| `generate-all-mixed-short-and-long` | gpt-5.4-nano | 20 | 0 | 0.86 / 1.09 / 1.36 / 1.44 s |
 
-**Spend: $2.52 for the run.** Suggestion calls $0.673 (summed from `usage.total_cost`); judge $1.851, computed from its token counts (1,341,552 input and 187,756 output) at `gpt-5.4-mini`'s $0.75 / $4.50 per million. By suite, suggestion calls plus judge: tags $0.153 + $0.720; metadata $0.139 + $0.311; relationships $0.168 + $0.388; prompt arguments $0.129 + $0.172; prompt argument fields $0.084 + $0.261.
+Luna did not time out (0 of 40); nano timed out once (1 of 40). The eval run's stalls did not reproduce for Luna one call at a time. Nano's one slow completed call (8.65 s) cost about 9.5 times its case's median, which points to a runaway long answer from the model rather than a provider stall (observation by reviewer-opus, confirmed from the check's data); so the slow calls are not evidence that concurrency causes stalls, and a concurrency test is not the obvious next step. **Decision (the briefer):** the platform default stays `openai/gpt-6-luna`, based on this check.
+
+**For information.** Haiku 5.5 against Haiku 4.5: +1.8 points on tags, equal on the other four suites, at about 13% of the cost per call. The pinned Gemini 3.5 Flash-Lite against the alias `gemini-flash-lite-latest` in the most recent earlier runs (May 2026 where one exists, otherwise April 2026; both April tags runs shown):
+
+| Suite | Pinned 3.5 Flash-Lite (this run) | Earlier alias run | Earlier calls that errored | Earlier calls over 15 s | p95 latency, this run vs earlier |
+|---|---|---|---|---|---|
+| Tags | 109/110 | 110/110 (2026-04-12); 100/110 (2026-04-18) | 0; 0 | 0; 4 | 0.87 s vs 2.54 s; 13.48 s |
+| Metadata | 110/110 | 108/110 (2026-05-14) | 2 | 6 | 0.89 s vs 15.04 s |
+| Relationships | 80/80 | 80/80 (2026-04-18) | 0 | 6 | 1.01 s vs 16.64 s |
+| Prompt arguments | 60/60 | 57/60 (2026-05-14) | 3 | 7 | 1.18 s vs 24.30 s |
+| Prompt argument fields | 80/80 | 79/80 (2026-05-14) | 1 | 22 | 0.93 s vs 50.49 s |
+
+This is not a like-for-like quality comparison. In the May runs, every shortfall is a call that errored and produced no output (so all its checks failed), not a wrong answer. The only quality shortfall is tags on 2026-04-18, and the same alias scored 110/110 six days earlier. Most earlier runs' p95 is above 15 s because of calls over 15 s, which a user would have seen as timeouts; the 2026-04-18 tags run had 4 of 110 calls over 15 s, with a p95 of 13.48 s. Which model the alias served then is unknown: the result files do not record it, and `evals/LEARNINGS.md` names `gemini-2.5-flash-lite` as the budget model in its April entries, so probably an older model (inference). What the table does show is that the pinned model answered every call this run, under 1.2 s at p95.
+
+**Spend: $2.52 for the run.** Suggestion calls $0.673 (summed from `usage.total_cost`); judge $1.851, computed from its token counts (1,341,552 input and 187,756 output) at `gpt-5.4-mini`'s $0.75 / $4.50 per million. By suite, suggestion calls plus judge: tags $0.153 + $0.720; metadata $0.139 + $0.311; relationships $0.168 + $0.387; prompt arguments $0.129 + $0.172; prompt argument fields $0.084 + $0.261.
 
 Four pytest tests reported failure because a test case fell below its 8-of-10 threshold, not because of errors. On tags, case `idiosyncratic-vocabulary` failed for nano, Haiku 4.5, and Luna (the `disjoint` check: a tag the case excludes was suggested), and case `title-only` also failed for nano (the judge check). On relationships, case `description-only-source` failed for nano (the `subset` check). Every result file has zero errored results and a cost for every sample.
 
@@ -369,7 +382,7 @@ Tests to write:
 Checks on the real thing:
 
 - Add a second parametrized case to `test_llm_smoke.py` that makes exactly the key check's call for every allowlisted model: `complete()` with `max_tokens=5`, temperature 0, no `response_format`, asserting only that no exception is raised (the endpoint treats anything but an authentication error as a valid key, and an empty 5-token reply is fine). reviewer-opus guesses that a 5-token cap with reasoning on (Sol, Astra at effort `low`) returns empty content; the case records what came back. Cost: well under a cent for all seven.
-- `PYTHONPATH=backend/src uv run --env-file .env pytest backend/tests/integration/test_llm_smoke.py -v`: fourteen PASSED lines, seven structured-output and seven key-check, naming the seven new IDs. Paste them. This is the proof for briefer's items 11 and 18 and for the one untested Luna combination.
+- `PYTHONPATH=backend/src uv run --env-file .env pytest backend/tests/integration/test_llm_smoke.py -v`: fourteen PASSED lines, seven structured-output and seven key-check, naming the seven new IDs. Paste them. This is the proof for briefer's items 11 and 18, and it runs Luna at temperature 0 with effort `none` on the allowlist (the milestone 2 review round ran that combination once, with Luna temporarily allowlisted).
 - `make backend-verify` green.
 - With the API running in dev mode: `GET /ai/models` lists the seven IDs with nonzero prices and the four new defaults. Then one real `POST /ai/suggest-tags` on the platform path: parsed tags back, a `cost_tracking` log line, and a new `ai_stats:*` hash in Redis (`redis-cli KEYS 'ai_stats:*'`).
 - One real BYOK request with a retired ID and a real key (`X-LLM-Api-Key` plus `{"model": "openai/gpt-5.4-nano"}`): a 200, and in the API's stdout (not pytest's capture) the line `byok_model_remapped from=openai/gpt-5.4-nano to=openai/gpt-6-luna use_case=suggestions` with both IDs present.

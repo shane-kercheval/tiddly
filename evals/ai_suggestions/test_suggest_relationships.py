@@ -157,10 +157,6 @@ async def test_suggest_relationships(
     Global checks verify candidate count bounds and semantic relevance (judge).
     """
     config = create_eval_config(_llm_service, model_config["name"])
-    # The temperature LLMService is asked for (its default; the service layer sets it
-    # internally). What is actually sent comes from the settings table and is recorded
-    # below by request_settings_record.
-    temperature = model_config.get("temperature", 0.7)
     input_data = test_case.input
 
     # Build candidates from YAML (KeyError on missing key — fail fast on typos)
@@ -195,7 +191,7 @@ async def test_suggest_relationships(
         "candidate_count": len(candidate_ids),
         "all_candidate_summaries": candidate_summaries,
         "model_name": config.model,
-        **request_settings_record(config.model, temperature),
+        **request_settings_record(config.model),
         "usage": {
             "total_cost": cost,
         },

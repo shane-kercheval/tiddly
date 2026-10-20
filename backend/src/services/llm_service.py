@@ -168,6 +168,12 @@ def _resolve_platform_key(model: str, settings: Settings) -> str:
     raise ValueError(f"Unknown model prefix: {model}. Add mapping to _PROVIDER_KEY_MAP.")
 
 
+# The temperature `complete()` and `stream()` use when the caller passes none.
+# The suggestion endpoints rely on it, and the suggestion evals record it, through
+# `model_request_settings`, as the temperature sent.
+DEFAULT_TEMPERATURE: float = 0.7
+
+
 # ---------------------------------------------------------------------------
 # Per-model request settings
 # ---------------------------------------------------------------------------
@@ -349,7 +355,7 @@ class LLMService:
         messages: list[dict],
         config: LLMConfig,
         response_format: type[BaseModel] | None = None,
-        temperature: float = 0.7,
+        temperature: float = DEFAULT_TEMPERATURE,
         max_tokens: int | None = None,
         timeout: int | None = None,
         num_retries: int | None = None,
@@ -404,7 +410,7 @@ class LLMService:
         self,
         messages: list[dict],
         config: LLMConfig,
-        temperature: float = 0.7,
+        temperature: float = DEFAULT_TEMPERATURE,
     ) -> AsyncIterator:
         """Streaming completion. Returns an async iterator of chunks."""
         return await acompletion(

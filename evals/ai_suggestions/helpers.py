@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from core.config import Settings
 from services.llm_service import (
+    DEFAULT_TEMPERATURE,
     KeySource,
     LLMConfig,
     LLMService,
@@ -46,17 +47,20 @@ def create_eval_config(llm_service: LLMService, model_name: str) -> LLMConfig:
     )
 
 
-def request_settings_record(model_name: str, temperature: float) -> dict[str, Any]:
+def request_settings_record(model_name: str) -> dict[str, Any]:
     """
-    Return the per-model request settings for a model, for a suite's result output.
+    Return the per-model settings `LLMService.complete()` sends for a model, for a result file.
 
-    `temperature` is the sent value, or None when the settings table omits it;
-    `request_settings` is everything the table adds. Derived by calling the same
-    helper `LLMService.complete()` calls, because `suggest_*` returns only the
-    result and the cost. So it documents the run but cannot detect a bypassed
-    table: a model's mean cost per call is the check for that.
+    The `suggest_*` functions never pass a temperature, so `complete()` uses
+    `DEFAULT_TEMPERATURE`; this applies the same table helper to that same value.
+    `temperature` is the temperature sent, or None when the table omits it.
+    `request_settings` is the full set of per-model settings, the temperature
+    included when it is sent. The record is derived, not captured, because
+    `suggest_*` returns only the result and the cost: it documents the run but
+    cannot detect a bypassed table (a model's mean cost per call is the check
+    for that).
     """
-    settings = model_request_settings(model_name, temperature)
+    settings = model_request_settings(model_name, DEFAULT_TEMPERATURE)
     return {"temperature": settings.get("temperature"), "request_settings": settings}
 
 
@@ -69,7 +73,8 @@ def create_judge_llm_function(
     Returns an async callable with signature (prompt, response_format) -> (parsed, metadata)
     as required by LLMJudgeCheck. The judge calls `acompletion` directly but takes its
     per-model settings from the same table as the service, so moving it to a model that
-    rejects temperature 0 (GPT-6, Claude 5.5) needs only a YAML change.
+    rejects temperature 0 (GPT-6, Claude 5.5) needs only a YAML change once that model has a
+    settings-table entry.
     """
 
     async def judge_llm_function(

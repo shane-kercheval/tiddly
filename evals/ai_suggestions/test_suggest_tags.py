@@ -172,10 +172,6 @@ async def test_suggest_tags(
     relevance (LLM judge).
     """
     config = create_eval_config(_llm_service, model_config["name"])
-    # The temperature LLMService is asked for (its default; the service layer sets it
-    # internally). What is actually sent comes from the settings table and is recorded
-    # below by request_settings_record.
-    temperature = model_config.get("temperature", 0.7)
     input_data = test_case.input
 
     # Allow per-test-case vocabulary overrides (e.g., replace "javascript" with "js")
@@ -210,7 +206,7 @@ async def test_suggest_tags(
         "tag_count": len(tags),
         "vocabulary_names": [v.name for v in vocab],
         "model_name": config.model,
-        **request_settings_record(config.model, temperature),
+        **request_settings_record(config.model),
         "usage": {
             "total_cost": cost,
         },

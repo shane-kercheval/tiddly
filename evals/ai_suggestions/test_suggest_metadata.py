@@ -115,10 +115,6 @@ async def test_suggest_metadata(
     present, unrequested null, title length). Global judge verifies quality.
     """
     config = create_eval_config(_llm_service, model_config["name"])
-    # The temperature LLMService is asked for (its default; the service layer sets it
-    # internally). What is actually sent comes from the settings table and is recorded
-    # below by request_settings_record.
-    temperature = model_config.get("temperature", 0.7)
     input_data = test_case.input
 
     result, cost = await suggest_metadata(
@@ -141,7 +137,7 @@ async def test_suggest_metadata(
         "title_length": len(result.title) if result.title else 0,
         "name_length": len(result.name) if result.name else 0,
         "model_name": config.model,
-        **request_settings_record(config.model, temperature),
+        **request_settings_record(config.model),
         "usage": {
             "total_cost": cost,
         },

@@ -116,10 +116,6 @@ async def test_suggest_prompt_arguments(
     Global judge verifies description quality.
     """
     config = create_eval_config(_llm_service, model_config["name"])
-    # The temperature LLMService is asked for (its default; the service layer sets it
-    # internally). What is actually sent comes from the settings table and is recorded
-    # below by request_settings_record.
-    temperature = model_config.get("temperature", 0.7)
     input_data = test_case.input
 
     existing_args = [ArgumentInput(**a) for a in input_data.get("arguments", [])]
@@ -161,7 +157,7 @@ async def test_suggest_prompt_arguments(
         "argument_descriptions_joined": argument_descriptions_joined,
         "existing_arguments_detail": existing_arguments_detail,
         "model_name": config.model,
-        **request_settings_record(config.model, temperature),
+        **request_settings_record(config.model),
         "usage": {
             "total_cost": cost,
         },
