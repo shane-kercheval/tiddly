@@ -1,4 +1,5 @@
 """LLM service wrapping LiteLLM for AI features."""
+import copy
 import json
 import logging
 import re
@@ -168,22 +169,70 @@ def _resolve_platform_key(model: str, settings: Settings) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Response normalization
+# Per-model request settings
 # ---------------------------------------------------------------------------
-
-# Models that only support temperature=1. Hardcoded — no pattern matching.
-# The smoke test (test_llm_smoke.py) uses temperature=0 for all models,
-# so adding a new model that requires temperature=1 will be caught immediately.
-_TEMPERATURE_1_ONLY_MODELS: set[str] = {
-    "openai/o4-mini",
+# What each model must be sent besides the prompt, keyed by provider-prefixed
+# model ID. `omit_temperature: True` means the caller's temperature is not sent;
+# every other key is passed to `acompletion` unchanged. A model with no entry
+# gets the caller's temperature and nothing else.
+#
+# Every allowlisted model and every `llm_model_*` default needs an entry, and
+# test_llm_service.py enforces that offline (CI has no provider keys, so it skips
+# the live smoke test). An empty entry `{}` means "verified to accept the
+# caller's temperature". Every entry is verified by the smoke test
+# (test_llm_smoke.py), which calls each allowlisted model at temperature 0.
+#
+# Why a table and not LiteLLM's `drop_params`: `drop_params` can only remove
+# parameters, and it decides from flags in LiteLLM's downloaded price list
+# rather than from reviewed code. On LiteLLM 1.106.0 it silently turned
+# reasoning on for gpt-6-luna and claude-haiku-5-5 (slower, more tokens),
+# because removing their temperature without setting an effort leaves the
+# model's default reasoning on.
+_MODEL_REQUEST_SETTINGS: dict[str, dict] = {
+    # Today's allowlist and defaults: verified to accept the caller's temperature.
+    "gemini/gemini-flash-lite-latest": {},
+    "openai/gpt-5.4-nano": {},
+    "openai/gpt-5.4-mini": {},
+    "openai/gpt-5.4": {},
+    "anthropic/claude-haiku-4-5": {},
+    "anthropic/claude-sonnet-4-6": {},
+    "anthropic/claude-opus-4-6": {},
+    # Temperature is accepted only when reasoning effort is "none".
+    "openai/gpt-6-luna": {"reasoning_effort": "none"},
+    # No "none" effort level exists, so temperature must be omitted.
+    "openai/gpt-6.1-sol": {"omit_temperature": True, "reasoning_effort": "low"},
+    "openai/gpt-6-astra": {"omit_temperature": True, "reasoning_effort": "low"},
+    # Claude 5.5 rejects any temperature other than 1. Haiku thinks by default.
+    "anthropic/claude-haiku-5-5": {"omit_temperature": True, "thinking": {"type": "disabled"}},
+    "anthropic/claude-sonnet-5-5": {"omit_temperature": True},
+    "anthropic/claude-opus-5-5": {"omit_temperature": True},
+    # Google ignores temperature on 3.5 and LiteLLM warns on every call that sends one.
+    "gemini/gemini-3.5-flash-lite": {"omit_temperature": True},
 }
 
 
-def _normalize_temperature(model: str, temperature: float) -> float:
-    """Clamp temperature to model-supported values."""
-    if model in _TEMPERATURE_1_ONLY_MODELS:
-        return 1.0
-    return temperature
+def model_request_settings(model: str, temperature: float) -> dict:
+    """
+    Return the per-model kwargs to send `acompletion` for `model` at `temperature`.
+
+    Applies `_MODEL_REQUEST_SETTINGS`: the temperature is left out when the
+    entry says `omit_temperature`, and every other key in the entry is added.
+    `LLMService.complete()` and `stream()` both call this, and nothing else
+    decides per-model parameters. Code that calls `acompletion` directly must
+    call it too before using a model in the table: today that is the eval judge
+    (`evals/ai_suggestions/helpers.py`), which is fine on `openai/gpt-5.4-mini`
+    but must go through this if it ever moves to a GPT-6 model.
+    """
+    # Deep copy: callers and LiteLLM get their own nested dicts, never the table's.
+    kwargs = copy.deepcopy(_MODEL_REQUEST_SETTINGS.get(model, {}))
+    if not kwargs.pop("omit_temperature", False):
+        kwargs["temperature"] = temperature
+    return kwargs
+
+
+# ---------------------------------------------------------------------------
+# Response normalization
+# ---------------------------------------------------------------------------
 
 
 def _sanitize_structured_content(response: object) -> None:
@@ -317,7 +366,7 @@ class LLMService:
             "model": config.model,
             "messages": messages,
             "api_key": config.api_key,
-            "temperature": _normalize_temperature(config.model, temperature),
+            **model_request_settings(config.model, temperature),
             "timeout": timeout if timeout is not None else self._settings.llm_timeout_default,
             "num_retries": num_retries if num_retries is not None else 1,
         }
@@ -356,9 +405,9 @@ class LLMService:
             model=config.model,
             messages=messages,
             api_key=config.api_key,
-            temperature=temperature,
             stream=True,
             timeout=self._settings.llm_timeout_streaming,
+            **model_request_settings(config.model, temperature),
         )
 
 

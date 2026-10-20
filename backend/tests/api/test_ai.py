@@ -433,24 +433,6 @@ class TestAIModels:
 class TestLLMExceptionHandlers:
     """Test that LiteLLM exceptions are handled by the app-level handlers."""
 
-    async def test_auth_error_returns_422(self) -> None:
-        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
-        exc = AuthenticationError(
-            message="bad key", model="test", llm_provider="test",
-        )
-        response = await llm_provider_status_exception_handler(_api_request(), exc)
-        assert response.status_code == 422
-        assert b"llm_auth_failed" in response.body
-
-    async def test_bad_request_returns_400(self) -> None:
-        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
-        exc = BadRequestError(
-            message="bad request", model="test", llm_provider="test",
-        )
-        response = await llm_provider_status_exception_handler(_api_request(), exc)
-        assert response.status_code == 400
-        assert b"llm_bad_request" in response.body
-
     async def test_rate_limit_returns_429(self) -> None:
         from api.main import llm_rate_limit_exception_handler  # noqa: PLC0415
         exc = RateLimitError(
@@ -478,18 +460,13 @@ class TestLLMExceptionHandlers:
         assert response.status_code == 502
         assert b"llm_connection_error" in response.body
 
-    async def test_unknown_error_returns_503(self) -> None:
-        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
-        exc = APIError(
-            message="something unknown", model="test", llm_provider="test", status_code=500,
-        )
-        response = await llm_provider_status_exception_handler(_api_request(), exc)
-        assert response.status_code == 503
-        assert b"llm_unavailable" in response.body
-
     @pytest.mark.parametrize(
         ("exc", "expected_status", "expected_code"),
         [
+            pytest.param(
+                AuthenticationError(message="bad key", model="test", llm_provider="test"),
+                422, "llm_auth_failed", id="401-authentication",
+            ),
             pytest.param(_permission_denied_error(), 422, "llm_auth_failed", id="403-permission-denied"),
             pytest.param(
                 APIError(message="m", model="test", llm_provider="openai", status_code=403),
@@ -502,6 +479,10 @@ class TestLLMExceptionHandlers:
             pytest.param(
                 NotFoundError(message="m", model="test", llm_provider="openai", response=_provider_response(403)),
                 422, "llm_auth_failed", id="403-as-not-found",
+            ),
+            pytest.param(
+                BadRequestError(message="bad request", model="test", llm_provider="test"),
+                400, "llm_bad_request", id="400-bad-request",
             ),
             pytest.param(
                 NotFoundError(message="m", model="test", llm_provider="test"),
@@ -526,6 +507,10 @@ class TestLLMExceptionHandlers:
             pytest.param(
                 InternalServerError(message="m", model="test", llm_provider="test"),
                 503, "llm_unavailable", id="500",
+            ),
+            pytest.param(
+                APIError(message="m", model="test", llm_provider="test", status_code=500),
+                503, "llm_unavailable", id="500-as-litellm-apierror",
             ),
             pytest.param(
                 BadGatewayError(message="m", model="test", llm_provider="test"),

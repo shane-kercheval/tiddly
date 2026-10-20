@@ -6,16 +6,33 @@ from pydantic import BaseModel
 
 from core.config import Settings
 from services.llm_service import (
+    _MODEL_REQUEST_SETTINGS,
+    _PROVIDER_KEY_MAP,
+    _SUPPORTED_MODEL_DEFS,
     AIUseCase,
     KeySource,
     LLMConfig,
     LLMService,
     _get_model_cost,
-    _normalize_temperature,
     _resolve_platform_key,
     _sanitize_structured_content,
     build_supported_models,
+    model_request_settings,
 )
+
+# One model from the table that keeps the temperature, one that omits it, and
+# one with no entry. Expected kwargs come from the plan's settings table
+# (docs/implementation_plans/2026-10-19-llm-model-refresh.md, milestone 2).
+_COMPLETE_AND_STREAM_CASES = [
+    pytest.param("openai/gpt-6-luna", {"temperature": 0.5, "reasoning_effort": "none"}, id="luna"),
+    pytest.param("anthropic/claude-haiku-5-5", {"thinking": {"type": "disabled"}}, id="haiku-5-5"),
+    pytest.param("openai/gpt-4o", {"temperature": 0.5}, id="not-in-table"),
+]
+
+
+def _per_model_kwargs(call_kwargs: dict) -> dict:
+    """The kwargs the settings table decides, out of everything sent to `acompletion`."""
+    return {k: v for k, v in call_kwargs.items() if k in ("temperature", "reasoning_effort", "thinking")}
 
 
 # ---------------------------------------------------------------------------
@@ -294,9 +311,10 @@ class TestComplete:
             )
             assert mock_acomp.call_args.kwargs["max_tokens"] == 5
 
-    async def test_o_series_temperature_normalized(self) -> None:
+    @pytest.mark.parametrize(("model", "expected"), _COMPLETE_AND_STREAM_CASES)
+    async def test_applies_model_request_settings(self, model: str, expected: dict) -> None:
         service = LLMService(_make_settings())
-        config = LLMConfig(model="openai/o4-mini", api_key="key", key_source=KeySource.USER)
+        config = LLMConfig(model=model, api_key="key", key_source=KeySource.USER)
 
         with (
             patch("services.llm_service.acompletion", new_callable=AsyncMock) as mock_acomp,
@@ -307,7 +325,7 @@ class TestComplete:
                 config=config,
                 temperature=0.5,
             )
-            assert mock_acomp.call_args.kwargs["temperature"] == 1.0
+            assert _per_model_kwargs(mock_acomp.call_args.kwargs) == expected
 
     async def test_sanitizes_structured_content(self) -> None:
         class TestSchema(BaseModel):
@@ -408,24 +426,90 @@ class TestStream:
             assert "num_retries" not in call_kwargs
             assert result is mock_iter
 
+    @pytest.mark.parametrize(("model", "expected"), _COMPLETE_AND_STREAM_CASES)
+    async def test_applies_model_request_settings(self, model: str, expected: dict) -> None:
+        service = LLMService(_make_settings())
+        config = LLMConfig(model=model, api_key="key", key_source=KeySource.USER)
+
+        with patch("services.llm_service.acompletion", new_callable=AsyncMock) as mock_acomp:
+            await service.stream(
+                messages=[{"role": "user", "content": "Hi"}],
+                config=config,
+                temperature=0.5,
+            )
+            assert _per_model_kwargs(mock_acomp.call_args.kwargs) == expected
+
 
 # ---------------------------------------------------------------------------
-# _normalize_temperature
+# model_request_settings and the settings table
 # ---------------------------------------------------------------------------
 
 
-class TestNormalizeTemperature:
-    """Tests for _normalize_temperature."""
+class TestModelRequestSettings:
+    """Tests for model_request_settings and _MODEL_REQUEST_SETTINGS."""
 
-    def test_regular_model_passes_through(self) -> None:
-        assert _normalize_temperature("gemini/gemini-flash-latest", 0.7) == 0.7
-        assert _normalize_temperature("openai/gpt-4o-mini", 0.0) == 0.0
-        assert _normalize_temperature("anthropic/claude-haiku-4-5", 0.5) == 0.5
-        assert _normalize_temperature("openai/gpt-4o", 0.3) == 0.3
+    @pytest.mark.parametrize(
+        ("model", "expected"),
+        [
+            # Expected values come from the plan's table, not from the code.
+            ("openai/gpt-6-luna", {"reasoning_effort": "none", "temperature": 0.7}),
+            ("openai/gpt-6.1-sol", {"reasoning_effort": "low"}),
+            ("openai/gpt-6-astra", {"reasoning_effort": "low"}),
+            ("anthropic/claude-haiku-5-5", {"thinking": {"type": "disabled"}}),
+            ("anthropic/claude-sonnet-5-5", {}),
+            ("anthropic/claude-opus-5-5", {}),
+            ("gemini/gemini-3.5-flash-lite", {}),
+            # Today's allowlist: `{}` entries, so the caller's temperature passes through.
+            ("gemini/gemini-flash-lite-latest", {"temperature": 0.7}),
+            ("openai/gpt-5.4-nano", {"temperature": 0.7}),
+            ("openai/gpt-5.4-mini", {"temperature": 0.7}),
+            ("openai/gpt-5.4", {"temperature": 0.7}),
+            ("anthropic/claude-haiku-4-5", {"temperature": 0.7}),
+            ("anthropic/claude-sonnet-4-6", {"temperature": 0.7}),
+            ("anthropic/claude-opus-4-6", {"temperature": 0.7}),
+        ],
+    )
+    def test_table_entries(self, model: str, expected: dict) -> None:
+        assert model_request_settings(model, 0.7) == expected
 
-    def test_temperature_1_only_models_clamped(self) -> None:
-        assert _normalize_temperature("openai/o4-mini", 0.7) == 1.0
-        assert _normalize_temperature("openai/o4-mini", 0.0) == 1.0
+    def test_unlisted_model_gets_only_the_callers_temperature(self) -> None:
+        assert model_request_settings("openai/gpt-4o", 0.3) == {"temperature": 0.3}
+        assert model_request_settings("gemini/gemini-flash-latest", 0.0) == {"temperature": 0.0}
+
+    def test_returned_kwargs_never_alias_the_table(self) -> None:
+        """LiteLLM or a caller mutating what it was sent must not change the table."""
+        sent = model_request_settings("anthropic/claude-haiku-5-5", 0.7)
+        sent["thinking"]["type"] = "enabled"
+        sent["temperature"] = 1.0
+        assert model_request_settings("anthropic/claude-haiku-5-5", 0.7) == {"thinking": {"type": "disabled"}}
+
+    def test_every_key_has_a_known_provider_prefix(self) -> None:
+        prefixes = tuple(prefix for prefix, _ in _PROVIDER_KEY_MAP)
+        unknown = sorted(m for m in _MODEL_REQUEST_SETTINGS if not m.startswith(prefixes))
+        assert not unknown, f"Settings-table keys without a known provider prefix: {unknown}"
+
+    def test_every_allowlisted_model_and_default_has_an_entry(self) -> None:
+        """
+        CI has no provider keys and skips the live smoke test, so this is what
+        stops a model being added without deciding its request settings.
+        Defaults are read from the field definitions, not a `Settings()`
+        instance, so a developer's `.env` override cannot change the result.
+        """
+        defaults = {
+            name: field.default
+            for name, field in Settings.model_fields.items()
+            if name.startswith("llm_model_")
+        }
+        assert defaults.keys() == {f"llm_model_{use_case.value}" for use_case in AIUseCase}
+        allowlist = {d["id"] for d in _SUPPORTED_MODEL_DEFS}
+
+        missing = sorted((allowlist | set(defaults.values())) - _MODEL_REQUEST_SETTINGS.keys())
+        assert not missing, (
+            f"No _MODEL_REQUEST_SETTINGS entry for {missing}. Add one ({{}} if the model "
+            "accepts the caller's temperature) and run the LLM smoke test."
+        )
+        off_allowlist = {name: model for name, model in defaults.items() if model not in allowlist}
+        assert not off_allowlist, f"llm_model_* defaults not on the allowlist: {off_allowlist}"
 
 
 # ---------------------------------------------------------------------------

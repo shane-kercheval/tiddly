@@ -246,7 +246,7 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
                         },
                     },
                     "llm_unavailable": {
-                        "summary": "Unclassified LLM provider failure",
+                        "summary": "LLM provider down, unreachable, or failed",
                         "value": {
                             "detail": "AI service temporarily unavailable.",
                             "error_code": "llm_unavailable",
@@ -277,18 +277,19 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
     },
 }
 
-# BYOK authentication failure shows up on endpoints that actually use the
-# BYOK key (suggestion endpoints). 422 is also the shape for Pydantic request
+# A provider refusing the key (401 or 403) shows up on endpoints that call
+# the LLM (suggestion endpoints): the caller's BYOK key, or on the platform
+# path the server's own key. 422 is also the shape for Pydantic request
 # validation, so the response carries two possible body shapes — distinguish
 # on whether `detail` is an array (validation) or string with `error_code`
-# (BYOK auth failure).
+# (key refused by the provider).
 _BYOK_AUTH_422: dict[int, dict] = {
     422: {
-        # Deliberately no `model:` entry. The BYOK-auth variant matches
+        # Deliberately no `model:` entry. The key-refused variant matches
         # `AIErrorResponse` but the Pydantic validation variant doesn't
         # (its `detail` is a list). Declaring one model would mislead
         # typed codegen tools (openapi-generator, Zod from OpenAPI, etc.)
-        # into emitting a type that only handles the BYOK-auth shape.
+        # into emitting a type that only handles the key-refused shape.
         # The two named examples below cover both shapes for humans;
         # codegen tools correctly produce an un-schema'd 422 response.
         # Matches the base `_BASE_AI_ERROR_RESPONSES[422]` pattern.
@@ -319,7 +320,7 @@ _BYOK_AUTH_422: dict[int, dict] = {
                         },
                     },
                     "byok_auth_failed": {
-                        "summary": "Provider rejected the supplied X-LLM-Api-Key",
+                        "summary": "Provider refused the BYOK key or the server's key",
                         "value": {
                             "detail": "LLM authentication failed. Check your API key.",
                             "error_code": "llm_auth_failed",
@@ -332,7 +333,7 @@ _BYOK_AUTH_422: dict[int, dict] = {
 }
 
 # Suggestion endpoints surface all error classes (auth, validation,
-# LLM-call failures, BYOK auth failure).
+# LLM-call failures, provider refusing the key).
 #
 # Merge precedence (right wins on key collision, per Python dict-spread):
 #   _BASE_AI_ERROR_RESPONSES < _LLM_CALL_ERROR_RESPONSES < _BYOK_AUTH_422

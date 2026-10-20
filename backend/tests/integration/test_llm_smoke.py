@@ -75,11 +75,13 @@ async def test_smoke_structured_output(model_def: AIModelEntry) -> None:
     config = LLMConfig(model=model_id, api_key=api_key, key_source=KeySource.PLATFORM)
 
     # temperature=0 is intentional — DO NOT change to a higher value.
-    # This verifies that _normalize_temperature correctly handles models
-    # that only support temperature=1 (e.g. O-series). If a new model
-    # is added to _SUPPORTED_MODEL_DEFS that requires temperature=1,
-    # this test will fail, prompting an update to _TEMPERATURE_1_ONLY_MODELS.
-    # max_tokens=1000 because O-series models use internal reasoning tokens
+    # This verifies each model's entry in _MODEL_REQUEST_SETTINGS
+    # (llm_service.py): models that reject a temperature other than 1 (GPT-6
+    # at a reasoning effort other than "none", Claude 5.5) fail here unless
+    # their entry omits it. A model added to _SUPPORTED_MODEL_DEFS with the
+    # wrong entry fails this test; one with no entry fails the offline
+    # coverage test in test_llm_service.py.
+    # max_tokens=1000 because reasoning models use internal reasoning tokens
     # that count against the limit — 50 is not enough for them.
     response, cost = await service.complete(
         messages=[{"role": "user", "content": "Say hello in one word."}],

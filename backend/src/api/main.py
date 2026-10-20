@@ -316,7 +316,8 @@ async def field_limit_exceeded_exception_handler(
 # All LLM errors use llm_* error codes so the frontend can distinguish them
 # from platform auth errors (which use HTTP 401).
 
-# Bodies shared by the class handlers and the status handler below.
+# Response bodies. The rate-limit and timeout bodies are shared by their class
+# handlers and the status handler; the others belong to the status handler.
 _LLM_AUTH_FAILED_CONTENT = {
     "detail": "LLM authentication failed. Check your API key.",
     "error_code": "llm_auth_failed",
