@@ -483,6 +483,28 @@ class TestModelRequestSettings:
         sent["temperature"] = 1.0
         assert model_request_settings("anthropic/claude-haiku-5-5", 0.7) == {"thinking": {"type": "disabled"}}
 
+    def test_no_entry_uses_a_key_complete_or_stream_set_themselves(self) -> None:
+        """
+        `complete()` and `stream()` set these keys themselves and disagree on
+        which value wins (`stream()` even crashes on a repeated keyword), so an
+        entry must never contain one. In particular, a `temperature` key is
+        silently replaced by the caller's temperature.
+        """
+        reserved = {
+            "temperature", "model", "messages", "api_key", "stream",
+            "timeout", "num_retries", "max_tokens", "response_format",
+        }
+        clashes = {
+            model: sorted(entry.keys() & reserved)
+            for model, entry in _MODEL_REQUEST_SETTINGS.items()
+            if entry.keys() & reserved
+        }
+        assert not clashes, (
+            f"_MODEL_REQUEST_SETTINGS entries use keys complete()/stream() set themselves: "
+            f"{clashes}. To stop the caller's temperature being sent, use "
+            "`omit_temperature: True`."
+        )
+
     def test_every_key_has_a_known_provider_prefix(self) -> None:
         prefixes = tuple(prefix for prefix, _ in _PROVIDER_KEY_MAP)
         unknown = sorted(m for m in _MODEL_REQUEST_SETTINGS if not m.startswith(prefixes))

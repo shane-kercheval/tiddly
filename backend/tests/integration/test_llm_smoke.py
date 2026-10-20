@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from schemas.ai import AIModelEntry
 from services.llm_service import (
+    _MODEL_REQUEST_SETTINGS,
     KeySource,
     LLMConfig,
     LLMService,
@@ -75,12 +76,12 @@ async def test_smoke_structured_output(model_def: AIModelEntry) -> None:
     config = LLMConfig(model=model_id, api_key=api_key, key_source=KeySource.PLATFORM)
 
     # temperature=0 is intentional — DO NOT change to a higher value.
-    # This verifies each model's entry in _MODEL_REQUEST_SETTINGS
-    # (llm_service.py): models that reject a temperature other than 1 (GPT-6
-    # at a reasoning effort other than "none", Claude 5.5) fail here unless
-    # their entry omits it. A model added to _SUPPORTED_MODEL_DEFS with the
-    # wrong entry fails this test; one with no entry fails the offline
-    # coverage test in test_llm_service.py.
+    # This proves the provider accepts each model's entry in
+    # _MODEL_REQUEST_SETTINGS (llm_service.py): models that reject a
+    # temperature other than 1 (GPT-6 at a reasoning effort other than "none",
+    # Claude 5.5) fail here unless their entry omits it. A model with no entry
+    # fails the offline coverage test in test_llm_service.py instead. Whether
+    # the entry turns reasoning off is only partly checked (see below).
     # max_tokens=1000 because reasoning models use internal reasoning tokens
     # that count against the limit — 50 is not enough for them.
     response, cost = await service.complete(
@@ -102,3 +103,18 @@ async def test_smoke_structured_output(model_def: AIModelEntry) -> None:
     # Verify cost tracking works — real API calls with tokens should have non-zero cost
     assert cost is not None
     assert cost > 0
+
+    # The model must not reason unless its entry asks it to with a reasoning
+    # effort above "none": reasoning left on adds cost and latency to every
+    # suggestion. This catches an entry that leaves the effort unset (GPT-6
+    # Luna with no effort reasons even on this one-word prompt). It cannot
+    # catch thinking a model does only on real prompts: Claude Haiku 5.5 with
+    # thinking left on does not think here. See the _MODEL_REQUEST_SETTINGS
+    # comment for the one-time check such a model needs.
+    if _MODEL_REQUEST_SETTINGS.get(model_id, {}).get("reasoning_effort", "none") == "none":
+        details = getattr(response.usage, "completion_tokens_details", None)
+        reasoning_tokens = getattr(details, "reasoning_tokens", None) or 0
+        assert reasoning_tokens == 0, (
+            f"{model_id} used {reasoning_tokens} reasoning tokens; its "
+            "_MODEL_REQUEST_SETTINGS entry should turn reasoning off"
+        )

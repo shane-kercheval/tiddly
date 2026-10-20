@@ -179,8 +179,16 @@ def _resolve_platform_key(model: str, settings: Settings) -> str:
 # Every allowlisted model and every `llm_model_*` default needs an entry, and
 # test_llm_service.py enforces that offline (CI has no provider keys, so it skips
 # the live smoke test). An empty entry `{}` means "verified to accept the
-# caller's temperature". Every entry is verified by the smoke test
-# (test_llm_smoke.py), which calls each allowlisted model at temperature 0.
+# caller's temperature".
+#
+# The smoke test (test_llm_smoke.py) calls each allowlisted model at
+# temperature 0. It proves the provider accepts the entry, and that the model
+# does not reason on its one-word prompt unless the entry sets a reasoning
+# effort above "none". It cannot prove an entry turns off thinking that a model
+# does only on real prompts: Claude Haiku 5.5 with thinking left on does not
+# think on the smoke prompt but does on a tag suggestion. So check a model that
+# thinks by default once with a real suggestion prompt, reading the reasoning
+# tokens in the response's usage, before adding its entry.
 #
 # Why a table and not LiteLLM's `drop_params`: `drop_params` can only remove
 # parameters, and it decides from flags in LiteLLM's downloaded price list
