@@ -1,5 +1,6 @@
 """Integration tests for AI router endpoints."""
 import json
+import re
 import typing
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -519,6 +520,10 @@ class TestLLMExceptionHandlers:
                 504, "llm_timeout", id="408-as-litellm-apierror",
             ),
             pytest.param(
+                APIError(message="m", model="test", llm_provider="openai", status_code=504),
+                504, "llm_timeout", id="504-as-litellm-apierror",
+            ),
+            pytest.param(
                 InternalServerError(message="m", model="test", llm_provider="test"),
                 503, "llm_unavailable", id="500",
             ),
@@ -637,6 +642,33 @@ class TestLLMExceptionHandlers:
 
 _OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+_GEMINI_URL = re.compile(r"https://generativelanguage\.googleapis\.com/.*")
+
+# Google's reply to an invalid key, captured verbatim from the live API on
+# 2026-10-19 with a made-up key. Google answers HTTP 400; LiteLLM recognizes the
+# bad key by this message's wording and raises `AuthenticationError`, whose own
+# default status (401) is what makes it a rejected key here. If LiteLLM ever
+# copied Google's 400 instead, this row would catch it.
+_GOOGLE_BAD_KEY_REPLY = {
+    "error": {
+        "code": 400,
+        "message": "API key not valid. Please pass a valid API key.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+            {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "API_KEY_INVALID",
+                "domain": "googleapis.com",
+                "metadata": {"service": "generativelanguage.googleapis.com"},
+            },
+            {
+                "@type": "type.googleapis.com/google.rpc.LocalizedMessage",
+                "locale": "en-US",
+                "message": "API key not valid. Please pass a valid API key.",
+            },
+        ],
+    },
+}
 
 
 def _openai_error(message: str, error_type: str | None, code: str | None = None) -> dict:
@@ -645,6 +677,10 @@ def _openai_error(message: str, error_type: str | None, code: str | None = None)
 
 def _anthropic_error(error_type: str) -> dict:
     return {"type": "error", "error": {"type": error_type, "message": f"failed {_PROVIDER_TEXT_MARKER}"}}
+
+
+def _google_error(code: int, status: str, message: str) -> dict:
+    return {"error": {"code": code, "message": f"{message} {_PROVIDER_TEXT_MARKER}", "status": status}}
 
 
 # (model, provider URL, provider status, provider body, API status, API error code).
@@ -703,6 +739,20 @@ _PROVIDER_ERROR_CASES = [
         "anthropic/claude-haiku-4-5", _ANTHROPIC_URL, 529, _anthropic_error("overloaded_error"),
         503, "llm_unavailable", id="anthropic-529",
     ),
+    pytest.param(
+        "gemini/gemini-flash-lite-latest", _GEMINI_URL, 400, _GOOGLE_BAD_KEY_REPLY,
+        422, "llm_auth_failed", id="gemini-400-bad-key",
+    ),
+    pytest.param(
+        "gemini/gemini-flash-lite-latest", _GEMINI_URL, 403,
+        _google_error(403, "PERMISSION_DENIED", "Permission denied on resource project."),
+        422, "llm_auth_failed", id="gemini-403-permission-denied",
+    ),
+    pytest.param(
+        "gemini/gemini-flash-lite-latest", _GEMINI_URL, 503,
+        _google_error(503, "UNAVAILABLE", "The model is overloaded. Please try again later."),
+        503, "llm_unavailable", id="gemini-503",
+    ),
 ]
 
 
@@ -749,7 +799,7 @@ class TestProviderErrorsThroughLiteLLM:
         provider_http: respx.MockRouter,
         caplog: pytest.LogCaptureFixture,
         model: str,
-        url: str,
+        url: str | re.Pattern[str],
         provider_status: int,
         provider_body: dict,
         expected_status: int,
@@ -780,13 +830,16 @@ class TestProviderErrorsThroughLiteLLM:
         client: AsyncClient,
         provider_http: respx.MockRouter,
         model: str,
-        url: str,
+        url: str | re.Pattern[str],
         provider_status: int,
         provider_body: dict,
         expected_status: int,
         expected_code: str,
     ) -> None:
-        """A refused key (401 or 403, any body) is 200 `valid: false`; anything else keeps its status."""
+        """
+        Every reply a suggestion endpoint answers with `llm_auth_failed` is a
+        rejected key here (200 `valid: false`); anything else keeps its status.
+        """
         route = provider_http.post(url).mock(return_value=Response(provider_status, json=provider_body))
         response = await client.post(
             "/ai/validate-key",
@@ -794,7 +847,7 @@ class TestProviderErrorsThroughLiteLLM:
             json={"model": model},
         )
         assert route.called, "the request bypassed the mocked provider"
-        if provider_status in (401, 403):
+        if expected_code == "llm_auth_failed":
             assert response.status_code == 200
             assert response.json() == {"valid": False, "error": "API key rejected by provider"}
         else:
@@ -826,8 +879,9 @@ class TestProviderErrorsThroughLiteLLM:
     ) -> None:
         """
         LiteLLM raises `RateLimitError` for a 429 and `Timeout` (status 504)
-        for a 504; their class handlers must answer, not the status handler
-        (which would answer the 504 with 503).
+        for a 504; their class handlers must answer, not the status handler.
+        The status handler would return the same responses, so the test tells
+        the two apart by which handler logged.
         """
         route = provider_http.post(_OPENAI_URL).mock(return_value=provider_reply)
         response = await client.post(

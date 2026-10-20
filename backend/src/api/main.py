@@ -378,7 +378,7 @@ def _llm_response_for_status(status: int | None) -> tuple[int, dict[str, str]]:
         return 422, _LLM_AUTH_FAILED_CONTENT
     if status == 429:
         return 429, _LLM_RATE_LIMITED_CONTENT
-    if status == 408:
+    if status in (408, 504):
         return 504, _LLM_TIMEOUT_CONTENT
     if isinstance(status, int) and 400 <= status < 500:
         return 400, _LLM_BAD_REQUEST_CONTENT
@@ -392,9 +392,9 @@ async def llm_provider_status_exception_handler(
     """
     Every other provider error → mapped by its HTTP status alone.
 
-    401/403 → 422 `llm_auth_failed`; 429 → 429 `llm_rate_limited`; 408 → 504
-    `llm_timeout`; any other 4xx → 400 `llm_bad_request`; 5xx or no status →
-    503 `llm_unavailable`.
+    401/403 → 422 `llm_auth_failed`; 429 → 429 `llm_rate_limited`; 408 or 504
+    → 504 `llm_timeout`; any other 4xx → 400 `llm_bad_request`; any other 5xx
+    or no status → 503 `llm_unavailable`.
 
     Why one handler on `openai.APIError`, the base of every LiteLLM provider
     error, instead of a handler per LiteLLM class: LiteLLM picks the class from
@@ -411,8 +411,8 @@ async def llm_provider_status_exception_handler(
 
     Starlette picks the handler registered for the nearest class in the
     exception's MRO, so the rate-limit, timeout and connection handlers above
-    still win for their classes; this one sees everything else. The 429 and 408
-    branches cover those statuses arriving under another class.
+    still win for their classes; this one sees everything else. The 429, 408
+    and 504 branches cover those statuses arriving under another class.
 
     The log line carries its fields in the message, because the log format
     prints only the message. It records whether the caller sent their own key

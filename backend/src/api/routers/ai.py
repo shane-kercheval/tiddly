@@ -196,8 +196,10 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
             "LLM-side failure with two typed variants: `llm_parse_failed` "
             "(the provider returned a response that didn't match the "
             "expected structured-output schema) and `llm_connection_error` "
-            "(could not reach the provider). Both are safe to retry — a "
-            "different `model` often helps for parse failures."
+            "(could not reach the provider; some providers' connection "
+            "failures arrive as 503 `llm_unavailable` instead, so treat both "
+            "as retryable). Both are safe to retry — a different `model` "
+            "often helps for parse failures."
         ),
         "content": {
             "application/json": {
@@ -228,9 +230,10 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
         "description": (
             "Two sources. (1) **Auth infrastructure unavailable** — JWKS "
             "fetch from the identity provider failed. `detail` is `\"Could not validate "
-            "credentials\"`; no `error_code`. (2) **LLM provider outage "
-            "(the provider returned a 5xx) or other unclassified provider "
-            "failure** — `error_code: llm_unavailable`. Both are "
+            "credentials\"`; no `error_code`. (2) **LLM provider "
+            "unavailable**: the provider returned a 5xx other than 504, could "
+            "not be reached, or failed in another unclassified way — "
+            "`error_code: llm_unavailable`. Both are "
             "safe to retry with backoff."
         ),
         "content": {
@@ -412,7 +415,9 @@ AI_VALIDATE_KEY_RESPONSES: dict[int, dict] = {
         "model": AIErrorResponse,
         "description": (
             "Could not reach the LLM provider (`error_code: "
-            "llm_connection_error`). Safe to retry. Note: this endpoint "
+            "llm_connection_error`). Safe to retry. Some providers' "
+            "connection failures arrive as 503 `llm_unavailable` instead; "
+            "treat both as retryable. Note: this endpoint "
             "never emits `llm_parse_failed` — it doesn't request structured "
             "output from the provider."
         ),
