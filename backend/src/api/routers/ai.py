@@ -5,7 +5,7 @@ from typing import NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from litellm.exceptions import AuthenticationError, PermissionDeniedError
+from openai import APIError as OpenAIAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_current_limits_ai, get_current_user_ai
@@ -36,6 +36,7 @@ from schemas.cached_user import CachedUser
 from services.ai_cost_tracking import track_cost
 from services.content_service import search_all_content
 from services.llm_service import (
+    LLM_KEY_REJECTED_STATUSES,
     AIUseCase,
     LLMConfig,
     LLMService,
@@ -131,8 +132,10 @@ _LLM_CALL_ERROR_RESPONSES: dict[int, dict] = {
     400: {
         "model": AIErrorResponse,
         "description": (
-            "Invalid request. Typed variants: `llm_bad_request` (LLM provider "
-            "rejected the request shape). Also: the supplied `model` is not in "
+            "Invalid request. Typed variants: `llm_bad_request` (the LLM "
+            "provider rejected the request with a 4xx other than 401, 403, 408 "
+            "or 429, e.g. 404 for a model it doesn't recognize). Also: the "
+            "supplied `model` is not in "
             "the supported list (no `error_code`; message starts with "
             "\"Unsupported model\")."
         ),
@@ -289,8 +292,10 @@ _BYOK_AUTH_422: dict[int, dict] = {
         "description": (
             "Two possible shapes share this status: (1) FastAPI request "
             "validation errors (standard `{\"detail\": [...]}` array shape), "
-            "or (2) BYOK authentication failure with the upstream LLM "
-            "provider — shape `{\"detail\": \"...\", \"error_code\": "
+            "or (2) the upstream LLM provider refused the key with 401 or "
+            "403: the caller's `X-LLM-Api-Key`, or on the platform path (no "
+            "header) the server's own key — shape `{\"detail\": \"...\", "
+            "\"error_code\": "
             "\"llm_auth_failed\"}`. Clients can distinguish by the type of "
             "`detail` (list vs. string) or by the presence of `error_code`."
         ),
@@ -395,8 +400,10 @@ AI_VALIDATE_KEY_RESPONSES: dict[int, dict] = {
         "description": (
             "Invalid request. Typed variants: missing `X-LLM-Api-Key` header "
             "(no `error_code`; message `\"No API key provided via "
-            "X-LLM-Api-Key header\"` in `detail`); `llm_bad_request` (LLM "
-            "provider rejected the request shape); unsupported `model` value "
+            "X-LLM-Api-Key header\"` in `detail`); `llm_bad_request` (the LLM "
+            "provider rejected the request with a 4xx other than 401, 403, 408 "
+            "or 429, e.g. 404 for a model it doesn't recognize); unsupported "
+            "`model` value "
             "(no `error_code`; message starts with `\"Unsupported model\"`)."
         ),
     },
@@ -419,11 +426,15 @@ AI_VALIDATE_KEY_RESPONSES: dict[int, dict] = {
 # Dependencies
 # ---------------------------------------------------------------------------
 
+# Request header carrying a BYOK key. api/main.py's provider-error handler
+# reads only whether it is present, to log it; never its value.
+LLM_API_KEY_HEADER = "X-LLM-Api-Key"
+
 
 def get_llm_api_key(
     x_llm_api_key: str | None = Header(
         None,
-        alias="X-LLM-Api-Key",
+        alias=LLM_API_KEY_HEADER,
         description=(
             "Optional Bring-Your-Own-Key (BYOK) header. On suggestion "
             "endpoints it routes the call to the `AI_BYOK` rate-limit "
@@ -588,8 +599,8 @@ async def validate_key(
 
     - `200 {"valid": true}` — provider accepted the key.
     - `200 {"valid": false, "error": "API key rejected by provider"}` —
-      provider rejected the key (HTTP 401, or 403 for a key without access
-      to the model). The 200 status reflects
+      provider refused the key (HTTP 401 or 403), for example a revoked key
+      or one without permission for the selected model. The 200 status reflects
       that the validation *request* succeeded; the key itself is simply
       invalid. Note this is **not** surfaced as 422 `llm_auth_failed` —
       that's the semantics on suggestion endpoints where the caller
@@ -615,8 +626,13 @@ async def validate_key(
             temperature=0,
         )
         return ValidateKeyResponse(valid=True)
-    except (AuthenticationError, PermissionDeniedError):
-        return ValidateKeyResponse(valid=False, error="API key rejected by provider")
+    except OpenAIAPIError as exc:
+        # By status, not class: LiteLLM raises different classes for the same
+        # refusal depending on the provider's error body. Every other error
+        # (rate limit, timeout, outage) goes to the app's handlers.
+        if getattr(exc, "status_code", None) in LLM_KEY_REJECTED_STATUSES:
+            return ValidateKeyResponse(valid=False, error="API key rejected by provider")
+        raise
 
 
 @router.get(

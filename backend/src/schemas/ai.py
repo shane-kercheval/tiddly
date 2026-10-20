@@ -50,9 +50,10 @@ class AIErrorResponse(BaseModel):
         description=(
             "Machine-readable error identifier when a typed error is raised. "
             "Values that may appear on AI endpoints: `llm_auth_failed` (422, "
-            "BYOK key rejected by provider), `llm_rate_limited` (429, upstream "
+            "provider refused the key with 401 or 403: the BYOK key, or on the "
+            "platform path the server's key), `llm_rate_limited` (429, upstream "
             "provider throttled), `llm_timeout` (504), `llm_bad_request` (400, "
-            "LLM provider rejected the shape), `llm_connection_error` (502, "
+            "LLM provider rejected the request), `llm_connection_error` (502, "
             "connection to provider failed), `llm_parse_failed` (502, LLM "
             "returned an unparseable structured response), `llm_unavailable` "
             "(503, provider outage or unclassified provider failure). Absent "

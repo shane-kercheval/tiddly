@@ -1,10 +1,16 @@
 """Integration tests for AI router endpoints."""
+import json
 import typing
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import litellm
+import openai
 import pytest
+import respx
 from httpx import AsyncClient, Request, Response
+from litellm import anthropic_beta_headers_manager
 from litellm.exceptions import (
     APIConnectionError,
     APIError,
@@ -19,9 +25,30 @@ from litellm.exceptions import (
     Timeout,
 )
 
+from starlette.requests import Request as StarletteRequest
+
+from core.logging_config import FIRST_PARTY_LOGGERS
 from core.tier_limits import Tier, TierLimits, get_tier_limits
 from services.llm_service import AIUseCase, get_llm_service
 from services.suggestion_service import LLMParseFailedError
+
+# A plain word, not a key-shaped string: LiteLLM masks key-shaped strings on
+# some loggers, which would hide a leak of the provider text around it.
+_PROVIDER_TEXT_MARKER = "zanzibar"
+
+# The API's documented `detail` for each LLM error code.
+_ERROR_DETAILS: dict[str, str] = {
+    "llm_auth_failed": "LLM authentication failed. Check your API key.",
+    "llm_bad_request": "Invalid request to LLM provider.",
+    "llm_rate_limited": "LLM provider rate limit exceeded. Try again later.",
+    "llm_timeout": "LLM request timed out. Try again.",
+    "llm_unavailable": "AI service temporarily unavailable.",
+}
+
+
+def _provider_response(status: int) -> Response:
+    """A provider response; some LiteLLM classes need one that carries a request."""
+    return Response(status, request=Request("POST", "https://example"))
 
 
 def _permission_denied_error() -> PermissionDeniedError:
@@ -33,8 +60,23 @@ def _permission_denied_error() -> PermissionDeniedError:
         message="key lacks access to this model",
         llm_provider="openai",
         model="openai/gpt-5.4-nano",
-        response=Response(403, request=Request("POST", "https://example")),
+        response=_provider_response(403),
     )
+
+
+def _api_request(llm_api_key: str | None = None) -> StarletteRequest:
+    """A bare request, with or without the BYOK header, for calling handlers directly."""
+    headers = [(b"x-llm-api-key", llm_api_key.encode())] if llm_api_key else []
+    return StarletteRequest({"type": "http", "headers": headers})
+
+
+def _first_party_log_text(caplog: pytest.LogCaptureFixture) -> str:
+    """
+    Every record from the API's own loggers, formatted message and `extra=`
+    fields both, so a leak through either is visible.
+    """
+    records = [r for r in caplog.records if r.name.split(".")[0] in FIRST_PARTY_LOGGERS]
+    return "\n".join(f"{r.getMessage()} {r.__dict__}" for r in records)
 
 
 # ---------------------------------------------------------------------------
@@ -391,20 +433,20 @@ class TestLLMExceptionHandlers:
     """Test that LiteLLM exceptions are handled by the app-level handlers."""
 
     async def test_auth_error_returns_422(self) -> None:
-        from api.main import llm_auth_exception_handler  # noqa: PLC0415
+        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
         exc = AuthenticationError(
             message="bad key", model="test", llm_provider="test",
         )
-        response = await llm_auth_exception_handler(MagicMock(), exc)
+        response = await llm_provider_status_exception_handler(_api_request(), exc)
         assert response.status_code == 422
         assert b"llm_auth_failed" in response.body
 
     async def test_bad_request_returns_400(self) -> None:
-        from api.main import llm_bad_request_exception_handler  # noqa: PLC0415
+        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
         exc = BadRequestError(
             message="bad request", model="test", llm_provider="test",
         )
-        response = await llm_bad_request_exception_handler(MagicMock(), exc)
+        response = await llm_provider_status_exception_handler(_api_request(), exc)
         assert response.status_code == 400
         assert b"llm_bad_request" in response.body
 
@@ -436,46 +478,110 @@ class TestLLMExceptionHandlers:
         assert b"llm_connection_error" in response.body
 
     async def test_unknown_error_returns_503(self) -> None:
-        from api.main import llm_unavailable_exception_handler  # noqa: PLC0415
+        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
         exc = APIError(
             message="something unknown", model="test", llm_provider="test", status_code=500,
         )
-        response = await llm_unavailable_exception_handler(MagicMock(), exc)
+        response = await llm_provider_status_exception_handler(_api_request(), exc)
         assert response.status_code == 503
         assert b"llm_unavailable" in response.body
 
     @pytest.mark.parametrize(
-        ("exc_class", "status"),
-        [(InternalServerError, 500), (BadGatewayError, 502), (ServiceUnavailableError, 503)],
+        ("exc", "expected_status", "expected_code"),
+        [
+            pytest.param(_permission_denied_error(), 422, "llm_auth_failed", id="403-permission-denied"),
+            pytest.param(
+                APIError(message="m", model="test", llm_provider="openai", status_code=403),
+                422, "llm_auth_failed", id="403-as-litellm-apierror",
+            ),
+            pytest.param(
+                BadRequestError(message="m", model="test", llm_provider="openai", response=_provider_response(401)),
+                422, "llm_auth_failed", id="401-as-bad-request",
+            ),
+            pytest.param(
+                NotFoundError(message="m", model="test", llm_provider="openai", response=_provider_response(403)),
+                422, "llm_auth_failed", id="403-as-not-found",
+            ),
+            pytest.param(
+                NotFoundError(message="m", model="test", llm_provider="test"),
+                400, "llm_bad_request", id="404",
+            ),
+            pytest.param(
+                APIError(message="m", model="test", llm_provider="openai", status_code=409),
+                400, "llm_bad_request", id="409-as-litellm-apierror",
+            ),
+            pytest.param(
+                APIError(message="m", model="test", llm_provider="openai", status_code=429),
+                429, "llm_rate_limited", id="429-as-litellm-apierror",
+            ),
+            pytest.param(
+                APIError(message="m", model="test", llm_provider="openai", status_code=408),
+                504, "llm_timeout", id="408-as-litellm-apierror",
+            ),
+            pytest.param(
+                InternalServerError(message="m", model="test", llm_provider="test"),
+                503, "llm_unavailable", id="500",
+            ),
+            pytest.param(
+                BadGatewayError(message="m", model="test", llm_provider="test"),
+                503, "llm_unavailable", id="502",
+            ),
+            pytest.param(
+                ServiceUnavailableError(message="m", model="test", llm_provider="test"),
+                503, "llm_unavailable", id="503",
+            ),
+            pytest.param(
+                openai.APIError("m", Request("POST", "https://example"), body=None),
+                503, "llm_unavailable", id="no-status",
+            ),
+        ],
     )
-    async def test_provider_5xx_returns_503(
-        self,
-        exc_class: type[Exception],
-        status: int,
-        caplog: pytest.LogCaptureFixture,
+    async def test_maps_by_status_not_class(
+        self, exc: Exception, expected_status: int, expected_code: str,
     ) -> None:
+        """LiteLLM picks the class from the provider's body as well as its status, so only the status counts."""
         from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
-        exc = exc_class(message="provider down", model="test", llm_provider="test")
-        response = await llm_provider_status_exception_handler(MagicMock(), exc)
-        assert response.status_code == 503
-        assert b"llm_unavailable" in response.body
-        # The status and class must be in the message itself: the API's log
-        # format prints only the message, so `extra=` fields never reach Railway.
+        response = await llm_provider_status_exception_handler(_api_request(), exc)
+        assert response.status_code == expected_status
+        assert json.loads(response.body) == {
+            "detail": _ERROR_DETAILS[expected_code], "error_code": expected_code,
+        }
+
+    @pytest.mark.parametrize(("llm_api_key", "byok"), [(None, False), ("sk-user-key-value", True)])
+    async def test_log_line_carries_its_fields_in_the_message(
+        self, llm_api_key: str | None, byok: bool, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """
+        The API's log format prints only the message, so `extra=` fields never
+        reach Railway. Whether a user key was sent is logged; its value never is.
+        """
+        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
+        exc = ServiceUnavailableError(
+            message="overloaded", model="openai/gpt-5.4-nano", llm_provider="openai",
+        )
+        await llm_provider_status_exception_handler(_api_request(llm_api_key), exc)
         messages = [r.getMessage() for r in caplog.records if r.name == "api.main"]
-        assert f"llm_provider_status status={status} class={exc_class.__name__}" in messages[-1]
+        assert messages[-1] == (
+            "llm_provider_status code=llm_unavailable status=503 "
+            f"class=ServiceUnavailableError model=openai/gpt-5.4-nano byok={byok}"
+        )
+        assert "sk-user-key-value" not in _first_party_log_text(caplog)
 
-    async def test_provider_403_returns_422(self) -> None:
+    async def test_provider_text_stays_out_of_logs_and_response(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Provider error text can echo part of the key, so it is never logged or returned."""
         from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
-        response = await llm_provider_status_exception_handler(MagicMock(), _permission_denied_error())
-        assert response.status_code == 422
-        assert b"llm_auth_failed" in response.body
-
-    async def test_provider_404_returns_400(self) -> None:
-        from api.main import llm_provider_status_exception_handler  # noqa: PLC0415
-        exc = NotFoundError(message="model not found", model="test", llm_provider="test")
-        response = await llm_provider_status_exception_handler(MagicMock(), exc)
-        assert response.status_code == 400
-        assert b"llm_bad_request" in response.body
+        exc = AuthenticationError(
+            message=f"Incorrect API key provided: {_PROVIDER_TEXT_MARKER}",
+            model="openai/gpt-5.4-nano",
+            llm_provider="openai",
+        )
+        response = await llm_provider_status_exception_handler(_api_request("k"), exc)
+        assert _PROVIDER_TEXT_MARKER.encode() not in response.body
+        log_text = _first_party_log_text(caplog)
+        assert "llm_provider_status" in log_text
+        assert _PROVIDER_TEXT_MARKER not in log_text
 
     async def test_provider_5xx_through_app_returns_503(self, client: AsyncClient) -> None:
         """A provider outage on a suggestion endpoint reaches the caller as a typed 503."""
@@ -493,6 +599,27 @@ class TestLLMExceptionHandlers:
         assert response.status_code == 503
         assert response.json()["error_code"] == "llm_unavailable"
 
+    async def test_connection_error_through_app_returns_502(self, client: AsyncClient) -> None:
+        """
+        The connection handler still wins over the status handler, which would
+        answer `APIConnectionError` (status 500) with 503. Built by hand because
+        LiteLLM 1.106.0 translates a refused connection into
+        `InternalServerError` (a 503 here), not `APIConnectionError`.
+        """
+        with patch(
+            "services.llm_service.acompletion",
+            new_callable=AsyncMock,
+            side_effect=APIConnectionError(
+                message="connection failed", model="openai/gpt-5.4-nano", llm_provider="openai",
+            ),
+        ):
+            response = await client.post(
+                "/ai/suggest-tags",
+                json={"title": "Flask REST API Tutorial", "content_type": "bookmark"},
+            )
+        assert response.status_code == 502
+        assert response.json()["error_code"] == "llm_connection_error"
+
     async def test_parse_failed_returns_502(self) -> None:
         """LLM structured-output parse failure returns 502 with llm_parse_failed code."""
         from api.main import llm_parse_failed_exception_handler  # noqa: PLC0415
@@ -502,6 +629,218 @@ class TestLLMExceptionHandlers:
         assert response.status_code == 502
         assert b"llm_parse_failed" in response.body
         assert b"could not parse" in response.body
+
+
+# ---------------------------------------------------------------------------
+# Provider errors through LiteLLM's real error translation
+# ---------------------------------------------------------------------------
+
+_OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+
+
+def _openai_error(message: str, error_type: str | None, code: str | None = None) -> dict:
+    return {"error": {"message": f"{message} {_PROVIDER_TEXT_MARKER}", "type": error_type, "code": code}}
+
+
+def _anthropic_error(error_type: str) -> dict:
+    return {"type": "error", "error": {"type": error_type, "message": f"failed {_PROVIDER_TEXT_MARKER}"}}
+
+
+# (model, provider URL, provider status, provider body, API status, API error code).
+# The OpenAI 403 rows differ only in body, and LiteLLM 1.106.0 raises a
+# different class for each (`APIError`, `BadRequestError`, `NotFoundError`).
+_PROVIDER_ERROR_CASES = [
+    pytest.param(
+        "openai/gpt-5.4-nano", _OPENAI_URL, 403,
+        _openai_error("Country, region, or territory not supported", "request_forbidden",
+                      "unsupported_country_region_territory"),
+        422, "llm_auth_failed", id="openai-403-request-forbidden",
+    ),
+    pytest.param("openai/gpt-5.4-nano", _OPENAI_URL, 403, {}, 422, "llm_auth_failed", id="openai-403-no-body"),
+    pytest.param(
+        "openai/gpt-5.4-nano", _OPENAI_URL, 403,
+        _openai_error("You are not allowed to sample from this model", "invalid_request_error"),
+        422, "llm_auth_failed", id="openai-403-invalid-request",
+    ),
+    pytest.param(
+        "openai/gpt-5.4-nano", _OPENAI_URL, 403,
+        _openai_error("Project does not have access to model", "invalid_request_error", "model_not_found"),
+        422, "llm_auth_failed", id="openai-403-model-not-found",
+    ),
+    pytest.param(
+        "openai/gpt-5.4-nano", _OPENAI_URL, 401,
+        _openai_error("You didn't provide an API key.", "invalid_request_error"),
+        422, "llm_auth_failed", id="openai-401-no-key",
+    ),
+    pytest.param(
+        "openai/gpt-5.4-nano", _OPENAI_URL, 401,
+        _openai_error("Incorrect API key provided:", "invalid_request_error", "invalid_api_key"),
+        422, "llm_auth_failed", id="openai-401-incorrect-key",
+    ),
+    pytest.param(
+        "openai/gpt-5.4-nano", _OPENAI_URL, 404,
+        _openai_error("The model does not exist", "invalid_request_error", "model_not_found"),
+        400, "llm_bad_request", id="openai-404-model-not-found",
+    ),
+    pytest.param(
+        "openai/gpt-5.4-nano", _OPENAI_URL, 409, _openai_error("Conflict", "invalid_request_error"),
+        400, "llm_bad_request", id="openai-409",
+    ),
+    pytest.param(
+        "openai/gpt-5.4-nano", _OPENAI_URL, 500, _openai_error("Server error", "server_error"),
+        503, "llm_unavailable", id="openai-500",
+    ),
+    pytest.param(
+        "openai/gpt-5.4-nano", _OPENAI_URL, 503, _openai_error("Overloaded", "server_error"),
+        503, "llm_unavailable", id="openai-503",
+    ),
+    pytest.param(
+        "anthropic/claude-haiku-4-5", _ANTHROPIC_URL, 403, _anthropic_error("permission_error"),
+        422, "llm_auth_failed", id="anthropic-403",
+    ),
+    pytest.param(
+        "anthropic/claude-haiku-4-5", _ANTHROPIC_URL, 529, _anthropic_error("overloaded_error"),
+        503, "llm_unavailable", id="anthropic-529",
+    ),
+]
+
+
+@pytest.fixture
+def provider_http(monkeypatch: pytest.MonkeyPatch) -> Iterator[respx.MockRouter]:
+    """
+    Fake the providers' HTTP endpoints so LiteLLM's real error translation runs.
+
+    respx sees only httpx's transport, so LiteLLM's default aiohttp transport
+    is switched off and its client cache flushed: a client built earlier in the
+    session (the live smoke test builds them) would bypass the mock. The
+    Anthropic beta-header file comes from LiteLLM's bundled copy instead of
+    GitHub, and LiteLLM's module-level cache of it is restored afterwards, so a
+    later test in the session (the live smoke test) still loads the downloaded
+    copy, as production does.
+    """
+    monkeypatch.setattr(litellm, "disable_aiohttp_transport", True)
+    monkeypatch.setenv("LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS", "True")
+    monkeypatch.setattr(
+        anthropic_beta_headers_manager,
+        "_BETA_HEADERS_CONFIG",
+        anthropic_beta_headers_manager._BETA_HEADERS_CONFIG,
+    )
+    litellm.in_memory_llm_clients_cache.flush_cache()
+    with respx.mock(assert_all_called=False) as router:
+        yield router
+    litellm.in_memory_llm_clients_cache.flush_cache()
+
+
+class TestProviderErrorsThroughLiteLLM:
+    """
+    A provider's HTTP error, translated by LiteLLM itself, reaches the caller
+    as the documented response. Tests that build LiteLLM exceptions by hand
+    encode an assumption about which class LiteLLM raises; these don't.
+    """
+
+    @pytest.mark.parametrize(
+        ("model", "url", "provider_status", "provider_body", "expected_status", "expected_code"),
+        _PROVIDER_ERROR_CASES,
+    )
+    async def test_suggestion_endpoint(
+        self,
+        client: AsyncClient,
+        provider_http: respx.MockRouter,
+        caplog: pytest.LogCaptureFixture,
+        model: str,
+        url: str,
+        provider_status: int,
+        provider_body: dict,
+        expected_status: int,
+        expected_code: str,
+    ) -> None:
+        route = provider_http.post(url).mock(return_value=Response(provider_status, json=provider_body))
+        response = await client.post(
+            "/ai/suggest-tags",
+            headers={"X-LLM-Api-Key": "test-byok-key"},
+            json={"title": "Flask REST API Tutorial", "content_type": "bookmark", "model": model},
+        )
+        assert route.called, "the request bypassed the mocked provider"
+        assert response.status_code == expected_status
+        assert response.json() == {"detail": _ERROR_DETAILS[expected_code], "error_code": expected_code}
+        assert _PROVIDER_TEXT_MARKER not in response.text
+        log_text = _first_party_log_text(caplog)
+        assert f"llm_provider_status code={expected_code} status=" in log_text
+        assert f"model={model} byok=True" in log_text
+        assert _PROVIDER_TEXT_MARKER not in log_text
+        assert "test-byok-key" not in log_text
+
+    @pytest.mark.parametrize(
+        ("model", "url", "provider_status", "provider_body", "expected_status", "expected_code"),
+        _PROVIDER_ERROR_CASES,
+    )
+    async def test_key_check(
+        self,
+        client: AsyncClient,
+        provider_http: respx.MockRouter,
+        model: str,
+        url: str,
+        provider_status: int,
+        provider_body: dict,
+        expected_status: int,
+        expected_code: str,
+    ) -> None:
+        """A refused key (401 or 403, any body) is 200 `valid: false`; anything else keeps its status."""
+        route = provider_http.post(url).mock(return_value=Response(provider_status, json=provider_body))
+        response = await client.post(
+            "/ai/validate-key",
+            headers={"X-LLM-Api-Key": "test-byok-key"},
+            json={"model": model},
+        )
+        assert route.called, "the request bypassed the mocked provider"
+        if provider_status in (401, 403):
+            assert response.status_code == 200
+            assert response.json() == {"valid": False, "error": "API key rejected by provider"}
+        else:
+            assert response.status_code == expected_status
+            assert response.json()["error_code"] == expected_code
+        assert _PROVIDER_TEXT_MARKER not in response.text
+
+    @pytest.mark.parametrize(
+        ("provider_reply", "expected_status", "expected_code"),
+        [
+            pytest.param(
+                Response(429, json=_openai_error("Rate limit reached", "requests")),
+                429, "llm_rate_limited", id="429-rate-limit",
+            ),
+            pytest.param(
+                Response(504, json=_openai_error("Gateway timeout", "server_error")),
+                504, "llm_timeout", id="504-timeout",
+            ),
+        ],
+    )
+    async def test_class_handlers_still_win(
+        self,
+        client: AsyncClient,
+        provider_http: respx.MockRouter,
+        caplog: pytest.LogCaptureFixture,
+        provider_reply: Response,
+        expected_status: int,
+        expected_code: str,
+    ) -> None:
+        """
+        LiteLLM raises `RateLimitError` for a 429 and `Timeout` (status 504)
+        for a 504; their class handlers must answer, not the status handler
+        (which would answer the 504 with 503).
+        """
+        route = provider_http.post(_OPENAI_URL).mock(return_value=provider_reply)
+        response = await client.post(
+            "/ai/suggest-tags",
+            headers={"X-LLM-Api-Key": "test-byok-key"},
+            json={"title": "Flask", "content_type": "bookmark", "model": "openai/gpt-5.4-nano"},
+        )
+        assert route.called, "the request bypassed the mocked provider"
+        assert response.status_code == expected_status
+        assert response.json()["error_code"] == expected_code
+        messages = [r.getMessage() for r in caplog.records if r.name == "api.main"]
+        assert expected_code in messages
+        assert not any(m.startswith("llm_provider_status") for m in messages)
 
 
 # ---------------------------------------------------------------------------

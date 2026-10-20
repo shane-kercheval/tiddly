@@ -55,6 +55,15 @@ class LLMConfig(BaseModel):
     key_source: KeySource
 
 
+# Provider HTTP statuses that mean the provider refused the API key. The API's
+# error mapping (api/main.py) and POST /ai/validate-key both read this, so they
+# agree on what a rejected key is. It is a status, not an exception class:
+# LiteLLM picks the class from the provider's error body as well as its status
+# (an OpenAI 403 becomes `APIError`, `BadRequestError` or `NotFoundError`
+# depending on the body).
+LLM_KEY_REJECTED_STATUSES: frozenset[int] = frozenset({401, 403})
+
+
 # ---------------------------------------------------------------------------
 # Supported models — curated GA models only (no preview/experimental)
 # ---------------------------------------------------------------------------
