@@ -22,12 +22,13 @@ description: |
 # - null: LLM should NOT provide tags parameter (tags preserved automatically)
 # - ["tag1", "tag2"]: Final tags should exactly match (LLM must provide ALL tags)
 
+# Provider-prefixed LiteLLM IDs. `temperature` is the temperature requested: each
+# model gets its settings from the backend's settings table (`model_request_settings`
+# in backend/src/services/llm_service.py), which omits it for models that reject one.
 models:
-  - provider: "anthropic"
-    name: "claude-haiku-4-5"
+  - name: "openai/gpt-6-luna"
     temperature: 0.5
-  - provider: "openai"
-    name: "gpt-4o-mini"
+  - name: "anthropic/claude-haiku-5-5"
     temperature: 0.5
 
 eval:

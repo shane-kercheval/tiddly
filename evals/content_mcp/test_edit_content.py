@@ -28,6 +28,7 @@ from evals.utils import (
     get_content_mcp_config,
     get_tool_predictions,
     load_yaml_config,
+    model_record,
 )
 
 # Load configuration at module level
@@ -47,7 +48,6 @@ async def _run_edit_content_eval(
     content: str,
     search_query: str,
     model_name: str,
-    provider: str,
     temperature: float,
 ) -> dict[str, Any]:
     """
@@ -129,7 +129,6 @@ Use the tool results above as context for the following instruction.
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
-                provider=provider,
                 temperature=temperature,
             )
             predictions = result["predictions"]
@@ -174,6 +173,7 @@ Use the tool results above as context for the following instruction.
                 "tool_result": tool_result,
                 "final_content": final_content,
                 "edit_error": edit_error,
+                "request_settings": result["request_settings"],
                 "usage": result["usage"],
             }
 
@@ -195,7 +195,7 @@ Use the tool results above as context for the following instruction.
         "eval_description": EVAL_DESCRIPTION,
     },
 )
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(300)
 @pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
 async def test_edit_content_notes(
     test_case: TestCase,
@@ -223,10 +223,7 @@ async def test_edit_content_notes(
         content=test_case.input["content"],
         search_query=test_case.input["search_query"],
         model_name=model_config["name"],
-        provider=model_config["provider"],
         temperature=model_config["temperature"],
     )
-    result["model_name"] = model_config["name"]
-    result["model_provider"] = model_config["provider"]
-    result["temperature"] = model_config["temperature"]
+    result.update(model_record(model_config["name"], result["request_settings"]))
     return result

@@ -40,6 +40,7 @@ from evals.utils import (
     get_prompt_mcp_config,
     get_tool_predictions,
     load_yaml_config,
+    model_record,
 )
 
 # Load configuration at module level
@@ -173,7 +174,6 @@ async def _run_update_prompt_eval(
     instruction: str,
     expected_argument_names: list[str] | None,
     model_name: str,
-    provider: str,
     temperature: float,
     show_results: list[str],
     tags: list[str] | None = None,
@@ -201,8 +201,7 @@ async def _run_update_prompt_eval(
             - None: LLM should NOT provide arguments parameter
             - list: LLM should provide arguments, final state should match this list
         model_name: LLM model to use for prediction.
-        provider: LLM provider ("anthropic" or "openai").
-        temperature: Temperature setting for LLM.
+        temperature: Temperature requested; the settings table decides whether it is sent.
         show_results: Which tool results to show the LLM (required). This simulates
             what an LLM would fetch before calling update_prompt - they'd call
             get_prompt_content to see template content, or get_prompt_metadata to
@@ -288,7 +287,6 @@ Use the tool results above as context for the following instruction.
                 prompt=llm_prompt,
                 tools=tools,
                 model_name=model_name,
-                provider=provider,
                 temperature=temperature,
             )
             predictions = result["predictions"]
@@ -352,6 +350,7 @@ Use the tool results above as context for the following instruction.
                     prediction, arguments, expected_argument_names,
                 ),
                 "tags_check": tags_check,
+                "request_settings": result["request_settings"],
                 "usage": result["usage"],
             }
 
@@ -374,7 +373,7 @@ Use the tool results above as context for the following instruction.
         "eval_description": EVAL_DESCRIPTION,
     },
 )
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(300)
 @pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
 async def test_update_prompt(
     test_case: TestCase,
@@ -409,13 +408,10 @@ async def test_update_prompt(
         instruction=test_case.input["instruction"],
         expected_argument_names=test_case.expected.get("expected_argument_names"),
         model_name=model_config["name"],
-        provider=model_config["provider"],
         temperature=model_config["temperature"],
         show_results=test_case.input["show_results"],
         tags=test_case.input.get("tags"),
         expected_tags=test_case.expected.get("expected_tags"),
     )
-    result["model_name"] = model_config["name"]
-    result["model_provider"] = model_config["provider"]
-    result["temperature"] = model_config["temperature"]
+    result.update(model_record(model_config["name"], result["request_settings"]))
     return result

@@ -28,6 +28,7 @@ from evals.utils import (
     get_content_mcp_config,
     get_tool_predictions,
     load_yaml_config,
+    model_record,
 )
 
 
@@ -54,7 +55,6 @@ async def _run_update_item_eval(
     content: str,
     instruction: str,
     model_name: str,
-    provider: str,
     temperature: float,
     tags: list[str] | None = None,
     expected_tags: list[str] | None = None,
@@ -75,8 +75,7 @@ async def _run_update_item_eval(
         content: Initial note content.
         instruction: What to tell the LLM to do.
         model_name: LLM model to use.
-        provider: LLM provider ("anthropic" or "openai").
-        temperature: Temperature setting.
+        temperature: Temperature requested; the settings table decides whether it is sent.
         tags: Initial tags for the note (optional).
         expected_tags: Expected behavior for tags:
             - None: LLM should NOT provide tags parameter
@@ -129,7 +128,6 @@ Use the tool result above as context for the following instruction.
                 prompt=prompt,
                 tools=tools,
                 model_name=model_name,
-                provider=provider,
                 temperature=temperature,
             )
             predictions = result["predictions"]
@@ -191,6 +189,7 @@ Use the tool result above as context for the following instruction.
                 "final_tags": final_tags,
                 "tags_check": tags_check,
                 "tool_error": tool_error,
+                "request_settings": result["request_settings"],
                 "usage": result["usage"],
             }
 
@@ -213,7 +212,7 @@ Use the tool result above as context for the following instruction.
         "eval_description": EVAL_DESCRIPTION,
     },
 )
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(300)
 @pytest.mark.parametrize("model_config", MODELS, ids=[m["name"] for m in MODELS])
 async def test_update_item_notes(
     test_case: TestCase,
@@ -233,12 +232,9 @@ async def test_update_item_notes(
         content=test_case.input["content"],
         instruction=test_case.input["instruction"],
         model_name=model_config["name"],
-        provider=model_config["provider"],
         temperature=model_config["temperature"],
         tags=test_case.input.get("tags"),
         expected_tags=test_case.expected.get("expected_tags"),
     )
-    result["model_name"] = model_config["name"]
-    result["model_provider"] = model_config["provider"]
-    result["temperature"] = model_config["temperature"]
+    result.update(model_record(model_config["name"], result["request_settings"]))
     return result
