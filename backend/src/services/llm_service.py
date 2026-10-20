@@ -227,9 +227,7 @@ def model_request_settings(model: str, temperature: float) -> dict:
     entry says `omit_temperature`, and every other key in the entry is added.
     `LLMService.complete()` and `stream()` both call this, and nothing else
     decides per-model parameters. Code that calls `acompletion` directly must
-    call it too before using a model in the table: today that is the eval judge
-    (`evals/ai_suggestions/helpers.py`), which is fine on `openai/gpt-5.4-mini`
-    but must go through this if it ever moves to a GPT-6 model.
+    call it too (the eval judge in `evals/ai_suggestions/helpers.py` does).
     """
     # Deep copy: callers and LiteLLM get their own nested dicts, never the table's.
     kwargs = copy.deepcopy(_MODEL_REQUEST_SETTINGS.get(model, {}))

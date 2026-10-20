@@ -7,7 +7,13 @@ from litellm import acompletion
 from pydantic import BaseModel
 
 from core.config import Settings
-from services.llm_service import KeySource, LLMConfig, LLMService, _resolve_platform_key
+from services.llm_service import (
+    KeySource,
+    LLMConfig,
+    LLMService,
+    _resolve_platform_key,
+    model_request_settings,
+)
 
 # Eval-tuned overrides for the suggestion LLM calls. The service defaults are
 # tight (15s / 0 retries) because the UI wants fail-fast latency. Evals run
@@ -40,6 +46,20 @@ def create_eval_config(llm_service: LLMService, model_name: str) -> LLMConfig:
     )
 
 
+def request_settings_record(model_name: str, temperature: float) -> dict[str, Any]:
+    """
+    Return the per-model request settings for a model, for a suite's result output.
+
+    `temperature` is the sent value, or None when the settings table omits it;
+    `request_settings` is everything the table adds. Derived by calling the same
+    helper `LLMService.complete()` calls, because `suggest_*` returns only the
+    result and the cost. So it documents the run but cannot detect a bypassed
+    table: a model's mean cost per call is the check for that.
+    """
+    settings = model_request_settings(model_name, temperature)
+    return {"temperature": settings.get("temperature"), "request_settings": settings}
+
+
 def create_judge_llm_function(
     judge_model: str,
 ) -> Callable:
@@ -47,7 +67,9 @@ def create_judge_llm_function(
     Create a judge LLM function bound to a specific model.
 
     Returns an async callable with signature (prompt, response_format) -> (parsed, metadata)
-    as required by LLMJudgeCheck.
+    as required by LLMJudgeCheck. The judge calls `acompletion` directly but takes its
+    per-model settings from the same table as the service, so moving it to a model that
+    rejects temperature 0 (GPT-6, Claude 5.5) needs only a YAML change.
     """
 
     async def judge_llm_function(
@@ -58,8 +80,8 @@ def create_judge_llm_function(
             model=judge_model,
             messages=[{"role": "user", "content": prompt}],
             response_format=response_format,
-            temperature=0,
             num_retries=2,
+            **model_request_settings(judge_model, 0),
         )
         content = response.choices[0].message.content
         parsed = response_format.model_validate_json(content)

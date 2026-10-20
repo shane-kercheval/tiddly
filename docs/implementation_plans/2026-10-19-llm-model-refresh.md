@@ -211,7 +211,7 @@ _MODEL_REQUEST_SETTINGS: dict[str, dict] = {
 
 At this milestone the allowlist and the `llm_model_*` defaults still name today's seven models, so each of those gets a `{}` entry (verified by the 1.106.0 smoke run to accept the caller's temperature); milestone 4 removes them with the swap. The table's comment states the rationale from the briefer's item 2 (why a table and not `drop_params`), the meaning of `{}`, and the rule that every entry is verified by the smoke test. The helper is public (no leading underscore) because the evals import it in milestone 3 to record what the table says for a model. `complete()` replaces its `"temperature": _normalize_temperature(...)` entry with the helper's kwargs; `stream()` does the same (today it sends the caller's temperature with no adjustment at all, and the chat feature, when it ships, would fail on every model in this table).
 
-One combination in the table was not run in testing: Luna with temperature 0 and effort `none` (the smoke test's and key check's settings). OpenAI's rule allows it, and the smoke test in milestone 4 proves it. Every other entry's exact combination was run (appendix A).
+One combination in the table was not run in the investigation: Luna with temperature 0 and effort `none` (the smoke test's and key check's settings). OpenAI's rule allows it, and the milestone 2 review round ran it: the smoke test passed for Luna with that entry (with Luna temporarily on the allowlist), and the milestone 4 smoke test runs it again with Luna on the allowlist. Every other entry's exact combination was run (appendix A).
 
 ### Definition of done
 
@@ -260,6 +260,66 @@ Measure whether the new budget models suggest as well as the ones they replace, 
 - The gate verdict and the comparison table are in the PR description and appended to this plan under a "Results" heading, following the repo's pattern of plans that record verification results (see `2026-10-02-cimd.md`).
 - `make evals-*` targets lint `evals/` through `make evals`; run `uv run ruff check evals` by hand since the per-suite targets do not.
 
+### Results (2026-10-20)
+
+**Gate: passed on every suite.** GPT-6 Luna's pooled pass rate is within 5 points of `gpt-5.4-nano`'s on all five suites, so the platform default moves to Luna in milestone 4. One full run, five suites run one at a time with `make evals-ai-suggestions-<suite>`, five models each, 440 samples per model. Judge `openai/gpt-5.4-mini` throughout. Result files: the 25 files in `evals/ai_suggestions/results/` from `2026-10-20T05-37-09` to `2026-10-20T05-44-57`, one per suite and model.
+
+| Suite | Luna minus nano (pooled points) |
+|---|---|
+| Tags | +6.4 (101/110 vs 94/110) |
+| Metadata | +0.0 (110/110 vs 110/110) |
+| Relationships | +2.5 (78/80 vs 76/80) |
+| Prompt arguments | −3.3 (57/60 vs 59/60) |
+| Prompt argument fields | +2.5 (80/80 vs 78/80) |
+
+Per suite and model, from the result files. Pooled pass rate is passed samples over all samples; a test case passes at 8 of 10 samples; latency is per suggestion call; cost is LiteLLM's per call.
+
+| Suite | Model | Pooled pass rate | Cases passing | p95 latency | Mean cost per call |
+|---|---|---|---|---|---|
+| Tags | gpt-5.4-nano | 85.5% (94/110) | 9/11 | 1.32 s | $0.000139 |
+| Tags | claude-haiku-4-5 | 96.4% (106/110) | 10/11 | 1.63 s | $0.000867 |
+| Tags | gpt-6-luna | 91.8% (101/110) | 10/11 | 1.35 s | $0.000065 |
+| Tags | gemini-3.5-flash-lite | 99.1% (109/110) | 11/11 | 0.87 s | $0.000206 |
+| Tags | claude-haiku-5-5 | 98.2% (108/110) | 11/11 | 1.44 s | $0.000116 |
+| Metadata | gpt-5.4-nano | 100.0% (110/110) | 11/11 | 1.15 s | $0.000132 |
+| Metadata | claude-haiku-4-5 | 100.0% (110/110) | 11/11 | 3.31 s | $0.000802 |
+| Metadata | gpt-6-luna | 100.0% (110/110) | 11/11 | 1.47 s | $0.000059 |
+| Metadata | gemini-3.5-flash-lite | 100.0% (110/110) | 11/11 | 0.89 s | $0.000162 |
+| Metadata | claude-haiku-5-5 | 100.0% (110/110) | 11/11 | 2.13 s | $0.000109 |
+| Relationships | gpt-5.4-nano | 95.0% (76/80) | 7/8 | 1.26 s | $0.000185 |
+| Relationships | claude-haiku-4-5 | 100.0% (80/80) | 8/8 | 2.94 s | $0.001297 |
+| Relationships | gpt-6-luna | 97.5% (78/80) | 8/8 | 1.63 s | $0.000085 |
+| Relationships | gemini-3.5-flash-lite | 100.0% (80/80) | 8/8 | 1.01 s | $0.000359 |
+| Relationships | claude-haiku-5-5 | 100.0% (80/80) | 8/8 | 2.50 s | $0.000177 |
+| Prompt arguments | gpt-5.4-nano | 98.3% (59/60) | 6/6 | 2.24 s | $0.000252 |
+| Prompt arguments | claude-haiku-4-5 | 100.0% (60/60) | 6/6 | 3.71 s | $0.001277 |
+| Prompt arguments | gpt-6-luna | 95.0% (57/60) | 6/6 | 2.22 s | $0.000090 |
+| Prompt arguments | gemini-3.5-flash-lite | 100.0% (60/60) | 6/6 | 1.18 s | $0.000366 |
+| Prompt arguments | claude-haiku-5-5 | 100.0% (60/60) | 6/6 | 2.89 s | $0.000161 |
+| Prompt argument fields | gpt-5.4-nano | 97.5% (78/80) | 8/8 | 1.04 s | $0.000112 |
+| Prompt argument fields | claude-haiku-4-5 | 100.0% (80/80) | 8/8 | 2.26 s | $0.000665 |
+| Prompt argument fields | gpt-6-luna | 100.0% (80/80) | 8/8 | 1.35 s | $0.000046 |
+| Prompt argument fields | gemini-3.5-flash-lite | 100.0% (80/80) | 8/8 | 0.93 s | $0.000142 |
+| Prompt argument fields | claude-haiku-5-5 | 100.0% (80/80) | 8/8 | 2.12 s | $0.000085 |
+
+**Bypass check: passed on every suite.** On the tag prompt, Luna's mean cost per call is $0.000065 (appendix A: $0.000071 at effort `none`, about $0.0001 when it reasons) and Haiku 5.5's is $0.000116 (appendix A: $0.00013 with thinking off, $0.00021 to $0.00023 with it on). On the other suites, which have no appendix reference, the ratios held: Haiku 5.5 to Haiku 4.5 stays at 0.13 to 0.14 on every suite, and Luna to nano is 0.36 to 0.47; reasoning switched on would raise the candidate's cost against its baseline, not lower it. Every result records the settings the table sends: temperature 0.7 for nano, Haiku 4.5, and Luna (Luna with `reasoning_effort: none`), `null` for Gemini and for Haiku 5.5 (with `thinking: disabled`).
+
+**For information.** Haiku 5.5 against Haiku 4.5: +1.8 points on tags, equal on the other four suites, at about 13% of the cost per call. The pinned Gemini 3.5 Flash-Lite against the alias `gemini-flash-lite-latest` in the most recent earlier runs (May 2026 where one exists, otherwise April 2026):
+
+| Suite | Pinned 3.5 Flash-Lite (this run) | Earlier alias run | p95 latency, this run vs earlier |
+|---|---|---|---|
+| Tags | 99.1% (109/110) | 90.9% (100/110), 2026-04-18 | 0.87 s vs 13.48 s |
+| Metadata | 100.0% (110/110) | 98.2% (108/110), 2026-05-14 | 0.89 s vs 15.04 s |
+| Relationships | 100.0% (80/80) | 100.0% (80/80), 2026-04-18 | 1.01 s vs 16.64 s |
+| Prompt arguments | 100.0% (60/60) | 95.0% (57/60), 2026-05-14 | 1.18 s vs 24.30 s |
+| Prompt argument fields | 100.0% (80/80) | 98.8% (79/80), 2026-05-14 | 0.93 s vs 50.49 s |
+
+The earlier runs' p95 latencies (13 to 50 s) are far above this run's; why was not investigated.
+
+**Spend: $2.52 for the run.** Suggestion calls $0.673 (summed from `usage.total_cost`); judge $1.851, computed from its token counts (1,341,552 input and 187,756 output) at `gpt-5.4-mini`'s $0.75 / $4.50 per million. By suite, suggestion calls plus judge: tags $0.153 + $0.720; metadata $0.139 + $0.311; relationships $0.168 + $0.388; prompt arguments $0.129 + $0.172; prompt argument fields $0.084 + $0.261.
+
+Four pytest tests reported failure because a test case fell below its 8-of-10 threshold, not because of errors. On tags, case `idiosyncratic-vocabulary` failed for nano, Haiku 4.5, and Luna (the `disjoint` check: a tag the case excludes was suggested), and case `title-only` also failed for nano (the judge check). On relationships, case `description-only-source` failed for nano (the `subset` check). Every result file has zero errored results and a cost for every sample.
+
 ## Milestone 4: swap the models
 
 ### Goal and outcome
@@ -270,7 +330,7 @@ Put the current generation in front of users. After this milestone:
 - The Settings AI page's model dropdown (fed by `/ai/models`) offers `gemini/gemini-3.5-flash-lite`, `openai/gpt-6-luna`, `openai/gpt-6.1-sol`, `openai/gpt-6-astra`, `anthropic/claude-haiku-5-5`, `anthropic/claude-sonnet-5-5`, `anthropic/claude-opus-5-5`, with prices from the price list.
 - A BYOK user whose browser still sends a retired ID gets the same-provider replacement and their request succeeds; a user who sends an ID that was never offered still gets 400 `Unsupported model`.
 - The transform, auto-complete, and chat defaults (not yet wired to any feature) are `gemini/gemini-3.5-flash-lite`, `gemini/gemini-3.5-flash-lite`, `openai/gpt-6.1-sol`.
-- The smoke test passes for all seven new models, at temperature 0, which proves the settings table against the live providers.
+- The smoke test passes for all seven new models, at temperature 0, which proves the providers accept every entry in the settings table, and that no model reasons on the smoke prompt unless its entry sets an effort above `none`. It does not prove an entry turns off thinking a model does only on real prompts; the evals in milestone 3 checked that for Haiku 5.5 by cost per call.
 
 ### Implementation outline
 
@@ -326,13 +386,13 @@ Every document that states a model, a default, the price-list behavior, or the e
 
 Rewrite each section as if fresh (current state, not history):
 
-- `docs/architecture.md`: §2 line 172 and §3 line 189 (the suggestions default); §7 defaults table and the "7 GA models" sentence (lines 338-345); "Cost tracking" item 1 (prices come from the list LiteLLM downloads from GitHub `main` at import, with the copy bundled in the installed LiteLLM as the fallback when the fetch fails); "Errors" line 370: replace "other → 503" with the real mapping (three handlers by class: rate limit → 429 `llm_rate_limited`, timeout → 504 `llm_timeout`, connection → 502 `llm_connection_error`; then every other provider error by its HTTP status, whatever class LiteLLM raised: 401 and 403 → 422 `llm_auth_failed`, 429 → 429, 408 or 504 → 504, other 4xx → 400 `llm_bad_request`, any other 5xx or no status → 503 `llm_unavailable`; `llm_parse_failed` → 502), and say why it is by status (LiteLLM picks the class from the provider's error body too). Include the per-provider table of what an unreachable provider returns (under "Known limitations": on LiteLLM 1.106.0, OpenAI and Anthropic → 503 `llm_unavailable`, Gemini → 502 `llm_connection_error`), so nobody reads `llm_connection_error` as the answer for every unreachable provider. Also record the one exception to mapping by status: a provider error whose text mentions rate limiting answers 429 `llm_rate_limited` whatever its status (see "Known limitations"). Add to §16 "Things that are easy to miss": every allowlisted model and every `llm_model_*` default needs a settings-table entry (`{}` when the model accepts the caller's temperature), an offline test enforces it, and the smoke test at temperature 0 is what proves an entry; retired allowlist IDs go in the map, same provider only; LiteLLM downloads the price list and the Anthropic beta-header file from its GitHub `main` at runtime by decision (user's item 9), so prices and request behavior can change at a restart or mid-process without a deploy, and `LITELLM_LOCAL_MODEL_COST_MAP=True` plus `LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS=True` is the switch if that ever bites; `test_all_models_have_pricing` passes for a model newer than the pinned LiteLLM only while the download works, because the bundled fallback has no price for it. Extend the §17 "Hardcoded model IDs in `schemas/ai.py`" entry to name the settings table, the map, and the eval configs as places that change with the allowlist.
+- `docs/architecture.md`: §2 line 172 and §3 line 189 (the suggestions default); §7 defaults table and the "7 GA models" sentence (lines 338-345); "Cost tracking" item 1 (prices come from the list LiteLLM downloads from GitHub `main` at import, with the copy bundled in the installed LiteLLM as the fallback when the fetch fails); "Errors" line 370: replace "other → 503" with the real mapping (three handlers by class: rate limit → 429 `llm_rate_limited`, timeout → 504 `llm_timeout`, connection → 502 `llm_connection_error`; then every other provider error by its HTTP status, whatever class LiteLLM raised: 401 and 403 → 422 `llm_auth_failed`, 429 → 429, 408 or 504 → 504, other 4xx → 400 `llm_bad_request`, any other 5xx or no status → 503 `llm_unavailable`; `llm_parse_failed` → 502), and say why it is by status (LiteLLM picks the class from the provider's error body too). Include the per-provider table of what an unreachable provider returns (under "Known limitations": on LiteLLM 1.106.0, OpenAI and Anthropic → 503 `llm_unavailable`, Gemini → 502 `llm_connection_error`), so nobody reads `llm_connection_error` as the answer for every unreachable provider. Also record the one exception to mapping by status: a provider error whose text mentions rate limiting answers 429 `llm_rate_limited` whatever its status (see "Known limitations"). Add to §16 "Things that are easy to miss": every allowlisted model and every `llm_model_*` default needs a settings-table entry (`{}` when the model accepts the caller's temperature), an offline test enforces it, and the smoke test at temperature 0 proves the provider accepts an entry, while for a model that thinks by default, check its reasoning tokens once on a real suggestion prompt (see the comment on `_MODEL_REQUEST_SETTINGS`); retired allowlist IDs go in the map, same provider only; LiteLLM downloads the price list and the Anthropic beta-header file from its GitHub `main` at runtime by decision (user's item 9), so prices and request behavior can change at a restart or mid-process without a deploy, and `LITELLM_LOCAL_MODEL_COST_MAP=True` plus `LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS=True` is the switch if that ever bites; `test_all_models_have_pricing` passes for a model newer than the pinned LiteLLM only while the download works, because the bundled fallback has no price for it. Extend the §17 "Hardcoded model IDs in `schemas/ai.py`" entry to name the settings table, the map, and the eval configs as places that change with the allowlist.
 - `README_DEPLOY.md:271` (the default) and the `LLM_MODEL_*` block at 287-290: state the rule, "the code defaults in `core/config.py` apply unless these are set", list the new values as the overrides available, and do not describe what is or isn't set in Railway today (briefer's item 14).
 - `.env.example:87`: the comment says the suggestions default is Gemini; it is OpenAI.
 - `llm_service.py:104`: "Pricing auto-updates with LiteLLM version bumps" is wrong with the download on: prices come from the list LiteLLM downloads from GitHub at import (the bundled copy is the fallback), so they can change at any restart without a version bump. Reword it to say that.
 - `evals/README.md`: the model-configuration example still shows a valid model; add a short section naming the five suggestion-eval models, the judge, the per-suite targets, and the gate rule.
 - `frontend/src/content/data/changelog.json`: a new month at the top (`"month": "October 2026"`, a theme, an "Improved" category) with one entry for BYOK users (the new model list; retired OpenAI picks now use GPT-6 Luna, Claude picks move to their 5.5 versions, and users can pick again in Settings) and one for the platform default. `tag: "ai"` is a valid tag (`changelog.ts` validates `web | api | cli | extension | site | performance | ai`); set `pr` once the PR number exists. `npx vitest run src/content/data/changelog.test.ts` must pass.
-- `AGENTS.md`, under "Don't": one line, "Don't add a model to `_SUPPORTED_MODEL_DEFS` without checking whether it needs a `_MODEL_REQUEST_SETTINGS` entry; run the LLM smoke test."
+- `AGENTS.md`, under "Don't": one line, "Don't add a model to `_SUPPORTED_MODEL_DEFS` without checking whether it needs a `_MODEL_REQUEST_SETTINGS` entry; run the LLM smoke test, and, for a model that thinks by default, check its reasoning tokens once on a real suggestion prompt (see the comment on `_MODEL_REQUEST_SETTINGS`)."
 - Privacy: no change. The "AI Features" section and the provider list name providers and data categories, not models, and the default provider stays OpenAI (`privacy.md:88-90`). State in the PR that this was checked.
 - This plan: append the "Results" section from milestone 3.
 

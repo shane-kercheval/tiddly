@@ -528,7 +528,9 @@ class TestModelRequestSettings:
         missing = sorted((allowlist | set(defaults.values())) - _MODEL_REQUEST_SETTINGS.keys())
         assert not missing, (
             f"No _MODEL_REQUEST_SETTINGS entry for {missing}. Add one ({{}} if the model "
-            "accepts the caller's temperature) and run the LLM smoke test."
+            "accepts the caller's temperature) and run the LLM smoke test. For a model that "
+            "thinks by default, also check its reasoning tokens once on a real suggestion "
+            "prompt (see the comment on _MODEL_REQUEST_SETTINGS)."
         )
         off_allowlist = {name: model for name, model in defaults.items() if model not in allowlist}
         assert not off_allowlist, f"llm_model_* defaults not on the allowlist: {off_allowlist}"

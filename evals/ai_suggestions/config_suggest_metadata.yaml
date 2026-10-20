@@ -6,12 +6,20 @@ description: 'Tests metadata (title/description) suggestion quality by calling
   works correctly and that generated content is relevant and well-formatted.
 
   '
+# Baselines (gpt-5.4-nano, claude-haiku-4-5) first, then the candidates.
+# `temperature` is the value requested of LLMService (its default); what is
+# actually sent comes from the settings table and is recorded per result as
+# `request_settings`.
 models:
-- name: gemini/gemini-flash-lite-latest
-  temperature: 0.7
 - name: openai/gpt-5.4-nano
   temperature: 0.7
 - name: anthropic/claude-haiku-4-5
+  temperature: 0.7
+- name: openai/gpt-6-luna
+  temperature: 0.7
+- name: gemini/gemini-3.5-flash-lite
+  temperature: 0.7
+- name: anthropic/claude-haiku-5-5
   temperature: 0.7
 eval:
   judge_model: openai/gpt-5.4-mini
