@@ -3,19 +3,20 @@
  * checklist and plain items, asserting the real `index.css` rule against the
  * ACTUAL Milkdown-parsed DOM.
  *
- * jsdom doesn't run Tailwind, so computed `list-style` isn't available here.
+ * jsdom doesn't run Tailwind, so computed styles aren't available here.
  * Instead the tests parse the stylesheet source with PostCSS: they check which
- * lists the checklist-indent selector matches, and that no rule hiding list
- * markers matches a plain item or the list holding it. This reads source CSS,
- * so it can't see the compiled cascade or a marker hidden some other way (e.g.
- * `display: none` on the item).
+ * lists the checklist-indent selector matches, and that no rule hiding bullets
+ * (no marker, or a `display` other than `list-item`) matches a plain item or,
+ * for markers, the list holding it. This reads source CSS, so it can't see the
+ * compiled cascade or a bullet hidden from outside `index.css` (e.g. a
+ * `list-none` class added from TSX).
  */
 import { describe, it, expect } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import postcss from 'postcss'
-import type { Rule } from 'postcss'
+import type { ChildNode, Container, Rule } from 'postcss'
 import { MilkdownEditor } from './MilkdownEditor'
 
 // Read from disk: Vitest stubs CSS imports to an empty string, even with `?raw`.
@@ -42,26 +43,66 @@ function checklistIndentSelector(): string {
   return selectors[0]
 }
 
-function hidesMarkers(rule: Rule): boolean {
-  if (rule.selector.includes('::marker')) return true
-  let hides = false
-  rule.each((node) => {
-    if (node.type === 'decl' && /^list-style(-type)?$/.test(node.prop) && /\bnone\b/.test(node.value)) hides = true
-    if (node.type === 'atrule' && node.name === 'apply' && node.params.split(/\s+/).includes('list-none')) hides = true
+/**
+ * Which elements a bullet-hiding rule must not match: `list` for a marker
+ * style, which list items inherit from their list; `item` for `display`, which
+ * removes the bullet only from the element it's set on.
+ */
+type Reach = 'item' | 'list'
+
+interface HidingSelector {
+  selector: string
+  reach: Reach
+}
+
+const DISPLAY_UTILITIES = ['flex', 'inline-flex', 'block', 'inline-block', 'inline', 'grid', 'inline-grid', 'hidden', 'contents', 'table', 'flow-root']
+
+/** A rule's declarations and `@apply`s, including those inside at-rules nested in it (e.g. `@media`). */
+function ownNodes(container: Container): ChildNode[] {
+  const nodes: ChildNode[] = []
+  container.each((node) => {
+    if (node.type === 'rule') return
+    nodes.push(node)
+    if (node.type === 'atrule' && node.nodes) nodes.push(...ownNodes(node))
   })
-  return hides
+  return nodes
+}
+
+/** The utility in an `@apply` token, without variants or `!` (`md:!list-none` → `list-none`). */
+function utilityName(token: string): string | undefined {
+  return token.match(/^(?:[\w-]+:)*!?([\w-]+)!?$/)?.[1]
+}
+
+function hidingReaches(rule: Rule): Set<Reach> {
+  const reaches = new Set<Reach>()
+  for (const node of ownNodes(rule)) {
+    if (node.type === 'decl') {
+      if (/^list-style(-type)?$/.test(node.prop) && /\bnone\b/.test(node.value)) reaches.add('list')
+      if (node.prop === 'display' && !/\blist-item\b/.test(node.value)) reaches.add('item')
+    } else if (node.type === 'atrule' && node.name === 'apply') {
+      const utilities = node.params.split(/\s+/).map(utilityName)
+      if (utilities.includes('list-none')) reaches.add('list')
+      if (utilities.some((name) => name !== undefined && DISPLAY_UTILITIES.includes(name))) reaches.add('item')
+    }
+  }
+  return reaches
 }
 
 /**
- * Selectors of every rule that hides list markers, with pseudo-elements removed:
- * jsdom's `matches()` returns false for a pseudo-element selector, which would
- * skip a `::marker` rule silently.
+ * Selectors of every rule that hides bullets. Any `::marker` rule counts, with
+ * the pseudo-element removed: jsdom's `matches()` returns false for it, which
+ * would skip the rule silently. A `::before`/`::after` selector styles
+ * generated content, not the item, so it doesn't count.
  */
-function markerHidingSelectors(): string[] {
-  return allRules()
-    .filter(hidesMarkers)
-    .flatMap((rule) => rule.selectors)
-    .map((selector) => selector.replace(/::?(marker|before|after)\b/g, '').trim() || '*')
+function bulletHidingSelectors(): HidingSelector[] {
+  return allRules().flatMap((rule) => {
+    const reaches = hidingReaches(rule)
+    return rule.selectors.flatMap((selector): HidingSelector[] => {
+      if (selector.includes('::marker')) return [{ selector: selector.replace(/::marker\b/g, '').trim() || '*', reach: 'list' }]
+      if (/::?(before|after)\b/.test(selector)) return []
+      return [...reaches].map((reach) => ({ selector, reach }))
+    })
+  })
 }
 
 async function renderPreview(value: string): Promise<HTMLElement> {
@@ -91,10 +132,11 @@ function itemTags(container: HTMLElement): Array<[string, boolean]> {
 }
 
 describe('MilkdownEditor — mixed checklist and plain lists (reading mode)', () => {
-  it('no marker-hiding rule matches a plain item or the list holding it', async () => {
-    const hiding = markerHidingSelectors()
-    // Guards against a vacuous pass: the checklist items' own `list-none` rule must be found.
-    expect(hiding.some((selector) => /li\[data-item-type=["']?task["']?\]$/.test(selector))).toBe(true)
+  it('no bullet-hiding rule matches a plain item, and no marker-hiding rule its list', async () => {
+    const hiding = bulletHidingSelectors()
+    // Guards against a vacuous pass: the checklist items' own rule hides markers (`list-none`) and sets `flex`.
+    const checklistItemReaches = hiding.filter(({ selector }) => /li\[data-item-type=["']?task["']?\]$/.test(selector)).map(({ reach }) => reach)
+    expect(new Set(checklistItemReaches)).toEqual(new Set<Reach>(['item', 'list']))
 
     for (const markdown of [ISSUE_174, TIGHT_AND_LOOSE, DEEP_CHECKBOX]) {
       const container = await renderPreview(markdown)
@@ -102,9 +144,10 @@ describe('MilkdownEditor — mixed checklist and plain lists (reading mode)', ()
       expect(plainItems.length).toBeGreaterThan(0)
 
       const hidden = plainItems.flatMap((li) =>
-        [li, li.parentElement!].flatMap((el) =>
-          hiding.filter((selector) => el.matches(selector)).map((selector) => `${ownText(li)} <${el.tagName.toLowerCase()}>: ${selector}`),
-        ),
+        hiding
+          .flatMap(({ selector, reach }) => (reach === 'list' ? [li, li.parentElement!] : [li]).map((el) => ({ el, selector, reach })))
+          .filter(({ el, selector }) => el.matches(selector))
+          .map(({ el, selector, reach }) => `${ownText(li)} <${el.tagName.toLowerCase()}> ${reach}: ${selector}`),
       )
       expect(hidden).toEqual([])
     }
