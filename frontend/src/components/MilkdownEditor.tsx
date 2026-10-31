@@ -363,13 +363,6 @@ function EditorToolbar({ getEditor, onLinkClick, onCodeBlockToggle, onBulletList
 }
 
 /**
- * Width of the clickable area for checklist checkboxes (in pixels).
- * This matches the checkbox pseudo-element which is 16px wide (w-4) in index.css.
- * Only clicks directly on the checkbox should toggle it, not clicks in the gap.
- */
-const CHECKBOX_CLICK_AREA_WIDTH = 16
-
-/**
  * Link dialog for inserting/editing links.
  */
 interface LinkDialogProps {
@@ -1450,11 +1443,11 @@ function MilkdownEditorInner({
       const checklistItem = target.closest('li[data-item-type="task"]') as HTMLElement | null
 
       if (checklistItem) {
-        // Check if click was on the checkbox area (left side of the item)
+        // The checkbox hangs left of the item's box (index.css), so only a click on it lands left of the box.
         const rect = checklistItem.getBoundingClientRect()
         const clickX = e.clientX - rect.left
 
-        if (clickX < CHECKBOX_CLICK_AREA_WIDTH) {
+        if (clickX < 0) {
           const editor = get()
           if (editor) {
             const view = editor.ctx.get(editorViewCtx)

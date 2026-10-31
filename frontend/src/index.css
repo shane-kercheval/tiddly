@@ -742,24 +742,13 @@ body {
  * Note: Milkdown's GFM plugin tags items as `data-item-type="task"` — that
  * attribute name is owned upstream and can't be renamed; we surface it as
  * "Checklist" everywhere in our UI.
- * IMPORTANT: The checkbox click detection in MilkdownEditor.tsx (CHECKBOX_CLICK_AREA_WIDTH)
- * depends on these dimensions. The checkbox is 16px (h-4 w-4) + 8px gap = ~24px total.
- * If you change these styles, update CHECKBOX_CLICK_AREA_WIDTH in MilkdownEditor.tsx accordingly.
+ * A checklist item stays a list item with no marker, and its checkbox hangs in
+ * the marker gutter where a sibling's bullet or number is drawn. That keeps
+ * mixed lists aligned and ordered lists counting the item. The checkbox click
+ * handler in MilkdownEditor.tsx relies on the checkbox sitting left of the item.
  */
 .milkdown-wrapper .milkdown li[data-item-type="task"] {
-  @apply list-none flex flex-wrap items-start gap-x-2;
-}
-
-/* Paragraph content inside checklist items should stay inline with checkbox */
-.milkdown-wrapper .milkdown li[data-item-type="task"] > p {
-  @apply flex-1 min-w-0;
-}
-
-/* Nested lists inside checklist items should take full width to appear below */
-.milkdown-wrapper .milkdown li[data-item-type="task"] > ul,
-.milkdown-wrapper .milkdown li[data-item-type="task"] > ol {
-  @apply w-full my-0;
-  margin-left: 1.5rem; /* Indent nested lists */
+  @apply list-none relative;
 }
 
 /* Remove margin from all nested lists within checklist items to prevent extra gaps */
@@ -768,14 +757,24 @@ body {
   @apply my-0;
 }
 
+/* CSS can't read where the browser draws a list marker, so the checkbox is
+ * centered 0.8em left of the text, near where Chrome draws a bullet or a
+ * single-digit number. Sized in em to scale with the 15px reading text: a 16px
+ * box with a 4px gap before the text. */
 .milkdown-wrapper .milkdown li[data-item-type="task"]::before {
   content: '';
-  @apply mt-1 h-4 w-4 rounded border border-gray-300 bg-white flex-shrink-0;
-  display: inline-block;
-  min-width: 1rem;
-  min-height: 1rem;
-  cursor: pointer;
+  @apply absolute border border-gray-300 bg-white;
+  width: calc(16em / 15);
+  height: calc(16em / 15);
+  top: calc(4em / 15);
+  left: calc(-20em / 15);
+  border-radius: calc(4em / 15);
   pointer-events: auto;
+}
+
+/* Only an editable view toggles a checkbox on click. */
+.milkdown-wrapper .milkdown .ProseMirror[contenteditable="true"] li[data-item-type="task"]::before {
+  cursor: pointer;
 }
 
 .milkdown-wrapper .milkdown li[data-item-type="task"][data-checked="true"]::before {
@@ -784,12 +783,6 @@ body {
   background-size: 100% 100%;
   background-position: center;
   background-repeat: no-repeat;
-}
-
-/* Narrower indent for a list holding checklist items directly. It leaves markers
- * alone: checklist items hide their own above, and plain items keep their bullets. */
-.milkdown-wrapper .milkdown ul:has(> li[data-item-type="task"]) {
-  @apply pl-4;
 }
 
 /* Horizontal rule */
