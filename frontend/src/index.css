@@ -757,16 +757,24 @@ body {
   @apply my-0;
 }
 
-/* Centered 0.8em left of the text: within 2px of where Chrome draws a bullet or
- * a single-digit number (about 0.7em), leaving a 4px gap before the text. */
+/* CSS can't read where the browser draws a list marker, so the checkbox is
+ * centered 0.8em left of the text, near where Chrome draws a bullet or a
+ * single-digit number. Sized in em to scale with the 15px reading text: a 16px
+ * box with a 4px gap before the text. */
 .milkdown-wrapper .milkdown li[data-item-type="task"]::before {
   content: '';
-  @apply absolute top-1 h-4 w-4 rounded border border-gray-300 bg-white;
-  left: calc(-0.8em - 0.5rem);
-  min-width: 1rem;
-  min-height: 1rem;
-  cursor: pointer;
+  @apply absolute border border-gray-300 bg-white;
+  width: calc(16em / 15);
+  height: calc(16em / 15);
+  top: calc(4em / 15);
+  left: calc(-20em / 15);
+  border-radius: calc(4em / 15);
   pointer-events: auto;
+}
+
+/* Only an editable view toggles a checkbox on click. */
+.milkdown-wrapper .milkdown .ProseMirror[contenteditable="true"] li[data-item-type="task"]::before {
+  cursor: pointer;
 }
 
 .milkdown-wrapper .milkdown li[data-item-type="task"][data-checked="true"]::before {

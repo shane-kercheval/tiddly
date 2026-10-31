@@ -6,10 +6,11 @@
  * jsdom doesn't run Tailwind, so computed styles aren't available here.
  * Instead the tests parse the stylesheet source with PostCSS: no rule hiding
  * bullets (no marker, or a `display` other than `list-item`) may match a plain
- * item or, for markers, the list holding it, and no rule may take a checklist
- * item out of `display: list-item`. This reads source CSS, so it can't see the
- * compiled cascade, a bullet hidden from outside `index.css` (e.g. a
- * `list-none` class added from TSX), or where markers and checkboxes are drawn.
+ * item or, for markers, the list holding it; no rule may take a checklist item
+ * out of `display: list-item`; and a checkbox gets a pointer cursor only in an
+ * editable view. This reads source CSS, so it can't see the compiled cascade,
+ * a bullet hidden from outside `index.css` (e.g. a `list-none` class added
+ * from TSX), or where markers and checkboxes are drawn.
  */
 import { describe, it, expect } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
@@ -97,8 +98,20 @@ function bulletHidingSelectors(): HidingSelector[] {
   })
 }
 
-async function renderPreview(value: string): Promise<HTMLElement> {
-  const { container } = render(<MilkdownEditor value={value} onChange={() => {}} readOnly={true} />)
+/**
+ * Selectors that give a checklist item's checkbox a pointer cursor, with the
+ * `::before` removed so jsdom's `matches()` can test them against the item.
+ */
+function checkboxPointerSelectors(): string[] {
+  return allRules()
+    .filter((rule) => ownNodes(rule).some((node) => node.type === 'decl' && node.prop === 'cursor' && node.value === 'pointer'))
+    .flatMap((rule) => rule.selectors)
+    .filter((selector) => /li\[data-item-type=["']?task["']?\]::?before$/.test(selector))
+    .map((selector) => selector.replace(/::?before$/, ''))
+}
+
+async function renderPreview(value: string, readOnly = true): Promise<HTMLElement> {
+  const { container } = render(<MilkdownEditor value={value} onChange={() => {}} readOnly={readOnly} />)
   await waitFor(() => expect(container.querySelector('.ProseMirror li')).toBeTruthy())
   return container
 }
@@ -150,6 +163,31 @@ describe('MilkdownEditor — mixed checklist and plain lists (reading mode)', ()
       )
       expect(moved).toEqual([])
     }
+  })
+
+  it('ordered mixed list renders as one <ol> with the checklist item in the middle', async () => {
+    const container = await renderPreview(ORDERED_MIXED)
+
+    const lists = container.querySelectorAll('.ProseMirror ul, .ProseMirror ol')
+    expect(Array.from(lists).map((list) => list.tagName)).toEqual(['OL'])
+    expect(Array.from(lists[0].children).map((li) => [ownText(li), li.getAttribute('data-item-type') === 'task'])).toEqual([
+      ['ordered one', false],
+      ['ordered task', true],
+      ['ordered three', false],
+    ])
+  })
+
+  it('a checkbox shows the pointer cursor only in an editable view', async () => {
+    const pointer = checkboxPointerSelectors()
+    expect(pointer.length).toBeGreaterThan(0)
+
+    const readOnlyItems = Array.from((await renderPreview(ISSUE_174)).querySelectorAll('.ProseMirror li[data-item-type="task"]'))
+    expect(readOnlyItems.length).toBeGreaterThan(0)
+    expect(readOnlyItems.filter((li) => pointer.some((selector) => li.matches(selector))).map(ownText)).toEqual([])
+
+    const editableItems = Array.from((await renderPreview(ISSUE_174, false)).querySelectorAll('.ProseMirror li[data-item-type="task"]'))
+    expect(editableItems.length).toBeGreaterThan(0)
+    expect(editableItems.every((li) => pointer.some((selector) => li.matches(selector)))).toBe(true)
   })
 
   it('issue 174 markdown: only checklist items are tagged', async () => {
