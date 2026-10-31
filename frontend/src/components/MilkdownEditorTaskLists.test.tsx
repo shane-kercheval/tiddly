@@ -4,29 +4,64 @@
  * ACTUAL Milkdown-parsed DOM.
  *
  * jsdom doesn't run Tailwind, so computed `list-style` isn't available here.
- * Instead the test reads the checklist-parent rule from the stylesheet source,
- * checks which lists its selector matches, and checks that it doesn't strip
- * list markers, which would hide the bullets of plain items in the same list.
+ * Instead the tests parse the stylesheet source with PostCSS: they check which
+ * lists the checklist-indent selector matches, and that no rule hiding list
+ * markers matches a plain item or the list holding it. This reads source CSS,
+ * so it can't see the compiled cascade or a marker hidden some other way (e.g.
+ * `display: none` on the item).
  */
 import { describe, it, expect } from 'vitest'
 import { render, waitFor } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import postcss from 'postcss'
+import type { Rule } from 'postcss'
 import { MilkdownEditor } from './MilkdownEditor'
 
 // Read from disk: Vitest stubs CSS imports to an empty string, even with `?raw`.
-const indexCss = readFileSync(join(process.cwd(), 'src/index.css'), 'utf-8')
+const indexCss = postcss.parse(readFileSync(join(process.cwd(), 'src/index.css'), 'utf-8'))
 
-interface CssRule {
-  selector: string
-  body: string
+const ISSUE_174 = "- Top plain\n    - Line 2\n    - Line 3\n\n- [ ] Line 1\n    - Nested plain\n    - [ ] Line 4\n    - [ ] Line 5"
+const TIGHT_AND_LOOSE = '- tight A\n- [ ] tight task\n- tight B\n\nBreak.\n\n- loose A\n\n- [x] loose task\n\n- loose B'
+const DEEP_CHECKBOX = '- top plain\n  - mid plain\n    - [ ] deep task\n- top plain 2'
+
+function allRules(): Rule[] {
+  const rules: Rule[] = []
+  indexCss.walkRules((rule) => {
+    rules.push(rule)
+  })
+  return rules
 }
 
-/** The single `index.css` rule whose selector uses `:has()` on checklist items. */
-function checklistParentRule(): CssRule {
-  const rules = [...indexCss.matchAll(/([^{}]*:has\([^)]*data-item-type="task"[^)]*\)[^{}]*)\{([^}]*)\}/g)]
-  expect(rules).toHaveLength(1)
-  return { selector: rules[0][1].replace(/\/\*[\s\S]*?\*\//g, '').trim(), body: rules[0][2] }
+/** The selector of the `ul:has(... checklist item ...)` indent rule, whatever its attribute quoting. */
+function checklistIndentSelector(): string {
+  const selectors = allRules()
+    .flatMap((rule) => rule.selectors)
+    .filter((selector) => selector.includes('ul:has(') && /data-item-type=["']?task["']?\]/.test(selector))
+  expect(selectors).toHaveLength(1)
+  return selectors[0]
+}
+
+function hidesMarkers(rule: Rule): boolean {
+  if (rule.selector.includes('::marker')) return true
+  let hides = false
+  rule.each((node) => {
+    if (node.type === 'decl' && /^list-style(-type)?$/.test(node.prop) && /\bnone\b/.test(node.value)) hides = true
+    if (node.type === 'atrule' && node.name === 'apply' && node.params.split(/\s+/).includes('list-none')) hides = true
+  })
+  return hides
+}
+
+/**
+ * Selectors of every rule that hides list markers, with pseudo-elements removed:
+ * jsdom's `matches()` returns false for a pseudo-element selector, which would
+ * skip a `::marker` rule silently.
+ */
+function markerHidingSelectors(): string[] {
+  return allRules()
+    .filter(hidesMarkers)
+    .flatMap((rule) => rule.selectors)
+    .map((selector) => selector.replace(/::?(marker|before|after)\b/g, '').trim() || '*')
 }
 
 async function renderPreview(value: string): Promise<HTMLElement> {
@@ -56,17 +91,29 @@ function itemTags(container: HTMLElement): Array<[string, boolean]> {
 }
 
 describe('MilkdownEditor — mixed checklist and plain lists (reading mode)', () => {
-  it('the checklist-parent rule does not strip list markers', () => {
-    const { body } = checklistParentRule()
-    expect(body).not.toMatch(/list-none|list-style/)
+  it('no marker-hiding rule matches a plain item or the list holding it', async () => {
+    const hiding = markerHidingSelectors()
+    // Guards against a vacuous pass: the checklist items' own `list-none` rule must be found.
+    expect(hiding.some((selector) => /li\[data-item-type=["']?task["']?\]$/.test(selector))).toBe(true)
+
+    for (const markdown of [ISSUE_174, TIGHT_AND_LOOSE, DEEP_CHECKBOX]) {
+      const container = await renderPreview(markdown)
+      const plainItems = Array.from(container.querySelectorAll('.ProseMirror li:not([data-item-type="task"])'))
+      expect(plainItems.length).toBeGreaterThan(0)
+
+      const hidden = plainItems.flatMap((li) =>
+        [li, li.parentElement!].flatMap((el) =>
+          hiding.filter((selector) => el.matches(selector)).map((selector) => `${ownText(li)} <${el.tagName.toLowerCase()}>: ${selector}`),
+        ),
+      )
+      expect(hidden).toEqual([])
+    }
   })
 
   it('issue 174 markdown: only lists with a direct checklist item match', async () => {
-    const container = await renderPreview(
-      "- Top plain\n    - Line 2\n    - Line 3\n\n- [ ] Line 1\n    - Nested plain\n    - [ ] Line 4\n    - [ ] Line 5",
-    )
+    const container = await renderPreview(ISSUE_174)
 
-    expect(listMatches(container, checklistParentRule().selector)).toEqual([
+    expect(listMatches(container, checklistIndentSelector())).toEqual([
       ['Top plain', true],
       ['Line 2', false],
       ['Nested plain', true],
@@ -83,9 +130,9 @@ describe('MilkdownEditor — mixed checklist and plain lists (reading mode)', ()
   })
 
   it('tight and loose mixed lists: plain items stay untagged', async () => {
-    const container = await renderPreview('- tight A\n- [ ] tight task\n- tight B\n\nBreak.\n\n- loose A\n\n- [x] loose task\n\n- loose B')
+    const container = await renderPreview(TIGHT_AND_LOOSE)
 
-    expect(listMatches(container, checklistParentRule().selector)).toEqual([
+    expect(listMatches(container, checklistIndentSelector())).toEqual([
       ['tight A', true],
       ['loose A', true],
     ])
@@ -100,9 +147,9 @@ describe('MilkdownEditor — mixed checklist and plain lists (reading mode)', ()
   })
 
   it('checklist item two levels down: only its own list matches, not the ancestors', async () => {
-    const container = await renderPreview('- top plain\n  - mid plain\n    - [ ] deep task\n- top plain 2')
+    const container = await renderPreview(DEEP_CHECKBOX)
 
-    expect(listMatches(container, checklistParentRule().selector)).toEqual([
+    expect(listMatches(container, checklistIndentSelector())).toEqual([
       ['top plain', false],
       ['mid plain', false],
       ['deep task', true],
