@@ -786,9 +786,10 @@ body {
   background-repeat: no-repeat;
 }
 
-/* Remove default bullet from checklist parent */
-.milkdown-wrapper .milkdown ul:has(li[data-item-type="task"]) {
-  @apply list-none pl-4;
+/* Narrower indent for a list holding checklist items directly. It leaves markers
+ * alone: checklist items hide their own above, and plain items keep their bullets. */
+.milkdown-wrapper .milkdown ul:has(> li[data-item-type="task"]) {
+  @apply pl-4;
 }
 
 /* Horizontal rule */
