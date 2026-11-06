@@ -43,6 +43,12 @@ TEST_CLI_OAUTH_CLIENT_ID = "zTESTcliclient456"
 CLAUDE_CODE_CLIENT_ID = "https://claude.ai/oauth/claude-code-client-metadata"
 
 
+@pytest.fixture(autouse=True)
+def _database_url_env(database_url: str) -> str:
+    """Importing core.auth loads db.session, which needs DATABASE_URL set."""
+    return database_url
+
+
 @pytest.fixture(scope="module")
 def clerk_signing_key() -> "RSAPrivateKey":
     """Test RSA keypair standing in for the Clerk instance's JWKS key."""
