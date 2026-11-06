@@ -61,6 +61,7 @@ def mock_settings_no_dev_mode() -> Settings:
     settings.clerk_frontend_api = TEST_CLERK_FRONTEND_API
     settings.clerk_issuer = TEST_CLERK_ISSUER
     settings.clerk_jit_create_enabled = True
+    settings.clerk_cli_oauth_client_id = "test-cli-client-id"
     return settings
 
 
@@ -141,7 +142,7 @@ class TestAuthenticateUserAllowPat:
         test_auth_clerk.py::TestClerkOAuthAccessTokens — it needs that
         module's real-signature JWKS infrastructure.
         """
-        from core.auth import _authenticate_user  # noqa: PLC0415
+        from core.auth import VerifiedClerkToken, _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -150,7 +151,9 @@ class TestAuthenticateUserAllowPat:
 
         # Mock decode_clerk_jwt to return valid payload
         mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
-        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
+        with patch(
+            "core.auth.decode_clerk_jwt", return_value=VerifiedClerkToken(claims=mock_payload),
+        ):
             result = await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 source="unknown", allow_pat=False,

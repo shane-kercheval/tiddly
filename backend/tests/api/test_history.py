@@ -1032,6 +1032,7 @@ async def test_user_cannot_access_another_users_history(
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     app.dependency_overrides[get_async_session] = override_get_async_session
@@ -1112,6 +1113,7 @@ async def test_pat_can_access_history(
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     app.dependency_overrides[get_async_session] = override_get_async_session
@@ -2439,6 +2441,7 @@ async def test_get_version_diff__cross_user_isolation(
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     app.dependency_overrides[get_async_session] = override_get_async_session

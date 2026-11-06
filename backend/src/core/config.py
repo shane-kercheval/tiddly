@@ -3,7 +3,7 @@ import socket
 from functools import lru_cache
 from urllib.parse import urlparse
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,6 +52,17 @@ class Settings(BaseSettings):
         default="",
         validation_alias="CLERK_WEBHOOK_SIGNING_SECRET",
     )
+    # `client_id` of the pre-registered "Tiddly CLI" OAuth application on this
+    # environment's Clerk instance (production: `prodOAuthClientID` in
+    # cli/internal/auth/pkce_flow.go; dev: the value the CLI gets through
+    # TIDDLY_OAUTH_CLIENT_ID). Any other OAuth client is a connector. A missing
+    # value fails the API's boot in lifespan (api/main.py) rather than demoting
+    # the CLI's token; not in validate_settings, because the crons share this
+    # class and don't need it.
+    clerk_cli_oauth_client_id: str = Field(
+        default="",
+        validation_alias="CLERK_CLI_OAUTH_CLIENT_ID",
+    )
 
     # Development mode - bypasses auth for local development (shared with frontend)
     dev_mode: bool = Field(default=False, validation_alias="VITE_DEV_MODE")
@@ -95,6 +106,16 @@ class Settings(BaseSettings):
     llm_timeout_streaming: int = Field(default=60, validation_alias="LLM_TIMEOUT_STREAMING")
 
     # Note: Field length limits moved to core/tier_limits.py (tier-based)
+
+    @field_validator("clerk_cli_oauth_client_id")
+    @classmethod
+    def strip_cli_oauth_client_id(cls, value: str) -> str:
+        """
+        Trim whitespace pasted around the value. Clerk's IDs for its own OAuth
+        applications contain none, and an untrimmed value would never match the
+        CLI's token.
+        """
+        return value.strip()
 
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":

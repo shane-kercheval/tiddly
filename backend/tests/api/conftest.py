@@ -54,6 +54,7 @@ async def create_user2_client(
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     app.dependency_overrides[get_async_session] = override_get_async_session
@@ -93,6 +94,7 @@ async def auth_required_client(
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     app.dependency_overrides[get_async_session] = override_get_async_session

@@ -14,6 +14,7 @@ decommission (M6b); tokens from any other issuer get a 401. User resolution is
 keyed solely by users.external_auth_id (the Clerk `sub`).
 """
 import logging
+from dataclasses import dataclass
 from typing import Annotated
 
 import jwt
@@ -32,7 +33,7 @@ from core.rate_limit_config import (
 )
 from core.rate_limiter import check_rate_limit
 # Import and re-export for backward compatibility
-from core.request_context import AuthType, RequestContext
+from core.request_context import AuthType, OAuthClientKind, RequestContext
 from core.tier_limits import get_tier_safely
 from db.session import get_async_session
 from models.content_history import SOURCE_MAX_LENGTH
@@ -143,7 +144,17 @@ def _jwt_error_to_http(e: jwt.PyJWTError) -> HTTPException:
     )
 
 
-def decode_clerk_jwt(token: str, settings: Settings) -> dict:
+@dataclass(frozen=True)
+class VerifiedClerkToken:
+    """A verified Clerk JWT's claims, plus its OAuth client for `at+jwt` tokens."""
+
+    claims: dict
+    # Both None for session tokens.
+    oauth_client_id: str | None = None
+    oauth_client_kind: OAuthClientKind | None = None
+
+
+def decode_clerk_jwt(token: str, settings: Settings) -> VerifiedClerkToken:
     """
     Decode and validate a Clerk-issued JWT — session token OR OAuth access token.
 
@@ -167,13 +178,15 @@ def decode_clerk_jwt(token: str, settings: Settings) -> dict:
     check optional across the board (the exact trap the plan's M4 step 1
     flags). Instead the `azp` rule below applies to BOTH kinds unchanged.
 
-    `client_id` policy (decided at M4, recorded here per the security review):
-    presence is required for `at+jwt`, but there is no client-id allowlist.
-    Trust anchor: only OAuth apps on OUR Clerk instance can mint tokens our
-    JWKS verifies, and creating such an app requires the instance secret key —
-    an allowlist adds no barrier an attacker with that key couldn't clear, and
-    a static list would break M5's dynamically-registered MCP clients. The
-    client_id is logged for observability instead.
+    `client_id` policy: presence is required for `at+jwt`. A `client_id` equal
+    to `settings.clerk_cli_oauth_client_id` (exact string compare) is the
+    Tiddly CLI's token; every other `client_id` is a connector's (an AI app
+    the user approved). Connector IDs are not allowlisted: Tiddly admits any
+    CIMD client and keeps DCR open, so the set of apps is open-ended. The
+    classification only labels the token today; limiting connector tokens by
+    route is planned in
+    docs/implementation_plans/2026-11-03-connector-token-limits.md. The
+    client_id and the kind are logged on one INFO line.
 
     Clerk-specific claim rules (established at the migration's M1; each
     verified against the live dev instance in the M0 spike):
@@ -186,6 +199,10 @@ def decode_clerk_jwt(token: str, settings: Settings) -> dict:
       signed — so present→check/absent→tolerate is safe regardless.
     - Explicit clock-skew leeway (~60s session tokens; see the constant's
       comment). Harmless for 24h OAuth tokens.
+
+    Returns:
+        The verified claims; for an OAuth access token, also its `client_id`
+        and whether that is the CLI's or a connector's.
 
     Raises:
         HTTPException: If token is invalid, expired, has wrong issuer/azp, or
@@ -248,13 +265,22 @@ def decode_clerk_jwt(token: str, settings: Settings) -> dict:
                 detail="Invalid token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        kind = (
+            OAuthClientKind.CLI
+            if client_id == settings.clerk_cli_oauth_client_id
+            else OAuthClientKind.CONNECTOR
+        )
         logger.info(
-            "clerk_oauth_token_accepted client_id=%s sub=%s",
+            "clerk_oauth_token_accepted client_id=%s sub=%s kind=%s",
             client_id,
             payload.get("sub"),
+            kind,
+        )
+        return VerifiedClerkToken(
+            claims=payload, oauth_client_id=client_id, oauth_client_kind=kind,
         )
 
-    return payload
+    return VerifiedClerkToken(claims=payload)
 
 
 def _peek_issuer(token: str) -> str | None:
@@ -706,6 +732,8 @@ async def _authenticate_user(
             and expire daily).
     """
     token_prefix: str | None = None
+    oauth_client_id: str | None = None
+    oauth_client_kind: OAuthClientKind | None = None
 
     if settings.dev_mode:
         auth_type = AuthType.DEV
@@ -743,7 +771,10 @@ async def _authenticate_user(
             # clerk_issuer so an unset Frontend API doesn't route tokens into
             # a malformed Clerk verifier.
             if settings.clerk_frontend_api and issuer == settings.clerk_issuer:
-                payload = decode_clerk_jwt(token, settings)
+                verified = decode_clerk_jwt(token, settings)
+                payload = verified.claims
+                oauth_client_id = verified.oauth_client_id
+                oauth_client_kind = verified.oauth_client_kind
 
                 # `sub` presence is enforced by decode_clerk_jwt's require list.
                 # Email claims are the plain (non-namespaced) custom session-token
@@ -768,6 +799,8 @@ async def _authenticate_user(
         source=source,
         auth_type=auth_type,
         token_prefix=token_prefix,
+        oauth_client_id=oauth_client_id,
+        oauth_client_kind=oauth_client_kind,
     )
 
     return user

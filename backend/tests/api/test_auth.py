@@ -16,6 +16,7 @@ def non_dev_settings(database_url: str) -> Settings:
         dev_mode=False,
         clerk_frontend_api="test-instance.clerk.accounts.dev",
         clerk_authorized_parties_str="http://localhost:5173",
+        clerk_cli_oauth_client_id="test-cli-client-id",
     )
 
 

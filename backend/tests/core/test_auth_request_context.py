@@ -65,6 +65,7 @@ def mock_settings_no_dev_mode() -> "Settings":
     settings.clerk_frontend_api = TEST_CLERK_FRONTEND_API
     settings.clerk_issuer = TEST_CLERK_ISSUER
     settings.clerk_jit_create_enabled = True
+    settings.clerk_cli_oauth_client_id = "test-cli-client-id"
     return settings
 
 
@@ -149,7 +150,7 @@ class TestRequestContextWithSessionJWT:
         mock_request: Request,
     ) -> None:
         """A Clerk session JWT sets auth_type to SESSION (provider-neutral)."""
-        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
+        from core.auth import AuthType, VerifiedClerkToken, _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -157,7 +158,9 @@ class TestRequestContextWithSessionJWT:
         )
 
         mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
-        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
+        with patch(
+            "core.auth.decode_clerk_jwt", return_value=VerifiedClerkToken(claims=mock_payload),
+        ):
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 source="unknown",
@@ -176,7 +179,7 @@ class TestRequestContextWithSessionJWT:
         mock_request: Request,
     ) -> None:
         """A Clerk session JWT records the resolved request source on the context."""
-        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
+        from core.auth import AuthType, VerifiedClerkToken, _authenticate_user  # noqa: PLC0415
 
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer",
@@ -184,7 +187,9 @@ class TestRequestContextWithSessionJWT:
         )
 
         mock_payload = {"sub": test_user.external_auth_id, "email": test_user.email}
-        with patch("core.auth.decode_clerk_jwt", return_value=mock_payload):
+        with patch(
+            "core.auth.decode_clerk_jwt", return_value=VerifiedClerkToken(claims=mock_payload),
+        ):
             await _authenticate_user(
                 mock_request, credentials, db_session, mock_settings_no_dev_mode,
                 source="web",

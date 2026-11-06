@@ -183,6 +183,7 @@ async def test_authenticate_with_pat(
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     from db.session import get_async_session  # noqa: PLC0415
@@ -217,6 +218,7 @@ async def test_authenticate_with_invalid_pat(db_session: AsyncSession) -> None:
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     from db.session import get_async_session  # noqa: PLC0415
@@ -269,6 +271,7 @@ async def test_authenticate_with_expired_pat(
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     from db.session import get_async_session  # noqa: PLC0415
@@ -320,6 +323,7 @@ async def test_pat_updates_last_used_at(
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     from db.session import get_async_session  # noqa: PLC0415
@@ -504,6 +508,7 @@ async def test_rename_token_rejects_pat_auth(
             dev_mode=False,
             clerk_frontend_api="test-instance.clerk.accounts.dev",
             clerk_authorized_parties_str="http://localhost:5173",
+            clerk_cli_oauth_client_id="test-cli-client-id",
         )
 
     from db.session import get_async_session  # noqa: PLC0415
