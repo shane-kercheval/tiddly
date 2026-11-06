@@ -97,7 +97,7 @@ The backend can tell the CLI's OAuth token from a connector's, using the signed 
 
 ### Results
 
-The local checks pass: every new test failed against the pre-change code for the expected reason and passes now, `make backend-verify` is green, and the API refuses to boot without the variable in real-auth mode. The production check has not run yet.
+The local checks pass: every new test failed against the pre-change code for the expected reason and passes now, `make backend-verify` is green, and the API refuses to boot without the variable in real-auth mode. In production, the CLI's token logged `kind=cli`, two connectors' tokens logged `kind=connector`, and the deployed security tests pass.
 
 **Where the classification lives.** `decode_clerk_jwt` classifies the token, because it already has the settings, the header `typ` check, and the `clerk_oauth_token_accepted` log call, so the log line stays one line in one place. It returns a `VerifiedClerkToken` (the verified claims, plus `oauth_client_id` and `oauth_client_kind` for an `at+jwt` token), and `_authenticate_user` copies the two fields onto `RequestContext`. The existing tests that read `decode_clerk_jwt`'s return value now read `.claims`, and the four tests that patch `decode_clerk_jwt` return a `VerifiedClerkToken` instead of a dict.
 
@@ -134,14 +134,22 @@ Two lifespan tests passed before the change and still pass, as intended, because
   ERROR:    Application startup failed. Exiting.
   ```
 
-- Without `CLERK_CLI_OAUTH_CLIENT_ID`, `--workers 2`: uvicorn did not exit. Each worker failed with the same `RuntimeError`, and uvicorn's supervisor restarted it in a loop. After 10 seconds the process was still running, `GET /health` got no answer (curl status `000`), and the log held 6 `Application startup failed` lines and 4 `Child process [...] died` lines. The processes were then killed. Production has no Railway health check (`healthcheckPath: null` on the api service's latest deployment, from a read-only `railway status --json` by the operator on 2026-11-03), and the migration pre-deploy command does not check this variable, so in production a missing value would put a deploy live that answers no requests.
+- Without `CLERK_CLI_OAUTH_CLIENT_ID`, `--workers 2`: uvicorn did not exit. Each worker failed with the same `RuntimeError`, and uvicorn's supervisor restarted it in a loop. After 10 seconds the process was still running, `GET /health` got no answer (curl status `000`), and the log held 6 `Application startup failed` lines and 4 `Child process [...] died` lines. The processes were then killed. On 2026-11-03 production had no Railway health check (`healthcheckPath: null` on the api service's latest deployment, from a read-only `railway status --json` by the operator), and the migration pre-deploy command does not check this variable, so a missing value would have put a deploy live that answered no requests. Rollout step 1 added the health check.
 - With `CLERK_CLI_OAUTH_CLIENT_ID=placeholder-cli-client-id`, one worker: the log showed `Application startup complete.` and `GET /health` returned 200. The server was then stopped.
 
 **Rollout steps 1 and 2: done in production, 2026-11-06.** In the Railway dashboard, the production `api` service got Healthcheck Path `/health` (timeout left at Railway's default, 300 seconds) and `CLERK_CLI_OAUTH_CLIENT_ID`; `railway environment config --environment production --json` confirms both. The CLI command `railway environment edit --service-config ...` (CLI 5.26.1) did not apply them: it hung, then returned "No changes to apply".
 
 A redeploy of `main` at `fb91761` (no backend changes since the running `cbe224f`) finished with status SUCCESS. Its build log shows "Path: /health" and "[1/1] Healthcheck succeeded!", its runtime log shows 4 workers reaching "Application startup complete." with no errors, and `https://api.tiddly.me/health` returns 200.
 
-**Production check: not yet run.** To fill in after the Railway variable is set and the PR is merged: the `clerk_oauth_token_accepted ... kind=cli` line for `tiddly tokens list` and the `kind=connector` line for one Claude Code tool call, with `sub` redacted.
+**Production check: done, 2026-11-06.** Milestone 1 merged as [Label OAuth tokens so AI-app tokens can be limited (#177)](https://github.com/shane-kercheval/tiddly/pull/177), squash commit `d948aef`. The redeploy of `main` at `d948aef` passed the `/health` health check, and its 4 workers started with no errors. The api service's Railway log showed these `clerk_oauth_token_accepted` lines (`sub` redacted):
+
+| Client | `client_id` on the line | Kind logged |
+|---|---|---|
+| `tiddly tokens list` | the "Tiddly CLI" client's ID (`prodOAuthClientID` in `cli/internal/auth/pkce_flow.go`) | `kind=cli` |
+| Claude Code (CIMD) | `https://claude.ai/oauth/claude-code-client-metadata` | `kind=connector` |
+| Another connected AI app (DCR) | an opaque, dynamically registered ID (not recorded here) | `kind=connector` |
+
+`make pen_tests` against production: 58 passed, 0 failed, 0 skipped.
 
 ## Milestone 2: A connector token can call only the routes the MCP servers use
 
