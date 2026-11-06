@@ -119,7 +119,9 @@ export const DOCS_ROUTES: DocsRoute[] = [
       + 'antigravity agy gemini google cursor windsurf chatgpt connect ai assistants agents setup configure tokens '
       + 'example prompts widget tools server oauth connector custom connector paste url '
       + 'sign in browser login no token authorize consent mobile ios sync plugins '
-      + 'browse plugins openid known issue problem connecting authenticate',
+      + 'browse plugins openid known issue problem connecting authenticate '
+      + 'permissions access what a connected app can do delete archive link unlink '
+      + 'forbidden 403 connector_forbidden limits',
   },
   {
     path: '/docs/cli',
