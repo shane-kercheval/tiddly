@@ -26,8 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings
 from core.logging_config import FIRST_PARTY_LOGGERS, configure_logging
+from core.tier_limits import Tier, get_tier_limits
 from models.deleted_identity import DeletedIdentity
 from models.user import User
+from schemas.token import TokenCreate
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
@@ -36,6 +38,9 @@ TEST_CLERK_FRONTEND_API = "test-instance.clerk.accounts.dev"
 TEST_CLERK_ISSUER = f"https://{TEST_CLERK_FRONTEND_API}"
 TEST_AUTHORIZED_PARTY = "http://localhost:5173"
 TEST_AUTH0_ISSUER = "https://test-tenant.auth0.com/"
+# The configured "Tiddly CLI" OAuth app; any other client_id is a connector.
+TEST_CLI_OAUTH_CLIENT_ID = "zTESTcliclient456"
+CLAUDE_CODE_CLIENT_ID = "https://claude.ai/oauth/claude-code-client-metadata"
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +68,7 @@ def clerk_settings() -> Settings:
     settings.clerk_jwks_url = f"{TEST_CLERK_ISSUER}/.well-known/jwks.json"
     settings.clerk_authorized_parties = [TEST_AUTHORIZED_PARTY]
     settings.clerk_jit_create_enabled = True
+    settings.clerk_cli_oauth_client_id = TEST_CLI_OAUTH_CLIENT_ID
     return settings
 
 
@@ -170,7 +176,7 @@ class TestDecodeClerkJwt:
         token = mint_clerk_token(
             clerk_signing_key, email="user@test.com", email_verified=True,
         )
-        payload = decode_clerk_jwt(token, clerk_settings)
+        payload = decode_clerk_jwt(token, clerk_settings).claims
 
         assert payload["sub"] == "user_test_clerk_id"
         assert payload["email"] == "user@test.com"
@@ -185,7 +191,7 @@ class TestDecodeClerkJwt:
         from core.auth import decode_clerk_jwt  # noqa: PLC0415
 
         token = mint_clerk_token(clerk_signing_key, azp=TEST_AUTHORIZED_PARTY)
-        payload = decode_clerk_jwt(token, clerk_settings)
+        payload = decode_clerk_jwt(token, clerk_settings).claims
 
         assert payload["azp"] == TEST_AUTHORIZED_PARTY
 
@@ -212,7 +218,7 @@ class TestDecodeClerkJwt:
         from core.auth import decode_clerk_jwt  # noqa: PLC0415
 
         token = mint_clerk_token(clerk_signing_key)  # no azp claim
-        payload = decode_clerk_jwt(token, clerk_settings)
+        payload = decode_clerk_jwt(token, clerk_settings).claims
 
         assert "azp" not in payload
 
@@ -240,7 +246,7 @@ class TestDecodeClerkJwt:
         from core.auth import decode_clerk_jwt  # noqa: PLC0415
 
         token = mint_clerk_token(clerk_signing_key, exp=int(time.time()) - 3)
-        payload = decode_clerk_jwt(token, clerk_settings)
+        payload = decode_clerk_jwt(token, clerk_settings).claims
 
         assert payload["sub"] == "user_test_clerk_id"
 
@@ -323,7 +329,7 @@ class TestClerkOAuthAccessTokens:
         from core.auth import decode_clerk_jwt  # noqa: PLC0415
 
         token = mint_clerk_oauth_token(clerk_signing_key)
-        payload = decode_clerk_jwt(token, clerk_settings)
+        payload = decode_clerk_jwt(token, clerk_settings).claims
 
         assert payload["sub"] == "user_test_clerk_id"
         assert payload["client_id"] == "zTESTclientid123"
@@ -366,12 +372,12 @@ class TestClerkOAuthAccessTokens:
             root.setLevel(logging.WARNING)
             core_logger.setLevel(logging.NOTSET)
             core_logger.handlers[:] = []
-            payload = decode_clerk_jwt(token, clerk_settings)
+            payload = decode_clerk_jwt(token, clerk_settings).claims
             assert payload["client_id"] == cimd_client_id
             assert "clerk_oauth_token_accepted" not in caplog.text
 
             configure_logging()
-            payload = decode_clerk_jwt(token, clerk_settings)
+            payload = decode_clerk_jwt(token, clerk_settings).claims
             assert payload["client_id"] == cimd_client_id
         finally:
             root.setLevel(saved_root_level)
@@ -387,6 +393,7 @@ class TestClerkOAuthAccessTokens:
         assert accepted[0].levelno == logging.INFO
         assert f"client_id={cimd_client_id}" in accepted[0].getMessage()
         assert "sub=user_test_clerk_id" in accepted[0].getMessage()
+        assert accepted[0].getMessage().endswith(" kind=connector")
 
     def test__oauth_token_missing_client_id__rejected_401(
         self,
@@ -470,7 +477,7 @@ class TestClerkOAuthAccessTokens:
         from core.auth import decode_clerk_jwt  # noqa: PLC0415
 
         token = mint_clerk_token(clerk_signing_key, azp=TEST_AUTHORIZED_PARTY)
-        payload = decode_clerk_jwt(token, clerk_settings)
+        payload = decode_clerk_jwt(token, clerk_settings).claims
 
         assert "client_id" not in payload
 
@@ -549,6 +556,227 @@ class TestClerkOAuthAccessTokens:
         context = mock_request.state.request_context
         assert context.auth_type == AuthType.SESSION
         assert context.source == "cli"
+
+
+class TestOAuthClientClassification:
+    """
+    The CLI's OAuth token is told apart from an AI app's ("connector") token by
+    comparing the signed `client_id` to `clerk_cli_oauth_client_id`. The
+    classification lands on the request context and the accepted-token log
+    line; it never changes `auth_type`, and nothing is blocked on it yet.
+    """
+
+    async def _authenticate(
+        self,
+        token: str,
+        db_session: AsyncSession,
+        settings: Settings,
+        request: Request,
+    ) -> User:
+        from core.auth import _authenticate_user  # noqa: PLC0415
+
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        return await _authenticate_user(
+            request, credentials, db_session, settings, source="cli",
+        )
+
+    async def test__cli_client_id__classified_cli(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """The configured CLI client_id is the CLI's; auth_type stays SESSION."""
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_cli_kind", client_id=TEST_CLI_OAUTH_CLIENT_ID,
+        )
+        await self._authenticate(token, db_session, clerk_settings, mock_request)
+
+        context = mock_request.state.request_context
+        assert context.oauth_client_kind == "cli"
+        assert context.oauth_client_id == TEST_CLI_OAUTH_CLIENT_ID
+        assert context.auth_type == "session"
+
+    async def test__claude_code_metadata_url__classified_connector(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """A CIMD client (client_id is its metadata URL) is a connector."""
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_cimd_kind", client_id=CLAUDE_CODE_CLIENT_ID,
+        )
+        await self._authenticate(token, db_session, clerk_settings, mock_request)
+
+        context = mock_request.state.request_context
+        assert context.oauth_client_kind == "connector"
+        assert context.oauth_client_id == CLAUDE_CODE_CLIENT_ID
+        assert context.auth_type == "session"
+
+    async def test__dcr_style_client_id__classified_connector(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """An opaque Clerk-generated (DCR) client_id is a connector."""
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_dcr_kind", client_id="zTESTclientid123",
+        )
+        await self._authenticate(token, db_session, clerk_settings, mock_request)
+
+        context = mock_request.state.request_context
+        assert context.oauth_client_kind == "connector"
+        assert context.oauth_client_id == "zTESTclientid123"
+
+    @pytest.mark.parametrize(
+        "near_miss",
+        [
+            TEST_CLI_OAUTH_CLIENT_ID.upper(),
+            f"{TEST_CLI_OAUTH_CLIENT_ID}x",
+            TEST_CLI_OAUTH_CLIENT_ID[:-1],
+            f" {TEST_CLI_OAUTH_CLIENT_ID}",
+        ],
+    )
+    async def test__near_miss_of_cli_client_id__classified_connector(
+        self,
+        near_miss: str,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """The compare is exact: case, prefix, suffix, and whitespace variants are connectors."""
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_near_miss_kind", client_id=near_miss,
+        )
+        await self._authenticate(token, db_session, clerk_settings, mock_request)
+
+        assert mock_request.state.request_context.oauth_client_kind == "connector"
+
+    async def test__session_token__no_classification(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """A session token is not an OAuth token: no client_id, no kind."""
+        token = mint_clerk_token(
+            clerk_signing_key, sub="user_session_kind", azp=TEST_AUTHORIZED_PARTY,
+        )
+        await self._authenticate(token, db_session, clerk_settings, mock_request)
+
+        context = mock_request.state.request_context
+        assert context.auth_type == "session"
+        assert context.oauth_client_kind is None
+        assert context.oauth_client_id is None
+
+    async def test__pat__no_classification(
+        self,
+        db_session: AsyncSession,
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """A PAT carries no OAuth classification."""
+        from core.auth import _authenticate_user  # noqa: PLC0415
+        from services import token_service  # noqa: PLC0415
+
+        user = User(external_auth_id="user_pat_kind", email="pat@test.com")
+        db_session.add(user)
+        await db_session.flush()
+        _, plaintext = await token_service.create_token(
+            db_session, user.id, TokenCreate(name="kind test"), get_tier_limits(Tier.FREE),
+        )
+
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=plaintext)
+        await _authenticate_user(
+            mock_request, credentials, db_session, clerk_settings, source="cli",
+        )
+
+        context = mock_request.state.request_context
+        assert context.auth_type == "pat"
+        assert context.oauth_client_kind is None
+        assert context.oauth_client_id is None
+
+    async def test__dev_mode__no_classification(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """Dev mode bypasses verification, so even a CLI-shaped token is unclassified."""
+        clerk_settings.dev_mode = True
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, client_id=TEST_CLI_OAUTH_CLIENT_ID,
+        )
+        await self._authenticate(token, db_session, clerk_settings, mock_request)
+
+        context = mock_request.state.request_context
+        assert context.auth_type == "dev"
+        assert context.oauth_client_kind is None
+        assert context.oauth_client_id is None
+
+    def test__padded_cli_client_id_setting__still_matches_cli(
+        self,
+        clerk_signing_key: "RSAPrivateKey",
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Whitespace around the configured value (e.g. a newline pasted into
+        Railway) is trimmed when Settings reads it, so the CLI's token still
+        classifies as CLI. The compare against the token's claim stays exact.
+        """
+        from core.auth import decode_clerk_jwt  # noqa: PLC0415
+
+        monkeypatch.setenv("CLERK_CLI_OAUTH_CLIENT_ID", f"  {TEST_CLI_OAUTH_CLIENT_ID}\n")
+        settings = Settings(
+            _env_file=None,
+            database_url="postgresql://test",
+            VITE_DEV_MODE="false",
+            CLERK_FRONTEND_API=TEST_CLERK_FRONTEND_API,
+            CLERK_AUTHORIZED_PARTIES=TEST_AUTHORIZED_PARTY,
+        )
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, client_id=TEST_CLI_OAUTH_CLIENT_ID,
+        )
+
+        assert decode_clerk_jwt(token, settings).oauth_client_kind == "cli"
+
+    def test__cli_token__logged_with_kind_cli(
+        self,
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The accepted-token line names the CLI as kind=cli, on the same one line."""
+        from core.auth import decode_clerk_jwt  # noqa: PLC0415
+
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_cli_log", client_id=TEST_CLI_OAUTH_CLIENT_ID,
+        )
+        with caplog.at_level(logging.INFO, logger="core.auth"):
+            decode_clerk_jwt(token, clerk_settings)
+
+        accepted = [
+            r.getMessage() for r in caplog.records
+            if r.name == "core.auth" and r.getMessage().startswith("clerk_oauth_token_accepted")
+        ]
+        assert accepted == [
+            f"clerk_oauth_token_accepted client_id={TEST_CLI_OAUTH_CLIENT_ID} "
+            "sub=user_cli_log kind=cli",
+        ]
 
 
 class TestIssuerDispatch:

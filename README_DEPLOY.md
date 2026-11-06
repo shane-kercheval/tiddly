@@ -94,6 +94,7 @@ Click on each service → **Settings** tab → Configure as follows:
 **Settings → Deploy:**
 - No Custom Start Command needed (the Dockerfile handles this)
 - Pre-Deploy Command: `uv run alembic upgrade head` (runs database migrations automatically before each deployment)
+- Healthcheck Path: `/health` (Railway sends traffic to a new deploy only after `/health` returns 200, so a deploy that can't start, such as one missing `CLERK_CLI_OAUTH_CLIENT_ID`, fails and the previous deploy keeps serving; a database that returns an error still gives a 200, and a database that hangs fails the deploy after Railway's health-check timeout while the previous deploy keeps serving)
 
 **Settings → Networking:**
 - Click **Generate Domain** (public, for external access)
@@ -233,6 +234,7 @@ REDIS_URL=${{Redis.REDIS_URL}}
 CORS_ORIGINS=https://${{frontend.RAILWAY_PUBLIC_DOMAIN}}
 CLERK_FRONTEND_API=clerk.tiddly.me
 CLERK_AUTHORIZED_PARTIES=https://tiddly.me
+CLERK_CLI_OAUTH_CLIENT_ID=<prodOAuthClientID from cli/internal/auth/pkce_flow.go>
 API_WORKERS=4
 ```
 
@@ -244,6 +246,18 @@ CLERK_JIT_CREATE_ENABLED=true    # flipped at the 2026-07-15 cutover (code defau
 
 
 **Account-deletion webhook:** `CLERK_WEBHOOK_SIGNING_SECRET` (the `whsec_...` secret of the production instance's webhook endpoint — see Step 6f). API service only. Unset, `POST /webhooks/clerk` fails closed with 503; Svix retries on a finite ~28-hour schedule and then marks deliveries Failed (manual replay only — see the Step 6f runbook).
+
+**CLI OAuth client ID:** `CLERK_CLI_OAUTH_CLIENT_ID` is the `client_id` of the production Clerk instance's "Tiddly CLI" OAuth application, the same value as `prodOAuthClientID` in `cli/internal/auth/pkce_flow.go`. The API compares it to each OAuth access token's signed `client_id`: an exact match is the `tiddly` CLI's token, and any other value is an AI app's ("connector") token. The `clerk_oauth_token_accepted` log line reports which with `kind=cli` or `kind=connector`. API service only; the crons don't read it. The API trims whitespace around the value.
+
+**Set it on the api service before merging the code that reads it.** Merging deploys the api service, and the API needs the value when it starts:
+
+- The migration step (`uv run alembic upgrade head`, the pre-deploy command) does not check this variable. That step loads the shared settings, so it fails the deploy before it goes live when `CLERK_FRONTEND_API` or `CLERK_AUTHORIZED_PARTIES` is missing. A missing `CLERK_CLI_OAUTH_CLIENT_ID` passes it.
+- The API checks the variable only when it starts, with `VITE_DEV_MODE` off. Each worker then logs `RuntimeError: CLERK_CLI_OAUTH_CLIENT_ID is required when VITE_DEV_MODE is disabled...` and `Application startup failed`.
+- With more than one worker (`API_WORKERS=4` here), the process does not exit. uvicorn restarts each failed worker in a loop, logging `Child process [...] died`, and the API answers no requests. Only a single worker exits, with code 3.
+- With the Step 4 health check on `/health`, that deploy fails its health check and the previous deploy keeps serving. Without the health check, Railway sends traffic to the restarting workers and the API goes down.
+- To recover, set the variable on the api service and redeploy.
+
+To check the value after a deploy, run `tiddly login` and `tiddly tokens list`, then find `kind=cli` on that request's `clerk_oauth_token_accepted` line in the api service's logs. A CLI request logged as `kind=connector` means the value is wrong.
 
 **Important: DATABASE_URL must be set manually.** Railway's Postgres provides `postgresql://` but this app requires `postgresql+asyncpg://` for async SQLAlchemy. Do NOT use `${{Postgres.DATABASE_URL}}`.
 
@@ -424,6 +438,7 @@ Dev instances use Clerk's shared Google credentials; production requires your ow
 - Frontend service: `VITE_CLERK_PUBLISHABLE_KEY` (`pk_live_...`; `clerk env pull --instance prod` fetches it). An empty key makes the frontend fall back to dev mode (auth bypassed).
 - API + cron services: `CLERK_FRONTEND_API`, `CLERK_AUTHORIZED_PARTIES`; the api service also sets both JIT-create flags explicitly post-M6a (crons may omit them — Settings defaults apply) — see the API Service Variables section above.
 - The Clerk **secret key** is not deployed anywhere: the backend verifies tokens against the public JWKS (networkless); the secret key is used only by the one-off M2 import script, run from an operator machine.
+- API service additionally: `CLERK_CLI_OAUTH_CLIENT_ID`, the `client_id` of the instance's "Tiddly CLI" OAuth application (production: `prodOAuthClientID` in `cli/internal/auth/pkce_flow.go`). Not required by Settings validation, because the crons don't need it; the API's startup refuses to boot without it in non-dev mode. See the API Service Variables section above.
 - API service additionally: `CLERK_WEBHOOK_SIGNING_SECRET` (see 6f). Not required by Settings validation (crons don't need it); without it the webhook endpoint fails closed with 503.
 
 #### 6f. Webhook endpoint — account deletion (both instances)

@@ -268,3 +268,33 @@ class TestClerkConfig:
             CLERK_AUTHORIZED_PARTIES="https://tiddly.me",
         )
         assert settings.clerk_jit_create_enabled is False
+
+    def test__cli_oauth_client_id_read_from_env(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """CLERK_CLI_OAUTH_CLIENT_ID populates clerk_cli_oauth_client_id."""
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
+        monkeypatch.setenv("CLERK_CLI_OAUTH_CLIENT_ID", "zTESTcliclient456")
+        settings = Settings(
+            **self._base_kwargs(),
+            CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
+            CLERK_AUTHORIZED_PARTIES="https://tiddly.me",
+        )
+        assert settings.clerk_cli_oauth_client_id == "zTESTcliclient456"
+
+    def test__real_auth_settings_construct_without_cli_oauth_client_id(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        Settings itself does not require CLERK_CLI_OAUTH_CLIENT_ID: the crons
+        share this class and don't set it. Only the API's lifespan requires it
+        (tests/api/test_lifespan_settings_check.py).
+        """
+        monkeypatch.delenv("VITE_DEV_MODE", raising=False)
+        monkeypatch.delenv("CLERK_CLI_OAUTH_CLIENT_ID", raising=False)
+        settings = Settings(
+            **self._base_kwargs(),
+            CLERK_FRONTEND_API="test-instance.clerk.accounts.dev",
+            CLERK_AUTHORIZED_PARTIES="https://tiddly.me",
+        )
+        assert settings.clerk_cli_oauth_client_id == ""

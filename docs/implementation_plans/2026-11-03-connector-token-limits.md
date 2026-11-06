@@ -22,6 +22,7 @@ Who decided each item is marked. Items decided by Shane or the orchestrator are 
 - **Orchestrator:** no Clerk configuration changes in this plan.
 - **Orchestrator:** Clerk's agent-feedback tool is not part of this plan.
 - **This plan (overridable):** the new setting is `CLERK_CLI_OAUTH_CLIENT_ID`, read into `Settings` and checked at the API's lifespan startup, not in `Settings.validate_settings`. The three cron services share the `Settings` class and would otherwise need the variable too (`docs/architecture.md` §16 records that wart for `CLERK_FRONTEND_API`); the MCP servers already validate their own config at boot, so "the service that uses it validates it" has precedent. A missing value with dev mode off fails the API's boot with a message naming the variable. It never demotes the CLI's token to a connector token.
+- **Shane (2026-11-06): the production `api` service gets a Railway health check on `/health` before Milestone 1 merges.** Without one, a deploy missing `CLERK_CLI_OAUTH_CLIENT_ID` goes live with 4 workers restarting in a loop and the API answering nothing, because the migration pre-deploy command doesn't check the variable. With it, Railway sends traffic to a deploy only after `/health` returns 200, so the previous deploy keeps serving. A database that returns an error still gives a 200 from `/health`, and a database that hangs fails the deploy after Railway's health-check timeout while the old deploy keeps serving. The setting lives in the Railway dashboard (the repo has no `railway.toml` or `railway.json`). Railway calls `/health` with host `healthcheck.railway.app` on `$PORT`, which `Dockerfile.api` binds, and the API has no host-name restriction.
 - **This plan (overridable):** Milestone 1 ships classification and a log field only, and is deployed to production before enforcement. The Railway log line then shows `kind=cli` for CLI tokens and `kind=connector` for connectors with nothing blocked yet, so a wrong production value for `CLERK_CLI_OAUTH_CLIENT_ID` is caught while the only consequence is a wrong log field, not a broken `tiddly mcp configure`.
 - **This plan (overridable):** the allowlist is one central table of `(method, route template)` pairs in a new module `backend/src/core/connector_policy.py`, checked inside `_authenticate_user` so all three auth dependencies enforce it without a fourth dependency. A per-route marker (a decorator argument or a route-level `Depends`) was rejected because a reviewer could not see the whole connector surface in one place, and a marker copied from a neighboring route is the easy mistake.
 - **This plan (overridable):** a blocked request returns HTTP 403 with the standard envelope `{"detail": ..., "error_code": "connector_forbidden"}` and writes one WARNING line, `connector_token_blocked client_id=... sub=... method=... route=...`. The `DeletedIdentityError` pattern in `core/auth.py` and `api/main.py` (an `HTTPException` subclass with an `error_code` attribute and its own handler) is the shape to follow.
@@ -88,9 +89,59 @@ The backend can tell the CLI's OAuth token from a connector's, using the signed 
 
 - Unit tests in `backend/tests/core/test_auth_clerk.py`: an OAuth token with the configured CLI `client_id` classifies as CLI; one with Claude Code's metadata URL as `client_id` classifies as connector; one with an opaque DCR-style ID classifies as connector; a session token and a PAT carry no classification; the log line carries the right `kind` (extend `test__url_shaped_client_id__accepted_and_logged_at_info`, which already captures the line). A test in `backend/tests/api/` that the lifespan raises with dev mode off and the value empty, and does not raise with dev mode on.
 - `make backend-verify` green.
-- **Approval step:** set `CLERK_CLI_OAUTH_CLIENT_ID` on the Railway api service to the value of `prodOAuthClientID` before merging. Show the command or Dashboard change to Shane first.
-- **Approval step:** merge the Milestone 1 PR (deploy on merge).
+- **Rollout, in this order. Each step is an approval step: show Shane the exact change first.**
+  1. On the Railway `api` service, set Healthcheck Path to `/health`, and set `CLERK_CLI_OAUTH_CLIENT_ID` to the CLI's production client ID (`prodOAuthClientID` in `cli/internal/auth/pkce_flow.go`).
+  2. Deploy those changes on the current `main` code, which ignores the variable, and confirm the deploy passes the health check. This proves Railway's checker can reach `/health` before the risky change ships.
+  3. Only then merge the Milestone 1 PR (deploy on merge).
 - **Production check, Shane present for the sign-in.** Run `tiddly login` and `tiddly tokens list` against production, then make one tool call from Claude Code (already connected to production under CIMD, per the CIMD plan's results). In Railway logs for the api service, find `clerk_oauth_token_accepted ... kind=cli` for the CLI request and `kind=connector` for the Claude Code request. If the CLI request logs `kind=connector`, the Railway value is wrong; fix it before Milestone 2 merges. Record both lines (with `sub` redacted) in the Results section.
+
+### Results
+
+The local checks pass: every new test failed against the pre-change code for the expected reason and passes now, `make backend-verify` is green, and the API refuses to boot without the variable in real-auth mode. The production check has not run yet.
+
+**Where the classification lives.** `decode_clerk_jwt` classifies the token, because it already has the settings, the header `typ` check, and the `clerk_oauth_token_accepted` log call, so the log line stays one line in one place. It returns a `VerifiedClerkToken` (the verified claims, plus `oauth_client_id` and `oauth_client_kind` for an `at+jwt` token), and `_authenticate_user` copies the two fields onto `RequestContext`. The existing tests that read `decode_clerk_jwt`'s return value now read `.claims`, and the four tests that patch `decode_clerk_jwt` return a `VerifiedClerkToken` instead of a dict.
+
+**Tests seen failing, then passing.** Each test was run against the code before the change, and failed with the error shown.
+
+| Test | Failure before the change |
+|---|---|
+| `test_auth_clerk.py::TestOAuthClientClassification::test__cli_client_id__classified_cli` | `AttributeError: 'RequestContext' object has no attribute 'oauth_client_kind'` |
+| `...::test__claude_code_metadata_url__classified_connector` | same `AttributeError` |
+| `...::test__dcr_style_client_id__classified_connector` | same `AttributeError` |
+| `...::test__near_miss_of_cli_client_id__classified_connector` (4 cases: uppercased, one character added, one removed, leading space) | same `AttributeError` |
+| `...::test__session_token__no_classification` | same `AttributeError` |
+| `...::test__pat__no_classification` (a real PAT from `token_service.create_token`) | same `AttributeError` |
+| `...::test__dev_mode__no_classification` | same `AttributeError` |
+| `...::test__cli_token__logged_with_kind_cli` | `AssertionError`: the line ended `sub=user_cli_log` with no `kind=cli` |
+| `test_auth_clerk.py::TestClerkOAuthAccessTokens::test__url_shaped_client_id__accepted_and_logged_at_info` (extended) | `assert False` on `endswith(" kind=connector")` |
+| `tests/api/test_lifespan_settings_check.py::test__real_auth_without_cli_client_id__refuses_to_boot[empty]` | `Failed: DID NOT RAISE <class 'RuntimeError'>` |
+| `...::test__real_auth_without_cli_client_id__refuses_to_boot[whitespace_only]` (value `" \n"`) | `Failed: DID NOT RAISE <class 'RuntimeError'>`: the untrimmed value passed the check |
+| `test_auth_clerk.py::TestOAuthClientClassification::test__padded_cli_client_id_setting__still_matches_cli` (real `Settings`, value `"  zTESTcliclient456\n"`) | `AssertionError`: the CLI's token classified as `connector` |
+| `tests/core/test_config.py::test__cli_oauth_client_id_read_from_env` | `AttributeError: 'Settings' object has no attribute 'clerk_cli_oauth_client_id'` |
+| `tests/core/test_config.py::test__real_auth_settings_construct_without_cli_oauth_client_id` | same `AttributeError` |
+
+Two lifespan tests passed before the change and still pass, as intended, because they guard against the check over-reaching: `test__real_auth_with_cli_client_id__boots` and `test__dev_mode_without_cli_client_id__boots`. The last config test pins the Decided point that `Settings` itself does not require the variable, so the crons keep booting.
+
+**`make backend-verify`:** exit code 0. Ruff reported "All checks passed!" and pytest reported `3578 passed, 1 warning in 408.62s`. The warning is pydantic's `ReadOnly` notice on a LiteLLM type in `test_ai.py`, unrelated to this change.
+
+**Boot check, as an operator sees it.** All three runs used the primary checkout's `.env` (dev-mode config with no Clerk variables), with `VITE_DEV_MODE=false` and placeholder `CLERK_FRONTEND_API` and `CLERK_AUTHORIZED_PARTIES` on the command line, running `uv run uvicorn api.main:app --port 8011`. Production runs 4 workers (`--workers ${API_WORKERS:-1}` in `Dockerfile.api`, `API_WORKERS=4` in `README_DEPLOY.md`), so the 2-worker run is the one that shows what production does.
+
+- Without `CLERK_CLI_OAUTH_CLIENT_ID`, one worker (the default): uvicorn exited with code 3.
+
+  ```
+  INFO:     Waiting for application startup.
+  RuntimeError: CLERK_CLI_OAUTH_CLIENT_ID is required when VITE_DEV_MODE is disabled. Set it to the client_id of this environment's 'Tiddly CLI' Clerk OAuth application. Without it the API cannot tell the CLI's OAuth token from an AI app's token.
+  ERROR:    Application startup failed. Exiting.
+  ```
+
+- Without `CLERK_CLI_OAUTH_CLIENT_ID`, `--workers 2`: uvicorn did not exit. Each worker failed with the same `RuntimeError`, and uvicorn's supervisor restarted it in a loop. After 10 seconds the process was still running, `GET /health` got no answer (curl status `000`), and the log held 6 `Application startup failed` lines and 4 `Child process [...] died` lines. The processes were then killed. Production has no Railway health check (`healthcheckPath: null` on the api service's latest deployment, from a read-only `railway status --json` by the operator on 2026-11-03), and the migration pre-deploy command does not check this variable, so in production a missing value would put a deploy live that answers no requests.
+- With `CLERK_CLI_OAUTH_CLIENT_ID=placeholder-cli-client-id`, one worker: the log showed `Application startup complete.` and `GET /health` returned 200. The server was then stopped.
+
+**Rollout steps 1 and 2: done in production, 2026-11-06.** In the Railway dashboard, the production `api` service got Healthcheck Path `/health` (timeout left at Railway's default, 300 seconds) and `CLERK_CLI_OAUTH_CLIENT_ID`; `railway environment config --environment production --json` confirms both. The CLI command `railway environment edit --service-config ...` (CLI 5.26.1) did not apply them: it hung, then returned "No changes to apply".
+
+A redeploy of `main` at `fb91761` (no backend changes since the running `cbe224f`) finished with status SUCCESS. Its build log shows "Path: /health" and "[1/1] Healthcheck succeeded!", its runtime log shows 4 workers reaching "Application startup complete." with no errors, and `https://api.tiddly.me/health` returns 200.
+
+**Production check: not yet run.** To fill in after the Railway variable is set and the PR is merged: the `clerk_oauth_token_accepted ... kind=cli` line for `tiddly tokens list` and the `kind=connector` line for one Claude Code tool call, with `sub` redacted.
 
 ## Milestone 2: A connector token can call only the routes the MCP servers use
 
@@ -159,7 +210,7 @@ Production enforces the limit, a real connector proves it, and the deployed secu
 
 ### Implementation outline
 
-This milestone is a sequence of operator steps, not code. The Railway variable was set in Milestone 1; confirm it is still set before merging.
+This milestone is a sequence of operator steps, not code. The Railway variable was set in Milestone 1; confirm it is still set and that the health check is still on `/health` before merging.
 
 1. **Approval step:** merge the Milestone 2 PR (deploy on merge).
 2. Make one tool call from Claude Code on each production server (Shane; the connections exist from the CIMD plan). Create one bookmark through the content server's `create_bookmark` tool to use in step 3.

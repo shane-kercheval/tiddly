@@ -54,6 +54,16 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Manage application lifespan - startup and shutdown."""
     app_settings = get_settings()
 
+    # Checked here, not in Settings.validate_settings: the crons share Settings
+    # and don't need this variable.
+    if not app_settings.dev_mode and not app_settings.clerk_cli_oauth_client_id:
+        raise RuntimeError(
+            "CLERK_CLI_OAUTH_CLIENT_ID is required when VITE_DEV_MODE is disabled. "
+            "Set it to the client_id of this environment's 'Tiddly CLI' Clerk OAuth "
+            "application. Without it the API cannot tell the CLI's OAuth token from "
+            "an AI app's token.",
+        )
+
     # Startup: Connect to Redis
     redis_client = RedisClient(
         url=app_settings.redis_url,

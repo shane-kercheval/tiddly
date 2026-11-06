@@ -104,6 +104,7 @@ async def api_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
     settings.clerk_frontend_api = TEST_CLERK_FRONTEND_API
     settings.clerk_issuer = TEST_CLERK_ISSUER
     settings.clerk_jit_create_enabled = False
+    settings.clerk_cli_oauth_client_id = "test-cli-client-id"
 
     async def override_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
@@ -122,8 +123,10 @@ async def api_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
 
 async def _get(client: AsyncClient, path: str, user: User) -> int:
     """Call `path` authenticated as `user` by session token, returning the status."""
+    from core.auth import VerifiedClerkToken  # noqa: PLC0415
+
     payload = {"sub": user.external_auth_id, "email": user.email}
-    with patch("core.auth.decode_clerk_jwt", return_value=payload):
+    with patch("core.auth.decode_clerk_jwt", return_value=VerifiedClerkToken(claims=payload)):
         response = await client.get(
             path,
             headers={"Authorization": f"Bearer {_session_token(user.external_auth_id)}"},
