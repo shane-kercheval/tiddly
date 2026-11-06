@@ -20,6 +20,7 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException, Request
+from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,17 +31,21 @@ from core.tier_limits import Tier, get_tier_limits
 from models.deleted_identity import DeletedIdentity
 from models.user import User
 from schemas.token import TokenCreate
+from tests.clerk_tokens import (
+    CLAUDE_CODE_CLIENT_ID,
+    TEST_AUTHORIZED_PARTY,
+    TEST_CLERK_FRONTEND_API,
+    TEST_CLERK_ISSUER,
+    TEST_CLI_OAUTH_CLIENT_ID,
+    FakeJWKSClient,
+    mint_clerk_oauth_token,
+    mint_clerk_token,
+)
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
-TEST_CLERK_FRONTEND_API = "test-instance.clerk.accounts.dev"
-TEST_CLERK_ISSUER = f"https://{TEST_CLERK_FRONTEND_API}"
-TEST_AUTHORIZED_PARTY = "http://localhost:5173"
 TEST_AUTH0_ISSUER = "https://test-tenant.auth0.com/"
-# The configured "Tiddly CLI" OAuth app; any other client_id is a connector.
-TEST_CLI_OAUTH_CLIENT_ID = "zTESTcliclient456"
-CLAUDE_CODE_CLIENT_ID = "https://claude.ai/oauth/claude-code-client-metadata"
 
 
 @pytest.fixture(autouse=True)
@@ -57,11 +62,42 @@ def clerk_signing_key() -> "RSAPrivateKey":
 
 @pytest.fixture
 def mock_request() -> Request:
-    """Create a mock request for auth tests."""
+    """
+    Create a mock request for auth tests. Its scope has no matched route, so a
+    connector token is refused on it; connector tests use `connector_request`.
+    """
     request = MagicMock(spec=Request)
     request.headers = {}
     request.state = MagicMock()
+    request.method = "GET"
+    request.scope = {}
     return request
+
+
+def _app_route(method: str, path: str) -> APIRoute:
+    """The real route on api.main.app, so the check reads a genuine template."""
+    from api.main import app  # noqa: PLC0415
+
+    for route in app.routes:
+        if isinstance(route, APIRoute) and route.path == path and method in route.methods:
+            return route
+    raise LookupError(f"no {method} {path} route on the app")
+
+
+def request_on_route(method: str, path: str) -> Request:
+    """A mock request whose scope carries the matched route, as FastAPI sets it."""
+    request = MagicMock(spec=Request)
+    request.headers = {}
+    request.state = MagicMock()
+    request.method = method
+    request.scope = {"route": _app_route(method, path)}
+    return request
+
+
+@pytest.fixture
+def connector_request() -> Request:
+    """A request on GET /bookmarks/, a route connector tokens may call."""
+    return request_on_route("GET", "/bookmarks/")
 
 
 @pytest.fixture
@@ -78,92 +114,15 @@ def clerk_settings() -> Settings:
     return settings
 
 
-def mint_clerk_token(
-    signing_key: "RSAPrivateKey",
-    sub: str = "user_test_clerk_id",
-    *,
-    azp: str | None = None,
-    email: str | None = None,
-    email_verified: bool | None = None,
-    issuer: str = TEST_CLERK_ISSUER,
-    lifetime_seconds: int = 60,
-    exp: int | None = None,
-    omit: tuple[str, ...] = (),
-) -> str:
-    """Mint a real RS256 session token shaped like Clerk's (60s lifetime)."""
-    now = int(time.time())
-    claims: dict = {
-        "iss": issuer,
-        "sub": sub,
-        "iat": now,
-        "exp": exp if exp is not None else now + lifetime_seconds,
-    }
-    if azp is not None:
-        claims["azp"] = azp
-    if email is not None:
-        claims["email"] = email
-    if email_verified is not None:
-        claims["email_verified"] = email_verified
-    for claim in omit:
-        claims.pop(claim, None)
-    return jwt.encode(claims, signing_key, algorithm="RS256")
-
-
-def mint_clerk_oauth_token(
-    signing_key: "RSAPrivateKey",
-    sub: str = "user_test_clerk_id",
-    *,
-    client_id: str | None = "zTESTclientid123",
-    azp: str | None = None,
-    issuer: str = TEST_CLERK_ISSUER,
-    lifetime_seconds: int = 86400,
-    typ: str = "at+jwt",
-) -> str:
-    """
-    Mint a real RS256 OAuth access token shaped like Clerk's.
-
-    Claim shape is the fixture from the M4 opening probe (ledger Q5, decoded
-    from a real dev-instance token 2026-07-13): header `typ: "at+jwt"`; claims
-    `sub`/`client_id`/`scope`/`jti`/`nbf`; no email, no azp, 24h lifetime.
-    """
-    now = int(time.time())
-    claims: dict = {
-        "iss": issuer,
-        "sub": sub,
-        "iat": now,
-        "nbf": now - 10,
-        "exp": now + lifetime_seconds,
-        "scope": "openid profile email offline_access",
-        "jti": "oat_TESTTESTTESTTEST",
-    }
-    if client_id is not None:
-        claims["client_id"] = client_id
-    if azp is not None:
-        claims["azp"] = azp
-    return jwt.encode(claims, signing_key, algorithm="RS256", headers={"typ": typ})
-
-
-class _FakeJWKSClient:
-    """Stands in for PyJWKClient; serves the test public key for any token."""
-
-    def __init__(self, signing_key: "RSAPrivateKey") -> None:
-        self._public_key = signing_key.public_key()
-
-    def get_signing_key_from_jwt(self, token: str) -> MagicMock:  # noqa: ARG002
-        entry = MagicMock()
-        entry.key = self._public_key
-        return entry
-
-
 @pytest.fixture(autouse=True)
-def patched_jwks(clerk_signing_key: "RSAPrivateKey") -> Generator[_FakeJWKSClient]:
+def patched_jwks(clerk_signing_key: "RSAPrivateKey") -> Generator[FakeJWKSClient]:
     """
     Patch the JWKS client so verification uses the test public key.
 
     Autouse: most tests in this module verify real signatures; the few that
     never reach JWKS (opaque bearer, patched Auth0 decode) are unaffected.
     """
-    fake = _FakeJWKSClient(clerk_signing_key)
+    fake = FakeJWKSClient(clerk_signing_key)
     with patch("core.auth.get_jwks_client", return_value=fake):
         yield fake
 
@@ -487,47 +446,13 @@ class TestClerkOAuthAccessTokens:
 
         assert "client_id" not in payload
 
-    async def test__oauth_token_accepted_on_pat_blocked_surfaces(
-        self,
-        db_session: AsyncSession,
-        redis_client: object,  # noqa: ARG002
-        clerk_signing_key: "RSAPrivateKey",
-        clerk_settings: Settings,
-        mock_request: Request,
-    ) -> None:
-        """
-        Pins the M4 security-review policy decision (recorded in
-        _authenticate_user's docstring): Clerk OAuth access tokens count as
-        session auth where PATs are blocked (allow_pat=False — /tokens/*,
-        fetch-metadata, AI endpoints), matching the Auth0 device-flow JWTs
-        they replace (test_auth_session_only.py has that twin). If a future
-        tightening of programmatic auth breaks this, `tiddly tokens` breaks
-        with it — this test is the tripwire.
-        """
-        from core.auth import AuthType, _authenticate_user  # noqa: PLC0415
-
-        credentials = HTTPAuthorizationCredentials(
-            scheme="Bearer",
-            credentials=mint_clerk_oauth_token(
-                clerk_signing_key, sub="user_clerk_pat_blocked_surface",
-            ),
-        )
-
-        user = await _authenticate_user(
-            mock_request, credentials, db_session, clerk_settings,
-            source="cli", allow_pat=False,
-        )
-
-        assert user.external_auth_id == "user_clerk_pat_blocked_surface"
-        assert mock_request.state.request_context.auth_type == AuthType.SESSION
-
     async def test__session_and_oauth_tokens_resolve_to_same_user(
         self,
         db_session: AsyncSession,
         redis_client: object,  # noqa: ARG002
         clerk_signing_key: "RSAPrivateKey",
         clerk_settings: Settings,
-        mock_request: Request,
+        connector_request: Request,
     ) -> None:
         """
         M4 Definition of Done: a session-shaped and an OAuth-shaped token with
@@ -545,7 +470,7 @@ class TestClerkOAuthAccessTokens:
             ),
         )
         session_user = await _authenticate_user(
-            mock_request, session_credentials, db_session, clerk_settings, source="web",
+            connector_request, session_credentials, db_session, clerk_settings, source="web",
         )
 
         oauth_credentials = HTTPAuthorizationCredentials(
@@ -553,13 +478,13 @@ class TestClerkOAuthAccessTokens:
             credentials=mint_clerk_oauth_token(clerk_signing_key, sub=sub),
         )
         oauth_user = await _authenticate_user(
-            mock_request, oauth_credentials, db_session, clerk_settings, source="cli",
+            connector_request, oauth_credentials, db_session, clerk_settings, source="cli",
         )
 
         assert oauth_user.id == session_user.id
         assert oauth_user.external_auth_id == sub
         assert oauth_user.email == "cli@test.com"  # null email did not clobber
-        context = mock_request.state.request_context
+        context = connector_request.state.request_context
         assert context.auth_type == AuthType.SESSION
         assert context.source == "cli"
 
@@ -569,7 +494,8 @@ class TestOAuthClientClassification:
     The CLI's OAuth token is told apart from an AI app's ("connector") token by
     comparing the signed `client_id` to `clerk_cli_oauth_client_id`. The
     classification lands on the request context and the accepted-token log
-    line; it never changes `auth_type`, and nothing is blocked on it yet.
+    line; it never changes `auth_type`. What it blocks is tested in
+    TestConnectorRouteLimits.
     """
 
     async def _authenticate(
@@ -611,15 +537,15 @@ class TestOAuthClientClassification:
         redis_client: object,  # noqa: ARG002
         clerk_signing_key: "RSAPrivateKey",
         clerk_settings: Settings,
-        mock_request: Request,
+        connector_request: Request,
     ) -> None:
         """A CIMD client (client_id is its metadata URL) is a connector."""
         token = mint_clerk_oauth_token(
             clerk_signing_key, sub="user_cimd_kind", client_id=CLAUDE_CODE_CLIENT_ID,
         )
-        await self._authenticate(token, db_session, clerk_settings, mock_request)
+        await self._authenticate(token, db_session, clerk_settings, connector_request)
 
-        context = mock_request.state.request_context
+        context = connector_request.state.request_context
         assert context.oauth_client_kind == "connector"
         assert context.oauth_client_id == CLAUDE_CODE_CLIENT_ID
         assert context.auth_type == "session"
@@ -630,15 +556,15 @@ class TestOAuthClientClassification:
         redis_client: object,  # noqa: ARG002
         clerk_signing_key: "RSAPrivateKey",
         clerk_settings: Settings,
-        mock_request: Request,
+        connector_request: Request,
     ) -> None:
         """An opaque Clerk-generated (DCR) client_id is a connector."""
         token = mint_clerk_oauth_token(
             clerk_signing_key, sub="user_dcr_kind", client_id="zTESTclientid123",
         )
-        await self._authenticate(token, db_session, clerk_settings, mock_request)
+        await self._authenticate(token, db_session, clerk_settings, connector_request)
 
-        context = mock_request.state.request_context
+        context = connector_request.state.request_context
         assert context.oauth_client_kind == "connector"
         assert context.oauth_client_id == "zTESTclientid123"
 
@@ -658,15 +584,15 @@ class TestOAuthClientClassification:
         redis_client: object,  # noqa: ARG002
         clerk_signing_key: "RSAPrivateKey",
         clerk_settings: Settings,
-        mock_request: Request,
+        connector_request: Request,
     ) -> None:
         """The compare is exact: case, prefix, suffix, and whitespace variants are connectors."""
         token = mint_clerk_oauth_token(
             clerk_signing_key, sub="user_near_miss_kind", client_id=near_miss,
         )
-        await self._authenticate(token, db_session, clerk_settings, mock_request)
+        await self._authenticate(token, db_session, clerk_settings, connector_request)
 
-        assert mock_request.state.request_context.oauth_client_kind == "connector"
+        assert connector_request.state.request_context.oauth_client_kind == "connector"
 
     async def test__session_token__no_classification(
         self,
@@ -783,6 +709,249 @@ class TestOAuthClientClassification:
             f"clerk_oauth_token_accepted client_id={TEST_CLI_OAUTH_CLIENT_ID} "
             "sub=user_cli_log kind=cli",
         ]
+
+
+CONNECTOR_FORBIDDEN_DETAIL = (
+    "This endpoint is not available to AI-app connector tokens. Use the app's "
+    "Tiddly tools, the web app, or a Personal Access Token."
+)
+
+
+def _assert_connector_forbidden(exc: HTTPException) -> None:
+    assert exc.status_code == 403
+    assert getattr(exc, "error_code", None) == "connector_forbidden"
+    assert exc.detail == CONNECTOR_FORBIDDEN_DETAIL
+    # The token is valid and only the route is refused, so no re-auth challenge.
+    assert not exc.headers
+
+
+class TestConnectorRouteLimits:
+    """
+    A connector token may call only the routes in core/connector_policy.py. The
+    CLI's OAuth token, session tokens, and PATs are never checked against that
+    list. Requests carry a real route from api.main.app, so the check reads the
+    template FastAPI puts in the scope.
+    """
+
+    async def _authenticate(
+        self,
+        token: str,
+        request: Request,
+        db_session: AsyncSession,
+        settings: Settings,
+        *,
+        allow_pat: bool = True,
+    ) -> User:
+        from core.auth import _authenticate_user  # noqa: PLC0415
+
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+        return await _authenticate_user(
+            request, credentials, db_session, settings,
+            source="mcp-content", allow_pat=allow_pat,
+        )
+
+    async def test__cli_token_accepted_on_session_only_route(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        """
+        The tripwire for `tiddly tokens` and `tiddly mcp configure`: the CLI's
+        OAuth token passes the PAT block (allow_pat=False) on POST /tokens/. If
+        this breaks, the CLI can no longer create, list, or delete PATs.
+        """
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_cli_tokens_route", client_id=TEST_CLI_OAUTH_CLIENT_ID,
+        )
+        request = request_on_route("POST", "/tokens/")
+
+        user = await self._authenticate(
+            token, request, db_session, clerk_settings, allow_pat=False,
+        )
+
+        assert user.external_auth_id == "user_cli_tokens_route"
+        assert request.state.request_context.oauth_client_kind == "cli"
+
+    async def test__connector_token_on_session_only_route__403(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        """A connector token can't create a PAT: POST /tokens/ is not on the list."""
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_connector_tokens_route", client_id=CLAUDE_CODE_CLIENT_ID,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await self._authenticate(
+                token, request_on_route("POST", "/tokens/"), db_session, clerk_settings,
+                allow_pat=False,
+            )
+
+        _assert_connector_forbidden(exc_info.value)
+
+    async def test__connector_token_on_allowed_route__accepted(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_connector_allowed", client_id=CLAUDE_CODE_CLIENT_ID,
+        )
+        request = request_on_route("GET", "/bookmarks/")
+
+        user = await self._authenticate(token, request, db_session, clerk_settings)
+
+        assert user.external_auth_id == "user_connector_allowed"
+        assert request.state.request_context.oauth_client_kind == "connector"
+
+    async def test__connector_token_on_delete_route__403(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_connector_delete", client_id=CLAUDE_CODE_CLIENT_ID,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await self._authenticate(
+                token, request_on_route("DELETE", "/bookmarks/{bookmark_id}"),
+                db_session, clerk_settings,
+            )
+
+        _assert_connector_forbidden(exc_info.value)
+
+    async def test__connector_token_without_matched_route__403(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        mock_request: Request,
+    ) -> None:
+        """No route in the scope means the request can't be shown to be allowed."""
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_connector_no_route", client_id=CLAUDE_CODE_CLIENT_ID,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await self._authenticate(token, mock_request, db_session, clerk_settings)
+
+        _assert_connector_forbidden(exc_info.value)
+
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [("GET", "/bookmarks/"), ("DELETE", "/bookmarks/{bookmark_id}"), ("POST", "/tokens/")],
+    )
+    async def test__session_token_accepted_on_allowed_and_blocked_routes(
+        self,
+        method: str,
+        path: str,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        token = mint_clerk_token(
+            clerk_signing_key, sub="user_session_routes", azp=TEST_AUTHORIZED_PARTY,
+        )
+
+        user = await self._authenticate(
+            token, request_on_route(method, path), db_session, clerk_settings, allow_pat=False,
+        )
+
+        assert user.external_auth_id == "user_session_routes"
+
+    async def test__blocked_request_logged_at_warning(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """One WARNING line names the client, the user, and the refused route."""
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_connector_logged", client_id=CLAUDE_CODE_CLIENT_ID,
+        )
+
+        with (
+            caplog.at_level(logging.INFO, logger="core.auth"),
+            pytest.raises(HTTPException),
+        ):
+            await self._authenticate(
+                token, request_on_route("DELETE", "/bookmarks/{bookmark_id}"),
+                db_session, clerk_settings,
+            )
+
+        blocked = [
+            (r.levelno, r.getMessage()) for r in caplog.records
+            if r.name == "core.auth" and r.getMessage().startswith("connector_token_blocked")
+        ]
+        assert blocked == [(
+            logging.WARNING,
+            f"connector_token_blocked client_id={CLAUDE_CODE_CLIENT_ID} "
+            "sub=user_connector_logged method=DELETE route=/bookmarks/{bookmark_id}",
+        )]
+
+    @pytest.mark.parametrize("token_kind", ["cli", "session", "pat"])
+    async def test__first_party_token_never_blocked_on_any_route(
+        self,
+        token_kind: str,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        """
+        The CLI's OAuth token, a session token, and a PAT pass the route check
+        on every route the app has, not only the ones the CLI calls today. A
+        wrong CLI label would surface here as a long list of refused routes.
+        """
+        from api.main import app  # noqa: PLC0415
+        from services import token_service  # noqa: PLC0415
+
+        sub = f"user_never_blocked_{token_kind}"
+        if token_kind == "cli":
+            token = mint_clerk_oauth_token(
+                clerk_signing_key, sub=sub, client_id=TEST_CLI_OAUTH_CLIENT_ID,
+            )
+        elif token_kind == "session":
+            token = mint_clerk_token(clerk_signing_key, sub=sub, azp=TEST_AUTHORIZED_PARTY)
+        else:
+            user = User(external_auth_id=sub, email="pat-routes@test.com")
+            db_session.add(user)
+            await db_session.flush()
+            _, token = await token_service.create_token(
+                db_session, user.id, TokenCreate(name="route test"), get_tier_limits(Tier.FREE),
+            )
+
+        routes = [
+            (method, route.path)
+            for route in app.routes
+            if isinstance(route, APIRoute)
+            for method in sorted(route.methods)
+        ]
+        refused = []
+        for method, path in routes:
+            try:
+                await self._authenticate(
+                    token, request_on_route(method, path), db_session, clerk_settings,
+                )
+            except HTTPException as exc:
+                refused.append((method, path, exc.status_code))
+
+        assert len(routes) > 90  # the walk really covered the app
+        assert refused == []
 
 
 class TestIssuerDispatch:

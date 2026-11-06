@@ -19,6 +19,7 @@ from typing import Annotated
 
 import jwt
 from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 from sqlalchemy import select
@@ -27,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth_cache import get_auth_cache
 from core.config import Settings, get_settings
+from core.connector_policy import is_connector_route_allowed
 from core.rate_limit_config import (
     RateLimitExceededError,
     get_operation_type,
@@ -48,6 +50,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "AUTH_DEPENDENCIES",
     "AuthType",
+    "ConnectorForbiddenError",
     "DeletedIdentityError",
     "RequestContext",
     "get_current_user",
@@ -96,6 +99,33 @@ class DeletedIdentityError(HTTPException):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ACCOUNT_DELETED_DETAIL,
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+# 403 for an AI app's OAuth token ("connector token") on a route outside
+# core/connector_policy.py. Clients bind to the error_code, not the prose; the
+# api/main.py handler produces the {detail, error_code} envelope.
+CONNECTOR_FORBIDDEN_DETAIL = (
+    "This endpoint is not available to AI-app connector tokens. Use the app's "
+    "Tiddly tools, the web app, or a Personal Access Token."
+)
+CONNECTOR_FORBIDDEN_ERROR_CODE = "connector_forbidden"
+
+
+class ConnectorForbiddenError(HTTPException):
+    """
+    Raised when a connector token calls a route outside core/connector_policy.py.
+
+    No WWW-Authenticate header: the token is valid and re-authenticating would
+    not help; only the route is refused.
+    """
+
+    error_code = CONNECTOR_FORBIDDEN_ERROR_CODE
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=CONNECTOR_FORBIDDEN_DETAIL,
         )
 
 
@@ -182,11 +212,10 @@ def decode_clerk_jwt(token: str, settings: Settings) -> VerifiedClerkToken:
     to `settings.clerk_cli_oauth_client_id` (exact string compare) is the
     Tiddly CLI's token; every other `client_id` is a connector's (an AI app
     the user approved). Connector IDs are not allowlisted: Tiddly admits any
-    CIMD client and keeps DCR open, so the set of apps is open-ended. The
-    classification only labels the token today; limiting connector tokens by
-    route is planned in
-    docs/implementation_plans/2026-11-03-connector-token-limits.md. The
-    client_id and the kind are logged on one INFO line.
+    CIMD client and keeps DCR open, so the set of apps is open-ended. Instead
+    a connector token may call only the routes in core/connector_policy.py
+    (enforced in _authenticate_user). The client_id and the kind are logged on
+    one INFO line.
 
     Clerk-specific claim rules (established at the migration's M1; each
     verified against the live dev instance in the M0 spike):
@@ -705,7 +734,9 @@ async def _authenticate_user(
 
     Supports:
     - Clerk-issued JWTs (session tokens and OAuth access tokens; any other
-      issuer is rejected)
+      issuer is rejected). An AI app's OAuth token ("connector token") may call
+      only the routes in core/connector_policy.py; anywhere else it gets
+      ConnectorForbiddenError (403).
     - Personal Access Tokens (PATs) starting with 'bm_' (for CLI/MCP/scripts)
 
     In DEV_MODE, bypasses auth and returns a test user.
@@ -722,14 +753,10 @@ async def _authenticate_user(
             on the request context for the content-versioning audit trail.
         allow_pat: If False, reject PAT tokens with 403 to help prevent unintended
             programmatic use. Note: does not block IdP JWTs used outside the browser.
-            Policy decision (M4 security review, deliberate): Clerk OAuth access
-            tokens (`at+jwt` — day-lived, programmatic) DO count as session auth
-            on PAT-blocked surfaces (/tokens/*, fetch-metadata, AI endpoints).
-            This preserved parity with the pre-migration behavior (the CLI's
-            Auth0 device-flow JWTs passed these checks), and the PAT block's
-            purpose is limiting leaked long-lived static credentials, not
-            interactive-grade OAuth grants (which require a browser sign-in
-            and expire daily).
+            The CLI's OAuth token passes on these PAT-blocked surfaces (/tokens/*,
+            /settings/*, fetch-metadata, AI endpoints): `tiddly tokens` and
+            `tiddly mcp configure` need /tokens/. A connector token is refused on
+            them by the route check, because none is in core/connector_policy.py.
     """
     token_prefix: str | None = None
     oauth_client_id: str | None = None
@@ -803,7 +830,37 @@ async def _authenticate_user(
         oauth_client_kind=oauth_client_kind,
     )
 
+    # Before any rate-limit check, so a refused request charges no bucket.
+    if oauth_client_kind == OAuthClientKind.CONNECTOR:
+        _enforce_connector_route_limit(request, oauth_client_id, user.external_auth_id)
+
     return user
+
+
+def _enforce_connector_route_limit(
+    request: Request,
+    oauth_client_id: str | None,
+    sub: str,
+) -> None:
+    """
+    Refuse a connector token on any route outside core/connector_policy.py.
+
+    FastAPI puts the matched APIRoute in the scope before it runs dependencies,
+    so a request without one never came through a matched route, and nothing
+    shows it is allowed: it is refused too.
+    """
+    route = request.scope.get("route")
+    template = route.path if isinstance(route, APIRoute) else None
+    if template is not None and is_connector_route_allowed(request.method, template):
+        return
+    logger.warning(
+        "connector_token_blocked client_id=%s sub=%s method=%s route=%s",
+        oauth_client_id,
+        sub,
+        request.method,
+        template,
+    )
+    raise ConnectorForbiddenError
 
 
 async def get_current_user(
@@ -834,9 +891,11 @@ async def get_current_user_session_only(
     """
     Dependency: session-only auth + rate limiting (blocks PAT access).
 
-    "Session" = a Clerk-issued JWT (session token or OAuth access token), as
-    opposed to a PAT. Returns User ORM object on cache miss, CachedUser on cache hit.
-    Use this to block PAT access and help prevent unintended programmatic use.
+    "Session" = a Clerk session token or the Tiddly CLI's OAuth access token, as
+    opposed to a PAT. An AI app's OAuth token (connector token) is refused here
+    too, because no session-only route is in core/connector_policy.py. Returns
+    User ORM object on cache miss, CachedUser on cache hit. Use this to block
+    PAT access and help prevent unintended programmatic use.
 
     Examples:
         - /bookmarks/fetch-metadata (blocks PAT-based SSRF abuse)
@@ -847,7 +906,8 @@ async def get_current_user_session_only(
     their session JWT from browser DevTools and use it in scripts. Rate limiting
     provides the additional layer to cap any abuse.
 
-    Returns 403 Forbidden for PAT tokens.
+    Returns 403 Forbidden for PAT tokens and for connector tokens
+    (error_code: connector_forbidden).
     Returns 429 if rate limit exceeded.
     """
     user = await _authenticate_user(
@@ -871,7 +931,8 @@ async def get_current_user_ai(
     READ/WRITE quota — AI endpoints have their own rate limit buckets
     (AI_PLATFORM / AI_BYOK) enforced by a separate dependency.
 
-    Returns 403 Forbidden for PAT tokens.
+    Returns 403 Forbidden for PAT tokens and for connector tokens
+    (error_code: connector_forbidden).
     """
     return await _authenticate_user(
         request, credentials, db, settings, source=source, allow_pat=False,

@@ -82,7 +82,9 @@ _BASE_AI_ERROR_RESPONSES: dict[int, dict] = {
             "Authenticated but not allowed. Most commonly: the caller supplied a "
             "Personal Access Token (`bm_*`). AI endpoints are session-only — PATs "
             "are rejected as a defense-in-depth signal that these endpoints are "
-            "not intended for automated / programmatic use."
+            "not intended for automated / programmatic use. An AI app's OAuth "
+            "token (MCP connector) is rejected too, with `error_code: "
+            "\"connector_forbidden\"`."
         ),
         "content": {
             "application/json": {

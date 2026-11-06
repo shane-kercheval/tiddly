@@ -74,7 +74,7 @@ async def fetch_metadata(
     """
     Fetch metadata from a URL without saving a bookmark.
 
-    **Authentication: session only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs and AI-app connector tokens not accepted - returns 403)**
 
     Use this endpoint to preview title and description before creating a bookmark.
     The frontend can call this when the user enters a URL, then populate the form
