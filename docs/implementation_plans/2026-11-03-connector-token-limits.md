@@ -1,6 +1,6 @@
 # Limit what an AI app's OAuth token can do in the API
 
-**Status**: Planned
+**Status**: Milestone 1 merged and live in production (2026-11-06). Milestone 2 implemented on branch `block-connector-tokens` and verified end to end on dev (2026-11-07), not yet merged; the iOS check is pending. Milestone 3 not started.
 **Date**: 2026-11-03
 **Scope**: The backend API's handling of Clerk OAuth access tokens issued to MCP connectors (Claude web, desktop, mobile, Claude Code, Codex, ChatGPT, and any other app a user approves). One new API setting, one Railway variable on the api service, tests, and the docs that describe what a connected app can do. No MCP server behavior change, no CLI change, no Clerk configuration change, no change for session tokens (web app, Chrome extension, iOS) or Personal Access Tokens (PATs).
 
@@ -205,6 +205,103 @@ Every MCP tool keeps working. A connector token used directly against the REST A
   4. Point the CLI entirely at the local stack and away from Shane's real login and tool configs, because its defaults are production and its storage is shared with his real setup: `TIDDLY_OAUTH_ISSUER` and `TIDDLY_OAUTH_CLIENT_ID` at the dev Clerk instance, `TIDDLY_API_URL` at the local real-auth API, `TIDDLY_CONTENT_MCP_URL` and `TIDDLY_PROMPT_MCP_URL` at the local servers, `HOME` at an empty scratch directory, `XDG_CONFIG_HOME` at a directory inside that scratch directory, and `--keyring file` on every `tiddly` command. `HOME` is what moves the tool configs: `tiddly mcp configure` writes `~/.claude.json` or `~/.codex/config.toml` through Go's `os.UserHomeDir`, which reads `$HOME` on macOS (`cli/internal/mcp/claude_code.go`, `detect.go`). `XDG_CONFIG_HOME` is what pins the CLI's own config directory: `config.Dir()` (`cli/internal/config/config.go`) prefers `XDG_CONFIG_HOME` over `$HOME/.config/tiddly`, so an inherited value would put the CLI's config and its credential file outside the scratch folder. `--keyring file` is what keeps the login out of the macOS Keychain, where the CLI otherwise stores it under the service `tiddly-cli` (`cli/internal/auth/keyring.go`); with the flag it writes credentials under that config directory (`cli/cmd/root.go` passes `config.Dir()` to the credential store), so they land in the scratch folder too. Tool detection is by binary on `PATH` (`cli/internal/mcp/handler_claude_code.go`), so an empty `HOME` still detects Claude Code, and `configure` creates the missing config file. Then `tiddly login --keyring file` (browser, Shane) and `tiddly mcp configure claude-code --keyring file`. No revoke step is needed: the scratch `~/.claude.json` has no Tiddly entries, so `resolveServerPAT` (`cli/internal/mcp/configure.go`) finds no PAT to reuse and must call `POST /tokens/`. Confirm with `tiddly tokens list --keyring file` showing the two new token IDs. Cleanup: revoke the two dev PATs with `tiddly tokens delete <id> --keyring file` while the scratch login still exists, then delete the scratch directory; nothing in Shane's real Keychain or tool configs was touched. The evidence is the API's access-log line for `POST /tokens/` with status 201 next to a `kind=cli` accepted line; without that line the step has proven nothing.
 - The MCP evals are not run (see Decided). If the implementer changes MCP server code, which this milestone does not call for, run `make evals` for the changed server.
 - Results section filled in with the per-tool table and the status codes.
+
+### Results
+
+The limit works end to end on the dev stack. A connector token from Claude Code ran every tool on both MCP servers, and the same token got 403 `connector_forbidden` on the four routes outside the list. The CLI's OAuth token created and revoked PATs with no refusal. Every run used the local API on port 8010 in real-auth mode against the dev Clerk instance, with both MCP servers (8001, 8002) pointed at it. The Claude Code runs were on 2026-11-06 and the CLI run on 2026-11-07. Every new test failed on a known-bad input before it passed. On the final branch, `make backend-verify` (3614 tests) and `make frontend-verify` (3702 tests) pass.
+
+**Tests seen failing, then passing.** Each run below used the code with the named piece missing or deliberately broken, and failed with the error shown. Every temporary edit was reverted afterward. The test files are `backend/tests/core/test_connector_policy.py`, `backend/tests/core/test_auth_clerk.py`, `backend/tests/security/test_connector_token_limits.py` (the app-level tests), and `backend/tests/test_mcp_connector_drift.py`.
+
+| Test | Run against | Failure |
+|---|---|---|
+| `test_connector_policy.py` (10 tests) | the code before `core/connector_policy.py` existed | `10 failed`: `ModuleNotFoundError: No module named 'core.connector_policy'` |
+| `test_connector_policy.py` | the table with a made-up route and a `DELETE` entry added | `allowlist entries that match no route on the app: [('GET', '/bookmarks/{id}/renamed')]` and `allowlist entries on forbidden surfaces: [('DELETE', '/bookmarks/{bookmark_id}')]` |
+| The new unit tests in `test_auth_clerk.py::TestConnectorRouteLimits` | the code before the check existed | `4 failed`, each `Failed: DID NOT RAISE <class 'fastapi.exceptions.HTTPException'>` |
+| `test_auth_clerk.py::TestConnectorRouteLimits::test__first_party_token_never_blocked_on_any_route` | the settings' CLI client ID changed, so the CLI's token was labeled a connector | `Left contains 73 more items, first extra item: ('GET', '/ai/health', 403)`. The session and PAT cases still passed. |
+| App-level tests | the code before the 403 handler existed | `4 failed` on the missing `error_code`: `Right contains 1 more item: {'error_code': 'connector_forbidden'}` |
+| App-level tests | the check disabled | `4 failed`: `assert 204 == 403` (the delete went through), `assert 201 == 403` (a PAT was created), `AssertionError: the LLM service was reached`, and `assert 200 == 403` (`/users/me`) |
+| Drift test | one entry removed from the table | `MCP servers call routes missing from core/connector_policy.py: [('GET', '/tags/')]` |
+| Drift test | the representative call for `list_tags` removed | the content server's tools without a representative call: `['list_tags']` |
+| Drift test | each server given one extra handler type | prompt server: `prompt server handlers changed; drive the new ones here: ['ListResourcesRequest']`; content server: `assert [Resource(...)] == []` |
+| `test_auth_clerk.py::TestConnectorRouteLimits::test__oauth_token_not_labeled_cli__403` | the check as first written, which limited only tokens labeled connector | `1 failed`: `Failed: DID NOT RAISE <class 'fastapi.exceptions.HTTPException'>` |
+| `test_connector_token_limits.py::test__refused_connector_request__charges_no_rate_limit` | the check moved after both rate limiters | `assert (1, 1) == (0, 0)`: both limiters were charged. The existing connector `DELETE` and AI refusal tests still passed under this change, so they don't catch it. |
+
+The deployed class sends empty bodies to `POST /tokens/` and `POST /ai/suggest-tags`, so a broken limit gets 422 and creates nothing. A throwaway test through the real app showed this: with the check on, both returned 403; with it off, both returned 422; no token row was created either way. The deployed class itself was not run with the check off.
+
+**`make backend-verify` and `make frontend-verify`, on the branch at `a4b64d3` (2026-11-07).** `make backend-verify`: exit code 0. Ruff reported "All checks passed!" for `backend/src`, `backend/tests`, and `backend/scripts`, and pytest reported `3614 passed, 1 warning in 401.79s`. The warning is pydantic's `ReadOnly` notice on a LiteLLM type in `test_ai.py`, unrelated to this change. `make frontend-verify`: exit code 0. ESLint and `tsc` reported no errors, and Vitest reported `Test Files  194 passed (194)` and `Tests  3702 passed (3702)`.
+
+**Who did what.** Shane did all the browser sign-ins himself: Claude Code's sign-in to each of the two dev servers (one consent screen per server), and later the CLI's `tiddly login`. Everything else ran from scripts kept outside the repo, using Claude Code's stored dev tokens read from the macOS Keychain without printing them.
+
+**Claude Code requests, 2026-11-06.** Four requests ran headless through `claude -p`, reusing Shane's stored sign-in. `--strict-mcp-config` limited Claude Code to the two dev servers, and `--tools ""` turned off its built-in tools, so it was offered only the 20 dev tools. Each request finished successfully, and every API line it caused logged `kind=connector`.
+
+| Request | Tools called | API requests |
+|---|---|---|
+| 1. Summarize my content | `get_context` | `GET /mcp/context/content` 200, `GET /prompts/` 200 |
+| 2. Create a note "Shane e2e check", then find it | `create_note`, `search_items`, `get_item` | `POST /notes/` 201, `GET /notes/` 200, `GET /notes/{note_id}` 200, `GET /prompts/` 200 |
+| 3. Create the prompt `shane-e2e-check` ("Reply with the word pong.") | `create_prompt` | `POST /prompts/` 201, `GET /prompts/` 200 |
+| 4. The slash command `/mcp__tiddly-dev-prompts__shane-e2e-check` (native `prompts/get`) | none; Claude Code answered `pong` | `GET /prompts/name/{name}` 200, `POST /prompts/{prompt_id}/track-usage` 204, `GET /prompts/` 200 |
+
+**Every tool, through the MCP servers, 2026-11-06.** A scratch script connected to both MCP servers with Claude Code's stored dev tokens and recorded one PASS or FAIL line per call. It called all 11 content tools and all 9 prompt tools; `get_item`, `update_item`, `edit_content`, and `search_in_content` with both `type="bookmark"` and `type="note"`; `search_items` with each type and with none; `create_relationship` twice, so the second call took the existing-link path; and the prompt server's native `prompts/list` and `prompts/get`. Result: 36 passed, 0 failed (run stamp `20261106-184001`). The API's access log for the run showed all 28 routes on the list and no route outside it. The only non-2xx response was the expected 409 from the second `POST /relationships/`, after which the content server's fallback GET returned the link.
+
+**Routes outside the list, 2026-11-06.** Requests sent straight to the API with Claude Code's stored content-server token, against a bookmark the per-tool run created:
+
+| Request | Status | `error_code` |
+|---|---|---|
+| `GET /bookmarks/` (control) | 200 | |
+| `DELETE /bookmarks/{id}?permanent=true` | 403 | `connector_forbidden` |
+| `POST /tokens/` | 403 | `connector_forbidden` |
+| `POST /ai/suggest-tags` | 403 | `connector_forbidden` |
+| `GET /users/me` | 403 | `connector_forbidden` |
+| `GET /bookmarks/{id}` (same bookmark) | 200 | |
+
+The bookmark was still there after the refused delete. The refused `POST /tokens/` created no PAT: the CLI's `tiddly tokens list` the next day showed no tokens.
+
+**Deployed security class against the local API.** `TestConnectorTokenLimits` in `backend/tests/security/deployed/test_live_penetration.py`, run with `SECURITY_TEST_API_URL=http://localhost:8010` and Claude Code's stored token: `4 passed in 0.09s`.
+
+**CLI, 2026-11-07.** The CLI ran with the scratch setup from step 4 above: `HOME` at an empty scratch directory, `XDG_CONFIG_HOME` inside it, `--keyring file` on every command, and the `TIDDLY_*` variables pointing at the dev Clerk instance and the local services. The first `tiddly login`, started by the implementing agent, timed out after 5 minutes without Shane's approval. Shane then ran `tiddly login` himself, and it printed "Logged in as".
+
+| Command | Result |
+|---|---|
+| `tiddly login` | "Logged in as"; the credential file was written inside the scratch directory; `GET /users/me` 200 |
+| `tiddly auth status` | "Auth method: oauth", API URL `http://localhost:8010` |
+| `tiddly tokens list` | "No tokens found." |
+| `tiddly mcp configure claude-code --expires 1` | Created `cli-mcp-claude-code-content-d8b437` and `cli-mcp-claude-code-prompts-afc724`. The scratch `.claude.json` got `tiddly_notes_bookmarks` (`http://localhost:8001/mcp`) and `tiddly_prompts` (`http://localhost:8002/mcp`), each with its PAT. |
+| `tiddly mcp status` | Both servers listed under user scope |
+| `tiddly tokens list` | The two new tokens, expiring 2026-11-08 |
+| `tiddly tokens delete <id> --force`, once per token | "Token deleted." for each |
+| `tiddly tokens list` | "No tokens found." |
+
+The API log for the CLI run (`sub` and the dev client ID redacted) shows each `kind=cli` accepted line right before its request, including both `POST /tokens/` 201s and both `DELETE` 204s:
+
+```
+2026-11-07 10:03:34,567 - core.auth - INFO - clerk_oauth_token_accepted client_id=(dev CLI client) sub=(redacted) kind=cli
+INFO:     127.0.0.1 - "GET /users/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1 - "GET /health HTTP/1.1" 200 OK
+2026-11-07 10:04:26,792 - core.auth - INFO - clerk_oauth_token_accepted client_id=(dev CLI client) sub=(redacted) kind=cli
+INFO:     127.0.0.1 - "GET /users/me HTTP/1.1" 200 OK
+2026-11-07 10:04:28,053 - core.auth - INFO - clerk_oauth_token_accepted client_id=(dev CLI client) sub=(redacted) kind=cli
+INFO:     127.0.0.1 - "GET /tokens/ HTTP/1.1" 200 OK
+2026-11-07 10:04:29,314 - core.auth - INFO - clerk_oauth_token_accepted client_id=(dev CLI client) sub=(redacted) kind=cli
+INFO:     127.0.0.1 - "POST /tokens/ HTTP/1.1" 201 Created
+2026-11-07 10:04:29,364 - core.auth - INFO - clerk_oauth_token_accepted client_id=(dev CLI client) sub=(redacted) kind=cli
+INFO:     127.0.0.1 - "POST /tokens/ HTTP/1.1" 201 Created
+2026-11-07 10:04:31,618 - core.auth - INFO - clerk_oauth_token_accepted client_id=(dev CLI client) sub=(redacted) kind=cli
+INFO:     127.0.0.1 - "GET /tokens/ HTTP/1.1" 200 OK
+2026-11-07 10:05:00,877 - core.auth - INFO - clerk_oauth_token_accepted client_id=(dev CLI client) sub=(redacted) kind=cli
+INFO:     127.0.0.1 - "DELETE /tokens/{id} HTTP/1.1" 204 No Content
+2026-11-07 10:05:02,169 - core.auth - INFO - clerk_oauth_token_accepted client_id=(dev CLI client) sub=(redacted) kind=cli
+INFO:     127.0.0.1 - "DELETE /tokens/{id} HTTP/1.1" 204 No Content
+2026-11-07 10:05:03,398 - core.auth - INFO - clerk_oauth_token_accepted client_id=(dev CLI client) sub=(redacted) kind=cli
+INFO:     127.0.0.1 - "GET /tokens/ HTTP/1.1" 200 OK
+```
+
+The CLI run logged no `kind=connector` line and no `connector_token_blocked` line. Shane's real `~/.claude.json` was not touched: its MCP server sections hash the same as a copy taken before the run. The file's modification time and whole-file hash did change, as they do whenever Claude Code runs.
+
+**API log totals for the whole dev run.** 57 `kind=connector` accepted lines, all on 2026-11-06 and all with Claude Code's client metadata URL as the `client_id`. 9 `kind=cli` lines, all on 2026-11-07. 7 `connector_token_blocked` lines: 4 from the routes-outside-the-list run (one per refused route), and 3 from the deployed class (`DELETE /bookmarks/{bookmark_id}`, `POST /tokens/`, `POST /ai/suggest-tags`). Responses: 63 2xx, 9 4xx, 0 5xx, and no tracebacks. The 9 4xx are the seven 403s above, the 409 above, and one 401 from a setup check that sent no token, which confirmed the API was in real-auth mode.
+
+**Cleanup.** Both dev PATs were revoked before the scratch directory was deleted. The two dev servers were removed from Claude Code with `claude mcp remove`, which also removed their stored tokens from the Keychain. The test items stay in the local dev database.
+
+**iOS check (before merge): pending.** The limit treats any OAuth token other than the CLI's as an AI app's, so if the iOS app sent an OAuth token, iOS users would get 403 outside the 28 routes. The check: Shane saves an item in the iOS app against production and runs `tiddly status` in the same minute. The orchestrator then searches the production api service's Railway log, read-only, for `clerk_oauth_token_accepted` lines at that time. Expected: the `kind=cli` lines from `tiddly status`, four on a healthy run (`/users/me` and one count request each for bookmarks, notes, and prompts), which prove the search would find such lines, and none from the iOS app, because session tokens never write them. Result: not yet run.
 
 ## Milestone 3: Production rollout and verification
 
