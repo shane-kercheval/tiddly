@@ -15,6 +15,11 @@ SETUP:
 
 IMPORTANT: The two PATs MUST be from DIFFERENT user accounts.
 
+OPTIONAL: TestConnectorTokenLimits needs an AI app's OAuth access token
+("connector token") in SECURITY_TEST_CONNECTOR_ACCESS_TOKEN and skips without
+it. The token lives 24 hours: export it for one run from a script that reads it
+from the app's credential store without printing it. Never put it in .env.
+
 RUN:
     make pen_tests
 """
@@ -34,6 +39,7 @@ load_dotenv(_project_root / ".env")
 API_URL = os.environ.get("SECURITY_TEST_API_URL", "")
 USER_A_PAT = os.environ.get("SECURITY_TEST_USER_A_PAT", "")
 USER_B_PAT = os.environ.get("SECURITY_TEST_USER_B_PAT", "")
+CONNECTOR_ACCESS_TOKEN = os.environ.get("SECURITY_TEST_CONNECTOR_ACCESS_TOKEN", "")
 
 # Fail fast if required env vars not configured
 if not API_URL:
@@ -1839,6 +1845,85 @@ class TestPublicShareSurface:
                     f"{API_URL}/bookmarks/{item_id}",
                     headers=headers_user_a, params={"permanent": "true"},
                 )
+
+
+@pytest.mark.skipif(
+    not CONNECTOR_ACCESS_TOKEN,
+    reason=(
+        "SECURITY_TEST_CONNECTOR_ACCESS_TOKEN is unset; export an AI app's OAuth "
+        "access token for one run (never in .env)"
+    ),
+)
+class TestConnectorTokenLimits:
+    """
+    An AI app's OAuth token reaches the routes the MCP servers call and gets 403
+    `connector_forbidden` everywhere else. Auth runs before each handler, so the
+    403 comes before any 404 for the made-up IDs below. The two POSTs send an
+    empty body: auth also runs before body validation, so a broken limit gets
+    422 and creates no PAT and makes no AI call.
+    """
+
+    @pytest.fixture
+    def headers_connector(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {CONNECTOR_ACCESS_TOKEN}"}
+
+    async def test__bookmarks_list__allowed(
+        self,
+        headers_connector: dict[str, str],
+    ) -> None:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{API_URL}/bookmarks/", headers=headers_connector)
+
+        assert response.status_code == 200, (
+            f"GET /bookmarks/ is an MCP route and should accept a connector token. "
+            f"Got {response.status_code}"
+        )
+
+    async def test__bookmark_delete__forbidden(
+        self,
+        headers_connector: dict[str, str],
+    ) -> None:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"{API_URL}/bookmarks/00000000-0000-0000-0000-000000000000",
+                headers=headers_connector, params={"permanent": "true"},
+            )
+
+        assert response.status_code == 403, (
+            f"SECURITY: a connector token must not delete items. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert response.json()["error_code"] == "connector_forbidden"
+
+    async def test__tokens_create__forbidden(
+        self,
+        headers_connector: dict[str, str],
+    ) -> None:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{API_URL}/tokens/", headers=headers_connector, json={},
+            )
+
+        assert response.status_code == 403, (
+            f"SECURITY: a connector token must not create PATs. "
+            f"Got {response.status_code}"
+        )
+        assert response.json()["error_code"] == "connector_forbidden"
+
+    async def test__ai_suggest_tags__forbidden(
+        self,
+        headers_connector: dict[str, str],
+    ) -> None:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{API_URL}/ai/suggest-tags", headers=headers_connector, json={},
+            )
+
+        assert response.status_code == 403, (
+            f"SECURITY: a connector token must not use AI features. "
+            f"Got {response.status_code}: {response.text}"
+        )
+        assert response.json()["error_code"] == "connector_forbidden"
 
 
 if __name__ == "__main__":

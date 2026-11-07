@@ -27,7 +27,7 @@ async def create_token(
     """
     Create a new API token (PAT).
 
-    **Authentication: session only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs and AI-app connector tokens not accepted - returns 403)**
 
     IMPORTANT: The plaintext token is only returned once. Store it securely.
     """
@@ -50,7 +50,7 @@ async def list_tokens(
     """
     List all API tokens for the current user.
 
-    **Authentication: session only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs and AI-app connector tokens not accepted - returns 403)**
 
     Note: Plaintext tokens are never returned - only metadata.
     """
@@ -68,7 +68,7 @@ async def rename_token(
     """
     Rename an API token.
 
-    **Authentication: session only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs and AI-app connector tokens not accepted - returns 403)**
     """
     token = await token_service.rename_token(
         db, current_user.id, token_id, rename_request.new_name,
@@ -87,7 +87,7 @@ async def delete_token(
     """
     Revoke (delete) an API token.
 
-    **Authentication: session only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs and AI-app connector tokens not accepted - returns 403)**
     """
     deleted = await token_service.delete_token(db, current_user.id, token_id)
     if not deleted:

@@ -8,6 +8,8 @@ description: Connect Claude, ChatGPT, Claude Code, and Codex to Tiddly's MCP ser
 
 Tiddly's MCP servers support OAuth sign-in. In any AI app that supports remote MCP connectors, you paste a server URL, sign in with your Tiddly account in the browser, approve access — and the app can use your content. No tokens to create or copy.
 
+An approved app can read, create, edit, and archive your bookmarks, notes, and prompts, and link and unlink them, including removing all of an item's links. It can't delete items, publish an item to a public link, restore versions, create keys, change settings, or use AI features, and these limits hold even when the app calls Tiddly's API directly instead of using its tools.
+
 The two server URLs:
 
 - **Bookmarks & notes:** `https://content-mcp.tiddly.me/mcp`

@@ -138,8 +138,10 @@ class TestAuthenticateUserAllowPat:
         """
         When allow_pat=False, Clerk session JWTs are still accepted.
 
-        The Clerk OAuth (at+jwt) twin of this policy test lives in
-        test_auth_clerk.py::TestClerkOAuthAccessTokens — it needs that
+        The Clerk OAuth (at+jwt) twins of this policy test live in
+        test_auth_clerk.py::TestConnectorRouteLimits:
+        test__cli_token_accepted_on_session_only_route and
+        test__connector_token_on_session_only_route__403. They need that
         module's real-signature JWKS infrastructure.
         """
         from core.auth import VerifiedClerkToken, _authenticate_user  # noqa: PLC0415

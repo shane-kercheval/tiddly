@@ -247,7 +247,7 @@ CLERK_JIT_CREATE_ENABLED=true    # flipped at the 2026-07-15 cutover (code defau
 
 **Account-deletion webhook:** `CLERK_WEBHOOK_SIGNING_SECRET` (the `whsec_...` secret of the production instance's webhook endpoint — see Step 6f). API service only. Unset, `POST /webhooks/clerk` fails closed with 503; Svix retries on a finite ~28-hour schedule and then marks deliveries Failed (manual replay only — see the Step 6f runbook).
 
-**CLI OAuth client ID:** `CLERK_CLI_OAUTH_CLIENT_ID` is the `client_id` of the production Clerk instance's "Tiddly CLI" OAuth application, the same value as `prodOAuthClientID` in `cli/internal/auth/pkce_flow.go`. The API compares it to each OAuth access token's signed `client_id`: an exact match is the `tiddly` CLI's token, and any other value is an AI app's ("connector") token. The `clerk_oauth_token_accepted` log line reports which with `kind=cli` or `kind=connector`. API service only; the crons don't read it. The API trims whitespace around the value.
+**CLI OAuth client ID:** `CLERK_CLI_OAUTH_CLIENT_ID` is the `client_id` of the production Clerk instance's "Tiddly CLI" OAuth application, the same value as `prodOAuthClientID` in `cli/internal/auth/pkce_flow.go`. The API compares it to each OAuth access token's signed `client_id`: an exact match is the `tiddly` CLI's token, which keeps full access; any other value is an AI app's ("connector") token, which may call only the routes the MCP servers use (`backend/src/core/connector_policy.py`) and gets 403 `connector_forbidden` elsewhere. The `clerk_oauth_token_accepted` log line reports which with `kind=cli` or `kind=connector`. API service only; the crons don't read it. The API trims whitespace around the value.
 
 **Set it on the api service before merging the code that reads it.** Merging deploys the api service, and the API needs the value when it starts:
 
@@ -257,7 +257,7 @@ CLERK_JIT_CREATE_ENABLED=true    # flipped at the 2026-07-15 cutover (code defau
 - With the Step 4 health check on `/health`, that deploy fails its health check and the previous deploy keeps serving. Without the health check, Railway sends traffic to the restarting workers and the API goes down.
 - To recover, set the variable on the api service and redeploy.
 
-To check the value after a deploy, run `tiddly login` and `tiddly tokens list`, then find `kind=cli` on that request's `clerk_oauth_token_accepted` line in the api service's logs. A CLI request logged as `kind=connector` means the value is wrong.
+To check the value after a deploy, run `tiddly login` and `tiddly tokens list`, then find `kind=cli` on that request's `clerk_oauth_token_accepted` line in the api service's logs. A CLI request logged as `kind=connector` means the value is wrong: the CLI's token is then treated as a connector's, so `tiddly tokens` and `tiddly mcp configure` get 403 `connector_forbidden` until you fix the value and redeploy.
 
 **Important: DATABASE_URL must be set manually.** Railway's Postgres provides `postgresql://` but this app requires `postgresql+asyncpg://` for async SQLAlchemy. Do NOT use `${{Postgres.DATABASE_URL}}`.
 

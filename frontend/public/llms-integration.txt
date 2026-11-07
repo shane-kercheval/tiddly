@@ -4,6 +4,8 @@
 
 **Scope / cross-references.** This file owns the MCP / API / PAT integration model and per-tool connection notes. It does **not** restate the value prop or tiers (see https://tiddly.me/llms.txt), and it does **not** re-list CLI commands — it says "use the CLI" and points to https://tiddly.me/llms-cli-instructions.txt for command depth. Full setup mechanics live in the docs: https://tiddly.me/prose/connect-ai-apps.md (OAuth), https://tiddly.me/prose/cli-mcp.md, https://tiddly.me/prose/cli-skills.md, https://tiddly.me/prose/api.md, https://tiddly.me/prose/extensions-chrome.md. The **authoritative current list of supported tools** (and the exact setup for each path) is the AI Integration settings page: https://tiddly.me/app/settings/ai-integration. For the full index of fetchable data and docs, see **Agent Resources** in https://tiddly.me/llms.txt (links `/data/index.json` and `/prose/index.json`).
 
+**Where the 403 lists come from.** The two lists of 403 surfaces below come from the backend code; diff them against it. The PAT list matches the routes that depend on `get_current_user_session_only` or `get_current_user_ai` (`backend/src/core/auth.py`). The connected-app list matches what `backend/src/core/connector_policy.py` leaves out, and `backend/tests/core/test_connector_policy.py` fails if that allowlist ever opens a surface the list says is refused.
+
 ## The two MCP servers
 
 Both are remote/hosted HTTP MCP servers (no local process). Both read **and** write your content; **neither exposes a delete tool** — deletion is web-UI-only by design.
@@ -19,7 +21,7 @@ Both MCP servers support the MCP authorization spec, so any OAuth-capable MCP cl
 
 Guide a user to OAuth when their tool supports connectors — it's the simplest path and creates no tokens to manage. Use the CLI path below for headless/scripted setups and tools without OAuth connector support.
 
-**What you (the agent) can do vs. the user:** for Claude Code and Codex you can run the `add` commands yourself; the browser sign-in/consent step must always be completed by the user personally — never attempt to automate or complete it for them. For Claude and ChatGPT the whole flow happens in the user's app UI, so give steps rather than acting. **Access granularity:** approving the consent screen grants that app the same content access as the user's session (there are no granular scopes); when a user wants separately revocable per-tool credentials, that's what the CLI/PAT path provides.
+**What you (the agent) can do vs. the user:** for Claude Code and Codex you can run the `add` commands yourself; the browser sign-in/consent step must always be completed by the user personally — never attempt to automate or complete it for them. For Claude and ChatGPT the whole flow happens in the user's app UI, so give steps rather than acting. **What a connected app can do:** approving the consent screen lets that app read, create, edit, archive, link, and unlink the user's items, but not delete items, publish an item to a public link, restore versions, create keys, change settings, or use AI features. Every connected app gets this same access (there are no granular scopes), and the limits hold even when the app calls the REST API directly instead of using its tools (details: "What a connected app's token cannot do" below). When a user wants separately revocable per-tool credentials, that's what the CLI/PAT path provides.
 
 ## Connecting a tool — the CLI (token-based)
 
@@ -68,6 +70,22 @@ Some endpoints reject PATs (HTTP 403) and require an interactive web session (br
 - **URL metadata scraping (`/bookmarks/fetch-metadata`)** — the on-demand link preview (SSRF surface).
 
 Everything else — bookmarks, notes, prompts, content/search, tags, filters, relationships, history — works with a PAT.
+
+## What a connected app's token cannot do: 403 `connector_forbidden`
+
+When the user approves an app through OAuth (Claude, ChatGPT, Codex, or any other connector), the app gets an OAuth access token. That token can call only the REST routes Tiddly's MCP tools use: reading, searching, creating, and editing bookmarks, notes, and prompts, and linking items. On every other route that requires sign-in it gets HTTP 403 with `error_code: "connector_forbidden"`, including:
+
+- every delete (bookmarks, notes, prompts, filters, tags, relationships, tokens);
+- `/{type}/{id}/share` and `/{type}/{id}/rotate-share-token` (public links);
+- `/{type}/{id}/restore`, `/{type}/{id}/history`, and `/history/*` (trash restores, version history, and version restores);
+- `/tokens/*`, `/settings/*`, `/ai/*`, `/bookmarks/fetch-metadata`, and `/users/me`;
+- any other route outside the MCP tools' surface, including routes added later.
+
+Through the edit routes' fields, a connector token can still archive any item and unarchive bookmarks and notes (`archived_at`), and replace an item's links, including removing them all (`relationships`). An archived prompt is unarchived in the web app.
+
+Which credential reaches what: a connector token calls the MCP tools' routes directly, with no PAT needed. Every other REST route that requires sign-in needs a PAT or a web session, and PATs still get their own 403 (the session-only surfaces above) on `/tokens/*`, `/settings/*`, `/ai/*`, and `/bookmarks/fetch-metadata`. The `tiddly` CLI's own sign-in (`tiddly login`) is not a connector and keeps full access.
+
+A PAT that a connected app created before this limit existed keeps full access. Tell the user to review Settings → Personal Access Tokens (https://tiddly.me/app/settings/tokens) and revoke any token they don't recognize.
 
 ## Concurrent edits (optimistic locking)
 

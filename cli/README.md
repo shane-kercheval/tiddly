@@ -251,3 +251,4 @@ For local development against the Clerk development instance:
   TIDDLY_OAUTH_CLIENT_ID=<dev "Tiddly CLI" OAuth app client id> \
   tiddly login
   ```
+- **Local API in real-auth mode**: set the API's `CLERK_CLI_OAUTH_CLIENT_ID` to the same dev app ID you give the CLI as `TIDDLY_OAUTH_CLIENT_ID`. The API treats an OAuth token from any other client as an AI app's, so with a mismatched value `tiddly tokens` and `tiddly mcp configure` get 403 `connector_forbidden`.

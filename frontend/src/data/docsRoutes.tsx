@@ -119,7 +119,9 @@ export const DOCS_ROUTES: DocsRoute[] = [
       + 'antigravity agy gemini google cursor windsurf chatgpt connect ai assistants agents setup configure tokens '
       + 'example prompts widget tools server oauth connector custom connector paste url '
       + 'sign in browser login no token authorize consent mobile ios sync plugins '
-      + 'browse plugins openid known issue problem connecting authenticate',
+      + 'browse plugins openid known issue problem connecting authenticate '
+      + 'permissions access what a connected app can do delete archive link unlink '
+      + 'forbidden 403 connector_forbidden limits',
   },
   {
     path: '/docs/cli',
@@ -154,7 +156,7 @@ export const DOCS_ROUTES: DocsRoute[] = [
     label: 'Docs: CLI Reference',
     searchText:
       'cli reference commands login logout oauth pat personal access token bm_ '
-      + 'device code flow auth status keyring credentials file fallback xdg config '
+      + 'browser sign in pkce loopback auth status keyring credentials file fallback xdg config '
       + 'token resolution priority env environment variable tiddly_token tokens list '
       + 'create delete export json backup include archived config api url update check '
       + 'completions bash zsh fish tab completion status path '

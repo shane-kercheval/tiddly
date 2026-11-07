@@ -34,7 +34,7 @@ from litellm.exceptions import (
 )
 from openai import APIError as OpenAIAPIError
 
-from core.auth import DeletedIdentityError
+from core.auth import ConnectorForbiddenError, DeletedIdentityError
 from core.auth_cache import AuthCache, set_auth_cache
 from core.config import get_settings
 from core.http_cache import ETagMiddleware
@@ -152,7 +152,8 @@ _OPENAPI_TAGS = [
             "### Authentication\n\n"
             "Session JWT (browser sign-in) required. Personal Access Tokens (`bm_*`) are rejected "
             "with 403 — AI features are deliberately not available to PATs as "
-            "a cost-safety guard against automated scripts.\n\n"
+            "a cost-safety guard against automated scripts. An AI app's OAuth "
+            "token (MCP connector) gets 403 with `error_code: \"connector_forbidden\"`.\n\n"
             "### Bring-Your-Own-Key (BYOK)\n\n"
             "Optionally send `X-LLM-Api-Key: <provider key>` to use your own "
             "provider credentials instead of the platform's. BYOK calls consume "
@@ -211,8 +212,15 @@ A content management system with tagging and search capabilities.
 
 ### Authentication
 
-Every authenticated endpoint accepts a bearer token (an IdP session/OAuth JWT,
-or a `bm_` Personal Access Token). Most auth failures are ordinary `401`s —
+Authenticated endpoints accept a bearer token: a Clerk session JWT, the `tiddly`
+CLI's OAuth token, or a `bm_` Personal Access Token. An OAuth token issued to an
+AI app (an MCP connector) can call only the endpoints Tiddly's MCP tools use
+(reading, searching, creating, and editing bookmarks, notes, and prompts, and
+linking items); every other endpoint that requires sign-in returns `403` with
+`error_code: "connector_forbidden"`. Session-only endpoints (`/tokens/*`, `/settings/*`,
+`/ai/*`, `/bookmarks/fetch-metadata`) return `403` to PATs as well.
+
+Most auth failures are ordinary `401`s —
 refresh or re-authenticate. **One `401` is terminal: `error_code:
 "account_deleted"`** (in the standard `{detail, error_code}` envelope). The token
 is valid but its account was deleted, so re-authenticating can never succeed (it
@@ -301,6 +309,21 @@ async def deleted_identity_exception_handler(
         status_code=exc.status_code,
         content={"detail": exc.detail, "error_code": exc.error_code},
         headers=exc.headers,
+    )
+
+
+@app.exception_handler(ConnectorForbiddenError)
+async def connector_forbidden_exception_handler(
+    _request: Request, exc: ConnectorForbiddenError,
+) -> JSONResponse:
+    """
+    403 for an AI app's OAuth token on a route outside core/connector_policy.py,
+    with the stable ``connector_forbidden`` error_code in the standard
+    ``{detail, error_code}`` envelope. Contract: core.auth.ConnectorForbiddenError.
+    """
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "error_code": exc.error_code},
     )
 
 
