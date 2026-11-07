@@ -98,7 +98,7 @@ The only place plaintext PAT values should ever surface is from the explicit `ti
 
 ## Auth (engineer must do this manually)
 
-The agent cannot complete the OAuth device flow (requires a browser). This must be set up **before** the agent is launched.
+The agent cannot complete the browser sign-in (OAuth authorization code with PKCE), which needs a browser on the same machine. This must be set up **before** the agent is launched.
 
 ### Critical — `.env` is NOT read by the CLI
 
@@ -853,7 +853,7 @@ Each of the following exits non-zero with an error containing `not logged in. Ru
 
 ### T8.3 — Re-login
 
-**Engineer step (manual — device flow):**
+**Engineer step (manual browser sign-in):**
 
 ```bash
 bin/tiddly login
@@ -997,7 +997,7 @@ echo "Teardown complete. Report: $retained"
 - MCP tools return real data.
 - Prompts render through the prompt MCP server.
 - Skills are invocable in Claude Code / Codex.
-- OAuth device flow works end-to-end (`tiddly login` without `--token`).
+- The browser sign-in (OAuth authorization code with PKCE) works end-to-end (`tiddly login` without `--token`).
 - Uploaded skills zip works in Claude Desktop (Settings > Skills).
 
 ---

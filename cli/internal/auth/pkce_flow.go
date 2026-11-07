@@ -1,8 +1,7 @@
 // Package auth: browser-based login via OAuth 2.0 authorization code + PKCE
-// against Clerk (RFC 7636 + RFC 8252 loopback redirect). Replaces the Auth0
-// device-authorization flow — Clerk does not offer device flow (an accepted
-// capability loss recorded in the migration ledger); headless machines use
-// the PAT path (`tiddly login --token`) instead, and the timeout error says so.
+// against Clerk (RFC 7636, RFC 8252 loopback redirect). Clerk offers no device
+// flow, so login needs a browser on the same machine; headless machines use a
+// PAT (`tiddly login --token`).
 package auth
 
 import (
