@@ -656,7 +656,7 @@ Fixture: fresh configure, then `jq`-overwrite `tiddly_prompts`'s Authorization w
 Run `mcp remove claude-code --servers prompts --delete-tokens`:
 
 - Exit 0.
-- **Stdout** (outcome report, not warning) contains: `Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/settings.`
+- **Stdout** (outcome report, not warning) contains: `Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/app/settings/tokens.`
 - Stdout does NOT contain `Deleted tokens:`.
 
 **Cleanup (required).** The manually-named token won't match Phase 9's `cli-mcp-*` diff-cleanup filter, so revoke it explicitly before moving on. Look it up by **exact name equality** — not a prefix match — to avoid grabbing a leaked `manual-test-pat-*` token from a prior aborted run:

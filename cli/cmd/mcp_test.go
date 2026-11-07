@@ -1558,7 +1558,7 @@ func TestMCPRemove__non_cli_token_note_fires_per_unmatched_entry(t *testing.T) {
 
 	require.NoError(t, result.Err)
 	assert.Contains(t, result.Stdout,
-		"Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/settings.")
+		"Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/app/settings/tokens.")
 	assert.NotContains(t, result.Stdout, "Deleted tokens:",
 		"no tokens were deleted")
 }

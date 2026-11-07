@@ -456,7 +456,7 @@ Examples:
 							// Unmatched PAT (or short/garbled) — nothing was
 							// revoked. Inform the user, naming the specific entry.
 							fmt.Fprintf(cmd.OutOrStdout(),
-								"Note: no CLI-created token matched the token attached to %s; nothing was revoked. Manage tokens at https://tiddly.me/settings.\n",
+								"Note: no CLI-created token matched the token attached to %s; nothing was revoked. Manage tokens at https://tiddly.me/app/settings/tokens.\n",
 								r.EntryLabel)
 							continue
 						}
@@ -502,7 +502,7 @@ Examples:
 								suggestedCmd += fmt.Sprintf(" --servers %s", serverList[0])
 							}
 							fmt.Fprintf(cmd.ErrOrStderr(),
-								"Run '%s' to revoke, or manage tokens at https://tiddly.me/settings.\n", suggestedCmd)
+								"Run '%s' to revoke, or manage tokens at https://tiddly.me/app/settings/tokens.\n", suggestedCmd)
 						}
 					}
 				}
