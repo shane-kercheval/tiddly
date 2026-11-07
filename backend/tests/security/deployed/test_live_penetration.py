@@ -1858,7 +1858,9 @@ class TestConnectorTokenLimits:
     """
     An AI app's OAuth token reaches the routes the MCP servers call and gets 403
     `connector_forbidden` everywhere else. Auth runs before each handler, so the
-    403 comes before any 404 for the made-up IDs below.
+    403 comes before any 404 for the made-up IDs below. The two POSTs send an
+    empty body: auth also runs before body validation, so a broken limit gets
+    422 and creates no PAT and makes no AI call.
     """
 
     @pytest.fixture
@@ -1899,14 +1901,8 @@ class TestConnectorTokenLimits:
     ) -> None:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{API_URL}/tokens/",
-                headers=headers_connector, json={"name": "pen test: connector must not create"},
+                f"{API_URL}/tokens/", headers=headers_connector, json={},
             )
-            if response.status_code == 201:
-                # The limit failed and a PAT exists: revoke it before failing.
-                await client.delete(
-                    f"{API_URL}/tokens/{response.json()['id']}", headers=headers_connector,
-                )
 
         assert response.status_code == 403, (
             f"SECURITY: a connector token must not create PATs. "
@@ -1920,9 +1916,7 @@ class TestConnectorTokenLimits:
     ) -> None:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{API_URL}/ai/suggest-tags",
-                headers=headers_connector,
-                json={"content_type": "bookmark", "title": "pen test"},
+                f"{API_URL}/ai/suggest-tags", headers=headers_connector, json={},
             )
 
         assert response.status_code == 403, (

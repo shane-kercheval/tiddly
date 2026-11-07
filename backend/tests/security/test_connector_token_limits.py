@@ -10,7 +10,7 @@ write is checked in the database, not only by status code.
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import Settings, get_settings
+from core.rate_limiter import check_rate_limit
 from core.tier_limits import Tier, get_tier_limits
 from models.api_token import ApiToken
 from models.bookmark import Bookmark
@@ -313,6 +314,55 @@ async def test__connector_users_me__403(
 
     assert response.status_code == 403
     assert response.json() == CONNECTOR_FORBIDDEN_BODY
+
+
+async def test__refused_connector_request__charges_no_rate_limit(
+    real_auth_client: AsyncClient,
+    session_headers: dict[str, str],
+    connector_headers: dict[str, str],
+) -> None:
+    """
+    A refused request stops before either limiter runs, so an app calling
+    refused routes can't use up the user's limits and get the user's own web
+    app 429s. The two controls show each patch watches a limiter that runs.
+    """
+    general = AsyncMock(wraps=check_rate_limit)
+    ai = AsyncMock(wraps=check_rate_limit)
+    with (
+        patch("core.auth.check_rate_limit", general),
+        patch("api.routers.ai.check_rate_limit", ai),
+        patch(
+            "api.routers.ai.get_llm_service",
+            side_effect=AssertionError("the LLM service was reached"),
+        ),
+    ):
+        allowed = await real_auth_client.get("/bookmarks/", headers=connector_headers)
+        assert allowed.status_code == 200
+        assert (general.await_count, ai.await_count) == (1, 0)
+
+        # An empty body fails validation after the AI limiter runs, so the
+        # model is never called.
+        ai_control = await real_auth_client.post(
+            "/ai/suggest-tags", json={}, headers=session_headers,
+        )
+        assert ai_control.status_code == 422
+        assert (general.await_count, ai.await_count) == (1, 1)
+
+        general.reset_mock()
+        ai.reset_mock()
+        delete = await real_auth_client.delete(
+            "/bookmarks/0190a1b2-0000-7000-8000-000000000099?permanent=true",
+            headers=connector_headers,
+        )
+        suggest = await real_auth_client.post(
+            "/ai/suggest-tags",
+            json={"content_type": "bookmark", "title": "Anything"},
+            headers=connector_headers,
+        )
+
+    assert delete.status_code == 403
+    assert suggest.status_code == 403
+    assert (general.await_count, ai.await_count) == (0, 0)
 
 
 # --- Everyone else is unchanged --------------------------------------------

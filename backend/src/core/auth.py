@@ -830,8 +830,10 @@ async def _authenticate_user(
         oauth_client_kind=oauth_client_kind,
     )
 
-    # Before any rate-limit check, so a refused request charges no bucket.
-    if oauth_client_kind == OAuthClientKind.CONNECTOR:
+    # Every OAuth token has a client_id (decode_clerk_jwt rejects one without),
+    # and all but the CLI's are limited. Runs before any rate-limit check, so a
+    # refused request charges no bucket.
+    if oauth_client_id is not None and oauth_client_kind != OAuthClientKind.CLI:
         _enforce_connector_route_limit(request, oauth_client_id, user.external_auth_id)
 
     return user

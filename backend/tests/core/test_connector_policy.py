@@ -14,7 +14,8 @@ from core.connector_policy import CONNECTOR_ALLOWED_ROUTES, is_connector_route_a
 
 # Paths a connector token must never reach, whatever the MCP servers call:
 # credentials, settings, AI spend, account details, server-side URL fetches,
-# version history and restores, and public links.
+# version history and restores, and public links. These mirror the connector
+# 403 section of frontend/public/llms-integration.txt; change both together.
 FORBIDDEN_PREFIXES = ("/tokens", "/settings", "/ai", "/users")
 FORBIDDEN_PATHS = ("/bookmarks/fetch-metadata",)
 FORBIDDEN_SEGMENTS = ("/share", "/rotate-share-token", "/restore", "/history")

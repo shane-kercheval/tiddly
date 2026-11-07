@@ -838,13 +838,51 @@ class TestConnectorRouteLimits:
         clerk_settings: Settings,
         mock_request: Request,
     ) -> None:
-        """No route in the scope means the request can't be shown to be allowed."""
+        """
+        Pins the fail-closed default: called without a matched route, the check
+        refuses a connector. Real requests always carry one, because the router
+        answers HEAD, unknown paths, and slash redirects (405, 404, 307) before
+        any dependency runs.
+        """
         token = mint_clerk_oauth_token(
             clerk_signing_key, sub="user_connector_no_route", client_id=CLAUDE_CODE_CLIENT_ID,
         )
 
         with pytest.raises(HTTPException) as exc_info:
             await self._authenticate(token, mock_request, db_session, clerk_settings)
+
+        _assert_connector_forbidden(exc_info.value)
+
+    async def test__oauth_token_not_labeled_cli__403(
+        self,
+        db_session: AsyncSession,
+        redis_client: object,  # noqa: ARG002
+        clerk_signing_key: "RSAPrivateKey",
+        clerk_settings: Settings,
+    ) -> None:
+        """
+        Every OAuth token except the CLI's is limited, so a token that a future
+        change labels some other way, or leaves unlabeled, can't get full access.
+        """
+        from core.auth import VerifiedClerkToken  # noqa: PLC0415
+
+        token = mint_clerk_oauth_token(
+            clerk_signing_key, sub="user_unlabeled_oauth", client_id="zTESTnewkind",
+        )
+        unlabeled = VerifiedClerkToken(
+            claims={"sub": "user_unlabeled_oauth"},
+            oauth_client_id="zTESTnewkind",
+            oauth_client_kind=None,
+        )
+
+        with (
+            patch("core.auth.decode_clerk_jwt", return_value=unlabeled),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await self._authenticate(
+                token, request_on_route("DELETE", "/bookmarks/{bookmark_id}"),
+                db_session, clerk_settings,
+            )
 
         _assert_connector_forbidden(exc_info.value)
 
