@@ -216,8 +216,8 @@ Authenticated endpoints accept a bearer token: a Clerk session JWT, the `tiddly`
 CLI's OAuth token, or a `bm_` Personal Access Token. An OAuth token issued to an
 AI app (an MCP connector) can call only the endpoints Tiddly's MCP tools use
 (reading, searching, creating, and editing bookmarks, notes, and prompts, and
-linking items); every other endpoint returns `403` with `error_code:
-"connector_forbidden"`. Session-only endpoints (`/tokens/*`, `/settings/*`,
+linking items); every other endpoint that requires sign-in returns `403` with
+`error_code: "connector_forbidden"`. Session-only endpoints (`/tokens/*`, `/settings/*`,
 `/ai/*`, `/bookmarks/fetch-metadata`) return `403` to PATs as well.
 
 Most auth failures are ordinary `401`s —
