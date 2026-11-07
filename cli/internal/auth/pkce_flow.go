@@ -100,9 +100,9 @@ type TokenResponse struct {
 // application. offline_access is what makes Clerk issue a refresh token.
 const oauthScopes = "openid profile email offline_access"
 
-// defaultLoginTimeout bounds the wait for the browser callback. The device
-// flow used the server-provided code expiry; the loopback flow has no server
-// equivalent, so this is our own bound.
+// defaultLoginTimeout bounds the wait for the browser callback. The authorize
+// request carries no expiry the loopback listener could wait on, so the CLI
+// sets its own.
 const defaultLoginTimeout = 5 * time.Minute
 
 // defaultUserAgent identifies the CLI to Clerk's endpoints. REQUIRED, not
@@ -233,7 +233,7 @@ func (f *PKCEFlow) Login(ctx context.Context) (*TokenResponse, error) {
 		return nil, fmt.Errorf("login cancelled")
 	case <-time.After(timeout):
 		return nil, fmt.Errorf(
-			"timed out waiting for browser authorization; on a machine without a browser, create a token in the web app (Settings → API Tokens) and run: tiddly login --token <bm_...>")
+			"timed out waiting for browser authorization; on a machine without a browser, create a token in the web app (Settings → Personal Access Tokens) and run: tiddly login --token <bm_...>")
 	case result := <-results:
 		if result.err != nil {
 			return nil, result.err
