@@ -29,7 +29,7 @@ The latest instructions could not be fetched. Read the current version at:
   https://tiddly.me/llms-cli-instructions.txt
 
 Quick start:
-  tiddly login           Authenticate (OAuth device-code, or: tiddly login --token bm_...)
+  tiddly login           Browser sign-in (OAuth, authorization code with PKCE); on a headless machine: tiddly login --token bm_...
   tiddly mcp configure   Connect detected AI tools to your content via MCP
   tiddly status          Show what's configured
 

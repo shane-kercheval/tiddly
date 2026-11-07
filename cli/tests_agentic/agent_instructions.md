@@ -98,7 +98,7 @@ The only place plaintext PAT values should ever surface is from the explicit `ti
 
 ## Auth (engineer must do this manually)
 
-The agent cannot complete the OAuth device flow (requires a browser). This must be set up **before** the agent is launched.
+The agent cannot complete the browser sign-in (OAuth authorization code with PKCE), which needs a browser on the same machine. This must be set up **before** the agent is launched.
 
 ### Critical — `.env` is NOT read by the CLI
 
@@ -656,7 +656,7 @@ Fixture: fresh configure, then `jq`-overwrite `tiddly_prompts`'s Authorization w
 Run `mcp remove claude-code --servers prompts --delete-tokens`:
 
 - Exit 0.
-- **Stdout** (outcome report, not warning) contains: `Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/settings.`
+- **Stdout** (outcome report, not warning) contains: `Note: no CLI-created token matched the token attached to tiddly_prompts; nothing was revoked. Manage tokens at https://tiddly.me/app/settings/tokens.`
 - Stdout does NOT contain `Deleted tokens:`.
 
 **Cleanup (required).** The manually-named token won't match Phase 9's `cli-mcp-*` diff-cleanup filter, so revoke it explicitly before moving on. Look it up by **exact name equality** — not a prefix match — to avoid grabbing a leaked `manual-test-pat-*` token from a prior aborted run:
@@ -853,7 +853,7 @@ Each of the following exits non-zero with an error containing `not logged in. Ru
 
 ### T8.3 — Re-login
 
-**Engineer step (manual — device flow):**
+**Engineer step (manual browser sign-in):**
 
 ```bash
 bin/tiddly login
@@ -997,7 +997,7 @@ echo "Teardown complete. Report: $retained"
 - MCP tools return real data.
 - Prompts render through the prompt MCP server.
 - Skills are invocable in Claude Code / Codex.
-- OAuth device flow works end-to-end (`tiddly login` without `--token`).
+- The browser sign-in (OAuth authorization code with PKCE) works end-to-end (`tiddly login` without `--token`).
 - Uploaded skills zip works in Claude Desktop (Settings > Skills).
 
 ---

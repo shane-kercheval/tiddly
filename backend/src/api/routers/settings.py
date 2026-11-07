@@ -19,7 +19,7 @@ async def get_sidebar(
     """
     Get the computed sidebar structure with resolved filter names.
 
-    **Authentication: session only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs and AI-app connector tokens not accepted - returns 403)**
 
     Returns the sidebar structure with:
     - Built-in items (All, Archived, Trash) with display names
@@ -45,7 +45,7 @@ async def update_sidebar(
     """
     Update the sidebar structure.
 
-    **Authentication: session only (PATs not accepted - returns 403)**
+    **Authentication: session only (PATs and AI-app connector tokens not accepted - returns 403)**
 
     Validates the structure:
     - All filter IDs must exist and belong to the user

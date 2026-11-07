@@ -27,15 +27,18 @@ Authenticates with the Tiddly API and stores credentials locally.
 
 #### OAuth Login (default)
 
-Running `tiddly login` without flags starts an OAuth device code flow:
+Running `tiddly login` without flags signs you in through your browser, using OAuth with an authorization code and PKCE:
 
 ```
 tiddly login
 ```
 
-1. The CLI prints a URL and a one-time code for you to enter in your browser.
-2. After you authorize in the browser, the CLI stores both the access token and refresh token.
-3. The CLI verifies the token by calling the API and displays your account email.
+1. The CLI opens your browser to the Tiddly sign-in page. If the browser doesn't open, visit the URL the CLI prints.
+2. You sign in and approve the "Tiddly CLI" app.
+3. The browser returns to a temporary listener the CLI runs on `127.0.0.1`, and the CLI exchanges the result for an access token and a refresh token, which it stores.
+4. The CLI verifies the token by calling the API and displays your account email.
+
+The CLI waits up to 5 minutes for the browser; press Ctrl+C to cancel. It needs a browser on the same machine, so on a headless machine (SSH, containers), use `tiddly login --token` instead.
 
 #### PAT Login
 

@@ -533,7 +533,7 @@ func revokeMintedTokens(ctx context.Context, client *api.Client, minted []minted
 	if len(orphans) == 0 {
 		return nil
 	}
-	return fmt.Errorf("failed to revoke %d minted token(s); clean up manually at https://tiddly.me/settings: %s",
+	return fmt.Errorf("failed to revoke %d minted token(s); clean up manually at https://tiddly.me/app/settings/tokens: %s",
 		len(orphans), strings.Join(orphans, ", "))
 }
 

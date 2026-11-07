@@ -81,7 +81,7 @@ The full API reference with request/response schemas and a "Try it out" feature 
 > [!warning]
 > **AI endpoints require an interactive session**
 >
-> The `/ai/*` endpoints (tag / metadata / relationship / argument suggestions, plus `/ai/health`, `/ai/models`, and `/ai/validate-key`) are session-only (Clerk-issued JWTs) — Personal Access Tokens receive a 403 response. This is intentional: AI features are not designed for programmatic automation. PATs still work on every other content endpoint (bookmarks, notes, prompts, tags, filters, history).
+> The `/ai/*` endpoints (tag / metadata / relationship / argument suggestions, plus `/ai/health`, `/ai/models`, and `/ai/validate-key`) are session-only: Personal Access Tokens receive a 403 response, and so does an OAuth token issued to a connected AI app (with `error_code: "connector_forbidden"`). This is intentional: AI features are not designed for programmatic automation. PATs still work on every other content endpoint (bookmarks, notes, prompts, tags, filters, history).
 
 ## Rate Limits
 

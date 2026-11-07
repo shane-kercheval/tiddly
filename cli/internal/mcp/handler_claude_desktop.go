@@ -59,7 +59,7 @@ func (h *ClaudeDesktopHandler) Configure(rc ResolvedConfig, contentPAT, promptPA
 			"Claude Desktop requires Node.js for mcp-remote. Install from https://nodejs.org")
 	}
 	warnings = append(warnings,
-		fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path))
+		fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/app/settings/tokens.", rc.Path))
 	warnings = append(warnings, "Restart Claude Desktop to apply changes.")
 	return warnings, backupPath, nil
 }

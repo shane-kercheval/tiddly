@@ -40,7 +40,7 @@ func (h *ClaudeCodeHandler) Configure(rc ResolvedConfig, contentPAT, promptPAT s
 		return nil, backupPath, err
 	}
 	warnings := []string{
-		fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/settings.", rc.Path),
+		fmt.Sprintf("Tokens are stored in plaintext in %s. Manage tokens at https://tiddly.me/app/settings/tokens.", rc.Path),
 	}
 	return warnings, backupPath, nil
 }
