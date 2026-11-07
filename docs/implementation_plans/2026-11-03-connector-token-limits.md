@@ -1,6 +1,6 @@
 # Limit what an AI app's OAuth token can do in the API
 
-**Status**: Milestone 1 merged and live in production (2026-11-06). Milestone 2 implemented on branch `block-connector-tokens`, verified end to end on dev, and ready to merge; the iOS check passed on 2026-11-07. Milestone 3 not started.
+**Status**: Done (2026-11-07). The connector-token limit is live in production. Milestone 1 merged and deployed on 2026-11-06. Milestone 2 merged and deployed on 2026-11-07, and Milestone 3 verified it in production the same day.
 **Date**: 2026-11-03
 **Scope**: The backend API's handling of Clerk OAuth access tokens issued to MCP connectors (Claude web, desktop, mobile, Claude Code, Codex, ChatGPT, and any other app a user approves). One new API setting, one Railway variable on the api service, tests, and the docs that describe what a connected app can do. No MCP server behavior change, no CLI behavior change (the CLI changes only message strings and two code comments), no Clerk configuration change, no change for session tokens (web app, Chrome extension, iOS) or Personal Access Tokens (PATs).
 
@@ -350,6 +350,156 @@ This milestone is a sequence of operator steps, not code. The Railway variable w
 ### Definition of done
 
 Steps 2 to 7 recorded with their observed values. Any 403 where a 200 was expected, or the reverse, stops the rollout and is reported to Shane before anything else is changed.
+
+### Results
+
+The limit is live in production and behaves as it did on dev. On 2026-11-07, Claude Code's production connector token got 403 `connector_forbidden` on every route tested outside the list and 200 on the routes inside it. The CLI's OAuth token created and revoked PATs with no refusal, and the deployed security suite passed, including `TestConnectorTokenLimits`. In the three hours after the deploy, the only refused connector requests were the two the read-only check sent on purpose. All times are UTC.
+
+**Who did what.** Shane approved each production step before it ran, and did the browser sign-in in step 4. Scripts kept outside the repo sent the requests, using Claude Code's stored production token read from the macOS Keychain without printing it. The orchestrator read the api service's Railway log, read-only, after each step.
+
+**Step 1: merge and deploy.** Before the merge, the orchestrator read the production api service's Railway config, read-only: `CLERK_CLI_OAUTH_CLIENT_ID` was set (checked by name only), and the health check path was `/health`. [Limit AI-app OAuth tokens to the routes the MCP tools use](https://github.com/shane-kercheval/tiddly/pull/178) merged as `b45e177` at 19:16. Railway's api deployment reached SUCCESS at 19:26. Its `/health` check failed once while the workers were starting and passed on the second attempt, and all 4 workers came up. The deploy ran no migrations. The `kind=cli` lines below show more: the API labels a token `kind=cli` only when its `client_id` equals that variable, so the variable holds the production CLI's client ID.
+
+**Read-only checks after the deploy, 19:26:42 to 19:26:44.** Shane was away, so the first checks sent only GET requests and the CLI's read commands, using Shane's normal production CLI login and Claude Code's stored token.
+
+| Check | Result |
+|---|---|
+| `GET /health` | 200 |
+| `tiddly auth status` | "Auth method: oauth", API URL `https://api.tiddly.me`, and a user line |
+| `tiddly tokens list` (`GET /tokens/` with the CLI's token) | 200 in the log; the script's FAIL is explained below |
+| `tiddly status` | `/users/me` answered, and all three content counts printed |
+| `GET /bookmarks/?limit=1` with Claude Code's token | 200 |
+| `GET /users/me` with Claude Code's token | 403 `connector_forbidden` |
+| `GET /tokens/` with Claude Code's token | 403 `connector_forbidden` |
+
+The check script marked `tiddly tokens list` FAIL, but the request succeeded: the log shows `GET /tokens/` 200 right after a `kind=cli` line. The script searched the command's output for the text "403", which matched characters in the token table. The CLI's real refusal exits 1 with a message that contains neither "403" nor "connector_forbidden", so the search could not detect one either. The log for this window holds 6 `kind=cli` lines, 3 `kind=connector` lines, and exactly 2 `connector_token_blocked` lines, for `GET /users/me` and `GET /tokens/`.
+
+**Log scan, 19:26 to 22:23.** The log holds 34 `kind=connector` accepted lines, 3 of them from the read-only check. The only `connector_token_blocked` lines are the check's 2, so none of the other 31 connector requests was refused. No response was 5xx.
+
+**Step 2: a write through the content MCP server, 23:09:07.** Claude Code created the test bookmark with `create_bookmark` on the production `tiddly-content` server, and the API logged `POST /bookmarks/` 201 after a `kind=connector` line with Claude Code's client metadata URL as its `client_id`. The request arrived from Railway's private network (`10.x.x.x`), so it came through the content MCP server, as the iOS check's connector requests did. Claude Code's read-only calls to `list_filters` on the content server and `list_tags` on the prompts server (`tiddly-prompts`) also worked, so each production server answered a tool call.
+
+**Step 3: routes outside the list, 23:09:25.** A script sent these requests straight to the API, in this order, with Claude Code's stored content-server token. It would have stopped at the first unexpected result.
+
+| Request | Status | `error_code` |
+|---|---|---|
+| `GET /bookmarks/?limit=1` (control) | 200 | |
+| `DELETE /bookmarks/{id}?permanent=true` (the bookmark from step 2) | 403 | `connector_forbidden` |
+| `POST /tokens/` with body `{}` | 403 | `connector_forbidden` |
+| `POST /ai/suggest-tags` with body `{}` | 403 | `connector_forbidden` |
+| `GET /bookmarks/{id}` (same bookmark) | 200 | |
+
+The log shows exactly 3 `connector_token_blocked` lines, one per refused route. The test bookmark was then moved to the trash in the web app, and the log shows that `DELETE` 204.
+
+**Step 4: the CLI creates and revokes PATs, 23:11:39 to 23:13:22.** The run started at 23:11:39, and `tiddly login` then waited for Shane's browser sign-in, so the run's first API request was the login's `GET /users/me` at 23:12:51. The installed `tiddly` 0.4.0 is byte-identical to the GitHub release asset `tiddly_0.4.0_darwin_arm64.tar.gz`, and the binary contains production's issuer, CLI client ID, API URL, and both MCP URLs. The shell had no `TIDDLY_*` variables, so those built-in values applied. Every command ran with `HOME` at an empty scratch directory, `XDG_CONFIG_HOME` inside it, and `--keyring file`, so Shane's real Keychain login and tool configs were not used.
+
+| Command | Result |
+|---|---|
+| `tiddly login` | Shane signed in at the browser; "Logged in as"; the credential file was written inside the scratch directory |
+| `tiddly mcp configure claude-code --expires 1` | Created `cli-mcp-claude-code-content-e8feef` and `cli-mcp-claude-code-prompts-499a37`. The scratch `.claude.json` got `tiddly_notes_bookmarks` (`https://content-mcp.tiddly.me/mcp`) and `tiddly_prompts` (`https://prompts-mcp.tiddly.me/mcp`), each with its PAT. |
+| `tiddly tokens list` | Both new tokens, expiring 2026-11-08 |
+| `tiddly mcp remove claude-code --delete-tokens` | "Deleted tokens:" with both names |
+| `tiddly tokens list` | Neither token; the total fell by exactly two |
+
+The scratch directory was then deleted. The log shows one `kind=cli` accepted line for each of the run's 8 requests, including both `POST /tokens/` 201s and both `DELETE /tokens/{id}` 204s, and no `connector_token_blocked` line. The sign-in also created a Clerk grant on Shane's account. The only stored copy of its refresh token was deleted with the scratch directory; the grant stays valid at Clerk until it is revoked.
+
+**Step 5: the deployed security suite, 23:24:33 to 23:24:55.** `make pen_tests` ran from a checkout identical to `origin/main` at `b45e177`. Claude Code's stored token was passed as `SECURITY_TEST_CONNECTOR_ACCESS_TOKEN` to that one process and never written to a file. Result: `62 passed in 19.50s`, with 0 failed and 0 skipped, and `TestConnectorTokenLimits` passed all 4 of its tests. The log for 23:24:30 to 23:25:00 shows 4 `kind=connector` lines, exactly 3 `connector_token_blocked` lines (`DELETE /bookmarks/{bookmark_id}`, `POST /tokens/`, and `POST /ai/suggest-tags`), and no 5xx response. The window's one traceback is expected: `TestPromptSSTI` sends a template that reaches for `__class__`, and `services.template_renderer` logs "Blocked sandboxed template render" at WARNING with the stack trace before the API returns 400. A read-only search of User A's prompts afterward found no `race-condition-prompt-test` prompt left behind.
+
+**Step 6: log lines.** The lines below are the API's own log messages without Railway's timestamp prefix, with `sub` and `client_id` redacted, addresses masked, and item IDs in paths replaced with `{id}`. Each block is a contiguous stretch of the log with nothing left out, except the web-app request that moved the test bookmark to the trash.
+
+The read-only check ran from 19:26:42 to 19:26:44, from its `/health` request to its last connector request:
+
+```
+INFO:     100.64.x.x - "GET /health HTTP/1.1" 200 OK
+2026-11-07 19:26:43,039 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "GET /users/me HTTP/1.1" 200 OK
+2026-11-07 19:26:43,211 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "GET /tokens/ HTTP/1.1" 200 OK
+INFO:     100.64.x.x - "GET /health HTTP/1.1" 200 OK
+2026-11-07 19:26:43,499 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "GET /users/me HTTP/1.1" 200 OK
+2026-11-07 19:26:43,568 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+2026-11-07 19:26:43,569 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+2026-11-07 19:26:43,596 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "GET /prompts/?limit=1 HTTP/1.1" 200 OK
+INFO:     100.64.x.x - "GET /notes/?limit=1 HTTP/1.1" 200 OK
+INFO:     100.64.x.x - "GET /bookmarks/?limit=1 HTTP/1.1" 200 OK
+2026-11-07 19:26:43,777 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+INFO:     100.64.x.x - "GET /bookmarks/?limit=1 HTTP/1.1" 200 OK
+2026-11-07 19:26:43,909 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+2026-11-07 19:26:43,920 - core.auth - WARNING - connector_token_blocked client_id=(an AI app's client) sub=(redacted) method=GET route=/users/me
+INFO:     100.64.x.x - "GET /users/me HTTP/1.1" 403 Forbidden
+2026-11-07 19:26:44,072 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+2026-11-07 19:26:44,077 - core.auth - WARNING - connector_token_blocked client_id=(an AI app's client) sub=(redacted) method=GET route=/tokens/
+INFO:     100.64.x.x - "GET /tokens/ HTTP/1.1" 403 Forbidden
+```
+
+Steps 2 and 3 ran from 23:09:07 to 23:09:26. The accepted line at 23:09:20 and its `GET /prompts/?limit=100&offset=0` are not part of this test, because that line's `client_id` is not Claude Code's: they are another AI app's request through an MCP server.
+
+```
+2026-11-07 23:09:07,936 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+INFO:     10.x.x.x - "POST /bookmarks/ HTTP/1.1" 201 Created
+2026-11-07 23:09:20,488 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+INFO:     10.x.x.x - "GET /prompts/?limit=100&offset=0 HTTP/1.1" 200 OK
+2026-11-07 23:09:25,206 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+INFO:     100.64.x.x - "GET /bookmarks/?limit=1 HTTP/1.1" 200 OK
+2026-11-07 23:09:25,456 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+2026-11-07 23:09:25,458 - core.auth - WARNING - connector_token_blocked client_id=(an AI app's client) sub=(redacted) method=DELETE route=/bookmarks/{bookmark_id}
+INFO:     100.64.x.x - "DELETE /bookmarks/{id}?permanent=true HTTP/1.1" 403 Forbidden
+2026-11-07 23:09:25,571 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+2026-11-07 23:09:25,574 - core.auth - WARNING - connector_token_blocked client_id=(an AI app's client) sub=(redacted) method=POST route=/tokens/
+INFO:     100.64.x.x - "POST /tokens/ HTTP/1.1" 403 Forbidden
+2026-11-07 23:09:25,698 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+2026-11-07 23:09:25,702 - core.auth - WARNING - connector_token_blocked client_id=(an AI app's client) sub=(redacted) method=POST route=/ai/suggest-tags
+INFO:     100.64.x.x - "POST /ai/suggest-tags HTTP/1.1" 403 Forbidden
+2026-11-07 23:09:25,782 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+INFO:     100.64.x.x - "GET /bookmarks/{id} HTTP/1.1" 200 OK
+```
+
+Between 23:10 and 23:11, the web app moved the test bookmark to the trash. It used Shane's session token, so the request wrote no accepted line, and only its request line is shown:
+
+```
+INFO:     100.64.x.x - "DELETE /bookmarks/{id} HTTP/1.1" 204 No Content
+```
+
+Step 4's API requests ran from 23:12:51 to 23:13:20:
+
+```
+2026-11-07 23:12:51,172 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "GET /users/me HTTP/1.1" 200 OK
+INFO:     100.64.x.x - "POST /tokens/ HTTP/1.1" 201 Created
+2026-11-07 23:12:57,535 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+2026-11-07 23:12:57,651 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "POST /tokens/ HTTP/1.1" 201 Created
+2026-11-07 23:13:10,326 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "GET /tokens/ HTTP/1.1" 200 OK
+2026-11-07 23:13:15,967 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "GET /tokens/ HTTP/1.1" 200 OK
+2026-11-07 23:13:16,081 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "DELETE /tokens/{id} HTTP/1.1" 204 No Content
+2026-11-07 23:13:16,234 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "DELETE /tokens/{id} HTTP/1.1" 204 No Content
+2026-11-07 23:13:20,539 - core.auth - INFO - clerk_oauth_token_accepted client_id=(production CLI client) sub=(redacted) kind=cli
+INFO:     100.64.x.x - "GET /tokens/ HTTP/1.1" 200 OK
+```
+
+`TestConnectorTokenLimits` in step 5 ran at 23:24:54:
+
+```
+2026-11-07 23:24:54,026 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+INFO:     100.64.x.x - "GET /bookmarks/ HTTP/1.1" 200 OK
+2026-11-07 23:24:54,195 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+2026-11-07 23:24:54,197 - core.auth - WARNING - connector_token_blocked client_id=(an AI app's client) sub=(redacted) method=DELETE route=/bookmarks/{bookmark_id}
+INFO:     100.64.x.x - "DELETE /bookmarks/{id}?permanent=true HTTP/1.1" 403 Forbidden
+2026-11-07 23:24:54,298 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+2026-11-07 23:24:54,299 - core.auth - WARNING - connector_token_blocked client_id=(an AI app's client) sub=(redacted) method=POST route=/tokens/
+INFO:     100.64.x.x - "POST /tokens/ HTTP/1.1" 403 Forbidden
+2026-11-07 23:24:54,404 - core.auth - INFO - clerk_oauth_token_accepted client_id=(an AI app's client) sub=(redacted) kind=connector
+2026-11-07 23:24:54,405 - core.auth - WARNING - connector_token_blocked client_id=(an AI app's client) sub=(redacted) method=POST route=/ai/suggest-tags
+INFO:     100.64.x.x - "POST /ai/suggest-tags HTTP/1.1" 403 Forbidden
+```
+
+- **Each refused request writes two lines.** The API writes the accepted line when it verifies the token, before the route check, so a refused request has a `kind=connector` line followed by a `connector_token_blocked` line naming the route template.
+- **The CLI's requests are never checked against the list.** Every request in the blocks above that has a `kind=cli` line got a 2xx, including the read-only check's `GET /tokens/`, the route the connector token was refused about a second later.
+- **The step 4 block is out of request order in one place.** The first `POST /tokens/` 201 is printed above the two accepted lines at 23:12:57, which belong to the two `POST /tokens/` requests. Without Railway's timestamps, the block can't show which of those lines was written first; the 8 accepted lines still match the 8 requests one for one.
 
 ## Follow-ups (out of scope)
 
