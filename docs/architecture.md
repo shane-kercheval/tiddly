@@ -68,8 +68,8 @@ flowchart LR
     Antigravity -->|"MCP protocol"| ContentMCP
     Antigravity -->|"MCP protocol"| PromptMCP
 
-    ContentMCP -->|"HTTPS + PAT"| API
-    PromptMCP -->|"HTTPS + PAT"| API
+    ContentMCP -->|"HTTPS + PAT or\nOAuth access token"| API
+    PromptMCP -->|"HTTPS + PAT or\nOAuth access token"| API
 
     %% API fan-out
     API -->|"async SQLAlchemy"| Postgres

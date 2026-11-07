@@ -10,7 +10,7 @@
 
 ## Authentication
 
-- **`tiddly login`** — OAuth device-code flow (default): prints a URL + one-time code to authorize in a browser, then stores access + refresh tokens.
+- **`tiddly login`** — browser sign-in (default): opens the browser to sign in with OAuth (authorization code with PKCE), receives the result on a temporary loopback listener (`http://127.0.0.1:<random port>/callback`), then stores access + refresh tokens. It needs a browser on the same machine and times out after 5 minutes; on a headless machine (SSH, containers), use `--token`.
 - **`tiddly login --token bm_…`** — authenticate with a Personal Access Token, for CI/headless use (validates the `bm_` prefix, verifies against the API).
 - **`tiddly logout`** — removes all stored credentials.
 - **`tiddly auth status`** — shows the active auth method (`pat` / `oauth` / `flag` / `env`), API URL, and account email (read-only).

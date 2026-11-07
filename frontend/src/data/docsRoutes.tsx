@@ -156,7 +156,7 @@ export const DOCS_ROUTES: DocsRoute[] = [
     label: 'Docs: CLI Reference',
     searchText:
       'cli reference commands login logout oauth pat personal access token bm_ '
-      + 'device code flow auth status keyring credentials file fallback xdg config '
+      + 'browser sign in pkce loopback auth status keyring credentials file fallback xdg config '
       + 'token resolution priority env environment variable tiddly_token tokens list '
       + 'create delete export json backup include archived config api url update check '
       + 'completions bash zsh fish tab completion status path '
